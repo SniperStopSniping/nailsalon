@@ -5,12 +5,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { QuickActionsWidget } from './QuickActionsWidget';
 
 describe('QuickActionsWidget', () => {
-  // AG-today-calendar-01: the four shortcuts on the owner's main screen used to
+  // AG-today-calendar-01: the shortcuts on the owner's main screen used to
   // expose no accessible name at all — the caption sat outside the button.
   it('exposes every quick action as a named button', () => {
     render(<QuickActionsWidget />);
 
-    for (const name of ['New Appt', 'Walk-in', 'Send SMS', 'Schedule']) {
+    for (const name of ['New Appt', 'Walk-in', 'Message Client']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
   });
@@ -20,7 +20,7 @@ describe('QuickActionsWidget', () => {
     const onAction = vi.fn();
     render(<QuickActionsWidget onAction={onAction} />);
 
-    await user.click(screen.getByRole('button', { name: 'Send SMS' }));
+    await user.click(screen.getByRole('button', { name: 'Message Client' }));
 
     expect(onAction).toHaveBeenCalledWith('send-sms');
   });

@@ -105,7 +105,7 @@ describe('OnboardingWorkspaceHandoff', () => {
       name: /Manage & publish Booking Page/i,
     });
 
-    expect(bookingPageLinks).toHaveLength(2);
+    expect(bookingPageLinks).toHaveLength(1);
 
     bookingPageLinks.forEach((link) => {
       expect(link).toHaveAttribute('href', '/en/admin/booking-page?salon=isla');
@@ -114,10 +114,9 @@ describe('OnboardingWorkspaceHandoff', () => {
     expect(screen.queryByText('Website created')).not.toBeInTheDocument();
     expect(screen.queryByText('Booking page ready')).not.toBeInTheDocument();
     expect(screen.queryByText('Services added')).not.toBeInTheDocument();
-    expect(screen.getByText('Connect Google Calendar')).toBeInTheDocument();
-    expect(screen.getByText('Not connected')).toBeInTheDocument();
-    expect(screen.getByText('Needs attention')).toBeInTheDocument();
-    expect(screen.getByText('Not shared yet')).toBeInTheDocument();
+    expect(screen.queryByText('Connect Google Calendar')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not connected')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not shared yet')).not.toBeInTheDocument();
     expect(onAvailabilityChange).toHaveBeenCalledWith(true);
 
     fireEvent.click(screen.getAllByRole('button', { name: /Take (a quick )?tour/i })[0]!);

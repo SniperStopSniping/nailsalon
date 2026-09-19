@@ -5,7 +5,7 @@
  *
  * iOS-style quick action buttons for common admin tasks.
  * Features:
- * - 4 action buttons in a row
+ * - Three frequent actions; Calendar stays in persistent navigation.
  * - Gradient icons matching app grid style
  * - Tap animations with spring physics
  * - Callbacks for each action
@@ -13,12 +13,7 @@
 
 import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
-import {
-  Calendar,
-  CalendarPlus,
-  MessageSquare,
-  UserPlus,
-} from 'lucide-react';
+import { CalendarPlus, MessageSquare, UserPlus } from 'lucide-react';
 
 // Action definitions
 type QuickAction = {
@@ -46,17 +41,10 @@ const QUICK_ACTIONS: QuickAction[] = [
   },
   {
     id: 'send-sms',
-    label: 'Send SMS',
+    label: 'Message Client',
     icon: MessageSquare,
     gradient: 'from-stone-800 to-stone-600',
     shadowColor: '#292524',
-  },
-  {
-    id: 'today-schedule',
-    label: 'Schedule',
-    icon: Calendar,
-    gradient: 'from-rose-500 to-amber-400',
-    shadowColor: '#e11d48',
   },
 ];
 
@@ -119,7 +107,7 @@ export function QuickActionsWidget({ onAction }: QuickActionsWidgetProps) {
       <div className="mb-4 text-[12px] font-semibold uppercase tracking-[0.18em] text-rose-800">
         Quick Actions
       </div>
-      <div className="flex justify-between">
+      <div className="grid grid-cols-3 gap-3">
         {QUICK_ACTIONS.map(action => (
           <QuickActionButton
             key={action.id}
