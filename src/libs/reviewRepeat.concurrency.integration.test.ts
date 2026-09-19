@@ -277,7 +277,22 @@ async function seed() {
         release.resolve();
 
         expect(await firstResult).toMatchObject({ status: 'fulfilled', value: { created: true } });
-        expect(await materialize()).toMatchObject({ skipped: 1, materialized: 0 });
+
+        const [afterContention] = await db.select().from(schema.reviewRequestTriggerSchema).where(eq(schema.reviewRequestTriggerSchema.salonId, fixture.salonId));
+
+        expect(afterContention!.state).toBe('pending');
+        expect(await materializeCompletedReviewTriggers({ database: db, now: afterContention!.availableAt })).toMatchObject({ deferred: 1, materialized: 0 });
+
+        const [afterPending] = await db.select().from(schema.reviewRequestTriggerSchema).where(eq(schema.reviewRequestTriggerSchema.salonId, fixture.salonId));
+
+        expect(afterPending!.state).toBe('pending');
+        expect(afterPending!.availableAt.getTime()).toBeGreaterThan(afterContention!.availableAt.getTime());
+        expect(afterPending!.scheduledFor).toEqual(afterContention!.scheduledFor);
+        expect(afterPending!.expiresAt).toEqual(afterContention!.expiresAt);
+
+        await db.update(schema.communicationIntentSchema).set({ status: 'sent', resolvedAt: afterPending!.availableAt }).where(eq(schema.communicationIntentSchema.salonId, fixture.salonId));
+
+        expect(await materializeCompletedReviewTriggers({ database: db, now: afterPending!.availableAt })).toMatchObject({ skipped: 1, materialized: 0 });
       } else {
         const second = manual();
         tasks.push(second);
@@ -362,7 +377,7 @@ async function seed() {
     await expect(queueClientReviewRequest({ salonId: ownerReported.salonId, clientId: ownerReported.clientId, message: 'Allowed again', requestId: 'owner-old', now: NOW })).resolves.toMatchObject({ created: true });
 
     const stopped = await seed();
-    await db.insert(schema.smsGlobalConsentEventSchema).values({ id: `repeat-stop-${sequence}`, senderIdentity: 'luster_shared_v1', recipient: stopped.recipient, state: 'suppressed', source: 'test', occurredAt: NOW });
+    await db.insert(schema.smsGlobalConsentEventSchema).values({ id: `repeat-stop-${sequence}`, senderIdentity: 'luster_shared_v1', recipient: stopped.recipient, state: 'suppressed', source: 'operator', occurredAt: NOW });
 
     await expect(queueClientReviewRequest({ salonId: stopped.salonId, clientId: stopped.clientId, message: 'Blocked', requestId: 'stop', now: NOW })).rejects.toMatchObject({ code: 'REVIEW_INELIGIBLE' });
 

@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -170,20 +170,14 @@ describe('repeat-review coordinator preparation', () => {
     await db.update(schema.salonRetentionSettingsSchema).set({ reviewRequestRepeatCooldownDays: 90 }).where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
     const nextId = await laterAppointment(fixture);
 
-    // This isolated transaction proves the future coordinator contract. It
-    // rolls back its index changes; this PR does not retire production indexes.
-    await expect(db.transaction(async (tx) => {
-      await tx.execute(sql`drop index review_request_client_once`);
-      await tx.execute(sql`drop index review_request_phone_once`);
-      await scheduleReviewRequest(tx, fixture.salonId, nextId, false);
-      const requests = await tx.select().from(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, fixture.salonId));
+    // The applied retirement migration permits a later visit; the shared
+    // history coordinator still protects the original appointment and intent.
+    await scheduleReviewRequest(db, fixture.salonId, nextId, false);
+    const requests = await rows(fixture.salonId);
 
-      expect(requests).toHaveLength(2);
-      expect(requests.find(row => row.id === first!.id)).toMatchObject({ status: 'scheduled', appointmentId: fixture.appointmentId });
-
-      throw new Error('ROLL_BACK_FUTURE_INDEX_FIXTURE');
-    })).rejects.toThrow('ROLL_BACK_FUTURE_INDEX_FIXTURE');
-    expect(await rows(fixture.salonId)).toHaveLength(1);
+    expect(requests).toHaveLength(2);
+    expect(requests.find(row => row.id === first!.id)).toMatchObject({ status: 'scheduled', appointmentId: fixture.appointmentId });
+    expect(requests.find(row => row.appointmentId === nextId)).toBeDefined();
   });
 
   it('counts a recent accepted request even if its business row was canceled', async () => {
@@ -510,7 +504,7 @@ describe('review request production', () => {
     expect(intent).toMatchObject({ status: 'pending', scheduledFor: expect.any(Date) });
   });
 
-  it('uses tenant scoping and the unique slot across concurrent appointment completion replays', async () => {
+  it('uses tenant scoping and pending history across later appointment replays', async () => {
     const fixture = await seed();
     const secondAppointmentId = `${fixture.appointmentId}-second`;
     await db.insert(schema.appointmentSchema).values({
@@ -527,11 +521,11 @@ describe('review request production', () => {
       totalDurationMinutes: 60,
     });
     const { scheduleReviewRequest } = await import('./reviewRequests.server');
-    await Promise.all([
-      scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId),
-      scheduleReviewRequest(db, fixture.salonId, secondAppointmentId),
-      scheduleReviewRequest(db, 'missing-salon', fixture.appointmentId),
-    ]);
+    // PGlite disables PostgreSQL locks. Actual concurrent callers and their
+    // transaction/fence contract are covered by the real PostgreSQL suite.
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId);
+    await scheduleReviewRequest(db, fixture.salonId, secondAppointmentId);
+    await scheduleReviewRequest(db, 'missing-salon', fixture.appointmentId);
 
     expect(await rows(fixture.salonId)).toHaveLength(1);
   });
