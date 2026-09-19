@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -172,7 +172,16 @@ describe('OwnerScheduleEditor', () => {
       throw new Error(`Unexpected request ${input}`);
     });
     render(<OwnerScheduleEditor salonSlug="salon-a" section="hours" />);
-    fireEvent.change(await screen.findByLabelText('Monday start time'), { target: { value: '10:00' } });
+    const startTime = await screen.findByLabelText('Monday start time');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.change(startTime, { target: { value: '10:00' } });
+    });
+
+    expect(startTime).toHaveValue('10:00');
+
     fireEvent.change(screen.getByLabelText('Whose schedule?'), { target: { value: 'tech_2' } });
     await screen.findByRole('alertdialog');
     fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));

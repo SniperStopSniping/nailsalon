@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -125,13 +125,31 @@ describe('SettingsModal booking-flow leaf', () => {
   it('does not offer discard while a flow write is already in flight', async () => {
     putMode = 'held';
     render(<LeafHarness />);
-    fireEvent.click(await screen.findByTitle('Click to hide technician step'));
-    await waitFor(() => expect(releasePut).toBeTypeOf('function'));
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    const toggle = await screen.findByTitle('Click to hide technician step');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await act(async () => {
+        fireEvent.click(toggle);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
 
-    expect(await screen.findByText('Booking flow is saving. Please wait before leaving.')).toBeVisible();
-    expect(screen.queryByRole('alertdialog', { name: 'Unsaved changes' })).not.toBeInTheDocument();
+      expect(releasePut).toBeTypeOf('function');
 
-    releasePut?.();
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+      expect(screen.getByText('Booking flow is saving. Please wait before leaving.')).toBeVisible();
+      expect(screen.queryByRole('alertdialog', { name: 'Unsaved changes' })).not.toBeInTheDocument();
+
+      await act(async () => {
+        releasePut?.();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
