@@ -100,7 +100,10 @@ describe('SettingsModal communications view', () => {
 
   async function openCommunications() {
     render(<SettingsModal initialView="communications" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
-    await screen.findByText('Appointment reminders');
+    await Promise.all([
+      screen.findByLabelText('Reminder 1 timing'),
+      screen.findByLabelText('Reminder 1 channel'),
+    ]);
   }
 
   it('opens from the index and shows the loaded default rule and quiet hours', async () => {
@@ -151,7 +154,7 @@ describe('SettingsModal communications view', () => {
     await openCommunications();
 
     expect(screen.getByText(/SMS access is included with every plan and uses Luster SMS credits\./)).toBeInTheDocument();
-    expect(screen.getByText(availableCredits === null
+    expect(await screen.findByText(availableCredits === null
       ? 'Luster SMS credit balance is unavailable. Contact support.'
       : '42 SMS credits available. See Usage for details.')).toBeInTheDocument();
     expect(screen.queryByText(/connected Twilio account/i)).not.toBeInTheDocument();
