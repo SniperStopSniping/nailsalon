@@ -27,6 +27,8 @@ import {
   sanitizeCommunicationMessageSnapshot,
 } from '@/libs/retentionAssistant';
 import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
+import { cancelReviewRequests, lockSalonReviewMutation } from '@/libs/reviewRequests.server';
+import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
 import {
   appointmentSchema,
   clientCommunicationSchema,
@@ -568,6 +570,9 @@ export async function POST(request: Request): Promise<Response> {
   try {
     result = await withClientLifecycleTransactionRetry(() =>
       db.transaction(async (tx) => {
+        if (parsed.data.kind === 'google_review') {
+          await lockSalonReviewMutation(tx, salon.id);
+        }
         const terminal = await lockTerminalSalonClientWithHandle(tx, {
           salonId: salon.id,
           clientId: parsed.data.clientId,
@@ -713,6 +718,15 @@ export async function POST(request: Request): Promise<Response> {
           kind: parsed.data.kind,
           appointmentStartTime: appointment?.startTime,
         });
+        const repeatedReviewSend = parsed.data.kind === 'google_review' && parsed.data.status === 'marked_sent'
+          && shouldUpdateLatest && latest && (latest.status === 'marked_sent' || latest.markedSentAt !== null);
+        const reviewSentTimestamp = repeatedReviewSend ? { markedSentAt: latest.markedSentAt } : {};
+        // This is an owner-recorded send, not provider delivery evidence. Keep
+        // its actual destination for future cooldown checks without inventing
+        // destinations for older history rows or merely prepared drafts.
+        const reviewDestination = parsed.data.kind === 'google_review' && parsed.data.status === 'marked_sent'
+          ? { destinationSnapshot: repeatedReviewSend ? latest.destinationSnapshot : normalizeConsentRecipient(client.phone) }
+          : {};
 
         if (RETENTION_KINDS.includes(parsed.data.kind)) {
           await tx
@@ -749,6 +763,8 @@ export async function POST(request: Request): Promise<Response> {
                 ? latest.messageSnapshot
                 : safeMessageSnapshot,
               ...timestamps,
+              ...reviewDestination,
+              ...reviewSentTimestamp,
               updatedAt: now,
             })
             .where(and(
@@ -772,12 +788,21 @@ export async function POST(request: Request): Promise<Response> {
               messageSnapshot: safeMessageSnapshot ?? null,
               actorAdminId: admin.id,
               ...timestamps,
+              ...reviewDestination,
             })
             .returning();
           savedCommunication = created;
         }
 
         if (parsed.data.status === 'marked_sent') {
+          if (parsed.data.kind === 'google_review' && !repeatedReviewSend) {
+            // Recording an actual send is accepted even if it reveals a
+            // cooldown conflict. Reconcile unsent work instead of hiding it.
+            await cancelReviewRequests(tx, salon.id, {
+              clientIds: lineageIds,
+              recipient: normalizeConsentRecipient(client.phone),
+            });
+          }
           await tx
             .update(salonClientSchema)
             .set({ lastContactAt: now, updatedAt: now })
