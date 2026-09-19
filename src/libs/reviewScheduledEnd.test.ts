@@ -4,7 +4,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -24,6 +24,13 @@ beforeAll(async () => {
   db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: path.join(process.cwd(), 'migrations') });
   holder.db = db;
+});
+
+beforeEach(async () => {
+  // A fairness/budget test intentionally leaves work pending. It must not
+  // consume a later test's scan batch or real-time admission budget.
+  await client.exec('TRUNCATE salon CASCADE; TRUNCATE sms_global_consent_event RESTART IDENTITY;');
+  sequence = 0;
 });
 
 afterAll(async () => client.close());

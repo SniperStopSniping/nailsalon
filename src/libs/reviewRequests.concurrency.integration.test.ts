@@ -124,7 +124,8 @@ async function waitForIntentLockHeldBy(holderPid: number, waiter: string) {
     const waiting = await pool.query<{ count: string }>(`
       select count(*)::text as count
       from pg_stat_activity
-      where application_name = 'review-request-automation-concurrency'
+      where datname = current_database()
+        and application_name = current_setting('application_name')
         and wait_event_type = 'Lock'
         -- The Drizzle query can be SELECT FOR UPDATE or an equivalent
         -- prepared statement, so establish the real row-lock dependency
@@ -168,7 +169,9 @@ async function waitForProviderOrEarlyDispatch(
     if (!target) {
       throw new Error('Missing attested disposable target');
     }
-    pool = new pg.Pool({ connectionString: target.connectionString, max: 12, application_name: 'review-request-automation-concurrency' });
+    // The attested URL owns application_name; node-postgres gives URL values
+    // precedence over object options. Observe that actual name in the waiter.
+    pool = new pg.Pool({ connectionString: target.connectionString, max: 12 });
     const connection = await pool.connect();
     try {
       await attestDisposableDatabaseSession(connection, target, resolveDisposableDatabaseServerExpectation(target));
