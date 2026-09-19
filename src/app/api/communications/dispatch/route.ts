@@ -7,6 +7,7 @@
  */
 import { processDueCommunications } from '@/libs/communicationDispatcher';
 import { evaluateLowBalanceWarnings, sendLowBalanceWarningEmail } from '@/libs/lowBalanceWarnings';
+import { materializeCompletedReviewTriggers } from '@/libs/reviewRequests.server';
 import { releaseExpiredInboundEvidence } from '@/libs/smsInboundRetention';
 import { sendIntentEmail, sendViaTwilio } from '@/libs/twilioMessagingSend';
 import { resolveUnknownOutcomes } from '@/libs/unknownOutcomeResolver';
@@ -39,7 +40,15 @@ async function run(request: Request): Promise<Response> {
   const lowBalance = await evaluateLowBalanceWarnings({
     sendWarningEmail: sendLowBalanceWarningEmail,
   });
-  return Response.json({ summary, retention, unknownOutcomes, lowBalance });
+  // Keep review automation after every established dispatcher/maintenance
+  // phase. Its own bounded failures are observable but cannot delay reminders.
+  let reviewTriggers;
+  try {
+    reviewTriggers = await materializeCompletedReviewTriggers();
+  } catch {
+    reviewTriggers = { materialized: 0, pending: 0, skipped: 0, deferred: 0, phaseError: true };
+  }
+  return Response.json({ summary, reviewTriggers, retention, unknownOutcomes, lowBalance });
 }
 
 export const GET = run;
