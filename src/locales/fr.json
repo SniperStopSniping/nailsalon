@@ -245,6 +245,7 @@
     "empty_description": "Photos from your visits will appear here"
   },
   "BookingConfirmation": {
+    "recovering_booking": "Vérification de votre réservation…",
     "contact_description": "Votre confirmation et votre lien privé de réservation seront envoyés par courriel.",
     "sms_label": "M’envoyer les confirmations et rappels de rendez-vous par texto",
     "sms_details": "Vous pouvez désactiver cette option maintenant ou répondre STOP en tout temps.",

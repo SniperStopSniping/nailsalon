@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -484,10 +484,24 @@ describe('BookConfirmClient', () => {
     });
 
     it('uses the existing contact and default-on reminder form through the durable assistant coordinator exactly once', async () => {
+      let finishRecovery!: (value: null) => void;
+      normalBookingMock.recover.mockReturnValue(new Promise<null>((resolve) => {
+        finishRecovery = resolve;
+      }));
       renderBasicConfirm({ salonId: 'salon-id', baseServiceId: 'srv_1', selectedAddOns: [], timeStr: '9:00' });
       await waitFor(() => expect(normalBookingMock.recover).toHaveBeenCalledWith('salon-id'));
 
       const confirm = screen.getByRole('button', { name: /confirm appointment/i });
+
+      expect(confirm).toBeDisabled();
+      expect(screen.getByRole('status')).toHaveTextContent('Checking your booking status');
+
+      fireEvent.click(confirm);
+
+      expect(normalBookingMock.confirm).not.toHaveBeenCalled();
+
+      await act(async () => finishRecovery(null));
+      await waitFor(() => expect(confirm).toBeEnabled());
       fireEvent.click(confirm);
       fireEvent.click(confirm);
 
@@ -513,6 +527,7 @@ describe('BookConfirmClient', () => {
     it('passes an explicit reminder opt-out through the same durable coordinator', async () => {
       renderBasicConfirm({ salonId: 'salon-id', baseServiceId: 'srv_1', selectedAddOns: [] });
       await waitFor(() => expect(normalBookingMock.recover).toHaveBeenCalledWith('salon-id'));
+      await waitFor(() => expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled());
 
       fireEvent.click(screen.getByRole('checkbox', { name: 'Text reminders' }));
       fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
@@ -531,6 +546,7 @@ describe('BookConfirmClient', () => {
       normalBookingMock.confirm.mockRejectedValue(new normalBookingMock.NormalBookingRecoveryError('handoff_missing'));
       renderBasicConfirm({ salonId: 'salon-id', baseServiceId: 'srv_1', selectedAddOns: [] });
       await waitFor(() => expect(normalBookingMock.recover).toHaveBeenCalledWith('salon-id'));
+      await waitFor(() => expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled());
 
       fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 

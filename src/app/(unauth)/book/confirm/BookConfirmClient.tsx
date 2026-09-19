@@ -1081,6 +1081,7 @@ const ConfirmContent = ({
   onConfirm,
   onEditSelection,
   isSubmitting,
+  isRecoveringBooking,
   location,
   subtotalBeforeDiscount,
   discountAmount,
@@ -1124,6 +1125,7 @@ const ConfirmContent = ({
   onConfirm: () => void;
   onEditSelection: () => void;
   isSubmitting: boolean;
+  isRecoveringBooking: boolean;
   location: LocationSummary;
   subtotalBeforeDiscount: number;
   discountAmount: number;
@@ -1619,6 +1621,7 @@ const ConfirmContent = ({
             }}
             disabled={
               isSubmitting
+              || isRecoveringBooking
               || contactBlocker !== null
               || (acknowledgmentRequired && !policyAcknowledged)
             }
@@ -1646,6 +1649,12 @@ const ConfirmContent = ({
                   </>
                 )}
           </button>
+
+          {isRecoveringBooking && (
+            <p role="status" className="text-center text-xs text-[var(--n5-ink-muted)]">
+              {t('recovering_booking')}
+            </p>
+          )}
 
           {!isSubmitting && contactBlocker && (
             <p data-testid="contact-blocker-hint" role="status" className="text-center text-xs text-[var(--n5-ink-muted)]">
@@ -2992,6 +3001,7 @@ export function BookConfirmClient({
       onConfirm={createBooking}
       onEditSelection={() => router.back()}
       isSubmitting={isBooking}
+      isRecoveringBooking={recoveringHandoff}
       location={location}
       rewardsEnabled={rewardsEnabled}
       isReschedule={Boolean(originalAppointmentId)}
