@@ -7,7 +7,7 @@
  */
 import { processDueCommunications } from '@/libs/communicationDispatcher';
 import { evaluateLowBalanceWarnings, sendLowBalanceWarningEmail } from '@/libs/lowBalanceWarnings';
-import { materializeCompletedReviewTriggers } from '@/libs/reviewRequests.server';
+import { materializeCompletedReviewTriggers, scanScheduledEndReviewTriggers } from '@/libs/reviewRequests.server';
 import { releaseExpiredInboundEvidence } from '@/libs/smsInboundRetention';
 import { sendIntentEmail, sendViaTwilio } from '@/libs/twilioMessagingSend';
 import { resolveUnknownOutcomes } from '@/libs/unknownOutcomeResolver';
@@ -43,12 +43,21 @@ async function run(request: Request): Promise<Response> {
   // Keep review automation after every established dispatcher/maintenance
   // phase. Its own bounded failures are observable but cannot delay reminders.
   let reviewTriggers;
+  const reviewDeadlineMs = performance.now() + 15_000;
   try {
-    reviewTriggers = await materializeCompletedReviewTriggers();
+    reviewTriggers = await materializeCompletedReviewTriggers({ deadlineMs: reviewDeadlineMs });
   } catch {
     reviewTriggers = { materialized: 0, pending: 0, skipped: 0, deferred: 0, phaseError: true };
   }
-  return Response.json({ summary, reviewTriggers, retention, unknownOutcomes, lowBalance });
+  // Existing pending triggers keep priority within one admission budget.
+  // A scan failure does not erase successfully materialized trigger counts.
+  let scheduledEnd;
+  try {
+    scheduledEnd = await scanScheduledEndReviewTriggers({ deadlineMs: reviewDeadlineMs });
+  } catch {
+    scheduledEnd = { recorded: 0, skipped: 0, deferred: 0, phaseError: true };
+  }
+  return Response.json({ summary, reviewTriggers: { ...reviewTriggers, scheduledEnd }, retention, unknownOutcomes, lowBalance });
 }
 
 export const GET = run;

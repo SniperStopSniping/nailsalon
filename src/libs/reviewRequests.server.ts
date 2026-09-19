@@ -9,7 +9,7 @@ import { applyQuietHours } from '@/libs/communicationScheduling';
 import { resolveCommunicationSettingsFromSettings } from '@/libs/communicationSettings';
 import { db, usesRuntimePostgres } from '@/libs/DB';
 import { isValidPhone } from '@/libs/phone';
-import { resolveReviewAutomationPolicy } from '@/libs/reviewAutomationPolicy';
+import { evaluateScheduledEndReviewEligibility, resolveReviewAutomationPolicy } from '@/libs/reviewAutomationPolicy';
 import { evaluateReviewHistory } from '@/libs/reviewRequestHistory';
 import { DEFAULT_REVIEW_MESSAGE, isReviewUrl, renderReviewMessage, reviewMessageFits, reviewSettingsSchema, reviewSmsBody } from '@/libs/reviewRequests';
 import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
@@ -170,7 +170,141 @@ type MaterializeReviewTriggersInput = {
   database?: typeof db;
   limit?: number;
   now?: Date;
+  /** Monotonic execution deadline, independent of fixture/business time. */
+  deadlineMs?: number;
 };
+
+type ScanScheduledEndReviewTriggersInput = {
+  database?: typeof db;
+  limit?: number;
+  now?: Date;
+  /** Monotonic execution deadline, independent of fixture/business time. */
+  deadlineMs?: number;
+};
+
+/**
+ * Captures scheduled-end events only for salons that explicitly opted into the
+ * new mode. It records business time; delivery remains in the existing intent
+ * dispatcher and is deliberately not part of this scan.
+ */
+export async function scanScheduledEndReviewTriggers(
+  input: ScanScheduledEndReviewTriggersInput = {},
+) {
+  const database = input.database ?? db;
+  const now = input.now ?? new Date();
+  const limit = Math.max(1, Math.min(input.limit ?? REVIEW_TRIGGER_BATCH_LIMIT, REVIEW_TRIGGER_BATCH_LIMIT));
+  const deadlineMs = input.deadlineMs ?? performance.now() + REVIEW_TRIGGER_BATCH_BUDGET_MS;
+  const result = { recorded: 0, skipped: 0, deferred: 0, phaseError: false };
+  if (performance.now() >= deadlineMs) {
+    return result;
+  }
+  let candidates: { id: string; salonId: string }[];
+  try {
+    candidates = await database.transaction(async (transaction) => {
+      await setReviewMutationTimeouts(transaction);
+      // Filter before LIMIT, including all previously captured identities.
+      // Round-robin up to five rows per salon; recent sendable events precede
+      // expired events after an outage, which are recorded once for history.
+      const rows = await transaction.execute(sql`
+        with eligible as (
+          select a.id, a.salon_id as "salonId", a.end_time as "endTime",
+            (a.end_time + ((least(10080, greatest(0, s.review_request_delay_minutes)) + 1440) * interval '1 minute') <= ${now}) as expired
+          from appointment a
+          join salon_retention_settings s on s.salon_id = a.salon_id
+          join salon b on b.id = a.salon_id
+          where s.review_request_automation_mode = 'scheduled_end'
+            and s.automatic_review_requests = true
+            and s.review_requests_enabled_at is not null
+            and a.end_time > s.review_requests_enabled_at
+            and a.end_time <= ${now}
+            and a.start_time < a.end_time
+            and a.created_at <= a.end_time
+            and a.status in ('confirmed', 'in_progress', 'completed')
+            and a.deleted_at is null and b.deleted_at is null and b.is_active = true
+            and not exists (
+              select 1 from review_request_trigger t
+              where t.salon_id = a.salon_id and t.appointment_id = a.id
+                and t.kind = 'scheduled_end' and t.trigger_at = a.end_time
+                and t.appointment_start_at = a.start_time and t.appointment_end_at = a.end_time
+                and t.policy_revision = s.review_request_policy_revision
+            )
+        ), ranked as (
+          select *, row_number() over (partition by "salonId" order by expired, "endTime", id) as turn
+          from eligible
+        )
+        select id, "salonId" from ranked where turn <= 5
+        order by expired, turn, "endTime", id limit ${limit}
+      `);
+      return queryRows<{ id: string; salonId: string }>(rows);
+    });
+  } catch {
+    return { ...result, phaseError: true };
+  }
+  for (const candidate of candidates) {
+    if (performance.now() >= deadlineMs) {
+      result.deferred += 1;
+      continue;
+    }
+    try {
+      const outcome = await database.transaction(async (transaction) => {
+        await setReviewMutationTimeouts(transaction);
+        if (!(await tryLockSalonReviewMutation(transaction, candidate.salonId))) {
+          return 'deferred' as const;
+        }
+        if (usesRuntimePostgres) {
+          await transaction.execute(sql`select id from appointment where id = ${candidate.id} and salon_id = ${candidate.salonId} for update nowait`);
+          await transaction.execute(sql`select id from salon where id = ${candidate.salonId} for share nowait`);
+        }
+        const [current] = await transaction.select().from(appointmentSchema)
+          .where(and(eq(appointmentSchema.id, candidate.id), eq(appointmentSchema.salonId, candidate.salonId))).limit(1);
+        const [salon] = await transaction.select().from(salonSchema).where(eq(salonSchema.id, candidate.salonId)).limit(1);
+        const [settings] = await transaction.select().from(salonRetentionSettingsSchema)
+          .where(eq(salonRetentionSettingsSchema.salonId, candidate.salonId)).limit(1);
+        const freshNow = input.now ?? new Date();
+        if (!current || current.deletedAt || !salon || salon.deletedAt || !salon.isActive || !settings) {
+          return null;
+        }
+        const decision = evaluateScheduledEndReviewEligibility({
+          appointment: current,
+          policy: resolveReviewAutomationPolicy(settings),
+          now: freshNow,
+          automationEnabledAt: settings.reviewRequestsEnabledAt,
+        });
+        if (!decision.eligible || !decision.scheduledFor) {
+          return null;
+        }
+        const expiresAt = new Date(decision.scheduledFor.getTime() + DAY);
+        const expired = expiresAt <= freshNow;
+        const rows = await transaction.insert(reviewRequestTriggerSchema).values({
+          id: `rrt_${crypto.randomUUID()}`,
+          salonId: current.salonId,
+          appointmentId: current.id,
+          kind: 'scheduled_end',
+          triggerAt: current.endTime,
+          appointmentStartAt: current.startTime,
+          appointmentEndAt: current.endTime,
+          policyRevision: settings.reviewRequestPolicyRevision,
+          scheduledFor: decision.scheduledFor,
+          availableAt: freshNow,
+          expiresAt,
+          state: expired ? 'skipped' : 'pending',
+          reasonCode: expired ? 'EXPIRED' : null,
+          resolvedAt: expired ? freshNow : null,
+          createdAt: freshNow,
+          updatedAt: freshNow,
+        }).onConflictDoNothing().returning();
+        return rows.length ? expired ? 'skipped' as const : 'recorded' as const : null;
+      });
+      if (outcome) {
+        result[outcome] += 1;
+      }
+    } catch {
+      // A busy or changed appointment must not abort other salons' capture.
+      result.deferred += 1;
+    }
+  }
+  return result;
+}
 
 type MaterializeReviewTriggersResult = {
   materialized: number;
@@ -178,40 +312,45 @@ type MaterializeReviewTriggersResult = {
   skipped: number;
   deferred: number;
   phaseError: boolean;
+  scheduledEnd?: Awaited<ReturnType<typeof scanScheduledEndReviewTriggers>>;
 };
 
 /**
  * Turns due completion events into the existing review-request/intents model.
- * The producer above is the sole source of trigger rows in this slice: this
- * function never scans historic completed appointments.
+ * Producers snapshot completion or scheduled-end events. This function only
+ * consumes durable records and never discovers historic appointments.
  */
 export async function materializeCompletedReviewTriggers(
   input: MaterializeReviewTriggersInput = {},
 ): Promise<MaterializeReviewTriggersResult> {
   const database = input.database ?? db;
   const now = input.now ?? new Date();
-  const batchDeadline = Date.now() + REVIEW_TRIGGER_BATCH_BUDGET_MS;
+  const batchDeadline = input.deadlineMs ?? performance.now() + REVIEW_TRIGGER_BATCH_BUDGET_MS;
   const limit = Math.max(1, Math.min(input.limit ?? REVIEW_TRIGGER_BATCH_LIMIT, REVIEW_TRIGGER_BATCH_LIMIT));
+  if (performance.now() >= batchDeadline) {
+    return { materialized: 0, pending: 0, skipped: 0, deferred: 0, phaseError: false };
+  }
   let candidates: { id: string; salonId: string }[];
   try {
     candidates = await database.transaction(async (transaction) => {
       await setReviewMutationTimeouts(transaction);
-      // One due row per salon keeps a busy salon from hiding other tenants;
-      // the next cron naturally advances that salon's remaining queue.
+      // Round-robin within the bounded batch prevents one salon from taking
+      // every slot without limiting a busy salon to one appointment per cron.
       const rows = await transaction.execute(sql`
         select id, "salonId"
         from (
-          select distinct on (salon_id)
+          select
             id,
             salon_id as "salonId",
-            available_at as "availableAt"
+            available_at as "availableAt",
+            row_number() over (partition by salon_id order by available_at, id) as turn
           from review_request_trigger
-          where kind = 'completed'
+          where kind in ('completed', 'scheduled_end')
             and state = 'pending'
             and available_at <= ${now}
-          order by salon_id, available_at asc, id asc
         ) due
-        order by "availableAt" asc, id asc
+        where turn <= 5
+        order by turn, "availableAt" asc, id asc
         limit ${limit}
       `);
       return queryRows<{ id: string; salonId: string }>(rows);
@@ -222,7 +361,7 @@ export async function materializeCompletedReviewTriggers(
   const result: MaterializeReviewTriggersResult = { materialized: 0, pending: 0, skipped: 0, deferred: 0, phaseError: false };
 
   for (const candidate of candidates) {
-    if (Date.now() >= batchDeadline) {
+    if (performance.now() >= batchDeadline) {
       result.deferred += 1;
       continue;
     }
@@ -238,6 +377,8 @@ export async function materializeCompletedReviewTriggers(
         if (!trigger || trigger.state !== 'pending') {
           return 'pending' as const;
         }
+        const triggerKind: 'completed' | 'scheduled_end' = trigger.kind;
+        const isCompletionTrigger = (trigger.kind as string) === 'completed';
         const freshNow = input.now ?? new Date();
         if (trigger.availableAt > freshNow) {
           return 'pending' as const;
@@ -301,14 +442,16 @@ export async function materializeCompletedReviewTriggers(
         }
 
         const ctx = await context(transaction, trigger.salonId, trigger.appointmentId, freshNow);
-        const snapshotsMatch = ctx.appointment?.completedAt?.getTime() === trigger.triggerAt.getTime()
-          && ctx.appointment.startTime.getTime() === trigger.appointmentStartAt.getTime()
+        const snapshotsMatch = (trigger.kind === 'scheduled_end'
+          ? ctx.appointment?.endTime.getTime() === trigger.triggerAt.getTime()
+          : ctx.appointment?.completedAt?.getTime() === trigger.triggerAt.getTime())
+          && ctx.appointment?.startTime.getTime() === trigger.appointmentStartAt.getTime()
           && ctx.appointment.endTime.getTime() === trigger.appointmentEndAt.getTime();
         const [storedSettings] = await transaction.select().from(salonRetentionSettingsSchema)
           .where(eq(salonRetentionSettingsSchema.salonId, trigger.salonId)).limit(1);
         const policy = resolveReviewAutomationPolicy(storedSettings);
-        const automaticReason = ineligible(ctx, true);
-        if (!snapshotsMatch || policy.mode !== 'marked_completed'
+        const automaticReason = ineligible(ctx, true, triggerKind);
+        if (!snapshotsMatch || policy.mode !== (triggerKind === 'completed' ? 'marked_completed' : 'scheduled_end')
           || !ctx.settings.enabledAt || trigger.triggerAt <= ctx.settings.enabledAt
           || trigger.policyRevision !== storedSettings?.reviewRequestPolicyRevision
           || automaticReason) {
@@ -320,9 +463,24 @@ export async function materializeCompletedReviewTriggers(
           return 'skipped' as const;
         }
 
+        await cancelObsoleteAppointmentReviewReservations(transaction, trigger.salonId, ctx, storedSettings!.reviewRequestPolicyRevision, freshNow);
         await cancelReleasedReviewReservations(transaction, trigger.salonId, ctx, freshNow);
         const existing = await existingRequest(transaction, trigger.salonId, ctx);
         if (existing) {
+          const [blockingIntent] = await transaction.select({ status: communicationIntentSchema.status })
+            .from(communicationIntentSchema).where(and(
+              eq(communicationIntentSchema.id, existing.intentId),
+              eq(communicationIntentSchema.salonId, trigger.salonId),
+            )).limit(1);
+          // A concurrent unresolved attempt may later be proven never sent.
+          // Keep this new event retryable without moving its due/expiry times.
+          if (blockingIntent?.status !== 'sent') {
+            await transaction.update(reviewRequestTriggerSchema).set({
+              availableAt: retryTriggerAt(trigger, freshNow),
+              updatedAt: freshNow,
+            }).where(eq(reviewRequestTriggerSchema.id, trigger.id));
+            return 'deferred' as const;
+          }
           await transaction.update(reviewRequestTriggerSchema).set({
             state: 'skipped',
             reasonCode: 'EXISTING_REQUEST',
@@ -331,7 +489,7 @@ export async function materializeCompletedReviewTriggers(
           return 'skipped' as const;
         }
 
-        if (!ctx.client || !ctx.settings.salon || !ctx.appointment?.completedAt) {
+        if (!ctx.client || !ctx.settings.salon || (isCompletionTrigger && !ctx.appointment?.completedAt)) {
           await transaction.update(reviewRequestTriggerSchema).set({ availableAt: retryTriggerAt(trigger, freshNow), updatedAt: freshNow })
             .where(eq(reviewRequestTriggerSchema.id, trigger.id));
           return 'deferred' as const;
@@ -363,7 +521,7 @@ export async function materializeCompletedReviewTriggers(
           source: 'automatic',
           triggerId: trigger.id,
           intentId,
-          completedAt: trigger.triggerAt,
+          completedAt: isCompletionTrigger ? trigger.triggerAt : null,
           scheduledFor: quiet.sendAt,
         }).onConflictDoNothing().returning();
         if (!inserted.length) {
@@ -464,9 +622,77 @@ async function context(database: CommunicationIntentDatabase, salonId: string, a
 }
 
 type ReviewContext = Awaited<ReturnType<typeof context>>;
-function ineligible(ctx: ReviewContext, automatic: boolean): string | null {
+
+/**
+ * A reschedule supersedes only this appointment's linked, never-sent automatic
+ * reservation. The intent lock/CAS shares the dispatcher's TX1 boundary: once
+ * sending starts, neither this producer nor a retry can release the identity.
+ * Caller holds the salon review fence and current appointment lock.
+ */
+async function cancelObsoleteAppointmentReviewReservations(
+  transaction: CommunicationIntentTransaction,
+  salonId: string,
+  ctx: ReviewContext,
+  policyRevision: number,
+  now: Date,
+) {
+  if (!ctx.appointment) {
+    return;
+  }
+  const rows = await transaction.select({ request: reviewRequestSchema, trigger: reviewRequestTriggerSchema })
+    .from(reviewRequestSchema)
+    .innerJoin(reviewRequestTriggerSchema, and(
+      eq(reviewRequestTriggerSchema.id, reviewRequestSchema.triggerId),
+      eq(reviewRequestTriggerSchema.salonId, salonId),
+      eq(reviewRequestTriggerSchema.appointmentId, ctx.appointment.id),
+    ))
+    .where(and(eq(reviewRequestSchema.salonId, salonId), eq(reviewRequestSchema.appointmentId, ctx.appointment.id), eq(reviewRequestSchema.source, 'automatic'), ne(reviewRequestSchema.status, 'cancelled')));
+  for (const { request, trigger } of rows) {
+    if (trigger.appointmentStartAt.getTime() === ctx.appointment.startTime.getTime()
+      && trigger.appointmentEndAt.getTime() === ctx.appointment.endTime.getTime()
+      && trigger.policyRevision === policyRevision) {
+      continue;
+    }
+    const [intent] = await transaction.select().from(communicationIntentSchema).where(and(
+      eq(communicationIntentSchema.id, request.intentId),
+      eq(communicationIntentSchema.salonId, salonId),
+    )).for('update').limit(1);
+    if (!intent || !CANCELLABLE.includes(intent.status as typeof CANCELLABLE[number])) {
+      continue;
+    }
+    const [evidence] = await transaction.select({ id: notificationDeliverySchema.id }).from(notificationDeliverySchema).where(and(
+      eq(notificationDeliverySchema.salonId, salonId),
+      or(eq(notificationDeliverySchema.intentId, intent.id), intent.deliveryId ? eq(notificationDeliverySchema.id, intent.deliveryId) : undefined),
+      or(isNotNull(notificationDeliverySchema.providerMessageId), inArray(notificationDeliverySchema.status, ['sent', 'delivered'])),
+    )).limit(1);
+    if (evidence) {
+      continue;
+    }
+    const cancelled = await transaction.update(communicationIntentSchema).set({
+      status: 'canceled',
+      resolvedAt: now,
+      lastError: 'REVIEW_APPOINTMENT_SUPERSEDED',
+    }).where(and(eq(communicationIntentSchema.id, intent.id), eq(communicationIntentSchema.salonId, salonId), inArray(communicationIntentSchema.status, [...CANCELLABLE]))).returning();
+    if (cancelled.length) {
+      await transaction.update(reviewRequestSchema).set({ status: 'cancelled', cancelledAt: now })
+        .where(and(eq(reviewRequestSchema.id, request.id), eq(reviewRequestSchema.salonId, salonId)));
+    }
+  }
+}
+
+function ineligible(ctx: ReviewContext, automatic: boolean, kind: 'completed' | 'scheduled_end' = 'completed'): string | null {
   const { appointment, client, settings } = ctx;
-  if (!appointment || appointment.deletedAt || appointment.status !== 'completed' || !appointment.completedAt) {
+  const scheduledEnd = kind === 'scheduled_end';
+  if (!appointment || appointment.deletedAt
+    || (scheduledEnd
+      ? !evaluateScheduledEndReviewEligibility({
+          appointment,
+          policy: settings.policy,
+          now: ctx.now,
+          automationEnabledAt: settings.enabledAt,
+          reviewRequestsEligibleAfter: client?.reviewRequestsEligibleAfter,
+        }).eligible
+      : appointment.status !== 'completed' || !appointment.completedAt)) {
     return 'Complete this appointment before requesting a review.';
   }
   if (!client || client.archivedAt || client.mergedIntoClientId || !isValidPhone(client.phone)) {
@@ -491,8 +717,9 @@ function ineligible(ctx: ReviewContext, automatic: boolean): string | null {
   if (!ctx.consent) {
     return 'This client has not permitted Luster SMS, or has opted out.';
   }
-  if (automatic && (!settings.automaticEnabled || !settings.enabledAt || appointment.completedAt <= settings.enabledAt
-    || (client.reviewRequestsEligibleAfter && appointment.completedAt <= client.reviewRequestsEligibleAfter))) {
+  const eventAt = scheduledEnd ? appointment.endTime : appointment.completedAt!;
+  if (automatic && (!settings.automaticEnabled || !settings.enabledAt || eventAt <= settings.enabledAt
+    || (client.reviewRequestsEligibleAfter && eventAt <= client.reviewRequestsEligibleAfter))) {
     return 'Automatic review requests are off for this appointment.';
   }
   const body = reviewSmsBody({ template: settings.messageTemplate, clientName: client.fullName, businessName: settings.businessName, reviewLink: settings.googleReviewUrl });
@@ -650,13 +877,8 @@ export async function reviewRequestSendContext(salonId: string, intentId: string
   if (!row?.appointmentId) {
     return null;
   }
-  // Nullable completion is schema preparation only. No existing delivery path
-  // may dispatch an uncompleted request until a future kind-aware producer and
-  // sender branch prove its trigger belongs to this appointment and salon.
-  if (!row.completedAt) {
-    return null;
-  }
   const ctx = await context(db, salonId, row.appointmentId);
+  let triggerKind: 'completed' | 'scheduled_end' = 'completed';
   if (row.triggerId) {
     const [trigger] = await db.select().from(reviewRequestTriggerSchema).where(and(
       eq(reviewRequestTriggerSchema.id, row.triggerId),
@@ -665,18 +887,28 @@ export async function reviewRequestSendContext(salonId: string, intentId: string
     const [storedSettings] = await db.select().from(salonRetentionSettingsSchema)
       .where(eq(salonRetentionSettingsSchema.salonId, salonId)).limit(1);
     const policy = resolveReviewAutomationPolicy(storedSettings);
+    if (!trigger || (trigger.kind !== 'completed' && trigger.kind !== 'scheduled_end')) {
+      return null;
+    }
+    triggerKind = trigger.kind;
     const snapshotsMatch = trigger?.state === 'materialized'
-      && ctx.appointment?.completedAt?.getTime() === trigger.triggerAt.getTime()
-      && ctx.appointment.startTime.getTime() === trigger.appointmentStartAt.getTime()
-      && ctx.appointment.endTime.getTime() === trigger.appointmentEndAt.getTime();
-    if (!snapshotsMatch || policy.mode !== 'marked_completed'
+      && trigger.appointmentId === row.appointmentId
+      && (trigger.kind === 'scheduled_end'
+        ? ctx.appointment?.endTime.getTime() === trigger.triggerAt.getTime()
+        && ['confirmed', 'in_progress', 'completed'].includes(ctx.appointment.status)
+        : ctx.appointment?.completedAt?.getTime() === trigger.triggerAt.getTime())
+        && ctx.appointment?.startTime.getTime() === trigger.appointmentStartAt.getTime()
+        && ctx.appointment?.endTime.getTime() === trigger.appointmentEndAt.getTime();
+    if (!snapshotsMatch || policy.mode !== (trigger.kind === 'completed' ? 'marked_completed' : 'scheduled_end')
       || !ctx.settings.enabledAt || trigger.triggerAt <= ctx.settings.enabledAt
       || trigger.policyRevision !== storedSettings?.reviewRequestPolicyRevision) {
       return null;
     }
   }
-  if (ineligible(ctx, row.source === 'automatic') || !ctx.client || !ctx.clientIds.includes(row.clientId)
-    || normalizeConsentRecipient(ctx.client.phone) !== row.recipient || ctx.appointment?.completedAt?.getTime() !== row.completedAt.getTime()) {
+  if ((!row.completedAt && triggerKind !== 'scheduled_end')
+    || ineligible(ctx, row.source === 'automatic', triggerKind) || !ctx.client || !ctx.clientIds.includes(row.clientId)
+    || normalizeConsentRecipient(ctx.client.phone) !== row.recipient
+    || (triggerKind === 'completed' && ctx.appointment?.completedAt?.getTime() !== row.completedAt?.getTime())) {
     return null;
   }
   // Another appointment may have been manually requested or marked sent after
@@ -698,6 +930,7 @@ export async function getAppointmentReviewState(salonId: string, appointmentId: 
   const [trigger] = await db.select().from(reviewRequestTriggerSchema).where(and(
     eq(reviewRequestTriggerSchema.salonId, salonId),
     eq(reviewRequestTriggerSchema.appointmentId, appointmentId),
+    ownRequest?.triggerId ? eq(reviewRequestTriggerSchema.id, ownRequest.triggerId) : undefined,
   )).orderBy(desc(reviewRequestTriggerSchema.createdAt)).limit(1);
   // A completion trigger exists before the five-minute worker has allocated an
   // intent. Show that appointment's own durable state rather than unrelated
@@ -727,7 +960,7 @@ export async function getAppointmentReviewState(salonId: string, appointmentId: 
   const row = ownRequest ?? await existingRequest(db, salonId, ctx);
   const [intent] = row ? await db.select().from(communicationIntentSchema).where(and(eq(communicationIntentSchema.id, row.intentId), eq(communicationIntentSchema.salonId, salonId))).limit(1) : [];
   const [delivery] = intent?.deliveryId ? await db.select().from(notificationDeliverySchema).where(and(eq(notificationDeliverySchema.id, intent.deliveryId), eq(notificationDeliverySchema.salonId, salonId))).limit(1) : [];
-  const reason = ineligible(ctx, false);
+  const reason = ineligible(ctx, false, ownRequest?.triggerId === trigger?.id ? trigger?.kind ?? 'completed' : 'completed');
   let status = reason ? (ctx.client?.reviewRequestsSuppressed || ctx.client?.hasGoogleReview ? 'suppressed' : 'not_eligible') : 'eligible';
   if (row) {
     status = intent?.status === 'sent' ? 'sent' : ['sending', 'send_outcome_unknown'].includes(intent?.status ?? '') ? 'sending' : ['canceled', 'suppressed', 'expired'].includes(intent?.status ?? '') ? 'cancelled' : intent?.status === 'failed' || !intent ? 'failed' : 'scheduled';

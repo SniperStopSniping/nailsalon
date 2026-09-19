@@ -102,17 +102,20 @@ describe('applyLegacyAutomaticReviewUpdate', () => {
 });
 
 describe('evaluateScheduledEndReviewEligibility', () => {
-  function evaluate(overrides: Partial<Parameters<typeof evaluateScheduledEndReviewEligibility>[0]> = {}) {
+  function evaluate(overrides: Omit<Partial<Parameters<typeof evaluateScheduledEndReviewEligibility>[0]>, 'appointment'> & {
+    appointment?: Omit<Parameters<typeof evaluateScheduledEndReviewEligibility>[0]['appointment'], 'startTime'> & { startTime?: Date };
+  } = {}) {
+    const appointment = overrides.appointment ?? {
+      status: 'confirmed',
+      createdAt: new Date('2030-09-12T17:00:00.000Z'),
+      endTime: new Date('2030-09-12T19:00:00.000Z'),
+    };
     return evaluateScheduledEndReviewEligibility({
-      appointment: {
-        status: 'confirmed',
-        createdAt: new Date('2030-09-12T17:00:00.000Z'),
-        endTime: new Date('2030-09-12T19:00:00.000Z'),
-      },
       policy: scheduledEndPolicy,
       now,
       automationEnabledAt: enabledAt,
       ...overrides,
+      appointment: { ...appointment, startTime: appointment.startTime ?? new Date(appointment.endTime.getTime() - 3_600_000) },
     });
   }
 

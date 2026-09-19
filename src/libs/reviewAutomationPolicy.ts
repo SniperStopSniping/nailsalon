@@ -123,6 +123,7 @@ export function applyLegacyAutomaticReviewUpdate(
 export type ScheduledEndReviewAppointment = {
   status: string;
   createdAt: Date | null;
+  startTime: Date;
   endTime: Date;
 };
 
@@ -176,7 +177,8 @@ export function evaluateScheduledEndReviewEligibility(
   if (!validDate(automationEnabledAt)) {
     return { eligible: false, triggerReached: false, sendDue: false, scheduledFor: null, reason: 'not_activated' };
   }
-  if (!validDate(appointment.endTime) || !validDate(appointment.createdAt) || !validDate(now)) {
+  if (!validDate(appointment.endTime) || !validDate(appointment.startTime)
+    || appointment.startTime >= appointment.endTime || !validDate(appointment.createdAt) || !validDate(now)) {
     return { eligible: false, triggerReached: false, sendDue: false, scheduledFor: null, reason: 'invalid_appointment_time' };
   }
   if (appointment.createdAt > now) {

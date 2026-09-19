@@ -1201,7 +1201,7 @@ jobs:
             src/libs/reviewRequests.concurrency.integration.test.ts \
             | tee review-request-postgres.log
           grep -Fqx \
-            'REVIEW_REQUEST_POSTGRES_TESTS_EXECUTED=7 REVIEW_REQUEST_POSTGRES_TESTS_SKIPPED=0' \
+            'REVIEW_REQUEST_POSTGRES_TESTS_EXECUTED=15 REVIEW_REQUEST_POSTGRES_TESTS_SKIPPED=0' \
             review-request-postgres.log
 
       - name: Verify durable customer booking operations on real PostgreSQL with zero skips
