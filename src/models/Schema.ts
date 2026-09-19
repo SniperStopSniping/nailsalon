@@ -5266,5 +5266,5 @@ export const reviewRequestSchema = pgTable('review_request', {
   appointmentActiveOnce: uniqueIndex('review_request_appointment_active_once').on(table.salonId, table.appointmentId).where(sql`${table.status} <> 'cancelled' and ${table.appointmentId} is not null`),
   salonClientCreated: index('review_request_salon_client_created_idx').on(table.salonId, table.clientId, table.createdAt),
   salonRecipientCreated: index('review_request_salon_recipient_created_idx').on(table.salonId, table.recipient, table.createdAt),
-  completedOrTriggered: check('review_request_completed_or_triggered', sql`${table.completedAt} is not null or ${table.triggerId} is not null`),
+  completedOrTriggered: check('review_request_completed_or_triggered', sql`${table.completedAt} is not null or ${table.triggerId} is not null or (${table.source} = 'manual' and ${table.appointmentId} is null and ${table.completedAt} is null and ${table.triggerId} is null)`),
 }));

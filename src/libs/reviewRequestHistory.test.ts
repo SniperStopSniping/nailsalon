@@ -58,4 +58,19 @@ describe('review history decision', () => {
   it('does not hide an uncertain request behind a known cooldown', () => {
     expect(decide([{ ...sent, sentAt: boundary }, { ...sent, id: 'unknown', state: 'send_outcome_unknown' }])).toMatchObject({ reason: 'outcome_uncertain', blockingId: 'unknown' });
   });
+
+  it('treats appointmentless manual sends as a client cooldown without turning them into same-appointment evidence', () => {
+    expect(evaluateReviewHistory({
+      history: [{ ...sent, appointmentId: null }],
+      appointmentId: null,
+      cooldownDays: 90,
+      now: boundary,
+    })).toMatchObject({ allowed: true });
+    expect(evaluateReviewHistory({
+      history: [{ ...sent, appointmentId: null }],
+      appointmentId: null,
+      cooldownDays: 90,
+      now: new Date(boundary.getTime() - 1),
+    })).toMatchObject({ allowed: false, reason: 'cooldown' });
+  });
 });

@@ -27,7 +27,7 @@ const RESERVED = new Set(['pending', 'claimed', 'blocked_no_credit', 'sending'])
  */
 export function evaluateReviewHistory(input: {
   history: readonly ReviewHistoryEvidence[];
-  appointmentId: string;
+  appointmentId: string | null;
   cooldownDays: ReviewRepeatCooldownDays;
   now: Date;
 }): ReviewHistoryDecision {
@@ -39,7 +39,7 @@ export function evaluateReviewHistory(input: {
     let reason: ReviewHistoryDecision['reason'];
     let rank: number;
     let nextEligibleAt: Date | null = null;
-    if (entry.appointmentId === input.appointmentId) {
+    if (input.appointmentId !== null && entry.appointmentId === input.appointmentId) {
       reason = 'same_appointment';
       rank = 0;
     } else if (entry.state !== null && RESERVED.has(entry.state)) {

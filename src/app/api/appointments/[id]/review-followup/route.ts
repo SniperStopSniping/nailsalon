@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
+  getSalonClientLineageIdentityWithHandle,
   lockTerminalSalonClientWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
   withClientLifecycleTransactionRetry,
@@ -18,9 +19,10 @@ import {
   REVIEW_FOLLOWUP_ACTIONS,
   type ReviewFollowupAction,
 } from '@/libs/reviewFollowup';
+import { cancelReviewRequests, lockSalonReviewMutation } from '@/libs/reviewRequests.server';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
+import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
 import { appointmentSchema, salonClientSchema } from '@/models/Schema';
-import type { SalonSettings } from '@/types/salonPolicy';
 
 // =============================================================================
 // POST /api/appointments/[id]/review-followup
@@ -87,6 +89,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       if (salonClient?.id) {
         await withClientLifecycleTransactionRetry(() =>
           db.transaction(async (tx) => {
+            await lockSalonReviewMutation(tx, appointment.salonId);
             const terminalClient = await lockTerminalSalonClientWithHandle(tx, {
               salonId: appointment.salonId,
               clientId: salonClient.id,
@@ -104,6 +107,11 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
                 eq(appointmentSchema.id, appointmentId),
                 eq(appointmentSchema.salonId, appointment.salonId),
               ));
+            const identity = await getSalonClientLineageIdentityWithHandle(tx, { salonId: appointment.salonId, terminalClientId: terminalClient.id });
+            await cancelReviewRequests(tx, appointment.salonId, {
+              clientIds: identity.clientIds,
+              recipient: normalizeConsentRecipient(identity.terminal.phone),
+            });
 
             await tx
               .update(salonClientSchema)
@@ -156,9 +164,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     const salon = await getSalonById(appointment.salonId);
     const salonName = salon?.name ?? 'our salon';
     const retentionSettings = await getRetentionSettingsForSalon(appointment.salonId);
-    const googleReviewUrl = retentionSettings.googleReviewUrl
-      ?? (salon?.settings as SalonSettings | null | undefined)?.googleReviewUrl
-      ?? null;
+    const googleReviewUrl = retentionSettings.googleReviewUrl;
 
     let message: string | null = null;
     if (action === 'satisfaction_question') {

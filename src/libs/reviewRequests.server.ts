@@ -7,6 +7,7 @@ import type { CommunicationIntentDatabase, CommunicationIntentTransaction } from
 import { enqueueCommunicationIntent } from '@/libs/communicationIntent';
 import { applyQuietHours } from '@/libs/communicationScheduling';
 import { resolveCommunicationSettingsFromSettings } from '@/libs/communicationSettings';
+import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { db, usesRuntimePostgres } from '@/libs/DB';
 import { isValidPhone } from '@/libs/phone';
 import type { ReviewAutomationMode } from '@/libs/reviewAutomationPolicy';
@@ -597,19 +598,21 @@ export async function getReviewSettings(salonId: string, database: Communication
   };
 }
 
-async function context(database: CommunicationIntentDatabase, salonId: string, appointmentId: string, now = new Date()) {
-  const [appointment] = await database.select().from(appointmentSchema).where(and(eq(appointmentSchema.id, appointmentId), eq(appointmentSchema.salonId, salonId))).limit(1);
+async function context(database: CommunicationIntentDatabase, salonId: string, appointmentId: string | null, now = new Date(), clientId?: string) {
+  const [appointment] = appointmentId ? await database.select().from(appointmentSchema).where(and(eq(appointmentSchema.id, appointmentId), eq(appointmentSchema.salonId, salonId))).limit(1) : [];
   const settings = await getReviewSettings(salonId, database);
-  if (!appointment?.salonClientId) {
+  const contactId = appointment?.salonClientId ?? clientId;
+  if (!contactId) {
     return { appointment, settings, now, client: null, legacyReview: null, consent: false, clientIds: [] as string[] };
   }
   try {
-    const contact = await resolveOperationalSalonClientContactWithHandle(database, { salonId, clientId: appointment.salonClientId });
+    const contact = await resolveOperationalSalonClientContactWithHandle(database, { salonId, clientId: contactId });
     const identity = await getSalonClientLineageIdentityWithHandle(database, { salonId, terminalClientId: contact.id });
     const [client] = await database.select().from(salonClientSchema).where(and(eq(salonClientSchema.id, contact.id), eq(salonClientSchema.salonId, salonId))).limit(1);
+    const recipient = normalizeConsentRecipient(contact.phone);
     const legacyReviews = await database.select().from(clientCommunicationSchema).where(and(
       eq(clientCommunicationSchema.salonId, salonId),
-      or(inArray(clientCommunicationSchema.salonClientId, identity.clientIds), eq(clientCommunicationSchema.appointmentId, appointmentId)),
+      or(inArray(clientCommunicationSchema.salonClientId, identity.clientIds), appointmentId ? eq(clientCommunicationSchema.appointmentId, appointmentId) : undefined, eq(clientCommunicationSchema.destinationSnapshot, recipient)),
       eq(clientCommunicationSchema.kind, 'google_review'),
       or(eq(clientCommunicationSchema.status, 'marked_sent'), isNotNull(clientCommunicationSchema.markedSentAt)),
     )).orderBy(desc(clientCommunicationSchema.markedSentAt));
@@ -620,7 +623,6 @@ async function context(database: CommunicationIntentDatabase, salonId: string, a
       now,
     });
     const legacyReview = legacyReviews.find(row => row.id === legacyDecision.blockingId);
-    const recipient = normalizeConsentRecipient(contact.phone);
     const [consent] = await database.select().from(communicationConsentSchema).where(and(
       eq(communicationConsentSchema.salonId, salonId),
       eq(communicationConsentSchema.recipient, recipient),
@@ -715,6 +717,21 @@ function ineligible(ctx: ReviewContext, automatic: boolean, kind: 'completed' | 
       : appointment.status !== 'completed' || !appointment.completedAt)) {
     return 'Complete this appointment before requesting a review.';
   }
+  const clientReason = clientReviewIneligibility(ctx);
+  if (clientReason) {
+    return clientReason;
+  }
+  const eventAt = scheduledEnd ? appointment.endTime : appointment.completedAt!;
+  if (automatic && (!settings.automaticEnabled || !settings.enabledAt || eventAt <= settings.enabledAt
+    || (client?.reviewRequestsEligibleAfter && eventAt <= client.reviewRequestsEligibleAfter))) {
+    return 'Automatic review requests are off for this appointment.';
+  }
+  return null;
+}
+
+/** Client-only manual requests share every contact and delivery eligibility rule. */
+function clientReviewIneligibility(ctx: ReviewContext, customMessage?: string): string | null {
+  const { client, settings } = ctx;
   if (!client || client.archivedAt || client.mergedIntoClientId || !isValidPhone(client.phone)) {
     return 'This client needs an active profile and a usable mobile number.';
   }
@@ -737,12 +754,9 @@ function ineligible(ctx: ReviewContext, automatic: boolean, kind: 'completed' | 
   if (!ctx.consent) {
     return 'This client has not permitted Luster SMS, or has opted out.';
   }
-  const eventAt = scheduledEnd ? appointment.endTime : appointment.completedAt!;
-  if (automatic && (!settings.automaticEnabled || !settings.enabledAt || eventAt <= settings.enabledAt
-    || (client.reviewRequestsEligibleAfter && eventAt <= client.reviewRequestsEligibleAfter))) {
-    return 'Automatic review requests are off for this appointment.';
-  }
-  const body = reviewSmsBody({ template: settings.messageTemplate, clientName: client.fullName, businessName: settings.businessName, reviewLink: settings.googleReviewUrl });
+  const body = customMessage === undefined
+    ? reviewSmsBody({ template: settings.messageTemplate, clientName: client.fullName, businessName: settings.businessName, reviewLink: settings.googleReviewUrl })
+    : COMMUNICATION_TEMPLATES.client_manual_text!.render({ salonName: settings.businessName, message: customMessage });
   return reviewMessageFits(body) ? null : 'Shorten the review message to 10 SMS segments or fewer.';
 }
 
@@ -771,7 +785,7 @@ async function existingRequest(database: CommunicationIntentDatabase, salonId: s
       sentAt: intent?.status === 'sent' ? intent.resolvedAt : null,
       hasProviderEvidence: !!delivery?.providerMessageId || ['sent', 'delivered'].includes(delivery?.status ?? ''),
     })),
-    appointmentId: ctx.appointment?.id ?? '',
+    appointmentId: ctx.appointment?.id ?? null,
     cooldownDays: ctx.settings.policy.repeatCooldownDays,
     now: ctx.now,
   });
@@ -779,11 +793,16 @@ async function existingRequest(database: CommunicationIntentDatabase, salonId: s
 }
 
 /** Only a proven never-sent intent can release a client's normal request slot. */
-export async function cancelReviewRequests(database: CommunicationIntentTransaction, salonId: string, filter: { clientIds?: string[]; automaticOnly?: boolean } = {}) {
+export async function cancelReviewRequests(database: CommunicationIntentTransaction, salonId: string, filter: { clientIds?: string[]; recipient?: string; automaticOnly?: boolean } = {}) {
   const rows = await database.select().from(reviewRequestSchema).where(and(
     eq(reviewRequestSchema.salonId, salonId),
     ne(reviewRequestSchema.status, 'cancelled'),
-    filter.clientIds ? inArray(reviewRequestSchema.clientId, filter.clientIds) : undefined,
+    filter.clientIds || filter.recipient
+      ? or(
+        filter.clientIds ? inArray(reviewRequestSchema.clientId, filter.clientIds) : undefined,
+        filter.recipient ? eq(reviewRequestSchema.recipient, filter.recipient) : undefined,
+      )
+      : undefined,
     filter.automaticOnly ? eq(reviewRequestSchema.source, 'automatic') : undefined,
   ));
   for (const row of rows) {
@@ -953,11 +972,138 @@ export async function scheduleReviewRequest(database: CommunicationIntentDatabas
   await database.update(reviewRequestSchema).set({ intentId: intent.intentId }).where(and(eq(reviewRequestSchema.id, id), eq(reviewRequestSchema.salonId, salonId)));
 }
 
+export class ClientReviewRequestError extends Error {
+  constructor(public code: string, message: string, public status = 409) {
+    super(message);
+  }
+}
+
+/**
+ * Explicit client-profile Google presets keep their appointmentless workflow.
+ * Ordinary free-text messages never enter this coordinator by content matching.
+ */
+export async function queueClientReviewRequest(input: {
+  salonId: string;
+  clientId: string;
+  message: string;
+  requestId: string;
+  availability?: { available: boolean; code: string | null; message: string };
+  now?: Date;
+}) {
+  const now = input.now ?? new Date();
+  return db.transaction(async (transaction) => {
+    await lockSalonReviewMutation(transaction, input.salonId);
+    const contact = await lockOperationalSalonClientContactWithHandle(transaction, { salonId: input.salonId, clientId: input.clientId });
+    const identity = await getSalonClientLineageIdentityWithHandle(transaction, { salonId: input.salonId, terminalClientId: contact.id });
+    const dedupeKey = `manual:${input.salonId}:${input.requestId}`;
+    const [existing] = await transaction.select().from(communicationIntentSchema).where(and(
+      eq(communicationIntentSchema.salonId, input.salonId),
+      eq(communicationIntentSchema.dedupeKey, dedupeKey),
+    )).limit(1);
+    // A lost response must observe the original action before mutable contact,
+    // readiness, consent or cooldown checks. Purpose is part of that identity.
+    if (existing) {
+      const [request] = await transaction.select().from(reviewRequestSchema).where(and(
+        eq(reviewRequestSchema.salonId, input.salonId),
+        eq(reviewRequestSchema.intentId, existing.id),
+      )).limit(1);
+      if (existing.eventType !== 'review_request' || existing.appointmentId !== null
+        || existing.variables.reviewRequestPurpose !== 'client_google_review'
+        || existing.variables.message !== input.message || !identity.clientIds.includes(existing.variables.clientId ?? '')
+        || !request || request.source !== 'manual' || request.appointmentId !== null || request.completedAt !== null || request.triggerId !== null
+        || !identity.clientIds.includes(request.clientId) || request.recipient !== normalizeConsentRecipient(existing.recipient)) {
+        throw new ClientReviewRequestError('IDEMPOTENCY_CONFLICT', 'This send was already used for a different message. Start a new text.');
+      }
+      return { intentId: existing.id, created: false };
+    }
+    if (input.availability?.available === false) {
+      throw new ClientReviewRequestError(input.availability.code ?? 'SMS_UNAVAILABLE', input.availability.message);
+    }
+    const ctx = await context(transaction, input.salonId, null, now, contact.id);
+    const reason = clientReviewIneligibility(ctx, input.message);
+    if (reason || !ctx.client) {
+      throw new ClientReviewRequestError('REVIEW_INELIGIBLE', reason ?? 'This client is unavailable.');
+    }
+    await cancelReleasedReviewReservations(transaction, input.salonId, ctx, now);
+    if (await existingRequest(transaction, input.salonId, ctx)) {
+      throw new ClientReviewRequestError('REVIEW_ALREADY_REQUESTED', 'A review request is already pending or this client is still within the repeat-review waiting period. Check their review history.');
+    }
+    const communications = resolveCommunicationSettingsFromSettings(ctx.settings.salon!.settings);
+    const notAfter = new Date(now.getTime() + DAY);
+    const quiet = applyQuietHours({ instant: now, quietHours: communications.quietHours, timeZone: ctx.settings.salon?.settings?.booking?.timezone, notAfter });
+    if (quiet.kind === 'stale') {
+      throw new ClientReviewRequestError('QUIET_HOURS_STALE', 'Quiet hours leave no sending window for this message.');
+    }
+    const id = `rr_${crypto.randomUUID()}`;
+    const inserted = await transaction.insert(reviewRequestSchema).values({
+      id,
+      salonId: input.salonId,
+      clientId: ctx.client.id,
+      appointmentId: null,
+      recipient: normalizeConsentRecipient(ctx.client.phone),
+      source: 'manual',
+      intentId: `ci_review_${id}`,
+      completedAt: null,
+      triggerId: null,
+      scheduledFor: quiet.sendAt,
+    }).onConflictDoNothing().returning();
+    if (!inserted.length) {
+      throw new ClientReviewRequestError('REVIEW_ALREADY_REQUESTED', 'A review request is already recorded for this client. Check their review history.');
+    }
+    const intent = await enqueueCommunicationIntent({
+      database: transaction,
+      salonId: input.salonId,
+      channel: 'sms',
+      audience: 'client',
+      eventType: 'review_request',
+      dedupeKey,
+      recipient: ctx.client.phone,
+      destinationCountry: 'CA',
+      templateKey: 'client_manual_text',
+      templateVersion: 'v1',
+      variables: { clientId: ctx.client.id, reviewRequestId: id, reviewRequestPurpose: 'client_google_review', message: input.message },
+      schedulingRevision: id,
+      scheduledFor: quiet.sendAt,
+      notAfter,
+    });
+    // Generic SMS shares the action-ID namespace but can hold a different
+    // client lock. Roll back if it won after our initial dedupe read.
+    if (!intent.created) {
+      throw new ClientReviewRequestError('IDEMPOTENCY_CONFLICT', 'This send was already used for a different message. Start a new text.');
+    }
+    await transaction.update(reviewRequestSchema).set({ intentId: intent.intentId })
+      .where(and(eq(reviewRequestSchema.id, id), eq(reviewRequestSchema.salonId, input.salonId)));
+    return intent;
+  });
+}
+
 /** Re-read mutable business rules at BOTH existing pre-provider boundaries. */
 export async function reviewRequestSendContext(salonId: string, intentId: string) {
   const [row] = await db.select().from(reviewRequestSchema).where(and(eq(reviewRequestSchema.salonId, salonId), eq(reviewRequestSchema.intentId, intentId), ne(reviewRequestSchema.status, 'cancelled'))).limit(1);
-  if (!row?.appointmentId) {
+  if (!row) {
     return null;
+  }
+  if (!row.appointmentId) {
+    if (row.source !== 'manual' || row.completedAt !== null || row.triggerId !== null) {
+      return null;
+    }
+    const [intent] = await db.select().from(communicationIntentSchema).where(and(
+      eq(communicationIntentSchema.id, intentId),
+      eq(communicationIntentSchema.salonId, salonId),
+    )).limit(1);
+    const message = intent?.variables.message;
+    if (!intent || intent.eventType !== 'review_request' || intent.appointmentId !== null
+      || intent.variables.reviewRequestPurpose !== 'client_google_review' || intent.variables.reviewRequestId !== row.id
+      || typeof message !== 'string' || !message.trim() || message.length > 1000) {
+      return null;
+    }
+    const ctx = await context(db, salonId, null, new Date(), row.clientId);
+    if (clientReviewIneligibility(ctx, message) || !ctx.client || !ctx.clientIds.includes(intent.variables.clientId ?? '')
+      || row.recipient !== normalizeConsentRecipient(ctx.client.phone) || row.recipient !== normalizeConsentRecipient(intent.recipient)
+      || await existingRequest(db, salonId, ctx, intentId)) {
+      return null;
+    }
+    return { message };
   }
   const ctx = await context(db, salonId, row.appointmentId);
   let triggerKind: 'completed' | 'scheduled_end' = 'completed';

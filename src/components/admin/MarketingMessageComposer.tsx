@@ -180,6 +180,7 @@ export function MarketingMessageComposer({
 
       {selectedClient && (
         <LusterClientSms
+          key={`${salonSlug}:${selectedClient.id}`}
           salonSlug={salonSlug}
           salonName={salonName}
           clientId={selectedClient.id}
@@ -187,6 +188,7 @@ export function MarketingMessageComposer({
           composerOpen
           composerTitle={choice === 'google_review' ? 'Send Google review link' : `Text ${selectedClient.fullName || 'client'}`}
           initialDraft={draft}
+          purpose={choice === 'google_review' ? 'google_review' : undefined}
           onClose={() => setSelectedClient(null)}
           showHistory={false}
         />

@@ -575,6 +575,13 @@
       "when": 1789809175297,
       "tag": "0082_review_request_nullable_contract",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1789815155287,
+      "tag": "0083_review_request_manual_contract",
+      "breakpoints": true
     }
   ]
 }

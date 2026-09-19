@@ -240,6 +240,63 @@ describe('migration 0081 — review request automation contract', () => {
     );
   });
 
+  it('allows only a manual client-profile preset without appointment completion or trigger evidence', async () => {
+    const scheduledFor = new Date('2026-09-19T16:00:00Z');
+    const completedAt = new Date('2026-09-19T15:00:00Z');
+    const existingRequest = {
+      id: 'review_automation_schema_existing_completed_request',
+      salonId: SALON_ID,
+      clientId: 'review_automation_schema_existing_completed_client',
+      appointmentId: 'review_automation_schema_existing_completed_appointment',
+      recipient: '+14165550191',
+      source: 'automatic' as const,
+      intentId: 'review_automation_schema_existing_completed_intent',
+      completedAt,
+      scheduledFor,
+    };
+
+    await db.insert(schema.reviewRequestSchema).values(existingRequest);
+    const [stored] = await db.select().from(schema.reviewRequestSchema)
+      .where(sql`${schema.reviewRequestSchema.id} = ${existingRequest.id}`);
+
+    expect(stored).toMatchObject(existingRequest);
+
+    await db.insert(schema.reviewRequestSchema).values({
+      id: 'review_automation_schema_manual_profile_request',
+      salonId: SALON_ID,
+      clientId: 'review_automation_schema_manual_profile_client',
+      recipient: '+14165550192',
+      source: 'manual',
+      intentId: 'review_automation_schema_manual_profile_intent',
+      scheduledFor,
+    });
+    await expectSqlState(
+      db.insert(schema.reviewRequestSchema).values({
+        id: 'review_automation_schema_automatic_uncompleted_request',
+        salonId: SALON_ID,
+        clientId: 'review_automation_schema_automatic_uncompleted_client',
+        recipient: '+14165550193',
+        source: 'automatic',
+        intentId: 'review_automation_schema_automatic_uncompleted_intent',
+        scheduledFor,
+      }),
+      CHECK_VIOLATION,
+    );
+    await expectSqlState(
+      db.insert(schema.reviewRequestSchema).values({
+        id: 'review_automation_schema_manual_appointment_uncompleted_request',
+        salonId: SALON_ID,
+        clientId: 'review_automation_schema_manual_appointment_uncompleted_client',
+        appointmentId: 'review_automation_schema_manual_appointment',
+        recipient: '+14165550194',
+        source: 'manual',
+        intentId: 'review_automation_schema_manual_appointment_uncompleted_intent',
+        scheduledFor,
+      }),
+      CHECK_VIOLATION,
+    );
+  });
+
   it('requires its durable review record to be removed before its trigger', async () => {
     const triggerId = 'review_automation_schema_trigger_referenced';
     await db.insert(schema.reviewRequestTriggerSchema).values({

@@ -8,6 +8,9 @@ import { SettingsModal } from '@/components/admin/SettingsModal';
 
 export function SmsBrowserFixture() {
   const [open, setOpen] = useState(true);
+  const purpose = new URLSearchParams(window.location.search).get('purpose') === 'google_review'
+    ? 'google_review'
+    : undefined;
   return (
     <main className="owner-workspace-theme mx-auto min-h-screen max-w-md bg-stone-50 p-3">
       <h1 className="text-xl font-semibold">SMS Test Client</h1>
@@ -16,6 +19,7 @@ export function SmsBrowserFixture() {
         salonName="SMS Test Studio"
         clientId="test-client"
         appointmentId="test-appointment"
+        purpose={purpose}
         composerOpen={open}
         onClose={() => setOpen(false)}
       />
