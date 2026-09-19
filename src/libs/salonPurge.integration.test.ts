@@ -370,6 +370,20 @@ async function seedSalon(salonId: string, suffix: string, dayOffset: number): Pr
     siteId: id('onboarding_site'),
   });
 
+  await db.insert(schema.reviewRequestTriggerSchema).values({
+    id: id('review_trigger'),
+    salonId,
+    appointmentId: id('appt'),
+    kind: 'scheduled_end',
+    triggerAt: new Date('2026-08-01T14:00:00Z'),
+    appointmentStartAt: new Date('2026-08-01T13:00:00Z'),
+    appointmentEndAt: new Date('2026-08-01T14:00:00Z'),
+    policyRevision: 0,
+    scheduledFor: new Date('2026-08-01T15:00:00Z'),
+    availableAt: new Date('2026-08-01T15:00:00Z'),
+    expiresAt: new Date('2026-08-02T15:00:00Z'),
+  });
+
   await db.insert(schema.reviewRequestSchema).values({
     id: id('review_request'),
     salonId,
@@ -377,6 +391,7 @@ async function seedSalon(salonId: string, suffix: string, dayOffset: number): Pr
     appointmentId: id('appt'),
     recipient: '4165550199',
     source: 'manual',
+    triggerId: id('review_trigger'),
     intentId: id('review_intent'),
     completedAt: new Date('2026-08-01T14:00:00Z'),
     scheduledFor: new Date('2026-08-01T15:00:00Z'),

@@ -1,12 +1,21 @@
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { reviewSettingsUpdateSchema } from '@/libs/reviewAutomationPolicy';
 import { getReviewSettings, saveReviewSettings } from '@/libs/reviewRequests.server';
 
 export const dynamic = 'force-dynamic';
 
 function serialize(settings: Awaited<ReturnType<typeof getReviewSettings>>) {
-  return { googleReviewUrl: settings.googleReviewUrl, automaticEnabled: settings.automaticEnabled, delayMinutes: settings.delayMinutes, messageTemplate: settings.messageTemplate, businessName: settings.businessName };
+  return {
+    googleReviewUrl: settings.googleReviewUrl,
+    automaticEnabled: settings.automaticEnabled,
+    delayMinutes: settings.delayMinutes,
+    messageTemplate: settings.messageTemplate,
+    businessName: settings.businessName,
+    policy: settings.policy,
+    readiness: settings.readiness,
+  };
 }
 
 async function run(request: Request, write: boolean) {
@@ -19,7 +28,7 @@ async function run(request: Request, write: boolean) {
     return access.error ?? Response.json({}, { status: 403 });
   }
   try {
-    const settings = write ? await saveReviewSettings(access.salon.id, await request.json().catch(() => null)) : await getReviewSettings(access.salon.id);
+    const settings = write ? await saveReviewSettings(access.salon.id, reviewSettingsUpdateSchema.parse(await request.json().catch(() => null))) : await getReviewSettings(access.salon.id);
     return Response.json({ data: serialize(settings) }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return Response.json({ error: { message: error instanceof z.ZodError ? error.issues[0]?.message : 'Review settings are unavailable. Try again.' } }, { status: error instanceof z.ZodError ? 400 : 503 });

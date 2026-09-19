@@ -102,8 +102,11 @@ test('mobile owner can edit settings, queue Send now once, then see sent and sup
   await expect(page.getByText(/Avery Lee Nail Studio via Luster: Hi Avery! Thanks for visiting Avery Lee Nail Studio/)).toBeVisible();
   await expect(page.getByRole('link', { name: 'Test link' })).toHaveAttribute('href', reviewUrl);
 
-  const automatic = page.getByRole('checkbox', { name: 'Automatically request reviews' });
-  await automatic.check();
+  await expect(page.getByRole('radio', { name: /manual only/i })).toBeChecked();
+
+  await page.getByRole('radio', { name: /after the appointment ends/i }).check();
+
+  await expect(page.getByText(/mark the appointment cancelled or no-show before this request sends/i)).toBeVisible();
 
   await expect(page.getByLabel('Send after')).toHaveValue('60');
 
@@ -157,7 +160,7 @@ test('mobile owner can edit settings, queue Send now once, then see sent and sup
   await page.screenshot({ path: test.info().outputPath('review-requests-mobile-states.png'), fullPage: true });
 
   expect(requests.filter(request => request.method === 'POST' && request.path.startsWith('/api/appointments/'))).toHaveLength(1);
-  expect(requests).toContainEqual(expect.objectContaining({ method: 'PATCH', path: '/api/admin/review-requests/settings?salonSlug=review-fixture', body: expect.objectContaining({ automaticEnabled: true, delayMinutes: 120 }) }));
+  expect(requests).toContainEqual(expect.objectContaining({ method: 'PATCH', path: '/api/admin/review-requests/settings?salonSlug=review-fixture', body: expect.objectContaining({ automationMode: 'scheduled_end', delayMinutes: 120, repeatCooldownDays: 'never' }) }));
   expect(requests).toContainEqual(expect.objectContaining({ method: 'PATCH', path: '/api/admin/clients/review-client/review-requests?salonSlug=review-fixture', body: { reviewRequestsSuppressed: true } }));
   expect(unexpected).toEqual([]);
   expect(browserErrors).toEqual([]);
