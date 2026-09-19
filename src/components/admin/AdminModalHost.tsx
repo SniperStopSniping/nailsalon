@@ -1,3 +1,5 @@
+import { useCallback, useRef } from 'react';
+
 import {
   AnalyticsWidgets,
   type AnalyticsWidgetsProps,
@@ -10,6 +12,7 @@ import { type FraudSignal, FraudSignalsModal } from '@/components/admin/FraudSig
 import { IntegrationsModal, type IntegrationsView } from '@/components/admin/IntegrationsModal';
 import { MarketingModal } from '@/components/admin/MarketingModal';
 import { NotificationsModal } from '@/components/admin/NotificationsModal';
+import { OwnerManagementModal } from '@/components/admin/OwnerManagementModal';
 import { PaymentsModal } from '@/components/admin/PaymentsModal';
 import { PortfolioModal } from '@/components/admin/PortfolioModal';
 import { RewardsReviewsModal } from '@/components/admin/RewardsReviewsModal';
@@ -18,6 +21,7 @@ import { ServicesModal } from '@/components/admin/ServicesModal';
 import { SettingsModal } from '@/components/admin/SettingsModal';
 import { TeamModal } from '@/components/admin/TeamModal';
 import { WalkInModal } from '@/components/admin/WalkInModal';
+import { isOwnerManagementApp } from '@/libs/ownerNavigation';
 import { SalonProvider, useSalon } from '@/providers/SalonProvider';
 import type { RetentionStage } from '@/types/retention';
 
@@ -67,6 +71,7 @@ type AdminModalHostProps = {
   userInitial: string;
   /** Whether the Analytics app is available to this salon (module-gated). */
   analyticsAppAvailable?: boolean;
+  teamAppAvailable?: boolean;
   rewardsAvailable?: boolean;
   reviewsAvailable?: boolean;
   analyticsProps: AnalyticsWidgetProps;
@@ -109,6 +114,7 @@ export function AdminModalHost({
   userName,
   userInitial,
   analyticsAppAvailable = false,
+  teamAppAvailable = false,
   rewardsAvailable = false,
   reviewsAvailable = false,
   analyticsProps,
@@ -126,6 +132,10 @@ export function AdminModalHost({
   // one the URL / auth payload resolved) so all `?app=` modals share the
   // dashboard's authority. Everything the dashboard does not know is
   // inherited from the outer context unchanged.
+  const managementClose = useRef<(() => void) | null>(null);
+  const registerManagementClose = useCallback((handler: (() => void) | null) => {
+    managementClose.current = handler;
+  }, []);
   const outerSalon = useSalon();
   const salonSlugForModals = activeSalonSlug || outerSalon.salonSlug || undefined;
   const salonIdForModals = (activeSalonSlug && activeSalonId) || outerSalon.salonId || undefined;
@@ -144,6 +154,11 @@ export function AdminModalHost({
       ownerPreview={outerSalon.ownerPreview}
       salonContent={outerSalon.salonContent}
     >
+      {isOwnerManagementApp(activeModal) && (
+        <AppModal isOpen onClose={() => (managementClose.current ?? onCloseModal)()} allowDragToDismiss={false}>
+          <OwnerManagementModal key={`${activeSalonId}:${activeModal}`} registerClose={registerManagementClose} app={activeModal} salonSlug={activeSalonSlug} salonId={activeSalonId} isFreeSolo={isFreeSolo} teamAvailable={teamAppAvailable} onClose={onCloseModal} onOpenApp={onOpenApp} />
+        </AppModal>
+      )}
       <AppModal
         isOpen={activeModal === 'bookings'}
         onClose={onCloseModal}
@@ -243,6 +258,7 @@ export function AdminModalHost({
           onOpenClient={onOpenMarketingClient}
           onManageReminders={onManageReminders}
           onOpenSocialPosting={onOpenSocialPosting}
+          smartFitResultsAvailable={analyticsAppAvailable}
         />
       </AppModal>
 

@@ -561,6 +561,34 @@
       "when": 1789753533025,
       "tag": "0080_customer_booking_operation",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1789805347267,
+      "tag": "0081_review_request_automation_contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1789809175297,
+      "tag": "0082_review_request_nullable_contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1789815155287,
+      "tag": "0083_review_request_manual_contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1789816376999,
+      "tag": "0084_review_request_repeat_cooldown",
+      "breakpoints": true
     }
   ]
 }

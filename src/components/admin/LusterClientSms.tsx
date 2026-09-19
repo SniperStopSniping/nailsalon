@@ -23,6 +23,8 @@ type Message = {
   canRetry: boolean;
 };
 
+type MessagePurpose = 'google_review';
+
 const LABELS: Record<string, string> = {
   queued: 'Queued',
   sending: 'Sending',
@@ -65,6 +67,7 @@ export function LusterClientSms({
   composerOpen,
   composerTitle = 'Write a message',
   initialDraft = '',
+  purpose,
   recipientPhone,
   onOpenNativeUrl = openNativeUrl,
   onPhoneDraftOpened,
@@ -80,6 +83,7 @@ export function LusterClientSms({
   composerOpen: boolean;
   composerTitle?: string;
   initialDraft?: string;
+  purpose?: MessagePurpose;
   recipientPhone?: string;
   onOpenNativeUrl?: (href: string) => void;
   onPhoneDraftOpened?: (message: string) => void;
@@ -99,7 +103,7 @@ export function LusterClientSms({
   const [uncertain, setUncertain] = useState(false);
   const inFlight = useRef(false);
   const requestId = useRef<string | null>(null);
-  const openedDraftRef = useRef<string | null>(null);
+  const openedDraftRef = useRef<{ draft: string; purpose: MessagePurpose | undefined } | null>(null);
   const endpoint = `/api/admin/clients/${encodeURIComponent(clientId)}/messages`;
   const query = `salonSlug=${encodeURIComponent(salonSlug)}${historyAppointmentId ? `&appointmentId=${encodeURIComponent(historyAppointmentId)}` : ''}`;
   const segments = calculateSmsSegments(COMMUNICATION_TEMPLATES.client_manual_text!.render({ salonName, message: draft.trim() })).segments;
@@ -109,16 +113,16 @@ export function LusterClientSms({
       openedDraftRef.current = null;
       return;
     }
-    if (openedDraftRef.current === initialDraft) {
+    if (openedDraftRef.current?.draft === initialDraft && openedDraftRef.current.purpose === purpose) {
       return;
     }
-    openedDraftRef.current = initialDraft;
+    openedDraftRef.current = { draft: initialDraft, purpose };
     setDraft(initialDraft);
     setError(null);
     setNotice(null);
     setUncertain(false);
     requestId.current = null;
-  }, [composerOpen, initialDraft]);
+  }, [composerOpen, initialDraft, purpose]);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -183,7 +187,13 @@ export function LusterClientSms({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(retryId
           ? { salonSlug, intentId: retryId }
-          : { salonSlug, message: draft.trim(), requestId: requestId.current, ...(appointmentId ? { appointmentId } : {}) }),
+          : {
+              salonSlug,
+              message: draft.trim(),
+              requestId: requestId.current,
+              ...(purpose ? { purpose } : {}),
+              ...(appointmentId && !purpose ? { appointmentId } : {}),
+            }),
       });
       const payload = await response.json();
       if (!response.ok) {

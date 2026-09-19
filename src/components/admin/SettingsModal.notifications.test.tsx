@@ -254,12 +254,11 @@ describe('SettingsModal booking notifications', () => {
   });
 
   async function openNotifications() {
-    fireEvent.click(await screen.findByText('Messages & Notifications'));
-    fireEvent.click(await screen.findByText('Owner & Staff Alerts'));
+    await screen.findByLabelText('Notify salon owner for new booking alerts');
   }
 
   it('loads notification settings and saves both booking and cancellation preferences', async () => {
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="notifications" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     await openNotifications();
 
@@ -305,7 +304,7 @@ describe('SettingsModal booking notifications', () => {
   });
 
   it('saves the salon appointment notification toggles and recipient', async () => {
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="notifications" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     await openNotifications();
 
@@ -339,7 +338,7 @@ describe('SettingsModal booking notifications', () => {
   });
 
   it('rejects an invalid notification email before saving', async () => {
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="notifications" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     await openNotifications();
     fireEvent.change(

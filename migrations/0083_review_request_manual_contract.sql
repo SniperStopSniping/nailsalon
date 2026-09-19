@@ -1,0 +1,2 @@
+ALTER TABLE "review_request" DROP CONSTRAINT "review_request_completed_or_triggered";--> statement-breakpoint
+ALTER TABLE "review_request" ADD CONSTRAINT "review_request_completed_or_triggered" CHECK ("review_request"."completed_at" is not null or "review_request"."trigger_id" is not null or ("review_request"."source" = 'manual' and "review_request"."appointment_id" is null and "review_request"."completed_at" is null and "review_request"."trigger_id" is null));

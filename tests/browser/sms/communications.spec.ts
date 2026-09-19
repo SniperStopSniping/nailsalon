@@ -106,6 +106,29 @@ test('phone history retries a proven failure using the original intent and shows
   await expect(page.getByRole('button', { name: 'Retry text', exact: true })).toHaveCount(0);
 });
 
+test('Google review preset sends its explicit purpose without an appointment association', async ({ page }) => {
+  const requests: Record<string, unknown>[] = [];
+  await page.route('**/api/admin/clients/test-client/messages**', async (route) => {
+    if (route.request().method() === 'POST') {
+      requests.push(route.request().postDataJSON());
+      await route.fulfill({ json: { data: { sms: readySms, history: [] } } });
+      return;
+    }
+    await route.fulfill({ json: { data: { sms: readySms, history: [] } } });
+  });
+
+  await page.goto('/?purpose=google_review');
+  await page.getByRole('textbox', { name: 'Message' }).fill('Owner-edited review invitation.');
+  await page.getByRole('button', { name: 'Send text', exact: true }).tap();
+
+  await expect.poll(() => requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({
+    purpose: 'google_review',
+    message: 'Owner-edited review invitation.',
+  });
+  expect(requests[0]).not.toHaveProperty('appointmentId');
+});
+
 test('phone composer explains unavailable configuration and keeps send disabled', async ({ page }) => {
   await page.route('**/api/admin/clients/test-client/messages**', route => route.fulfill({ json: {
     data: { sms: { ...readySms, manualAvailable: false, detail: 'Text delivery tracking is not configured. Contact support.' }, history: [] },

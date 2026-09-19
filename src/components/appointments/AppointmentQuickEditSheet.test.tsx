@@ -13,8 +13,9 @@ vi.mock('@/components/admin/LusterClientSms', () => ({ LusterClientSms: () => nu
 
 // ReviewRequestAction owns its status-fetch and confirmation behavior. These
 // sheet-layout tests stay focused on quick-edit behavior.
+const reviewRequestActionMock = vi.hoisted(() => vi.fn<(props: unknown) => null>(() => null));
 vi.mock('@/components/appointments/ReviewRequestAction', () => ({
-  ReviewRequestAction: () => null,
+  ReviewRequestAction: (props: unknown) => reviewRequestActionMock(props),
 }));
 
 vi.mock('next/image', () => ({
@@ -741,6 +742,32 @@ describe('AppointmentQuickEditSheet', () => {
     fireEvent.click(screen.getByTestId('appointment-sheet-view-receipt'));
 
     expect(onViewReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['cancelled', 'no_show'] as const)('keeps review history visible for a %s appointment', (status) => {
+    reviewRequestActionMock.mockClear();
+    const detail = {
+      ...baseDetail,
+      appointment: { ...baseDetail.appointment, status },
+    };
+
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={detail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    expect(reviewRequestActionMock).toHaveBeenCalledWith(expect.objectContaining({ appointmentId: 'appt_1', salonSlug: 'salon-a', appointmentStatus: status }));
   });
 
   it('shows the failure reason and a Try again action when detail cannot load', () => {

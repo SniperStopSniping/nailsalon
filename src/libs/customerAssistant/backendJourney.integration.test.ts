@@ -38,6 +38,9 @@ const L1_FEATURES = { catalog: { variantsV1: true, addOnGroupsV1: false, booking
 const SETTINGS = {
   booking: { timezone: 'America/Toronto', currency: 'CAD', slotIntervalMinutes: 15, bufferMinutes: 0 },
   bookingExperience: { policy: { enabled: false } },
+  // This fixture exercises a review *reservation* only. It never dispatches
+  // through an SMS provider.
+  communications: { sms: { enabled: true }, quietHours: { enabled: false, start: '21:00', end: '09:00' } },
 };
 
 vi.mock('server-only', () => ({}));
@@ -252,6 +255,10 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     vi.clearAllMocks();
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     model.createResponse.mockResolvedValue({ status: 'completed', usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null }, action: 'propose', serviceId: SERVICE, addOns: [], question: 'details', optionIds: [], datePreference: null }) }] });
+    await database.delete(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, SALON));
+    await database.delete(schema.reviewRequestTriggerSchema).where(eq(schema.reviewRequestTriggerSchema.salonId, SALON));
+    await database.delete(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.salonId, SALON));
+    await database.delete(schema.salonRetentionSettingsSchema).where(eq(schema.salonRetentionSettingsSchema.salonId, SALON));
     await database.delete(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON));
     await database.delete(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON));
     await database.delete(schema.appointmentDepositSchema).where(eq(schema.appointmentDepositSchema.salonId, SALON));
@@ -275,6 +282,19 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     { engine: 'chromium' as const, l1: true },
     { engine: 'webkit' as const, l1: true },
   ])('$engine $l1 journey creates one no-deposit appointment after proposal, slot, contact, review, and confirmation', async ({ engine, l1 }) => {
+    // This is an explicit new-policy epoch before the AI handoff creates its
+    // appointment. It is intentionally separate from the booking reminder
+    // consent asserted below.
+    await database.insert(schema.salonRetentionSettingsSchema).values({
+      salonId: SALON,
+      automaticReviewRequests: true,
+      reviewRequestsEnabledAt: new Date(Date.now() - 60_000),
+      reviewRequestAutomationMode: 'scheduled_end',
+      reviewRequestDelayMinutes: 60,
+      reviewRequestRepeatCooldownDays: 90,
+      reviewRequestPolicyRevision: 1,
+      googleReviewUrl: 'https://g.page/r/synthetic-browser-review',
+    });
     await database.update(schema.salonSchema).set({ features: l1 ? L1_FEATURES : {} }).where(eq(schema.salonSchema.id, SALON));
     const serviceId = l1 ? L1_SERVICE : SERVICE;
     const requestedAddOns = l1 ? [{ addOnId: L1_OPTIONAL, quantity: 1 }] : [];
@@ -368,9 +388,44 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     expect(serverResults.filter(row => row.path.endsWith('/confirm'))).toHaveLength(1);
     expect(serverResults.some(row => row.path.endsWith('/status'))).toBe(true);
 
-    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+    const appointments = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+
+    expect(appointments).toHaveLength(1);
+
+    const appointment = appointments[0];
+    if (!appointment) {
+      throw new Error('Customer Assistant handoff did not persist an appointment.');
+    }
+
+    expect(appointment).toMatchObject({ status: 'confirmed', completedAt: null });
     expect(await database.select().from(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON))).toEqual(expect.arrayContaining([expect.objectContaining({ purpose: 'appointment_reminders', status: 'granted' })]));
     expect(await database.select().from(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON))).toHaveLength(1);
+
+    // Reminder consent is not review-request consent. Add the latter
+    // deliberately, then run the shared scheduled-end scanner/materializer
+    // against the appointment produced by the ordinary Customer AI handoff.
+    await database.insert(schema.communicationConsentSchema).values({
+      id: `synthetic-browser-review-consent-${randomUUID()}`,
+      salonId: SALON,
+      recipient: appointment.clientPhone,
+      channel: 'sms',
+      purpose: 'appointment_transactional',
+      status: 'granted',
+      source: 'synthetic-browser-review-proof',
+      wordingVersion: 'test',
+    });
+    const { materializeCompletedReviewTriggers, scanScheduledEndReviewTriggers } = await import('@/libs/reviewRequests.server');
+    await scanScheduledEndReviewTriggers({ database, now: appointment.endTime });
+    await materializeCompletedReviewTriggers({ database, now: appointment.endTime });
+    const triggers = await database.select().from(schema.reviewRequestTriggerSchema).where(eq(schema.reviewRequestTriggerSchema.salonId, SALON));
+    const requests = await database.select().from(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, SALON));
+    const reviewIntents = (await database.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.salonId, SALON))).filter(intent => intent.eventType === 'review_request');
+
+    expect(triggers).toEqual([expect.objectContaining({ appointmentId: appointment.id, kind: 'scheduled_end', state: 'materialized', scheduledFor: new Date(appointment.endTime.getTime() + 60 * 60_000) })]);
+    expect(requests).toEqual([expect.objectContaining({ appointmentId: appointment.id, source: 'automatic', status: 'scheduled', completedAt: null, scheduledFor: new Date(appointment.endTime.getTime() + 60 * 60_000) })]);
+    expect(reviewIntents).toEqual([expect.objectContaining({ appointmentId: appointment.id, eventType: 'review_request', scheduledFor: new Date(appointment.endTime.getTime() + 60 * 60_000) })]);
+    expect(requests[0]?.intentId).toBe(reviewIntents.find(intent => intent.eventType === 'review_request')?.id);
+    expect((await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, appointment.id)))[0]).toMatchObject({ status: 'confirmed', completedAt: null });
     expect(browserErrors).toEqual([]);
     expect(model.createResponse).toHaveBeenCalledTimes(1);
     expect(unexpected).toEqual([]);

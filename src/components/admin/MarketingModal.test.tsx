@@ -5,12 +5,36 @@ import type { RetentionSettings } from '@/types/retention';
 
 import { MarketingModal } from './MarketingModal';
 
-const { fetchMock } = vi.hoisted(() => ({
+const { backMock, fetchMock, pushMock, replaceMock, state, settingsModalMock } = vi.hoisted(() => ({
+  backMock: vi.fn(),
   fetchMock: vi.fn(),
+  pushMock: vi.fn(),
+  replaceMock: vi.fn(),
+  state: { query: '' },
+  settingsModalMock: vi.fn(),
+}));
+
+vi.mock('next/navigation', () => ({
+  useParams: () => ({ locale: 'en' }),
+  useRouter: () => ({ back: backMock, push: pushMock, replace: replaceMock }),
+  useSearchParams: () => new URLSearchParams(state.query),
 }));
 
 vi.mock('@/providers/SalonProvider', () => ({
   useSalon: () => ({ salonSlug: 'salon-a' }),
+}));
+
+vi.mock('./SettingsModal', () => ({
+  SettingsModal: (props: { initialView?: string; onClose?: () => void }) => {
+    settingsModalMock(props);
+    return (
+      <button
+        type="button"
+        data-testid={`${props.initialView ?? 'settings'}-settings-modal`}
+        onClick={props.onClose}
+      />
+    );
+  },
 }));
 
 const availableServices = [
@@ -251,9 +275,14 @@ async function renderMarketing(props: Partial<Parameters<typeof MarketingModal>[
   await screen.findByTestId('marketing-home');
 }
 
+function queryOf(href: string) {
+  return new URL(href, 'https://luster.test').searchParams;
+}
+
 describe('MarketingModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    state.query = '';
     vi.stubGlobal('fetch', fetchMock);
     // jsdom userAgent is not a phone — tests opt into mobile via stub.
   });
@@ -266,7 +295,8 @@ describe('MarketingModal', () => {
     expect(screen.getByText('Choose a client, write or use a saved message, then send your way.')).toBeInTheDocument();
     expect(screen.getByTestId('marketing-home-followups')).toHaveTextContent('2 due');
     expect(screen.getByTestId('marketing-home-results')).toHaveTextContent('3 sent · 2 redeemed');
-    expect(screen.getByTestId('marketing-home-texting-settings')).toHaveTextContent('Not available yet');
+    expect(screen.getByTestId('marketing-home-appointment-messages')).toHaveTextContent('Not available yet');
+    expect(screen.queryByTestId('marketing-home-texting-settings')).not.toBeInTheDocument();
     // No email marketing toggle exists anywhere.
     expect(screen.queryByRole('checkbox', { name: /email/i })).not.toBeInTheDocument();
   });
@@ -275,7 +305,7 @@ describe('MarketingModal', () => {
     installSuccessfulFetch(makeSettings(), { lusterReady: true });
     await renderMarketing();
 
-    expect(screen.getByTestId('marketing-home-texting-settings')).toHaveTextContent('Luster texting ready');
+    expect(screen.getByTestId('marketing-home-appointment-messages')).toHaveTextContent('Luster texting ready');
   });
 
   it('explains a Luster sending pause and opens its settings in this workspace', async () => {
@@ -291,32 +321,142 @@ describe('MarketingModal', () => {
     });
     await renderMarketing();
 
-    expect(screen.getByTestId('marketing-home-texting-settings')).toHaveTextContent('Paused');
+    expect(screen.getByTestId('marketing-home-appointment-messages')).toHaveTextContent('Paused');
     expect(screen.getByText(/Luster has temporarily paused SMS sending/)).toBeInTheDocument();
     expect(screen.queryByText(/finish texting setup/i)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('marketing-home-texting-settings'));
+    fireEvent.click(screen.getByTestId('marketing-home-appointment-messages'));
 
-    expect(await screen.findByTestId('communication-settings-panel')).toBeInTheDocument();
+    expect(await screen.findByTestId('communications-settings-modal')).toBeInTheDocument();
+    expect(settingsModalMock).toHaveBeenCalledWith(expect.objectContaining({
+      initialView: 'communications',
+      leafOnly: true,
+      leafBackLabel: 'Marketing & Messages',
+      salonSlug: 'salon-a',
+    }));
     expect(fetchMock.mock.calls.some(([, init]) => init?.method && init.method !== 'GET')).toBe(false);
   });
 
-  it('keeps appointment message settings inside Marketing & Messages', async () => {
+  it('keeps the complete existing appointment message controls inside Marketing & Messages', async () => {
     installSuccessfulFetch();
     await renderMarketing();
 
     fireEvent.click(screen.getByTestId('marketing-home-appointment-messages'));
 
-    expect(await screen.findByTestId('communication-settings-panel')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Appointment reminders' })).toBeVisible();
+    expect(await screen.findByTestId('communications-settings-modal')).toBeInTheDocument();
+    expect(settingsModalMock).toHaveBeenCalledWith(expect.objectContaining({
+      initialView: 'communications',
+      leafOnly: true,
+      leafBackLabel: 'Marketing & Messages',
+    }));
+  });
+
+  it('keeps Smart Fit under Offers and reuses its existing Settings editor', async () => {
+    installSuccessfulFetch();
+    await renderMarketing();
+
+    fireEvent.click(screen.getByTestId('marketing-home-offers'));
+
+    expect(await screen.findByTestId('marketing-offers')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('marketing-offers-smart-fit'));
+
+    expect(await screen.findByTestId('smart-fit-settings-modal')).toBeInTheDocument();
+    expect(settingsModalMock).toHaveBeenCalledWith(expect.objectContaining({
+      initialView: 'smart-fit',
+      leafOnly: true,
+      salonSlug: 'salon-a',
+      smartFitResultsAvailable: false,
+    }));
+  });
+
+  it('passes the Analytics gate to the reused Smart Fit editor', async () => {
+    const onOpenApp = vi.fn();
+    installSuccessfulFetch();
+    await renderMarketing({ onOpenApp, smartFitResultsAvailable: true });
+
+    fireEvent.click(screen.getByTestId('marketing-home-offers'));
+    fireEvent.click(await screen.findByTestId('marketing-offers-smart-fit'));
+
+    expect(settingsModalMock).toHaveBeenCalledWith(expect.objectContaining({
+      onOpenApp,
+      smartFitResultsAvailable: true,
+    }));
+  });
+
+  it('uses browser Back for a view it pushed, without adding a duplicate home entry', async () => {
+    installSuccessfulFetch();
+    await renderMarketing();
+
+    fireEvent.click(screen.getByTestId('marketing-home-appointment-messages'));
+    await screen.findByTestId('communications-settings-modal');
+    fireEvent.click(screen.getByTestId('communications-settings-modal'));
+
+    expect(backMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock).not.toHaveBeenCalled();
+    expect(pushMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('marketing-home')).toBeInTheDocument();
+  });
+
+  it('replaces a direct Reviews link with Marketing home instead of growing history', async () => {
+    state.query = 'salon=salon-a&returnTo=calendar&app=marketing&view=reviews';
+    installSuccessfulFetch();
+    render(<MarketingModal onClose={vi.fn()} salonName="Luster Demo Studio" />);
+
+    await screen.findByTestId('marketing-reviews');
+    fireEvent.click(screen.getByRole('button', { name: 'Marketing & Messages' }));
+
+    expect(backMock).not.toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith(
+      expect.stringContaining('salon=salon-a&returnTo=calendar&app=marketing'),
+      { scroll: false },
+    );
+    expect(replaceMock.mock.calls[0]![0]).not.toContain('view=reviews');
+  });
+
+  it('routes the first-visit offer shortcut to the existing Services menu', async () => {
+    const onOpenApp = vi.fn();
+    installSuccessfulFetch();
+    await renderMarketing({ onOpenApp });
+
+    fireEvent.click(screen.getByTestId('marketing-home-offers'));
+    fireEvent.click(await screen.findByTestId('marketing-offers-first-visit'));
+
+    expect(onOpenApp).toHaveBeenCalledWith('services');
+  });
+
+  it('pushes canonical Marketing views while retaining salon and return context', async () => {
+    state.query = 'salon=salon-a&returnTo=calendar&app=marketing';
+    installSuccessfulFetch();
+    await renderMarketing();
+
+    fireEvent.click(screen.getByTestId('marketing-home-appointment-messages'));
+
+    expect(pushMock).toHaveBeenCalledTimes(1);
+
+    const query = queryOf(pushMock.mock.calls[0]![0]);
+
+    expect(query.get('salon')).toBe('salon-a');
+    expect(query.get('returnTo')).toBe('calendar');
+    expect(query.get('app')).toBe('marketing');
+    expect(query.get('view')).toBe('messages');
+  });
+
+  it('keeps the existing reviews deep link on Review Requests', async () => {
+    state.query = 'salon=salon-a&returnTo=calendar&app=marketing&view=reviews';
+    installSuccessfulFetch();
+    render(<MarketingModal onClose={vi.fn()} salonName="Luster Demo Studio" />);
+
+    expect(await screen.findByTestId('marketing-reviews')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Review Requests' })).toBeVisible();
   });
 
   it('never reports a legacy salon-owned Twilio number as ready', async () => {
     installSuccessfulFetch(makeSettings(), { legacyConnection: true });
     await renderMarketing();
 
-    expect(screen.getByTestId('marketing-home-texting-settings')).toHaveTextContent('Setup incomplete');
-    expect(screen.getByTestId('marketing-home-texting-settings')).not.toHaveTextContent('Luster texting ready');
+    expect(screen.getByTestId('marketing-home-appointment-messages')).toHaveTextContent('Setup incomplete');
+    expect(screen.getByTestId('marketing-home-appointment-messages')).not.toHaveTextContent('Luster texting ready');
   });
 
   it('follow-up rows show reason, last service, consent and honest channel', async () => {

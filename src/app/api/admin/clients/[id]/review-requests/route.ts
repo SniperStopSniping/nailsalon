@@ -1,11 +1,9 @@
-import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { resolveOperationalSalonClientContactWithHandle } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { setReviewSuppression } from '@/libs/reviewRequests.server';
-import { salonClientSchema } from '@/models/Schema';
+import { getClientReviewOverview, setReviewSuppression } from '@/libs/reviewRequests.server';
 
 export const dynamic = 'force-dynamic';
 const schema = z.object({ reviewRequestsSuppressed: z.boolean() }).strict();
@@ -28,8 +26,8 @@ async function run(request: Request, clientId: string, write: boolean) {
     if (input?.success) {
       await setReviewSuppression(access.salon.id, client.id, input.data.reviewRequestsSuppressed);
     }
-    const [row] = await db.select({ reviewRequestsSuppressed: salonClientSchema.reviewRequestsSuppressed }).from(salonClientSchema).where(and(eq(salonClientSchema.id, client.id), eq(salonClientSchema.salonId, access.salon.id))).limit(1);
-    return Response.json({ data: row }, { headers: { 'Cache-Control': 'no-store' } });
+    const data = await getClientReviewOverview(access.salon.id, client.id);
+    return Response.json({ data }, { headers: { 'Cache-Control': 'no-store' } });
   } catch {
     return Response.json({ error: { message: 'Client not available in this salon.' } }, { status: 404 });
   }

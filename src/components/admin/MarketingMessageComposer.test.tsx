@@ -6,8 +6,8 @@ import { MarketingMessageComposer } from './MarketingMessageComposer';
 const fetchMock = vi.fn();
 
 vi.mock('@/components/admin/LusterClientSms', () => ({
-  LusterClientSms: (props: { clientId: string; composerTitle: string; initialDraft: string }) => (
-    <div data-testid="shared-composer" data-client-id={props.clientId}>
+  LusterClientSms: (props: { clientId: string; composerTitle: string; initialDraft: string; purpose?: string }) => (
+    <div data-testid="shared-composer" data-client-id={props.clientId} data-purpose={props.purpose}>
       <span>{props.composerTitle}</span>
       <span>{props.initialDraft}</span>
     </div>
@@ -52,6 +52,7 @@ describe('MarketingMessageComposer', () => {
 
     expect(screen.getByText('Send Google review link')).toBeVisible();
     expect(screen.getByText(/Hi Jessica/)).toHaveTextContent('would you review Isla Nails? https://g.page/isla/review');
+    expect(screen.getByTestId('shared-composer')).toHaveAttribute('data-purpose', 'google_review');
   });
 
   it('filters clients without refetching or losing the selected message type', async () => {

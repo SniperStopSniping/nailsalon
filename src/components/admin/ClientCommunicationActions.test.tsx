@@ -84,6 +84,14 @@ describe('ClientCommunicationActions', () => {
           },
         }));
       }
+      if (url.startsWith('/api/admin/clients/client_1/messages')) {
+        return Promise.resolve(jsonResponse({
+          data: {
+            sms: { manualAvailable: true, senderLabel: 'Luster messaging number', senderMode: 'shared_luster' },
+            history: [],
+          },
+        }));
+      }
       if (url.startsWith('/api/admin/location')) {
         return Promise.resolve(jsonResponse({
           data: {
@@ -191,6 +199,32 @@ describe('ClientCommunicationActions', () => {
     expect((screen.getByLabelText('Message') as HTMLTextAreaElement).value).toContain(
       'Hi Ava, please review Isla Nail Studio here: https://g.page/r/isla/review',
     );
+  });
+
+  it('sends an owner-edited Google review preset without the upcoming appointment id', async () => {
+    renderActions();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send Google review link' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Send Google review link' }));
+    await screen.findByText('Luster messaging number');
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Ava, thank you for visiting. Would you leave a review?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send text' }));
+
+    await waitFor(() => {
+      const send = fetchMock.mock.calls.find(([url, init]) => (
+        String(url).startsWith('/api/admin/clients/client_1/messages') && init?.method === 'POST'
+      ));
+
+      expect(send).toBeDefined();
+
+      const body = JSON.parse(String(send?.[1]?.body));
+
+      expect(body).toMatchObject({
+        purpose: 'google_review',
+        message: 'Ava, thank you for visiting. Would you leave a review?',
+      });
+      expect(body).not.toHaveProperty('appointmentId');
+    });
   });
 
   it('gives Call a tel: target and Email a mailto: target', async () => {
