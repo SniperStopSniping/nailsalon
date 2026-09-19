@@ -161,6 +161,18 @@ describe('authoritative customer clarification applicability', () => {
     }
   });
 
+  it.each(['origin', 'product'] as const)('does not ask %s about an existing product when the customer has bare nails', (question) => {
+    expect(plan({ question, optionIds: [] })).toEqual({ kind: 'selection', selection: { baseServiceId: biab, selectedAddOns: [] } });
+  });
+
+  it.each(['propose', 'clarify'] as const)('never replaces a named manicure/pedicure combo with a hand-only service during %s', (action) => {
+    const combo = 'biab-pedicure';
+    const menu: CustomerMenu = { ...SEMANTIC_L1_MENU, services: [...SEMANTIC_L1_MENU.services, { ...SEMANTIC_L1_MENU.services.find(item => item.id === biab)!, id: combo, name: 'BIAB + Gel Pedicure' }] };
+    const snapshot: PublicCatalogSnapshot = { ...SEMANTIC_L1_SNAPSHOT, services: [...SEMANTIC_L1_SNAPSHOT.services, { ...SEMANTIC_L1_SNAPSHOT.services.find(item => item.id === biab)!, id: combo, name: 'BIAB + Gel Pedicure' }] };
+
+    expect(plan({ menu, snapshot, action, candidate: { baseServiceId: combo, selectedAddOns: [] } })).toEqual({ kind: 'no_match' });
+  });
+
   it('rejects unknown or wrong-tenant IDs instead of filtering them into a valid request', () => {
     expect(plan({ optionIds: ['other-tenant'] })).toEqual({ kind: 'no_match' });
     expect(plan({ candidate: { baseServiceId: biab, selectedAddOns: [{ addOnId: 'other-tenant', quantity: 1 }] } })).toEqual({ kind: 'no_match' });

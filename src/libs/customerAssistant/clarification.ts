@@ -39,6 +39,12 @@ export function planCustomerClarification(args: {
   action?: 'propose' | 'clarify';
 }): SemanticSelectionResult {
   const { menu, snapshot, facts, candidate, question, optionIds } = args;
+  const candidateService = candidate && menu.services.find(item => item.id === candidate.baseServiceId);
+  // Preserve the semantic mapper's out-of-vocabulary boundary: a named combo
+  // must never become a hand-only service merely because one fact matches it.
+  if (candidateService && facts.treatment !== 'unknown' && vocabulary.serviceFamily(candidateService) === 'unknown') {
+    return { kind: 'no_match' };
+  }
   const publicIds = new Set([...menu.services, ...menu.addOns].map(item => item.id));
   if ((candidate && !menu.services.some(item => item.id === candidate.baseServiceId))
     || candidate?.selectedAddOns.some(item => !menu.addOns.some(addOn => addOn.id === item.addOnId))
@@ -230,7 +236,8 @@ export function planCustomerClarification(args: {
   // Optional model questions are advisory. Only compatible values for an
   // unanswered dimension can survive; unrelated-service values are discarded.
   if (args.action !== 'propose' && !hasKnownClarificationAnswer(question, facts) && question !== 'service'
-    && !(question === 'removal' && (facts.existingProduct === 'none' || facts.maintenance === 'refill'))) {
+    && !(['removal', 'origin', 'product'].includes(question) && facts.existingProduct === 'none')
+    && !(question === 'removal' && facts.maintenance === 'refill')) {
     const ids = menu.addOns.filter(item => (dimension(item, question) || (question === 'details' && optionIds.includes(item.id)))
       && !(question === 'finish' && vocabulary.isFrench(item) && facts.french !== 'unknown')
       && !(question === 'finish' && optionIds.length > 0 && !optionIds.includes(item.id))).map(item => item.id);
