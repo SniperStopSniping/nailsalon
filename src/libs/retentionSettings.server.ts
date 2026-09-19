@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { mergeRetentionSettings, resolveRetentionSettings } from '@/libs/retentionAssistant';
-import { lockSalonReviewMutation } from '@/libs/reviewRequests.server';
+import { applyReviewPolicyTransitionWithHandle, getReviewSettings, lockSalonReviewMutation } from '@/libs/reviewRequests.server';
 import { salonRetentionSettingsSchema, salonSchema } from '@/models/Schema';
 import type { RetentionSettings } from '@/types/retention';
 import type { SalonSettings } from '@/types/salonPolicy';
@@ -53,16 +53,24 @@ export async function saveRetentionSettingsForSalon(
 ): Promise<RetentionSettings> {
   const row = await db.transaction(async (transaction) => {
     await lockSalonReviewMutation(transaction, salonId);
+    await transaction.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.id, salonId)).for('no key update');
+    const old = await getReviewSettings(salonId, transaction);
+    const transition = await applyReviewPolicyTransitionWithHandle(transaction, salonId, old, {
+      mode: old.policy.mode,
+      googleReviewUrl: settings.googleReviewUrl,
+    });
     const [saved] = await transaction
       .insert(salonRetentionSettingsSchema)
       .values({
         salonId,
         ...settings,
+        ...transition,
       })
       .onConflictDoUpdate({
         target: salonRetentionSettingsSchema.salonId,
         set: {
           ...settings,
+          ...transition,
           updatedAt: new Date(),
         },
       })
@@ -80,6 +88,8 @@ export async function patchRetentionSettingsForSalon(
 ): Promise<RetentionSettings> {
   return db.transaction(async (transaction) => {
     await lockSalonReviewMutation(transaction, salonId);
+    await transaction.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.id, salonId)).for('no key update');
+    const old = await getReviewSettings(salonId, transaction);
     const [row] = await transaction.select().from(salonRetentionSettingsSchema)
       .where(eq(salonRetentionSettingsSchema.salonId, salonId)).limit(1);
     const [salon] = row
@@ -96,8 +106,12 @@ export async function patchRetentionSettingsForSalon(
     })();
     const current = resolveRetentionSettings(row ?? { googleReviewUrl: safeLegacyUrl });
     const next = mergeRetentionSettings(current, patch);
-    const [saved] = await transaction.insert(salonRetentionSettingsSchema).values({ salonId, ...next })
-      .onConflictDoUpdate({ target: salonRetentionSettingsSchema.salonId, set: { ...next, updatedAt: new Date() } }).returning();
+    const transition = await applyReviewPolicyTransitionWithHandle(transaction, salonId, old, {
+      mode: old.policy.mode,
+      googleReviewUrl: next.googleReviewUrl,
+    });
+    const [saved] = await transaction.insert(salonRetentionSettingsSchema).values({ salonId, ...next, ...transition })
+      .onConflictDoUpdate({ target: salonRetentionSettingsSchema.salonId, set: { ...next, ...transition, updatedAt: new Date() } }).returning();
     return resolveRetentionSettings(saved ?? next);
   });
 }

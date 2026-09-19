@@ -118,7 +118,7 @@ async function grantDispatchCredits(salonId: string) {
   });
 }
 
-async function waitForDispatcherTx1IntentLock(holderPid: number) {
+async function waitForIntentLockHeldBy(holderPid: number, waiter: string) {
   const deadline = performance.now() + 5_000;
   while (performance.now() < deadline) {
     const waiting = await pool.query<{ count: string }>(`
@@ -137,7 +137,7 @@ async function waitForDispatcherTx1IntentLock(holderPid: number) {
     }
     await new Promise(resolve => setTimeout(resolve, 20));
   }
-  throw new Error('Dispatcher did not reach the held TX1 intent lock.');
+  throw new Error(`${waiter} did not reach the held intent lock.`);
 }
 
 async function waitForProviderOrEarlyDispatch(
@@ -419,7 +419,7 @@ async function waitForProviderOrEarlyDispatch(
       const holderPid = Number((await intentHolder.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]?.pid);
       dispatch = dispatchClaimedIntent(intent!, providerSend, sendTime);
 
-      await waitForDispatcherTx1IntentLock(holderPid);
+      await waitForIntentLockHeldBy(holderPid, 'Dispatcher');
       await db.update(schema.appointmentSchema).set({ status: 'cancelled' })
         .where(eq(schema.appointmentSchema.id, fixture.appointmentId));
       await intentHolder.query('rollback');
@@ -438,6 +438,79 @@ async function waitForProviderOrEarlyDispatch(
       .where(eq(schema.communicationIntentSchema.id, intent!.id));
 
     expect(storedIntent).toMatchObject({ status: 'suppressed', lastError: 'APPOINTMENT_NO_LONGER_ACTIVE' });
+  }, 20_000);
+
+  it('preserves provider evidence when clearing the Google link waits on a dispatcher-like TX1', async () => {
+    const fixture = await seed({ mode: 'scheduled_end', status: 'confirmed', completedAt: null });
+    const { materializeCompletedReviewTriggers, saveReviewSettings, scanScheduledEndReviewTriggers } = await import('./reviewRequests.server');
+    await scanScheduledEndReviewTriggers({ database: db, now: completion, limit: 1 });
+    await materializeCompletedReviewTriggers({ database: db, now: completion, limit: 1 });
+    const [request] = await db.select().from(schema.reviewRequestSchema)
+      .where(eq(schema.reviewRequestSchema.salonId, fixture.salonId));
+    const [intent] = await db.select().from(schema.communicationIntentSchema)
+      .where(eq(schema.communicationIntentSchema.id, request!.intentId));
+
+    expect(request).toMatchObject({ status: 'scheduled', source: 'automatic' });
+    expect(intent).toMatchObject({ status: 'pending' });
+
+    const intentHolder = await pool.connect();
+    let settingsWrite: Promise<unknown> | null = null;
+    let holderTransactionOpen = false;
+    const deliveryId = `delivery-settings-tx1-${fixture.appointmentId}`;
+    try {
+      await intentHolder.query('begin');
+      holderTransactionOpen = true;
+      await intentHolder.query('select id from communication_intent where id = $1 for update', [intent!.id]);
+      const holderPid = Number((await intentHolder.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]?.pid);
+
+      settingsWrite = saveReviewSettings(fixture.salonId, {
+        googleReviewUrl: null,
+        automaticEnabled: false,
+        delayMinutes: 60,
+        messageTemplate: 'Hi {{firstName}}! Thanks for visiting {{businessName}}. We would appreciate a Google review: {{reviewLink}}',
+      });
+      // Observe early rejection without changing the promise asserted below.
+      void settingsWrite.catch(() => undefined);
+
+      // The canonical writer has its salon NO KEY UPDATE lock before it
+      // reaches this intent-row wait. This delivery insert must retain FK KEY
+      // SHARE compatibility while the settings transaction remains blocked.
+      await waitForIntentLockHeldBy(holderPid, 'Google-link settings write');
+      await intentHolder.query(`
+        insert into notification_delivery (
+          id, salon_id, appointment_id, channel, purpose, dedupe_key,
+          intent_id, provider_message_id, status
+        ) values ($1, $2, $3, 'sms', 'review_request', $4, $5, $6, 'sent')
+      `, [
+        deliveryId,
+        fixture.salonId,
+        fixture.appointmentId,
+        `delivery-settings-tx1:${fixture.appointmentId}`,
+        intent!.id,
+        'SM_settings_tx1_evidence',
+      ]);
+      await intentHolder.query('commit');
+      holderTransactionOpen = false;
+
+      await expect(settingsWrite).resolves.toMatchObject({ googleReviewUrl: null });
+    } finally {
+      if (holderTransactionOpen) {
+        await intentHolder.query('rollback');
+      }
+      intentHolder.release();
+      await settingsWrite?.catch(() => undefined);
+    }
+
+    const [storedRequest] = await db.select().from(schema.reviewRequestSchema)
+      .where(eq(schema.reviewRequestSchema.id, request!.id));
+    const [storedIntent] = await db.select().from(schema.communicationIntentSchema)
+      .where(eq(schema.communicationIntentSchema.id, intent!.id));
+    const [delivery] = await db.select().from(schema.notificationDeliverySchema)
+      .where(eq(schema.notificationDeliverySchema.id, deliveryId));
+
+    expect(storedRequest).toMatchObject({ status: 'scheduled', cancelledAt: null });
+    expect(storedIntent).toMatchObject({ status: 'pending', resolvedAt: null });
+    expect(delivery).toMatchObject({ intentId: intent!.id, providerMessageId: 'SM_settings_tx1_evidence', status: 'sent' });
   }, 20_000);
 
   it('keeps the TX1 reservation settled when provider acceptance wins a later cancellation', async () => {
@@ -647,8 +720,8 @@ async function waitForProviderOrEarlyDispatch(
   });
 
   afterAll(() => {
-    expect(executedCases).toBe(15);
+    expect(executedCases).toBe(16);
 
-    process.stdout.write('REVIEW_REQUEST_POSTGRES_TESTS_EXECUTED=15 REVIEW_REQUEST_POSTGRES_TESTS_SKIPPED=0\n');
+    process.stdout.write('REVIEW_REQUEST_POSTGRES_TESTS_EXECUTED=16 REVIEW_REQUEST_POSTGRES_TESTS_SKIPPED=0\n');
   });
 });

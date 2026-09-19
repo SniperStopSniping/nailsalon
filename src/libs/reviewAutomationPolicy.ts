@@ -1,4 +1,6 @@
-import { REVIEW_DELAY_MINUTES } from '@/libs/reviewRequests';
+import { z } from 'zod';
+
+import { REVIEW_DELAY_MINUTES, reviewSettingsSchema } from '@/libs/reviewRequests';
 
 export const REVIEW_AUTOMATION_MODES = [
   'manual',
@@ -14,6 +16,15 @@ export const REVIEW_REPEAT_COOLDOWN_OPTIONS = [90, 180, 365, 'never'] as const;
 /** UI choices; existing salons may have another persisted delay. */
 export const REVIEW_AUTOMATION_DELAY_MINUTES = REVIEW_DELAY_MINUTES;
 export const MAX_REVIEW_AUTOMATION_DELAY_MINUTES = 10080;
+
+/** Explicit policy writes coexist with the unchanged legacy boolean contract. */
+export const reviewAutomationSettingsSchema = reviewSettingsSchema.omit({ automaticEnabled: true }).extend({
+  automationMode: z.enum(REVIEW_AUTOMATION_MODES),
+  delayMinutes: z.number().int().min(0).max(MAX_REVIEW_AUTOMATION_DELAY_MINUTES),
+  repeatCooldownDays: z.union([z.literal(90), z.literal(180), z.literal(365), z.literal('never')]),
+}).strict();
+
+export const reviewSettingsUpdateSchema = z.union([reviewSettingsSchema, reviewAutomationSettingsSchema]);
 
 export type ReviewAutomationPolicy = {
   mode: ReviewAutomationMode;

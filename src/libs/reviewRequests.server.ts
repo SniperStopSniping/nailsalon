@@ -9,9 +9,10 @@ import { applyQuietHours } from '@/libs/communicationScheduling';
 import { resolveCommunicationSettingsFromSettings } from '@/libs/communicationSettings';
 import { db, usesRuntimePostgres } from '@/libs/DB';
 import { isValidPhone } from '@/libs/phone';
-import { evaluateScheduledEndReviewEligibility, resolveReviewAutomationPolicy } from '@/libs/reviewAutomationPolicy';
+import type { ReviewAutomationMode } from '@/libs/reviewAutomationPolicy';
+import { applyLegacyAutomaticReviewUpdate, evaluateScheduledEndReviewEligibility, resolveReviewAutomationPolicy, reviewSettingsUpdateSchema } from '@/libs/reviewAutomationPolicy';
 import { evaluateReviewHistory } from '@/libs/reviewRequestHistory';
-import { DEFAULT_REVIEW_MESSAGE, isReviewUrl, renderReviewMessage, reviewMessageFits, reviewSettingsSchema, reviewSmsBody } from '@/libs/reviewRequests';
+import { DEFAULT_REVIEW_MESSAGE, isReviewUrl, renderReviewMessage, reviewMessageFits, reviewSmsBody } from '@/libs/reviewRequests';
 import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
 import { readSharedSenderEnvConfig } from '@/libs/smsSender';
 import { appointmentSchema, clientCommunicationSchema, communicationConsentSchema, communicationIntentSchema, notificationDeliverySchema, reviewRequestSchema, reviewRequestTriggerSchema, salonClientSchema, salonRetentionSettingsSchema, salonSchema, smsGlobalConsentEventSchema } from '@/models/Schema';
@@ -565,13 +566,32 @@ export async function materializeCompletedReviewTriggers(
 export async function getReviewSettings(salonId: string, database: CommunicationIntentDatabase = db) {
   const [settings] = await database.select().from(salonRetentionSettingsSchema).where(eq(salonRetentionSettingsSchema.salonId, salonId)).limit(1);
   const [salon] = await database.select().from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
+  const googleReviewUrl = settings ? settings.googleReviewUrl : salon?.settings?.googleReviewUrl ?? null;
+  const policy = resolveReviewAutomationPolicy(settings);
+  const communications = salon ? resolveCommunicationSettingsFromSettings(salon.settings) : null;
+  const reasons: string[] = [];
+  if (!googleReviewUrl || !isReviewUrl(googleReviewUrl)) {
+    reasons.push('Add a valid Google review link.');
+  }
+  if (!salon || salon.deletedAt || salon.isActive === false) {
+    reasons.push('This business is unavailable.');
+  }
+  if (!communications?.sms.enabled || communications.killSwitch) {
+    reasons.push('Enable Luster SMS in Client communications.');
+  }
   return {
-    googleReviewUrl: settings ? settings.googleReviewUrl : salon?.settings?.googleReviewUrl ?? null,
+    googleReviewUrl,
     automaticEnabled: settings?.automaticReviewRequests ?? false,
     enabledAt: settings?.reviewRequestsEnabledAt ?? null,
     delayMinutes: settings?.reviewRequestDelayMinutes ?? 60,
     messageTemplate: settings?.reviewRequestMessage ?? DEFAULT_REVIEW_MESSAGE,
-    policy: resolveReviewAutomationPolicy(settings),
+    policy,
+    storedAutomationMode: settings?.reviewRequestAutomationMode ?? null,
+    policyRevision: settings?.reviewRequestPolicyRevision ?? 0,
+    readiness: {
+      status: policy.mode === 'manual' ? 'manual' as const : reasons.length ? 'needs_setup' as const : 'configured' as const,
+      reasons,
+    },
     businessName: salon?.name ?? '',
     salon,
   };
@@ -759,7 +779,7 @@ async function existingRequest(database: CommunicationIntentDatabase, salonId: s
 }
 
 /** Only a proven never-sent intent can release a client's normal request slot. */
-export async function cancelReviewRequests(database: CommunicationIntentDatabase, salonId: string, filter: { clientIds?: string[]; automaticOnly?: boolean } = {}) {
+export async function cancelReviewRequests(database: CommunicationIntentTransaction, salonId: string, filter: { clientIds?: string[]; automaticOnly?: boolean } = {}) {
   const rows = await database.select().from(reviewRequestSchema).where(and(
     eq(reviewRequestSchema.salonId, salonId),
     ne(reviewRequestSchema.status, 'cancelled'),
@@ -767,6 +787,23 @@ export async function cancelReviewRequests(database: CommunicationIntentDatabase
     filter.automaticOnly ? eq(reviewRequestSchema.source, 'automatic') : undefined,
   ));
   for (const row of rows) {
+    // Share the dispatcher's TX1 boundary. A status alone cannot prove that a
+    // provider did not accept an earlier attempt with contradictory evidence.
+    const [intent] = await database.select().from(communicationIntentSchema).where(and(
+      eq(communicationIntentSchema.id, row.intentId),
+      eq(communicationIntentSchema.salonId, salonId),
+    )).for('update').limit(1);
+    if (!intent || !CANCELLABLE.includes(intent.status as typeof CANCELLABLE[number])) {
+      continue;
+    }
+    const [evidence] = await database.select({ id: notificationDeliverySchema.id }).from(notificationDeliverySchema).where(and(
+      eq(notificationDeliverySchema.salonId, salonId),
+      or(eq(notificationDeliverySchema.intentId, intent.id), intent.deliveryId ? eq(notificationDeliverySchema.id, intent.deliveryId) : undefined),
+      or(isNotNull(notificationDeliverySchema.providerMessageId), inArray(notificationDeliverySchema.status, ['sent', 'delivered'])),
+    )).limit(1);
+    if (evidence) {
+      continue;
+    }
     const now = new Date();
     const cancelled = await database.update(communicationIntentSchema).set({ status: 'canceled', resolvedAt: now, lastError: 'REVIEW_REQUEST_CANCELLED' }).where(and(
       eq(communicationIntentSchema.id, row.intentId),
@@ -779,21 +816,66 @@ export async function cancelReviewRequests(database: CommunicationIntentDatabase
   }
 }
 
+/**
+ * Shared by canonical and legacy Google-link writers. Caller holds the review
+ * fence and salon row lock; this helper never opens a nested transaction.
+ * Restoring a destination starts a fresh epoch rather than sending a backlog.
+ */
+export async function applyReviewPolicyTransitionWithHandle(
+  transaction: CommunicationIntentTransaction,
+  salonId: string,
+  old: Awaited<ReturnType<typeof getReviewSettings>>,
+  next: { mode: ReviewAutomationMode; googleReviewUrl: string | null },
+) {
+  const automaticEnabled = next.mode !== 'manual';
+  const hasDestination = !!next.googleReviewUrl && isReviewUrl(next.googleReviewUrl);
+  const restoredLink = automaticEnabled && hasDestination && (!old.googleReviewUrl || !isReviewUrl(old.googleReviewUrl));
+  const newEpoch = old.policy.mode !== next.mode || restoredLink || (automaticEnabled && !old.enabledAt);
+  if (!hasDestination || !automaticEnabled || newEpoch) {
+    await cancelReviewRequests(transaction, salonId, { automaticOnly: hasDestination });
+  }
+  return {
+    reviewRequestsEnabledAt: automaticEnabled ? (newEpoch ? new Date() : old.enabledAt) : null,
+    reviewRequestPolicyRevision: old.policyRevision + (newEpoch ? 1 : 0),
+  };
+}
+
 export async function saveReviewSettings(salonId: string, input: unknown) {
-  const parsed = reviewSettingsSchema.parse(input);
-  const value = { ...parsed, automaticEnabled: parsed.automaticEnabled && parsed.googleReviewUrl !== null };
+  const parsed = reviewSettingsUpdateSchema.parse(input);
   await db.transaction(async (tx) => {
     await lockSalonReviewMutation(tx, salonId);
     // Existing completion takes a share lock on this row: settings changes
     // and event production cannot straddle one another's commit.
-    await tx.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.id, salonId)).for('update');
+    // NO KEY UPDATE still excludes producers' SHARE locks, while allowing
+    // the dispatcher's delivery insert to take its salon FK KEY SHARE lock.
+    await tx.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.id, salonId)).for('no key update');
     const old = await getReviewSettings(salonId, tx);
-    const enabledAt = value.automaticEnabled ? (old.automaticEnabled ? old.enabledAt : new Date()) : null;
-    const patch = { googleReviewUrl: value.googleReviewUrl, automaticReviewRequests: value.automaticEnabled, reviewRequestsEnabledAt: enabledAt, reviewRequestDelayMinutes: value.delayMinutes, reviewRequestMessage: value.messageTemplate };
+    const explicit = 'automationMode' in parsed;
+    const legacyEnabled = !explicit && parsed.automaticEnabled && parsed.googleReviewUrl !== null;
+    const mode = explicit
+      ? parsed.automationMode
+      : applyLegacyAutomaticReviewUpdate({
+        automaticReviewRequests: old.automaticEnabled,
+        reviewRequestAutomationMode: old.storedAutomationMode,
+        reviewRequestDelayMinutes: old.delayMinutes,
+        reviewRequestRepeatCooldownDays: old.policy.repeatCooldownDays,
+      }, legacyEnabled).mode;
+    const automaticEnabled = mode !== 'manual';
+    const transition = await applyReviewPolicyTransitionWithHandle(tx, salonId, old, { mode, googleReviewUrl: parsed.googleReviewUrl });
+    const patch = {
+      googleReviewUrl: parsed.googleReviewUrl,
+      automaticReviewRequests: automaticEnabled,
+      ...transition,
+      reviewRequestDelayMinutes: parsed.delayMinutes,
+      reviewRequestMessage: parsed.messageTemplate,
+      ...(explicit
+        ? {
+            reviewRequestAutomationMode: mode,
+            reviewRequestRepeatCooldownDays: parsed.repeatCooldownDays === 'never' ? null : parsed.repeatCooldownDays,
+          }
+        : legacyEnabled && old.storedAutomationMode === 'manual' ? { reviewRequestAutomationMode: mode } : {}),
+    };
     await tx.insert(salonRetentionSettingsSchema).values({ salonId, ...patch }).onConflictDoUpdate({ target: salonRetentionSettingsSchema.salonId, set: patch });
-    if (!value.googleReviewUrl || !value.automaticEnabled) {
-      await cancelReviewRequests(tx, salonId, { automaticOnly: !!value.googleReviewUrl });
-    }
   });
   return getReviewSettings(salonId);
 }
