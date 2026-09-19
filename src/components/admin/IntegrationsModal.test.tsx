@@ -238,6 +238,25 @@ describe('IntegrationsModal', () => {
     expect(screen.getByTestId('marketing-email-row').querySelector('button')).toBeNull();
   });
 
+  it('routes owner and staff alerts to their Settings editor without offering a client-message editor', async () => {
+    const onOpenOwnerAlerts = vi.fn();
+    mockEndpoints({});
+
+    render(
+      <IntegrationsModal
+        onClose={vi.fn()}
+        salonSlug="salon-a"
+        initialView="email"
+        onOpenOwnerAlerts={onOpenOwnerAlerts}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose Owner & Staff Alerts' }));
+
+    expect(onOpenOwnerAlerts).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Manage appointment messages & reminders' })).not.toBeInTheDocument();
+  });
+
   it('disconnects Google Calendar after an explicit confirmation', async () => {
     const onDisconnect = vi.fn();
     mockEndpoints({
@@ -411,26 +430,31 @@ describe('IntegrationsModal', () => {
     expect(screen.queryByText(/0 available/i)).not.toBeInTheDocument();
   });
 
-  it('separates connection health from when things send, and offers the way across', async () => {
-    const onOpenSettings = vi.fn();
+  it('separates connection health from client communications and owner alerts, with canonical wayfinding', async () => {
+    const onOpenAppointmentMessages = vi.fn();
+    const onOpenOwnerAlerts = vi.fn();
     mockEndpoints({});
 
     render(
       <IntegrationsModal
         onClose={vi.fn()}
         salonSlug="salon-a"
-        onOpenSettings={onOpenSettings}
+        onOpenAppointmentMessages={onOpenAppointmentMessages}
+        onOpenOwnerAlerts={onOpenOwnerAlerts}
       />,
     );
 
     const note = await screen.findByTestId('integrations-scope-note');
 
     expect(note).toHaveTextContent(/whether each channel is connected and working/i);
-    expect(note).toHaveTextContent(/is set in Settings/i);
+    expect(note).toHaveTextContent(/Appointment messages and reminders are managed in Marketing & Messages/i);
+    expect(note).toHaveTextContent(/Owner & Staff Alerts are managed in Settings/i);
 
-    fireEvent.click(screen.getByTestId('integrations-open-settings'));
+    fireEvent.click(screen.getByTestId('integrations-open-appointment-messages'));
+    fireEvent.click(screen.getByTestId('integrations-open-owner-alerts'));
 
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenAppointmentMessages).toHaveBeenCalledTimes(1);
+    expect(onOpenOwnerAlerts).toHaveBeenCalledTimes(1);
   });
 
   it('shows shared SMS identity, manual delivery and credits on desktop without offering BYO onboarding', async () => {
@@ -461,7 +485,7 @@ describe('IntegrationsModal', () => {
     ['GLOBAL_SMS_DISABLED', 'Paused', 'Luster has temporarily paused SMS sending. Your credits and preferences are saved.'],
     ['PILOT_NOT_ENABLED', 'Not available yet', 'Luster SMS is not available for this salon yet. Your credits and preferences are saved.'],
   ])('keeps 100 credits separate from the %s sending restriction', async (blockingReason, label, detail) => {
-    const onOpenSettings = vi.fn();
+    const onOpenAppointmentMessages = vi.fn();
     mockEndpoints({
       smsReminders: 'UPGRADE_REQUIRED',
       health: {
@@ -476,7 +500,7 @@ describe('IntegrationsModal', () => {
         }),
       },
     });
-    render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" onOpenSettings={onOpenSettings} />);
+    render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" onOpenAppointmentMessages={onOpenAppointmentMessages} />);
     await waitFor(() => expect(screen.getByTestId('manual-texting-section')).toHaveTextContent(label));
 
     expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent(label);
@@ -485,9 +509,9 @@ describe('IntegrationsModal', () => {
     expect(screen.queryByText(/upgrade required/i)).not.toBeInTheDocument();
     expect(screen.queryByText('Authorize Twilio')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Manage texts and reminders in Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Manage appointment messages & reminders' }));
 
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onOpenAppointmentMessages).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls.some(([, init]) => init?.method && init.method !== 'GET')).toBe(false);
   });
 });
