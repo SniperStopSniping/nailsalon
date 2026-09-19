@@ -171,12 +171,24 @@ function open() {
   render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 }
 
+function openBookingExperience() {
+  render(
+    <SettingsModal
+      initialView="booking-experience"
+      leafOnly
+      onClose={vi.fn()}
+      salonSlug="salon-a"
+      userName="Daniela"
+    />,
+  );
+}
+
 async function openBookingRules() {
   fireEvent.click(await screen.findByText('Booking & Availability'));
   fireEvent.click(await screen.findByText('Booking Rules'));
 }
 
-async function openBusinessCard(card: 'Branding & Social' | 'Location & Arrival') {
+async function openBusinessCard(card: 'Branding & Social' | 'Business Information') {
   fireEvent.click(await screen.findByText('Business'));
   fireEvent.click(await screen.findByText(card));
 }
@@ -276,7 +288,7 @@ describe('SettingsModal — one writer per record', () => {
   });
 
   describe('appearance authorities (AG-more-settings-06)', () => {
-    it('names the two Business rows and where each one goes', async () => {
+    it('routes the legacy Branding & Social row to the canonical booking experience editor', async () => {
       open();
 
       fireEvent.click(await screen.findByText('Business'));
@@ -285,11 +297,17 @@ describe('SettingsModal — one writer per record', () => {
       expect(screen.getByText('Booking messages and social links')).toBeInTheDocument();
       expect(screen.queryByText('Website layout & colours')).not.toBeInTheDocument();
       expect(screen.queryByText('Branding & appearance')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText('Branding & Social'));
+
+      expect(pushMock).toHaveBeenLastCalledWith(
+        '/en/admin/booking-page?salon=salon-a&panel=experience',
+        { scroll: false },
+      );
     });
 
     it('replaces the free colour control with a link to the drafted palette', async () => {
-      open();
-      await openBusinessCard('Branding & Social');
+      openBookingExperience();
 
       const handoff = await screen.findByTestId('branding-colour-authority');
 
@@ -301,8 +319,7 @@ describe('SettingsModal — one writer per record', () => {
     });
 
     it('never writes primaryColor from this screen, including on Reset', async () => {
-      open();
-      await openBusinessCard('Branding & Social');
+      openBookingExperience();
       fireEvent.click(await screen.findByRole('button', { name: /reset to default/i }));
       fireEvent.click(screen.getByRole('button', { name: /save booking experience/i }));
 
@@ -318,8 +335,7 @@ describe('SettingsModal — one writer per record', () => {
 
   describe('Instagram (AG-w2-information-parity-02)', () => {
     it('shows the stored URL as a bare handle with the shared helper text', async () => {
-      open();
-      await openBusinessCard('Branding & Social');
+      openBookingExperience();
 
       expect(await screen.findByTestId('branding-instagram')).toHaveValue('audit0905lacquer');
       expect(screen.getByTestId('branding-instagram-helper'))
@@ -327,8 +343,7 @@ describe('SettingsModal — one writer per record', () => {
     });
 
     it('stores the canonical profile URL whether a handle or a link is typed', async () => {
-      open();
-      await openBusinessCard('Branding & Social');
+      openBookingExperience();
 
       const field = await screen.findByTestId('branding-instagram');
 
@@ -350,8 +365,7 @@ describe('SettingsModal — one writer per record', () => {
     });
 
     it('explains an unusable value instead of silently storing it', async () => {
-      open();
-      await openBusinessCard('Branding & Social');
+      openBookingExperience();
       fireEvent.change(await screen.findByTestId('branding-instagram'), { target: { value: 'https://example.com/someone' } });
 
       expect(screen.getByTestId('branding-instagram-helper')).toHaveTextContent(/only your Instagram username/i);
@@ -359,27 +373,16 @@ describe('SettingsModal — one writer per record', () => {
   });
 
   describe('address (source map §C1 row 1)', () => {
-    it('keeps the row but hands the five address fields to Your Information', async () => {
+    it('hands the legacy business row to canonical Business Information', async () => {
       open();
-      await openBusinessCard('Location & Arrival');
+      await openBusinessCard('Business Information');
 
-      expect(await screen.findByTestId('settings-location-handoff')).toBeInTheDocument();
-      // The competing form is gone: no second copy of the address fields.
-      expect(screen.queryByPlaceholderText('123 Main St')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /save location/i })).not.toBeInTheDocument();
-      // Parking & entry instructions live only here and stay.
-      expect(await screen.findByDisplayValue('Free parking behind the salon.')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole('button', { name: /edit salon address/i }));
-
-      expect(await screen.findByTestId('booking-page-information-editor')).toBeInTheDocument();
       expect(pushMock).toHaveBeenLastCalledWith(
-        '/en/admin?salon=salon-a&app=settings&view=business-profile',
+        '/en/admin/booking-page?salon=salon-a&panel=business',
         { scroll: false },
       );
-      expect(pushMock).not.toHaveBeenCalledWith(
-        '/en/admin/booking-page?salon=salon-a&panel=information',
-      );
+      expect(screen.queryByPlaceholderText('123 Main St')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /save location/i })).not.toBeInTheDocument();
     });
   });
 });

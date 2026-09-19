@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { Camera, ChevronLeft, Loader2, Star } from 'lucide-react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { StaffStatus } from '@/models/Schema';
@@ -10,7 +11,6 @@ import { StaffStatusToggle } from './StaffStatusToggle';
 import { ClientsTab } from './tabs/ClientsTab';
 import { EarningsTab } from './tabs/EarningsTab';
 import { OverviewTab } from './tabs/OverviewTab';
-import { ScheduleTab } from './tabs/ScheduleTab';
 import { ServicesTab } from './tabs/ServicesTab';
 import { SettingsTab } from './tabs/SettingsTab';
 import { useTechnicianReviews } from './useTechnicianReviews';
@@ -103,6 +103,10 @@ const TABS: { id: TabId; label: string }[] = [
 
 export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate, initialTab = 'overview' }: StaffDetailPageProps) {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+  const router = useRouter();
+  const params = useParams<{ locale?: string }>();
+  const search = useSearchParams();
+  const locale = params?.locale === 'fr' ? 'fr' : 'en';
   // Same source as the Reviews app; no reviews → no rating shown.
   const { byTechnician: reviewsByTechnician } = useTechnicianReviews(salonSlug);
   const reviewSummary = reviewsByTechnician[staffId] ?? null;
@@ -115,6 +119,16 @@ export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate, initialT
   // Avatar upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const openTechnicianHours = useCallback(() => {
+    const query = new URLSearchParams(search?.toString());
+    if (salonSlug) {
+      query.set('salon', salonSlug);
+    }
+    query.set('app', 'hours');
+    query.set('view', 'working-hours');
+    query.set('technician', staffId);
+    router.push(`/${locale}/admin?${query.toString()}`, { scroll: false });
+  }, [locale, router, salonSlug, search, staffId]);
 
   // Fetch technician detail
   const fetchDetail = useCallback(async () => {
@@ -431,12 +445,22 @@ export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate, initialT
           />
         )}
         {activeTab === 'schedule' && (
-          <ScheduleTab
-            salonSlug={salonSlug}
-            technicianId={staffId}
-            weeklySchedule={technician.weeklySchedule}
-            onUpdate={schedule => handleTechnicianUpdate({ weeklySchedule: schedule })}
-          />
+          <section className="space-y-4 p-4" aria-labelledby="staff-schedule-heading">
+            <div className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
+              <h2 id="staff-schedule-heading" className="text-[17px] font-semibold text-[var(--owner-ink)]">Working hours</h2>
+              <p className="mt-2 text-sm text-[var(--owner-muted)]">
+                {technician.name}
+                &apos;s weekly schedule and time off are managed from Hours &amp; Availability.
+              </p>
+              <button
+                type="button"
+                className="mt-4 min-h-11 rounded-xl bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white"
+                onClick={openTechnicianHours}
+              >
+                Edit working hours
+              </button>
+            </div>
+          </section>
         )}
         {activeTab === 'services' && (
           <ServicesTab

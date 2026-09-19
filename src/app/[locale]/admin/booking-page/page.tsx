@@ -35,7 +35,9 @@ import {
   normalizeBookingPagePreviewFrame,
 } from '@/components/admin/bookingPagePreviewFrame';
 import OwnerAssistantLauncher from '@/components/admin/ownerAssistant/OwnerAssistantLauncher';
+import { ParkingInstructionsCard } from '@/components/admin/ParkingInstructionsCard';
 import { QUICK_BOOK_VISIBILITY_OPTIONS, QuickBookProfileVisibilityCard, QuickBookVisibilitySwitch } from '@/components/admin/QuickBookProfileVisibilityCard';
+import { SettingsModal } from '@/components/admin/SettingsModal';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type { BookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
 import type {
@@ -125,14 +127,89 @@ type BookingPageApiResponse = {
 const DRAFT_PANEL_SUBTITLE = 'Changes here save to your draft. Nothing goes live until you publish.';
 
 const PANEL_SUBTITLES: Record<string, string> = {
+  business: 'Your real salon record: contact, address and arrival details apply immediately.',
   gallery: 'Logo and profile changes save immediately. Cover changes stay in your website draft until you publish.',
-  information: 'Saved changes apply immediately. This is the business record your live site and bookings already use.',
+  information: 'Choose which saved business details customers see. Display choices stay in your draft until you publish.',
   policies: 'These links open settings that save immediately. Nothing here waits for a publish.',
+  experience: 'Booking messages and social links save immediately. They do not wait for a page publish.',
+  flow: 'Booking flow changes apply to new bookings immediately. They do not wait for a page publish.',
 };
 
 const EDITABLE_CONTENT_FIELDS = ['bio', 'specialtyLine', 'heroImageUrl'] as const;
 
 type EditableContentField = typeof EDITABLE_CONTENT_FIELDS[number];
+
+type FlowAccess = 'loading' | 'allowed' | 'free-solo' | 'unavailable';
+
+type BookingFlowLeafProps = {
+  salonSlug: string;
+  onClose: () => void;
+};
+
+/**
+ * This entitlement check belongs to the mounted Flow leaf. A transition from
+ * another panel therefore starts loading and cannot flash the editor before
+ * the exact salon result has been verified.
+ */
+function BookingFlowLeaf({ salonSlug, onClose }: BookingFlowLeafProps) {
+  const [access, setAccess] = useState<FlowAccess>('loading');
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAccess('loading');
+    void fetch(`/api/admin/auth/me?salonSlug=${encodeURIComponent(salonSlug)}`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error('Unable to verify booking flow access.');
+        }
+        const body = await response.json();
+        const salon = body?.user?.salons?.find((item: { slug?: unknown }) => item.slug === salonSlug);
+        if (!salon || typeof salon.freeSoloEnabled !== 'boolean') {
+          throw new Error('Unable to verify booking flow access.');
+        }
+        if (!cancelled) {
+          setAccess(salon.freeSoloEnabled ? 'free-solo' : 'allowed');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAccess('unavailable');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt, salonSlug]);
+
+  if (access === 'loading') {
+    return (
+      <div className="px-4 pt-8">
+        <button type="button" className="inline-flex min-h-11 items-center gap-2 text-sm text-[var(--owner-muted)]" onClick={onClose}>
+          <ArrowLeft size={16} />
+          Booking Page
+        </button>
+        <div role="status" className="py-8 text-center text-sm text-[var(--owner-muted)]">Checking booking flow access…</div>
+      </div>
+    );
+  }
+  if (access === 'allowed') {
+    return <SettingsModal key={`${salonSlug}:booking-flow`} initialView="booking-flow" isFreeSolo={false} leafBackLabel="Booking Page" leafOnly onClose={onClose} salonSlug={salonSlug} />;
+  }
+  return (
+    <div className="px-4 pt-8">
+      <button type="button" className="inline-flex min-h-11 items-center gap-2 text-sm text-[var(--owner-muted)]" onClick={onClose}>
+        <ArrowLeft size={16} />
+        Booking Page
+      </button>
+      <section className="mt-6 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5" data-testid="booking-flow-unavailable">
+        <h2 className="text-lg font-semibold">Booking Flow</h2>
+        <p className="mt-2 text-sm text-[var(--owner-muted)]">{access === 'free-solo' ? 'Booking flow customization is not included with Free Solo.' : 'We could not verify access to booking flow customization. Try again before changing this setting.'}</p>
+        {access === 'unavailable' && <button type="button" className="mt-4 min-h-11 rounded-xl border border-[var(--owner-line-strong)] px-4 text-sm font-semibold" onClick={() => setAttempt(current => current + 1)}>Retry</button>}
+      </section>
+    </div>
+  );
+}
 
 type BookingPageRequestIdentity = {
   requestGeneration: number;
@@ -298,11 +375,20 @@ function SalonPublishBanner({
 // =============================================================================
 
 export default function BookingPageOwnerSurface() {
+  const searchParams = useSearchParams();
+  // A salon switch can reuse this App Router page instance. Key the complete
+  // owner surface by the URL salon selection so no async draft, flush callback,
+  // or editor value from salon A can be used for salon B. Server authorization
+  // remains authoritative for every read and write.
+  return <BookingPageOwnerSurfaceContent key={searchParams.get('salon') ?? ''} />;
+}
+
+function BookingPageOwnerSurfaceContent() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const requestedPanel = searchParams.get('panel');
-  const panel = ['layouts', 'appearance', 'information', 'text', 'gallery', 'policies', 'publish'].includes(requestedPanel ?? '') ? requestedPanel : null;
+  const panel = ['business', 'layouts', 'appearance', 'information', 'text', 'gallery', 'policies', 'experience', 'flow', 'publish'].includes(requestedPanel ?? '') ? requestedPanel : null;
   const reviewPanels = ['information', 'text', 'gallery', 'policies', 'layouts', 'appearance', 'publish'];
   const reviewIndex = searchParams.get('guided') === '1' && panel ? reviewPanels.indexOf(panel) : -1;
   const show = (name: string) => !panel || panel === name;
@@ -385,6 +471,10 @@ export default function BookingPageOwnerSurface() {
   const registerInformationFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
     informationFlushRef.current = flush;
   }, []);
+  const [businessInformationDirty, setBusinessInformationDirty] = useState(false);
+  const [parkingInstructionsDirty, setParkingInstructionsDirty] = useState(false);
+  const [pendingParkingNavigation, setPendingParkingNavigation] = useState<string | null>(null);
+  const [parkingDiscardGeneration, setParkingDiscardGeneration] = useState(0);
   const contentEditGenerationRef = useRef(0);
   const contentEditGenerationByFieldRef = useRef<Record<EditableContentField, number>>({
     bio: 0,
@@ -400,6 +490,18 @@ export default function BookingPageOwnerSurface() {
     contentEditGenerationByFieldRef.current[field]
     > savedContentEditGenerationByFieldRef.current[field]
   )), []);
+  const hasUnsavedBusinessEdits = businessInformationDirty || parkingInstructionsDirty;
+  useEffect(() => {
+    if (!hasUnsavedBusinessEdits) {
+      return;
+    }
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [hasUnsavedBusinessEdits]);
   const setTruthfulSaveStatus = useCallback((
     requestedStatus: 'idle' | 'dirty' | 'saving' | 'saved' | 'stale' | 'error',
   ) => {
@@ -730,6 +832,13 @@ export default function BookingPageOwnerSurface() {
     if (presentationWritePendingRef.current || navigationPending) {
       return;
     }
+    // Parking keeps its established explicit Save button. Leaving a dirty
+    // arrival-instructions form therefore asks the owner to save there first,
+    // discard, or keep editing; navigating must never turn Back into a write.
+    if (parkingInstructionsDirty) {
+      setPendingParkingNavigation(destination);
+      return;
+    }
     setNavigationPending(true);
     try {
       await runNavigation(destination);
@@ -755,6 +864,21 @@ export default function BookingPageOwnerSurface() {
     }
     router.push(destination);
   }
+
+  const discardParkingAndNavigate = () => {
+    if (!pendingParkingNavigation) {
+      return;
+    }
+    const destination = pendingParkingNavigation;
+    setPendingParkingNavigation(null);
+    setParkingInstructionsDirty(false);
+    // The owner explicitly chose discard. Remount the local explicit-save
+    // editor before the Information flush runs, so a failed Information save
+    // cannot later turn a retry into a Parking write.
+    setParkingDiscardGeneration(current => current + 1);
+    setNavigationPending(true);
+    void runNavigation(destination).catch(() => setNavigationPending(false));
+  };
 
   const handleBusinessModeSelect = (businessMode: BusinessMode) => {
     void saveConfigPatch({ businessMode });
@@ -1020,6 +1144,48 @@ export default function BookingPageOwnerSurface() {
     );
   }
 
+  // These are standalone leaves. Their one visible Back action belongs to
+  // SettingsModal's existing dirty guard, rather than a second page header
+  // that could route away from an unsaved explicit-save editor.
+  if (panel === 'experience' && salonSlug) {
+    return (
+      <main className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)]" data-theme-scope="owner">
+        <SettingsModal
+          key={`${salonSlug}:booking-experience`}
+          initialView="booking-experience"
+          leafBackLabel="Booking Page"
+          leafOnly
+          onClose={() => void navigateAfterSaving(`/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`)}
+          salonSlug={salonSlug}
+        />
+        <OwnerAssistantLauncher
+          locale={locale === 'fr' ? 'fr' : 'en'}
+          placement="standalone"
+          salonSlug={salonSlug}
+          screen="booking-page"
+        />
+      </main>
+    );
+  }
+
+  if (panel === 'flow' && salonSlug) {
+    return (
+      <main className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)]" data-theme-scope="owner">
+        <BookingFlowLeaf
+          key={salonSlug}
+          onClose={() => void navigateAfterSaving(`/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`)}
+          salonSlug={salonSlug}
+        />
+        <OwnerAssistantLauncher
+          locale={locale === 'fr' ? 'fr' : 'en'}
+          placement="standalone"
+          salonSlug={salonSlug}
+          screen="booking-page"
+        />
+      </main>
+    );
+  }
+
   const draft = config.draft;
   // Owner preview stays on a dedicated dashboard-origin route. That route
   // establishes Clerk context and performs an exact salon ownership /
@@ -1060,7 +1226,7 @@ export default function BookingPageOwnerSurface() {
         <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--owner-accent)]">Booking Page</p>
-            <h1 className="mt-2 text-3xl font-semibold">{({ layouts: 'Layouts', appearance: 'Style & Colours', information: 'Business Info Display', text: 'About & Website Text', gallery: 'Photos & Gallery', policies: 'Policies & Booking Rules', publish: 'Review & Publish' } as Record<string, string>)[panel ?? ''] ?? 'Layout, style and content'}</h1>
+            <h1 className="mt-2 text-3xl font-semibold">{({ business: 'Business Information', layouts: 'Layouts', appearance: 'Style & Colours', information: 'Business Info Display', text: 'About & Website Text', gallery: 'Photos & Gallery', policies: 'Policies & Booking Rules', experience: 'Public Booking Experience', flow: 'Booking Flow', publish: 'Review & Publish' } as Record<string, string>)[panel ?? ''] ?? 'Layout, style and content'}</h1>
             <p className="mt-2 text-[var(--owner-muted)]" data-testid="booking-page-panel-subtitle">{PANEL_SUBTITLES[panel ?? ''] ?? DRAFT_PANEL_SUBTITLE}</p>
             {reviewIndex >= 0 && (
               <p className="mt-2 text-sm font-semibold text-[var(--owner-accent)]">
@@ -1154,6 +1320,32 @@ export default function BookingPageOwnerSurface() {
               draft={draft}
               onConfigPatch={patch => void saveConfigPatch(patch)}
             />
+          )}
+
+          {panel === 'business' && salonSlug && (
+            <div className="space-y-5">
+              <BookingPageInformationEditor
+                key={`${salonSlug}:business`}
+                addressPrivacy={content.draft.locationDisplayMode}
+                disabled={presentationPending}
+                draft={draft}
+                liveAddressPrivacy={content.live.locationDisplayMode}
+                locale={locale}
+                mode="business"
+                onAddressPrivacyChange={() => undefined}
+                onConfigPatch={() => undefined}
+                onDirtyChange={setBusinessInformationDirty}
+                registerFlush={registerInformationFlush}
+                salonSlug={salonSlug}
+              />
+              <div id="parking-arrival" className="scroll-mt-6">
+                <ParkingInstructionsCard
+                  key={`${salonSlug}:parking:${parkingDiscardGeneration}`}
+                  onDirtyChange={setParkingInstructionsDirty}
+                  salonSlug={salonSlug}
+                />
+              </div>
+            </div>
           )}
 
           {panel === 'information' && salonSlug && (
@@ -1476,6 +1668,17 @@ export default function BookingPageOwnerSurface() {
             <p className="mt-2">This address can't be changed afterwards.</p>
           </>
         )}
+      />
+
+      <ConfirmDialog
+        isOpen={pendingParkingNavigation !== null}
+        title="Discard parking changes?"
+        tone="danger"
+        confirmLabel="Discard changes"
+        cancelLabel="Keep editing"
+        onClose={() => setPendingParkingNavigation(null)}
+        onConfirm={discardParkingAndNavigate}
+        description="Your parking and arrival instructions have not been saved. Save parking info to keep them, or discard these edits before leaving."
       />
 
       <ConfirmDialog

@@ -534,7 +534,7 @@ describe('links are built by code, never by the model', () => {
     expect(result.kind === 'answer' && result.links[0]).toEqual({
       key: 'business_hours',
       label: 'Business hours',
-      href: '/en/admin?salon=isla-nail-studio&app=settings&view=business-profile',
+      href: '/en/admin?salon=isla-nail-studio&app=hours',
     });
   });
 

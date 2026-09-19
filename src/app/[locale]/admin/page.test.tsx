@@ -75,6 +75,16 @@ vi.mock('next/navigation', () => ({
   useParams: () => ({ locale: 'en' }),
   useSearchParams: () => ({
     get: searchParamGet,
+    toString: () => {
+      const query = new URLSearchParams();
+      for (const key of ['salon', 'app', 'view', 'appointment', 'client']) {
+        const value = searchParamGet(key);
+        if (value) {
+          query.set(key, value);
+        }
+      }
+      return query.toString();
+    },
   }),
 }));
 
@@ -256,6 +266,44 @@ beforeEach(() => {
 });
 
 describe('AdminDashboardPage', () => {
+  it.each([
+    ['booking', 'booking-rules', 'rules'],
+    ['booking-policy', 'booking-rules', 'policies'],
+    ['review-requests', 'marketing', 'reviews'],
+  ])('replaces the legacy %s deep link while retaining salon and record context', async (legacyView, app, view) => {
+    const query = new URLSearchParams({ salon: 'salon-b', app: 'settings', view: legacyView, client: 'client_9' });
+    searchParamGet.mockImplementation(key => query.get(key));
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/auth/me')) {
+        return new Response(JSON.stringify({ user: {
+          id: 'admin_1',
+          name: 'Owner',
+          isSuperAdmin: false,
+          impersonation: null,
+          salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }],
+        } }));
+      }
+      if (url.startsWith('/api/admin/settings/modules')) {
+        return new Response(JSON.stringify({ data: { modules: {}, entitledModules: {}, moduleReasons: {} } }));
+      }
+      if (url === '/api/admin/auth/set-active-salon') {
+        return new Response(JSON.stringify({ ok: true }));
+      }
+      if (url === '/api/admin/fraud-signals') {
+        return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }));
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<AdminDashboardPage />);
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith(
+      `/en/admin?salon=salon-b&app=${app}&client=client_9&view=${view}`,
+    ));
+
+    expect(routerMock.push).not.toHaveBeenCalled();
+  });
+
   it('waits after an early cookie 401 and refreshes Clerk before retrying the authenticated workspace', async () => {
     clerkAuth.isLoaded = false;
     searchParamGet.mockReturnValue(null);
@@ -686,7 +734,16 @@ describe('AdminDashboardPage', () => {
     expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/website?salon=salon-b');
     expect(screen.queryByText(/Checking your saved website/i)).not.toBeInTheDocument();
 
-    act(() => appGridProps.onAppTap?.('workspace-tour'));
+    const modalProps = adminModalHostSpy.mock.calls.at(-1)?.[0] as {
+      onOpenApp?: (appId: string) => void;
+    };
+    act(() => modalProps.onOpenApp?.('luster'));
+
+    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/luster?salon=salon-b');
+
+    // Help lives inside the modal host, so its actions must reach the same
+    // special navigation handler as the original More shortcuts.
+    act(() => modalProps.onOpenApp?.('workspace-tour'));
 
     expect(screen.getByTestId('workspace-quick-tour')).toBeInTheDocument();
     expect(handoffComponentSpy).not.toHaveBeenCalled();

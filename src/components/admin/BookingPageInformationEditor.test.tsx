@@ -168,6 +168,25 @@ describe('BookingPageInformationEditor', () => {
     return { onAddressPrivacyChange, onConfigPatch, registerFlush };
   }
 
+  it('opens only regular hours in the Hours destination and saves through the existing business endpoint', async () => {
+    renderEditor({ mode: 'hours' });
+
+    expect(await screen.findByTestId('information-hours-monday-open')).toHaveValue('10:00');
+    expect(screen.getByTestId('information-hours')).toHaveAttribute('open');
+    expect(screen.queryByTestId('information-identity')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('information-contact')).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('switch')).toHaveLength(0);
+
+    fireEvent.change(screen.getByTestId('information-hours-monday-open'), { target: { value: '11:00' } });
+    fireEvent.click(screen.getByTestId('information-save-hours'));
+    await waitFor(() => expect(calls.filter(call => call.method === 'PATCH')).toHaveLength(1));
+
+    expect(calls.find(call => call.method === 'PATCH')).toMatchObject({
+      url: '/api/admin/salon/information?salonSlug=salon-a',
+      body: { businessHours: { monday: { open: '11:00', close: '19:00' } } },
+    });
+  });
+
   it('loads the actual saved values into every accordion and never edits the private account profile', async () => {
     renderEditor();
 
@@ -188,26 +207,32 @@ describe('BookingPageInformationEditor', () => {
     expect(calls.some(call => call.url.includes('/api/admin/profile'))).toBe(false);
   });
 
-  it('keeps business values read-only in Booking Page and links to their canonical Settings homes', async () => {
+  it('keeps business values read-only in Booking Page and links to their canonical Business Information home', async () => {
     renderEditor({ mode: 'booking' });
 
     expect(await screen.findByText('Current Studio')).toBeVisible();
     expect(screen.queryByTestId('information-business-name')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Edit business profile/ })).toHaveAttribute('href', '/en/admin?salon=salon-a&app=settings&view=business-profile');
+    expect(screen.getByRole('link', { name: /Edit business profile/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=business');
 
     await userEvent.click(screen.getByText('Location', { exact: true }));
 
     expect(screen.queryByTestId('information-address-street')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Edit salon address/ })).toHaveAttribute('href', '/en/admin?salon=salon-a&app=settings&view=location');
+    expect(screen.getByRole('link', { name: /Edit salon address/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=business');
   });
 
-  it('keeps public photo controls out of Business Profile and links to their canonical Booking Page home', async () => {
+  it('keeps public photo controls out of Business Information and links to their canonical Booking Page home', async () => {
     renderEditor({ mode: 'business' });
 
     expect(await screen.findByTestId('business-profile-photo-summary')).toBeVisible();
     expect(screen.queryByTestId('information-logo-upload')).not.toBeInTheDocument();
     expect(screen.queryByTestId('information-tech-photo')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Manage photos →' })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=gallery');
+    expect(screen.queryByTestId('information-hours-monday-open')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'Address privacy' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('Location', { exact: true }));
+
+    expect(screen.getByRole('link', { name: 'Parking & arrival instructions' })).toHaveAttribute('href', '#parking-arrival');
   });
 
   it('saves the business name through the salon writer and the nail tech name through the technician writer', async () => {
@@ -314,7 +339,7 @@ describe('BookingPageInformationEditor', () => {
     const notice = await screen.findByTestId('information-hours-staff-gap');
 
     expect(notice).toHaveTextContent('No staff member works Sunday yet — add a shift or clients will see no times.');
-    expect(notice.querySelector('a')).toHaveAttribute('href', '/en/admin?salon=salon-a&app=staff');
+    expect(notice.querySelector('a')).toHaveAttribute('href', '/en/admin?salon=salon-a&app=hours&view=working-hours');
     // The toast must not promise availability the staff schedules cannot supply.
     expect(screen.getByText('Hours saved. Bookable times still follow each staff member’s schedule.')).toBeInTheDocument();
     expect(screen.queryByText(/Booking availability uses them immediately/)).not.toBeInTheDocument();

@@ -286,6 +286,8 @@ export function BookingPageInformationEditor({
   onUploadCover,
   onUseDefaultCover,
   mode = 'legacy',
+  onDirtyChange,
+  onOpenWorkingHours,
 }: {
   locale: string;
   salonSlug: string;
@@ -311,7 +313,9 @@ export function BookingPageInformationEditor({
   onUploadCover?: (file: File) => void;
   onUseDefaultCover?: () => void;
   /** Booking Page owns display choices and public photos; Settings owns the editable business record. */
-  mode?: 'booking' | 'business' | 'gallery' | 'legacy';
+  mode?: 'booking' | 'business' | 'gallery' | 'legacy' | 'hours';
+  onDirtyChange?: (dirty: boolean) => void;
+  onOpenWorkingHours?: () => void;
 }) {
   const [info, setInfo] = useState<SalonInformation | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'forbidden' | 'error'>('loading');
@@ -332,7 +336,8 @@ export function BookingPageInformationEditor({
   }, [addressPrivacy]);
   const query = `salonSlug=${encodeURIComponent(salonSlug)}`;
   const workspace = `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}`;
-  const showSwitches = mode !== 'business' && mode !== 'gallery' && draft.layout === 'quick_book';
+  const businessInformationHref = `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=business`;
+  const showSwitches = mode !== 'hours' && mode !== 'business' && mode !== 'gallery' && draft.layout === 'quick_book';
   const showEditors = mode !== 'booking' && mode !== 'gallery';
 
   const loadInformation = useCallback(async () => {
@@ -457,6 +462,17 @@ export function BookingPageInformationEditor({
     });
     hours.reset({ businessHours: info.businessHours ?? emptyHours(), timezone: info.timezone });
   }, [info, identity.reset, location.reset, contact.reset, hours.reset]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hoursDirty = ['dirty', 'error', 'saving'].includes(hours.status);
+  const businessInformationDirty = [identity.status, location.status, contact.status]
+    .some(status => ['dirty', 'error', 'saving'].includes(status));
+  useEffect(() => {
+    if (mode === 'hours') {
+      onDirtyChange?.(hoursDirty);
+    } else if (mode === 'business') {
+      onDirtyChange?.(businessInformationDirty);
+    }
+  }, [businessInformationDirty, hoursDirty, mode, onDirtyChange]);
 
   const { flush: flushIdentity } = identity;
   const { flush: flushLocation } = location;
@@ -765,269 +781,275 @@ export function BookingPageInformationEditor({
   return (
     <section className="rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm" data-testid="booking-page-information-editor">
       <h2 className="text-lg font-semibold text-[var(--owner-ink)]">
-        {mode === 'booking' ? 'Business Info Display' : mode === 'business' ? 'Business Profile' : 'Your Information'}
+        {mode === 'hours' ? 'Regular salon hours' : mode === 'booking' ? 'Business Info Display' : mode === 'business' ? 'Business Information' : 'Your Information'}
       </h2>
       <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-publish-summary">
-        {mode === 'booking'
-          ? 'These are the current business values customers may see. Change what appears here; edit the actual business record in Settings. Display choices wait in your website draft until you publish.'
-          : mode === 'business'
-            ? 'This is the actual business record used by your live site and bookings. Name, contact, address and hours take effect as soon as each section is saved.'
-            : 'These are the details you saved during setup. Editing changes the same business record your live site and bookings use, so name, contact and hours go public as soon as you save them. Address privacy is the one setting here that waits in your draft until you publish; hiding a detail keeps it saved.'}
+        {mode === 'hours'
+          ? 'Set your normal opening hours and timezone. Changes apply to your live business immediately.'
+          : mode === 'booking'
+            ? 'These are the current business values customers may see. Change what appears here; edit the actual business record in Business Information. Display choices wait in your website draft until you publish.'
+            : mode === 'business'
+              ? 'This is the actual business record used by your live site and bookings. Name, contact and address take effect as soon as each section is saved. Regular hours are managed in Hours & Availability.'
+              : 'These are the details you saved during setup. Editing changes the same business record your live site and bookings use, so name, contact and hours go public as soon as you save them. Address privacy is the one setting here that waits in your draft until you publish; hiding a detail keeps it saved.'}
       </p>
 
       <div className="mt-4 divide-y divide-stone-200">
-        <Accordion defaultOpen publishes="live" subtitle="Name, website address, nail tech, logo and photo" testId="information-identity" title="Business identity">
-          {editable && identity.values && showEditors
-            ? (
-                <form
-                  className="space-y-4"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void identity.submit();
-                  }}
-                >
-                  <label className={labelClass}>
-                    Business name
-                    <input className={fieldClass} data-testid="information-business-name" disabled={disabled} onChange={event => identity.update({ name: event.target.value })} type="text" value={identity.values.name} />
-                  </label>
-                  <div>
-                    <span className={labelClass}>Website address</span>
-                    <p className="mt-1 break-all text-sm text-[var(--owner-muted)]" data-testid="information-public-url">{info.salon.publicUrl}</p>
-                    <p className="text-xs text-[var(--owner-muted)]">
-                      {info.salon.slugLocked
-                        ? 'Your link is locked now that your site is published, so bookmarks and printed links keep working.'
-                        : 'Your link is set when you publish. Use “Review saved setup” on the Booking Page screen to change it before then.'}
-                    </p>
-                  </div>
-                  {info.technician
-                    ? (
-                        <label className={labelClass}>
-                          Nail tech name (shown to clients)
-                          <input className={fieldClass} data-testid="information-tech-name" disabled={disabled} onChange={event => identity.update({ technicianName: event.target.value })} type="text" value={identity.values.technicianName} />
-                          <span className="mt-1 block text-xs font-normal text-[var(--owner-muted)]">This is your public Staff profile, not your private account name.</span>
-                        </label>
-                      )
-                    : (
-                        <p className="text-sm text-[var(--owner-muted)]">
-                          {info.technicianCount > 1 ? `Your team has ${info.technicianCount} nail techs. ` : 'No active nail tech yet. '}
-                          <a className="font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=staff`}>Manage names and photos in Staff</a>
-                        </p>
-                      )}
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button className={primaryButtonClass} data-testid="information-save-identity" disabled={disabled || identity.status === 'saving' || identity.status === 'idle' || identity.status === 'saved'} type="submit">Save identity</button>
-                  </div>
-                  <StatusLine error={identity.error} status={identity.status} />
-
-                  <div className="border-t border-[var(--owner-line)] pt-4" data-testid="business-profile-photo-summary">
-                    <p className="text-sm font-semibold text-[var(--owner-ink)]">Public photos</p>
-                    <div className="mt-2 flex items-center gap-3">
-                      {info.salon.logoUrl
-                        ? <img alt="Current business logo" className="size-16 rounded-xl border border-[var(--owner-line)] object-contain" src={info.salon.logoUrl} />
-                        : <span className="flex size-16 items-center justify-center rounded-xl border border-dashed border-[var(--owner-line)] text-center text-xs text-[var(--owner-muted)]">No logo</span>}
-                      {info.technician?.avatarUrl
-                        ? <img alt="Current nail tech" className="size-16 rounded-full border border-[var(--owner-line)] object-cover" src={info.technician.avatarUrl} />
-                        : <span className="flex size-16 items-center justify-center rounded-full border border-dashed border-[var(--owner-line)] text-center text-xs text-[var(--owner-muted)]">No profile photo</span>}
-                    </div>
-                    <p className="mt-2 text-xs text-[var(--owner-muted)]">Logo, profile and cover photos are managed together on your Booking Page.</p>
-                    <a className="mt-2 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=gallery`}>Manage photos →</a>
-                  </div>
-                  {renderSwitches('Business identity')}
-                </form>
-              )
-            : editable && info
-              ? (
-                  <>
-                    <dl className="grid gap-2 text-sm">
-                      <div>
-                        <dt className="font-medium text-[var(--owner-muted)]">Business name</dt>
-                        <dd className="text-[var(--owner-ink)]">{info.salon.name}</dd>
-                      </div>
-                      <div>
-                        <dt className="font-medium text-[var(--owner-muted)]">Nail-tech name</dt>
-                        <dd className="text-[var(--owner-ink)]">{info.technician?.name ?? 'Managed in Team'}</dd>
-                      </div>
-                    </dl>
-                    <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=business-profile`}>Edit business profile →</a>
-                    {renderSwitches('Business identity')}
-                  </>
-                )
-              : (
-                  <>
-                    {renderFallback('Business identity')}
-                    {renderSwitches('Business identity')}
-                  </>
-                )}
-        </Accordion>
-
-        <Accordion publishes="live-with-draft" subtitle="Address, city and how much of it clients can see" testId="information-location" title="Location">
+        {mode !== 'hours' && (
           <>
-            {editable && location.values && showEditors
-              ? (
-                  <form
-                    className="space-y-3"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void location.submit();
-                    }}
-                  >
-                    <label className={labelClass}>
-                      Location name
-                      <input className={fieldClass} data-testid="information-location-name" disabled={disabled} onChange={event => location.update({ name: event.target.value })} type="text" value={location.values.name} />
-                    </label>
-                    <label className={labelClass}>
-                      Street address (kept private unless you choose to show it)
-                      <input autoComplete="street-address" className={fieldClass} data-testid="information-address-street" disabled={disabled} onChange={event => location.update({ address: event.target.value })} type="text" value={location.values.address} />
-                    </label>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <label className={labelClass}>
-                        City
-                        <input autoComplete="address-level2" className={fieldClass} data-testid="information-address-city" disabled={disabled} onChange={event => location.update({ city: event.target.value })} type="text" value={location.values.city} />
-                      </label>
-                      <label className={labelClass}>
-                        Province / State
-                        <input autoComplete="address-level1" className={fieldClass} disabled={disabled} onChange={event => location.update({ state: event.target.value })} type="text" value={location.values.state} />
-                      </label>
-                      <label className={labelClass}>
-                        Postal code
-                        <input autoComplete="postal-code" className={fieldClass} disabled={disabled} onChange={event => location.update({ zipCode: event.target.value })} type="text" value={location.values.zipCode} />
-                      </label>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button className={primaryButtonClass} data-testid="information-save-location" disabled={disabled || location.status === 'saving' || location.status === 'idle' || location.status === 'saved'} type="submit">Save address</button>
-                      <a className="text-sm font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=location`}>Parking &amp; arrival instructions</a>
-                    </div>
-                    <StatusLine error={location.error} savedText="Address saved. It affects directions and bookings immediately." status={location.status} />
-                  </form>
-                )
-              : editable && info
+            <Accordion defaultOpen publishes="live" subtitle="Name, website address, nail tech, logo and photo" testId="information-identity" title="Business identity">
+              {editable && identity.values && showEditors
                 ? (
-                    <>
-                      <p className="text-sm text-[var(--owner-ink)]">{[info.location?.address, info.location?.city, info.location?.state, info.location?.zipCode].filter(Boolean).join(', ') || 'No salon address saved.'}</p>
-                      <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=location`}>Edit salon address →</a>
-                    </>
+                    <form
+                      className="space-y-4"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void identity.submit();
+                      }}
+                    >
+                      <label className={labelClass}>
+                        Business name
+                        <input className={fieldClass} data-testid="information-business-name" disabled={disabled} onChange={event => identity.update({ name: event.target.value })} type="text" value={identity.values.name} />
+                      </label>
+                      <div>
+                        <span className={labelClass}>Website address</span>
+                        <p className="mt-1 break-all text-sm text-[var(--owner-muted)]" data-testid="information-public-url">{info.salon.publicUrl}</p>
+                        <p className="text-xs text-[var(--owner-muted)]">
+                          {info.salon.slugLocked
+                            ? 'Your link is locked now that your site is published, so bookmarks and printed links keep working.'
+                            : 'Your link is set when you publish. Use “Review saved setup” on the Booking Page screen to change it before then.'}
+                        </p>
+                      </div>
+                      {info.technician
+                        ? (
+                            <label className={labelClass}>
+                              Nail tech name (shown to clients)
+                              <input className={fieldClass} data-testid="information-tech-name" disabled={disabled} onChange={event => identity.update({ technicianName: event.target.value })} type="text" value={identity.values.technicianName} />
+                              <span className="mt-1 block text-xs font-normal text-[var(--owner-muted)]">This is your public Staff profile, not your private account name.</span>
+                            </label>
+                          )
+                        : (
+                            <p className="text-sm text-[var(--owner-muted)]">
+                              {info.technicianCount > 1 ? `Your team has ${info.technicianCount} nail techs. ` : 'No active nail tech yet. '}
+                              <a className="font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=staff`}>Manage names and photos in Staff</a>
+                            </p>
+                          )}
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button className={primaryButtonClass} data-testid="information-save-identity" disabled={disabled || identity.status === 'saving' || identity.status === 'idle' || identity.status === 'saved'} type="submit">Save identity</button>
+                      </div>
+                      <StatusLine error={identity.error} status={identity.status} />
+
+                      <div className="border-t border-[var(--owner-line)] pt-4" data-testid="business-profile-photo-summary">
+                        <p className="text-sm font-semibold text-[var(--owner-ink)]">Public photos</p>
+                        <div className="mt-2 flex items-center gap-3">
+                          {info.salon.logoUrl
+                            ? <img alt="Current business logo" className="size-16 rounded-xl border border-[var(--owner-line)] object-contain" src={info.salon.logoUrl} />
+                            : <span className="flex size-16 items-center justify-center rounded-xl border border-dashed border-[var(--owner-line)] text-center text-xs text-[var(--owner-muted)]">No logo</span>}
+                          {info.technician?.avatarUrl
+                            ? <img alt="Current nail tech" className="size-16 rounded-full border border-[var(--owner-line)] object-cover" src={info.technician.avatarUrl} />
+                            : <span className="flex size-16 items-center justify-center rounded-full border border-dashed border-[var(--owner-line)] text-center text-xs text-[var(--owner-muted)]">No profile photo</span>}
+                        </div>
+                        <p className="mt-2 text-xs text-[var(--owner-muted)]">Logo, profile and cover photos are managed together on your Booking Page.</p>
+                        <a className="mt-2 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=gallery`}>Manage photos →</a>
+                      </div>
+                      {renderSwitches('Business identity')}
+                    </form>
                   )
-                : renderFallback('Location')}
+                : editable && info
+                  ? (
+                      <>
+                        <dl className="grid gap-2 text-sm">
+                          <div>
+                            <dt className="font-medium text-[var(--owner-muted)]">Business name</dt>
+                            <dd className="text-[var(--owner-ink)]">{info.salon.name}</dd>
+                          </div>
+                          <div>
+                            <dt className="font-medium text-[var(--owner-muted)]">Nail-tech name</dt>
+                            <dd className="text-[var(--owner-ink)]">{info.technician?.name ?? 'Managed in Team'}</dd>
+                          </div>
+                        </dl>
+                        <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={businessInformationHref}>Edit business profile →</a>
+                        {renderSwitches('Business identity')}
+                      </>
+                    )
+                  : (
+                      <>
+                        {renderFallback('Business identity')}
+                        {renderSwitches('Business identity')}
+                      </>
+                    )}
+            </Accordion>
 
-            {mode !== 'business' && (
-              <fieldset className="mt-4 border-t border-[var(--owner-line)] pt-3" disabled={disabled}>
-                <legend className="text-sm font-semibold text-[var(--owner-ink)]">Address privacy</legend>
-                <p className="mb-2 text-xs text-[var(--owner-muted)]">Your exact address stays saved for bookings and directions either way. This choice applies to your website draft until you publish.</p>
-                <div role="radiogroup" aria-label="Address privacy">
-                  {ADDRESS_PRIVACY_OPTIONS.map(option => (
-                    <label className={`mb-2 flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3 ${selectedAddressPrivacy === option.value ? 'border-[var(--owner-accent)] bg-[var(--owner-blush)]' : 'border-[var(--owner-line)]'}`} key={option.value}>
-                      <input
-                        checked={selectedAddressPrivacy === option.value}
-                        className="mt-1 size-5 shrink-0 accent-[var(--owner-accent)]"
-                        data-testid={`address-privacy-${option.value}`}
-                        name="address-privacy"
-                        onChange={() => {
-                          setSelectedAddressPrivacy(option.value);
-                          onAddressPrivacyChange(option.value);
+            <Accordion publishes="live-with-draft" subtitle="Address, city and how much of it clients can see" testId="information-location" title="Location">
+              <>
+                {editable && location.values && showEditors
+                  ? (
+                      <form
+                        className="space-y-3"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void location.submit();
                         }}
-                        type="radio"
-                        value={option.value}
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-semibold text-[var(--owner-ink)]">{option.label}</span>
-                        <span className="block text-xs text-[var(--owner-muted)]">{option.description}</span>
-                        <span className="mt-1 block text-[11px] uppercase tracking-wide text-[var(--owner-line-strong)]">{option.note}</span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-                {liveAddressPrivacy !== addressPrivacy && (
-                  <p className="text-xs text-amber-800" data-testid="address-privacy-unpublished">
-                    {`Your live site still uses “${draftPrivacyLabel}” until you publish.`}
-                  </p>
-                )}
-              </fieldset>
-            )}
-            {renderSwitches('Location')}
-          </>
-        </Accordion>
+                      >
+                        <label className={labelClass}>
+                          Location name
+                          <input className={fieldClass} data-testid="information-location-name" disabled={disabled} onChange={event => location.update({ name: event.target.value })} type="text" value={location.values.name} />
+                        </label>
+                        <label className={labelClass}>
+                          Street address (kept private unless you choose to show it)
+                          <input autoComplete="street-address" className={fieldClass} data-testid="information-address-street" disabled={disabled} onChange={event => location.update({ address: event.target.value })} type="text" value={location.values.address} />
+                        </label>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                          <label className={labelClass}>
+                            City
+                            <input autoComplete="address-level2" className={fieldClass} data-testid="information-address-city" disabled={disabled} onChange={event => location.update({ city: event.target.value })} type="text" value={location.values.city} />
+                          </label>
+                          <label className={labelClass}>
+                            Province / State
+                            <input autoComplete="address-level1" className={fieldClass} disabled={disabled} onChange={event => location.update({ state: event.target.value })} type="text" value={location.values.state} />
+                          </label>
+                          <label className={labelClass}>
+                            Postal code
+                            <input autoComplete="postal-code" className={fieldClass} disabled={disabled} onChange={event => location.update({ zipCode: event.target.value })} type="text" value={location.values.zipCode} />
+                          </label>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button className={primaryButtonClass} data-testid="information-save-location" disabled={disabled || location.status === 'saving' || location.status === 'idle' || location.status === 'saved'} type="submit">Save address</button>
+                          <a className="text-sm font-semibold text-[var(--owner-accent)] underline" href={mode === 'business' ? '#parking-arrival' : businessInformationHref}>Parking &amp; arrival instructions</a>
+                        </div>
+                        <StatusLine error={location.error} savedText="Address saved. It affects directions and bookings immediately." status={location.status} />
+                      </form>
+                    )
+                  : editable && info
+                    ? (
+                        <>
+                          <p className="text-sm text-[var(--owner-ink)]">{[info.location?.address, info.location?.city, info.location?.state, info.location?.zipCode].filter(Boolean).join(', ') || 'No salon address saved.'}</p>
+                          <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={mode === 'business' ? '#parking-arrival' : businessInformationHref}>Edit salon address →</a>
+                        </>
+                      )
+                    : renderFallback('Location')}
 
-        <Accordion publishes="live" subtitle="Phone, email, Instagram and how clients may reach you" testId="information-contact" title="Contact">
-          {editable && contact.values && showEditors
-            ? (
-                <form
-                  className="space-y-3"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void contact.submit();
-                  }}
-                >
-                  <label className={labelClass}>
-                    Business phone
-                    <input autoComplete="tel" className={fieldClass} data-testid="information-phone" disabled={disabled} inputMode="tel" onChange={event => contact.update({ phone: event.target.value })} type="tel" value={contact.values.phone} />
-                  </label>
-                  <label className={labelClass}>
-                    Business email
-                    <input autoComplete="email" className={fieldClass} data-testid="information-email" disabled={disabled} inputMode="email" onChange={event => contact.update({ email: event.target.value })} type="email" value={contact.values.email} />
-                  </label>
-                  <label className={labelClass}>
-                    {INSTAGRAM_FIELD_LABEL}
-                    {/* The helper sits inside the label, so name the field explicitly. */}
-                    <input aria-describedby="information-instagram-helper" aria-label={INSTAGRAM_FIELD_LABEL} className={fieldClass} data-testid="information-instagram" disabled={disabled} onChange={event => contact.update({ instagram: event.target.value })} placeholder="yourstudio" type="text" value={contact.values.instagram} />
-                    <span className="mt-1 block text-xs font-normal text-[var(--owner-muted)]" data-testid="information-instagram-helper" id="information-instagram-helper">
-                      {INSTAGRAM_FIELD_HELPER}
-                      {instagramPreview ? ` — clients see ${instagramPreview}` : ''}
-                    </span>
-                  </label>
-                  <fieldset className="space-y-1" disabled={disabled}>
-                    <legend className="text-sm font-medium text-[var(--owner-ink)]">How clients may contact you</legend>
-                    <label className="flex min-h-11 items-center gap-3 text-sm text-[var(--owner-ink)]">
-                      <input checked={contact.values.bookingOnlyContact} className="size-5 accent-[var(--owner-accent)]" data-testid="information-booking-only-contact" onChange={event => contact.update({ bookingOnlyContact: event.target.checked })} type="checkbox" />
-                      Only through bookings (never publish my phone)
-                    </label>
-                    <label className="flex min-h-11 items-center gap-3 text-sm text-[var(--owner-ink)]">
-                      <input checked={contact.values.callEnabled} className="size-5 accent-[var(--owner-accent)]" onChange={event => contact.update({ callEnabled: event.target.checked })} type="checkbox" />
-                      Clients can call
-                    </label>
-                    <label className="flex min-h-11 items-center gap-3 text-sm text-[var(--owner-ink)]">
-                      <input checked={contact.values.textEnabled} className="size-5 accent-[var(--owner-accent)]" onChange={event => contact.update({ textEnabled: event.target.checked })} type="checkbox" />
-                      Clients can text
-                    </label>
-                    <label className={labelClass}>
-                      Text number (leave blank to use the business phone)
-                      <input autoComplete="tel" className={fieldClass} disabled={!contact.values.textEnabled} inputMode="tel" onChange={event => contact.update({ textNumber: event.target.value })} type="tel" value={contact.values.textNumber} />
-                    </label>
+                {mode !== 'business' && (
+                  <fieldset className="mt-4 border-t border-[var(--owner-line)] pt-3" disabled={disabled}>
+                    <legend className="text-sm font-semibold text-[var(--owner-ink)]">Address privacy</legend>
+                    <p className="mb-2 text-xs text-[var(--owner-muted)]">Your exact address stays saved for bookings and directions either way. This choice applies to your website draft until you publish.</p>
+                    <div role="radiogroup" aria-label="Address privacy">
+                      {ADDRESS_PRIVACY_OPTIONS.map(option => (
+                        <label className={`mb-2 flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3 ${selectedAddressPrivacy === option.value ? 'border-[var(--owner-accent)] bg-[var(--owner-blush)]' : 'border-[var(--owner-line)]'}`} key={option.value}>
+                          <input
+                            checked={selectedAddressPrivacy === option.value}
+                            className="mt-1 size-5 shrink-0 accent-[var(--owner-accent)]"
+                            data-testid={`address-privacy-${option.value}`}
+                            name="address-privacy"
+                            onChange={() => {
+                              setSelectedAddressPrivacy(option.value);
+                              onAddressPrivacyChange(option.value);
+                            }}
+                            type="radio"
+                            value={option.value}
+                          />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-[var(--owner-ink)]">{option.label}</span>
+                            <span className="block text-xs text-[var(--owner-muted)]">{option.description}</span>
+                            <span className="mt-1 block text-[11px] uppercase tracking-wide text-[var(--owner-line-strong)]">{option.note}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    {liveAddressPrivacy !== addressPrivacy && (
+                      <p className="text-xs text-amber-800" data-testid="address-privacy-unpublished">
+                        {`Your live site still uses “${draftPrivacyLabel}” until you publish.`}
+                      </p>
+                    )}
                   </fieldset>
-                  <button className={primaryButtonClass} data-testid="information-save-contact" disabled={disabled || contact.status === 'saving' || contact.status === 'idle' || contact.status === 'saved'} type="submit">Save contact</button>
-                  <StatusLine error={contact.error} savedText="Contact saved. Bookings use it immediately." status={contact.status} />
-                  {renderSwitches('Contact')}
-                </form>
-              )
-            : editable && info
-              ? (
-                  <>
-                    <dl className="grid gap-2 text-sm">
-                      <div>
-                        <dt className="font-medium text-[var(--owner-muted)]">Phone</dt>
-                        <dd>{info.salon.phone || 'Not saved'}</dd>
-                      </div>
-                      <div>
-                        <dt className="font-medium text-[var(--owner-muted)]">Email</dt>
-                        <dd>{info.salon.email || 'Not saved'}</dd>
-                      </div>
-                      <div>
-                        <dt className="font-medium text-[var(--owner-muted)]">Instagram</dt>
-                        <dd>{formatInstagramHandle(info.instagramHandle ?? info.instagram) || 'Not saved'}</dd>
-                      </div>
-                    </dl>
-                    <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=business-profile`}>Edit contact details →</a>
-                    {renderSwitches('Contact')}
-                  </>
-                )
-              : (
-                  <>
-                    {renderFallback('Contact')}
-                    {renderSwitches('Contact')}
-                  </>
                 )}
-        </Accordion>
+                {renderSwitches('Location')}
+              </>
+            </Accordion>
 
-        <Accordion publishes="live" subtitle="Weekly public hours and timezone" testId="information-hours" title="Hours">
-          {editable && hours.values && showEditors
+            <Accordion publishes="live" subtitle="Phone, email, Instagram and how clients may reach you" testId="information-contact" title="Contact">
+              {editable && contact.values && showEditors
+                ? (
+                    <form
+                      className="space-y-3"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void contact.submit();
+                      }}
+                    >
+                      <label className={labelClass}>
+                        Business phone
+                        <input autoComplete="tel" className={fieldClass} data-testid="information-phone" disabled={disabled} inputMode="tel" onChange={event => contact.update({ phone: event.target.value })} type="tel" value={contact.values.phone} />
+                      </label>
+                      <label className={labelClass}>
+                        Business email
+                        <input autoComplete="email" className={fieldClass} data-testid="information-email" disabled={disabled} inputMode="email" onChange={event => contact.update({ email: event.target.value })} type="email" value={contact.values.email} />
+                      </label>
+                      <label className={labelClass}>
+                        {INSTAGRAM_FIELD_LABEL}
+                        {/* The helper sits inside the label, so name the field explicitly. */}
+                        <input aria-describedby="information-instagram-helper" aria-label={INSTAGRAM_FIELD_LABEL} className={fieldClass} data-testid="information-instagram" disabled={disabled} onChange={event => contact.update({ instagram: event.target.value })} placeholder="yourstudio" type="text" value={contact.values.instagram} />
+                        <span className="mt-1 block text-xs font-normal text-[var(--owner-muted)]" data-testid="information-instagram-helper" id="information-instagram-helper">
+                          {INSTAGRAM_FIELD_HELPER}
+                          {instagramPreview ? ` — clients see ${instagramPreview}` : ''}
+                        </span>
+                      </label>
+                      <fieldset className="space-y-1" disabled={disabled}>
+                        <legend className="text-sm font-medium text-[var(--owner-ink)]">How clients may contact you</legend>
+                        <label className="flex min-h-11 items-center gap-3 text-sm text-[var(--owner-ink)]">
+                          <input checked={contact.values.bookingOnlyContact} className="size-5 accent-[var(--owner-accent)]" data-testid="information-booking-only-contact" onChange={event => contact.update({ bookingOnlyContact: event.target.checked })} type="checkbox" />
+                          Only through bookings (never publish my phone)
+                        </label>
+                        <label className="flex min-h-11 items-center gap-3 text-sm text-[var(--owner-ink)]">
+                          <input checked={contact.values.callEnabled} className="size-5 accent-[var(--owner-accent)]" onChange={event => contact.update({ callEnabled: event.target.checked })} type="checkbox" />
+                          Clients can call
+                        </label>
+                        <label className="flex min-h-11 items-center gap-3 text-sm text-[var(--owner-ink)]">
+                          <input checked={contact.values.textEnabled} className="size-5 accent-[var(--owner-accent)]" onChange={event => contact.update({ textEnabled: event.target.checked })} type="checkbox" />
+                          Clients can text
+                        </label>
+                        <label className={labelClass}>
+                          Text number (leave blank to use the business phone)
+                          <input autoComplete="tel" className={fieldClass} disabled={!contact.values.textEnabled} inputMode="tel" onChange={event => contact.update({ textNumber: event.target.value })} type="tel" value={contact.values.textNumber} />
+                        </label>
+                      </fieldset>
+                      <button className={primaryButtonClass} data-testid="information-save-contact" disabled={disabled || contact.status === 'saving' || contact.status === 'idle' || contact.status === 'saved'} type="submit">Save contact</button>
+                      <StatusLine error={contact.error} savedText="Contact saved. Bookings use it immediately." status={contact.status} />
+                      {renderSwitches('Contact')}
+                    </form>
+                  )
+                : editable && info
+                  ? (
+                      <>
+                        <dl className="grid gap-2 text-sm">
+                          <div>
+                            <dt className="font-medium text-[var(--owner-muted)]">Phone</dt>
+                            <dd>{info.salon.phone || 'Not saved'}</dd>
+                          </div>
+                          <div>
+                            <dt className="font-medium text-[var(--owner-muted)]">Email</dt>
+                            <dd>{info.salon.email || 'Not saved'}</dd>
+                          </div>
+                          <div>
+                            <dt className="font-medium text-[var(--owner-muted)]">Instagram</dt>
+                            <dd>{formatInstagramHandle(info.instagramHandle ?? info.instagram) || 'Not saved'}</dd>
+                          </div>
+                        </dl>
+                        <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={businessInformationHref}>Edit contact details →</a>
+                        {renderSwitches('Contact')}
+                      </>
+                    )
+                  : (
+                      <>
+                        {renderFallback('Contact')}
+                        {renderSwitches('Contact')}
+                      </>
+                    )}
+            </Accordion>
+
+          </>
+        )}
+        <Accordion defaultOpen={mode === 'hours'} publishes="live" subtitle="Weekly public hours and timezone" testId="information-hours" title="Hours">
+          {editable && hours.values && showEditors && mode !== 'business'
             ? (
                 <form
                   className="space-y-3"
@@ -1036,7 +1058,7 @@ export function BookingPageInformationEditor({
                     void hours.submit();
                   }}
                 >
-                  <p className="text-xs text-[var(--owner-muted)]">These are your public hours and your primary location’s booking hours. They take effect immediately. Individual staff schedules are managed in Staff and are not changed here.</p>
+                  <p className="text-xs text-[var(--owner-muted)]">These are your public hours and your primary location’s booking hours. They take effect immediately. Individual working schedules are separate and are not changed here.</p>
                   <div className="space-y-2">
                     {WEEKDAYS.map((day) => {
                       const value = hours.values!.businessHours[day];
@@ -1070,7 +1092,9 @@ export function BookingPageInformationEditor({
                   {openDaysWithoutStaff.length > 0 && (
                     <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900" data-testid="information-hours-staff-gap" role="status">
                       {`No staff member works ${formatWeekdayList(openDaysWithoutStaff)} yet — add a shift or clients will see no times. `}
-                      <a className="font-semibold underline" href={`${workspace}&app=staff`}>Add a shift in Staff</a>
+                      {onOpenWorkingHours
+                        ? <button type="button" className="font-semibold underline" onClick={onOpenWorkingHours}>Edit working hours</button>
+                        : <a className="font-semibold underline" href={`${workspace}&app=hours&view=working-hours`}>Edit working hours</a>}
                     </p>
                   )}
                   {renderSwitches('Hours')}
@@ -1091,7 +1115,7 @@ export function BookingPageInformationEditor({
                         <span>{info.timezone}</span>
                       </p>
                     </div>
-                    <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=business-profile`}>Edit business hours →</a>
+                    <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=hours`}>Edit business hours →</a>
                     {renderSwitches('Hours')}
                   </>
                 )
@@ -1109,12 +1133,14 @@ export function BookingPageInformationEditor({
           </Accordion>
         )}
       </div>
-      <p className="mt-3 text-xs text-[var(--owner-muted)]">
-        <a className="inline-flex min-h-11 items-center gap-1 font-semibold text-[var(--owner-accent)] underline" href={mode === 'business' ? `${workspace}&app=team` : `${workspace}&app=settings${mode === 'booking' ? '&view=business' : ''}`}>
-          {mode === 'business' ? 'Manage team profiles' : 'Open all business settings'}
-          <ExternalLink aria-hidden="true" size={14} />
-        </a>
-      </p>
+      {mode !== 'hours' && (
+        <p className="mt-3 text-xs text-[var(--owner-muted)]">
+          <a className="inline-flex min-h-11 items-center gap-1 font-semibold text-[var(--owner-accent)] underline" href={mode === 'business' ? `${workspace}&app=team` : businessInformationHref}>
+            {mode === 'business' ? 'Manage team profiles' : 'Edit business information'}
+            <ExternalLink aria-hidden="true" size={14} />
+          </a>
+        </p>
+      )}
     </section>
   );
 }

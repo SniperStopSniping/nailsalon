@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Check, Copy, Images, LayoutTemplate, Lock, Palette, Scissors, ShieldCheck, Type, UserRound } from 'lucide-react';
+import { ArrowLeft, Building2, Check, Copy, Images, LayoutTemplate, ListOrdered, Lock, MessageSquare, Palette, Scissors, ShieldCheck, Type, UserRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 /**
@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 const PREVIEW_RETURN_HASH = '#preview-draft';
 
 const EDITORS = [
+  { id: 'business', title: 'Business Information', description: 'Salon name, contact, address and arrival details', icon: Building2 },
   { id: 'layouts', title: 'Layout', description: '22 website layouts and the booking menu', icon: LayoutTemplate },
   // Fonts are named here on purpose. Each style preset now carries its own
   // display typeface, and "the look you chose during setup" gave an owner
@@ -21,6 +22,7 @@ const EDITORS = [
   { id: 'text', title: 'About & Website Text', description: 'Your introduction and bio', icon: Type },
   { id: 'gallery', title: 'Photos & Gallery', description: 'Logo, profile, cover and shared Portfolio', icon: Images },
   { id: 'policies', title: 'Policies Display', description: 'Show policies and open their canonical editor', icon: ShieldCheck },
+  { id: 'experience', title: 'Public Booking Experience', description: 'Booking message, social links and confirmation text', icon: MessageSquare },
   { id: 'publish', title: 'Preview & Publish', description: 'Preview the draft, publish changes or view the live site', icon: Check },
 ] as const;
 
@@ -33,6 +35,7 @@ export function BookingPageHub({
   hasDraftChanges,
   setupUrl,
   canPublish = true,
+  isFreeSolo = false,
 }: {
   locale: string;
   salonName: string;
@@ -48,9 +51,13 @@ export function BookingPageHub({
    * authority; this is the explanation.
    */
   canPublish?: boolean;
+  isFreeSolo?: boolean;
 }) {
   const [copyStatus, setCopyStatus] = useState('');
   const previewLinkRef = useRef<HTMLAnchorElement>(null);
+  const editors = isFreeSolo
+    ? EDITORS
+    : [...EDITORS, { id: 'flow', title: 'Booking Flow', description: 'Service, technician, date/time and confirmation order', icon: ListOrdered }];
   useEffect(() => {
     if (window.location.hash === PREVIEW_RETURN_HASH) {
       previewLinkRef.current?.focus();
@@ -107,7 +114,7 @@ export function BookingPageHub({
           <p aria-live="polite" className="mt-2 text-sm text-[var(--owner-muted)]">{copyStatus}</p>
         </header>
         <nav aria-label="Booking Page editors" className="grid grid-cols-2 gap-3">
-          {EDITORS.map(({ id, title, description, icon: Icon }) => (
+          {editors.map(({ id, title, description, icon: Icon }) => (
             <a
               className="min-w-0 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
               href={`${editor}&panel=${id}`}
