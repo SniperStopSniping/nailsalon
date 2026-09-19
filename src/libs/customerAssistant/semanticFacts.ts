@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const treatmentSchema = z.enum(['gel_polish', 'builder_gel', 'gel_x', 'acrylic', 'unknown']);
-const applicationSchema = z.enum(['natural_nails', 'extensions', 'unknown']);
+const desiredApplicationSchema = z.enum(['natural_nails', 'extensions', 'unknown']);
 const maintenanceSchema = z.enum(['new_set', 'refill', 'unknown']);
 const lengthSchema = z.enum(['short', 'medium', 'long', 'extra_long', 'unknown']);
 const frenchSchema = z.enum(['yes', 'no', 'unknown']);
@@ -14,7 +14,7 @@ const repairCountSchema = z.union([z.number().int().min(0).max(20), z.literal('u
 export const factsSchema = z.object({
   schemaVersion: z.literal(1),
   treatment: treatmentSchema,
-  application: applicationSchema,
+  desiredApplication: desiredApplicationSchema,
   maintenance: maintenanceSchema,
   length: lengthSchema,
   french: frenchSchema,
@@ -32,7 +32,7 @@ export const factsSchema = z.object({
 export const patchSchema = z.object({
   schemaVersion: z.literal(1),
   treatment: treatmentSchema.nullable(),
-  application: applicationSchema.nullable(),
+  desiredApplication: desiredApplicationSchema.nullable(),
   maintenance: maintenanceSchema.nullable(),
   length: lengthSchema.nullable(),
   french: frenchSchema.nullable(),
@@ -45,11 +45,15 @@ export const patchSchema = z.object({
 export const patchJSONSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['schemaVersion', 'treatment', 'application', 'maintenance', 'length', 'french', 'existingProduct', 'origin', 'removal', 'repairCount'],
+  required: ['schemaVersion', 'treatment', 'desiredApplication', 'maintenance', 'length', 'french', 'existingProduct', 'origin', 'removal', 'repairCount'],
   properties: {
     schemaVersion: { type: 'integer', const: 1 },
     treatment: { type: ['string', 'null'], enum: ['gel_polish', 'builder_gel', 'gel_x', 'acrylic', 'unknown', null] },
-    application: { type: ['string', 'null'], enum: ['natural_nails', 'extensions', 'unknown', null] },
+    desiredApplication: {
+      type: ['string', 'null'],
+      enum: ['natural_nails', 'extensions', 'unknown', null],
+      description: 'The requested result: natural-nail overlay or added extensions. It is distinct from existingProduct, which records only what is currently on the customer’s nails.',
+    },
     maintenance: { type: ['string', 'null'], enum: ['new_set', 'refill', 'unknown', null] },
     length: { type: ['string', 'null'], enum: ['short', 'medium', 'long', 'extra_long', 'unknown', null] },
     french: { type: ['string', 'null'], enum: ['yes', 'no', 'unknown', null] },
@@ -66,7 +70,7 @@ export type Patch = z.infer<typeof patchSchema>;
 export const emptyFacts = (): Facts => ({
   schemaVersion: 1,
   treatment: 'unknown',
-  application: 'unknown',
+  desiredApplication: 'unknown',
   maintenance: 'unknown',
   length: 'unknown',
   french: 'unknown',
@@ -82,7 +86,7 @@ export function mergeFacts(previous: Facts, patch: Patch): Facts {
   return factsSchema.parse({
     schemaVersion: 1,
     treatment: next.treatment ?? current.treatment,
-    application: next.application ?? current.application,
+    desiredApplication: next.desiredApplication ?? current.desiredApplication,
     maintenance: next.maintenance ?? current.maintenance,
     length: next.length ?? current.length,
     french: next.french ?? current.french,

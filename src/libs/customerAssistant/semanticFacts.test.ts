@@ -1,20 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
-import { emptyFacts, factsSchema, mergeFacts, patchJSONSchema, patchSchema } from './semanticFacts';
+import { emptyFacts, factsSchema, mergeFacts, type Patch, patchJSONSchema, patchSchema } from './semanticFacts';
 
-const absentPatch = () => ({ schemaVersion: 1, treatment: null, application: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null });
+const absentPatch = (): Patch => ({ schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null });
 
 describe('customer assistant semantic facts', () => {
   it('starts bounded and unknown without catalog, price, contact, or tenant fields', () => {
-    expect(emptyFacts()).toEqual({ schemaVersion: 1, treatment: 'unknown', application: 'unknown', maintenance: 'unknown', length: 'unknown', french: 'unknown', existingProduct: 'unknown', origin: 'unknown', removal: 'unknown', repairCount: 'unknown' });
+    expect(emptyFacts()).toEqual({ schemaVersion: 1, treatment: 'unknown', desiredApplication: 'unknown', maintenance: 'unknown', length: 'unknown', french: 'unknown', existingProduct: 'unknown', origin: 'unknown', removal: 'unknown', repairCount: 'unknown' });
     expect(Object.keys(emptyFacts())).not.toEqual(expect.arrayContaining(['price', 'duration', 'salonId', 'phone', 'email']));
   });
 
   it('preserves unmentioned facts across turns and applies a later correction', () => {
-    const first = mergeFacts(emptyFacts(), { ...absentPatch(), treatment: 'gel_x', application: 'extensions', maintenance: 'refill', origin: 'this_salon', french: 'yes' });
+    const first = mergeFacts(emptyFacts(), { ...absentPatch(), treatment: 'gel_x', desiredApplication: 'extensions', maintenance: 'refill', origin: 'this_salon', french: 'yes' });
     const corrected = mergeFacts(first, { ...absentPatch(), maintenance: 'new_set', length: 'medium', origin: 'other_salon' });
 
-    expect(corrected).toMatchObject({ treatment: 'gel_x', application: 'extensions', maintenance: 'new_set', length: 'medium', origin: 'other_salon', french: 'yes' });
+    expect(corrected).toMatchObject({ treatment: 'gel_x', desiredApplication: 'extensions', maintenance: 'new_set', length: 'medium', origin: 'other_salon', french: 'yes' });
   });
 
   it('treats explicit unknown and none as clearing values rather than absent patches', () => {
