@@ -122,3 +122,21 @@ an unsaved-form prompt (Settings has the same behavior). Hours guards its header
 contextual shortcuts, backdrop/Escape and full-page unload. A speculative
 popstate interception was rejected because it could corrupt Next.js history;
 this foundation preserves normal native history behavior.
+
+Booking-controls slice: Currency now lives in Payments; timezone remains in
+Hours. Booking Rules contains notice, buffer, interval, confirmation and client
+change cutoff. Its PATCH excludes currency/timezone; Currency sends only its own
+field. The existing deposit currency refusal and all server authorization remain
+unchanged. Failed settings loads expose a retry instead of an editable default.
+Payments subviews preserve query context and native Back/Forward history.
+
+Validation: 242 focused tests passed, including the existing settings API/payment
+guard suite; 12 mobile component-browser journeys passed in Chromium (390px) and
+WebKit (320px). Independent source review passed. Exact-head CI is still required.
+
+Inherited persistence limitation: the settings API merges a booking patch from
+its initial server snapshot and replaces the booking object. Narrowing browser
+payloads prevents resubmitting unrelated browser fields, but simultaneous server
+requests can still overwrite sibling fields. This UI slice does not change that
+shared persistence behavior or claim atomic per-field writes. A separate fix
+would require concurrent handler tests and an independent booking/payment review.

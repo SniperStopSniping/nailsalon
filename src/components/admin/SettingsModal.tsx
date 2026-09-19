@@ -137,31 +137,6 @@ type SectionProps = {
   children: ReactNode;
 };
 
-/**
- * IANA timezones for the salon-timezone picker, America/* first (this
- * product's audience), always including the currently stored value so a
- * legacy/nonstandard setting is never silently changed by opening settings.
- */
-function getTimeZoneOptions(currentValue: string): string[] {
-  let zones: string[] = [];
-  try {
-    zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
-  } catch {
-    zones = [];
-  }
-  if (zones.length === 0) {
-    zones = ['America/Toronto', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Vancouver'];
-  }
-  const ordered = [
-    ...zones.filter(zone => zone.startsWith('America/')),
-    ...zones.filter(zone => !zone.startsWith('America/')),
-  ];
-  if (currentValue && !ordered.includes(currentValue)) {
-    ordered.unshift(currentValue);
-  }
-  return ordered;
-}
-
 function Section({ title, footer, children }: SectionProps) {
   return (
     <div className="mb-6">
@@ -1942,6 +1917,7 @@ type SettingsView
   | 'booking-flow'
   | 'smart-fit'
   | 'payments'
+  | 'currency'
   | 'notifications'
   | 'communications'
   | 'review-requests'
@@ -1968,6 +1944,7 @@ const SETTINGS_VIEW_IDS: readonly SettingsView[] = [
   'booking-flow',
   'smart-fit',
   'payments',
+  'currency',
   'notifications',
   'communications',
   'review-requests',
@@ -1996,6 +1973,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'booking-flow': 'Booking flow',
   'smart-fit': 'Smart Fit discounts',
   'payments': 'Payments & taxes',
+  'currency': 'Currency',
   'notifications': 'Notifications',
   'communications': 'Client communications',
   'review-requests': 'Review requests',
@@ -2306,8 +2284,10 @@ export function SettingsModal({
     null,
   );
   const [bookingConfigLoading, setBookingConfigLoading] = useState(true);
+  const [bookingConfigHydrated, setBookingConfigHydrated] = useState(false);
   const [bookingConfigSaving, setBookingConfigSaving] = useState(false);
   const [bookingConfigSaved, setBookingConfigSaved] = useState(false);
+  const [bookingConfigError, setBookingConfigError] = useState<string | null>(null);
   const [bookingExperienceLoading, setBookingExperienceLoading] = useState(true);
   // AG-04: only true once the saved booking experience has been read back.
   const [bookingExperienceHydrated, setBookingExperienceHydrated]
@@ -2538,12 +2518,15 @@ export function SettingsModal({
     try {
       setProgramsLoading(true);
       setBookingConfigLoading(true);
+      setBookingConfigHydrated(false);
+      setBookingConfigError(null);
       setBookingExperienceLoading(true);
       const response = await fetch(
         `/api/admin/salon/settings?salonSlug=${salonSlug}`,
       );
       if (response.ok) {
         const data = await response.json();
+        setBookingConfigHydrated(true);
         const loadedBookingExperience = copyBookingExperience(
           data.bookingExperience ?? BOOKING_EXPERIENCE_DEFAULTS,
         );
@@ -2700,6 +2683,8 @@ export function SettingsModal({
       }
     } catch (error) {
       console.error('Failed to fetch programs settings:', error);
+      setBookingConfigHydrated(false);
+      setBookingConfigError('Could not load the current settings. Try again before editing.');
       setBookingExperienceHydrated(false);
       setBookingExperienceError(
         error instanceof Error
@@ -2749,36 +2734,38 @@ export function SettingsModal({
   );
 
   const saveBookingConfig = useCallback(async () => {
-    if (!salonSlug || bookingConfigSaving) {
+    if (!salonSlug || bookingConfigSaving || !bookingConfigHydrated) {
       return;
     }
 
     try {
       setBookingConfigSaving(true);
       setBookingConfigSaved(false);
+      setBookingConfigError(null);
       const response = await fetch(
         `/api/admin/salon/settings?salonSlug=${salonSlug}`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            bookingConfig: {
-              confirmationMode: bookingConfigForm.confirmationMode,
-              bufferMinutes: bookingConfigForm.bufferMinutes,
-              slotIntervalMinutes: bookingConfigForm.slotIntervalMinutes,
-              currency: bookingConfigForm.currency,
-              timezone: bookingConfigForm.timezone.trim(),
-              clientChangeCutoffHours:
+            bookingConfig: view === 'currency'
+              ? { currency: bookingConfigForm.currency }
+              : {
+                  confirmationMode: bookingConfigForm.confirmationMode,
+                  bufferMinutes: bookingConfigForm.bufferMinutes,
+                  slotIntervalMinutes: bookingConfigForm.slotIntervalMinutes,
+                  clientChangeCutoffHours:
                 bookingConfigForm.clientChangeCutoffHours,
-              minimumNoticeMinutes:
+                  minimumNoticeMinutes:
                 bookingConfigForm.minimumNoticeMinutes,
-            },
+                },
           }),
         },
       );
 
       if (!response.ok) {
-        throw new Error('Failed to save booking configuration');
+        const failure = await response.json().catch(() => null);
+        throw new Error(failure?.message || 'Could not save. Please try again.');
       }
 
       const data = await response.json();
@@ -2804,13 +2791,15 @@ export function SettingsModal({
       setBookingConfigDirty(false);
       router.refresh();
     } catch (error) {
-      console.error('Failed to save booking config:', error);
+      setBookingConfigError(error instanceof Error ? error.message : 'Could not save. Please try again.');
     } finally {
       setBookingConfigSaving(false);
     }
   }, [
     bookingConfigForm,
     bookingConfigSaving,
+    bookingConfigHydrated,
+    view,
     router,
     salonSlug,
   ]);
@@ -3667,6 +3656,7 @@ export function SettingsModal({
     'branding': bookingExperienceDirty,
     'booking-policy': bookingPolicyDirty,
     'booking': bookingConfigDirty,
+    'currency': bookingConfigDirty,
     'payments': paymentsDirty,
     'smart-fit': smartFitDirty,
     'notifications': notificationsDirty,
@@ -4109,8 +4099,8 @@ export function SettingsModal({
 
         {view === 'booking' && (
           <Section
-            title="Booking Configuration"
-            footer="These settings control slot spacing, internal booking buffer, and intro pricing defaults for this salon."
+            title="Booking rules"
+            footer="Control how clients book and change appointments. Regular hours and customer-facing policies have their own editors."
           >
             {bookingConfigLoading
               ? (
@@ -4118,247 +4108,257 @@ export function SettingsModal({
                     <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                   </div>
                 )
-              : (
-                  <div className="space-y-4 p-4">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                          Buffer minutes
-                        </span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={60}
-                          step={5}
-                          value={bookingConfigForm.bufferMinutes}
-                          onChange={event =>
-                            updateBookingConfigForm(prev => ({
-                              ...prev,
-                              bufferMinutes: Math.max(
-                                0,
-                                Math.min(
-                                  60,
-                                  Number.parseInt(event.target.value || '0', 10) || 0,
-                                ),
-                              ),
-                            }))}
-                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                        />
-                      </label>
-
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                          Slot interval
-                        </span>
-                        <select
-                          value={bookingConfigForm.slotIntervalMinutes}
-                          onChange={event =>
-                            updateBookingConfigForm(prev => ({
-                              ...prev,
-                              slotIntervalMinutes: Number.parseInt(
-                                event.target.value,
-                                10,
-                              ) as BookingConfigFormState['slotIntervalMinutes'],
-                            }))}
-                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                        >
-                          {SLOT_INTERVAL_OPTIONS.map(option => (
-                            <option key={option} value={option}>
-                              {option}
-                              {' '}
-                              minutes
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                          Currency
-                        </span>
-                        <select
-                          value={bookingConfigForm.currency}
-                          onChange={event =>
-                            updateBookingConfigForm(prev => ({
-                              ...prev,
-                              currency: event.target
-                                .value as BookingConfigFormState['currency'],
-                            }))}
-                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                        >
-                          {CURRENCY_OPTIONS.map(option => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                          Client change cutoff
-                        </span>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            min={0}
-                            max={168}
-                            step={1}
-                            value={bookingConfigForm.clientChangeCutoffHours}
-                            onChange={event =>
-                              updateBookingConfigForm(prev => ({
-                                ...prev,
-                                clientChangeCutoffHours: Math.max(
-                                  0,
-                                  Math.min(
-                                    168,
-                                    Number.parseInt(event.target.value || '0', 10)
-                                    || 0,
-                                  ),
-                                ),
-                              }))}
-                            className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-16 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                          />
-                          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
-                            hours
-                          </span>
-                        </div>
-                        <span className="text-xs text-[var(--owner-muted)]">
-                          Clients contact you inside this window. Use 0 to allow
-                          changes anytime.
-                        </span>
-                      </label>
-
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                          Booking confirmation
-                        </span>
-                        <select
-                          value={bookingConfigForm.confirmationMode}
-                          onChange={event => updateBookingConfigForm(prev => ({
-                            ...prev,
-                            confirmationMode: event.target.value as BookingConfigFormState['confirmationMode'],
-                          }))}
-                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)]"
-                        >
-                          <option value="instant">Automatically confirm appointments</option>
-                          <option value="request_approval">Review each request first</option>
-                        </select>
-                        <span className="text-xs text-[var(--owner-muted)]">
-                          {bookingConfigForm.confirmationMode === 'request_approval'
-                            ? 'New online bookings wait for your approval and reserve the selected time. Paying a deposit does not approve a request.'
-                            : 'New online bookings are confirmed when booked, or after any required online deposit is paid.'}
-                          {' Your hours, availability and minimum notice still apply. Existing appointments keep their status.'}
-                        </span>
-                      </label>
-
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                          Minimum notice
-                        </span>
-                        <select
-                          data-testid="minimum-notice-select"
-                          value={showCustomMinimumNotice ? 'custom' : String(bookingConfigForm.minimumNoticeMinutes)}
-                          onChange={(event) => {
-                            if (event.target.value === 'custom') {
-                              setMinimumNoticeCustom(true);
-                              return;
-                            }
-                            setMinimumNoticeCustom(false);
-                            updateBookingConfigForm(prev => ({
-                              ...prev,
-                              minimumNoticeMinutes: Number.parseInt(event.target.value, 10),
-                            }));
-                          }}
-                          className="h-11 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                        >
-                          {MINIMUM_NOTICE_OPTIONS.map(option => (
-                            <option key={option.minutes} value={option.minutes}>
-                              {option.label}
-                            </option>
-                          ))}
-                          <option value="custom">Custom</option>
-                        </select>
-                        {showCustomMinimumNotice && (
-                          <div className="relative">
+              : !bookingConfigHydrated
+                  ? (
+                      <div className="space-y-3 p-4">
+                        <p role="alert">Could not load the current settings. Try again before editing.</p>
+                        <button type="button" className="min-h-11 rounded-xl border px-4" onClick={() => void fetchPrograms()}>Try again</button>
+                      </div>
+                    )
+                  : (
+                      <div className="space-y-4 p-4">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                              Buffer minutes
+                            </span>
                             <input
                               type="number"
                               min={0}
-                              max={525_600}
-                              step={15}
-                              aria-label="Minimum notice in minutes"
-                              data-testid="minimum-notice-custom"
-                              value={bookingConfigForm.minimumNoticeMinutes}
+                              max={60}
+                              step={5}
+                              value={bookingConfigForm.bufferMinutes}
                               onChange={event =>
                                 updateBookingConfigForm(prev => ({
                                   ...prev,
-                                  minimumNoticeMinutes: Math.max(
+                                  bufferMinutes: Math.max(
                                     0,
                                     Math.min(
-                                      525_600,
+                                      60,
                                       Number.parseInt(event.target.value || '0', 10) || 0,
                                     ),
                                   ),
                                 }))}
-                              className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-20 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
-                            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
-                              minutes
+                          </label>
+
+                          <label className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                              Slot interval
                             </span>
+                            <select
+                              value={bookingConfigForm.slotIntervalMinutes}
+                              onChange={event =>
+                                updateBookingConfigForm(prev => ({
+                                  ...prev,
+                                  slotIntervalMinutes: Number.parseInt(
+                                    event.target.value,
+                                    10,
+                                  ) as BookingConfigFormState['slotIntervalMinutes'],
+                                }))}
+                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                            >
+                              {SLOT_INTERVAL_OPTIONS.map(option => (
+                                <option key={option} value={option}>
+                                  {option}
+                                  {' '}
+                                  minutes
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                              Client change cutoff
+                            </span>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min={0}
+                                max={168}
+                                step={1}
+                                value={bookingConfigForm.clientChangeCutoffHours}
+                                onChange={event =>
+                                  updateBookingConfigForm(prev => ({
+                                    ...prev,
+                                    clientChangeCutoffHours: Math.max(
+                                      0,
+                                      Math.min(
+                                        168,
+                                        Number.parseInt(event.target.value || '0', 10)
+                                        || 0,
+                                      ),
+                                    ),
+                                  }))}
+                                className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-16 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              />
+                              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
+                                hours
+                              </span>
+                            </div>
+                            <span className="text-xs text-[var(--owner-muted)]">
+                              Clients contact you inside this window. Use 0 to allow
+                              changes anytime.
+                            </span>
+                          </label>
+
+                          <label className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                              Booking confirmation
+                            </span>
+                            <select
+                              value={bookingConfigForm.confirmationMode}
+                              onChange={event => updateBookingConfigForm(prev => ({
+                                ...prev,
+                                confirmationMode: event.target.value as BookingConfigFormState['confirmationMode'],
+                              }))}
+                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)]"
+                            >
+                              <option value="instant">Automatically confirm appointments</option>
+                              <option value="request_approval">Review each request first</option>
+                            </select>
+                            <span className="text-xs text-[var(--owner-muted)]">
+                              {bookingConfigForm.confirmationMode === 'request_approval'
+                                ? 'New online bookings wait for your approval and reserve the selected time. Paying a deposit does not approve a request.'
+                                : 'New online bookings are confirmed when booked, or after any required online deposit is paid.'}
+                              {' Your hours, availability and minimum notice still apply. Existing appointments keep their status.'}
+                            </span>
+                          </label>
+
+                          <label className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                              Minimum notice
+                            </span>
+                            <select
+                              data-testid="minimum-notice-select"
+                              value={showCustomMinimumNotice ? 'custom' : String(bookingConfigForm.minimumNoticeMinutes)}
+                              onChange={(event) => {
+                                if (event.target.value === 'custom') {
+                                  setMinimumNoticeCustom(true);
+                                  return;
+                                }
+                                setMinimumNoticeCustom(false);
+                                updateBookingConfigForm(prev => ({
+                                  ...prev,
+                                  minimumNoticeMinutes: Number.parseInt(event.target.value, 10),
+                                }));
+                              }}
+                              className="h-11 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                            >
+                              {MINIMUM_NOTICE_OPTIONS.map(option => (
+                                <option key={option.minutes} value={option.minutes}>
+                                  {option.label}
+                                </option>
+                              ))}
+                              <option value="custom">Custom</option>
+                            </select>
+                            {showCustomMinimumNotice && (
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={525_600}
+                                  step={15}
+                                  aria-label="Minimum notice in minutes"
+                                  data-testid="minimum-notice-custom"
+                                  value={bookingConfigForm.minimumNoticeMinutes}
+                                  onChange={event =>
+                                    updateBookingConfigForm(prev => ({
+                                      ...prev,
+                                      minimumNoticeMinutes: Math.max(
+                                        0,
+                                        Math.min(
+                                          525_600,
+                                          Number.parseInt(event.target.value || '0', 10) || 0,
+                                        ),
+                                      ),
+                                    }))}
+                                  className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-20 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                />
+                                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
+                                  minutes
+                                </span>
+                              </div>
+                            )}
+                            <span className="text-xs text-[var(--owner-muted)]" data-testid="minimum-notice-current">
+                              {`Now: ${formatMinimumNotice(bookingConfigForm.minimumNoticeMinutes)}. Clients cannot book a time closer than this — your public times start after it.`}
+                            </span>
+                          </label>
+
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-3">
+                          <div className="text-xs text-[var(--owner-muted)]">
+                            Applies to new availability and bookings immediately.
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void saveBookingConfig()}
+                            disabled={bookingConfigSaving || !bookingConfigDirty}
+                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Save className="size-4" />
+                            <span>
+                              {bookingConfigSaving ? 'Saving...' : 'Save booking rules'}
+                            </span>
+                          </button>
+                        </div>
+
+                        {bookingConfigError && <p role="alert" className="text-sm text-red-700">{bookingConfigError}</p>}
+                        {bookingConfigSaved && (
+                          <div className="text-right text-xs font-medium text-green-600">
+                            Booking rules saved.
                           </div>
                         )}
-                        <span className="text-xs text-[var(--owner-muted)]" data-testid="minimum-notice-current">
-                          {`Now: ${formatMinimumNotice(bookingConfigForm.minimumNoticeMinutes)}. Clients cannot book a time closer than this — your public times start after it.`}
-                        </span>
-                      </label>
-
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                          Timezone
-                        </span>
-                        {/* A typo here silently shifts every booking slot, so the
-                            value is picked from the IANA list instead of typed. */}
-                        <select
-                          value={bookingConfigForm.timezone}
-                          onChange={event =>
-                            updateBookingConfigForm(prev => ({
-                              ...prev,
-                              timezone: event.target.value,
-                            }))}
-                          className="h-11 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                        >
-                          {getTimeZoneOptions(bookingConfigForm.timezone).map(zone => (
-                            <option key={zone} value={zone}>{zone.replace(/_/g, ' ')}</option>
-                          ))}
-                        </select>
-                      </label>
-
-                    </div>
-
-                    <div className="flex items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-3">
-                      <div className="text-xs text-[var(--owner-muted)]">
-                        Applies to new availability and bookings immediately.
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void saveBookingConfig()}
-                        disabled={bookingConfigSaving || !bookingConfigDirty}
-                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Save className="size-4" />
-                        <span>
-                          {bookingConfigSaving ? 'Saving...' : 'Save booking rules'}
-                        </span>
-                      </button>
-                    </div>
-
-                    {bookingConfigSaved && (
-                      <div className="text-right text-xs font-medium text-green-600">
-                        Booking rules saved.
                       </div>
                     )}
-                  </div>
-                )}
+          </Section>
+        )}
+
+        {view === 'currency' && (
+          <Section title="Currency" footer="The currency used for your salon’s prices and client payments.">
+            {bookingConfigLoading
+              ? <p className="p-4" role="status">Loading currency…</p>
+              : !bookingConfigHydrated
+                  ? (
+                      <div className="space-y-3 p-4">
+                        <p role="alert">Could not load the current settings. Try again before editing.</p>
+                        <button type="button" className="min-h-11 rounded-xl border px-4" onClick={() => void fetchPrograms()}>Try again</button>
+                      </div>
+                    )
+                  : (
+                      <div className="space-y-4 p-4">
+                        <label className="flex flex-col gap-1">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                            Currency
+                          </span>
+                          <select
+                            value={bookingConfigForm.currency}
+                            onChange={event =>
+                              updateBookingConfigForm(prev => ({
+                                ...prev,
+                                currency: event.target
+                                  .value as BookingConfigFormState['currency'],
+                              }))}
+                            className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                          >
+                            {CURRENCY_OPTIONS.map(option => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <p className="text-sm text-[var(--owner-muted)]">Changing currency does not convert your existing prices. Check your service prices before accepting bookings in another currency.</p>
+                        {bookingConfigError && <p role="alert" className="text-sm text-red-700">{bookingConfigError}</p>}
+                        {bookingConfigSaved && <p role="status" className="text-sm text-green-700">Currency saved.</p>}
+                        <button type="button" onClick={() => void saveBookingConfig()} disabled={bookingConfigSaving || !bookingConfigDirty} className="min-h-11 rounded-xl bg-[var(--owner-accent)] px-4 font-semibold text-white disabled:opacity-50">
+                          {bookingConfigSaving ? 'Saving...' : 'Save currency'}
+                        </button>
+                      </div>
+                    )}
           </Section>
         )}
 

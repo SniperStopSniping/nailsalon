@@ -7,6 +7,11 @@ import {
 } from './ownerNavigation';
 
 describe('owner navigation aliases', () => {
+  it('opens Currency in Payments while preserving the current salon', () => {
+    expect(resolveOwnerNavigationAlias(new URLSearchParams('salon=isla&app=settings&view=currency'))?.toString())
+      .toBe('salon=isla&app=payments&view=currency');
+  });
+
   it('moves legacy Settings links without losing salon, record, or return context', () => {
     const query = new URLSearchParams('salon=isla&appointment=apt_42&returnTo=calendar&app=settings&view=booking-policy');
 

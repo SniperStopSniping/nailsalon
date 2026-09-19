@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 
 import { AppGrid } from '@/components/admin/AppGrid';
 import { OwnerManagementModal } from '@/components/admin/OwnerManagementModal';
+import { PaymentsModal } from '@/components/admin/PaymentsModal';
 import { isOwnerManagementApp } from '@/libs/ownerNavigation';
 
 export function OwnerNavigationFixture() {
@@ -49,6 +50,9 @@ export function OwnerNavigationFixture() {
         <h1>Calendar</h1>
       </main>
     );
+  }
+  if (app === 'payments') {
+    return <PaymentsModal onClose={close} salonSlug="isla" salonId="salon_isla" />;
   }
   if (isOwnerManagementApp(app)) {
     return <OwnerManagementModal app={app} salonSlug="isla" salonId="salon_isla" isFreeSolo={isFreeSolo} teamAvailable={false} onClose={close} onOpenApp={openApp} />;

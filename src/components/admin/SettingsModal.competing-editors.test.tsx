@@ -205,6 +205,11 @@ describe('SettingsModal — one writer per record', () => {
           bookingConfig: expect.objectContaining({ confirmationMode: 'request_approval', minimumNoticeMinutes: 120 }),
         }));
       });
+
+      expect(screen.queryByLabelText('Currency')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Timezone')).not.toBeInTheDocument();
+      expect(patchBodies('/api/admin/salon/settings')[0]?.bookingConfig).not.toHaveProperty('currency');
+      expect(patchBodies('/api/admin/salon/settings')[0]?.bookingConfig).not.toHaveProperty('timezone');
     });
 
     it('loads the saved review mode and keeps it when editing notice', async () => {
@@ -272,6 +277,58 @@ describe('SettingsModal — one writer per record', () => {
 
       expect(await screen.findByTestId('minimum-notice-select')).toHaveValue('custom');
       expect(screen.getByTestId('minimum-notice-custom')).toHaveValue(180);
+    });
+  });
+
+  describe('currency has one editor under Payments', () => {
+    it('does not offer a default currency editor when the saved settings cannot load', async () => {
+      const original = fetchMock.getMockImplementation()!;
+      fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => String(input).includes('/api/admin/salon/settings')
+        ? Promise.resolve(new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 }))
+        : original(input, init));
+      render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" initialView="currency" leafOnly />);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the current settings.');
+      expect(screen.queryByLabelText('Currency')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Save currency' })).not.toBeInTheDocument();
+      expect(patchBodies('/api/admin/salon/settings')).toEqual([]);
+    });
+
+    it('submits only currency without unrelated hours or booking-rule fields', async () => {
+      render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" initialView="currency" leafOnly />);
+      fireEvent.change(await screen.findByLabelText('Currency'), { target: { value: 'USD' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save currency' }));
+      await screen.findByText('Currency saved.');
+
+      expect(patchBodies('/api/admin/salon/settings')).toEqual([{ bookingConfig: { currency: 'USD' } }]);
+      expect(screen.queryByLabelText(/^Minimum notice/)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Timezone')).not.toBeInTheDocument();
+    });
+
+    it('shows the existing deposit currency refusal and keeps the unsaved draft', async () => {
+      const original = fetchMock.getMockImplementation()!;
+      fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'PATCH') {
+          return Promise.resolve(new Response(JSON.stringify({
+            error: 'DEPOSIT_CURRENCY_UNSUPPORTED',
+            message: 'Deposits are only supported in Canadian dollars. Disable deposits first.',
+          }), { status: 409 }));
+        }
+        return original(input, init);
+      });
+      const close = vi.fn();
+      render(<SettingsModal onClose={close} salonSlug="salon-a" initialView="currency" leafOnly leafBackLabel="Payments" />);
+      fireEvent.change(await screen.findByLabelText('Currency'), { target: { value: 'USD' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save currency' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Disable deposits first.');
+      expect(screen.getByLabelText('Currency')).toHaveValue('USD');
+      expect(screen.queryByText('Currency saved.')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Payments' }));
+
+      expect(close).not.toHaveBeenCalled();
+      expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
     });
   });
 

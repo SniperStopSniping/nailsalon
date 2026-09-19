@@ -18,6 +18,7 @@ export function ownerManagementView(app: OwnerManagementApp, view: string | null
 
 const SETTINGS_ALIASES: Record<string, { app: string; view?: string }> = {
   'payments': { app: 'payments' },
+  'currency': { app: 'payments', view: 'currency' },
   'visibility': { app: 'team', view: 'permissions' },
   'booking': { app: 'booking-rules', view: 'rules' },
   'booking-policy': { app: 'booking-rules', view: 'policies' },
