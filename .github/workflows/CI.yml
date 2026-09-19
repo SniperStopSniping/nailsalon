@@ -1182,6 +1182,21 @@ jobs:
             'BOOKING_PAGE_LIFECYCLE_POSTGRES_TESTS_EXECUTED=10 BOOKING_PAGE_LIFECYCLE_POSTGRES_TESTS_SKIPPED=0' \
             booking-page-lifecycle-postgres.log
 
+      - name: Verify review-trigger transactions and races on real PostgreSQL with zero skips
+        shell: bash
+        env:
+          REVIEW_REQUEST_AUTOMATION_PG_REQUIRED: 'true'
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism \
+            src/libs/reviewRequests.concurrency.integration.test.ts \
+            | tee review-request-postgres.log
+          grep -Fqx \
+            'REVIEW_REQUEST_POSTGRES_TESTS_EXECUTED=7 REVIEW_REQUEST_POSTGRES_TESTS_SKIPPED=0' \
+            review-request-postgres.log
+
       - name: Verify durable customer booking operations on real PostgreSQL with zero skips
         shell: bash
         env:
