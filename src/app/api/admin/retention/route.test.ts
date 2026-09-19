@@ -24,6 +24,8 @@ const {
   MockClientLifecycleStabilizationError,
   resolveTerminalSalonClient,
   withClientLifecycleTransactionRetry,
+  lockSalonReviewMutation,
+  cancelReviewRequests,
   db,
 } = vi.hoisted(() => {
   class MockClientLifecycleStabilizationError extends Error {}
@@ -65,7 +67,11 @@ const {
         updateSets.push(values);
         const chain = {
           where: vi.fn(() => chain),
-          returning: vi.fn(async () => []),
+          returning: vi.fn(async () => [{
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            ...values,
+          }]),
           then: (resolve: (value: unknown) => void) => Promise.resolve([]).then(resolve),
         };
         return chain;
@@ -144,6 +150,12 @@ const {
     withClientLifecycleTransactionRetry: vi.fn(async (
       operation: (attempt: number) => Promise<unknown>,
     ) => operation(1)),
+    lockSalonReviewMutation: vi.fn(async () => {
+      lifecycleOperations.push('review-fence');
+    }),
+    cancelReviewRequests: vi.fn(async () => {
+      lifecycleOperations.push('review-cancel');
+    }),
     db: {
       select: vi.fn(() => query(selectQueue.shift() ?? [])),
       transaction: vi.fn(async (callback: (transaction: typeof tx) => unknown) => callback(tx)),
@@ -168,6 +180,7 @@ vi.mock('@/libs/clientLifecycleStabilization', async (importOriginal) => {
 });
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/retentionSettings.server', () => ({ getRetentionSettingsForSalon }));
+vi.mock('@/libs/reviewRequests.server', () => ({ lockSalonReviewMutation, cancelReviewRequests }));
 
 const NOW = new Date('2026-07-17T16:00:00.000Z');
 
@@ -599,6 +612,59 @@ describe('/api/admin/retention', () => {
 
     expect(response.status).toBe(200);
     expect(updateSets).toContainEqual({ lastContactAt: NOW, updatedAt: NOW });
+  });
+
+  it('fences a Google review send before client state, snapshots its normalized destination, and cancels only unsent review work', async () => {
+    selectQueue.push(
+      [{ id: 'client_1', phone: '+1 (416) 555-1212', lastVisitAt: null }],
+      [],
+    );
+    const response = await POST(new Request('http://localhost/api/admin/retention', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ salonSlug: 'salon-a', clientId: 'client_1', kind: 'google_review', status: 'marked_sent' }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(lifecycleOperations.slice(0, 2)).toEqual(['review-fence', 'terminal-lock']);
+    expect(insertedValues[0]).toMatchObject({ kind: 'google_review', status: 'marked_sent', destinationSnapshot: '4165551212' });
+    expect(cancelReviewRequests).toHaveBeenCalledWith(expect.anything(), 'salon_1', {
+      clientIds: ['client_1'],
+      recipient: '4165551212',
+    });
+  });
+
+  it('keeps the first Google send evidence and does not cancel newly queued work when marked_sent is replayed after a phone edit', async () => {
+    const firstMarkedAt = new Date('2026-07-16T16:00:00.000Z');
+    selectQueue.push(
+      [{ id: 'client_1', phone: '4165551212', lastVisitAt: null }],
+      [],
+      [{ id: 'client_1', phone: '4165559999', lastVisitAt: null }],
+      [{
+        id: 'google_1',
+        salonId: 'salon_1',
+        salonClientId: 'client_1',
+        appointmentId: null,
+        kind: 'google_review',
+        status: 'marked_sent',
+        markedSentAt: firstMarkedAt,
+        destinationSnapshot: '4165551212',
+        messageSnapshot: null,
+      }],
+    );
+    const send = () => POST(new Request('http://localhost/api/admin/retention', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ salonSlug: 'salon-a', clientId: 'client_1', kind: 'google_review', status: 'marked_sent' }),
+    }));
+
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(200);
+    expect(cancelReviewRequests).toHaveBeenCalledTimes(1);
+    expect(updateSets).toContainEqual(expect.objectContaining({
+      destinationSnapshot: '4165551212',
+      markedSentAt: firstMarkedAt,
+    }));
   });
 
   it('records manual completion after an expired snooze without rewriting that history', async () => {

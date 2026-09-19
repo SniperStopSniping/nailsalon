@@ -5,6 +5,7 @@ import { ClientLifecycleStabilizationError } from '@/libs/clientLifecycleStabili
 import { ClientMessagingError, getClientSmsHistory, getClientSmsPreference, queueClientSms, retryClientSms } from '@/libs/clientMessaging';
 import { getSalonSmsReadiness } from '@/libs/integrationHealth';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
+import { ClientReviewRequestError } from '@/libs/reviewRequests.server';
 
 export const dynamic = 'force-dynamic';
 const NO_STORE = { headers: { 'Cache-Control': 'no-store' } };
@@ -13,11 +14,14 @@ const sendSchema = z.object({
   message: z.string().trim().min(1).max(1000),
   requestId: z.string().uuid(),
   appointmentId: z.string().min(1).optional(),
-}).strict();
+  purpose: z.literal('google_review').optional(),
+}).strict().refine(value => value.purpose !== 'google_review' || value.appointmentId === undefined, {
+  message: 'Client review requests do not attach an appointment.',
+});
 const retrySchema = z.object({ salonSlug: z.string().min(1), intentId: z.string().min(1) }).strict();
 
 function failure(error: unknown) {
-  if (error instanceof ClientMessagingError) {
+  if (error instanceof ClientMessagingError || error instanceof ClientReviewRequestError) {
     return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status, ...NO_STORE });
   }
   if (error instanceof ClientLifecycleStabilizationError) {

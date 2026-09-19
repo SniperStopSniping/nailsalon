@@ -412,7 +412,7 @@ export function AppointmentQuickEditSheet({
                         />
                       )}
 
-                      {detail.appointment.salonSlug && !['cancelled', 'no_show'].includes(detail.appointment.status) && (
+                      {detail.appointment.salonSlug && (
                         <ReviewRequestAction
                           appointmentId={detail.appointment.id}
                           salonSlug={detail.appointment.salonSlug}

@@ -11,6 +11,7 @@ import { resolveCommunicationSettingsFromSettings } from '@/libs/communicationSe
 import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { db } from '@/libs/DB';
 import { isValidPhone } from '@/libs/phone';
+import { queueClientReviewRequest } from '@/libs/reviewRequests.server';
 import { calculateSmsSegments } from '@/libs/smsSegments';
 import { appointmentSchema, communicationIntentSchema, notificationDeliverySchema, salonSchema } from '@/models/Schema';
 
@@ -27,9 +28,13 @@ export async function queueClientSms(input: {
   appointmentId?: string;
   message: string;
   requestId: string;
+  purpose?: 'google_review';
   availability?: { available: boolean; code: string | null; message: string };
   now?: Date;
 }) {
+  if (input.purpose === 'google_review') {
+    return queueClientReviewRequest(input);
+  }
   const now = input.now ?? new Date();
   return db.transaction(async (tx) => {
     const client = await lockTerminalSalonClientWithHandle(tx, {
@@ -46,7 +51,7 @@ export async function queueClientSms(input: {
       eq(communicationIntentSchema.dedupeKey, dedupeKey),
     )).limit(1);
     if (existing) {
-      if (existing.variables.message !== input.message || !identity.clientIds.includes(existing.variables.clientId ?? '')
+      if (existing.eventType !== 'manual_text' || existing.variables.message !== input.message || !identity.clientIds.includes(existing.variables.clientId ?? '')
         || existing.appointmentId !== (input.appointmentId ?? null)) {
         throw new ClientMessagingError('IDEMPOTENCY_CONFLICT', 'This send was already used for a different message. Start a new text.', 409);
       }
@@ -88,7 +93,7 @@ export async function queueClientSms(input: {
     if (quiet.kind === 'stale') {
       throw new ClientMessagingError('QUIET_HOURS_STALE', 'Quiet hours leave no sending window for this message.');
     }
-    return enqueueCommunicationIntent({
+    const intent = await enqueueCommunicationIntent({
       database: tx,
       salonId: input.salonId,
       appointmentId: input.appointmentId,
@@ -105,6 +110,10 @@ export async function queueClientSms(input: {
       scheduledFor: quiet.sendAt,
       notAfter,
     });
+    if (!intent.created) {
+      throw new ClientMessagingError('IDEMPOTENCY_CONFLICT', 'This send was already used for a different message. Start a new text.', 409);
+    }
+    return intent;
   });
 }
 

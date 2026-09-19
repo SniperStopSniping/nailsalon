@@ -1,6 +1,6 @@
 import { db } from '@/libs/DB';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
-import { getAppointmentReviewState, scheduleReviewRequest } from '@/libs/reviewRequests.server';
+import { getAppointmentReviewState, lockSalonReviewMutation, scheduleReviewRequest } from '@/libs/reviewRequests.server';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 
 export const dynamic = 'force-dynamic';
@@ -21,7 +21,10 @@ async function run(request: Request, appointmentId: string, send: boolean) {
   }
   try {
     if (send) {
-      await db.transaction(tx => scheduleReviewRequest(tx, access.appointment.salonId, appointmentId, false));
+      await db.transaction(async (tx) => {
+        await lockSalonReviewMutation(tx, access.appointment.salonId);
+        await scheduleReviewRequest(tx, access.appointment.salonId, appointmentId, false);
+      });
     }
     const data = await getAppointmentReviewState(access.appointment.salonId, appointmentId);
     return Response.json({ data }, { status: send && data.status === 'scheduled' ? 202 : 200, headers: { 'Cache-Control': 'no-store' } });
