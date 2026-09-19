@@ -333,7 +333,7 @@ describe('BookingPageInformationEditor', () => {
     const notice = await screen.findByTestId('information-hours-staff-gap');
 
     expect(notice).toHaveTextContent('No staff member works Sunday yet — add a shift or clients will see no times.');
-    expect(notice.querySelector('a')).toHaveAttribute('href', '/en/admin?salon=salon-a&app=staff');
+    expect(notice.querySelector('a')).toHaveAttribute('href', '/en/admin?salon=salon-a&app=hours&view=working-hours');
     // The toast must not promise availability the staff schedules cannot supply.
     expect(screen.getByText('Hours saved. Bookable times still follow each staff member’s schedule.')).toBeInTheDocument();
     expect(screen.queryByText(/Booking availability uses them immediately/)).not.toBeInTheDocument();

@@ -287,6 +287,7 @@ export function BookingPageInformationEditor({
   onUseDefaultCover,
   mode = 'legacy',
   onDirtyChange,
+  onOpenWorkingHours,
 }: {
   locale: string;
   salonSlug: string;
@@ -314,6 +315,7 @@ export function BookingPageInformationEditor({
   /** Booking Page owns display choices and public photos; Settings owns the editable business record. */
   mode?: 'booking' | 'business' | 'gallery' | 'legacy' | 'hours';
   onDirtyChange?: (dirty: boolean) => void;
+  onOpenWorkingHours?: () => void;
 }) {
   const [info, setInfo] = useState<SalonInformation | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'forbidden' | 'error'>('loading');
@@ -1042,7 +1044,7 @@ export function BookingPageInformationEditor({
           </>
         )}
         <Accordion defaultOpen={mode === 'hours'} publishes="live" subtitle="Weekly public hours and timezone" testId="information-hours" title="Hours">
-          {editable && hours.values && showEditors
+          {editable && hours.values && showEditors && mode !== 'business'
             ? (
                 <form
                   className="space-y-3"
@@ -1085,7 +1087,9 @@ export function BookingPageInformationEditor({
                   {openDaysWithoutStaff.length > 0 && (
                     <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900" data-testid="information-hours-staff-gap" role="status">
                       {`No staff member works ${formatWeekdayList(openDaysWithoutStaff)} yet — add a shift or clients will see no times. `}
-                      <a className="font-semibold underline" href={`${workspace}&app=staff`}>Add a shift in Staff</a>
+                      {onOpenWorkingHours
+                        ? <button type="button" className="font-semibold underline" onClick={onOpenWorkingHours}>Edit working hours</button>
+                        : <a className="font-semibold underline" href={`${workspace}&app=hours&view=working-hours`}>Edit working hours</a>}
                     </p>
                   )}
                   {renderSwitches('Hours')}

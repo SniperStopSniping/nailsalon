@@ -3912,7 +3912,7 @@ export function SettingsModal({
           <SettingsCardGrid items={[
             { title: 'Business Profile', description: 'Business name, phone, email and public nail-tech identity', icon: User, onClick: () => openView('business-profile') },
             { title: 'Location & Arrival', description: 'Salon address, parking and arrival instructions', icon: MapPin, onClick: () => openView('location') },
-            { title: 'Business Hours', description: 'Weekly salon hours and timezone', icon: CalendarClock, onClick: () => openView('business-profile') },
+            { title: 'Hours & Availability', description: 'Salon hours, working schedules and time off', icon: CalendarClock, onClick: () => openWorkspaceApp('hours') },
             { title: 'Branding & Social', description: 'Booking messages and social links', icon: Palette, onClick: () => openView('branding') },
           ]}
           />

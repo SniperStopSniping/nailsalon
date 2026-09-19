@@ -81,9 +81,12 @@ any production migration decision.
    existing editor, Booking Rules/Policies leaf reuse, Plan/Help homes, legacy
    aliases and Owner Assistant destination updates. Existing Settings navigation
    is deliberately retained pending complete control moves.
-2. **Schedules and booking controls.** Canonical salon/individual schedules and
-   time off, solo access, timezone ownership, booking rules versus policies,
-   currency relocation preserving existing partial-write and deposit guards.
+2. **Schedules — implemented for review.** Canonical salon/individual schedules
+   and time off, direct solo access, Team/Staff shortcuts and compatible links.
+   The selected technician is loaded through the existing detail endpoint so
+   legacy workDays/startTime/endTime resolve exactly as before. Business Profile
+   now links to Hours rather than duplicating its editor. Booking control and
+   currency relocation is a separate slice, preserving partial-write/deposit guards.
 3. **Remaining control consolidation.** Booking Page, Marketing, Payments, Team,
    Integrations and secondary Settings; all existing controls accounted for.
 4. **Review policy and durable scheduling contracts.** Additive schema, mode and
@@ -122,3 +125,11 @@ an unsaved-form prompt (Settings has the same behavior). Hours guards its header
 contextual shortcuts, backdrop/Escape and full-page unload. A speculative
 popstate interception was rejected because it could corrupt Next.js history;
 this foundation preserves normal native history behavior.
+
+Schedules evidence: 185 focused unit/regression tests passed, TypeScript passed,
+and focused ESLint reported no errors (12 existing warnings). Chromium 390px and
+WebKit 320px passed 12 component-browser journeys, including direct solo schedule
+editing and the separate Time off view. Independent review caught and verified
+the legacy-schedule resolution fix. New tests cover legacy weekend/evening hours,
+failed detail loading and stale responses after switching salons. These are local
+checks; exact-head CI and deployed verification remain release gates.

@@ -10,6 +10,21 @@ const hours = {
   sunday: null,
 };
 
+const technician = {
+  id: 'tech_isla',
+  name: 'Isla',
+  isActive: true,
+  weeklySchedule: {
+    monday: { start: '09:00', end: '18:00' },
+    tuesday: null,
+    wednesday: null,
+    thursday: null,
+    friday: null,
+    saturday: null,
+    sunday: null,
+  },
+};
+
 function information(businessHours = hours) {
   return {
     data: {
@@ -41,7 +56,9 @@ function information(businessHours = hours) {
 
 async function mockInformationApi(page: import('@playwright/test').Page) {
   const writes: unknown[] = [];
+  const technicianWrites: unknown[] = [];
   let currentHours = hours;
+  let currentTechnician = technician;
   const unexpected: string[] = [];
   await page.route('**/*', async (route) => {
     const request = route.request();
@@ -62,6 +79,25 @@ async function mockInformationApi(page: import('@playwright/test').Page) {
       await route.fulfill({ json: information(currentHours) });
       return;
     }
+    if (url.pathname === '/api/admin/technicians' && request.method() === 'GET') {
+      await route.fulfill({ json: { data: { technicians: [currentTechnician], pagination: { totalPages: 1 } } } });
+      return;
+    }
+    if (url.pathname === `/api/admin/technicians/${technician.id}` && request.method() === 'GET') {
+      await route.fulfill({ json: { data: { technician: currentTechnician } } });
+      return;
+    }
+    if (url.pathname === `/api/admin/technicians/${technician.id}` && request.method() === 'PUT') {
+      const body = request.postDataJSON() as { weeklySchedule?: typeof technician.weeklySchedule };
+      technicianWrites.push(body);
+      currentTechnician = { ...currentTechnician, weeklySchedule: body.weeklySchedule ?? currentTechnician.weeklySchedule };
+      await route.fulfill({ json: { data: { technician: currentTechnician } } });
+      return;
+    }
+    if (url.pathname === '/api/staff/time-off' && request.method() === 'GET') {
+      await route.fulfill({ json: { data: { timeOff: [] } } });
+      return;
+    }
     if (!url.pathname.startsWith('/api/')) {
       await route.continue();
       return;
@@ -69,7 +105,7 @@ async function mockInformationApi(page: import('@playwright/test').Page) {
     unexpected.push(`${request.method()} ${url.pathname}`);
     await route.fulfill({ status: 404, json: { error: 'unexpected owner-navigation fixture API' } });
   });
-  return { writes, unexpected };
+  return { writes, technicianWrites, unexpected };
 }
 
 test('mobile More is ranked in task groups and Hours opens first with browser history in sync', async ({ page }) => {
@@ -132,6 +168,53 @@ test('Hours saves through its existing canonical API payload on mobile', async (
 
   await expect(page.getByText('Hours saved. Bookable times still follow each staff member’s schedule.')).toBeVisible();
   expect(writes).toEqual([{ businessHours: { ...hours, monday: { open: '11:00', close: '18:00' } } }]);
+  expect(unexpected).toEqual([]);
+});
+
+test('solo Hours opens a separate working-hours editor and persists the first Monday edit', async ({ page }) => {
+  const { technicianWrites, unexpected } = await mockInformationApi(page);
+  await page.goto('/?app=hours&salon=isla&freeSolo=1');
+
+  await expect(page.getByRole('button', { name: 'Working hours' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Working hours' }).tap();
+
+  const mondayStart = page.getByLabel('Monday start time');
+
+  await expect(mondayStart).toHaveValue('09:00');
+
+  await mondayStart.selectOption('10:00');
+
+  await expect(mondayStart).toHaveValue('10:00');
+
+  await page.getByRole('button', { name: 'Save Schedule' }).tap();
+
+  await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible();
+
+  expect(technicianWrites).toEqual([{
+    salonSlug: 'isla',
+    weeklySchedule: {
+      sunday: null,
+      monday: { start: '10:00', end: '18:00' },
+      tuesday: null,
+      wednesday: null,
+      thursday: null,
+      friday: null,
+      saturday: null,
+    },
+  }]);
+  expect(unexpected).toEqual([]);
+});
+
+test('solo Hours opens time off without mounting a competing recurring-hours editor', async ({ page }) => {
+  const { unexpected } = await mockInformationApi(page);
+  await page.goto('/?app=hours&salon=isla&freeSolo=1');
+
+  await page.getByRole('button', { name: 'Time off' }).tap();
+
+  await expect(page.getByText('Time off is an exception to your normal working hours. Adding time off keeps existing appointments in place.')).toBeVisible();
+  await expect(page.getByText('No upcoming time off')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save Schedule' })).toBeHidden();
   expect(unexpected).toEqual([]);
 });
 

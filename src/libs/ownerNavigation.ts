@@ -1,6 +1,6 @@
 /** Browser-safe owner destinations. Aliases change navigation, never authority. */
 export const OWNER_MANAGEMENT_VIEWS = {
-  'hours': ['home'],
+  'hours': ['home', 'working-hours', 'time-off', 'requests'],
   'booking-rules': ['home', 'rules', 'policies'],
   'plan-usage': ['home', 'usage', 'plans'],
   'help': ['home'],
@@ -26,10 +26,16 @@ const SETTINGS_ALIASES: Record<string, { app: string; view?: string }> = {
 
 /** Preserve salon/record/return context; replace the history entry at the caller. */
 export function resolveOwnerNavigationAlias(query: URLSearchParams): URLSearchParams | null {
-  if (query.get('app') !== 'settings') {
-    return null;
-  }
-  const alias = SETTINGS_ALIASES[query.get('view') ?? ''];
+  const app = query.get('app');
+  const view = query.get('view') ?? '';
+  const teamViews: Record<string, string> = { 'schedules': 'working-hours', 'time-off': 'time-off', 'blocked-time': 'time-off', 'requests': 'requests' };
+  const alias = app === 'settings'
+    ? SETTINGS_ALIASES[view]
+    : app === 'staff-ops'
+      ? { app: 'hours', view: 'requests' }
+      : app === 'team' && Object.hasOwn(teamViews, view)
+        ? { app: 'hours', view: teamViews[view] }
+        : undefined;
   if (!alias) {
     return null;
   }

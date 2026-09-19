@@ -20,6 +20,22 @@ describe('owner navigation aliases', () => {
     expect(resolveOwnerNavigationAlias(new URLSearchParams('app=marketing&view=reviews'))).toBeNull();
   });
 
+  it.each([
+    ['team', 'schedules', 'working-hours'],
+    ['team', 'blocked-time', 'time-off'],
+    ['team', 'time-off', 'time-off'],
+    ['team', 'requests', 'requests'],
+    ['staff-ops', '', 'requests'],
+  ])('preserves record context when moving legacy %s/%s to Hours', (app, view, target) => {
+    const next = resolveOwnerNavigationAlias(new URLSearchParams({ app, view, salon: 'salon-a', technician: 'tech_1', returnTo: 'calendar' }));
+
+    expect(next?.get('app')).toBe('hours');
+    expect(next?.get('view')).toBe(target);
+    expect(next?.get('salon')).toBe('salon-a');
+    expect(next?.get('technician')).toBe('tech_1');
+    expect(next?.get('returnTo')).toBe('calendar');
+  });
+
   it('only accepts the views owned by each management destination', () => {
     expect(isOwnerManagementApp('hours')).toBe(true);
     expect(isOwnerManagementApp('marketing')).toBe(false);

@@ -6,6 +6,7 @@ import { OwnerManagementModal } from './OwnerManagementModal';
 
 const {
   bookingPageInformationEditorMock,
+  ownerScheduleEditorMock,
   pushMock,
   replaceMock,
   backMock,
@@ -13,6 +14,7 @@ const {
   state,
 } = vi.hoisted(() => ({
   bookingPageInformationEditorMock: vi.fn(),
+  ownerScheduleEditorMock: vi.fn(),
   pushMock: vi.fn(),
   replaceMock: vi.fn(),
   backMock: vi.fn(),
@@ -54,6 +56,13 @@ vi.mock('./SettingsModal', () => ({
   ),
 }));
 
+vi.mock('./OwnerScheduleEditor', () => ({
+  OwnerScheduleEditor: (props: unknown) => {
+    ownerScheduleEditorMock(props);
+    return <div data-testid="working-schedule-editor" />;
+  },
+}));
+
 vi.mock('./UsageBillingModal', () => ({
   UsageBillingModal: (props: unknown) => {
     usageBillingModalMock(props);
@@ -87,6 +96,7 @@ describe('OwnerManagementModal', () => {
   beforeEach(() => {
     state.query = '';
     bookingPageInformationEditorMock.mockReset();
+    ownerScheduleEditorMock.mockReset();
     pushMock.mockReset();
     replaceMock.mockReset();
     backMock.mockReset();
@@ -109,6 +119,19 @@ describe('OwnerManagementModal', () => {
 
     expect(onOpenApp).toHaveBeenNthCalledWith(1, 'schedule');
     expect(onOpenApp).toHaveBeenNthCalledWith(2, 'booking-rules');
+  });
+
+  it.each(['working-hours', 'time-off'])('opens %s directly for a solo salon without a Team workflow', (view) => {
+    state.query = `salon=isla&app=hours&view=${view}&technician=tech_1`;
+    renderModal();
+
+    expect(ownerScheduleEditorMock).toHaveBeenCalledWith(expect.objectContaining({
+      salonSlug: 'isla',
+      technicianId: 'tech_1',
+      section: view === 'working-hours' ? 'hours' : 'time-off',
+    }));
+    expect(bookingPageInformationEditorMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /team time-off requests/i })).not.toBeInTheDocument();
   });
 
   it('opens URL-backed Booking Rules leaves and returns a direct link to its contextual home', () => {

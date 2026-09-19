@@ -11,7 +11,9 @@ import { BackButton, ModalHeader } from './AppModal';
 import { BookingPageInformationEditor } from './BookingPageInformationEditor';
 import { ChoosePlanPanel } from './ChoosePlanPanel';
 import { OwnerAppHub } from './OwnerAppHub';
+import { OwnerScheduleEditor } from './OwnerScheduleEditor';
 import { SettingsModal } from './SettingsModal';
+import { StaffOpsModal } from './StaffOpsModal';
 import { UsageBillingModal } from './UsageBillingModal';
 
 const NO_CHANGE = () => undefined;
@@ -119,13 +121,27 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
   }
 
   if (app === 'hours') {
+    if (view === 'requests' && teamAvailable) {
+      return <StaffOpsModal salonSlug={salonSlug} onClose={back} />;
+    }
+    const scheduleSection = view === 'working-hours' ? 'hours' : view === 'time-off' ? 'time-off' : null;
     return (
       <div className="min-h-full bg-[var(--owner-ground)] pb-10 text-[var(--owner-ink)]">
-        <ModalHeader title="Hours & Availability" subtitle="Regular hours and exceptions to your schedule" leftAction={<BackButton onClick={() => leave(onClose)} label="More" />} />
+        <ModalHeader title={scheduleSection === 'hours' ? 'Working hours' : scheduleSection === 'time-off' ? 'Time off' : 'Hours & Availability'} subtitle="Regular hours and exceptions to your schedule" leftAction={<BackButton onClick={() => leave(scheduleSection ? back : onClose)} label={scheduleSection ? 'Hours & Availability' : 'More'} />} />
         <div className="space-y-4 px-4">
-          {salonSlug ? <BookingPageInformationEditor locale={locale} salonSlug={salonSlug} mode="hours" onDirtyChange={setHoursDirty} disabled={false} draft={HOURS_EDITOR_DRAFT} addressPrivacy="city_only" liveAddressPrivacy="city_only" onAddressPrivacyChange={NO_CHANGE} onConfigPatch={NO_CHANGE} /> : <p>Select a salon to manage hours.</p>}
+          {salonSlug
+            ? scheduleSection
+              ? <OwnerScheduleEditor salonSlug={salonSlug} section={scheduleSection} technicianId={search?.get('technician')} onDirtyChange={setHoursDirty} />
+              : <BookingPageInformationEditor locale={locale} salonSlug={salonSlug} mode="hours" onDirtyChange={setHoursDirty} onOpenWorkingHours={() => leave(() => open('working-hours'))} disabled={false} draft={HOURS_EDITOR_DRAFT} addressPrivacy="city_only" liveAddressPrivacy="city_only" onAddressPrivacyChange={NO_CHANGE} onConfigPatch={NO_CHANGE} />
+            : <p>Select a salon to manage hours.</p>}
+          {!scheduleSection && (
+            <>
+              <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => open('working-hours'))}>Working hours</button>
+              <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => open('time-off'))}>Time off</button>
+              {teamAvailable && <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => open('requests'))}>Team time-off requests</button>}
+            </>
+          )}
           <p className="text-sm text-[var(--owner-muted)]">Bookable times also depend on working schedules, time off, existing appointments and booking rules.</p>
-          {teamAvailable && <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => onOpenApp?.('team'))}>Working schedules &amp; time off</button>}
           <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => onOpenApp?.('schedule'))}>View calendar</button>
           <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => onOpenApp?.('booking-rules'))}>Booking rules</button>
         </div>

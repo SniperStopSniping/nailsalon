@@ -18,7 +18,9 @@ export function OwnerScheduleEditor({ salonSlug, section, technicianId, onDirtyC
 }) {
   const [people, setPeople] = useState<SchedulePerson[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedPerson, setSelectedPerson] = useState<SchedulePerson | null>(null);
   const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   const [dirty, setDirty] = useState(false);
@@ -31,6 +33,7 @@ export function OwnerScheduleEditor({ salonSlug, section, technicianId, onDirtyC
     setError(null);
     setPeople([]);
     setSelectedId(null);
+    setSelectedPerson(null);
     setDirty(false);
     const load = async () => {
       try {
@@ -71,6 +74,47 @@ export function OwnerScheduleEditor({ salonSlug, section, technicianId, onDirtyC
     return () => controller.abort();
   }, [salonSlug, technicianId, retry]);
 
+  useEffect(() => {
+    if (!selectedId) {
+      setSelectedPerson(null);
+      setDetailLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSelectedPerson(null);
+    setDetailLoading(true);
+    setError(null);
+    const loadDetail = async () => {
+      try {
+        const query = new URLSearchParams({ salonSlug });
+        const response = await fetch(`/api/admin/technicians/${selectedId}?${query}`, { signal: controller.signal });
+        const body = await response.json();
+        if (!response.ok || !body.data?.technician) {
+          throw new Error(body?.error?.message || 'Could not load this working schedule.');
+        }
+        if (controller.signal.aborted) {
+          return;
+        }
+        const detail = body.data.technician as SchedulePerson;
+        if (detail.id !== selectedId) {
+          throw new Error('This schedule is unavailable for the selected salon.');
+        }
+        setSelectedPerson(detail);
+      } catch (cause) {
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : 'Could not load this working schedule.');
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setDetailLoading(false);
+        }
+      }
+    };
+    void loadDetail();
+    return () => controller.abort();
+  }, [salonSlug, selectedId]);
+
   if (loading) {
     return <p className="p-4 text-sm" role="status">Loading your schedule…</p>;
   }
@@ -82,10 +126,13 @@ export function OwnerScheduleEditor({ salonSlug, section, technicianId, onDirtyC
       </div>
     );
   }
-  const person = people.find(item => item.id === selectedId);
-  if (!person) {
+  if (!selectedId) {
     return <p className="p-4 text-sm">Add a technician during business setup to set working hours.</p>;
   }
+  if (detailLoading || !selectedPerson) {
+    return <p className="p-4 text-sm" role="status">Loading this schedule…</p>;
+  }
+  const person = selectedPerson;
   return (
     <div>
       {people.length > 1 && (
@@ -124,7 +171,10 @@ export function OwnerScheduleEditor({ salonSlug, section, technicianId, onDirtyC
         weeklySchedule={person.weeklySchedule}
         section={section}
         onDirtyChange={setDirty}
-        onUpdate={weeklySchedule => setPeople(current => current.map(item => item.id === person.id ? { ...item, weeklySchedule } : item))}
+        onUpdate={(weeklySchedule) => {
+          setPeople(current => current.map(item => item.id === person.id ? { ...item, weeklySchedule } : item));
+          setSelectedPerson(current => current?.id === person.id ? { ...current, weeklySchedule } : current);
+        }}
       />
       <ConfirmDialog
         isOpen={pendingSelection !== null}

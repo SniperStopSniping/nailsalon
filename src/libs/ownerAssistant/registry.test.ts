@@ -135,7 +135,9 @@ describe('every registry target resolves against the shell allowlists', () => {
             ? (SETTINGS_VIEW_IDS as readonly string[])
             : entry.target.app === 'booking-rules'
               ? ['rules', 'policies']
-              : entry.target.app === 'marketing' ? ['reviews'] : ['permissions'];
+              : entry.target.app === 'hours'
+                ? ['working-hours', 'time-off', 'requests']
+                : entry.target.app === 'marketing' ? ['reviews'] : ['permissions'];
 
           expect(allowed).toContain(entry.target.view);
         }
