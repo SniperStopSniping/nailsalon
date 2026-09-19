@@ -1,3 +1,18 @@
+# [1.120.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.119.1...v1.120.0) (2026-09-19)
+
+
+### Bug Fixes
+
+* align customer interpretation date output with validation ([3756ba9](https://github.com/SniperStopSniping/nailsalon/commit/3756ba94725e20cbae25587f3cb36c6cdda82767))
+* **customer-ai:** constrain clarifications to viable L1 selections ([fe15875](https://github.com/SniperStopSniping/nailsalon/commit/fe15875c4fb7932b615d78ae0eb65fc2c5fb472d))
+* **customer-ai:** preserve combo and bare-nail clarification boundaries ([d39aa88](https://github.com/SniperStopSniping/nailsalon/commit/d39aa8830fd172e90b4b6990586745127f559fcf))
+* **customer-ai:** preserve semantic booking facts across turns ([b06afee](https://github.com/SniperStopSniping/nailsalon/commit/b06afee994ed51cbd971f4bad6330c16b0d373dd))
+
+
+### Features
+
+* add bounded customer semantic facts ([a1a1221](https://github.com/SniperStopSniping/nailsalon/commit/a1a12215758eb5b3a5f0547458f45f17de5c9dc7))
+
 ## [1.119.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.119.0...v1.119.1) (2026-09-18)
 
 
