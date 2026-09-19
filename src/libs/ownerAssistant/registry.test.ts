@@ -209,6 +209,14 @@ describe('searchRegistry answers the questions this slice must handle', () => {
     ['address privacy', 'page_information'],
     ['hide address', 'page_information'],
     ['publish', 'page_publish'],
+    ['photo policy', 'policies_photos'],
+    ['social policy', 'policies_social'],
+    ['policies display', 'page_policies'],
+    ['google reviews', 'settings_review_requests'],
+    ['review rewards', 'rewards_reviews'],
+    ['blocked time', 'team_time_off'],
+    ['working days', 'working_hours'],
+    ['schedules', 'working_hours'],
   ])('%s → %s', (query, expectedKey) => {
     expect(searchRegistry(query)[0]?.key).toBe(expectedKey);
   });
@@ -237,6 +245,7 @@ describe('searchRegistry answers the questions this slice must handle', () => {
 describe('owner IA stable destination keys', () => {
   it.each([
     ['business_hours', 'hours', null],
+    ['working_hours', 'hours', 'working-hours'],
     ['booking_rules', 'booking-rules', 'rules'],
     ['settings_booking_policy', 'booking-rules', 'policies'],
     ['settings_review_requests', 'marketing', 'reviews'],

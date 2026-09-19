@@ -49,18 +49,19 @@ export const OWNER_ASSISTANT_REGISTRY: readonly RegistryEntry[] = [
   entry('bookings', 'Bookings', 'Booking requests and upcoming appointments.', ['bookings', 'booking requests', 'pending bookings', 'confirm booking'], { type: 'admin', app: 'bookings' }),
   entry('clients', 'Clients', 'Client list and profiles.', ['clients', 'customers', 'client list', 'client profile'], { type: 'admin', app: 'clients' }),
   entry('services', 'Services', 'Your menu: services, add-ons, prices, durations and order.', ['services', 'menu', 'prices', 'add-ons', 'addons', 'reorder', 'service library', 'duration', 'intro price', 'featured'], { type: 'admin', app: 'services' }),
-  entry('team', 'Team', 'Team members, schedules, time off and services & skills.', ['team', 'staff', 'technician', 'working days', 'schedules', 'services & skills', 'skills', 'earnings', 'blocked time'], { type: 'admin', app: 'team' }, 'parent'),
+  entry('team', 'Team', 'Team members, permissions, services and earnings.', ['team', 'staff', 'technician', 'services & skills', 'skills', 'earnings'], { type: 'admin', app: 'team' }, 'parent'),
   entry('team_members', 'Team members', 'Add or edit team members and their profile photos.', ['team members', 'members', 'add staff', 'profile photo', 'technician photo', 'avatar', 'bio'], { type: 'admin', app: 'staff' }, 'exact_on_open'),
-  entry('team_time_off', 'Time off', 'Plan days away from your normal working schedule.', ['time off', 'vacation', 'holiday', 'day off', 'away'], { type: 'admin', app: 'hours', view: 'time-off' }, 'exact_on_open'),
+  entry('team_time_off', 'Time off', 'Plan days away from your normal working schedule.', ['time off', 'vacation', 'holiday', 'day off', 'away', 'blocked time'], { type: 'admin', app: 'hours', view: 'time-off' }, 'exact_on_open'),
   entry('team_permissions', 'Team permissions', 'What team members can see and do.', ['permissions', 'roles', 'access', 'collaborator'], { type: 'admin', app: 'team', view: 'permissions' }, 'exact_on_open'),
   entry('portfolio', 'Photos & Gallery', 'Shared photo library used across your pages.', ['portfolio', 'photos', 'gallery library', 'pictures', 'images'], { type: 'admin', app: 'portfolio' }),
-  entry('marketing', 'Marketing', 'Follow-ups, campaigns, results and reviews.', ['marketing', 'campaigns', 'follow-ups', 'follow ups', 'rebook reminders', 'retention'], { type: 'admin', app: 'marketing' }),
+  entry('marketing', 'Marketing & Messages', 'Client messages, follow-ups, offers, results and reviews.', ['marketing', 'campaigns', 'follow-ups', 'follow ups', 'rebook reminders', 'retention'], { type: 'admin', app: 'marketing' }),
   entry('integrations', 'Integrations', 'Google Calendar, texting and email connections.', ['integrations', 'google calendar', 'google', 'twilio', 'texting', 'sms connection', 'email connection', 'connect'], { type: 'admin', app: 'integrations' }, 'parent'),
   entry('payments', 'Payments', 'Deposits, payment methods, taxes and currency.', ['payments', 'deposits', 'deposit', 'stripe', 'payment methods', 'taxes', 'tax', 'currency'], { type: 'admin', app: 'payments' }, 'parent'),
   entry('analytics', 'Analytics', 'Performance and utilization dashboard.', ['analytics', 'reports', 'stats', 'utilization', 'revenue'], { type: 'admin', app: 'analytics' }),
-  entry('rewards_reviews', 'Rewards & Reviews', 'Loyalty rewards and review requests.', ['rewards', 'reviews', 'loyalty', 'referrals'], { type: 'admin', app: 'rewards-reviews' }),
+  entry('rewards_reviews', 'Rewards & Reviews', 'Loyalty, referrals, internal reviews and review rewards.', ['rewards', 'review rewards', 'loyalty', 'referrals', 'internal reviews'], { type: 'admin', app: 'rewards-reviews' }),
 
   entry('business_hours', 'Business hours', 'Regular salon hours and timezone (Hours & Availability).', ['business hours', 'opening hours', 'hours', 'open', 'closed', 'timezone', 'time zone', 'change my hours'], { type: 'admin', app: 'hours' }),
+  entry('working_hours', 'Working hours', 'Your regular weekly working schedule in Hours & Availability.', ['working hours', 'working days', 'schedules', 'technician hours', 'staff schedule', 'staff hours'], { type: 'admin', app: 'hours', view: 'working-hours' }, 'exact_on_open'),
   entry('settings_location', 'Business Information', 'Salon address, parking and arrival instructions.', ['location', 'address', 'map', 'city', 'where I am', 'parking', 'arrival instructions'], { type: 'bookingPage', panel: 'business' }),
   entry('business_information', 'Business Information', 'Your salon name, contact details, address and arrival instructions.', ['business profile', 'business name', 'salon name', 'phone', 'email', 'contact details', 'address', 'parking', 'arrival'], { type: 'bookingPage', panel: 'business' }),
   entry('settings_branding', 'Public booking experience', 'Booking messages, social links and confirmation text.', ['social links', 'instagram', 'booking messages', 'confirmation message'], { type: 'bookingPage', panel: 'experience' }),
@@ -82,11 +83,11 @@ export const OWNER_ASSISTANT_REGISTRY: readonly RegistryEntry[] = [
   entry('page_information', 'Business info display', 'What business details customers see, including hours and bio visibility.', ['business info', 'business information', 'show bio', 'hide bio', 'display hours', 'contact details shown', 'address privacy', 'show address', 'hide address'], { type: 'bookingPage', panel: 'information' }),
   entry('page_text', 'About & website text', 'Your introduction: specialty line and bio.', ['about', 'website text', 'introduction', 'intro', 'bio text', 'specialty line', 'tagline', 'description of my salon'], { type: 'bookingPage', panel: 'text' }),
   entry('page_gallery', 'Photos & Gallery', 'Upload your logo, profile photo, cover image and gallery photos.', ['logo', 'upload logo', 'upload my logo', 'brand logo', 'cover', 'cover image', 'cover photo', 'hero image', 'banner', 'profile picture', 'profile photo', 'gallery', 'photos', 'upload photo', 'upload image'], { type: 'bookingPage', panel: 'gallery' }),
-  entry('page_policies', 'Page policies', 'Photo and social policies shown on your booking page.', ['page policies', 'photo policy', 'social policy'], { type: 'bookingPage', panel: 'policies' }),
+  entry('page_policies', 'Policies Display', 'Choose which client policies and review information appear publicly.', ['page policies', 'policies display', 'policy visibility', 'show cancellation policy'], { type: 'bookingPage', panel: 'policies' }),
   entry('page_publish', 'Preview & publish', 'Preview your booking page and publish changes.', ['publish', 'go live', 'make live', 'preview', 'unpublished changes', 'revert', 'is my page live'], { type: 'bookingPage', panel: 'publish' }),
 
-  entry('policies_photos', 'Photo policies', 'Rules for client photos.', ['photo policies', 'client photos policy'], { type: 'path', path: '/admin/policies', query: { section: 'photos' } }),
-  entry('policies_social', 'Social policies', 'Rules for social sharing.', ['social policies', 'sharing policy'], { type: 'path', path: '/admin/policies', query: { section: 'social' } }),
+  entry('policies_photos', 'Photo policies', 'Rules for client photos.', ['photo policies', 'photo policy', 'client photos policy'], { type: 'path', path: '/admin/policies', query: { section: 'photos' } }),
+  entry('policies_social', 'Social policies', 'Rules for social sharing.', ['social policies', 'social policy', 'sharing policy'], { type: 'path', path: '/admin/policies', query: { section: 'social' } }),
 ];
 
 export type RegistryKey = string;

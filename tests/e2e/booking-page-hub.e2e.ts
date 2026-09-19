@@ -38,7 +38,9 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await expect(page.getByRole('heading', { level: 1, name: 'Layouts', exact: true })).toBeVisible();
     await expect(page.getByTestId('booking-page-preset-picker')).toBeVisible();
+
     await page.locator('details').filter({ has: page.getByText('Business type', { exact: true }) }).locator('summary').click();
+
     await expect(page.getByText('Business type', { exact: true })).toBeVisible();
     await expect(page.getByTestId('booking-page-builder')).toBeVisible();
     expect(await noHorizontalOverflow()).toBe(true);
