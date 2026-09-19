@@ -494,6 +494,8 @@ describe('BookingPageOwnerSurface', () => {
     searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=policies');
     render(<BookingPageOwnerSurface />);
 
+    expect(await screen.findByRole('heading', { name: /^Policies Display$/ })).toBeInTheDocument();
+
     const policySwitch = await screen.findByRole('switch', { name: /Show booking policy/i });
     const reviewsSwitch = screen.getByRole('switch', { name: /Show reviews/i });
 
