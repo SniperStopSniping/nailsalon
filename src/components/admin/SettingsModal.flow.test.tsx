@@ -73,13 +73,19 @@ describe('SettingsModal booking-flow leaf', () => {
   it('discards a pending debounce without sending a flow write', async () => {
     render(<LeafHarness />);
     const toggle = await screen.findByTitle('Click to hide technician step');
+    // The loaded prop is copied into the editor in an effect. Let that initial
+    // copy settle before editing, so it cannot overwrite the owner's draft.
+    await act(async () => {
+      await Promise.resolve();
+    });
     // Hold the debounce clock so a busy CI runner cannot save before Back.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
-      fireEvent.click(toggle);
-
-      await act(async () => {});
-
+      // The editor reports its dirty state through an effect. Keep the edit
+      // inside act so the host has observed that pending draft before Back.
+      await act(async () => {
+        fireEvent.click(toggle);
+      });
       fireEvent.click(screen.getByRole('button', { name: 'Back' }));
 
       expect(screen.getByRole('alertdialog', { name: 'Unsaved changes' })).toBeInTheDocument();
