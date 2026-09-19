@@ -5,6 +5,9 @@ import { appPath, authStatePaths, e2eConfig } from './support/config';
 
 test.use({ storageState: authStatePaths.superAdmin });
 
+const expectedEditorCount = e2eConfig.freeSolo ? 9 : 10;
+const expectedFlowCount = e2eConfig.freeSolo ? 0 : 1;
+
 for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }]) {
   test(`Booking Page hub opens focused editors at ${viewport.width}px @owner-preview-webkit`, async ({ page }) => {
     await page.setViewportSize(viewport);
@@ -15,8 +18,10 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await page.goto(hubUrl);
 
     await expect(page.getByRole('heading', { name: 'Booking Page', exact: true })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Booking Page editors' }).getByRole('link')).toHaveCount(8);
+    await expect(page.getByRole('navigation', { name: 'Booking Page editors' }).getByRole('link')).toHaveCount(expectedEditorCount);
     await expect(page.getByRole('link', { name: /^Business Information/ })).toHaveAttribute('href', `${editorUrl}&panel=business`);
+    await expect(page.getByRole('link', { name: /^Public Booking Experience/ })).toHaveAttribute('href', `${editorUrl}&panel=experience`);
+    await expect(page.getByRole('link', { name: /^Booking Flow/ })).toHaveCount(expectedFlowCount);
     await expect(page.getByText(/^Live · /)).toBeVisible();
     expect(await noHorizontalOverflow()).toBe(true);
 
