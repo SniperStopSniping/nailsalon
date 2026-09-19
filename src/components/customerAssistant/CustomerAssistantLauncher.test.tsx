@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -51,6 +51,7 @@ const readyReview: CustomerReadyReviewSnapshot = {
 
 describe('CustomerAssistantLauncher', () => {
   afterEach(() => {
+    cleanup();
     sessionStorage.clear();
     localStorage.clear();
     navigation.push.mockReset();
@@ -249,6 +250,9 @@ describe('CustomerAssistantLauncher', () => {
     await user.click(await screen.findByRole('button', { name: 'Start over' }));
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio') ?? 'null')).toMatchObject({ conversation: 'fresh', messages: [], result: null }));
+
     expect(sessionStorage.getItem('luster.normal-confirm-handoff.v1.salon-id')).toContain('v1.123e4567');
   });
 
