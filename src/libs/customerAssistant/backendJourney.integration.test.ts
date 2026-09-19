@@ -13,6 +13,8 @@ import { expect as browserExpect } from '@playwright/test';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { getURLFromRedirectError } from 'next/dist/client/components/redirect';
+import { isRedirectError } from 'next/dist/client/components/redirect-error';
 import pg from 'pg';
 import { type Browser, chromium, webkit } from 'playwright';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -39,6 +41,20 @@ const SETTINGS = {
 };
 
 vi.mock('server-only', () => ({}));
+// Server-page tests inspect the real resolver's serialized client props. Client
+// components themselves are exercised by the browser, not imported into Node.
+vi.mock('@/app/(unauth)/book/time/BookTimeClient', () => ({ BookTimeClient: function BookTimeClient() {
+  return null;
+} }));
+vi.mock('@/app/(unauth)/book/confirm/BookConfirmClient', () => ({ BookConfirmClient: function BookConfirmClient() {
+  return null;
+} }));
+vi.mock('@/components/PublicSalonPageShell', () => ({ PublicSalonPageShell: function PublicSalonPageShell() {
+  return null;
+} }));
+vi.mock('@/components/customerAssistant/CustomerAssistantLauncher', () => ({ CustomerAssistantLauncher: function CustomerAssistantLauncher() {
+  return null;
+} }));
 const holder = vi.hoisted(() => ({ db: null as unknown, withSession: null as unknown as <T>(work: (database: unknown) => Promise<T>) => Promise<T> }));
 vi.mock('@/libs/DB', () => ({
   get db() {
@@ -48,12 +64,24 @@ vi.mock('@/libs/DB', () => ({
   DatabaseSessionReleaseError: class DatabaseSessionReleaseError extends Error {},
   withDedicatedDatabaseSession: <T>(work: (database: unknown) => Promise<T>) => holder.withSession(work),
 }));
+vi.mock('@/libs/tenant', () => ({
+  getPublicPageContext: vi.fn(async () => ({
+    salon: (await (holder.db as ReturnType<typeof drizzle<typeof schema>>).select().from(schema.salonSchema).where(eq(schema.salonSchema.id, SALON)))[0],
+    appearance: { mode: 'theme', themeKey: 'espresso' },
+  })),
+}));
+vi.mock('@/libs/clientAuth', () => ({ getClientSession: vi.fn(async () => null) }));
+vi.mock('@/libs/ownerPreview', () => ({ resolveDraftSalonAccess: vi.fn(async () => ({ allowed: true, isPreviewingDraftSalon: false, isPreviewingDraftConfig: false, actorType: null })) }));
 // The real quota adapter fails closed without Redis. This focused UI-to-handler
 // journey substitutes only that infrastructure boundary; SQL conversation,
 // quote, operation, and appointment authority remain real.
 vi.mock('@/libs/customerAssistant/budget.server', async importOriginal => ({
   ...(await importOriginal<typeof import('@/libs/customerAssistant/budget.server')>()),
   reserveCustomerAssistantTurn: vi.fn(async () => ({ ok: true as const })),
+}));
+vi.mock('@/libs/publicBookingRateLimit.server', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/publicBookingRateLimit.server')>()),
+  checkPublicBookingRateLimit: vi.fn(async () => ({ allowed: true as const, reason: 'allowed' as const })),
 }));
 const model = vi.hoisted(() => ({ createResponse: vi.fn() }));
 vi.mock('@/libs/ai/openaiResponses.server', () => ({
@@ -66,10 +94,59 @@ vi.mock('@/libs/googleCalendar', async importOriginal => ({ ...(await importOrig
 
 const sessionRoute = await import('../../../src/app/api/public/customer-assistant/[salonSlug]/session/route');
 const chatRoute = await import('../../../src/app/api/public/customer-assistant/[salonSlug]/chat/route');
-const actionRoute = await import('../../../src/app/api/public/customer-assistant/[salonSlug]/action/route');
-const reviewRoute = await import('../../../src/app/api/public/customer-assistant/[salonSlug]/review/route');
-const confirmRoute = await import('../../../src/app/api/public/customer-assistant/[salonSlug]/booking/confirm/route');
+const handoffRoute = await import('../../../src/app/api/public/customer-assistant/[salonSlug]/handoff/route');
+const availabilityRoute = await import('../../../src/app/api/appointments/availability/route');
+const normalPrepareRoute = await import('../../../src/app/api/public/customer-booking/[salonId]/prepare/route');
+const normalConfirmRoute = await import('../../../src/app/api/public/customer-booking/[salonId]/confirm/route');
 const statusRoute = await import('../../../src/app/api/public/customer-booking/[salonId]/status/route');
+const timePage = await import('../../../src/app/(unauth)/book/time/page');
+const confirmPage = await import('../../../src/app/(unauth)/book/confirm/page');
+
+function findClientProps(node: unknown, componentName: string): Record<string, unknown> | null {
+  if (!node || typeof node !== 'object') {
+    return null;
+  }
+  const element = node as { type?: { name?: string }; props?: Record<string, unknown> };
+  if (element.type?.name === componentName && element.props) {
+    return element.props;
+  }
+  const children = element.props?.children;
+  for (const child of Array.isArray(children) ? children : [children]) {
+    const found = findClientProps(child, componentName);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
+}
+
+async function bookingPageFixture(url: URL): Promise<Response> {
+  const stage = url.searchParams.get('stage') === 'confirm' ? 'confirm' : 'time';
+  let bookingUrl = new URL(`/en/isla-nail-studio/book/${stage}?${url.searchParams}`, url.origin);
+  bookingUrl.searchParams.delete('stage');
+  for (let redirects = 0; redirects < 5; redirects += 1) {
+    const pageProps = { searchParams: Promise.resolve(Object.fromEntries(bookingUrl.searchParams)), params: Promise.resolve({ locale: 'en', slug: 'isla-nail-studio' }) };
+    try {
+      const page = stage === 'confirm' ? await confirmPage.default(pageProps) : await timePage.default(pageProps);
+      const props = findClientProps(page, stage === 'confirm' ? 'BookConfirmClient' : 'BookTimeClient');
+      if (!props) {
+        throw new Error('Fixture component unavailable');
+      }
+      return Response.json({ stage, props, canonicalUrl: bookingUrl.pathname + bookingUrl.search });
+    } catch (error) {
+      const target = isRedirectError(error) ? getURLFromRedirectError(error) : null;
+      if (!target) {
+        throw error;
+      }
+      const next = new URL(target, url.origin);
+      if (next.origin !== url.origin || !next.pathname.endsWith(`/book/${stage}`)) {
+        throw error;
+      }
+      bookingUrl = next;
+    }
+  }
+  throw new Error('Fixture booking redirect loop');
+}
 
 let pool: pg.Pool;
 let database: ReturnType<typeof drizzle<typeof schema>>;
@@ -100,20 +177,26 @@ async function waitForVite(): Promise<void> {
 async function bridge(url: URL, method: string, body: string | null): Promise<Response | null> {
   const request = requestFor(url.toString(), method, body);
   const context = { params: Promise.resolve({ salonSlug: 'isla-nail-studio' }) };
+  if (url.pathname === '/api/__fixture/booking-page' && method === 'GET') {
+    return bookingPageFixture(url);
+  }
   if (url.pathname.endsWith('/session')) {
     return sessionRoute.POST(request, context);
   }
   if (url.pathname.endsWith('/chat')) {
     return chatRoute.POST(request, context);
   }
-  if (url.pathname.endsWith('/action')) {
-    return actionRoute.POST(request, context);
+  if (url.pathname.endsWith('/handoff')) {
+    return handoffRoute.POST(request, context);
   }
-  if (url.pathname.endsWith('/review')) {
-    return reviewRoute.POST(request, context);
+  if (url.pathname === '/api/appointments/availability') {
+    return availabilityRoute.GET(request);
   }
-  if (url.pathname.endsWith('/booking/confirm')) {
-    return confirmRoute.POST(request, context);
+  if (url.pathname.includes('/api/public/customer-booking/') && url.pathname.endsWith('/prepare')) {
+    return normalPrepareRoute.POST(request, { params: Promise.resolve({ salonId: url.pathname.split('/')[4]! }) });
+  }
+  if (url.pathname.includes('/api/public/customer-booking/') && url.pathname.endsWith('/confirm')) {
+    return normalConfirmRoute.POST(request, { params: Promise.resolve({ salonId: url.pathname.split('/')[4]! }) });
   }
   if (url.pathname.includes('/api/public/customer-booking/') && url.pathname.endsWith('/status')) {
     return statusRoute.POST(request, { params: Promise.resolve({ salonId: url.pathname.split('/')[4]! }) });
@@ -201,6 +284,9 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     model.createResponse.mockResolvedValue({ status: 'completed', usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null }, action: 'propose', serviceId, addOns: requestedAddOns, question: 'details', optionIds: [], datePreference: null }) }] });
     browser = await (engine === 'chromium' ? chromium : webkit).launch();
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const browserErrors: string[] = [];
+    page.on('pageerror', error => browserErrors.push(error.message));
+    let loseConfirmResponse = true;
     const unexpected: string[] = [];
     const serverResults: Array<{ path: string; status: number; kind?: string; reason?: string; bookingState?: string; proposal?: unknown; review?: unknown }> = [];
     await page.route('**/*', async (route) => {
@@ -223,12 +309,18 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       }
       const responseText = await response.text();
       const data = JSON.parse(responseText || '{}');
-      serverResults.push({ path: url.pathname, status: response.status, kind: data.result?.kind ?? data.kind, reason: data.result?.reason, bookingState: data.status, proposal: data.result?.proposal, review: data.result?.review });
+      serverResults.push({ path: url.pathname, status: response.status, kind: data.result?.kind ?? data.kind, reason: data.result?.reason ?? data.reason, bookingState: data.status, proposal: data.result?.proposal, review: data.result?.review });
+      if (url.pathname.endsWith('/confirm') && loseConfirmResponse) {
+        // Simulate a lost response AFTER the real creation transaction commits.
+        loseConfirmResponse = false;
+        await route.abort('failed');
+        return;
+      }
       await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: responseText });
     });
     await page.goto('http://127.0.0.1:3130/?backend=1', { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await page.getByRole('button', { name: 'Help me choose & book' }).click();
-    await page.getByLabel('Describe the nails you want').fill('Synthetic gel manicure');
+    await page.getByLabel('Tell me what you would like').fill('Synthetic gel manicure');
     await page.getByRole('button', { name: 'Send' }).click();
     await browserExpect.poll(() => serverResults.find(row => row.path.endsWith('/chat'))?.kind).toBe('proposal');
 
@@ -239,30 +331,47 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     });
 
     await page.getByRole('button', { name: 'Choose these services' }).click();
-    const date = new Date(Date.now() + 14 * 86_400_000).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
-    await page.getByLabel('Preferred date').fill(date);
-    await page.getByRole('button', { name: 'Show available times' }).click();
-    await page.getByRole('button', { name: /\d.*[ap]\.?m\.?/i }).first().click();
-    await page.getByLabel('Full name').fill('Synthetic Browser Customer');
-    await page.getByLabel('Email address').fill(`browser-${randomUUID()}@example.invalid`);
-    await page.getByLabel('Phone number').fill('4165550199');
-    await page.getByRole('button', { name: 'Review booking details' }).click();
-    await page.getByRole('button', { name: 'Confirm booking' }).click();
+    await browserExpect(page.locator('[data-testid^="time-slot-"]').first()).toBeVisible({ timeout: 60_000 });
+    await browserExpect.poll(() => page.locator('[data-testid^="time-slot-"]').first().evaluate((element) => {
+      for (let current: Element | null = element; current; current = current.parentElement) {
+        if (Number(getComputedStyle(current).opacity) < 1) {
+          return false;
+        }
+      }
+      return true;
+    })).toBe(true);
+    await page.screenshot({ path: path.resolve(process.cwd(), `artifacts/customer-assistant/receptionist-backend-${l1 ? 'l1' : 'legacy'}-${engine}-time.png`) });
+    await page.locator('[data-testid^="time-slot-"]').first().click();
+    await browserExpect(page.getByLabel('Customer name')).toBeVisible({ timeout: 60_000 });
+    await page.getByLabel('Customer name').fill('Synthetic Browser Customer');
+    await page.getByLabel('Customer email').fill(`browser-${randomUUID()}@example.invalid`);
+    await page.getByLabel('Customer phone').fill('4165550199');
+    await browserExpect(page.getByRole('checkbox', { name: 'Text reminders' })).toBeChecked();
+    await browserExpect.poll(() => page.getByLabel('Customer phone').evaluate((element) => {
+      for (let current: Element | null = element; current; current = current.parentElement) {
+        if (Number(getComputedStyle(current).opacity) < 1) {
+          return false;
+        }
+      }
+      return true;
+    })).toBe(true);
+    await page.screenshot({ path: path.resolve(process.cwd(), `artifacts/customer-assistant/receptionist-backend-${l1 ? 'l1' : 'legacy'}-${engine}-details.png`), fullPage: true });
+    await page.getByRole('button', { name: /Confirm appointment/i }).click();
 
-    expect(serverResults.find(row => row.path.endsWith('/review'))?.review).toMatchObject({
-      durationMinutes: expected.durationMinutes,
-      financial: { subtotalCents: expected.subtotalCents },
-      addOns: expect.arrayContaining(expected.addOnIds.map(id => expect.objectContaining({ id }))),
-      reminders: { selection: 'default_on', requestedEnabled: true },
-    });
+    await browserExpect.poll(() => serverResults.find(row => row.path.endsWith('/confirm'))?.bookingState, { timeout: 60_000 }).toBe('confirmed');
 
-    await browserExpect.poll(() => serverResults.find(row => row.path.endsWith('/booking/confirm')), { timeout: 60_000 }).toMatchObject({ status: 200, kind: 'booking_status', bookingState: 'confirmed' });
-    await browserExpect(page.getByText('Your appointment is confirmed.')).toBeVisible();
+    await browserExpect(page.getByText('Your appointment is confirmed.', { exact: true })).toBeVisible();
+    await page.reload();
+    await browserExpect(page.getByText('Your appointment is confirmed.', { exact: true })).toBeVisible();
+    await page.screenshot({ path: path.resolve(process.cwd(), `artifacts/customer-assistant/receptionist-backend-${l1 ? 'l1' : 'legacy'}-${engine}-confirmed.png`), fullPage: true });
 
-    await page.screenshot({ path: path.resolve(process.cwd(), `artifacts/customer-assistant/actual-backend-${l1 ? 'l1-' : 'legacy-'}${engine}-confirmed.png`), fullPage: true });
+    expect(serverResults.filter(row => row.path.endsWith('/confirm'))).toHaveLength(1);
+    expect(serverResults.some(row => row.path.endsWith('/status'))).toBe(true);
 
     expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
     expect(await database.select().from(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON))).toEqual(expect.arrayContaining([expect.objectContaining({ purpose: 'appointment_reminders', status: 'granted' })]));
+    expect(await database.select().from(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON))).toHaveLength(1);
+    expect(browserErrors).toEqual([]);
     expect(model.createResponse).toHaveBeenCalledTimes(1);
     expect(unexpected).toEqual([]);
 

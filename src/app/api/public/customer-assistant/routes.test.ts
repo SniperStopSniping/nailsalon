@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ salon: vi.fn(), guard: vi.fn(), online: vi.fn(), turn: vi.fn(), action: vi.fn() }));
+const mocks = vi.hoisted(() => ({ salon: vi.fn(), guard: vi.fn(), online: vi.fn(), turn: vi.fn(), action: vi.fn(), handoff: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/queries', () => ({ getSalonBySlug: mocks.salon }));
 vi.mock('@/libs/salonStatus', () => ({ guardSalonApiRoute: mocks.guard, isOnlineBookingEnabled: mocks.online }));
 vi.mock('@/libs/customerAssistant/turn.server', () => ({ runCustomerAssistantTurn: mocks.turn }));
 vi.mock('@/libs/customerAssistant/action.server', () => ({ runCustomerAssistantAction: mocks.action }));
+vi.mock('@/libs/customerAssistant/handoff.server', () => ({ runCustomerHandoff: mocks.handoff }));
 vi.mock('@/libs/publicBookingRateLimit.server', () => ({ getPublicBookingClientIp: () => '192.0.2.5' }));
 
 const { POST: session } = await import('./[salonSlug]/session/route');
 const { POST: chat } = await import('./[salonSlug]/chat/route');
 const { POST: action } = await import('./[salonSlug]/action/route');
+const { POST: handoff } = await import('./[salonSlug]/handoff/route');
 const { verifyCustomerConversation } = await import('@/libs/customerAssistant/conversation.server');
 const context = (slug = 'isla-nail-studio') => ({ params: Promise.resolve({ salonSlug: slug }) });
 function request(body?: unknown, origin = 'https://app.test') {
@@ -31,6 +33,7 @@ beforeEach(() => {
   mocks.online.mockResolvedValue(true);
   mocks.turn.mockResolvedValue({ conversation: 'next', result: { kind: 'unavailable', reason: 'no_match' } });
   mocks.action.mockResolvedValue({ conversation: 'next', result: { kind: 'unavailable', reason: 'no_match' } });
+  mocks.handoff.mockResolvedValue({ conversation: 'next', result: { kind: 'unavailable', reason: 'no_match' } });
 });
 
 describe('customer assistant public routes', () => {
@@ -48,6 +51,7 @@ describe('customer assistant public routes', () => {
     expect((await session(request(), context('salon-b'))).status).toBe(404);
     expect((await chat(request(), context('salon-b'))).status).toBe(404);
     expect((await action(request({ action: 'choose_date', conversation: 'signed', date: '2026-09-20' }), context('salon-b'))).status).toBe(404);
+    expect((await handoff(request({ conversation: 'signed', fingerprint: 'a'.repeat(64) }), context('salon-b'))).status).toBe(404);
 
     vi.stubEnv('CUSTOMER_ASSISTANT_ENABLED', 'false');
 
@@ -60,6 +64,7 @@ describe('customer assistant public routes', () => {
   it('rejects foreign origins, tenant overrides, privileged state and oversized bodies', async () => {
     expect((await chat(request({}, 'https://attacker.test'), context())).status).toBe(403);
     expect((await action(request({}, 'https://attacker.test'), context())).status).toBe(403);
+    expect((await handoff(request({}, 'https://attacker.test'), context())).status).toBe(403);
     expect((await session(request({}, 'https://attacker.test'), context())).status).toBe(403);
     expect((await chat(request({ conversation: 'signed', message: 'hello', locale: 'en', salonId: 'salon-b' }), context())).status).toBe(400);
     expect((await chat(request({ message: 'x'.repeat(31_000) }), context())).status).toBe(400);
@@ -83,6 +88,18 @@ describe('customer assistant public routes', () => {
       conversation: 'signed',
       action: { action: 'choose_date', conversation: 'signed', date: '2026-09-20' },
       clientIp: '192.0.2.5',
+    });
+  });
+
+  it('revalidates a proposal handoff only for the route-resolved salon', async () => {
+    const response = await handoff(request({ conversation: 'signed', fingerprint: 'a'.repeat(64) }), context());
+
+    expect(response.status).toBe(200);
+    expect(mocks.handoff).toHaveBeenCalledWith({
+      salon: { id: 'salon-a', slug: 'isla-nail-studio' },
+      features: null,
+      conversation: 'signed',
+      fingerprint: 'a'.repeat(64),
     });
   });
 });

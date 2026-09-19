@@ -9,7 +9,9 @@ export type CustomerBookingMaterial = {
   catalogAcknowledgment?: { serviceId: string; resolutionFingerprint: string };
   preference: CustomerDatePreference;
   startTime: string;
-  technicianSelection: 'any';
+  technicianSelection: 'any' | 'specific';
+  technicianId?: string;
+  locationId?: string;
   review: CustomerReadyReviewSnapshot;
   smsConsent?: BookingSmsConsentInput;
   expectedTotalCents: number;

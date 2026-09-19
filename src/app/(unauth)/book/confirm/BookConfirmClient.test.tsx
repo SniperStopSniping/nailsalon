@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,7 +6,7 @@ import messages from '@/locales/en.json';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
-const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpen, navigationMock, bookingExperienceMock } = vi.hoisted(() => ({
+const { routerBack, routerPush, routerReplace, syncFromUrl, clearBookingState, fetchMock, windowOpen, navigationMock, bookingExperienceMock } = vi.hoisted(() => ({
   bookingExperienceMock: {
     confirmationMessage: null as string | null,
     policy: {
@@ -42,6 +42,7 @@ const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpe
   routerPush: vi.fn(),
   routerReplace: vi.fn(),
   syncFromUrl: vi.fn(),
+  clearBookingState: vi.fn(),
   fetchMock: vi.fn(),
   windowOpen: vi.fn(),
   navigationMock: {
@@ -50,6 +51,18 @@ const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpe
 }));
 
 const { confettiMock } = vi.hoisted(() => ({ confettiMock: vi.fn() }));
+const normalBookingMock = vi.hoisted(() => {
+  class MockNormalBookingRecoveryError extends Error {
+    constructor(readonly reason: string) {
+      super(reason);
+    }
+  }
+  return {
+    confirm: vi.fn(),
+    recover: vi.fn(),
+    NormalBookingRecoveryError: MockNormalBookingRecoveryError,
+  };
+});
 const BOOKING_CONFIRM_FALLBACK_MESSAGE_FOR_TEST
   = 'We couldn\'t confirm this appointment just now. Please try again.';
 const SMART_FIT_STALE_FALLBACK_MESSAGE_FOR_TEST
@@ -66,6 +79,13 @@ vi.mock('canvas-confetti', () => ({
   default: confettiMock,
 }));
 
+vi.mock('@/libs/customerAssistant/normalBooking.client', () => ({
+  confirmNormalHandoffBooking: normalBookingMock.confirm,
+  recoverNormalBooking: normalBookingMock.recover,
+  NormalBookingRecoveryError: normalBookingMock.NormalBookingRecoveryError,
+  normalBookingErrorMessage: (reason: string) => `normal booking: ${reason}`,
+}));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     back: routerBack,
@@ -79,6 +99,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/hooks/useBookingState', () => ({
   useBookingState: () => ({
     syncFromUrl,
+    clearBookingState,
   }),
 }));
 
@@ -124,6 +145,10 @@ describe('BookConfirmClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock.mockReset();
+    normalBookingMock.confirm.mockReset();
+    normalBookingMock.recover.mockReset();
+    normalBookingMock.recover.mockResolvedValue(null);
+    clearBookingState.mockReset();
     navigationMock.searchParams = new URLSearchParams('techId=tech_1');
     vi.stubGlobal('fetch', fetchMock);
     window.open = windowOpen;
@@ -440,6 +465,121 @@ describe('BookConfirmClient', () => {
     await screen.findByRole('heading', { name: 'Appointment confirmed' });
 
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body).smsConsent).toBeUndefined();
+  });
+
+  describe('assistant handoff confirmation', () => {
+    const confirmedHandoff = {
+      kind: 'booking_status',
+      operation: { capability: 'capability', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: '2030-01-01T00:00:00.000Z' },
+      status: 'confirmed',
+      review: {},
+      appointment: null,
+      payment: null,
+      lastFailure: null,
+    };
+
+    beforeEach(() => {
+      navigationMock.searchParams = new URLSearchParams('techId=tech_1&bookingFlow=assistant');
+      normalBookingMock.confirm.mockResolvedValue(confirmedHandoff);
+    });
+
+    it('uses the existing contact and default-on reminder form through the durable assistant coordinator exactly once', async () => {
+      let finishRecovery!: (value: null) => void;
+      normalBookingMock.recover.mockReturnValue(new Promise<null>((resolve) => {
+        finishRecovery = resolve;
+      }));
+      renderBasicConfirm({ salonId: 'salon-id', baseServiceId: 'srv_1', selectedAddOns: [], timeStr: '9:00' });
+      await waitFor(() => expect(normalBookingMock.recover).toHaveBeenCalledWith('salon-id'));
+
+      const confirm = screen.getByRole('button', { name: /confirm appointment/i });
+
+      expect(confirm).toBeDisabled();
+      expect(screen.getByRole('status')).toHaveTextContent('Checking your booking status');
+
+      fireEvent.click(confirm);
+
+      expect(normalBookingMock.confirm).not.toHaveBeenCalled();
+
+      await act(async () => finishRecovery(null));
+      await waitFor(() => expect(confirm).toBeEnabled());
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+
+      await waitFor(() => expect(normalBookingMock.confirm).toHaveBeenCalledTimes(1));
+
+      expect(normalBookingMock.confirm).toHaveBeenCalledWith(expect.objectContaining({
+        salonId: 'salon-id',
+        booking: expect.objectContaining({
+          appointmentTime: '09:00',
+          clientName: 'Ava',
+          clientEmail: 'ava@example.com',
+          clientPhone: '4165550101',
+          smsConsent: {
+            granted: true,
+            wordingVersion: 'booking-sms-reminders-v1',
+            selection: 'default_on',
+          },
+        }),
+      }));
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('passes an explicit reminder opt-out through the same durable coordinator', async () => {
+      renderBasicConfirm({ salonId: 'salon-id', baseServiceId: 'srv_1', selectedAddOns: [] });
+      await waitFor(() => expect(normalBookingMock.recover).toHaveBeenCalledWith('salon-id'));
+      await waitFor(() => expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled());
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Text reminders' }));
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      await waitFor(() => expect(normalBookingMock.confirm).toHaveBeenCalledTimes(1));
+
+      expect(normalBookingMock.confirm.mock.calls[0]?.[0]).toMatchObject({
+        booking: {
+          smsConsent: { granted: false, selection: 'explicit_off' },
+        },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('never falls through to the legacy appointment POST when the durable handoff is missing', async () => {
+      normalBookingMock.confirm.mockRejectedValue(new normalBookingMock.NormalBookingRecoveryError('handoff_missing'));
+      renderBasicConfirm({ salonId: 'salon-id', baseServiceId: 'srv_1', selectedAddOns: [] });
+      await waitFor(() => expect(normalBookingMock.recover).toHaveBeenCalledWith('salon-id'));
+      await waitFor(() => expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled());
+
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('normal booking: handoff_missing');
+      expect(normalBookingMock.confirm).toHaveBeenCalledTimes(1);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('starts another booking only after confirmed recovery and clears this tenant flow', async () => {
+      normalBookingMock.recover.mockResolvedValue(confirmedHandoff);
+      sessionStorage.setItem('luster.normal-confirm-handoff.v1.salon-id', JSON.stringify({ flowToken: 'v1.123e4567-e89b-12d3-a456-426614174000.1.signed', expiresAt: '2030-01-01T00:00:00.000Z' }));
+      sessionStorage.setItem('luster.customer-assistant.conversation.salon-a', 'conversation');
+      localStorage.setItem('luster.customer-booking.operation.salon-id', 'legacy');
+      renderBasicConfirm({ salonId: 'salon-id', baseServiceId: 'srv_1', selectedAddOns: [] });
+
+      const start = await screen.findByRole('button', { name: 'Start another booking' });
+      fireEvent.click(start);
+
+      expect(clearBookingState).toHaveBeenCalledTimes(1);
+      expect(sessionStorage.getItem('luster.normal-confirm-handoff.v1.salon-id')).toBeNull();
+      expect(sessionStorage.getItem('luster.customer-assistant.conversation.salon-a')).toBeNull();
+      expect(localStorage.getItem('luster.customer-booking.operation.salon-id')).toBeNull();
+      expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('/book/service'));
+    });
+
+    it('does not offer another booking while payment is required', async () => {
+      normalBookingMock.recover.mockResolvedValue({ ...confirmedHandoff, status: 'payment_required' });
+      renderBasicConfirm({ salonId: 'salon-id', baseServiceId: 'srv_1', selectedAddOns: [] });
+
+      await screen.findByText('Payment is required to complete this booking.');
+
+      expect(screen.queryByRole('button', { name: 'Start another booking' })).not.toBeInTheDocument();
+    });
   });
 
   it('shows a post-submit STOP state without exposing it before the booking is created', async () => {

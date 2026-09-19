@@ -7,7 +7,7 @@ import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { buildDepositDisclosure, buildDepositDisclosureFingerprint, resolveDepositChargeForTotal } from '@/libs/depositPolicy';
 import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
 import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
-import { getPrimaryLocation } from '@/libs/queries';
+import { getLocationById, getPrimaryLocation, getTechnicianById } from '@/libs/queries';
 import type { SmartFitEvaluation } from '@/libs/smartFit';
 import { applySmartFitOverlay } from '@/libs/smartFit';
 import { resolveSmartFitConfig } from '@/libs/smartFitConfig';
@@ -43,6 +43,8 @@ export async function prepareCustomerBookingQuote(args: {
   salon: TrustedSalon;
   features: SalonFeatures | null;
   selection: CustomerSelection;
+  technicianId?: string;
+  locationId?: string;
   preference: CustomerDatePreference;
   startTime: string;
   contact: CustomerContact;
@@ -60,6 +62,8 @@ export async function prepareCustomerBookingQuote(args: {
     baseServiceId: args.selection.baseServiceId,
     selectedAddOns: JSON.stringify(args.selection.selectedAddOns),
     trustedClientPhone: args.contact.phone,
+    technicianId: args.technicianId,
+    locationId: args.locationId,
     onSmartFitEvaluation: ({ startTime, evaluation }) => {
       if (evaluation.eligible && !selectedEvaluations.has(startTime)) {
         selectedEvaluations.set(startTime, evaluation);
@@ -80,6 +84,7 @@ export async function prepareCustomerBookingQuote(args: {
     baseServiceId: args.selection.baseServiceId,
     selectedAddOns: args.selection.selectedAddOns,
     clientPhone: args.contact.phone,
+    technicianId: args.technicianId,
   });
   const smartFit = applySmartFitOverlay({
     base: selection.automaticDiscount,
@@ -97,9 +102,16 @@ export async function prepareCustomerBookingQuote(args: {
     discountCents: smartFit.discountAmountCents,
   });
   const [location, depositPolicy] = await Promise.all([
-    getPrimaryLocation(args.salon.id),
+    args.locationId ? getLocationById(args.locationId, args.salon.id) : getPrimaryLocation(args.salon.id),
     getDepositPolicyForSalon({ salonId: args.salon.id, salon: args.salon }),
   ]);
+  if (args.locationId && !location) {
+    return null;
+  }
+  const technician = args.technicianId ? await getTechnicianById(args.technicianId, args.salon.id) : null;
+  if (args.technicianId && (!technician || !technician.isActive)) {
+    return null;
+  }
   const charge = resolveDepositChargeForTotal(depositPolicy, smartFit.finalTotalCents, { mode: 'disclosure' });
   if (!charge.required && charge.reason === 'undetermined') {
     return null;
@@ -127,7 +139,7 @@ export async function prepareCustomerBookingQuote(args: {
     location: projected,
     services: selection.services.map(service => ({ id: service.id, name: service.name, priceCents: service.priceCents })),
     addOns: selection.addOns.map(addOn => ({ id: addOn.id, name: addOn.name, quantity: addOn.quantity, priceCents: addOn.lineTotalCents })),
-    technician: { kind: 'any_artist' },
+    technician: technician ? { kind: 'specific', id: technician.id, name: technician.name } : { kind: 'any_artist' },
     date: args.preference.date,
     time: selected.time,
     timeZone: bookingConfig.timezone,
@@ -138,5 +150,5 @@ export async function prepareCustomerBookingQuote(args: {
     bookingPolicy: policy ? { required: true, title: policy.title, text: policy.text, acknowledgmentText: policy.acknowledgment.text, version: policy.version } : { required: false },
     reminders: { mode, selection: args.smsConsent?.selection ?? null, requestedEnabled: smsDecision?.status === 'granted' },
   };
-  return { catalogAcknowledgment: selection.catalogAcknowledgment, selection: args.selection, preference: args.preference, startTime: args.startTime, technicianSelection: 'any', review, smsConsent: args.smsConsent, expectedTotalCents: smartFit.finalTotalCents, expectedDiscountType: smartFit.kind === 'smart_fit' ? smartFit.smartFit.discountType : smartFit.kind === 'first_visit' ? smartFit.firstVisit.discountType : smartFit.kind === 'reward' ? 'reward' : null, expectedBookingFinancialQuote: { currency: bookingConfig.currency, totalDueCents: totals.totalDueCents, taxConfigurationIdentity: buildTaxConfigurationSnapshot(taxConfig).configurationIdentity }, expectedDepositFingerprint: buildDepositDisclosureFingerprint(charge) };
+  return { catalogAcknowledgment: selection.catalogAcknowledgment, selection: args.selection, preference: args.preference, startTime: args.startTime, technicianSelection: technician ? 'specific' : 'any', ...(technician ? { technicianId: technician.id } : {}), ...(args.locationId ? { locationId: args.locationId } : {}), review, smsConsent: args.smsConsent, expectedTotalCents: smartFit.finalTotalCents, expectedDiscountType: smartFit.kind === 'smart_fit' ? smartFit.smartFit.discountType : smartFit.kind === 'first_visit' ? smartFit.firstVisit.discountType : smartFit.kind === 'reward' ? 'reward' : null, expectedBookingFinancialQuote: { currency: bookingConfig.currency, totalDueCents: totals.totalDueCents, taxConfigurationIdentity: buildTaxConfigurationSnapshot(taxConfig).configurationIdentity }, expectedDepositFingerprint: buildDepositDisclosureFingerprint(charge) };
 }

@@ -193,6 +193,8 @@ export function buildBookingUrl(
     smartFitSuggestStartTime?: string | null;
     smartFitSuggestDiscountCents?: number | null;
     smartFitSuggestTotalCents?: number | null;
+    /** Non-secret marker requiring the assistant's signed normal-flow handoff at confirm. */
+    bookingFlow?: 'assistant' | null;
   },
   tenantRoute?: TenantRouteOptions,
 ): string {
@@ -256,6 +258,9 @@ export function buildBookingUrl(
   if (params.startTime) {
     searchParams.set('startTime', params.startTime);
   }
+  if (params.bookingFlow === 'assistant') {
+    searchParams.set('bookingFlow', 'assistant');
+  }
 
   // Smart Fit (P7.3): server-derived preview/expectation values for a selected
   // qualifying slot, and the single nearby suggestion for a regular slot. The
@@ -302,6 +307,7 @@ export function parseBookingParams(searchParams: URLSearchParams): {
   date: string | null;
   time: string | null;
   startTime: string | null;
+  bookingFlow: 'assistant' | null;
 } {
   const serviceIdsRaw = searchParams.get('serviceIds');
   const serviceIds = serviceIdsRaw ? serviceIdsRaw.split(',').filter(Boolean) : [];
@@ -320,6 +326,7 @@ export function parseBookingParams(searchParams: URLSearchParams): {
     date: searchParams.get('date') || null,
     time: searchParams.get('time') || null,
     startTime: searchParams.get('startTime') || null,
+    bookingFlow: searchParams.get('bookingFlow') === 'assistant' ? 'assistant' : null,
   };
 }
 

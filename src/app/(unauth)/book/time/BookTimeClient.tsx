@@ -9,6 +9,7 @@ import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
+import { useNormalBookingFlowMarker } from '@/libs/customerAssistant/normalConfirmHandoff.client';
 import { formatMoney } from '@/libs/formatMoney';
 import {
   buildSmartFitSuggestionContextKey,
@@ -311,7 +312,7 @@ export function BookTimeClient({
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
-  const { salonName, salonSlug } = useSalon();
+  const { salonName, salonSlug, salonId } = useSalon();
   const locale = (params?.locale as string) || 'en';
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const serviceIdsParam = searchParams.get('serviceIds') || '';
@@ -327,6 +328,7 @@ export function BookTimeClient({
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const manageToken = searchParams.get('manageToken') || '';
   const campaignToken = searchParams.get('campaign') || '';
+  const bookingFlowMarker = useNormalBookingFlowMarker(salonId, searchParams.get('bookingFlow'));
 
   // Check if this is the first step in the booking flow (for dock/login visibility)
   const isFirstStep = getFirstStep(bookingFlow) === 'time';
@@ -961,6 +963,7 @@ export function BookTimeClient({
       smartFitSuggestStartTime: suggestion?.startTime ?? null,
       smartFitSuggestDiscountCents: suggestion?.smartFit?.discountAmountCents ?? null,
       smartFitSuggestTotalCents: suggestion?.smartFit?.discountedPriceCents ?? null,
+      bookingFlow: bookingFlowMarker,
     }, {
       routeSalonSlug,
       locale,
@@ -980,6 +983,7 @@ export function BookTimeClient({
         originalAppointmentId,
         manageToken,
         campaignToken,
+        bookingFlow: bookingFlowMarker,
       }, {
         routeSalonSlug,
         locale,
@@ -999,6 +1003,7 @@ export function BookTimeClient({
       originalAppointmentId,
       manageToken,
       campaignToken,
+      bookingFlow: bookingFlowMarker,
     }, {
       routeSalonSlug,
       locale,

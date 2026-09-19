@@ -2,15 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SEMANTIC_L1_MENU, SEMANTIC_L1_SNAPSHOT } from './__evals__/semanticCases';
 
-const mocks = vi.hoisted(() => ({ reserve: vi.fn(), menu: vi.fn(), snapshot: vi.fn(), proposal: vi.fn(), record: vi.fn(), validate: vi.fn(), lookup: vi.fn() }));
+const mocks = vi.hoisted(() => ({ reserve: vi.fn(), menu: vi.fn(), snapshot: vi.fn(), proposal: vi.fn(), record: vi.fn(), validate: vi.fn(), lookup: vi.fn(), nextSlots: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('./access.server', () => ({ getCustomerAssistantConfig: () => ({ apiKey: 'customer-only', signingSecret: 'x'.repeat(32) }) }));
 vi.mock('./budget.server', () => ({ reserveCustomerAssistantTurn: mocks.reserve }));
 vi.mock('./catalogue.server', () => ({ loadCustomerMenu: mocks.menu, loadCustomerClarificationSnapshot: mocks.snapshot, buildCustomerProposal: mocks.proposal, validateCustomerMenuSelection: mocks.validate }));
 vi.mock('./ledger.server', () => ({ recordCustomerAssistantUsage: mocks.record }));
+vi.mock('./turnReplay.server', () => ({
+  readCompletedCustomerTurn: vi.fn().mockResolvedValue(null),
+  storeCompletedCustomerTurn: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('./slots.server', () => ({
   getCustomerAvailabilityContext: vi.fn().mockResolvedValue({ today: '2026-09-18', timeZone: 'America/Toronto' }),
   lookupCustomerSlots: mocks.lookup,
+  lookupNextCustomerSlots: mocks.nextSlots,
 }));
 vi.mock('@/libs/ai/openaiResponses.server', () => ({ createOpenAiResponsesProvider: vi.fn(() => {
   throw new Error('REAL_PROVIDER_FORBIDDEN');
@@ -29,6 +34,7 @@ const provider = (output: unknown = interpretation) => ({ createResponse: vi.fn(
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.reserve.mockResolvedValue({ ok: true });
+  mocks.nextSlots.mockResolvedValue(null);
   mocks.snapshot.mockResolvedValue(SEMANTIC_L1_SNAPSHOT);
   mocks.menu.mockResolvedValue({ services: [{ id: 'gelx', name: 'Gel-X' }], addOns: [{ id: 'french', name: 'French' }], bindings: [{ serviceId: 'gelx', addOnId: 'french' }] });
   mocks.proposal.mockResolvedValue({ selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] }, fingerprint: acceptedFingerprint, service: { id: 'gelx', name: 'Gel-X', priceCents: 6000 }, addOns: [], subtotalCents: 6000, durationMinutes: 60, currency: 'CAD', expiresAt: '2026-09-18T00:00:00Z' });
@@ -204,7 +210,7 @@ describe('customer assistant bounded turn', () => {
     expect(JSON.parse(thirdModel.createResponse.mock.calls[0]![0].input[1].content).lastShown.selection.baseServiceId).toBe('gelx');
   });
 
-  it('keeps an accepted selection while asking for a missing date and uses bounded availability only after acceptance', async () => {
+  it('keeps the selection during a bounded next-availability search and an explicit date lookup', async () => {
     const accepted = signCustomerConversation({
       ...createCustomerConversation('salon-a', secret),
       context: { question: null, options: [], selection: interpretation.serviceId ? { baseServiceId: interpretation.serviceId, selectedAddOns: interpretation.addOns } : null },
@@ -212,7 +218,7 @@ describe('customer assistant bounded turn', () => {
     }, secret);
     const missingDate = await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'Can I come after 5?' }, provider({ ...interpretation, action: 'availability', datePreference: null }));
 
-    expect(missingDate.result).toMatchObject({ kind: 'clarification', question: 'date' });
+    expect(missingDate.result).toMatchObject({ kind: 'unavailable', reason: 'no_availability' });
     expect(verifyCustomerConversation(missingDate.conversation, 'salon-a', secret).context?.selection).toEqual(expect.objectContaining({ baseServiceId: 'gelx' }));
     expect(verifyCustomerConversation(missingDate.conversation, 'salon-a', secret).booking?.acceptedFingerprint).toBe(acceptedFingerprint);
     expect(mocks.lookup).not.toHaveBeenCalled();

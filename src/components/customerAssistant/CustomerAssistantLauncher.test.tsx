@@ -1,381 +1,337 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { CustomerAssistantLauncher, CustomerBookingRecovery } from './CustomerAssistantLauncher';
+import type { CustomerReadyReviewSnapshot } from '@/libs/customerAssistant/reviewContracts';
+
+import { BookingStatusCard, CustomerAssistantLauncher, CustomerBookingRecovery } from './CustomerAssistantLauncher';
+
+const navigation = vi.hoisted(() => ({ push: vi.fn(), params: {} }));
+const bookingState = vi.hoisted(() => ({ applyAssistantHandoff: vi.fn() }));
+
+vi.mock('next/navigation', () => ({
+  useParams: () => navigation.params,
+  useRouter: () => ({ push: navigation.push }),
+}));
+
+vi.mock('@/hooks/useBookingState', () => ({
+  useBookingState: () => bookingState,
+}));
 
 const sessionResponse = (conversation = 'signed-conversation') => new Response(JSON.stringify({ conversation }), { status: 200 });
+const proposal = (fingerprint = 'f'.repeat(64)) => ({
+  selection: { baseServiceId: 'gel-x', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] },
+  fingerprint,
+  service: { id: 'gel-x', name: 'Gel-X Extensions', priceCents: 8500 },
+  addOns: [{ id: 'french', name: 'French tips', quantity: 1, priceCents: 1500 }],
+  currency: 'CAD',
+  subtotalCents: 10000,
+  durationMinutes: 120,
+  expiresAt: '2030-01-01T00:00:00.000Z',
+});
+const readyReview: CustomerReadyReviewSnapshot = {
+  status: 'READY',
+  fingerprint: 'r'.repeat(64),
+  expiresAt: '2030-01-01T00:00:00.000Z',
+  salon: { id: 'salon-id', slug: 'isla-nail-studio', name: 'Synthetic Salon' },
+  location: null,
+  services: [{ id: 'gel-x', name: 'Gel-X Extensions', priceCents: 8500 }],
+  addOns: [],
+  technician: { kind: 'any_artist' },
+  date: '2030-01-01',
+  time: '12:00',
+  timeZone: 'America/Toronto',
+  durationMinutes: 90,
+  financial: { subtotalCents: 8500, discountAmountCents: 0, discountLabel: null, taxAmountCents: 0, totalDueCents: 8500, currency: 'CAD' },
+  deposit: { status: 'not_required', reason: 'policy_inactive' },
+  confirmationMode: 'instant',
+  bookingPolicy: { required: false },
+  reminders: { mode: 'default_on', selection: 'default_on', requestedEnabled: true },
+};
 
 describe('CustomerAssistantLauncher', () => {
   afterEach(() => {
+    cleanup();
     sessionStorage.clear();
+    localStorage.clear();
+    navigation.push.mockReset();
+    bookingState.applyAssistantHandoff.mockReset();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
-  it('creates a salon-scoped session and closes back to manual booking', async () => {
+  it('keeps the assistant optional and closes back to the existing flow', async () => {
     const fetchMock = vi.fn().mockResolvedValue(sessionResponse());
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
-    render(<CustomerAssistantLauncher salonSlug="isla-nail-studio" locale="en" />);
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
 
     await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
 
     expect(await screen.findByRole('heading', { name: 'Help me choose' })).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith('/api/public/customer-assistant/isla-nail-studio/session', { method: 'POST' });
-    expect(screen.getByText(/find an available time/)).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Continue manually' }));
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Help me choose' })).not.toBeInTheDocument());
   });
 
-  it('renders structured proposal details and never exposes a booking confirmation action', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(sessionResponse())
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        conversation: 'rotated-token',
-        result: {
-          kind: 'proposal',
-          proposal: {
-            selection: { baseServiceId: 'gel-x', selectedAddOns: [] },
-            fingerprint: 'selection-fingerprint',
-            service: { id: 'gel-x', name: 'Gel-X Extensions', priceCents: 8500 },
-            addOns: [{ id: 'french', name: 'French', quantity: 1, priceCents: 1500 }],
-            currency: 'CAD',
-            subtotalCents: 10000,
-            durationMinutes: 120,
-            expiresAt: '2026-09-18T12:00:00.000Z',
-          },
-        },
-      }), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-    const user = userEvent.setup();
-    render(<CustomerAssistantLauncher salonSlug="isla-nail-studio" locale="en" />);
-
-    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
-    await screen.findByRole('heading', { name: 'Help me choose' });
-    await user.type(screen.getByLabelText('Describe the nails you want'), 'Gel-X with French');
-    await user.click(screen.getByRole('button', { name: 'Send' }));
-
-    expect(await screen.findByRole('region', { name: 'Suggested services' })).toBeVisible();
-    expect(screen.getByText('Gel-X Extensions')).toBeVisible();
-    expect(screen.getByText('French')).toBeVisible();
-    expect(screen.getByText('$100.00')).toBeVisible();
-    expect(screen.getByText('2h')).toBeVisible();
-    expect(screen.queryByRole('button', { name: /confirm booking/i })).not.toBeInTheDocument();
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/chat', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ conversation: 'signed-conversation', message: 'Gel-X with French', locale: 'en' }),
-    }));
-  });
-
-  it('keeps a failed chat on the existing token and offers restart only for invalid tokens', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(sessionResponse('existing-token'))
-      .mockRejectedValueOnce(new Error('timeout'))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        conversation: 'existing-token',
-        result: { kind: 'unavailable', reason: 'invalid_conversation' },
-      }), { status: 200 }))
-      .mockResolvedValueOnce(sessionResponse('new-token'));
-    vi.stubGlobal('fetch', fetchMock);
-    render(<CustomerAssistantLauncher salonSlug="isla-nail-studio" locale="en" />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Help me choose & book' }));
-    await screen.findByLabelText('Describe the nails you want');
-    fireEvent.change(screen.getByLabelText('Describe the nails you want'), { target: { value: 'Gel-X' } });
-    fireEvent.submit(screen.getByLabelText('Describe the nails you want').closest('form')!);
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('previous conversation was kept');
-    expect(sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio')).toBe('existing-token');
-    expect(screen.queryByRole('button', { name: 'Start over' })).not.toBeInTheDocument();
-
-    fireEvent.submit(screen.getByLabelText('Describe the nails you want').closest('form')!);
-    const restart = await screen.findByRole('button', { name: 'Start over' });
-    fireEvent.click(restart);
-
-    await waitFor(() => expect(sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio')).toBe('new-token'));
-  });
-
-  it('retries session creation when initialization failed', async () => {
-    const fetchMock = vi.fn()
-      .mockRejectedValueOnce(new Error('timeout'))
-      .mockResolvedValueOnce(sessionResponse('retried-token'));
-    vi.stubGlobal('fetch', fetchMock);
-    const user = userEvent.setup();
-    render(<CustomerAssistantLauncher salonSlug="isla-nail-studio" locale="en" />);
-
-    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
-    await screen.findByRole('alert');
-    await user.click(screen.getByRole('button', { name: 'Try again' }));
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByLabelText('Describe the nails you want')).toBeEnabled());
-  });
-
-  it('continues in memory when session storage is unavailable', async () => {
+  it('keeps the optional conversation usable in memory when site storage cannot be read', async () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-      throw new Error('storage disabled');
+      throw new Error('storage blocked');
     });
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('storage disabled');
-    });
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(sessionResponse('memory-token'))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        conversation: 'rotated-memory-token',
-        result: { kind: 'clarification', question: 'length', options: ['Short'] },
-      }), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sessionResponse()));
     const user = userEvent.setup();
-    render(<CustomerAssistantLauncher salonSlug="isla-nail-studio" locale="en" />);
-
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
     await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
-    await screen.findByLabelText('Describe the nails you want');
-    await user.type(screen.getByLabelText('Describe the nails you want'), 'Gel-X');
-    await user.click(screen.getByRole('button', { name: 'Send' }));
 
-    expect(await screen.findByText('What length would you like?')).toBeVisible();
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/chat', expect.objectContaining({
-      body: JSON.stringify({ conversation: 'memory-token', message: 'Gel-X', locale: 'en' }),
-    }));
+    expect(await screen.findByLabelText('Tell me what you would like')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Continue manually' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('sends one deterministic acceptance request for a double tap', async () => {
+  it('transfers an accepted authoritative proposal once into normal Time without a capability URL', async () => {
     const fingerprint = 'f'.repeat(64);
-    let complete!: (response: Response) => void;
-    const pending = new Promise<Response>((resolve) => {
-      complete = resolve;
+    let completeHandoff!: (response: Response) => void;
+    const handoffResponse = new Promise<Response>((resolve) => {
+      completeHandoff = resolve;
     });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(sessionResponse('session'))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'proposal-token', result: { kind: 'proposal', proposal: {
-        selection: { baseServiceId: 'gel-x', selectedAddOns: [] },
-        fingerprint,
-        service: { id: 'gel-x', name: 'Gel-X', priceCents: 8500 },
-        addOns: [],
-        currency: 'CAD',
-        subtotalCents: 8500,
-        durationMinutes: 90,
-        expiresAt: '2026-09-18T12:05:00Z',
-      } } })))
-      .mockReturnValueOnce(pending);
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'proposal-token', result: { kind: 'proposal', proposal: proposal(fingerprint) } }), { status: 200 }))
+      .mockReturnValueOnce(handoffResponse);
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
-    render(<CustomerAssistantLauncher salonSlug="isla-nail-studio" locale="en" />);
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
     await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
-    await user.type(screen.getByLabelText('Describe the nails you want'), 'Gel-X');
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Gel-X with French');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     const accept = await screen.findByRole('button', { name: 'Choose these services' });
-    fireEvent.click(accept);
-    fireEvent.click(accept);
+
+    expect(bookingState.applyAssistantHandoff).not.toHaveBeenCalled();
+
+    await user.click(accept);
+    await user.click(accept);
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/action', expect.objectContaining({
-      body: JSON.stringify({ conversation: 'proposal-token', action: 'accept_selection', fingerprint }),
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/handoff', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ conversation: 'proposal-token', fingerprint }),
     }));
 
-    complete(new Response(JSON.stringify({ conversation: 'next-token', result: { kind: 'unavailable', reason: 'unavailable' } })));
-    await screen.findByRole('status');
-    await waitFor(() => expect(sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio')).toBe('next-token'));
-  });
+    completeHandoff(new Response(JSON.stringify({
+      conversation: 'handoff-token',
+      result: { kind: 'handoff', handoff: { selection: proposal(fingerprint).selection, flow: { flowToken: 'v1.123e4567-e89b-12d3-a456-426614174000.1.signed', expiresAt: '2030-01-01T00:00:00.000Z' } } },
+    }), { status: 200 }));
 
-  it('keeps form contact out of chat and browser storage, and invalidates an edited review', async () => {
-    const proposal = {
-      selection: { baseServiceId: 'gel-x', selectedAddOns: [] },
-      fingerprint: 'f'.repeat(64),
-      service: { id: 'gel-x', name: 'Gel-X', priceCents: 8500 },
-      addOns: [],
-      currency: 'CAD',
-      subtotalCents: 8500,
-      durationMinutes: 90,
-      expiresAt: new Date(Date.now() + 300_000).toISOString(),
-    };
-    const review = {
-      status: 'INCOMPLETE',
-      fingerprint: 'r'.repeat(64),
-      expiresAt: new Date(Date.now() + 300_000).toISOString(),
-      salon: { id: 'salon', slug: 'isla-nail-studio', name: 'Isla Nail Studio' },
-      location: null,
-      services: [proposal.service],
-      addOns: [],
-      technician: { kind: 'any_artist' },
-      date: '2026-09-19',
-      time: '13:00',
-      timeZone: 'America/Toronto',
-      durationMinutes: 90,
-      financial: { subtotalCents: 8500, estimatedTaxCents: 1105, estimatedTotalCents: 9605, currency: 'CAD' },
-      deposit: { status: 'not_required', reason: 'not_enabled' },
-      confirmationMode: 'instant',
-      bookingPolicy: { required: false },
-      blockers: ['reminder_integration', 'identity_pricing'],
-    };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(sessionResponse('session-token'))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'selected-token', result: { kind: 'slot_selected', proposal, preference: { date: '2026-09-19', earliest: '12:00', latest: '17:00' }, timeZone: 'America/Toronto', slot: { time: '13:00', startTime: '2026-09-19T17:00:00Z' } } })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'review-token', result: { kind: 'review_prepared', review } })));
-    vi.stubGlobal('fetch', fetchMock);
-    const user = userEvent.setup();
-    render(<CustomerAssistantLauncher salonSlug="isla-nail-studio" locale="en" />);
-    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
-    await user.type(screen.getByLabelText('Describe the nails you want'), 'Saturday');
-    await user.click(screen.getByRole('button', { name: 'Send' }));
-    await user.type(await screen.findByLabelText('Full name'), 'Alex Test');
-    await user.type(screen.getByLabelText('Email address'), 'alex@example.test');
-    await user.type(screen.getByLabelText('Phone number'), '4165550100');
-    const submit = screen.getByRole('button', { name: 'Review booking details' });
-    fireEvent.click(submit);
-    fireEvent.click(submit);
+    await waitFor(() => expect(bookingState.applyAssistantHandoff).toHaveBeenCalledWith(proposal(fingerprint).selection));
 
-    expect(await screen.findByRole('region', { name: 'Your booking details' })).toBeVisible();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/review', expect.objectContaining({
-      body: JSON.stringify({ conversation: 'selected-token', contact: { name: 'Alex Test', email: 'alex@example.test', phone: '4165550100' }, smsConsent: { granted: true, selection: 'default_on', wordingVersion: 'booking-sms-reminders-v1' }, expectedRevision: 0 }),
-    }));
-    expect(fetchMock.mock.calls[1]?.[1]?.body).not.toMatch(/Alex|alex@example|416555/);
-    expect(JSON.stringify(sessionStorage)).not.toMatch(/Alex|alex@example|416555/);
-    expect(JSON.stringify(localStorage)).not.toMatch(/Alex|alex@example|416555/);
-    expect(screen.getByLabelText('Email address')).toHaveValue('alex@example.test');
+    expect(navigation.push).toHaveBeenCalledTimes(1);
 
-    await user.type(screen.getByLabelText('Full name'), ' Updated');
+    const destination = navigation.push.mock.calls[0]?.[0] as string;
 
-    expect(screen.queryByRole('region', { name: 'Your booking details' })).not.toBeInTheDocument();
-    expect(screen.getByText('Your contact details changed. Review the booking details again.')).toBeVisible();
+    expect(destination).toContain('/en/isla-nail-studio/book/time');
+    expect(destination).toContain('bookingFlow=assistant');
+    expect(destination).not.toContain('v1.123e4567-e89b-12d3-a456-426614174000.1.signed');
+    expect(sessionStorage.getItem('luster.normal-confirm-handoff.v1.salon-id')).toContain('v1.123e4567-e89b-12d3-a456-426614174000.1.signed');
     expect(screen.queryByRole('button', { name: /confirm booking/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Phone number')).not.toBeInTheDocument();
   });
 
-  it('recovers a lost confirmation response with fresh alternatives for a definite lost slot', async () => {
-    const review = {
-      status: 'READY',
-      fingerprint: 'r'.repeat(64),
-      expiresAt: new Date(Date.now() + 300_000).toISOString(),
-      salon: { id: 'salon-id', slug: 'isla-nail-studio', name: 'Isla Nail Studio' },
-      location: null,
-      services: [{ id: 'gel-x', name: 'Gel-X', priceCents: 8500 }],
-      addOns: [],
-      technician: { kind: 'any_artist' },
-      date: '2026-09-19',
-      time: '13:00',
-      timeZone: 'America/Toronto',
-      durationMinutes: 90,
-      financial: { subtotalCents: 8500, discountAmountCents: 0, discountLabel: null, taxAmountCents: 1105, totalDueCents: 9605, currency: 'CAD' },
-      deposit: { status: 'not_required', reason: 'policy_inactive' },
-      confirmationMode: 'instant',
-      bookingPolicy: { required: true, title: 'Policy', text: 'Terms', acknowledgmentText: 'I agree to the terms.', version: 'policy-v1:test' },
-      reminders: { mode: 'default_on', selection: 'default_on', requestedEnabled: true },
-    };
-    const operation = { capability: 'opaque-capability', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: review.expiresAt };
+  it('renders assistant answers with optional quick replies', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(sessionResponse('session-token'))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'selected-token', result: { kind: 'slot_selected', proposal: { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: review.services[0], addOns: [], currency: 'CAD', subtotalCents: 8500, durationMinutes: 90, expiresAt: review.expiresAt }, preference: { date: review.date, earliest: '12:00', latest: '17:00' }, timeZone: review.timeZone, slot: { time: review.time, startTime: '2026-09-19T17:00:00Z' } } })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'review-token', result: { kind: 'booking_review', review, operation } })))
-      .mockRejectedValueOnce(new Error('connection closed after submit'))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: 'booking_status', operation, status: 'not_created', review, appointment: null, payment: null, lastFailure: 'slot_unavailable' })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'alternatives-token', result: { kind: 'unavailable', reason: 'unavailable' } })));
+      .mockResolvedValueOnce(sessionResponse('session'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'answer-token', result: { kind: 'answer', message: 'Would you like French tips?', options: ['Yes', 'No'] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'next-token', result: { kind: 'answer', message: 'French tips selected.', options: [] } }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
     render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
     await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
-    await user.type(screen.getByLabelText('Describe the nails you want'), 'Gel-X');
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Gel manicure');
     await user.click(screen.getByRole('button', { name: 'Send' }));
-    await user.type(await screen.findByLabelText('Full name'), 'Alex Test');
-    await user.type(screen.getByLabelText('Email address'), 'alex@example.test');
-    await user.type(screen.getByLabelText('Phone number'), '4165550100');
-    await user.click(screen.getByRole('button', { name: 'Review booking details' }));
-    const confirm = await screen.findByRole('button', { name: 'Confirm booking' });
 
-    expect(confirm).toBeDisabled();
+    expect(await screen.findByText('Would you like French tips?')).toBeVisible();
+    expect(screen.getByLabelText('You')).toHaveTextContent('Gel manicure');
+    expect(screen.getByLabelText('Assistant')).toHaveTextContent('Would you like French tips?');
 
-    await user.click(screen.getByLabelText('I agree to the terms.'));
-    await user.click(confirm);
+    await user.click(screen.getByLabelText('Close assistant'));
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
 
-    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/public/customer-assistant/isla-nail-studio/booking/confirm', expect.objectContaining({ body: JSON.stringify({ action: 'confirm_booking', capability: operation.capability, revision: 1, fingerprint: operation.fingerprint, contact: { name: 'Alex Test', email: 'alex@example.test', phone: '4165550100' }, policyAccepted: true }) }));
-    expect(JSON.parse(localStorage.getItem('luster.customer-booking.operation.salon-id') ?? '{}')).toEqual({ version: 1, salonId: 'salon-id', ...operation });
-    expect(JSON.stringify(localStorage)).not.toMatch(/Alex|alex@example|416555|9605/);
-    expect(await screen.findByText('That time is no longer available. Choose another time.')).toBeVisible();
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/action', expect.objectContaining({ body: JSON.stringify({ conversation: 'review-token', action: 'choose_date', date: review.date }) }));
+    expect(await screen.findByLabelText('You')).toHaveTextContent('Gel manicure');
+    expect(screen.getByLabelText('Assistant')).toHaveTextContent('Would you like French tips?');
+
+    await user.click(screen.getByRole('button', { name: 'Yes' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/chat', expect.objectContaining({ body: JSON.stringify({ conversation: 'answer-token', message: 'Yes', locale: 'en' }) })));
+
+    expect(await screen.findByText('French tips selected.')).toBeVisible();
+    expect(screen.getByLabelText('You chose: Yes')).toHaveTextContent('Yes');
+    expect(screen.getByLabelText('You')).toHaveTextContent('Gel manicure');
+
+    await user.click(screen.getByLabelText('Close assistant'));
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+
+    expect(await screen.findByLabelText('You chose: Yes')).toBeVisible();
   });
 
-  it('recovers an opaque operation without needing the assistant feature', async () => {
+  it('renders authoritative availability with the salon-local date and time zone', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse('session'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        conversation: 'slots-token',
+        result: {
+          kind: 'slots',
+          proposal: proposal(),
+          preference: { date: '2026-09-19', earliest: '12:00', latest: '17:00' },
+          timeZone: 'America/Toronto',
+          slots: [{ time: '3:00 PM', startTime: '2026-09-19T19:00:00.000Z' }],
+          checkedAt: '2026-09-18T00:00:00.000Z',
+        },
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Saturday afternoon');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await screen.findByRole('heading', { name: 'Available times to consider' })).toBeVisible();
+    expect(screen.getByText(/Sep 19.*3:00.*(?:EDT|EST)/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Choose these services' })).toBeVisible();
+  });
+
+  it('recovers an opaque legacy operation without needing the assistant feature', async () => {
     const operation = { version: 1, salonId: 'salon-id', capability: 'opaque-capability', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: '2030-01-01T00:00:00.000Z' };
     localStorage.setItem('luster.customer-booking.operation.salon-id', JSON.stringify(operation));
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      kind: 'booking_status',
-      operation,
-      status: 'awaiting_approval',
-      review: {},
-      appointment: null,
-      payment: null,
-      lastFailure: null,
-    })));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ kind: 'booking_status', operation, status: 'awaiting_approval', review: {}, appointment: null, payment: null, lastFailure: null })));
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CustomerBookingRecovery salonId="salon-id" locale="en" />);
 
     expect(await screen.findByText('Your booking request is awaiting salon approval.')).toBeVisible();
-    expect(fetchMock).toHaveBeenCalledWith('/api/public/customer-booking/salon-id/status', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ capability: 'opaque-capability' }),
-    }));
-    expect(JSON.stringify(localStorage)).not.toContain('review');
+    expect(fetchMock).toHaveBeenCalledWith('/api/public/customer-booking/salon-id/status', expect.objectContaining({ method: 'POST', body: JSON.stringify({ capability: 'opaque-capability' }) }));
   });
 
-  it('posts the opaque capability to resume payment and renders French status copy', async () => {
-    const operation = { version: 1, salonId: 'salon-id', capability: 'opaque-capability', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: '2030-01-01T00:00:00.000Z' };
-    localStorage.setItem('luster.customer-booking.operation.salon-id', JSON.stringify(operation));
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: 'booking_status', operation, status: 'payment_required', review: {}, appointment: null, payment: { amountCents: 2500, currency: 'CAD', holdExpiresAt: '2030-01-01T00:00:00.000Z', canResume: true }, lastFailure: null })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ url: 'https://invalid.example/checkout' })));
-    vi.stubGlobal('fetch', fetchMock);
-    const user = userEvent.setup();
+  it('does not render legacy status actions without a working handler', () => {
+    render(
+      <BookingStatusCard
+        locale="en"
+        status={{
+          kind: 'booking_status',
+          operation: { capability: 'opaque-capability', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: '2030-01-01T00:00:00.000Z' },
+          status: 'payment_required',
+          review: readyReview,
+          appointment: { id: 'appointment-id', startTime: '2030-01-01T12:00:00.000Z', durationMinutes: 60, technicianName: null, reminderState: 'enabled' },
+          payment: { amountCents: 1000, currency: 'CAD', holdExpiresAt: '2030-01-01T13:00:00.000Z', canResume: true },
+          lastFailure: null,
+        }}
+      />,
+    );
 
-    render(<CustomerBookingRecovery salonId="salon-id" locale="fr" />);
-
-    expect(await screen.findByText('Un paiement est requis pour terminer cette réservation.')).toBeVisible();
-
-    await user.click(screen.getByRole('button', { name: 'Reprendre le paiement' }));
-    await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-booking/salon-id/resume', expect.objectContaining({ body: JSON.stringify({ capability: operation.capability }) })));
+    expect(screen.queryByRole('button', { name: 'Resume payment' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Manage booking' })).not.toBeInTheDocument();
   });
 
-  it('refreshes a pending operation without creating a session, then retries its original capability', async () => {
-    const expiresAt = new Date(Date.now() + 300_000).toISOString();
-    const operation = { version: 1, salonId: 'salon-id', capability: 'original-capability', revision: 3, fingerprint: 'a'.repeat(64), expiresAt };
-    const review = {
-      status: 'READY',
-      fingerprint: 'r'.repeat(64),
-      expiresAt,
-      salon: { id: 'salon-id', slug: 'isla-nail-studio', name: 'Isla Nail Studio' },
-      location: null,
-      services: [{ id: 'gel-x', name: 'Gel-X', priceCents: 8500 }],
-      addOns: [],
-      technician: { kind: 'any_artist' },
-      date: '2026-09-19',
-      time: '13:00',
-      timeZone: 'America/Toronto',
-      durationMinutes: 90,
-      financial: { subtotalCents: 8500, discountAmountCents: 0, discountLabel: null, taxAmountCents: 1105, totalDueCents: 9605, currency: 'CAD' },
-      deposit: { status: 'not_required', reason: 'policy_inactive' },
-      confirmationMode: 'instant',
-      bookingPolicy: { required: false },
-      reminders: { mode: 'default_on', selection: 'default_on', requestedEnabled: true },
-    };
-    localStorage.setItem('luster.customer-booking.operation.salon-id', JSON.stringify(operation));
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: 'booking_status', operation, status: 'not_created', review, appointment: null, payment: null, lastFailure: null })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: 'booking_status', operation, status: 'confirmed', review, appointment: { id: 'appointment', startTime: '2026-09-19T17:00:00Z', durationMinutes: 90, technicianName: null, reminderState: 'enabled' }, payment: null, lastFailure: null })));
+  it('migrates a raw legacy signed conversation instead of discarding it', async () => {
+    sessionStorage.setItem('luster.customer-assistant.conversation.isla-nail-studio', 'legacy.signed.conversation');
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ conversation: 'next', result: { kind: 'answer', message: 'Recovered', options: [] } })));
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
     render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
 
     await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
-    await screen.findByRole('button', { name: 'Confirm booking' });
-    await user.type(screen.getByLabelText('Full name'), 'Alex Test');
-    await user.type(screen.getByLabelText('Email address'), 'alex@example.test');
-    await user.type(screen.getByLabelText('Phone number'), '4165550100');
-    await user.click(screen.getByRole('button', { name: 'Confirm booking' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Hello');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
 
-    expect(fetchMock).not.toHaveBeenCalledWith('/api/public/customer-assistant/isla-nail-studio/session', expect.anything());
-    expect(fetchMock).not.toHaveBeenCalledWith('/api/public/customer-assistant/isla-nail-studio/review', expect.anything());
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/booking/confirm', expect.objectContaining({ body: expect.stringContaining('original-capability') }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/public/customer-assistant/isla-nail-studio/chat', expect.objectContaining({ body: JSON.stringify({ conversation: 'legacy.signed.conversation', message: 'Hello', locale: 'en' }) }));
+  });
+
+  it.each(['conversation_expired', 'session_limit'] as const)('restarts terminal %s without clearing the normal booking flow', async (reason) => {
+    sessionStorage.setItem('luster.normal-confirm-handoff.v1.salon-id', JSON.stringify({ flowToken: 'v1.123e4567-e89b-12d3-a456-426614174000.1.signed', expiresAt: '2030-01-01T00:00:00.000Z' }));
+    const fetchMock = vi.fn().mockResolvedValueOnce(sessionResponse('session')).mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'session', result: { kind: 'unavailable', reason } }))).mockResolvedValueOnce(sessionResponse('fresh'));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Hello');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(await screen.findByRole('button', { name: 'Start over' }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio') ?? 'null')).toMatchObject({ conversation: 'fresh', messages: [], result: null }));
+
+    expect(sessionStorage.getItem('luster.normal-confirm-handoff.v1.salon-id')).toContain('v1.123e4567');
+  });
+
+  it('retries the exact stale conversation request without opening a new session', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(sessionResponse('session')).mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'session', result: { kind: 'unavailable', reason: 'stale_conversation' } }))).mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'next', result: { kind: 'answer', message: 'Recovered', options: [] } })));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Hello');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(await screen.findByRole('button', { name: 'Try again' }));
+
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/chat', expect.objectContaining({ body: JSON.stringify({ conversation: 'session', message: 'Hello', locale: 'en' }) }));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('blocks handoff and navigation when a legacy operation status is unavailable', async () => {
+    const operation = { version: 1, salonId: 'salon-id', capability: 'legacy-capability', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: '2030-01-01T00:00:00.000Z' };
+    localStorage.setItem('luster.customer-booking.operation.salon-id', JSON.stringify(operation));
+    sessionStorage.setItem('luster.customer-assistant.conversation.isla-nail-studio', JSON.stringify({ version: 2, conversation: 'proposal-token', messages: [], result: { kind: 'proposal', proposal: proposal() } }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.click(await screen.findByRole('button', { name: 'Choose these services' }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toContain('/status');
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it('shows a committed legacy status and blocks handoff navigation', async () => {
+    const operation = { version: 1, salonId: 'salon-id', capability: 'legacy-capability', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: '2030-01-01T00:00:00.000Z' };
+    localStorage.setItem('luster.customer-booking.operation.salon-id', JSON.stringify(operation));
+    sessionStorage.setItem('luster.customer-assistant.conversation.isla-nail-studio', JSON.stringify({ version: 2, conversation: 'proposal-token', messages: [], result: { kind: 'proposal', proposal: proposal() } }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ kind: 'booking_status', operation, status: 'confirmed', review: {}, appointment: null, payment: null, lastFailure: null })));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.click(await screen.findByRole('button', { name: 'Choose these services' }));
+
+    expect(await screen.findByText('Your appointment is confirmed.')).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it('adopts a not-created legacy operation before navigation', async () => {
+    const operation = { version: 1, salonId: 'salon-id', capability: 'legacy-capability', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: '2030-01-01T00:00:00.000Z' };
+    const adopted = { capability: 'server-capability', revision: 2, fingerprint: 'b'.repeat(64), expiresAt: '2030-01-01T00:00:00.000Z' };
+    const flowToken = 'v1.123e4567-e89b-12d3-a456-426614174000.1.signed';
+    localStorage.setItem('luster.customer-booking.operation.salon-id', JSON.stringify(operation));
+    sessionStorage.setItem('luster.customer-assistant.conversation.isla-nail-studio', JSON.stringify({ version: 2, conversation: 'proposal-token', messages: [], result: { kind: 'proposal', proposal: proposal() } }));
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ kind: 'booking_status', operation, status: 'not_created', review: {}, appointment: null, payment: null, lastFailure: null }))).mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'next', result: { kind: 'handoff', handoff: { selection: proposal().selection, flow: { flowToken, expiresAt: '2030-01-01T00:00:00.000Z' }, operation: adopted } } })));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.click(await screen.findByRole('button', { name: 'Choose these services' }));
+
+    await waitFor(() => expect(navigation.push).toHaveBeenCalledTimes(1));
+
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(expect.objectContaining({ body: expect.stringContaining('legacy-capability') }));
+    expect(localStorage.getItem('luster.normal-booking.operation.salon-id.123e4567-e89b-12d3-a456-426614174000')).toContain('server-capability');
   });
 });

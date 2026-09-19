@@ -245,6 +245,7 @@
     "empty_description": "Photos from your visits will appear here"
   },
   "BookingConfirmation": {
+    "recovering_booking": "Checking your booking status…",
     "contact_description": "Your confirmation and private booking link will arrive by email.",
     "sms_label": "Text me appointment confirmations and reminders",
     "sms_details": "You can turn this off now or reply STOP at any time.",

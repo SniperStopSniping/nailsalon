@@ -19,6 +19,7 @@ export const factsSchema = z.object({
   length: lengthSchema,
   french: frenchSchema,
   existingProduct: existingProductSchema,
+  currentProductUncertain: z.boolean().optional(),
   origin: originSchema,
   removal: removalSchema,
   repairCount: repairCountSchema,
@@ -37,6 +38,7 @@ export const patchSchema = z.object({
   length: lengthSchema.nullable(),
   french: frenchSchema.nullable(),
   existingProduct: existingProductSchema.nullable(),
+  currentProductUncertain: z.boolean().nullable().default(null),
   origin: originSchema.nullable(),
   removal: removalSchema.nullable(),
   repairCount: repairCountSchema.nullable(),
@@ -45,7 +47,7 @@ export const patchSchema = z.object({
 export const patchJSONSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['schemaVersion', 'treatment', 'desiredApplication', 'maintenance', 'length', 'french', 'existingProduct', 'origin', 'removal', 'repairCount'],
+  required: ['schemaVersion', 'treatment', 'desiredApplication', 'maintenance', 'length', 'french', 'existingProduct', 'currentProductUncertain', 'origin', 'removal', 'repairCount'],
   properties: {
     schemaVersion: { type: 'integer', const: 1 },
     treatment: { type: ['string', 'null'], enum: ['gel_polish', 'builder_gel', 'gel_x', 'acrylic', 'unknown', null] },
@@ -57,6 +59,7 @@ export const patchJSONSchema = {
     maintenance: { type: ['string', 'null'], enum: ['new_set', 'refill', 'unknown', null] },
     length: { type: ['string', 'null'], enum: ['short', 'medium', 'long', 'extra_long', 'unknown', null] },
     french: { type: ['string', 'null'], enum: ['yes', 'no', 'unknown', null] },
+    currentProductUncertain: { type: ['boolean', 'null'], description: 'True only when the customer explicitly says they do not know what is currently on their nails. Null when unmentioned. Missing information is not explicit uncertainty.' },
     existingProduct: { type: ['string', 'null'], enum: ['none', 'gel_polish', 'builder_gel', 'gel_x', 'acrylic', 'unknown', null] },
     origin: { type: ['string', 'null'], enum: ['this_salon', 'other_salon', 'unknown', null] },
     removal: { type: ['string', 'null'], enum: ['yes', 'no', 'unknown', null] },
@@ -65,7 +68,7 @@ export const patchJSONSchema = {
 } as const;
 
 export type Facts = z.infer<typeof factsSchema>;
-export type Patch = z.infer<typeof patchSchema>;
+export type Patch = z.input<typeof patchSchema>;
 
 export const emptyFacts = (): Facts => ({
   schemaVersion: 1,
@@ -91,6 +94,7 @@ export function mergeFacts(previous: Facts, patch: Patch): Facts {
     length: next.length ?? current.length,
     french: next.french ?? current.french,
     existingProduct: next.existingProduct ?? current.existingProduct,
+    ...(next.currentProductUncertain !== null ? { currentProductUncertain: next.currentProductUncertain } : next.existingProduct !== null && next.existingProduct !== 'unknown' ? { currentProductUncertain: false } : current.currentProductUncertain !== undefined ? { currentProductUncertain: current.currentProductUncertain } : {}),
     origin: next.origin ?? current.origin,
     removal: next.removal ?? current.removal,
     repairCount: next.repairCount ?? current.repairCount,

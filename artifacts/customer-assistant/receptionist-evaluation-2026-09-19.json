@@ -1,0 +1,2315 @@
+{
+  "model": "gpt-5.6-luna",
+  "store": false,
+  "promptSha256": "e6e3cf2a9eeeb3f3d7f51a682446827ceafb2573e607f491327d9938c9e6b64f",
+  "scope": "synthetic catalog only; exact runtime turn resolver; no database, bookings, messages or payments",
+  "reservedMicros": 176353,
+  "summary": {
+    "turns": 27,
+    "passed": 27,
+    "review": 0,
+    "costMicros": 14091
+  },
+  "results": [
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 1,
+      "message": "I was thinking making my nails longer",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "unknown",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "unknown",
+        "french": "unknown",
+        "existingProduct": "unknown",
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "unknown",
+          "desiredApplication": "extensions",
+          "maintenance": "unknown",
+          "length": "unknown",
+          "french": "unknown",
+          "existingProduct": "unknown",
+          "currentProductUncertain": null,
+          "origin": "unknown",
+          "removal": "unknown",
+          "repairCount": "unknown"
+        },
+        "action": "clarify",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [],
+        "question": "length",
+        "optionIds": [
+          "addon_semantic_medium",
+          "addon_semantic_long"
+        ],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "clarification",
+        "question": "length",
+        "options": [
+          "Long Length",
+          "Medium Length",
+          "Short Length"
+        ]
+      },
+      "costMicros": 630
+    },
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 2,
+      "message": "Are those the only options?",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "unknown",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "unknown",
+        "french": "unknown",
+        "existingProduct": "unknown",
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": null,
+          "desiredApplication": null,
+          "maintenance": null,
+          "length": null,
+          "french": null,
+          "existingProduct": null,
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "answer",
+        "timingFeedback": "none",
+        "answerTopic": "service_options",
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": null,
+        "addOns": [],
+        "question": "service",
+        "optionIds": [
+          "svc_semantic_biab",
+          "svc_semantic_gel_manicure",
+          "svc_semantic_gelx",
+          "svc_semantic_gelx_fill"
+        ],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "answer",
+        "topic": "service_options",
+        "message": "These are the online menu options that fit what you’ve described. You can also tell me more about the result you want. The online menu offers Gel-X Extensions.",
+        "options": [
+          "Gel-X Extensions"
+        ]
+      },
+      "costMicros": 916
+    },
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 3,
+      "message": "Okay Gel-X",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "unknown",
+        "french": "unknown",
+        "existingProduct": "unknown",
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": null,
+          "maintenance": null,
+          "length": null,
+          "french": null,
+          "existingProduct": null,
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "clarify",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [],
+        "question": "length",
+        "optionIds": [
+          "addon_semantic_short",
+          "addon_semantic_medium",
+          "addon_semantic_long"
+        ],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "clarification",
+        "question": "length",
+        "options": [
+          "Long Length",
+          "Medium Length",
+          "Short Length"
+        ]
+      },
+      "costMicros": 788
+    },
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 4,
+      "message": "Probably medium and French",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "medium",
+        "french": "yes",
+        "existingProduct": "unknown",
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "unknown",
+          "length": "medium",
+          "french": "yes",
+          "existingProduct": "unknown",
+          "currentProductUncertain": null,
+          "origin": "unknown",
+          "removal": "unknown",
+          "repairCount": "unknown"
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [
+            {
+              "addOnId": "addon_semantic_medium",
+              "quantity": 1
+            },
+            {
+              "addOnId": "addon_semantic_french",
+              "quantity": 1
+            }
+          ],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_french",
+            "quantity": 1
+          }
+        ],
+        "question": "details",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "clarification",
+        "question": "product",
+        "options": [
+          "Nothing",
+          "Gel-X",
+          "BIAB / Builder Gel",
+          "Other / Not sure"
+        ]
+      },
+      "costMicros": 396
+    },
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 5,
+      "message": "Nothing currently on my nails",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "medium",
+        "french": "yes",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": null,
+          "desiredApplication": null,
+          "maintenance": null,
+          "length": null,
+          "french": null,
+          "existingProduct": "none",
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_french",
+            "quantity": 1
+          }
+        ],
+        "question": "details",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_french",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_medium",
+                "quantity": 1
+              }
+            ]
+          },
+          "fingerprint": "428c16c836cab064a089dd3742aecc3d2289d8010a1db06a9d3d9612221a682a",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_french",
+              "name": "French Tips",
+              "quantity": 1,
+              "priceCents": 1000
+            },
+            {
+              "id": "addon_semantic_medium",
+              "name": "Medium Length",
+              "quantity": 1,
+              "priceCents": 1000
+            }
+          ],
+          "subtotalCents": 9000,
+          "durationMinutes": 120,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 584
+    },
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 6,
+      "message": "Actually make them long",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "long",
+        "french": "yes",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": null,
+          "desiredApplication": null,
+          "maintenance": null,
+          "length": "long",
+          "french": null,
+          "existingProduct": null,
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [
+            {
+              "addOnId": "addon_semantic_long",
+              "quantity": 1
+            }
+          ],
+          "remove": [
+            "addon_semantic_medium"
+          ]
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_french",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_long",
+            "quantity": 1
+          }
+        ],
+        "question": "length",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_french",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_long",
+                "quantity": 1
+              }
+            ]
+          },
+          "fingerprint": "29e63ee53ded8741de4663f7897c22934721b89f012c27aee4b39cedcfbaded5",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_french",
+              "name": "French Tips",
+              "quantity": 1,
+              "priceCents": 1000
+            },
+            {
+              "id": "addon_semantic_long",
+              "name": "Long Length",
+              "quantity": 1,
+              "priceCents": 2000
+            }
+          ],
+          "subtotalCents": 10000,
+          "durationMinutes": 135,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 375
+    },
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 7,
+      "message": "Actually forget French, can I do chrome?",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "long",
+        "french": "no",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": null,
+          "desiredApplication": null,
+          "maintenance": null,
+          "length": null,
+          "french": "no",
+          "existingProduct": null,
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [
+            {
+              "addOnId": "addon_semantic_chrome",
+              "quantity": 1
+            }
+          ],
+          "remove": [
+            "addon_semantic_french"
+          ]
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_chrome",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_long",
+            "quantity": 1
+          }
+        ],
+        "question": "finish",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_chrome",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_long",
+                "quantity": 1
+              }
+            ]
+          },
+          "fingerprint": "f89f92569ff8ee877ca89dd89f18bba80905ad439cfdbd663caae0a868fe1428",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_chrome",
+              "name": "Chrome Finish",
+              "quantity": 1,
+              "priceCents": 1200
+            },
+            {
+              "id": "addon_semantic_long",
+              "name": "Long Length",
+              "quantity": 1,
+              "priceCents": 2000
+            }
+          ],
+          "subtotalCents": 10200,
+          "durationMinutes": 130,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 413
+    },
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 8,
+      "message": "I broke two nails too",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "long",
+        "french": "no",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": 2
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": null,
+          "desiredApplication": null,
+          "maintenance": null,
+          "length": null,
+          "french": null,
+          "existingProduct": null,
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": 2
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [
+            {
+              "addOnId": "addon_semantic_repair",
+              "quantity": 2
+            }
+          ],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_chrome",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_long",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_repair",
+            "quantity": 2
+          }
+        ],
+        "question": "details",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_chrome",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_long",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_repair",
+                "quantity": 2
+              }
+            ]
+          },
+          "fingerprint": "23d808574eadda318e70f62905754477574c010fac3ce651eda3b61bc59a01e2",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_chrome",
+              "name": "Chrome Finish",
+              "quantity": 1,
+              "priceCents": 1200
+            },
+            {
+              "id": "addon_semantic_long",
+              "name": "Long Length",
+              "quantity": 1,
+              "priceCents": 2000
+            },
+            {
+              "id": "addon_semantic_repair",
+              "name": "Nail Repair",
+              "quantity": 2,
+              "priceCents": 600
+            }
+          ],
+          "subtotalCents": 10800,
+          "durationMinutes": 140,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 446
+    },
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 9,
+      "message": "What's the difference between BIAB and Gel-X?",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "long",
+        "french": "no",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": 2
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "unknown",
+          "length": "long",
+          "french": "no",
+          "existingProduct": "none",
+          "currentProductUncertain": false,
+          "origin": "unknown",
+          "removal": "unknown",
+          "repairCount": 2
+        },
+        "action": "answer",
+        "timingFeedback": "none",
+        "answerTopic": "compare_treatments",
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": null,
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_chrome",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_long",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_repair",
+            "quantity": 2
+          }
+        ],
+        "question": "details",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "answer",
+        "topic": "compare_treatments",
+        "message": "BIAB / builder gel generally strengthens and structures your natural nails. Gel-X uses gel tips to add length. The right choice depends on the result you want and what is on your nails now. The online menu offers BIAB Builder Gel, Gel-X Extensions.",
+        "options": [
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ]
+      },
+      "costMicros": 387
+    },
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 10,
+      "message": "Keep Gel-X but remove chrome please",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "long",
+        "french": "no",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": 2
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": null,
+          "length": "long",
+          "french": "no",
+          "existingProduct": "none",
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": 2
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [],
+          "remove": [
+            "addon_semantic_chrome"
+          ]
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_long",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_repair",
+            "quantity": 2
+          }
+        ],
+        "question": "details",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_long",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_repair",
+                "quantity": 2
+              }
+            ]
+          },
+          "fingerprint": "95ff658c3fcc5ae788cefef45b0c95912fc7f54fc30ce9d4805480729883ab0f",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_long",
+              "name": "Long Length",
+              "quantity": 1,
+              "priceCents": 2000
+            },
+            {
+              "id": "addon_semantic_repair",
+              "name": "Nail Repair",
+              "quantity": 2,
+              "priceCents": 600
+            }
+          ],
+          "subtotalCents": 9600,
+          "durationMinutes": 130,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 349
+    },
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 11,
+      "message": "Anything Saturday after 5?",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "long",
+        "french": "no",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": 2
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": null,
+          "desiredApplication": null,
+          "maintenance": null,
+          "length": null,
+          "french": null,
+          "existingProduct": null,
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "availability",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_long",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_repair",
+            "quantity": 2
+          }
+        ],
+        "question": "date",
+        "optionIds": [],
+        "datePreference": {
+          "date": "2026-09-19",
+          "earliest": "17:00",
+          "latest": "23:59"
+        }
+      },
+      "result": {
+        "kind": "slots",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_long",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_repair",
+                "quantity": 2
+              }
+            ]
+          },
+          "fingerprint": "95ff658c3fcc5ae788cefef45b0c95912fc7f54fc30ce9d4805480729883ab0f",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_long",
+              "name": "Long Length",
+              "quantity": 1,
+              "priceCents": 2000
+            },
+            {
+              "id": "addon_semantic_repair",
+              "name": "Nail Repair",
+              "quantity": 2,
+              "priceCents": 600
+            }
+          ],
+          "subtotalCents": 9600,
+          "durationMinutes": 130,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        },
+        "preference": {
+          "date": "2026-09-19",
+          "earliest": "17:00",
+          "latest": "23:59"
+        },
+        "timeZone": "America/Toronto",
+        "slots": [
+          {
+            "time": "17:00",
+            "startTime": "2026-09-19T21:00:00.000Z"
+          }
+        ],
+        "checkedAt": "2026-09-19T05:05:38.481Z"
+      },
+      "costMicros": 353
+    },
+    {
+      "id": "outcome-to-selection-and-corrections",
+      "turn": 12,
+      "message": "That's too late, what about Sunday?",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "long",
+        "french": "no",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": 2
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": null,
+          "desiredApplication": null,
+          "maintenance": null,
+          "length": null,
+          "french": null,
+          "existingProduct": null,
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "availability",
+        "timingFeedback": "too_late",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_long",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_repair",
+            "quantity": 2
+          }
+        ],
+        "question": "date",
+        "optionIds": [],
+        "datePreference": {
+          "date": "2026-09-20",
+          "earliest": "17:00",
+          "latest": "23:59"
+        }
+      },
+      "result": {
+        "kind": "slots",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_long",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_repair",
+                "quantity": 2
+              }
+            ]
+          },
+          "fingerprint": "95ff658c3fcc5ae788cefef45b0c95912fc7f54fc30ce9d4805480729883ab0f",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_long",
+              "name": "Long Length",
+              "quantity": 1,
+              "priceCents": 2000
+            },
+            {
+              "id": "addon_semantic_repair",
+              "name": "Nail Repair",
+              "quantity": 2,
+              "priceCents": 600
+            }
+          ],
+          "subtotalCents": 9600,
+          "durationMinutes": 130,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        },
+        "preference": {
+          "date": "2026-09-20",
+          "earliest": "00:00",
+          "latest": "16:59"
+        },
+        "timeZone": "America/Toronto",
+        "slots": [
+          {
+            "time": "09:00",
+            "startTime": "2026-09-20T13:00:00.000Z"
+          }
+        ],
+        "checkedAt": "2026-09-19T05:05:40.889Z"
+      },
+      "costMicros": 383
+    },
+    {
+      "id": "informational-subject-and-explicit-edit",
+      "turn": 1,
+      "message": "Medium Gel-X with chrome, nothing currently on my nails",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "medium",
+        "french": "unknown",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": null,
+          "length": "medium",
+          "french": null,
+          "existingProduct": "none",
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [
+            {
+              "addOnId": "addon_semantic_chrome",
+              "quantity": 1
+            },
+            {
+              "addOnId": "addon_semantic_medium",
+              "quantity": 1
+            }
+          ],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_chrome",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          }
+        ],
+        "question": "service",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_chrome",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_medium",
+                "quantity": 1
+              }
+            ]
+          },
+          "fingerprint": "16b4ded6f89f2a081e5d5fa8fd3ee24957e5ec1e97c83f9892eb47bee5eed7a1",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_chrome",
+              "name": "Chrome Finish",
+              "quantity": 1,
+              "priceCents": 1200
+            },
+            {
+              "id": "addon_semantic_medium",
+              "name": "Medium Length",
+              "quantity": 1,
+              "priceCents": 1000
+            }
+          ],
+          "subtotalCents": 9200,
+          "durationMinutes": 115,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 515
+    },
+    {
+      "id": "informational-subject-and-explicit-edit",
+      "turn": 2,
+      "message": "What is BIAB?",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "medium",
+        "french": "unknown",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "unknown",
+          "length": "medium",
+          "french": "unknown",
+          "existingProduct": "none",
+          "currentProductUncertain": false,
+          "origin": "unknown",
+          "removal": "unknown",
+          "repairCount": "unknown"
+        },
+        "action": "answer",
+        "timingFeedback": "none",
+        "answerTopic": "compare_treatments",
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": null,
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_chrome",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          }
+        ],
+        "question": "service",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "answer",
+        "topic": "compare_treatments",
+        "message": "BIAB / builder gel generally strengthens and structures your natural nails. Gel-X uses gel tips to add length. The right choice depends on the result you want and what is on your nails now. The online menu offers BIAB Builder Gel, Gel-X Extensions.",
+        "options": [
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ]
+      },
+      "costMicros": 734
+    },
+    {
+      "id": "informational-subject-and-explicit-edit",
+      "turn": 3,
+      "message": "Remove chrome, and what is the difference between BIAB and Gel-X?",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "medium",
+        "french": "unknown",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "unknown",
+          "length": "medium",
+          "french": "unknown",
+          "existingProduct": "none",
+          "currentProductUncertain": false,
+          "origin": "unknown",
+          "removal": "unknown",
+          "repairCount": "unknown"
+        },
+        "action": "answer",
+        "timingFeedback": "none",
+        "answerTopic": "compare_treatments",
+        "addOnUpdates": {
+          "add": [],
+          "remove": [
+            "addon_semantic_chrome"
+          ]
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          }
+        ],
+        "question": "details",
+        "optionIds": [
+          "svc_semantic_biab",
+          "svc_semantic_gelx"
+        ],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "answer",
+        "topic": "compare_treatments",
+        "message": "BIAB / builder gel generally strengthens and structures your natural nails. Gel-X uses gel tips to add length. The right choice depends on the result you want and what is on your nails now. The online menu offers BIAB Builder Gel, Gel-X Extensions.",
+        "options": [
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ]
+      },
+      "costMicros": 795
+    },
+    {
+      "id": "informational-subject-and-explicit-edit",
+      "turn": 4,
+      "message": "The second one please, keep medium",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "unknown",
+        "length": "medium",
+        "french": "unknown",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": null,
+          "length": "medium",
+          "french": null,
+          "existingProduct": null,
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          }
+        ],
+        "question": "service",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_medium",
+                "quantity": 1
+              }
+            ]
+          },
+          "fingerprint": "a1c07871215edb465e608a1e3b0f5388a8afaa39ce94b1c5595ccbd2bda905a7",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_medium",
+              "name": "Medium Length",
+              "quantity": 1,
+              "priceCents": 1000
+            }
+          ],
+          "subtotalCents": 8000,
+          "durationMinutes": 105,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 774
+    },
+    {
+      "id": "medium-bare-nails",
+      "turn": 1,
+      "message": "Gel-X Extensions",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "new_set",
+        "length": "unknown",
+        "french": "unknown",
+        "existingProduct": "unknown",
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "new_set",
+          "length": null,
+          "french": null,
+          "existingProduct": null,
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "clarify",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [],
+        "question": "length",
+        "optionIds": [
+          "addon_semantic_short",
+          "addon_semantic_medium",
+          "addon_semantic_long"
+        ],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "clarification",
+        "question": "length",
+        "options": [
+          "Long Length",
+          "Medium Length",
+          "Short Length"
+        ]
+      },
+      "costMicros": 327
+    },
+    {
+      "id": "medium-bare-nails",
+      "turn": 2,
+      "message": "Medium Length",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "new_set",
+        "length": "medium",
+        "french": "unknown",
+        "existingProduct": "unknown",
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "new_set",
+          "length": "medium",
+          "french": "unknown",
+          "existingProduct": "unknown",
+          "currentProductUncertain": null,
+          "origin": "unknown",
+          "removal": "unknown",
+          "repairCount": "unknown"
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [
+            {
+              "addOnId": "addon_semantic_medium",
+              "quantity": 1
+            }
+          ],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          }
+        ],
+        "question": "details",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "clarification",
+        "question": "product",
+        "options": [
+          "Nothing",
+          "Gel-X",
+          "BIAB / Builder Gel",
+          "Other / Not sure"
+        ]
+      },
+      "costMicros": 375
+    },
+    {
+      "id": "medium-bare-nails",
+      "turn": 3,
+      "message": "Nothing",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "new_set",
+        "length": "medium",
+        "french": "unknown",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "no",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "new_set",
+          "length": "medium",
+          "french": "unknown",
+          "existingProduct": "none",
+          "currentProductUncertain": null,
+          "origin": "unknown",
+          "removal": "no",
+          "repairCount": "unknown"
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          }
+        ],
+        "question": "product",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_medium",
+                "quantity": 1
+              }
+            ]
+          },
+          "fingerprint": "a1c07871215edb465e608a1e3b0f5388a8afaa39ce94b1c5595ccbd2bda905a7",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_medium",
+              "name": "Medium Length",
+              "quantity": 1,
+              "priceCents": 1000
+            }
+          ],
+          "subtotalCents": 8000,
+          "durationMinutes": 105,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 738
+    },
+    {
+      "id": "medium-bare-nails",
+      "turn": 4,
+      "message": "Can we add French?",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "new_set",
+        "length": "medium",
+        "french": "yes",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "no",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "new_set",
+          "length": "medium",
+          "french": "yes",
+          "existingProduct": "none",
+          "currentProductUncertain": false,
+          "origin": "unknown",
+          "removal": "no",
+          "repairCount": "unknown"
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [
+            {
+              "addOnId": "addon_semantic_french",
+              "quantity": 1
+            }
+          ],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_french",
+            "quantity": 1
+          }
+        ],
+        "question": "finish",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_french",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_medium",
+                "quantity": 1
+              }
+            ]
+          },
+          "fingerprint": "428c16c836cab064a089dd3742aecc3d2289d8010a1db06a9d3d9612221a682a",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_french",
+              "name": "French Tips",
+              "quantity": 1,
+              "priceCents": 1000
+            },
+            {
+              "id": "addon_semantic_medium",
+              "name": "Medium Length",
+              "quantity": 1,
+              "priceCents": 1000
+            }
+          ],
+          "subtotalCents": 9000,
+          "durationMinutes": 120,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 691
+    },
+    {
+      "id": "medium-bare-nails",
+      "turn": 5,
+      "message": "Actually remove French",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "new_set",
+        "length": "medium",
+        "french": "no",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "no",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": null,
+          "desiredApplication": null,
+          "maintenance": null,
+          "length": null,
+          "french": "no",
+          "existingProduct": null,
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [],
+          "remove": [
+            "addon_semantic_french"
+          ]
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          }
+        ],
+        "question": "finish",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_medium",
+                "quantity": 1
+              }
+            ]
+          },
+          "fingerprint": "a1c07871215edb465e608a1e3b0f5388a8afaa39ce94b1c5595ccbd2bda905a7",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_medium",
+              "name": "Medium Length",
+              "quantity": 1,
+              "priceCents": 1000
+            }
+          ],
+          "subtotalCents": 8000,
+          "durationMinutes": 105,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 376
+    },
+    {
+      "id": "current-acrylic-is-not-desired-service",
+      "turn": 1,
+      "message": "I currently have acrylic from another salon but want medium Gel-X with French",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "new_set",
+        "length": "medium",
+        "french": "yes",
+        "existingProduct": "acrylic",
+        "currentProductUncertain": false,
+        "origin": "other_salon",
+        "removal": "yes",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "new_set",
+          "length": "medium",
+          "french": "yes",
+          "existingProduct": "acrylic",
+          "currentProductUncertain": null,
+          "origin": "other_salon",
+          "removal": "yes",
+          "repairCount": null
+        },
+        "action": "clarify",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [
+            {
+              "addOnId": "addon_semantic_medium",
+              "quantity": 1
+            },
+            {
+              "addOnId": "addon_semantic_french",
+              "quantity": 1
+            }
+          ],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_french",
+            "quantity": 1
+          }
+        ],
+        "question": "removal",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "unavailable",
+        "reason": "unsupported_removal"
+      },
+      "costMicros": 521
+    },
+    {
+      "id": "current-acrylic-is-not-desired-service",
+      "turn": 2,
+      "message": "What's the difference between BIAB and Gel-X?",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "new_set",
+        "length": "medium",
+        "french": "yes",
+        "existingProduct": "acrylic",
+        "currentProductUncertain": false,
+        "origin": "other_salon",
+        "removal": "yes",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "new_set",
+          "length": "medium",
+          "french": "yes",
+          "existingProduct": "acrylic",
+          "currentProductUncertain": false,
+          "origin": "other_salon",
+          "removal": "yes",
+          "repairCount": "unknown"
+        },
+        "action": "answer",
+        "timingFeedback": "none",
+        "answerTopic": "compare_treatments",
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": null,
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_french",
+            "quantity": 1
+          }
+        ],
+        "question": "service",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "answer",
+        "topic": "compare_treatments",
+        "message": "BIAB / builder gel generally strengthens and structures your natural nails. Gel-X uses gel tips to add length. The right choice depends on the result you want and what is on your nails now. The online menu offers BIAB Builder Gel, Gel-X Extensions.",
+        "options": [
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ]
+      },
+      "costMicros": 362
+    },
+    {
+      "id": "unknown-current-product",
+      "turn": 1,
+      "message": "I want medium Gel-X but I don't know what's on my nails",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "new_set",
+        "length": "medium",
+        "french": "unknown",
+        "existingProduct": "unknown",
+        "currentProductUncertain": true,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "new_set",
+          "length": "medium",
+          "french": null,
+          "existingProduct": "unknown",
+          "currentProductUncertain": true,
+          "origin": "unknown",
+          "removal": "unknown",
+          "repairCount": null
+        },
+        "action": "clarify",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [
+            {
+              "addOnId": "addon_semantic_medium",
+              "quantity": 1
+            }
+          ],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_medium",
+            "quantity": 1
+          }
+        ],
+        "question": "removal",
+        "optionIds": [
+          "addon_semantic_gelx_removal",
+          "addon_semantic_other_salon_gelx_removal"
+        ],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "unavailable",
+        "reason": "unknown_product"
+      },
+      "costMicros": 612
+    },
+    {
+      "id": "gel-french-retained",
+      "turn": 1,
+      "message": "Gel manicure with French on my bare natural nails please",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_polish",
+        "desiredApplication": "natural_nails",
+        "maintenance": "unknown",
+        "length": "unknown",
+        "french": "yes",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_polish",
+          "desiredApplication": "natural_nails",
+          "maintenance": null,
+          "length": null,
+          "french": "yes",
+          "existingProduct": "none",
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [
+            {
+              "addOnId": "addon_semantic_french",
+              "quantity": 1
+            }
+          ],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gel_manicure",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_french",
+            "quantity": 1
+          }
+        ],
+        "question": "service",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gel_manicure",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_french",
+                "quantity": 1
+              }
+            ]
+          },
+          "fingerprint": "42772c0918c9ba09a1f463fda3d921162ee47b709d3354841ef69e61933b560f",
+          "service": {
+            "id": "svc_semantic_gel_manicure",
+            "name": "Gel Manicure",
+            "priceCents": 4000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_french",
+              "name": "French Tips",
+              "quantity": 1,
+              "priceCents": 1000
+            }
+          ],
+          "subtotalCents": 5000,
+          "durationMinutes": 75,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 455
+    },
+    {
+      "id": "biab-natural-no-extension-question",
+      "turn": 1,
+      "message": "BIAB on my bare natural nails please",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "builder_gel",
+        "desiredApplication": "natural_nails",
+        "maintenance": "new_set",
+        "length": "unknown",
+        "french": "unknown",
+        "existingProduct": "none",
+        "currentProductUncertain": false,
+        "origin": "unknown",
+        "removal": "unknown",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "builder_gel",
+          "desiredApplication": "natural_nails",
+          "maintenance": "new_set",
+          "length": null,
+          "french": null,
+          "existingProduct": "none",
+          "currentProductUncertain": null,
+          "origin": null,
+          "removal": null,
+          "repairCount": null
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_biab",
+        "addOns": [],
+        "question": "service",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_biab",
+            "selectedAddOns": []
+          },
+          "fingerprint": "2611dfe27eea4dd88b329e6eac4e54b6ad56dd89f75035c88e7d77d6ac8ca067",
+          "service": {
+            "id": "svc_semantic_biab",
+            "name": "BIAB Builder Gel",
+            "priceCents": 5500
+          },
+          "addOns": [],
+          "subtotalCents": 5500,
+          "durationMinutes": 90,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 329
+    },
+    {
+      "id": "own-removal-facts-retained",
+      "turn": 1,
+      "message": "short Gel-X + French, removing existing Gel-X from Synthetic Isla",
+      "status": "passed",
+      "failures": [],
+      "facts": {
+        "schemaVersion": 1,
+        "treatment": "gel_x",
+        "desiredApplication": "extensions",
+        "maintenance": "new_set",
+        "length": "short",
+        "french": "yes",
+        "existingProduct": "gel_x",
+        "currentProductUncertain": false,
+        "origin": "this_salon",
+        "removal": "yes",
+        "repairCount": "unknown"
+      },
+      "intent": {
+        "factUpdates": {
+          "schemaVersion": 1,
+          "treatment": "gel_x",
+          "desiredApplication": "extensions",
+          "maintenance": "new_set",
+          "length": "short",
+          "french": "yes",
+          "existingProduct": "gel_x",
+          "currentProductUncertain": null,
+          "origin": "this_salon",
+          "removal": "yes",
+          "repairCount": null
+        },
+        "action": "propose",
+        "timingFeedback": "none",
+        "answerTopic": null,
+        "addOnUpdates": {
+          "add": [
+            {
+              "addOnId": "addon_semantic_french",
+              "quantity": 1
+            },
+            {
+              "addOnId": "addon_semantic_short",
+              "quantity": 1
+            },
+            {
+              "addOnId": "addon_semantic_gelx_removal",
+              "quantity": 1
+            }
+          ],
+          "remove": []
+        },
+        "serviceId": "svc_semantic_gelx",
+        "addOns": [
+          {
+            "addOnId": "addon_semantic_french",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_short",
+            "quantity": 1
+          },
+          {
+            "addOnId": "addon_semantic_gelx_removal",
+            "quantity": 1
+          }
+        ],
+        "question": "details",
+        "optionIds": [],
+        "datePreference": null
+      },
+      "result": {
+        "kind": "proposal",
+        "proposal": {
+          "selection": {
+            "baseServiceId": "svc_semantic_gelx",
+            "selectedAddOns": [
+              {
+                "addOnId": "addon_semantic_french",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_gelx_removal",
+                "quantity": 1
+              },
+              {
+                "addOnId": "addon_semantic_short",
+                "quantity": 1
+              }
+            ]
+          },
+          "fingerprint": "30e5ae0768c60b816d204ca9e106e5af88c648dd5563a3ac10e081e0137120ca",
+          "service": {
+            "id": "svc_semantic_gelx",
+            "name": "Gel-X Extensions",
+            "priceCents": 7000
+          },
+          "addOns": [
+            {
+              "id": "addon_semantic_french",
+              "name": "French Tips",
+              "quantity": 1,
+              "priceCents": 1000
+            },
+            {
+              "id": "addon_semantic_gelx_removal",
+              "name": "Gel-X Removal",
+              "quantity": 1,
+              "priceCents": 1500
+            },
+            {
+              "id": "addon_semantic_short",
+              "name": "Short Length",
+              "quantity": 1,
+              "priceCents": 0
+            }
+          ],
+          "subtotalCents": 9500,
+          "durationMinutes": 125,
+          "currency": "CAD",
+          "expiresAt": "2026-09-18T23:59:00Z"
+        }
+      },
+      "costMicros": 467
+    }
+  ]
+}

@@ -4,6 +4,7 @@ vi.mock('server-only', () => ({}));
 
 const {
   CUSTOMER_CONVERSATION_MAX_TOKEN_BYTES,
+  advanceCustomerConversation,
   CustomerConversationInvalidError,
   createCustomerConversation,
   signCustomerConversation,
@@ -88,4 +89,26 @@ describe('customer conversation token', () => {
 
     expect(verifyCustomerConversation(token, 'salon_a', SECRET, NOW)).toEqual(terminal);
   });
+});
+
+it('keeps active conversations alive past thirty minutes without extending the two-hour absolute cap', () => {
+  let state = createCustomerConversation('salon_a', SECRET, NOW);
+  state = advanceCustomerConversation(state, NOW + 25 * 60_000);
+  const token = signCustomerConversation(state, SECRET);
+
+  expect(verifyCustomerConversation(token, 'salon_a', SECRET, NOW + 40 * 60_000).sessionId).toBe(state.sessionId);
+
+  state = advanceCustomerConversation(state, NOW + 110 * 60_000);
+
+  expect(state.expiresAtMs).toBe(NOW + 120 * 60_000);
+  expect(() => verifyCustomerConversation(signCustomerConversation(state, SECRET), 'salon_a', SECRET, NOW + 121 * 60_000)).toThrow();
+});
+
+it('accepts existing signed version-one conversations during the upgrade', () => {
+  const current = createCustomerConversation('salon_a', SECRET, NOW);
+  const { lastActivityAtMs: _activity, ...rest } = current;
+  const legacy = { ...rest, version: 1 as const };
+
+  expect(verifyCustomerConversation(signCustomerConversation(legacy, SECRET), 'salon_a', SECRET, NOW).version).toBe(1);
+  expect(advanceCustomerConversation(legacy, NOW + 100).version).toBe(2);
 });

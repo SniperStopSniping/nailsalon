@@ -4,9 +4,12 @@ import { createHash } from 'node:crypto';
 
 import { redis } from '@/core/redis/redisClient';
 
+import { CUSTOMER_CONVERSATION_MAX_TURNS } from './conversation.server';
+
 const KEY_PREFIX = 'luster:customer-booking-assistant:v1';
 const CLUSTER_HASH_TAG = '{customer-booking-assistant}';
-const SESSION_TTL_SECONDS = 30 * 60;
+// Consumed tokens remain replay-protected beyond the full absolute conversation lifetime.
+const SESSION_TTL_SECONDS = 2 * 60 * 60 + 60;
 const MINUTE_TTL_SECONDS = 2 * 60;
 const DAY_TTL_SECONDS = 2 * 24 * 60 * 60;
 const MONTH_TTL_SECONDS = 35 * 24 * 60 * 60;
@@ -15,7 +18,7 @@ export const CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD = 20_000;
 
 export type CustomerAssistantReservation =
   | { ok: true }
-  | { ok: false; reason: 'rate_limited' | 'conversation_used' | 'unavailable' };
+  | { ok: false; reason: 'rate_limited' | 'conversation_used' | 'stale_conversation' | 'session_limit' | 'unavailable' };
 
 export type CustomerAssistantTurnInput = {
   salonId: string;
@@ -70,7 +73,7 @@ local ipDayCount = tonumber(redis.call('GET', KEYS[4]) or '0')
 local salonDayCount = tonumber(redis.call('GET', KEYS[5]) or '0')
 local salonMonthCount = tonumber(redis.call('GET', KEYS[6]) or '0')
 local globalDayCount = tonumber(redis.call('GET', KEYS[7]) or '0')
-if sessionCount >= tonumber(ARGV[1]) then return 1 end
+if sessionCount >= tonumber(ARGV[1]) then return 3 end
 if ipMinuteCount >= tonumber(ARGV[2]) then return 2 end
 if ipDayCount >= tonumber(ARGV[3]) then return 2 end
 if salonDayCount >= tonumber(ARGV[4]) then return 2 end
@@ -110,8 +113,8 @@ export async function reserveCustomerAssistantTurn(
     || !Number.isInteger(input.turnIndex) || input.turnIndex < 0) {
     return { ok: false, reason: 'unavailable' };
   }
-  if (input.turnIndex >= 12) {
-    return { ok: false, reason: 'conversation_used' };
+  if (input.turnIndex >= CUSTOMER_CONVERSATION_MAX_TURNS) {
+    return { ok: false, reason: 'session_limit' };
   }
 
   try {
@@ -120,7 +123,7 @@ export async function reserveCustomerAssistantTurn(
       RESERVE_SCRIPT,
       keys.length,
       ...keys,
-      '12',
+      String(CUSTOMER_CONVERSATION_MAX_TURNS),
       '6',
       '60',
       '100',
@@ -134,14 +137,17 @@ export async function reserveCustomerAssistantTurn(
     ) as Promise<unknown>);
     const code = typeof result === 'number'
       ? result
-      : typeof result === 'string' && /^[012]$/.test(result)
+      : typeof result === 'string' && /^[0-3]$/.test(result)
         ? Number(result)
         : Number.NaN;
     if (code === 0) {
       return { ok: true };
     }
     if (code === 1) {
-      return { ok: false, reason: 'conversation_used' };
+      return { ok: false, reason: 'stale_conversation' };
+    }
+    if (code === 3) {
+      return { ok: false, reason: 'session_limit' };
     }
     if (code === 2) {
       return { ok: false, reason: 'rate_limited' };

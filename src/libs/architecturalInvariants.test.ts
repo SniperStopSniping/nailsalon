@@ -172,6 +172,7 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
     { importer: 'src/libs/customerAssistant/__evals__/nailBookingCases.ts', imports: 'src/libs/catalogResolverCore.ts' },
     { importer: 'src/libs/customerAssistant/__evals__/nailBookingCases.ts', imports: 'src/libs/catalogResolverFixtures.ts' },
     { importer: 'src/libs/customerAssistant/__evals__/nailBookingScorer.ts', imports: 'src/libs/catalogResolverCore.ts' },
+    { importer: 'src/libs/customerAssistant/__evals__/receptionistHarness.ts', imports: 'src/libs/catalogResolverCore.ts' },
     { importer: 'src/libs/customerAssistant/__evals__/semanticCases.ts', imports: 'src/libs/catalogResolverCore.ts' },
     { importer: 'src/libs/customerAssistant/__evals__/semanticCases.ts', imports: 'src/libs/catalogResolverFixtures.ts' },
     { importer: 'src/app/(unauth)/book/service/BookServicePageServer.tsx', imports: 'src/libs/catalogResolver.server.ts' },

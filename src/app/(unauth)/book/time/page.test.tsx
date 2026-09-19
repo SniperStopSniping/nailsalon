@@ -43,6 +43,9 @@ const {
   }),
 }));
 
+vi.mock('@/libs/customerAssistant/access.server', () => ({ isCustomerAssistantEnabledForSalon: () => false }));
+vi.mock('@/components/customerAssistant/CustomerAssistantLauncher', () => ({ CustomerAssistantLauncher: () => null }));
+
 vi.mock('next/navigation', () => ({
   redirect: redirectMock,
 }));
@@ -205,7 +208,7 @@ describe('BookTimePage', () => {
     })).rejects.toThrow('REDIRECT:/en/salon-a/cancelled');
   });
 
-  it('redirects to time with techId when exactly one compatible technician exists', async () => {
+  it.each([undefined, 'assistant'] as const)('preserves flow %s when exactly one compatible technician redirects to time', async (bookingFlow) => {
     getPublicPageContext.mockResolvedValue({
       appearance: null,
       salon: {
@@ -261,12 +264,17 @@ describe('BookTimePage', () => {
     await expect(BookTimePage({
       searchParams: Promise.resolve({
         salonSlug: 'salon-a',
+        bookingFlow,
         baseServiceId: 'svc_combo',
         selectedAddOns: JSON.stringify([{ addOnId: 'addon_1' }]),
       }),
     })).rejects.toThrow(
       'REDIRECT:/book/time?salonSlug=salon-a&baseServiceId=svc_combo&selectedAddOns=%5B%7B%22addOnId%22%3A%22addon_1%22%7D%5D&techId=tech_1',
     );
+
+    const destination = new URL(redirectMock.mock.calls.at(-1)![0], 'https://example.test');
+
+    expect(destination.searchParams.get('bookingFlow')).toBe(bookingFlow ?? null);
   });
 
   it('canonicalizes the auto-selected technician for a free-solo flow without an artist step', async () => {

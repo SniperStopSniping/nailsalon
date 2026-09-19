@@ -109,6 +109,8 @@ const provider = vi.hoisted(() => ({ create: vi.fn(), retrieve: vi.fn(), expire:
 vi.mock('@/libs/stripeConnect/readiness', async importOriginal => ({ ...(await importOriginal<typeof import('@/libs/stripeConnect/readiness')>()), refreshAccountReadiness: provider.readiness }));
 const SALON = 'synthetic-customer-creator-salon';
 const TECH = 'synthetic-customer-creator-tech';
+const OTHER_SALON = 'synthetic-customer-creator-other-salon';
+const OTHER_TECH = 'synthetic-customer-creator-other-tech';
 const SERVICE = 'synthetic-customer-creator-service';
 const ADDON = 'synthetic-customer-creator-addon';
 const L1_CAPABILITY = 'synthetic-customer-creator-l1-capability';
@@ -170,7 +172,7 @@ async function create(prepared: Awaited<ReturnType<typeof prepare>>) {
     salonSlug: SALON,
     baseServiceId: value.selection.baseServiceId,
     selectedAddOns: value.selection.selectedAddOns,
-    technicianId: null,
+    technicianId: value.technicianId ?? null,
     startTime: value.startTime,
     clientName: prepared.person.name,
     clientEmail: prepared.person.email,
@@ -183,6 +185,14 @@ async function create(prepared: Awaited<ReturnType<typeof prepare>>) {
     catalogAcknowledgment: value.catalogAcknowledgment,
   }) });
   return createAppointmentFromRequest(request, { kind: 'anonymous_customer', salon: { id: SALON, slug: SALON }, contact: prepared.person, operation: { ...prepared.reference, secret: SECRET } });
+}
+
+function specificTechnicianMaterial(technicianId = TECH, technicianName = 'Synthetic Technician') {
+  const value = material();
+  value.technicianSelection = 'specific';
+  value.technicianId = technicianId;
+  value.review.technician = { kind: 'specific', id: technicianId, name: technicianName };
+  return value;
 }
 
 async function prepareL1Material({ requiresCapability = false, depositsEnabled = false }: { requiresCapability?: boolean; depositsEnabled?: boolean } = {}): Promise<CustomerBookingMaterial> {
@@ -256,7 +266,9 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     };
     await migrate(database, { migrationsFolder: path.join(process.cwd(), 'migrations') });
     await database.insert(schema.salonSchema).values({ id: SALON, slug: SALON, name: 'Synthetic Creator Test Salon', ownerEmail: 'synthetic-owner@example.invalid', isActive: true, status: 'active', publicationStatus: 'published', settings: SETTINGS }).onConflictDoNothing();
+    await database.insert(schema.salonSchema).values({ id: OTHER_SALON, slug: OTHER_SALON, name: 'Synthetic Other Creator Test Salon', ownerEmail: 'synthetic-other-owner@example.invalid', isActive: true, status: 'active', publicationStatus: 'published', settings: SETTINGS }).onConflictDoNothing();
     await database.insert(schema.technicianSchema).values({ id: TECH, salonId: SALON, name: 'Synthetic Technician', isActive: true, weeklySchedule: Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day, { start: '00:00', end: '23:45' }])) }).onConflictDoNothing();
+    await database.insert(schema.technicianSchema).values({ id: OTHER_TECH, salonId: OTHER_SALON, name: 'Synthetic Other Technician', isActive: true, weeklySchedule: Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day, { start: '00:00', end: '23:45' }])) }).onConflictDoNothing();
     await database.insert(schema.serviceSchema).values({ id: SERVICE, salonId: SALON, name: 'Synthetic Creator Service', category: 'manicure', price: 6500, durationMinutes: 60, isActive: true }).onConflictDoNothing();
     await database.insert(schema.addOnSchema).values({ id: ADDON, salonId: SALON, name: 'Synthetic Art', slug: 'synthetic-art', category: 'nail_art', priceCents: 500, durationMinutes: 10, pricingType: 'per_unit', maxQuantity: 5 }).onConflictDoNothing();
     await database.insert(schema.serviceAddOnSchema).values({ id: 'synthetic-creator-addon-binding', salonId: SALON, serviceId: SERVICE, addOnId: ADDON, selectionMode: 'optional' }).onConflictDoNothing();
@@ -289,7 +301,7 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
   afterAll(async () => {
     await pool?.end();
 
-    expect(executed).toBe(26);
+    expect(executed).toBe(30);
 
     process.stdout.write(`CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=${executed} CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0\n`);
   });
@@ -447,6 +459,39 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
 
     expect((await create(secondCustomer)).status).toBe(409);
     expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+  });
+
+  it('creates one appointment with the reviewed specific technician', async () => {
+    const response = await create(await prepare(contact(), specificTechnicianMaterial()));
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toEqual([
+      expect.objectContaining({ technicianId: TECH }),
+    ]);
+  });
+
+  it.each([
+    ['another tenant', async () => specificTechnicianMaterial(OTHER_TECH, 'Synthetic Other Technician')],
+    ['inactive assignment', async () => {
+      const value = specificTechnicianMaterial();
+      await database.update(schema.technicianSchema).set({ isActive: false }).where(eq(schema.technicianSchema.id, TECH));
+      return value;
+    }],
+    ['renamed technician', async () => {
+      const value = specificTechnicianMaterial();
+      await database.update(schema.technicianSchema).set({ name: 'Renamed Synthetic Technician' }).where(eq(schema.technicianSchema.id, TECH));
+      return value;
+    }],
+  ] as const)('rejects a specific technician from %s without creating an appointment', async (_reason, change) => {
+    try {
+      const response = await create(await prepare(contact(), await change()));
+
+      expect(response.status, JSON.stringify(await response.json())).toBeGreaterThanOrEqual(400);
+      expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+      expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(0);
+    } finally {
+      await database.update(schema.technicianSchema).set({ isActive: true, name: 'Synthetic Technician' }).where(eq(schema.technicianSchema.id, TECH));
+    }
   });
 
   it('creates once through the public authority and recovers the original after a lost response', async () => {

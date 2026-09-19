@@ -21,6 +21,7 @@ type DialogShellProps = {
   overlayTestId?: string;
   contentTestId?: string;
   overlayClassName?: string;
+  overlayStyle?: React.CSSProperties;
 };
 
 export function DialogShell({
@@ -36,6 +37,7 @@ export function DialogShell({
   overlayTestId = 'dialog-shell-overlay',
   contentTestId = 'dialog-shell-content',
   overlayClassName,
+  overlayStyle,
 }: DialogShellProps) {
   const [portalReady, setPortalReady] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -74,6 +76,7 @@ export function DialogShell({
       data-modal-focus-root="true"
       data-testid={overlayTestId}
       className={cn('owner-theme-scope fixed inset-0 z-50 flex min-h-0 bg-black/50', alignClassName, overlayClassName)}
+      style={overlayStyle}
       onClick={(event) => {
         if (closeOnBackdrop && event.target === event.currentTarget) {
           onClose();

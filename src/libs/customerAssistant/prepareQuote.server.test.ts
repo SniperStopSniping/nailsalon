@@ -8,11 +8,13 @@ const mocks = vi.hoisted(() => ({
   availability: vi.fn(),
   selection: vi.fn(),
   location: vi.fn(),
+  locationById: vi.fn(),
+  technician: vi.fn(),
   deposit: vi.fn(),
 }));
 vi.mock('@/libs/publicBookingAvailability.server', () => ({ getAnonymousCustomerBookingAvailability: mocks.availability }));
 vi.mock('@/libs/publicBookingSelection', () => ({ resolvePublicBookingSelection: mocks.selection }));
-vi.mock('@/libs/queries', () => ({ getPrimaryLocation: mocks.location }));
+vi.mock('@/libs/queries', () => ({ getPrimaryLocation: mocks.location, getLocationById: mocks.locationById, getTechnicianById: mocks.technician }));
 vi.mock('@/libs/depositPolicy.server', () => ({ getDepositPolicyForSalon: mocks.deposit }));
 
 const startTime = '2030-01-02T15:00:00.000Z';
@@ -38,6 +40,8 @@ function input(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.locationById.mockResolvedValue({ id: 'loc-1', name: 'Salon', address: '1 Main', city: 'Toronto', state: 'ON', zipCode: 'M1M1M1' });
+  mocks.technician.mockResolvedValue({ id: 'tech-1', name: 'Ava', isActive: true });
   mocks.location.mockResolvedValue({ name: 'Salon', address: '1 Main', city: 'Toronto', state: 'ON', zipCode: 'M1M1M1' });
   mocks.deposit.mockResolvedValue({ active: true, amountCents: 2500, currency: 'cad' });
   mocks.selection.mockResolvedValue({
@@ -122,6 +126,35 @@ describe('prepareCustomerBookingQuote', () => {
 
     expect(material?.review.deposit).toMatchObject({ status: 'required', amountCents: 2500 });
     expect(material?.review.confirmationMode).toBe('instant');
+  });
+
+  it('preserves an active same-salon technician and location through availability, selection, and material', async () => {
+    const material = await prepareCustomerBookingQuote(input({ technicianId: 'tech-1', locationId: 'loc-1' }));
+
+    expect(mocks.availability).toHaveBeenCalledWith(expect.objectContaining({ technicianId: 'tech-1', locationId: 'loc-1' }));
+    expect(mocks.selection).toHaveBeenCalledWith(expect.objectContaining({ technicianId: 'tech-1' }));
+    expect(mocks.locationById).toHaveBeenCalledWith('loc-1', 's1');
+    expect(mocks.technician).toHaveBeenCalledWith('tech-1', 's1');
+    expect(material).toMatchObject({ technicianSelection: 'specific', technicianId: 'tech-1', locationId: 'loc-1', review: { technician: { kind: 'specific', id: 'tech-1', name: 'Ava' } } });
+  });
+
+  it('rejects foreign or inactive technician and missing selected location without falling back', async () => {
+    mocks.technician.mockResolvedValueOnce(null);
+
+    await expect(prepareCustomerBookingQuote(input({ technicianId: 'foreign', locationId: 'loc-1' }))).resolves.toBeNull();
+
+    mocks.locationById.mockResolvedValueOnce(null);
+    mocks.availability.mockResolvedValueOnce(new Response(JSON.stringify({ slots: [{ availability: 'available', startTime, time: '10:00' }] })));
+
+    await expect(prepareCustomerBookingQuote(input({ technicianId: 'tech-1', locationId: 'foreign-location' }))).resolves.toBeNull();
+  });
+
+  it('retains existing any-artist primary-location behavior', async () => {
+    const material = await prepareCustomerBookingQuote(input());
+
+    expect(material).toMatchObject({ technicianSelection: 'any', review: { technician: { kind: 'any_artist' } } });
+    expect(mocks.technician).not.toHaveBeenCalled();
+    expect(mocks.locationById).not.toHaveBeenCalled();
   });
 
   it('keeps an explicit SMS off selection distinct from the salon default', async () => {

@@ -136,7 +136,7 @@ async function createLinked(reference: ReturnType<typeof customerBookingOperatio
     }
     await pool?.end();
 
-    expect(executed).toBe(8);
+    expect(executed).toBe(12);
 
     process.stdout.write(`CUSTOMER_OPERATION_POSTGRES_TESTS_EXECUTED=${executed} CUSTOMER_OPERATION_POSTGRES_TESTS_SKIPPED=0\n`);
   });
@@ -167,6 +167,59 @@ async function createLinked(reference: ReturnType<typeof customerBookingOperatio
     expect(third.revision).toBe(3);
     await expect(prepare(session, 1, material())).rejects.toMatchObject({ code: 'revision_changed' });
     expect((await readCustomerBookingOperation({ salonId: SALON, secret: SECRET, capability: customerBookingOperationReference(third, SECRET).capability, now: NOW })).revision).toBe(3);
+  });
+
+  it('revises the original operation after a lost prepare response and edited contact or selection', async () => {
+    const first = await prepare(randomUUID());
+    const edited = material();
+    edited.selection = { baseServiceId: 'synthetic-service', selectedAddOns: [{ addOnId: 'synthetic-addon', quantity: 1 }] };
+    const second = await prepareCustomerBookingOperation({
+      salonId: SALON,
+      sessionId: first.sessionId,
+      secret: SECRET,
+      contact: { ...CONTACT, email: 'edited@example.invalid', name: 'Edited Customer' },
+      material: edited,
+      expectedRevision: first.revision,
+      now: NOW,
+    });
+
+    expect(second).toMatchObject({ id: first.id, revision: first.revision + 1 });
+    expect(await database.select().from(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON))).toHaveLength(1);
+  });
+
+  it('returns revision_changed for an expired review at expected revision zero without creating another operation', async () => {
+    const first = await prepare(randomUUID());
+    await database.update(schema.customerBookingOperationSchema).set({ reviewExpiresAt: new Date(NOW.getTime() - 1) }).where(eq(schema.customerBookingOperationSchema.id, first.id));
+
+    await expect(prepare(first.sessionId)).rejects.toMatchObject({
+      code: 'revision_changed',
+      operation: expect.objectContaining({ id: first.id }),
+    });
+    expect(await database.select().from(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON))).toHaveLength(1);
+  });
+
+  it('updates the same operation when a second prepare carries its returned revision', async () => {
+    const first = await prepare(randomUUID());
+    const changed = material();
+    changed.smsConsent = { granted: false, selection: 'explicit_off', wordingVersion: 'booking-sms-reminders-v1' };
+
+    const second = await prepare(first.sessionId, first.revision, changed);
+
+    expect(second).toMatchObject({ id: first.id, revision: first.revision + 1 });
+    expect(await database.select().from(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON))).toHaveLength(1);
+  });
+
+  it('keeps one operation when repeated revised prepares arrive concurrently', async () => {
+    const first = await prepare(randomUUID());
+    const changed = material();
+    changed.expectedTotalCents = 5100;
+    changed.expectedBookingFinancialQuote.totalDueCents = 5100;
+
+    const repeated = await Promise.all(Array.from({ length: 6 }, () => prepare(first.sessionId, first.revision, changed)));
+
+    expect(new Set(repeated.map(operation => operation.id))).toEqual(new Set([first.id]));
+    expect(new Set(repeated.map(operation => operation.revision))).toEqual(new Set([first.revision + 1]));
+    expect(await database.select().from(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON))).toHaveLength(1);
   });
 
   it('double confirm and a lost successful response recover exactly one linked appointment', async () => {

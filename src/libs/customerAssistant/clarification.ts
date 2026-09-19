@@ -115,7 +115,10 @@ export function planCustomerClarification(args: {
     && !(facts.maintenance === 'unknown' && facts.existingProduct === 'none' && vocabulary.isRefill(service))
     && (facts.length === 'unknown' || vocabulary.serviceVariantLength(menu, service) === 'unknown' || vocabulary.serviceVariantLength(menu, service) === facts.length));
 
-  const selectedHint = args.action === 'propose' && candidate ? compatibleServices.find(item => item.id === candidate.baseServiceId) : undefined;
+  // A specific interpreted service remains the subject of a follow-up option
+  // question. Facts and a complete L1 witness still gate that candidate. A
+  // service-ambiguity question must retain all viable alternatives.
+  const selectedHint = (args.action === 'propose' || question !== 'service') && candidate ? compatibleServices.find(item => item.id === candidate.baseServiceId) : undefined;
   const services = selectedHint ? [selectedHint] : compatibleServices;
 
   const seedFor = (serviceId: string): Seed | null => {
@@ -239,6 +242,8 @@ export function planCustomerClarification(args: {
     && !(['removal', 'origin', 'product'].includes(question) && facts.existingProduct === 'none')
     && !(question === 'removal' && facts.maintenance === 'refill')) {
     const ids = menu.addOns.filter(item => (dimension(item, question) || (question === 'details' && optionIds.includes(item.id)))
+      && !(dimension(item, 'removal') && facts.existingProduct !== 'unknown' && !vocabulary.productMatches(item, facts.existingProduct))
+      && !(dimension(item, 'removal') && facts.origin !== 'unknown' && vocabulary.isForeignRemoval(item) !== (facts.origin === 'other_salon'))
       && !(question === 'finish' && vocabulary.isFrench(item) && facts.french !== 'unknown')
       && !(question === 'finish' && optionIds.length > 0 && !optionIds.includes(item.id))).map(item => item.id);
     const material = (result: CatalogResolutionResult | null) => result?.ok
