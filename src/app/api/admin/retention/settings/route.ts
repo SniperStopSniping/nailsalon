@@ -10,7 +10,7 @@ import {
 } from '@/libs/retentionAssistant';
 import {
   getRetentionSettingsForSalon,
-  saveRetentionSettingsForSalon,
+  patchRetentionSettingsForSalon,
 } from '@/libs/retentionSettings.server';
 import { serviceSchema } from '@/models/Schema';
 
@@ -122,7 +122,17 @@ export async function PATCH(request: Request): Promise<Response> {
     }
   }
 
-  const settings = await saveRetentionSettingsForSalon(salon.id, next);
+  let settings;
+  try {
+    settings = await patchRetentionSettingsForSalon(salon.id, parsedBody.data);
+  } catch (validationError) {
+    if (validationError instanceof z.ZodError) {
+      return Response.json({
+        error: { code: 'VALIDATION_ERROR', message: 'Invalid retention settings.', details: validationError.flatten() },
+      }, { status: 400 });
+    }
+    throw validationError;
+  }
   const availableServices = await getAvailableServices(salon.id);
 
   void logAuditEvent({
