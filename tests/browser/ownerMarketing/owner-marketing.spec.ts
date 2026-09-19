@@ -120,7 +120,7 @@ test('legacy Reviews URL opens Review Requests on both mobile widths', async ({ 
   const { unexpected } = await mockLocalApis(page);
   await page.goto('/?salon=isla&returnTo=calendar&app=marketing&view=reviews');
 
-  await expect(page.getByRole('heading', { name: 'Review Requests' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Review Requests', exact: true })).toBeVisible();
   await expect(page.getByTestId('review-request-settings')).toBeVisible();
 
   await page.getByRole('button', { name: 'Marketing & Messages' }).tap();
