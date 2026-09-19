@@ -1,13 +1,17 @@
 import { expect, test } from '@playwright/test';
 
 type ReviewState = {
-  status: 'eligible' | 'scheduled' | 'sent' | 'suppressed' | 'failed';
+  status: 'eligible' | 'scheduled' | 'sent' | 'suppressed' | 'failed' | 'delivered' | 'skipped' | 'reported_sent' | 'unknown';
   reason: string | null;
   scheduledFor: string | null;
   sentAt: string | null;
   message: string | null;
   phone: string | null;
   clientId: string | null;
+  source: 'automatic' | 'manual' | 'owner_reported' | null;
+  channel: 'sms' | 'owner_device' | null;
+  canSendManually: boolean;
+  automationMode: 'manual' | 'scheduled_end' | 'marked_completed';
 };
 
 const reviewUrl = 'https://www.google.com/maps/place/Avery+Lee+Nail+Studio/review?utm_source=luster-mobile-preview';
@@ -28,6 +32,10 @@ function action(state: ReviewState['status'], overrides: Partial<ReviewState> = 
     message: 'Avery Lee Nail Studio via Luster: Hi Avery! Thanks for visiting Avery Lee Nail Studio. Please leave a Google review: https://www.google.com/maps/place/Avery+Lee+Nail+Studio/review?utm_source=luster-mobile-preview Reply STOP to opt out.',
     phone: '(416) 555-0199',
     clientId: 'review-client',
+    source: 'automatic',
+    channel: 'sms',
+    canSendManually: state === 'eligible' || state === 'scheduled',
+    automationMode: 'scheduled_end',
     ...overrides,
   };
 }
@@ -82,13 +90,13 @@ test('mobile owner can edit settings, queue Send now once, then see sent and sup
       return;
     }
     if (url.pathname === '/api/admin/clients/review-client/review-requests' && request.method() === 'GET') {
-      await route.fulfill({ json: { data: { reviewRequestsSuppressed: suppressed } } });
+      await route.fulfill({ json: { data: { timeZone: 'America/Toronto', reviewRequestsSuppressed: suppressed, history: [], hasMore: false } } });
       return;
     }
     if (url.pathname === '/api/admin/clients/review-client/review-requests' && request.method() === 'PATCH') {
       suppressed = Boolean((body as { reviewRequestsSuppressed: boolean }).reviewRequestsSuppressed);
       reviewState = action('suppressed', { reason: 'This client has review requests turned off.', message: null });
-      await route.fulfill({ json: { data: { reviewRequestsSuppressed: suppressed } } });
+      await route.fulfill({ json: { data: { timeZone: 'America/Toronto', reviewRequestsSuppressed: suppressed, history: [], hasMore: false } } });
       return;
     }
     unexpected.push(`${request.method()} ${url.pathname}`);
@@ -116,7 +124,7 @@ test('mobile owner can edit settings, queue Send now once, then see sent and sup
   await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Saved' })).toBeDisabled();
 
-  const scheduled = page.getByRole('button', { name: 'Review request scheduled' });
+  const scheduled = page.getByRole('button', { name: 'Send now' });
 
   await expect(scheduled).toBeEnabled();
 
@@ -130,27 +138,27 @@ test('mobile owner can edit settings, queue Send now once, then see sent and sup
   await expect(page.getByRole('dialog', { name: 'Send review request' })).toBeVisible();
   await expect(page.getByText('(416) 555-0199')).toBeVisible();
   await expect(page.getByText('Message preview')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Send now' })).toHaveCount(1);
+  await expect(page.getByRole('dialog', { name: 'Send review request' }).getByRole('button', { name: 'Send now' })).toHaveCount(1);
 
   await expect(page.getByRole('dialog', { name: 'Send review request' }).getByText('Reply STOP to opt out.', { exact: false })).toBeVisible();
 
   await page.screenshot({ path: test.info().outputPath('review-request-confirmation.png'), fullPage: true });
 
-  await page.getByRole('button', { name: 'Send now' }).tap();
+  await page.getByRole('dialog', { name: 'Send review request' }).getByRole('button', { name: 'Send now' }).tap();
 
-  await expect(page.getByRole('button', { name: 'Review request scheduled' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send now' })).toBeVisible();
 
   // This represents dispatcher/message-history confirmation after the queued
   // intent has delivered. Reload exercises the status endpoint afresh.
   reviewState = action('sent');
   await page.reload();
 
-  await expect(page.getByRole('button', { name: 'Review requested' })).toBeDisabled();
-  await expect(page.getByText(/Sent Sep 12/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review request sent' })).toBeDisabled();
+  await expect(page.getByText(/Sent to the SMS provider Sep 12/)).toBeVisible();
 
   await page.getByRole('checkbox', { name: 'Do not send review requests' }).click();
 
-  await expect(page.getByText('Pending review requests are cancelled.')).toBeVisible();
+  await expect(page.getByText('Future requests are skipped. A request already sending may still arrive.')).toBeVisible();
 
   await page.reload();
 
@@ -167,7 +175,7 @@ test('mobile owner can edit settings, queue Send now once, then see sent and sup
 });
 
 test('mobile review action makes blocked-credit and failed delivery states explicit', async ({ page }) => {
-  let state: ReviewState = action('scheduled', { reason: 'Add SMS credits to send this review request.' });
+  let state: ReviewState = action('scheduled', { canSendManually: false, reason: 'Add SMS credits to send this review request.' });
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === '/api/admin/review-requests/settings') {
@@ -177,14 +185,14 @@ test('mobile review action makes blocked-credit and failed delivery states expli
       return route.fulfill({ json: { data: state } });
     }
     if (url.pathname === '/api/admin/clients/review-client/review-requests') {
-      return route.fulfill({ json: { data: { reviewRequestsSuppressed: false } } });
+      return route.fulfill({ json: { data: { timeZone: 'America/Toronto', reviewRequestsSuppressed: false, history: [], hasMore: false } } });
     }
     return route.fulfill({ status: 404 });
   });
   await page.goto('/');
 
   await expect(page.getByText('Add SMS credits to send this review request.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Review request scheduled' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Send now' })).toBeDisabled();
 
   state = action('failed', { reason: 'The review request could not be sent. It will not be retried automatically.' });
   await page.reload();
@@ -194,4 +202,41 @@ test('mobile review action makes blocked-credit and failed delivery states expli
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await page.screenshot({ path: test.info().outputPath('review-request-blocked-and-failed.png'), fullPage: true });
+});
+
+test('mobile client review history clearly distinguishes delivery evidence, owner reports, skips, and unknown states', async ({ page }) => {
+  const history = [
+    { ...action('sent', { sentAt: '2026-09-12T20:31:00.000Z', canSendManually: false }), id: 'sent', appointmentId: 'a1', occurredAt: '2026-09-12T20:30:00.000Z' },
+    { ...action('delivered', { sentAt: '2026-09-12T21:31:00.000Z', canSendManually: false }), id: 'delivered', appointmentId: 'a2', occurredAt: '2026-09-12T21:30:00.000Z' },
+    { ...action('sent', { status: 'reported_sent', source: 'owner_reported', channel: 'owner_device', sentAt: '2026-09-12T22:31:00.000Z', canSendManually: false }), id: 'reported', appointmentId: null, occurredAt: '2026-09-12T22:30:00.000Z' },
+    { ...action('skipped', { reason: 'Review requests are off for this client.', canSendManually: false }), id: 'skipped', appointmentId: 'a3', occurredAt: '2026-09-12T23:30:00.000Z' },
+    { ...action('sent', { status: 'unknown', reason: 'Provider outcome is still unknown.', canSendManually: false }), id: 'unknown', appointmentId: 'a4', occurredAt: '2026-09-13T00:30:00.000Z' },
+  ];
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/admin/review-requests/settings') {
+      return route.fulfill({ json: { data: settings } });
+    }
+    if (url.pathname === '/api/appointments/review-appointment/review-request') {
+      return route.fulfill({ json: { data: action('scheduled', { canSendManually: false }) } });
+    }
+    if (url.pathname === '/api/admin/clients/review-client/review-requests') {
+      return route.fulfill({ json: { data: { timeZone: 'America/Toronto', reviewRequestsSuppressed: false, history, hasMore: false } } });
+    }
+    return route.fulfill({ status: 404 });
+  });
+  await page.goto('/');
+
+  await expect(page.getByText('Sent to SMS provider')).toBeVisible();
+  await expect(page.getByText('Delivered by SMS')).toBeVisible();
+  await expect(page.getByText('Owner reported sent — delivery not verified')).toBeVisible();
+  await expect(page.getByText('Skipped')).toBeVisible();
+  await expect(page.getByText('Status unknown')).toBeVisible();
+  await expect(page.getByText(/Recorded Sep 12/).first()).toBeVisible();
+  await expect(page.getByText(/Sent Sep 12/).first()).toBeVisible();
+  await expect(page.getByText('Review requests are off for this client.')).toBeVisible();
+  await expect(page.getByText('Provider outcome is still unknown.')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.screenshot({ path: test.info().outputPath('review-client-history-mobile.png'), fullPage: true });
 });

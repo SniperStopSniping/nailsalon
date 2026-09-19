@@ -14,8 +14,10 @@ import type { ReviewAutomationMode } from '@/libs/reviewAutomationPolicy';
 import { applyLegacyAutomaticReviewUpdate, evaluateScheduledEndReviewEligibility, resolveReviewAutomationPolicy, reviewSettingsUpdateSchema } from '@/libs/reviewAutomationPolicy';
 import { evaluateReviewHistory } from '@/libs/reviewRequestHistory';
 import { DEFAULT_REVIEW_MESSAGE, isReviewUrl, renderReviewMessage, reviewMessageFits, reviewSmsBody } from '@/libs/reviewRequests';
+import type { ClientReviewHistoryItem, ClientReviewOverview, ReviewRequestDisplay } from '@/libs/reviewRequestStatus';
 import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
 import { readSharedSenderEnvConfig } from '@/libs/smsSender';
+import { DEFAULT_BOOKING_TIME_ZONE } from '@/libs/timeZone';
 import { appointmentSchema, clientCommunicationSchema, communicationConsentSchema, communicationIntentSchema, notificationDeliverySchema, reviewRequestSchema, reviewRequestTriggerSchema, salonClientSchema, salonRetentionSettingsSchema, salonSchema, smsGlobalConsentEventSchema } from '@/models/Schema';
 
 const DAY = 86400000;
@@ -1148,56 +1150,293 @@ export async function reviewRequestSendContext(salonId: string, intentId: string
   return { message: renderReviewMessage({ template: ctx.settings.messageTemplate, clientName: ctx.client.fullName, businessName: ctx.settings.businessName, reviewLink: ctx.settings.googleReviewUrl! }) };
 }
 
-export async function getAppointmentReviewState(salonId: string, appointmentId: string) {
+const REVIEW_STATUS_REASONS: Record<string, string> = {
+  EXPIRED: 'The review request window has expired.',
+  APPOINTMENT_CHANGED: 'The appointment changed after this request was planned.',
+  POLICY_CHANGED: 'The automation settings changed after this request was planned.',
+  EXISTING_REQUEST: 'Another applicable review request already exists for this client.',
+  QUIET_HOURS_EXPIRED: 'Quiet hours extend past this request’s sending window.',
+  LEGACY_REVIEW_SENT: 'A previous request was marked sent by the owner.',
+  CLIENT_ALREADY_REVIEWED: 'This client is marked as having left a review.',
+  CLIENT_SUPPRESSED: 'Review requests are off for this client.',
+  SMS_INELIGIBLE: 'This client has not permitted Luster SMS, or has opted out.',
+  GOOGLE_REVIEW_LINK_MISSING: 'Add a Google review link in Review settings.',
+  SMS_DISABLED: 'Enable Luster SMS in Client communications to request reviews.',
+  AUTOMATIC_NOT_ACTIVE: 'Automatic requests are not active for this appointment.',
+  MESSAGE_TOO_LONG: 'Shorten the review message to 10 SMS segments or fewer.',
+  APPOINTMENT_NOT_COMPLETED: 'The appointment was not marked Completed.',
+  CLIENT_UNAVAILABLE: 'The client needs an active profile and a usable mobile number.',
+  SALON_UNAVAILABLE: 'This business is unavailable.',
+};
+
+function baseReviewDisplay(ctx: ReviewContext): ReviewRequestDisplay {
+  return {
+    status: 'not_eligible',
+    reason: null,
+    scheduledFor: null,
+    sentAt: null,
+    message: ctx.settings.googleReviewUrl && ctx.client ? reviewSmsBody({ template: ctx.settings.messageTemplate, clientName: ctx.client.fullName, businessName: ctx.settings.businessName, reviewLink: ctx.settings.googleReviewUrl }) : null,
+    phone: ctx.client?.phone ?? null,
+    clientId: ctx.client?.id ?? null,
+    source: null,
+    channel: null,
+    canSendManually: false,
+    automationMode: ctx.settings.policy.mode,
+  };
+}
+
+function appointmentUnavailableReason(ctx: ReviewContext): string | null {
+  const appointment = ctx.appointment;
+  if (!appointment || appointment.deletedAt) {
+    return 'The appointment is no longer available.';
+  }
+  if (appointment.status === 'no_show') {
+    return 'The appointment was marked no-show.';
+  }
+  if (['cancelled', 'canceled', 'declined'].includes(appointment.status)) {
+    return 'The appointment was cancelled or declined.';
+  }
+  if (!['confirmed', 'in_progress', 'completed'].includes(appointment.status)) {
+    return 'The appointment is not confirmed.';
+  }
+  return null;
+}
+
+function triggerMismatch(ctx: ReviewContext, trigger: typeof reviewRequestTriggerSchema.$inferSelect) {
+  return !ctx.appointment
+    || ctx.appointment.startTime.getTime() !== trigger.appointmentStartAt.getTime()
+    || ctx.appointment.endTime.getTime() !== trigger.appointmentEndAt.getTime()
+    || ctx.settings.policyRevision !== trigger.policyRevision
+    || ctx.settings.policy.mode !== (trigger.kind === 'completed' ? 'marked_completed' : 'scheduled_end')
+    || (trigger.kind === 'completed' && ctx.appointment.completedAt?.getTime() !== trigger.triggerAt.getTime());
+}
+
+function displayTrigger(ctx: ReviewContext, trigger: typeof reviewRequestTriggerSchema.$inferSelect): ReviewRequestDisplay {
+  const display = { ...baseReviewDisplay(ctx), source: 'automatic' as const, channel: 'sms' as const };
+  const reason = appointmentUnavailableReason(ctx) ?? clientReviewIneligibility(ctx)
+    ?? (triggerMismatch(ctx, trigger) ? REVIEW_STATUS_REASONS.APPOINTMENT_CHANGED! : null);
+  if (reason) {
+    return { ...display, status: 'skipped', reason };
+  }
+  if (trigger.state === 'materialized') {
+    return { ...display, status: 'unknown', reason: 'The request record is unavailable. Reload before taking action.' };
+  }
+  if (trigger.state === 'skipped' || ctx.now >= trigger.expiresAt) {
+    return { ...display, status: 'skipped', reason: REVIEW_STATUS_REASONS[trigger.reasonCode ?? 'EXPIRED'] ?? 'This request did not pass the review eligibility checks.' };
+  }
+  const quiet = applyQuietHours({
+    instant: trigger.scheduledFor,
+    quietHours: resolveCommunicationSettingsFromSettings(ctx.settings.salon?.settings).quietHours,
+    timeZone: ctx.settings.salon?.settings?.booking?.timezone,
+    notAfter: trigger.expiresAt,
+  });
+  if (quiet.kind === 'stale') {
+    return { ...display, status: 'skipped', reason: REVIEW_STATUS_REASONS.QUIET_HOURS_EXPIRED! };
+  }
+  return { ...display, status: 'scheduled', scheduledFor: quiet.sendAt.toISOString(), canSendManually: !ineligible(ctx, false), reason: 'Waiting for the review worker. Eligibility is checked again before sending.' };
+}
+
+type ReviewDisplayEvidence = {
+  intent: typeof communicationIntentSchema.$inferSelect | null;
+  deliveries: (typeof notificationDeliverySchema.$inferSelect)[];
+  trigger: typeof reviewRequestTriggerSchema.$inferSelect | null;
+};
+
+async function displayRequest(ctx: ReviewContext, salonId: string, row: typeof reviewRequestSchema.$inferSelect, evidence?: ReviewDisplayEvidence): Promise<ReviewRequestDisplay> {
+  const [intent] = evidence ? [evidence.intent] : await db.select().from(communicationIntentSchema).where(and(eq(communicationIntentSchema.salonId, salonId), eq(communicationIntentSchema.id, row.intentId))).limit(1);
+  const deliveries = evidence?.deliveries ?? await db.select().from(notificationDeliverySchema).where(and(
+    eq(notificationDeliverySchema.salonId, salonId),
+    or(eq(notificationDeliverySchema.intentId, row.intentId), intent?.deliveryId ? eq(notificationDeliverySchema.id, intent.deliveryId) : undefined),
+  )).orderBy(desc(notificationDeliverySchema.updatedAt));
+  const delivered = deliveries.some(delivery => delivery.status === 'delivered');
+  const deliveryFailed = deliveries.some(delivery => ['failed', 'undelivered'].includes(delivery.status));
+  const providerEvidence = deliveries.some(delivery => !!delivery.providerMessageId || ['sent', 'delivered'].includes(delivery.status));
+  const display = {
+    ...baseReviewDisplay(ctx),
+    source: row.source,
+    channel: 'sms' as const,
+    scheduledFor: intent?.availableAt?.toISOString() ?? row.scheduledFor.toISOString(),
+    sentAt: intent?.status === 'sent' ? intent.resolvedAt?.toISOString() ?? null : null,
+    message: intent?.bodySnapshot ?? baseReviewDisplay(ctx).message,
+    phone: row.recipient,
+  };
+  if (delivered) {
+    return { ...display, status: 'delivered', reason: 'Delivery confirmed by the SMS provider.' };
+  }
+  if (deliveryFailed || intent?.status === 'failed') {
+    return { ...display, status: 'failed', reason: 'The review request could not be sent. It will not be retried automatically.' };
+  }
+  if (intent?.status === 'sent') {
+    return { ...display, status: 'sent', reason: 'Accepted by the SMS provider. Delivery is not yet confirmed.' };
+  }
+  if (!intent || intent.status === 'send_outcome_unknown' || providerEvidence) {
+    return { ...display, status: 'unknown', reason: 'The sending outcome is uncertain. Another request is blocked to avoid a duplicate.' };
+  }
+  if (intent.status === 'sending') {
+    return { ...display, status: 'sending', reason: 'This request is being sent. Another request will not be queued.' };
+  }
+  if (['canceled', 'suppressed', 'expired'].includes(intent.status)) {
+    return { ...display, status: intent.status === 'canceled' ? 'cancelled' : 'skipped', reason: intent.status === 'expired' ? REVIEW_STATUS_REASONS.EXPIRED! : 'The pending request was stopped before sending.' };
+  }
+  if (ctx.now >= intent.notAfter) {
+    return { ...display, status: 'skipped', reason: REVIEW_STATUS_REASONS.EXPIRED! };
+  }
+  if (row.status === 'cancelled') {
+    return { ...display, status: 'unknown', reason: 'The request and delivery records disagree. Another request is blocked.' };
+  }
+  // These mutable checks explain pending work; accepted/uncertain sends above
+  // remain historical facts even after a client or appointment changes.
+  const identityChanged = !ctx.client || !ctx.clientIds.includes(row.clientId) || normalizeConsentRecipient(ctx.client.phone) !== row.recipient
+    || (ctx.appointment?.salonClientId != null && !ctx.clientIds.includes(ctx.appointment.salonClientId));
+  const reason = (row.appointmentId ? appointmentUnavailableReason(ctx) : null)
+    ?? (identityChanged ? 'The client or recipient changed after this request was planned.' : null) ?? clientReviewIneligibility(ctx);
+  if (reason) {
+    return { ...display, status: 'skipped', reason };
+  }
+  if (row.triggerId) {
+    const [trigger] = evidence ? [evidence.trigger] : await db.select().from(reviewRequestTriggerSchema).where(and(eq(reviewRequestTriggerSchema.salonId, salonId), eq(reviewRequestTriggerSchema.id, row.triggerId))).limit(1);
+    if (!trigger || triggerMismatch(ctx, trigger)) {
+      return { ...display, status: 'skipped', reason: REVIEW_STATUS_REASONS.APPOINTMENT_CHANGED! };
+    }
+  }
+  return {
+    ...display,
+    status: 'scheduled',
+    reason: intent.status === 'blocked_no_credit' ? 'Add SMS credits to send this review request.' : 'Eligibility is checked again before sending.',
+    canSendManually: row.source === 'automatic' && intent.status === 'pending' && !ineligible(ctx, false)
+      && !!ctx.client && ctx.clientIds.includes(row.clientId) && normalizeConsentRecipient(ctx.client.phone) === row.recipient,
+  };
+}
+
+async function blockingHistoryReason(salonId: string, ctx: ReviewContext): Promise<string | null> {
+  if (ctx.legacyReview) {
+    return 'A previous request was marked sent by the owner. The repeat-review rule prevents another request.';
+  }
+  const previous = await existingRequest(db, salonId, ctx);
+  if (!previous) {
+    return null;
+  }
+  const [intent] = await db.select().from(communicationIntentSchema).where(and(eq(communicationIntentSchema.salonId, salonId), eq(communicationIntentSchema.id, previous.intentId))).limit(1);
+  if (intent?.status === 'sent' && intent.resolvedAt && ctx.settings.policy.repeatCooldownDays !== 'never') {
+    return `A previous request is within the ${ctx.settings.policy.repeatCooldownDays}-day repeat-review cooldown.`;
+  }
+  return intent?.status === 'sent'
+    ? 'A previous request was sent. Repeat requests are turned off.'
+    : 'Another review request is pending or has an uncertain outcome. Another request is blocked to avoid a duplicate.';
+}
+
+/** Appointment-specific facts only; another visit's send never appears as this visit's send. */
+export async function getAppointmentReviewState(salonId: string, appointmentId: string): Promise<ReviewRequestDisplay> {
   const ctx = await context(db, salonId, appointmentId);
-  const [ownRequest] = await db.select().from(reviewRequestSchema).where(and(
-    eq(reviewRequestSchema.salonId, salonId),
-    eq(reviewRequestSchema.appointmentId, appointmentId),
-    ne(reviewRequestSchema.status, 'cancelled'),
-  )).orderBy(desc(reviewRequestSchema.createdAt)).limit(1);
-  const [trigger] = await db.select().from(reviewRequestTriggerSchema).where(and(
-    eq(reviewRequestTriggerSchema.salonId, salonId),
-    eq(reviewRequestTriggerSchema.appointmentId, appointmentId),
-    ownRequest?.triggerId ? eq(reviewRequestTriggerSchema.id, ownRequest.triggerId) : undefined,
-  )).orderBy(desc(reviewRequestTriggerSchema.createdAt)).limit(1);
-  // A completion trigger exists before the five-minute worker has allocated an
-  // intent. Show that appointment's own durable state rather than unrelated
-  // history for the same returning client.
-  if (!ownRequest && trigger?.state === 'pending') {
-    return {
-      status: 'scheduled',
-      reason: null,
-      scheduledFor: trigger.scheduledFor.toISOString(),
-      sentAt: null,
-      message: null,
-      phone: ctx.client?.phone ?? null,
-      clientId: ctx.client?.id ?? null,
+  const display = baseReviewDisplay(ctx);
+  if (!ctx.appointment) {
+    return { ...display, reason: 'The appointment is no longer available.' };
+  }
+  const [row] = await db.select().from(reviewRequestSchema).where(and(eq(reviewRequestSchema.salonId, salonId), eq(reviewRequestSchema.appointmentId, appointmentId))).orderBy(desc(reviewRequestSchema.createdAt)).limit(1);
+  const [trigger] = await db.select().from(reviewRequestTriggerSchema).where(and(eq(reviewRequestTriggerSchema.salonId, salonId), eq(reviewRequestTriggerSchema.appointmentId, appointmentId))).orderBy(desc(reviewRequestTriggerSchema.createdAt)).limit(1);
+  const rowDisplay = row ? await displayRequest(ctx, salonId, row) : null;
+  if (rowDisplay && !['cancelled', 'skipped'].includes(rowDisplay.status)) {
+    return rowDisplay;
+  }
+  if (trigger?.state === 'pending' && !triggerMismatch(ctx, trigger)) {
+    const blocked = await blockingHistoryReason(salonId, ctx);
+    return blocked ? { ...display, status: 'skipped', reason: blocked } : displayTrigger(ctx, trigger);
+  }
+  if (rowDisplay) {
+    return rowDisplay;
+  }
+  const [legacy] = await db.select().from(clientCommunicationSchema).where(and(
+    eq(clientCommunicationSchema.salonId, salonId),
+    eq(clientCommunicationSchema.appointmentId, appointmentId),
+    eq(clientCommunicationSchema.kind, 'google_review'),
+    or(eq(clientCommunicationSchema.status, 'marked_sent'), isNotNull(clientCommunicationSchema.markedSentAt)),
+  )).orderBy(desc(clientCommunicationSchema.markedSentAt)).limit(1);
+  if (legacy) {
+    return { ...display, status: 'reported_sent', source: 'owner_reported', channel: 'owner_device', sentAt: legacy.markedSentAt?.toISOString() ?? null, message: legacy.messageSnapshot, reason: 'Marked sent by the owner. Luster cannot verify delivery.' };
+  }
+  const reason = appointmentUnavailableReason(ctx) ?? await blockingHistoryReason(salonId, ctx) ?? clientReviewIneligibility(ctx);
+  if (reason) {
+    return { ...display, status: ctx.client?.reviewRequestsSuppressed || ctx.client?.hasGoogleReview ? 'suppressed' : 'not_eligible', reason };
+  }
+  if (trigger) {
+    return displayTrigger(ctx, trigger);
+  }
+  const canSendManually = !ineligible(ctx, false);
+  if (ctx.settings.policy.mode === 'manual') {
+    return { ...display, status: canSendManually ? 'eligible' : 'not_eligible', canSendManually, reason: canSendManually ? 'Not scheduled — automatic requests are off. You can request a review manually.' : 'Automatic requests are off. Mark this appointment Completed to request a review manually.' };
+  }
+  if (ctx.settings.policy.mode === 'marked_completed') {
+    return { ...display, status: canSendManually ? 'eligible' : 'awaiting_trigger', canSendManually, reason: canSendManually ? 'No automatic request is recorded for this completion. You can request a review manually.' : 'Waiting for this appointment to be marked Completed.' };
+  }
+  const eligibility = evaluateScheduledEndReviewEligibility({ appointment: ctx.appointment, policy: ctx.settings.policy, now: ctx.now, automationEnabledAt: ctx.settings.enabledAt, reviewRequestsEligibleAfter: ctx.client?.reviewRequestsEligibleAfter });
+  if (!eligibility.eligible && eligibility.reason !== 'waiting_for_end') {
+    return { ...display, status: canSendManually ? 'eligible' : 'not_eligible', canSendManually, reason: 'This appointment does not qualify for scheduled-end automation. Only valid appointments after automation was enabled are included.' };
+  }
+  return { ...display, status: 'awaiting_trigger', source: 'automatic', channel: 'sms', canSendManually, reason: eligibility.triggerReached ? 'Waiting for the next automatic review check.' : 'The review request will be checked after the appointment ends.' };
+}
+
+/** Bounded client history from the existing request, trigger, and owner-reported records. */
+export async function getClientReviewOverview(salonId: string, clientId: string): Promise<ClientReviewOverview> {
+  const ctx = await context(db, salonId, null, new Date(), clientId);
+  if (!ctx.client || ctx.clientIds.length === 0) {
+    throw new Error('CLIENT_UNAVAILABLE');
+  }
+  const recipient = isValidPhone(ctx.client.phone) ? normalizeConsentRecipient(ctx.client.phone) : null;
+  // Full matched evidence is needed for cooldown/unknown outcomes; rendered
+  // history is bounded to 20. One batch replaces per-appointment context reads.
+  const rows = await db.select({ request: reviewRequestSchema, intent: communicationIntentSchema, delivery: notificationDeliverySchema })
+    .from(reviewRequestSchema)
+    .leftJoin(communicationIntentSchema, and(eq(communicationIntentSchema.id, reviewRequestSchema.intentId), eq(communicationIntentSchema.salonId, salonId)))
+    .leftJoin(notificationDeliverySchema, and(eq(notificationDeliverySchema.id, communicationIntentSchema.deliveryId), eq(notificationDeliverySchema.salonId, salonId)))
+    .where(and(eq(reviewRequestSchema.salonId, salonId), or(inArray(reviewRequestSchema.clientId, ctx.clientIds), recipient ? eq(reviewRequestSchema.recipient, recipient) : undefined)))
+    .orderBy(desc(reviewRequestSchema.createdAt));
+  const legacy = await db.select().from(clientCommunicationSchema).where(and(
+    eq(clientCommunicationSchema.salonId, salonId),
+    eq(clientCommunicationSchema.kind, 'google_review'),
+    or(inArray(clientCommunicationSchema.salonClientId, ctx.clientIds), recipient ? eq(clientCommunicationSchema.destinationSnapshot, recipient) : undefined),
+    or(eq(clientCommunicationSchema.status, 'marked_sent'), isNotNull(clientCommunicationSchema.markedSentAt)),
+  )).orderBy(desc(clientCommunicationSchema.markedSentAt));
+  const triggers = await db.select({ trigger: reviewRequestTriggerSchema }).from(reviewRequestTriggerSchema)
+    .innerJoin(appointmentSchema, and(eq(appointmentSchema.id, reviewRequestTriggerSchema.appointmentId), eq(appointmentSchema.salonId, salonId)))
+    .where(and(eq(reviewRequestTriggerSchema.salonId, salonId), inArray(appointmentSchema.salonClientId, ctx.clientIds), inArray(reviewRequestTriggerSchema.state, ['pending', 'skipped'])))
+    .orderBy(desc(reviewRequestTriggerSchema.createdAt)).limit(21);
+  const recentRows = rows.slice(0, 21);
+  const appointmentIds = [...new Set([...recentRows.flatMap(({ request }) => request.appointmentId ? [request.appointmentId] : []), ...triggers.map(({ trigger }) => trigger.appointmentId)])];
+  const appointments = appointmentIds.length ? await db.select().from(appointmentSchema).where(and(eq(appointmentSchema.salonId, salonId), inArray(appointmentSchema.id, appointmentIds))) : [];
+  const requestTriggerIds = recentRows.flatMap(({ request }) => request.triggerId ? [request.triggerId] : []);
+  const requestTriggers = requestTriggerIds.length ? await db.select().from(reviewRequestTriggerSchema).where(and(eq(reviewRequestTriggerSchema.salonId, salonId), inArray(reviewRequestTriggerSchema.id, requestTriggerIds))) : [];
+  const intentIds = recentRows.map(({ request }) => request.intentId);
+  const deliveryIds = recentRows.flatMap(({ intent }) => intent?.deliveryId ? [intent.deliveryId] : []);
+  const deliveries = intentIds.length ? await db.select().from(notificationDeliverySchema).where(and(eq(notificationDeliverySchema.salonId, salonId), or(inArray(notificationDeliverySchema.intentId, intentIds), deliveryIds.length ? inArray(notificationDeliverySchema.id, deliveryIds) : undefined))) : [];
+  const appointmentContext = (appointmentId: string | null): ReviewContext => ({ ...ctx, appointment: appointments.find(appointment => appointment.id === appointmentId) });
+  const history: ClientReviewHistoryItem[] = [];
+  for (const { request, intent } of recentRows) {
+    const evidence: ReviewDisplayEvidence = {
+      intent,
+      deliveries: deliveries.filter(delivery => delivery.intentId === request.intentId || delivery.id === intent?.deliveryId),
+      trigger: requestTriggers.find(trigger => trigger.id === request.triggerId) ?? null,
     };
+    history.push({ ...await displayRequest(appointmentContext(request.appointmentId), salonId, request, evidence), canSendManually: false, id: request.id, appointmentId: request.appointmentId, occurredAt: request.createdAt.toISOString() });
   }
-  if (!ownRequest && trigger?.state === 'skipped') {
-    return {
-      status: 'not_eligible',
-      reason: trigger.reasonCode ?? 'REVIEW_REQUEST_SKIPPED',
-      scheduledFor: null,
-      sentAt: null,
-      message: null,
-      phone: ctx.client?.phone ?? null,
-      clientId: ctx.client?.id ?? null,
-    };
+  for (const row of legacy.slice(0, 21)) {
+    history.push({ ...baseReviewDisplay(ctx), id: row.id, appointmentId: row.appointmentId, occurredAt: (row.markedSentAt ?? row.createdAt).toISOString(), status: 'reported_sent', source: 'owner_reported', channel: 'owner_device', sentAt: row.markedSentAt?.toISOString() ?? null, message: row.messageSnapshot, reason: 'Marked sent by the owner. Luster cannot verify delivery.' });
   }
-  const row = ownRequest ?? await existingRequest(db, salonId, ctx);
-  const [intent] = row ? await db.select().from(communicationIntentSchema).where(and(eq(communicationIntentSchema.id, row.intentId), eq(communicationIntentSchema.salonId, salonId))).limit(1) : [];
-  const [delivery] = intent?.deliveryId ? await db.select().from(notificationDeliverySchema).where(and(eq(notificationDeliverySchema.id, intent.deliveryId), eq(notificationDeliverySchema.salonId, salonId))).limit(1) : [];
-  const reason = ineligible(ctx, false, ownRequest?.triggerId === trigger?.id ? trigger?.kind ?? 'completed' : 'completed');
-  let status = reason ? (ctx.client?.reviewRequestsSuppressed || ctx.client?.hasGoogleReview ? 'suppressed' : 'not_eligible') : 'eligible';
-  if (row) {
-    status = intent?.status === 'sent' ? 'sent' : ['sending', 'send_outcome_unknown'].includes(intent?.status ?? '') ? 'sending' : ['canceled', 'suppressed', 'expired'].includes(intent?.status ?? '') ? 'cancelled' : intent?.status === 'failed' || !intent ? 'failed' : 'scheduled';
+  const historyEvidence = [
+    ...rows.map(({ request, intent, delivery }) => ({ id: request.id, appointmentId: request.appointmentId, state: intent?.status ?? null, sentAt: intent?.status === 'sent' ? intent.resolvedAt : null, hasProviderEvidence: !!delivery?.providerMessageId || ['sent', 'delivered'].includes(delivery?.status ?? '') })),
+    ...legacy.map(row => ({ id: row.id, appointmentId: row.appointmentId, state: 'sent', sentAt: row.markedSentAt, hasProviderEvidence: false })),
+  ];
+  for (const { trigger } of triggers) {
+    if (rows.some(({ request }) => request.triggerId === trigger.id)) {
+      continue;
+    }
+    const appointmentCtx = appointmentContext(trigger.appointmentId);
+    const blocked = evaluateReviewHistory({ history: historyEvidence, appointmentId: trigger.appointmentId, cooldownDays: ctx.settings.policy.repeatCooldownDays, now: ctx.now });
+    const projected = displayTrigger(appointmentCtx, trigger);
+    const display = projected.status === 'scheduled' && !blocked.allowed
+      ? { ...projected, status: 'skipped' as const, scheduledFor: null, reason: 'Another applicable review request already exists for this client.' }
+      : projected;
+    history.push({ ...display, canSendManually: false, id: trigger.id, appointmentId: trigger.appointmentId, occurredAt: trigger.createdAt.toISOString() });
   }
-  if (!row && ctx.legacyReview) {
-    status = 'sent';
-  }
-  if (delivery && ['failed', 'undelivered'].includes(delivery.status)) {
-    status = 'failed';
-  }
-  return { status, reason: status === 'failed' ? 'The review request could not be sent. It will not be retried automatically.' : intent?.status === 'blocked_no_credit' ? 'Add SMS credits to send this review request.' : reason, scheduledFor: intent?.availableAt?.toISOString() ?? null, sentAt: intent?.status === 'sent' ? intent.resolvedAt?.toISOString() ?? null : ctx.legacyReview?.markedSentAt?.toISOString() ?? null, message: intent?.bodySnapshot ?? ctx.legacyReview?.messageSnapshot ?? (ctx.settings.googleReviewUrl && ctx.client ? reviewSmsBody({ template: ctx.settings.messageTemplate, clientName: ctx.client.fullName, businessName: ctx.settings.businessName, reviewLink: ctx.settings.googleReviewUrl }) : null), phone: ctx.client?.phone ?? null, clientId: ctx.client?.id ?? null };
+  history.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || a.id.localeCompare(b.id));
+  return { timeZone: ctx.settings.salon?.settings?.booking?.timezone ?? DEFAULT_BOOKING_TIME_ZONE, reviewRequestsSuppressed: ctx.client.reviewRequestsSuppressed, history: history.slice(0, 20), hasMore: history.length > 20 || rows.length > 20 || legacy.length > 20 || triggers.length > 20 };
 }
