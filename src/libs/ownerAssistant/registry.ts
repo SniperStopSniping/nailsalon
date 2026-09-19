@@ -22,7 +22,7 @@ export type RegistryAddressable = 'exact' | 'exact_on_open' | 'parent';
 
 export type RegistryTarget =
   | { type: 'admin'; app?: string; view?: string }
-  | { type: 'bookingPage'; panel: 'layouts' | 'appearance' | 'information' | 'text' | 'gallery' | 'policies' | 'publish' }
+  | { type: 'bookingPage'; panel: 'business' | 'layouts' | 'appearance' | 'information' | 'text' | 'gallery' | 'policies' | 'publish' }
   | { type: 'path'; path: string; query?: Record<string, string> };
 
 export type RegistryEntry = {
@@ -61,7 +61,8 @@ export const OWNER_ASSISTANT_REGISTRY: readonly RegistryEntry[] = [
   entry('rewards_reviews', 'Rewards & Reviews', 'Loyalty rewards and review requests.', ['rewards', 'reviews', 'loyalty', 'referrals'], { type: 'admin', app: 'rewards-reviews' }),
 
   entry('business_hours', 'Business hours', 'Regular salon hours and timezone (Hours & Availability).', ['business hours', 'opening hours', 'hours', 'open', 'closed', 'timezone', 'time zone', 'change my hours'], { type: 'admin', app: 'hours' }),
-  entry('settings_location', 'Location', 'Address and how it is shown to customers.', ['location', 'address', 'map', 'city', 'where I am', 'address privacy'], { type: 'admin', app: 'settings', view: 'location' }),
+  entry('settings_location', 'Business Information', 'Salon address, parking and arrival instructions.', ['location', 'address', 'map', 'city', 'where I am', 'parking', 'arrival instructions'], { type: 'bookingPage', panel: 'business' }),
+  entry('business_information', 'Business Information', 'Your salon name, contact details, address and arrival instructions.', ['business profile', 'business name', 'salon name', 'phone', 'email', 'contact details', 'address', 'parking', 'arrival'], { type: 'bookingPage', panel: 'business' }),
   entry('settings_branding', 'Booking messages & social links', 'Booking confirmation messages and social links.', ['social links', 'instagram', 'booking messages', 'confirmation message'], { type: 'admin', app: 'settings', view: 'branding' }),
   entry('booking_rules', 'Booking rules', 'Minimum notice, slot interval, buffers, confirmation and client-change cutoff.', ['booking rules', 'minimum notice', 'notice', 'slot interval', 'buffer', 'confirmation', 'cutoff', 'lead time', 'how far in advance'], { type: 'admin', app: 'booking-rules', view: 'rules' }),
   entry('settings_booking_policy', 'Booking policy', 'Cancellation and no-show policy shown to customers.', ['booking policy', 'cancellation policy', 'no-show', 'no show', 'policy', 'terms'], { type: 'admin', app: 'booking-rules', view: 'policies' }),
@@ -77,7 +78,7 @@ export const OWNER_ASSISTANT_REGISTRY: readonly RegistryEntry[] = [
   entry('booking_page_hub', 'Booking Page', 'Your booking page: preview, edit and publish.', ['booking page', 'website', 'my page', 'public page', 'link to my page', 'share link'], { type: 'path', path: '/admin/website' }),
   entry('page_layouts', 'Layouts', 'Choose the layout of your booking page.', ['layout', 'layouts', 'design', 'template', 'quick book'], { type: 'bookingPage', panel: 'layouts' }),
   entry('page_appearance', 'Appearance', 'Colours and look of your booking page.', ['appearance', 'colours', 'colors', 'theme', 'style', 'look'], { type: 'bookingPage', panel: 'appearance' }),
-  entry('page_information', 'Business info display', 'What business details customers see, including hours and bio visibility.', ['business info', 'business information', 'show bio', 'hide bio', 'display hours', 'contact details shown'], { type: 'bookingPage', panel: 'information' }),
+  entry('page_information', 'Business info display', 'What business details customers see, including hours and bio visibility.', ['business info', 'business information', 'show bio', 'hide bio', 'display hours', 'contact details shown', 'address privacy', 'show address', 'hide address'], { type: 'bookingPage', panel: 'information' }),
   entry('page_text', 'About & website text', 'Your introduction: specialty line and bio.', ['about', 'website text', 'introduction', 'intro', 'bio text', 'specialty line', 'tagline', 'description of my salon'], { type: 'bookingPage', panel: 'text' }),
   entry('page_gallery', 'Photos & Gallery', 'Upload your logo, profile photo, cover image and gallery photos.', ['logo', 'upload logo', 'upload my logo', 'brand logo', 'cover', 'cover image', 'cover photo', 'hero image', 'banner', 'profile picture', 'profile photo', 'gallery', 'photos', 'upload photo', 'upload image'], { type: 'bookingPage', panel: 'gallery' }),
   entry('page_policies', 'Page policies', 'Photo and social policies shown on your booking page.', ['page policies', 'photo policy', 'social policy'], { type: 'bookingPage', panel: 'policies' }),

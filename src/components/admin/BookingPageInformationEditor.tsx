@@ -336,6 +336,7 @@ export function BookingPageInformationEditor({
   }, [addressPrivacy]);
   const query = `salonSlug=${encodeURIComponent(salonSlug)}`;
   const workspace = `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}`;
+  const businessInformationHref = `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=business`;
   const showSwitches = mode !== 'hours' && mode !== 'business' && mode !== 'gallery' && draft.layout === 'quick_book';
   const showEditors = mode !== 'booking' && mode !== 'gallery';
 
@@ -463,11 +464,15 @@ export function BookingPageInformationEditor({
   }, [info, identity.reset, location.reset, contact.reset, hours.reset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hoursDirty = ['dirty', 'error', 'saving'].includes(hours.status);
+  const businessInformationDirty = [identity.status, location.status, contact.status]
+    .some(status => ['dirty', 'error', 'saving'].includes(status));
   useEffect(() => {
     if (mode === 'hours') {
       onDirtyChange?.(hoursDirty);
+    } else if (mode === 'business') {
+      onDirtyChange?.(businessInformationDirty);
     }
-  }, [hoursDirty, mode, onDirtyChange]);
+  }, [businessInformationDirty, hoursDirty, mode, onDirtyChange]);
 
   const { flush: flushIdentity } = identity;
   const { flush: flushLocation } = location;
@@ -776,15 +781,15 @@ export function BookingPageInformationEditor({
   return (
     <section className="rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm" data-testid="booking-page-information-editor">
       <h2 className="text-lg font-semibold text-[var(--owner-ink)]">
-        {mode === 'hours' ? 'Regular salon hours' : mode === 'booking' ? 'Business Info Display' : mode === 'business' ? 'Business Profile' : 'Your Information'}
+        {mode === 'hours' ? 'Regular salon hours' : mode === 'booking' ? 'Business Info Display' : mode === 'business' ? 'Business Information' : 'Your Information'}
       </h2>
       <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-publish-summary">
         {mode === 'hours'
           ? 'Set your normal opening hours and timezone. Changes apply to your live business immediately.'
           : mode === 'booking'
-            ? 'These are the current business values customers may see. Change what appears here; edit the actual business record in Settings. Display choices wait in your website draft until you publish.'
+            ? 'These are the current business values customers may see. Change what appears here; edit the actual business record in Business Information. Display choices wait in your website draft until you publish.'
             : mode === 'business'
-              ? 'This is the actual business record used by your live site and bookings. Name, contact, address and hours take effect as soon as each section is saved.'
+              ? 'This is the actual business record used by your live site and bookings. Name, contact and address take effect as soon as each section is saved. Regular hours are managed in Hours & Availability.'
               : 'These are the details you saved during setup. Editing changes the same business record your live site and bookings use, so name, contact and hours go public as soon as you save them. Address privacy is the one setting here that waits in your draft until you publish; hiding a detail keeps it saved.'}
       </p>
 
@@ -862,7 +867,7 @@ export function BookingPageInformationEditor({
                             <dd className="text-[var(--owner-ink)]">{info.technician?.name ?? 'Managed in Team'}</dd>
                           </div>
                         </dl>
-                        <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=business-profile`}>Edit business profile →</a>
+                        <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={businessInformationHref}>Edit business profile →</a>
                         {renderSwitches('Business identity')}
                       </>
                     )
@@ -909,7 +914,7 @@ export function BookingPageInformationEditor({
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
                           <button className={primaryButtonClass} data-testid="information-save-location" disabled={disabled || location.status === 'saving' || location.status === 'idle' || location.status === 'saved'} type="submit">Save address</button>
-                          <a className="text-sm font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=location`}>Parking &amp; arrival instructions</a>
+                          <a className="text-sm font-semibold text-[var(--owner-accent)] underline" href={mode === 'business' ? '#parking-arrival' : businessInformationHref}>Parking &amp; arrival instructions</a>
                         </div>
                         <StatusLine error={location.error} savedText="Address saved. It affects directions and bookings immediately." status={location.status} />
                       </form>
@@ -918,7 +923,7 @@ export function BookingPageInformationEditor({
                     ? (
                         <>
                           <p className="text-sm text-[var(--owner-ink)]">{[info.location?.address, info.location?.city, info.location?.state, info.location?.zipCode].filter(Boolean).join(', ') || 'No salon address saved.'}</p>
-                          <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=location`}>Edit salon address →</a>
+                          <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={mode === 'business' ? '#parking-arrival' : businessInformationHref}>Edit salon address →</a>
                         </>
                       )
                     : renderFallback('Location')}
@@ -1029,7 +1034,7 @@ export function BookingPageInformationEditor({
                             <dd>{formatInstagramHandle(info.instagramHandle ?? info.instagram) || 'Not saved'}</dd>
                           </div>
                         </dl>
-                        <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=business-profile`}>Edit contact details →</a>
+                        <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={businessInformationHref}>Edit contact details →</a>
                         {renderSwitches('Contact')}
                       </>
                     )
@@ -1130,8 +1135,8 @@ export function BookingPageInformationEditor({
       </div>
       {mode !== 'hours' && (
         <p className="mt-3 text-xs text-[var(--owner-muted)]">
-          <a className="inline-flex min-h-11 items-center gap-1 font-semibold text-[var(--owner-accent)] underline" href={mode === 'business' ? `${workspace}&app=team` : `${workspace}&app=settings${mode === 'booking' ? '&view=business' : ''}`}>
-            {mode === 'business' ? 'Manage team profiles' : 'Open all business settings'}
+          <a className="inline-flex min-h-11 items-center gap-1 font-semibold text-[var(--owner-accent)] underline" href={mode === 'business' ? `${workspace}&app=team` : businessInformationHref}>
+            {mode === 'business' ? 'Manage team profiles' : 'Edit business information'}
             <ExternalLink aria-hidden="true" size={14} />
           </a>
         </p>

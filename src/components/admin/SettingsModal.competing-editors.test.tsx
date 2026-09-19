@@ -176,7 +176,7 @@ async function openBookingRules() {
   fireEvent.click(await screen.findByText('Booking Rules'));
 }
 
-async function openBusinessCard(card: 'Branding & Social' | 'Location & Arrival') {
+async function openBusinessCard(card: 'Branding & Social' | 'Business Information') {
   fireEvent.click(await screen.findByText('Business'));
   fireEvent.click(await screen.findByText(card));
 }
@@ -416,27 +416,16 @@ describe('SettingsModal — one writer per record', () => {
   });
 
   describe('address (source map §C1 row 1)', () => {
-    it('keeps the row but hands the five address fields to Your Information', async () => {
+    it('hands the legacy business row to canonical Business Information', async () => {
       open();
-      await openBusinessCard('Location & Arrival');
+      await openBusinessCard('Business Information');
 
-      expect(await screen.findByTestId('settings-location-handoff')).toBeInTheDocument();
-      // The competing form is gone: no second copy of the address fields.
-      expect(screen.queryByPlaceholderText('123 Main St')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /save location/i })).not.toBeInTheDocument();
-      // Parking & entry instructions live only here and stay.
-      expect(await screen.findByDisplayValue('Free parking behind the salon.')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole('button', { name: /edit salon address/i }));
-
-      expect(await screen.findByTestId('booking-page-information-editor')).toBeInTheDocument();
       expect(pushMock).toHaveBeenLastCalledWith(
-        '/en/admin?salon=salon-a&app=settings&view=business-profile',
+        '/en/admin/booking-page?salon=salon-a&panel=business',
         { scroll: false },
       );
-      expect(pushMock).not.toHaveBeenCalledWith(
-        '/en/admin/booking-page?salon=salon-a&panel=information',
-      );
+      expect(screen.queryByPlaceholderText('123 Main St')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /save location/i })).not.toBeInTheDocument();
     });
   });
 });
