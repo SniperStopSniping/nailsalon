@@ -8,7 +8,7 @@ import { getCustomerAssistantConfig } from './access.server';
 import { reserveCustomerAssistantTurn } from './budget.server';
 import { buildCustomerProposal } from './catalogue.server';
 import type { CustomerAssistantAction, CustomerAssistantResponse, CustomerAssistantResult } from './contracts';
-import { signCustomerConversation, verifyCustomerConversation } from './conversation.server';
+import { advanceCustomerConversation, conversationInvalidReason, signCustomerConversation, verifyCustomerConversation } from './conversation.server';
 import { recordCustomerAssistantUsage } from './ledger.server';
 import { getCustomerAvailabilityContext, hasOfferedCustomerSlot, lookupCustomerSlots } from './slots.server';
 
@@ -34,8 +34,8 @@ export async function runCustomerAssistantAction(args: {
   let prior;
   try {
     prior = verifyCustomerConversation(args.conversation, args.salon.id, config.signingSecret, args.now?.getTime());
-  } catch {
-    return unavailable(args.conversation, 'invalid_conversation');
+  } catch (error) {
+    return unavailable(args.conversation, conversationInvalidReason(error));
   }
   const reservation = await reserveCustomerAssistantTurn({
     salonId: args.salon.id,
@@ -47,7 +47,7 @@ export async function runCustomerAssistantAction(args: {
   if (!reservation.ok) {
     return unavailable(args.conversation, reservation.reason);
   }
-  const next = { ...prior, turnIndex: prior.turnIndex + 1 };
+  const next = advanceCustomerConversation(prior, args.now?.getTime());
   const sign = (result: CustomerAssistantResult): CustomerAssistantResponse => {
     try {
       return { conversation: signCustomerConversation(next, config.signingSecret), result };

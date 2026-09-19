@@ -22,6 +22,7 @@ import type { SectionId } from '@/libs/bookingPageConfig';
 import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
 import type { PublicCatalogSnapshot } from '@/libs/catalogDomain';
 import { resolveCatalogSelection } from '@/libs/catalogResolverCore';
+import { useNormalBookingFlowMarker } from '@/libs/customerAssistant/normalConfirmHandoff.client';
 import {
   getCustomerSitePresentationCssVariables,
   resolveCustomerSitePalettePreset,
@@ -298,9 +299,12 @@ export function BookServiceClient({
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
-  const { bookingExperience, salonName, salonSlug, bookingPage, salonContent } = useSalon();
+  const { bookingExperience, salonName, salonSlug, salonId, bookingPage, salonContent } = useSalon();
   const locale = (params?.locale as string) || 'en';
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
+  // A non-secret marker keeps the normal Confirm step on the assistant's
+  // durable flow after a customer revisits and edits this normal service UI.
+  const bookingFlowMarker = useNormalBookingFlowMarker(salonId, searchParams.get('bookingFlow'));
   // Luster UI/UX plan rev 3, PR 4: iterate the resolved Quick Book section
   // order rather than re-deciding it here. `bookingPage`/`salonContent` are
   // only undefined in test doubles that mock `useSalon()` with a partial
@@ -1219,6 +1223,7 @@ export function BookServiceClient({
       manageToken,
       campaignToken,
       locationId: selectedLocationId,
+      bookingFlow: bookingFlowMarker,
     }, {
       routeSalonSlug,
       locale,
@@ -1236,6 +1241,7 @@ export function BookServiceClient({
         manageToken,
         campaignToken,
         locationId: selectedLocationId,
+        bookingFlow: bookingFlowMarker,
       }, {
         routeSalonSlug,
         locale,

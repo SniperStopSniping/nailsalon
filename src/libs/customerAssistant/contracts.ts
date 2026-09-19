@@ -55,12 +55,34 @@ export type CustomerAssistantAction =
   | { action: 'choose_date'; date: string }
   | { action: 'select_slot'; startTime: string };
 
-export type CustomerAssistantResult =
+/** Explicitly accepts a currently signed, authoritative proposal for the normal booking flow. */
+export const customerHandoffRequestSchema = z.object({
+  conversation: z.string().min(1).max(24_576),
+  fingerprint: z.string().length(64),
+  flowToken: z.string().min(1).max(1_024).optional(),
+  operationCapability: z.string().min(1).max(200).optional(),
+}).strict();
+
+export type CustomerAssistantHandoff = {
+  selection: CustomerSelection;
+  flow: { flowToken: string; expiresAt: string };
+  datePreference?: CustomerDatePreference;
+  operation?: import('./bookingOperationContracts').CustomerBookingOperationReference;
+};
+
+export type CustomerAssistantHandoffResponse = {
+  conversation: string;
+  result: { kind: 'handoff'; handoff: CustomerAssistantHandoff }
+    | Extract<CustomerAssistantResult, { kind: 'proposal' | 'unavailable' }>;
+};
+
+export type CustomerAssistantResult = (
+  | { kind: 'answer'; message: string; options: string[]; topic?: 'compare_treatments' | 'length_options' | 'service_options' | 'unknown_product' | 'service_information' }
   | { kind: 'proposal'; proposal: CustomerProposal }
   | { kind: 'date_prompt'; proposal: CustomerProposal; today: string; timeZone: string }
   | { kind: 'slots'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slots: CustomerAvailableSlot[]; checkedAt: string; slotDisappeared?: boolean }
   | { kind: 'slot_selected'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slot: CustomerAvailableSlot }
   | { kind: 'clarification'; question: 'service' | 'removal' | 'product' | 'origin' | 'length' | 'finish' | 'quantity' | 'details' | 'date'; options: string[] }
-  | { kind: 'unavailable'; reason: 'no_match' | 'unavailable' | 'rate_limited' | 'conversation_used' | 'selection_changed' | 'invalid_conversation' };
+  | { kind: 'unavailable'; reason: 'no_match' | 'unavailable' | 'rate_limited' | 'conversation_used' | 'selection_changed' | 'invalid_conversation' | 'conversation_expired' | 'session_limit' | 'stale_conversation' | 'unsupported_service' | 'unsupported_removal' | 'incompatible_selection' | 'unknown_product' | 'no_availability' | 'handoff_expired' | 'invalid_handoff' }) & { message?: string };
 
 export type CustomerAssistantResponse = { conversation: string; result: CustomerAssistantResult };

@@ -21,6 +21,7 @@ import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
+import { BookingStatusCard } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import { useHoldCountdown } from '@/components/deposits/HoldCountdown';
 import { SectionCard } from '@/components/ui/section-card';
 import { StateCard } from '@/components/ui/state-card';
@@ -28,6 +29,12 @@ import { useBookingState } from '@/hooks/useBookingState';
 import type { BookingStep } from '@/libs/bookingFlow';
 import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
 import { computeCheckoutTotals, type ResolvedTaxConfig } from '@/libs/checkoutTotals';
+import type { CustomerBookingStatus } from '@/libs/customerAssistant/bookingOperationContracts';
+import { canStartAnotherBooking, startAnotherBooking } from '@/libs/customerAssistant/newBooking.client';
+import { confirmNormalHandoffBooking, normalBookingErrorMessage, NormalBookingRecoveryError, recoverNormalBooking } from '@/libs/customerAssistant/normalBooking.client';
+import { normalBookingPrepareSchema } from '@/libs/customerAssistant/normalBookingContracts';
+import { useNormalBookingFlowMarker } from '@/libs/customerAssistant/normalConfirmHandoff.client';
+import { customerBookingRecoveryUrl } from '@/libs/customerAssistant/recoveryUrl';
 import { buildDepositDisclosure, DEPOSIT_CURRENCY, DEPOSIT_FINGERPRINT_NONE } from '@/libs/depositPolicy';
 import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
 import { formatMoney } from '@/libs/formatMoney';
@@ -163,6 +170,8 @@ type BookConfirmClientProps = {
    * i.e. the instant-confirm copy that shipped before.
    */
   salonConfirmsManually?: boolean;
+  /** Opaque session-storage handoff identity for the AI-to-normal booking flow. */
+  salonId?: string;
   /**
    * Overridable for tests.
    *
@@ -2000,18 +2009,20 @@ export function BookConfirmClient({
   depositNoticeSuppressed = false,
   depositFingerprint = DEPOSIT_FINGERPRINT_NONE,
   salonConfirmsManually = false,
+  salonId,
   navigateToCheckout = defaultNavigateToCheckout,
 }: BookConfirmClientProps) {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
-  const { bookingExperience } = useSalon();
+  const { bookingExperience, salonName } = useSalon();
   const locale = (params?.locale as string) || 'en';
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const techId = searchParams.get('techId') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const manageToken = searchParams.get('manageToken') || '';
   const campaignToken = searchParams.get('campaign') || '';
+  const bookingFlowMarker = useNormalBookingFlowMarker(salonId, searchParams.get('bookingFlow'));
   const urlLocationId = searchParams.get('locationId') || '';
   const urlServiceIdsParam = searchParams.get('serviceIds') || '';
   const urlServiceIds = urlServiceIdsParam ? urlServiceIdsParam.split(',').filter(Boolean) : [];
@@ -2056,7 +2067,7 @@ export function BookConfirmClient({
   const smartFitSuggestTotalCentsParam = parseSmartFitCentsParam(searchParams.get('smartFitSuggestTotalCents'));
 
   // Sync booking state from URL on mount (for consistency)
-  const { syncFromUrl } = useBookingState(salonSlug);
+  const { syncFromUrl, clearBookingState } = useBookingState(salonSlug);
   useEffect(() => {
     syncFromUrl({
       techId: techId || null,
@@ -2068,6 +2079,9 @@ export function BookConfirmClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
+  const isAssistantHandoff = bookingFlowMarker === 'assistant';
+  const [durableStatus, setDurableStatus] = useState<CustomerBookingStatus | null>(null);
+  const [recoveringHandoff, setRecoveringHandoff] = useState(false);
   const [isBooking, setIsBooking] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
   const [bookingResultStatus, setBookingResultStatus]
@@ -2075,6 +2089,34 @@ export function BookConfirmClient({
   const [smsReminderStatus, setSmsReminderStatus] = useState<SmsReminderStatus | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [slotTaken, setSlotTaken] = useState(false);
+  useEffect(() => {
+    if (!isAssistantHandoff) {
+      return;
+    }
+    if (!salonId) {
+      setBookingError(normalBookingErrorMessage('handoff_missing'));
+      return;
+    }
+    let active = true;
+    setRecoveringHandoff(true);
+    void recoverNormalBooking(salonId).then((status) => {
+      if (active && status && status.status !== 'not_created') {
+        setDurableStatus(status);
+      }
+    }).catch(() => {
+      if (active) {
+        setBookingError(normalBookingErrorMessage('recovery_unavailable'));
+      }
+    }).finally(() => {
+      if (active) {
+        setRecoveringHandoff(false);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [isAssistantHandoff, salonId]);
+
   const [smartFitStale, setSmartFitStale] = useState<{
     message: string;
     breakdown: SmartFitStaleBreakdown | null;
@@ -2347,6 +2389,7 @@ export function BookConfirmClient({
       campaignToken,
       smartFitDiscountCents: smartFitSuggestion.offer.discountAmountCents,
       smartFitTotalCents: smartFitSuggestion.offer.discountedPriceCents,
+      bookingFlow: bookingFlowMarker,
     }, {
       routeSalonSlug,
       locale,
@@ -2360,7 +2403,7 @@ export function BookConfirmClient({
   }, [smartFitSuggestionContextKey]);
 
   const createBooking = useCallback(async () => {
-    if (bookingInitiatedRef.current) {
+    if (bookingInitiatedRef.current || recoveringHandoff) {
       return;
     }
     if (acknowledgmentRequired && !policyAcknowledged) {
@@ -2436,6 +2479,44 @@ export function BookConfirmClient({
         // rendered would silently route every such booking onto the free leg.
         expectedDepositFingerprint: submittedDepositFingerprint,
       };
+
+      if (isAssistantHandoff) {
+        if (!salonId) {
+          throw new NormalBookingRecoveryError('handoff_missing');
+        }
+        const parsed = normalBookingPrepareSchema.shape.booking.safeParse({ ...requestBody, appointmentTime: timeStr.padStart(5, '0') });
+        if (!parsed.success) {
+          throw new NormalBookingRecoveryError('invalid_details');
+        }
+        const status = await confirmNormalHandoffBooking({ salonId, booking: parsed.data, displayed: {
+          totalCents: bookingTotals?.totalDueCents ?? resolvedTotalPriceCents,
+          durationMinutes: totalDuration,
+          currency: currency.toUpperCase(),
+          salonName,
+          timeZone: salonTimeZone,
+          technician: techId !== 'any' && technician ? { id: technician.id, name: technician.name } : null,
+          location: location ? { name: location.name, address: location.address, city: location.city, state: location.state, zipCode: location.zipCode } : null,
+          services: services.map(item => ({ id: item.id, name: item.name, priceCents: Math.round(item.price * 100) })),
+          addOns: addOns.map(item => ({ id: item.id, name: item.name, quantity: item.quantity, priceCents: Math.round(item.price * 100) })),
+          confirmationMode: salonConfirmsManually ? 'request_approval' : 'instant',
+          reminderMode: smsBookingDefault,
+          policyVersion: acknowledgmentRequired ? displayedPolicy.version ?? null : null,
+        } });
+        if (status.status === 'not_created') {
+          if (status.lastFailure === 'slot_unavailable') {
+            setSlotTaken(true);
+          } else {
+            setBookingError(normalBookingErrorMessage(status.lastFailure ?? 'recovery_unavailable'));
+            if (status.lastFailure === 'review_changed') {
+              router.refresh();
+            }
+          }
+          bookingInitiatedRef.current = false;
+        } else {
+          setDurableStatus(status);
+        }
+        return;
+      }
 
       const response = await fetch('/api/appointments', {
         method: 'POST',
@@ -2707,6 +2788,17 @@ export function BookConfirmClient({
         }, 300);
       }
     } catch (error) {
+      if (error instanceof NormalBookingRecoveryError) {
+        setBookingError(normalBookingErrorMessage(error.reason));
+        if (error.reason === 'slot_unavailable') {
+          setSlotTaken(true);
+        }
+        if (error.reason === 'review_changed') {
+          router.refresh();
+        }
+        bookingInitiatedRef.current = false;
+        return;
+      }
       console.error('Booking error:', error);
       setBookingError(
         error instanceof CustomerSafeBookingError
@@ -2717,11 +2809,53 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, canonicalStartTime, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, navigateToCheckout, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
+  }, [addOns, salonName, salonTimeZone, technician, salonConfirmsManually, isAssistantHandoff, salonId, recoveringHandoff, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, canonicalStartTime, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, navigateToCheckout, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);
   }, [location]);
+
+  const recoverBookingAction = async (action: 'resume' | 'manage') => {
+    if (!salonId || !durableStatus) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/public/customer-booking/${encodeURIComponent(salonId)}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ capability: durableStatus.operation.capability }) });
+      const data = await response.json() as { url?: string };
+      const url = data.url ? customerBookingRecoveryUrl(data.url, action) : null;
+      if (!response.ok || !url) {
+        throw new Error('unavailable');
+      }
+      window.location.assign(url);
+    } catch {
+      setBookingError(normalBookingErrorMessage('recovery_unavailable'));
+    }
+  };
+  if (isAssistantHandoff && durableStatus) {
+    return (
+      <div className="mx-auto max-w-xl p-4">
+        <BookingStatusCard status={durableStatus} locale={locale === 'fr' ? 'fr' : 'en'} onManage={() => void recoverBookingAction('manage')} onResume={() => void recoverBookingAction('resume')} />
+        {canStartAnotherBooking(durableStatus.status) && (
+          <button
+            type="button"
+            className="mt-4 min-h-11 rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold"
+            onClick={() => {
+              try {
+                startAnotherBooking(salonId!, salonSlug, durableStatus.status);
+                clearBookingState();
+                router.push(buildBookingUrl(`/${locale}/book/service`, { salonSlug }, { routeSalonSlug, locale }));
+              } catch {
+                setBookingError(normalBookingErrorMessage('recovery_unavailable'));
+              }
+            }}
+          >
+            {locale === 'fr' ? 'Commencer une autre réservation' : 'Start another booking'}
+          </button>
+        )}
+        {bookingError && <p role="alert">{bookingError}</p>}
+      </div>
+    );
+  }
 
   // Existing appointment error: the server (never browser state) confirmed an
   // active appointment for this phone. Offer every path forward instead of a

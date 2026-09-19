@@ -148,4 +148,50 @@ describe('useBookingState', () => {
     expect(result.current.serviceIds).toEqual(['salon-b-service']);
     expect(window.localStorage.getItem('booking_state:v2:salon-b')).not.toContain('salon-a-tech');
   });
+
+  it('atomically applies an accepted assistant selection without retaining a stale technician', async () => {
+    const { result } = renderHook(() => useBookingState('salon-a'));
+
+    await waitFor(() => {
+      expect(result.current.isHydrated).toBe(true);
+    });
+
+    let persisted = false;
+    act(() => {
+      result.current.setTechnicianId('stale-tech', 'explicit');
+      result.current.setLocationId('loc-1');
+      persisted = result.current.applyAssistantHandoff({
+        baseServiceId: 'assistant-service',
+        selectedAddOns: [{ addOnId: 'assistant-addon', quantity: 2 }],
+      });
+    });
+
+    expect(persisted).toBe(true);
+    expect(JSON.parse(window.localStorage.getItem('booking_state:v2:salon-a')!)).toMatchObject({
+      technicianId: null,
+      baseServiceId: 'assistant-service',
+      selectedAddOns: [{ addOnId: 'assistant-addon', quantity: 2 }],
+      locationId: 'loc-1',
+    });
+    expect(result.current.technicianId).toBeNull();
+    expect(result.current.technicianSelectionSource).toBeNull();
+    expect(result.current.baseServiceId).toBe('assistant-service');
+    expect(result.current.serviceIds).toEqual(['assistant-service']);
+    expect(result.current.selectedAddOns).toEqual([{ addOnId: 'assistant-addon', quantity: 2 }]);
+    expect(result.current.locationId).toBe('loc-1');
+  });
+
+  it('fails closed before navigation when assistant handoff state cannot be read back', async () => {
+    const { result } = renderHook(() => useBookingState('salon-a'));
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+    vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(null);
+
+    let persisted = true;
+    act(() => {
+      persisted = result.current.applyAssistantHandoff({ baseServiceId: 'assistant-service', selectedAddOns: [] });
+    });
+
+    expect(persisted).toBe(false);
+    expect(result.current.baseServiceId).toBeNull();
+  });
 });

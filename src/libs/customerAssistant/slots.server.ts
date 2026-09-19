@@ -132,6 +132,8 @@ export async function lookupCustomerSlots(args: {
   // Cap rather than exposing any internal availability metadata. Slots are
   // still freshly re-checked before a later customer selection is accepted.
   const availableSlots = body.slots.filter(isAvailableSlot)
+    // The shared public engine uses unpadded hours; canonicalize before comparison.
+    .map(slot => ({ ...slot, time: slot.time.padStart(5, '0') }))
     .filter(slot => isTime(slot.time))
     .filter((slot) => {
       const startTime = new Date(slot.startTime);
@@ -160,4 +162,23 @@ export async function lookupCustomerSlots(args: {
 
 export function hasOfferedCustomerSlot(slots: readonly CustomerAvailableSlot[], startTime: string): CustomerAvailableSlot | null {
   return slots.find(slot => slot.startTime === startTime) ?? null;
+}
+
+/** Bounded next-date search through the exact public availability authority; never hours-only guesses. */
+export async function lookupNextCustomerSlots(args: Omit<Parameters<typeof lookupCustomerSlots>[0], 'preference'> & { fromDate?: string; earliest?: string; latest?: string }) {
+  const context = await getCustomerAvailabilityContext(args.salon.id, args.now);
+  const firstDate = args.fromDate ?? context.today;
+  const deadline = performance.now() + 12_000;
+  for (let offset = 0; offset < 7 && performance.now() < deadline; offset += 1) {
+    const date = new Date(Date.parse(`${firstDate}T12:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
+    const preference = { date, earliest: args.earliest ?? '00:00', latest: args.latest ?? '23:59' };
+    const found = await lookupCustomerSlots({ ...args, preference });
+    if (!found || found.quoteChanged) {
+      return null;
+    }
+    if (found.slots.length) {
+      return { ...found, preference };
+    }
+  }
+  return null;
 }

@@ -65,8 +65,9 @@ export type CustomerReviewSnapshot = {
 };
 
 /** Authoritative review for explicit confirmation; still not a slot hold. */
-export type CustomerReadyReviewSnapshot = Omit<CustomerReviewSnapshot, 'status' | 'blockers' | 'financial'> & {
+export type CustomerReadyReviewSnapshot = Omit<CustomerReviewSnapshot, 'status' | 'blockers' | 'financial' | 'technician'> & {
   status: 'READY';
+  technician: { kind: 'any_artist' } | { kind: 'specific'; id: string; name: string };
   financial: {
     subtotalCents: number;
     discountAmountCents: number;

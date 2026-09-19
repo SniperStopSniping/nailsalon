@@ -22,7 +22,8 @@ beforeEach(() => {
 describe('customer assistant budget reservation', () => {
   it.each([
     [0, { ok: true }],
-    [1, { ok: false, reason: 'conversation_used' }],
+    [1, { ok: false, reason: 'stale_conversation' }],
+    [3, { ok: false, reason: 'session_limit' }],
     [2, { ok: false, reason: 'rate_limited' }],
   ])('maps atomic reservation result %s', async (code, result) => {
     evalMock.mockResolvedValue(code);
@@ -102,16 +103,16 @@ describe('customer assistant budget reservation', () => {
     const args = (evalMock.mock.calls[0] as unknown[]).slice(2 + 8).map(String);
 
     expect(args.slice(6, 10)).toEqual([
-      String(30 * 60),
+      String(2 * 60 * 60 + 60),
       String(2 * 60),
       String(2 * 24 * 60 * 60),
       String(35 * 24 * 60 * 60),
     ]);
   });
 
-  it('denies a thirteenth request before reaching Redis', async () => {
-    await expect(reserveCustomerAssistantTurn({ ...input, turnIndex: 12 }))
-      .resolves.toEqual({ ok: false, reason: 'conversation_used' });
+  it('denies a thirty-third request before reaching Redis', async () => {
+    await expect(reserveCustomerAssistantTurn({ ...input, turnIndex: 32 }))
+      .resolves.toEqual({ ok: false, reason: 'session_limit' });
     expect(evalMock).not.toHaveBeenCalled();
   });
 });

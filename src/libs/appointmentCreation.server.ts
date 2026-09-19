@@ -1017,7 +1017,8 @@ function anonymousMaterialMatchesRequest(data: CreateAppointmentRequest, materia
   const expectedAddOns = [...material.selection.selectedAddOns].map(item => ({ addOnId: item.addOnId, quantity: item.quantity ?? 1 })).sort((a, b) => a.addOnId.localeCompare(b.addOnId) || a.quantity - b.quantity);
   return data.serviceIds === undefined
     && data.baseServiceId === material.selection.baseServiceId
-    && data.technicianId === null
+    && data.technicianId === (material.technicianId ?? null)
+    && (data.locationId ?? null) === (material.locationId ?? null)
     && data.startTime === material.startTime
     && JSON.stringify(addOns) === JSON.stringify(expectedAddOns)
     && isDeepStrictEqual(data.smsConsent ?? null, material.smsConsent ?? null)
@@ -3494,7 +3495,7 @@ export async function createAppointmentFromRequest(
         material.selection.baseServiceId !== selection.baseServiceRecord.id
         || (!selection.l1 && !isDeepStrictEqual(material.selection.selectedAddOns, canonicalAddOns))
         || material.startTime !== canonicalStartTime
-        || material.technicianSelection !== 'any'
+        || (material.technicianSelection === 'specific' && (material.technicianId !== lockedTechnician.id || material.review.technician.kind !== 'specific' || material.review.technician.id !== lockedTechnician.id || material.review.technician.name !== lockedTechnician.name))
         || material.review.services.length !== 1
         || material.review.services[0]?.id !== selection.baseServiceRecord.id
         || material.review.services[0]?.name !== selection.baseServiceRecord.name

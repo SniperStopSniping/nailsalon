@@ -21,7 +21,7 @@ export const dynamic = 'force-dynamic';
  */
 export default async function BookEntryPage(
   props: {
-    searchParams: Promise<{ salonSlug?: string; campaign?: string }>;
+    searchParams: Promise<{ salonSlug?: string; campaign?: string; bookingFlow?: string }>;
     params?: Promise<{ locale?: string; slug?: string }>;
   },
 ) {
@@ -39,6 +39,7 @@ export default async function BookEntryPage(
   redirect(buildBookingUrl(`${localePrefix}/book/${firstStep}`, {
     salonSlug: searchParams.salonSlug ?? salon.slug,
     campaignToken: searchParams.campaign ?? null,
+    bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
   }, {
     routeSalonSlug: params?.slug,
     locale: params?.locale,

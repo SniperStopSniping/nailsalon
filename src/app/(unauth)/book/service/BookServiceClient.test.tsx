@@ -2167,6 +2167,29 @@ describe('BookServiceClient', () => {
     expect(bookingStateMock.setTechnicianId).toHaveBeenCalledWith('tech-1', 'auto');
   });
 
+  it('preserves the assistant flow marker after a normal service edit', () => {
+    clientSessionMock.isLoggedIn = true;
+    navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&bookingFlow=assistant');
+
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={locations}
+        technicians={technicians}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    fireEvent.click(screen.getByTestId('service-continue-button'));
+
+    expect(navigationMock.routerPush).toHaveBeenCalledWith(
+      '/en/salon-a/book/time?baseServiceId=svc-1&locationId=loc-1&techId=tech-1&bookingFlow=assistant',
+    );
+  });
+
   it('restores the normal artist step when the selection changes from one-tech to multi-tech', async () => {
     render(
       <BookServiceClient

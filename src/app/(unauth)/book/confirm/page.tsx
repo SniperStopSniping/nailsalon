@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
+import { CustomerAssistantLauncher } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
@@ -9,6 +10,7 @@ import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
+import { isCustomerAssistantEnabledForSalon } from '@/libs/customerAssistant/access.server';
 import {
   buildDepositDisclosure,
   buildDepositDisclosureFingerprint,
@@ -59,6 +61,7 @@ export default async function BookConfirmPage(
       originalAppointmentId?: string;
       manageToken?: string;
       campaign?: string;
+      bookingFlow?: string;
       smartFitDiscountCents?: string | string[];
       smartFitTotalCents?: string | string[];
     }>;
@@ -231,6 +234,7 @@ export default async function BookConfirmPage(
         originalAppointmentId,
         manageToken: searchParams.manageToken ?? null,
         campaignToken: searchParams.campaign ?? null,
+        bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -252,6 +256,7 @@ export default async function BookConfirmPage(
         originalAppointmentId,
         manageToken: searchParams.manageToken ?? null,
         campaignToken: searchParams.campaign ?? null,
+        bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -269,6 +274,7 @@ export default async function BookConfirmPage(
         originalAppointmentId,
         manageToken: searchParams.manageToken ?? null,
         campaignToken: searchParams.campaign ?? null,
+        bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -419,6 +425,7 @@ export default async function BookConfirmPage(
     >
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookConfirmClient
+          salonId={salon.id}
           services={services}
           addOns={resolvedTechnicianContext.resolvedSelection.addOns.map(addOn => ({
             id: addOn.id,
@@ -478,6 +485,9 @@ export default async function BookConfirmPage(
           // Use the same canonical booking setting as the appointment writer.
           salonConfirmsManually={bookingConfig.confirmationMode === 'request_approval' || (!depositCharge.required && resolvedTechnicianContext.resolvedSelection.l1ConfirmationMode === 'request_approval')}
         />
+        {!ownerPreviewState.isPreviewing && isCustomerAssistantEnabledForSalon(salon.slug) && (
+          <CustomerAssistantLauncher salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} />
+        )}
       </Suspense>
     </PublicSalonPageShell>
   );

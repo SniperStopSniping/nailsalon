@@ -1,12 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { SelectedAddOnParam } from '@/libs/bookingParams';
 
 const BOOKING_STATE_KEY_PREFIX = 'booking_state:v2';
 
 export type BookingTechnicianSelectionSource = 'explicit' | 'auto' | null;
+
+export type AssistantBookingHandoff = {
+  baseServiceId: string;
+  selectedAddOns: SelectedAddOnParam[];
+};
 
 type BookingState = {
   technicianId: string | null; // null means "any artist", empty string means not selected
@@ -38,11 +43,13 @@ export function useBookingState(salonSlug: string) {
       : null;
   }, [salonSlug]);
   const [state, setState] = useState<BookingState>(defaultState);
+  const stateRef = useRef<BookingState>(defaultState);
   const [hydratedStorageKey, setHydratedStorageKey] = useState<string | null>(null);
   const isHydrated = storageKey === null || hydratedStorageKey === storageKey;
 
   useEffect(() => {
     if (typeof window === 'undefined' || !storageKey) {
+      stateRef.current = defaultState;
       setState(defaultState);
       setHydratedStorageKey(storageKey);
       return;
@@ -63,6 +70,7 @@ export function useBookingState(salonSlug: string) {
       // Invalid stored state, use default
     }
 
+    stateRef.current = nextState;
     setState(nextState);
     setHydratedStorageKey(storageKey);
   }, [storageKey]);
@@ -84,34 +92,72 @@ export function useBookingState(salonSlug: string) {
     }
   }, [hydratedStorageKey, state, storageKey]);
 
+  const updateState = useCallback((update: (current: BookingState) => BookingState) => {
+    const nextState = update(stateRef.current);
+    stateRef.current = nextState;
+    setState(nextState);
+  }, []);
+
   const setTechnicianId = useCallback((
     techId: string | null,
     technicianSelectionSource: BookingTechnicianSelectionSource = techId ? 'explicit' : null,
   ) => {
-    setState(prev => ({
+    updateState(prev => ({
       ...prev,
       technicianId: techId,
       technicianSelectionSource: techId ? technicianSelectionSource : null,
     }));
-  }, []);
+  }, [updateState]);
 
   const setServiceIds = useCallback((serviceIds: string[]) => {
-    setState(prev => ({ ...prev, serviceIds }));
-  }, []);
+    updateState(prev => ({ ...prev, serviceIds }));
+  }, [updateState]);
 
   const setBaseServiceId = useCallback((baseServiceId: string | null) => {
-    setState(prev => ({ ...prev, baseServiceId }));
-  }, []);
+    updateState(prev => ({ ...prev, baseServiceId }));
+  }, [updateState]);
 
   const setSelectedAddOns = useCallback((selectedAddOns: SelectedAddOnParam[]) => {
-    setState(prev => ({ ...prev, selectedAddOns }));
-  }, []);
+    updateState(prev => ({ ...prev, selectedAddOns }));
+  }, [updateState]);
 
   const setLocationId = useCallback((locationId: string | null) => {
-    setState(prev => ({ ...prev, locationId }));
-  }, []);
+    updateState(prev => ({ ...prev, locationId }));
+  }, [updateState]);
+
+  /**
+   * Accepting an assistant proposal is the only assistant action allowed to
+   * change the normal booking flow. Clear a stale manual technician so the
+   * normal technician/time pages revalidate it for the accepted selection.
+   */
+  const applyAssistantHandoff = useCallback((handoff: AssistantBookingHandoff): boolean => {
+    if (typeof window === 'undefined' || !storageKey || hydratedStorageKey !== storageKey) {
+      return false;
+    }
+    const nextState: BookingState = {
+      ...stateRef.current,
+      technicianId: null,
+      technicianSelectionSource: null,
+      serviceIds: [handoff.baseServiceId],
+      baseServiceId: handoff.baseServiceId,
+      selectedAddOns: handoff.selectedAddOns,
+    };
+    try {
+      const serialized = JSON.stringify(nextState);
+      localStorage.setItem(storageKey, serialized);
+      if (localStorage.getItem(storageKey) !== serialized) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+    stateRef.current = nextState;
+    setState(nextState);
+    return true;
+  }, [hydratedStorageKey, storageKey]);
 
   const clearBookingState = useCallback(() => {
+    stateRef.current = defaultState;
     setState(defaultState);
     if (typeof window !== 'undefined' && storageKey) {
       try {
@@ -135,7 +181,7 @@ export function useBookingState(salonSlug: string) {
       ? params.techId
       : null;
 
-    setState(prev => ({
+    updateState(prev => ({
       ...prev,
       ...(params.techId !== undefined && {
         technicianId: normalizedTechId,
@@ -148,7 +194,7 @@ export function useBookingState(salonSlug: string) {
       ...(params.selectedAddOns !== undefined && { selectedAddOns: params.selectedAddOns }),
       ...(params.locationId !== undefined && { locationId: params.locationId || null }),
     }));
-  }, []);
+  }, [updateState]);
 
   return {
     state,
@@ -164,6 +210,7 @@ export function useBookingState(salonSlug: string) {
     setBaseServiceId,
     setSelectedAddOns,
     setLocationId,
+    applyAssistantHandoff,
     clearBookingState,
     syncFromUrl,
   };

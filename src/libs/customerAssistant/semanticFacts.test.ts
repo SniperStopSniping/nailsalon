@@ -31,7 +31,7 @@ describe('customer assistant semantic facts', () => {
   });
 
   it('keeps the JSON schema strict and makes every patch field explicit', () => {
-    expect(patchJSONSchema.required).toHaveLength(10);
+    expect(patchJSONSchema.required).toHaveLength(11);
     // Responses structured output requires a type even for a literal branch.
     expect(patchJSONSchema.properties.repairCount.anyOf).toEqual([
       { type: 'integer', minimum: 0, maximum: 20 },

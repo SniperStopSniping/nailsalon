@@ -23,7 +23,7 @@ export function customerUsageCostMicros(usage: ModelProviderUsage | null): numbe
 export async function recordCustomerAssistantUsage(args: {
   salonId: string;
   attemptId: string;
-  outcome: 'reserved' | 'proposal' | 'clarification' | 'availability' | 'slot_selected' | 'review_prepared' | 'no_match' | 'failed';
+  outcome: 'answer' | 'reserved' | 'proposal' | 'clarification' | 'availability' | 'slot_selected' | 'review_prepared' | 'no_match' | 'failed';
   usage: ModelProviderUsage | null;
   latencyMs: number;
   deterministic?: boolean;

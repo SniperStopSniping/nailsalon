@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
+import { CustomerAssistantLauncher } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
@@ -9,6 +10,7 @@ import { resolveBookingHoursCeiling } from '@/libs/bookingHoursCeiling';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
+import { isCustomerAssistantEnabledForSalon } from '@/libs/customerAssistant/access.server';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import {
   type ResolvedPublicBookingTechnicianContext,
@@ -50,6 +52,7 @@ export default async function BookTimePage(
       originalAppointmentId?: string;
       manageToken?: string;
       campaign?: string;
+      bookingFlow?: string;
     }>;
     params?: Promise<{ locale?: string; slug?: string }>;
   },
@@ -137,6 +140,7 @@ export default async function BookTimePage(
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
       manageToken: searchParams.manageToken ?? null,
       campaignToken: searchParams.campaign ?? null,
+      bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
     }, {
       routeSalonSlug: params?.slug,
       locale: params?.locale,
@@ -197,6 +201,7 @@ export default async function BookTimePage(
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
       manageToken: searchParams.manageToken ?? null,
       campaignToken: searchParams.campaign ?? null,
+      bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
     }, {
       routeSalonSlug: params?.slug,
       locale: params?.locale,
@@ -215,6 +220,7 @@ export default async function BookTimePage(
         originalAppointmentId: searchParams.originalAppointmentId ?? null,
         manageToken: searchParams.manageToken ?? null,
         campaignToken: searchParams.campaign ?? null,
+        bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -236,6 +242,7 @@ export default async function BookTimePage(
         originalAppointmentId: searchParams.originalAppointmentId ?? null,
         manageToken: searchParams.manageToken ?? null,
         campaignToken: searchParams.campaign ?? null,
+        bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -253,6 +260,7 @@ export default async function BookTimePage(
         originalAppointmentId: searchParams.originalAppointmentId ?? null,
         manageToken: searchParams.manageToken ?? null,
         campaignToken: searchParams.campaign ?? null,
+        bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
       }, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
@@ -333,6 +341,9 @@ export default async function BookTimePage(
           salonTimeZone={bookingConfig.timezone}
           closedWeekdays={closedWeekdays}
         />
+        {!ownerPreviewState.isPreviewing && isCustomerAssistantEnabledForSalon(salon.slug) && (
+          <CustomerAssistantLauncher salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} />
+        )}
       </Suspense>
     </PublicSalonPageShell>
   );

@@ -17,6 +17,13 @@ export async function validateCustomerReviewLocationInTx(tx: CustomerBookingTran
   if (!salon || !salon.isActive || salon.publicationStatus !== 'published' || !isDeepStrictEqual(material.review.salon, { id: salon.id, slug: salon.slug, name: salon.name })) {
     throw new CustomerBookingOperationError('review_changed');
   }
+  if (material.locationId) {
+    const [requested] = await tx.select().from(salonLocationSchema).where(and(eq(salonLocationSchema.id, material.locationId), eq(salonLocationSchema.salonId, salonId), eq(salonLocationSchema.isActive, true))).limit(1);
+    if (!requested || !isDeepStrictEqual(material.review.location, resolveCustomerReviewLocation(salon, requested))) {
+      throw new CustomerBookingOperationError('review_changed');
+    }
+    return { location: requested, salonBusinessHours: salon.businessHours };
+  }
   const [primary] = await tx.select().from(salonLocationSchema).where(and(eq(salonLocationSchema.salonId, salonId), eq(salonLocationSchema.isPrimary, true), eq(salonLocationSchema.isActive, true))).limit(1);
   const [fallback] = primary ? [] : await tx.select().from(salonLocationSchema).where(and(eq(salonLocationSchema.salonId, salonId), eq(salonLocationSchema.isActive, true))).limit(1);
   if (!isDeepStrictEqual(material.review.location, resolveCustomerReviewLocation(salon, primary ?? fallback ?? null))) {

@@ -10,6 +10,7 @@ import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
+import { useNormalBookingFlowMarker } from '@/libs/customerAssistant/normalConfirmHandoff.client';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
@@ -64,7 +65,7 @@ export function BookTechClient({
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
-  const { salonName, salonSlug } = useSalon();
+  const { salonName, salonSlug, salonId } = useSalon();
   const locale = (params?.locale as string) || 'en';
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const serviceIds = searchParams.get('serviceIds')?.split(',').filter(Boolean) || [];
@@ -79,6 +80,7 @@ export function BookTechClient({
   const locationId = searchParams.get('locationId') || '';
   const manageToken = searchParams.get('manageToken') || '';
   const campaignToken = searchParams.get('campaign') || '';
+  const bookingFlowMarker = useNormalBookingFlowMarker(salonId, searchParams.get('bookingFlow'));
 
   // Use global booking state for technician persistence
   const { technicianId, setTechnicianId, syncFromUrl, isHydrated = false } = useBookingState(salonSlug);
@@ -134,6 +136,7 @@ export function BookTechClient({
       manageToken,
       campaignToken,
       locationId,
+      bookingFlow: bookingFlowMarker,
     }, {
       routeSalonSlug,
       locale,
@@ -171,6 +174,7 @@ export function BookTechClient({
         manageToken,
         campaignToken,
         locationId,
+        bookingFlow: bookingFlowMarker,
       }, {
         routeSalonSlug,
         locale,

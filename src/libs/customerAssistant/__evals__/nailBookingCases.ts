@@ -26,7 +26,7 @@ const ID = {
 } as const;
 
 export type NailInterpretation = {
-  action: 'propose' | 'clarify' | 'availability' | 'no_match';
+  action: 'propose' | 'clarify' | 'availability' | 'answer' | 'no_match';
   serviceId: string | null;
   addOns: Array<{ addOnId: string; quantity: number }>;
   question: 'service' | 'removal' | 'product' | 'origin' | 'length' | 'finish' | 'quantity' | 'details' | 'date';

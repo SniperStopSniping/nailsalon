@@ -1185,8 +1185,8 @@ jobs:
             src/libs/customerAssistant/operationStore.concurrency.integration.test.ts \
             src/libs/appointmentCreation.customerOperation.concurrency.integration.test.ts \
             | tee customer-booking-postgres.log
-          grep -Fqx 'CUSTOMER_OPERATION_POSTGRES_TESTS_EXECUTED=8 CUSTOMER_OPERATION_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
-          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=26 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
+          grep -Fqx 'CUSTOMER_OPERATION_POSTGRES_TESTS_EXECUTED=12 CUSTOMER_OPERATION_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
+          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=30 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
 
       - name: Install mobile browser engines for the real customer booking journey
         run: npx playwright install --with-deps chromium webkit

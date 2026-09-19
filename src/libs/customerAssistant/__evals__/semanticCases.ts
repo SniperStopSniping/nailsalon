@@ -33,6 +33,7 @@ const ids = {
   gelx: 'svc_semantic_gelx',
   gelxFill: 'svc_semantic_gelx_fill',
   french: 'addon_semantic_french',
+  chrome: 'addon_semantic_chrome',
   short: 'addon_semantic_short',
   medium: 'addon_semantic_medium',
   long: 'addon_semantic_long',
@@ -52,6 +53,7 @@ const built = buildPublicCatalogSnapshot({
   ],
   addOnGroups: [makeFixtureAddOnGroup({ id: 'group_semantic_length', name: 'Length', slug: 'length', minSelections: 1, maxSelections: 1 })],
   addOns: [
+    makeFixtureAddOn({ id: ids.chrome, name: 'Chrome Finish', priceCents: 1200, durationMinutes: 10 }),
     makeFixtureAddOn({ id: ids.french, name: 'French Tips', priceCents: 1000, durationMinutes: 15 }),
     makeFixtureAddOn({ id: ids.short, name: 'Short Length', groupId: 'group_semantic_length', priceCents: 0, durationMinutes: 0 }),
     makeFixtureAddOn({ id: ids.medium, name: 'Medium Length', groupId: 'group_semantic_length', priceCents: 1000, durationMinutes: 15 }),
@@ -63,6 +65,7 @@ const built = buildPublicCatalogSnapshot({
   ],
   serviceAddOnBindings: [
     ...[ids.gelManicure, ids.biab, ids.gelx, ids.gelxFill].flatMap(serviceId => [
+      makeFixtureBinding({ id: `binding_${serviceId}_chrome`, serviceId, addOnId: ids.chrome }),
       makeFixtureBinding({ id: `binding_${serviceId}_french`, serviceId, addOnId: ids.french }),
       makeFixtureBinding({ id: `binding_${serviceId}_repair`, serviceId, addOnId: ids.repair, maxQuantityOverride: 5 }),
     ]),

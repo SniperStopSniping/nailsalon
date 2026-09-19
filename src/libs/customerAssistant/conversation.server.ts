@@ -7,7 +7,9 @@ import { z } from 'zod';
 import { customerAvailableSlotSchema, customerDatePreferenceSchema, customerSelectionSchema } from './contracts';
 import { factsSchema } from './semanticFacts';
 
-const CONVERSATION_TTL_MS = 30 * 60 * 1000;
+export const CONVERSATION_TTL_MS = 30 * 60 * 1000;
+export const CONVERSATION_ABSOLUTE_TTL_MS = 2 * 60 * 60 * 1000;
+export const CUSTOMER_CONVERSATION_MAX_TURNS = 32;
 export const CUSTOMER_CONVERSATION_MAX_MESSAGES = 16;
 export const CUSTOMER_CONVERSATION_MAX_MESSAGE_CHARS = 600;
 export const CUSTOMER_CONVERSATION_MAX_TOKEN_BYTES = 24_576;
@@ -16,6 +18,7 @@ const customerMessageSchema = z.string().min(1).max(CUSTOMER_CONVERSATION_MAX_ME
 
 const customerConversationContextSchema = z.object({
   question: z.enum(['service', 'removal', 'product', 'origin', 'length', 'finish', 'quantity', 'details', 'date']).nullable(),
+  answerTopic: z.enum(['compare_treatments', 'length_options', 'service_options', 'unknown_product', 'service_information']).optional(),
   options: z.array(z.string().min(1).max(160)).max(8),
   selection: customerSelectionSchema.nullable(),
 }).strict();
@@ -30,21 +33,23 @@ const customerConversationBookingSchema = z.object({
 }).strict();
 
 const conversationSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
+  lastActivityAtMs: z.number().int().nonnegative().optional(),
   salonId: z.string().min(1),
   sessionId: z.string().uuid(),
   issuedAtMs: z.number().int().nonnegative(),
   expiresAtMs: z.number().int().nonnegative(),
-  // A completed twelfth turn is represented by index 12 so it can be signed
-  // and rendered after the final provider response. The reservation guard
-  // denies that index if it is presented for a thirteenth request.
-  turnIndex: z.number().int().min(0).max(12),
+  turnIndex: z.number().int().min(0).max(CUSTOMER_CONVERSATION_MAX_TURNS),
   messages: z.array(customerMessageSchema).max(CUSTOMER_CONVERSATION_MAX_MESSAGES),
   facts: factsSchema.optional(),
+  requestedSelection: customerSelectionSchema.optional(),
+  availabilityPreference: customerDatePreferenceSchema.optional(),
   context: customerConversationContextSchema.optional(),
   booking: customerConversationBookingSchema.optional(),
 }).strict().superRefine((value, context) => {
-  if (value.expiresAtMs - value.issuedAtMs !== CONVERSATION_TTL_MS) {
+  const activity = value.lastActivityAtMs ?? value.issuedAtMs;
+  const expectedExpiry = value.version === 1 ? value.issuedAtMs + CONVERSATION_TTL_MS : Math.min(activity + CONVERSATION_TTL_MS, value.issuedAtMs + CONVERSATION_ABSOLUTE_TTL_MS);
+  if (value.expiresAtMs !== expectedExpiry || activity < value.issuedAtMs || activity > value.expiresAtMs) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'invalid conversation lifetime' });
   }
 });
@@ -66,7 +71,8 @@ export function createCustomerConversation(
   now = Date.now(),
 ): CustomerConversation {
   return {
-    version: 1,
+    version: 2,
+    lastActivityAtMs: now,
     salonId,
     sessionId: randomUUID(),
     issuedAtMs: now,
@@ -122,6 +128,9 @@ export function verifyCustomerConversation(
   if (!parsed.success) {
     throw new CustomerConversationInvalidError('payload');
   }
+  if (parsed.data.issuedAtMs > now + 60_000 || (parsed.data.lastActivityAtMs ?? 0) > now + 60_000) {
+    throw new CustomerConversationInvalidError('payload');
+  }
   if (parsed.data.expiresAtMs <= now) {
     throw new CustomerConversationInvalidError('expired');
   }
@@ -129,4 +138,13 @@ export function verifyCustomerConversation(
     throw new CustomerConversationInvalidError('mismatch');
   }
   return parsed.data;
+}
+
+/** Activity extends only idle time; it never resets the absolute session or turn budgets. */
+export function advanceCustomerConversation(conversation: CustomerConversation, now = Date.now()): CustomerConversation {
+  return { ...conversation, version: 2, lastActivityAtMs: now, expiresAtMs: Math.min(now + CONVERSATION_TTL_MS, conversation.issuedAtMs + CONVERSATION_ABSOLUTE_TTL_MS), turnIndex: conversation.turnIndex + 1 };
+}
+
+export function conversationInvalidReason(error: unknown): 'conversation_expired' | 'invalid_conversation' {
+  return error instanceof CustomerConversationInvalidError && error.detail === 'expired' ? 'conversation_expired' : 'invalid_conversation';
 }
