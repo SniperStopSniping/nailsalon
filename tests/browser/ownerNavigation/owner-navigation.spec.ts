@@ -257,7 +257,7 @@ test('Help dispatches to existing paths and Free Solo retains the existing plan 
 
   await page.goto('/?app=plan-usage&salon=isla&freeSolo=1');
 
-  await expect(page.getByRole('button', { name: /usage & billing/i })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /messages & credits/i })).toBeEnabled();
   await expect(page.getByRole('button', { name: /compare plans/i })).toHaveCount(0);
 });
 
