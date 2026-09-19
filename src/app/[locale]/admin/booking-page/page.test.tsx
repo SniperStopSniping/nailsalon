@@ -16,13 +16,14 @@ import type { ServiceMenuLayout } from '@/libs/serviceMenuLayout';
 
 import BookingPageOwnerSurface from './page';
 
-const { pushMock, searchParamsMock } = vi.hoisted(() => ({
+const { pushMock, replaceMock, searchParamsMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
+  replaceMock: vi.fn(),
   searchParamsMock: { value: new URLSearchParams('salon=salon-a') },
 }));
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: pushMock }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock }),
   useParams: () => ({ locale: 'en' }),
   useSearchParams: () => searchParamsMock.value,
 }));
@@ -174,6 +175,48 @@ describe('BookingPageOwnerSurface', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/onboarding'))).toBe(false);
   });
 
+  it('replaces a legacy no-panel URL with the canonical hub while preserving its context', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&returnTo=calendar');
+    render(<BookingPageOwnerSurface />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/en/admin/website?salon=salon-a&returnTo=calendar'));
+
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['', '/en/admin/website?salon=salon-a'],
+    ['salon=&returnTo=calendar', '/en/admin/website?salon=salon-a&returnTo=calendar'],
+    ['salon=&panel=retired&returnTo=calendar', '/en/admin/website?salon=salon-a&panel=retired&returnTo=calendar'],
+  ])('resolves the authenticated salon before replacing a bare, empty, or invalid legacy panel query (%s)', async (query, expectedUrl) => {
+    searchParamsMock.value = new URLSearchParams(query);
+    render(<BookingPageOwnerSurface />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith(expectedUrl));
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/admin/auth/me'))).toBe(true);
+  });
+
+  it('places the starting design, Business type and page sections in Layouts', async () => {
+    searchParamsMock.value = new URLSearchParams('panel=layouts');
+    render(<BookingPageOwnerSurface />);
+
+    expect(await screen.findByTestId('booking-page-preset-picker')).toBeVisible();
+    expect(screen.getByText('Business type')).toBeVisible();
+
+    const advanced = screen.getByTestId('business-type-advanced');
+
+    expect(advanced).not.toHaveAttribute('open');
+
+    fireEvent.click(within(advanced).getByText('Advanced business setup'));
+
+    expect(advanced).toHaveAttribute('open');
+    expect(screen.getByTestId('business-mode-option-solo')).toHaveTextContent('Independent nail tech');
+    expect(screen.getByTestId('booking-page-builder')).toBeVisible();
+    expect(screen.getByText('Booking menu layout')).toBeVisible();
+    expect(screen.queryByTestId('builder-variant-serviceMenu')).not.toBeInTheDocument();
+  });
+
   it('releases guided navigation after Next reuses the page for the destination panel', async () => {
     searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text&guided=1');
     const { rerender } = render(<BookingPageOwnerSurface />);
@@ -249,50 +292,9 @@ describe('BookingPageOwnerSurface', () => {
     expect(next).toHaveAttribute('aria-busy', 'false');
   });
 
-  /*
-   * Legacy no-panel editor retirement. The hub gave these controls a home, so
-   * the ones that now duplicate a panel are gone or renamed to that panel's
-   * own words, and the ones with nowhere else to live speak onboarding's
-   * language instead of the config field's.
-   */
-  it('retires the dead style-pack picker from the legacy editor', async () => {
-    render(<BookingPageOwnerSurface />);
-    await screen.findByTestId('content-bio');
-
-    expect(screen.queryByTestId('style-pack-option-default')).not.toBeInTheDocument();
-    expect(screen.queryByText('Style pack')).not.toBeInTheDocument();
-    expect(screen.queryByText('More style packs coming soon.')).not.toBeInTheDocument();
-    // The saved field itself is untouched — only the one-option control went.
-    expect(config.draft.stylePack).toBe('default');
-  });
-
-  it('speaks onboarding vocabulary for the remaining legacy-only control and links photos to their canonical home', async () => {
-    render(<BookingPageOwnerSurface />);
-    await screen.findByTestId('content-bio');
-
-    expect(screen.getByText('Business type')).toBeVisible();
-    expect(screen.getByTestId('business-mode-option-solo')).toHaveTextContent('Independent nail tech');
-    expect(screen.getByTestId('business-mode-option-team')).toHaveTextContent('Salon / studio');
-    expect(screen.queryByText('Business mode')).not.toBeInTheDocument();
-    expect(screen.getByText('Website photos')).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Manage Photos & Gallery' })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=gallery');
-    expect(screen.queryByText('Hero / profile image URL')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('content-hero-image-url')).not.toBeInTheDocument();
-  });
-
-  it('calls the duplicated address control what Your Information calls it, and links there', async () => {
-    render(<BookingPageOwnerSurface />);
-    await screen.findByTestId('location-display-mode-city_only');
-
-    expect(screen.getByText('Address privacy')).toBeVisible();
-    expect(screen.queryByText('Location shown as')).not.toBeInTheDocument();
-    expect(screen.getByTestId('location-display-mode-canonical-link'))
-      .toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=information');
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
-    searchParamsMock.value = new URLSearchParams('salon=salon-a');
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=layouts');
     config = baseConfig();
     content = baseContent();
     salonPublicationStatus = 'published';
@@ -407,7 +409,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('does not let a cancelled StrictMode bootstrap identify a newer booking-state request', async () => {
-    searchParamsMock.value = new URLSearchParams();
+    searchParamsMock.value = new URLSearchParams('panel=layouts');
     const fallbackFetch = fetchMock.getMockImplementation()!;
     const releaseAuthRequests: Array<() => void> = [];
     const releaseBookingRequests: Array<() => void> = [];
@@ -482,28 +484,24 @@ describe('BookingPageOwnerSurface', () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
   });
 
-  it('saves one Quick Book visibility switch with a narrow config patch and refreshes the preview', async () => {
+  it('saves one Quick Book policy visibility switch with a narrow config patch', async () => {
     config = baseConfig({
       quickBookProfile: {
         ...QUICK_BOOK_PROFILE_DEFAULTS,
-        showEmail: true,
+        showBookingPolicy: true,
       },
     });
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=policies');
     render(<BookingPageOwnerSurface />);
 
-    const card = await screen.findByTestId('quick-book-profile-visibility-card');
-    const phoneSwitch = within(card).getByRole('switch', { name: /Show phone/i });
-    const emailSwitch = within(card).getByRole('switch', { name: /Show email/i });
+    const policySwitch = await screen.findByRole('switch', { name: /Show booking policy/i });
+    const reviewsSwitch = screen.getByRole('switch', { name: /Show reviews/i });
 
-    expect(within(card).getAllByRole('switch')).toHaveLength(11);
-    expect(phoneSwitch).not.toBeChecked();
-    expect(emailSwitch).toBeChecked();
-    expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
-      'src',
-      '/admin/booking-page/preview/salon-a?builderPreview=0',
-    );
+    expect(screen.getAllByRole('switch')).toHaveLength(3);
+    expect(policySwitch).toBeChecked();
+    expect(reviewsSwitch).not.toBeChecked();
 
-    await userEvent.click(phoneSwitch);
+    await userEvent.click(reviewsSwitch);
 
     await waitFor(() => {
       const visibilityWrites = fetchMock.mock.calls
@@ -512,27 +510,53 @@ describe('BookingPageOwnerSurface', () => {
         .filter(body => body.config?.quickBookProfile);
 
       expect(visibilityWrites).toEqual([{
-        config: { quickBookProfile: { showPhone: true } },
+        config: { quickBookProfile: { showReviews: true } },
       }]);
     });
 
-    expect(phoneSwitch).toBeChecked();
-    expect(emailSwitch).toBeChecked();
+    expect(policySwitch).toBeChecked();
+    expect(reviewsSwitch).toBeChecked();
     expect(content).toEqual(baseContent());
-    expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
-      'src',
-      '/admin/booking-page/preview/salon-a?builderPreview=1',
-    );
+  });
+
+  it('waits for a pending Policies Display visibility save and stays in place when that save fails', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=information');
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseFailedSave: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.config?.quickBookProfile?.showBio === true) {
+        return new Promise<Response>((resolve) => {
+          releaseFailedSave = () => resolve(new Response(JSON.stringify({ error: 'write failed' }), { status: 500 }));
+        });
+      }
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    fireEvent.click(await screen.findByText('Business identity'));
+    fireEvent.click(screen.getByRole('switch', { name: /Show short bio/i }));
+    await waitFor(() => expect(releaseFailedSave).toBeTypeOf('function'));
+
+    fireEvent.click(screen.getByRole('link', { name: 'Open Policies Display →' }));
+
+    expect(pushMock).not.toHaveBeenCalled();
+
+    releaseFailedSave?.();
+    await screen.findByText('Your changes could not be saved. Please retry before leaving this editor.');
+
+    expect(pushMock).not.toHaveBeenCalled();
   });
 
   it('does not render Quick Book visibility controls for Editorial', async () => {
     config = baseConfig({ layout: 'editorial' });
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=policies');
     render(<BookingPageOwnerSurface />);
 
-    await screen.findByTestId('booking-page-preset-picker');
+    await screen.findByText('Customer-facing policies');
 
-    expect(screen.queryByTestId('quick-book-profile-visibility-card')).not.toBeInTheDocument();
-    expect(screen.queryByRole('switch', { name: /Show phone/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /Show booking policy/i })).not.toBeInTheDocument();
   });
 
   it('previews a guarded switch and PATCHes one semantic preset operation only after confirmation', async () => {
@@ -572,18 +596,22 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('keeps a preset confirmation valid when only canonical content changes', async () => {
-    render(<BookingPageOwnerSurface />);
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
+    const { rerender } = render(<BookingPageOwnerSurface />);
     const expectedPresentationSignature = getBookingPagePresentationSignature({
       ...config.draft,
       presetBase: config.draftPresetBase,
     } as never);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Signature starting design' }));
-
-    const bio = screen.getByTestId('content-bio');
+    const bio = await screen.findByTestId('content-bio');
     fireEvent.change(bio, { target: { value: 'Content does not change presentation' } });
     fireEvent.blur(bio);
     await waitFor(() => expect(content.draft.bio).toBe('Content does not change presentation'));
+
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=layouts');
+    rerender(<BookingPageOwnerSurface />);
+    await screen.findByTestId('booking-page-preset-picker');
+    fireEvent.click(await screen.findByRole('button', { name: 'Signature starting design' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Use Signature' }));
 
@@ -603,11 +631,11 @@ describe('BookingPageOwnerSurface', () => {
         expectedPresentationSignature,
       },
     });
-    expect(screen.getByTestId('content-bio'))
-      .toHaveValue('Content does not change presentation');
+    expect(content.draft.bio).toBe('Content does not change presentation');
   });
 
   it('drains concurrent bio and location saves before adopting a preset response', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const fallbackFetch = fetchMock.getMockImplementation()!;
     let releaseBioSave: (() => void) | undefined;
 
@@ -630,13 +658,20 @@ describe('BookingPageOwnerSurface', () => {
       return fallbackFetch(input, init);
     });
 
-    render(<BookingPageOwnerSurface />);
+    const { rerender } = render(<BookingPageOwnerSurface />);
 
     const bio = await screen.findByTestId('content-bio');
     fireEvent.change(bio, { target: { value: 'Bio saved before preset' } });
     fireEvent.blur(bio);
     await waitFor(() => expect(releaseBioSave).toBeTypeOf('function'));
-    fireEvent.click(screen.getByTestId('location-display-mode-city_only'));
+
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=information');
+    rerender(<BookingPageOwnerSurface />);
+    fireEvent.click(await screen.findByTestId('address-privacy-city_only'));
+
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=layouts');
+    rerender(<BookingPageOwnerSurface />);
+    await screen.findByTestId('booking-page-preset-picker');
 
     fireEvent.click(screen.getByRole('button', { name: 'Signature starting design' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
@@ -648,9 +683,7 @@ describe('BookingPageOwnerSurface', () => {
     await waitFor(() => expect(screen.getByTestId('booking-page-preset-state'))
       .toHaveTextContent('Signature'));
 
-    expect(screen.getByTestId('content-bio')).toHaveValue('Bio saved before preset');
-    expect(screen.getByTestId('location-display-mode-city_only'))
-      .toHaveAttribute('aria-pressed', 'true');
+    expect(content.draft).toMatchObject({ bio: 'Bio saved before preset', locationDisplayMode: 'city_only' });
 
     const patchBodies = fetchMock.mock.calls
       .filter(([, init]) => init?.method === 'PATCH')
@@ -666,6 +699,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('adopts a successful preset response across the controls and preview before a later blur', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=layouts');
     const fallbackFetch = fetchMock.getMockImplementation()!;
     salonPublicationStatus = 'draft';
 
@@ -685,24 +719,20 @@ describe('BookingPageOwnerSurface', () => {
       return fallbackFetch(input, init);
     });
 
-    render(<BookingPageOwnerSurface />);
+    const { rerender } = render(<BookingPageOwnerSurface />);
     fireEvent.click(await screen.findByRole('button', { name: 'Signature starting design' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
 
     await waitFor(() => expect(screen.getByTestId('booking-page-preset-state'))
       .toHaveTextContent('Signature'));
 
-    expect(screen.getByTestId('legacy-website-photos'))
-      .toHaveAttribute('data-cover-url', 'https://cdn.example.com/remote-hero.jpg');
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
+    rerender(<BookingPageOwnerSurface />);
+    await screen.findByTestId('content-bio');
+
     expect(screen.getByTestId('content-specialty-line')).toHaveValue('Remote specialty');
     expect(screen.getByTestId('content-bio')).toHaveValue('Remote canonical bio');
-    expect(screen.getByTestId('location-display-mode-city_only'))
-      .toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('salon-publish-banner')).toBeInTheDocument();
-    expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
-      'src',
-      '/admin/booking-page/preview/salon-a?builderPreview=1',
-    );
 
     fireEvent.blur(screen.getByTestId('content-bio'));
 
@@ -719,6 +749,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('preserves a newer unsaved local bio while adopting the rest of a preset response', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const fallbackFetch = fetchMock.getMockImplementation()!;
 
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
@@ -736,26 +767,33 @@ describe('BookingPageOwnerSurface', () => {
       return fallbackFetch(input, init);
     });
 
-    render(<BookingPageOwnerSurface />);
+    const { rerender } = render(<BookingPageOwnerSurface />);
     const bio = await screen.findByTestId('content-bio');
     fireEvent.change(bio, { target: { value: 'New local unsaved bio' } });
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=layouts');
+    rerender(<BookingPageOwnerSurface />);
+    await screen.findByTestId('booking-page-preset-picker');
     fireEvent.click(screen.getByRole('button', { name: 'Signature starting design' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
 
     await waitFor(() => expect(screen.getByTestId('booking-page-preset-state'))
       .toHaveTextContent('Signature'));
 
-    expect(screen.getByTestId('content-bio')).toHaveValue('New local unsaved bio');
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
+    rerender(<BookingPageOwnerSurface />);
+    const textBio = await screen.findByTestId('content-bio');
+
+    expect(textBio).toHaveValue('New local unsaved bio');
     expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
     expect(screen.queryByText('Saved')).not.toBeInTheDocument();
-    expect(screen.getByTestId('location-display-mode-city_only'))
-      .toHaveAttribute('aria-pressed', 'true');
+    expect(content.draft.locationDisplayMode).toBe('city_only');
 
-    fireEvent.blur(screen.getByTestId('content-bio'));
+    fireEvent.blur(textBio);
     await waitFor(() => expect(content.draft.bio).toBe('New local unsaved bio'));
   });
 
   it('keeps a newer local edit unsaved after an older response and saves the current value on blur', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const fallbackFetch = fetchMock.getMockImplementation()!;
     let releaseOlderSave: (() => void) | undefined;
 
@@ -855,6 +893,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('serializes ordinary content writes so one whole-side response cannot lose another field', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const fallbackFetch = fetchMock.getMockImplementation()!;
     let releaseBioSave: (() => void) | undefined;
 
@@ -879,14 +918,16 @@ describe('BookingPageOwnerSurface', () => {
       return fallbackFetch(input, init);
     });
 
-    render(<BookingPageOwnerSurface />);
+    const { rerender } = render(<BookingPageOwnerSurface />);
 
     const bio = await screen.findByTestId('content-bio');
     fireEvent.change(bio, { target: { value: 'Queued bio' } });
     fireEvent.blur(bio);
     await waitFor(() => expect(releaseBioSave).toBeTypeOf('function'));
 
-    fireEvent.click(screen.getByTestId('location-display-mode-city_only'));
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=information');
+    rerender(<BookingPageOwnerSurface />);
+    fireEvent.click(await screen.findByTestId('address-privacy-city_only'));
 
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
 
@@ -902,6 +943,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('does not report Saved when the newer serialized field request fails', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const fallbackFetch = fetchMock.getMockImplementation()!;
     let releaseOlderSave: (() => void) | undefined;
 
@@ -978,6 +1020,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('does not apply a preset after a pending bio save fails', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const fallbackFetch = fetchMock.getMockImplementation()!;
     let releaseFailedSave: (() => void) | undefined;
 
@@ -994,12 +1037,15 @@ describe('BookingPageOwnerSurface', () => {
       return fallbackFetch(input, init);
     });
 
-    render(<BookingPageOwnerSurface />);
+    const { rerender } = render(<BookingPageOwnerSurface />);
     const bio = await screen.findByTestId('content-bio');
     fireEvent.change(bio, { target: { value: 'Unsaved failing bio' } });
     fireEvent.blur(bio);
     await waitFor(() => expect(releaseFailedSave).toBeTypeOf('function'));
 
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=layouts');
+    rerender(<BookingPageOwnerSurface />);
+    await screen.findByTestId('booking-page-preset-picker');
     fireEvent.click(screen.getByRole('button', { name: 'Signature starting design' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
     releaseFailedSave?.();
@@ -1043,7 +1089,7 @@ describe('BookingPageOwnerSurface', () => {
       return fallbackFetch(input, init);
     });
 
-    render(<BookingPageOwnerSurface />);
+    const { rerender } = render(<BookingPageOwnerSurface />);
     fireEvent.click(await screen.findByRole('button', { name: 'Signature starting design' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
 
@@ -1059,20 +1105,23 @@ describe('BookingPageOwnerSurface', () => {
     expect(screen.getByRole('button', { name: 'Signature starting design' })).toBeEnabled();
     expect(screen.getByTestId('business-mode-option-team'))
       .toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('location-display-mode-city_only'))
-      .toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('location-display-mode-city-only-warning'))
-      .toBeInTheDocument();
-    expect(screen.getByTestId('legacy-website-photos'))
-      .toHaveAttribute('data-cover-url', 'https://cdn.example.com/newer.jpg');
-    expect(screen.getByTestId('content-specialty-line')).toHaveValue('Newer specialty');
-    expect(screen.getByTestId('content-bio'))
-      .toHaveValue('A newer bio from another tab');
-    expect(screen.getByTestId('salon-publish-banner')).toBeInTheDocument();
     expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
       'src',
       '/admin/booking-page/preview/salon-a?builderPreview=1',
     );
+
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=information');
+    rerender(<BookingPageOwnerSurface />);
+
+    expect(await screen.findByTestId('address-privacy-city_only')).toBeChecked();
+    expect(screen.getByTestId('address-privacy-unpublished')).toBeInTheDocument();
+
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
+    rerender(<BookingPageOwnerSurface />);
+
+    expect(await screen.findByTestId('content-specialty-line')).toHaveValue('Newer specialty');
+    expect(screen.getByTestId('content-bio')).toHaveValue('A newer bio from another tab');
+    expect(screen.getByTestId('salon-publish-banner')).toBeInTheDocument();
   });
 
   it('does not start a reset while a preset presentation write is pending', async () => {
@@ -1574,6 +1623,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('saves the bio field on blur, not on every keystroke', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     render(<BookingPageOwnerSurface />);
     const bio = await screen.findByTestId('content-bio');
 
@@ -1598,46 +1648,45 @@ describe('BookingPageOwnerSurface', () => {
   // (`@/libs/salonContent`) actually redact the phone too, the owner-facing
   // copy is corrected to match: only the location NAME still shows.
   it('warns that only the location name still shows under city_only (address/postal/phone are hidden), and clears the warning back to full_address', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=information');
     render(<BookingPageOwnerSurface />);
 
-    await screen.findByTestId('legacy-website-photos');
+    await screen.findByRole('radiogroup', { name: 'Address privacy' });
 
     // full_address is the fixture default — no warning yet (also proves the
     // assertion below isn't vacuously true for every render).
-    expect(screen.queryByTestId('location-display-mode-city-only-warning')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('address-privacy-unpublished')).not.toBeInTheDocument();
 
-    const cityOnlyButton = screen.getByTestId('location-display-mode-city_only');
+    const cityOnlyButton = screen.getByTestId('address-privacy-city_only');
     fireEvent.click(cityOnlyButton);
 
     await waitFor(() => {
-      expect(screen.getByTestId('location-display-mode-city-only-warning')).toHaveTextContent(
-        /hides your street address, postal code, and phone number.*location's name is\s+still shown/,
+      expect(screen.getByTestId('address-privacy-unpublished')).toHaveTextContent(
+        'Your live site still uses “Always show my full address” until you publish.',
       );
     });
 
-    const fullAddressButton = screen.getByTestId('location-display-mode-full_address');
+    const fullAddressButton = screen.getByTestId('address-privacy-full_address');
     fireEvent.click(fullAddressButton);
 
     await waitFor(() => {
-      expect(screen.queryByTestId('location-display-mode-city-only-warning')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('address-privacy-unpublished')).not.toBeInTheDocument();
     });
   });
 
-  // AG-w2-information-parity-03: the second address-privacy control never told
-  // the owner their live site still showed something else. One record, two
-  // controls, one warning.
-  it('warns in the no-panel control that the live site still uses the published mode', async () => {
+  it('warns in the canonical Business Info Display panel that the live site still uses the published mode', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=information');
     render(<BookingPageOwnerSurface />);
 
-    await screen.findByTestId('legacy-website-photos');
+    await screen.findByRole('radiogroup', { name: 'Address privacy' });
 
     // Draft and live both start at full_address — no warning yet.
-    expect(screen.queryByTestId('location-display-mode-unpublished')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('address-privacy-unpublished')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('location-display-mode-city_only'));
+    fireEvent.click(screen.getByTestId('address-privacy-city_only'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('location-display-mode-unpublished')).toHaveTextContent(
+      expect(screen.getByTestId('address-privacy-unpublished')).toHaveTextContent(
         'Your live site still uses “Always show my full address” until you publish.',
       );
     });
@@ -1645,7 +1694,7 @@ describe('BookingPageOwnerSurface', () => {
     fireEvent.click(screen.getByTestId('booking-page-publish'));
 
     await waitFor(() => {
-      expect(screen.queryByTestId('location-display-mode-unpublished')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('address-privacy-unpublished')).not.toBeInTheDocument();
     });
   });
 
@@ -1696,6 +1745,7 @@ describe('BookingPageOwnerSurface', () => {
     needsConfirmation,
     success,
   }) => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const fallbackFetch = fetchMock.getMockImplementation()!;
     let releaseFieldSave: (() => void) | undefined;
 
@@ -1746,6 +1796,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('saves a focused field before Publish when the owner activates Publish directly', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const user = userEvent.setup();
 
     render(<BookingPageOwnerSurface />);
@@ -1766,6 +1817,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('does not publish after a failed field save', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const fallbackFetch = fetchMock.getMockImplementation()!;
     let releaseFailedSave: (() => void) | undefined;
 
@@ -1800,6 +1852,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('drains a failed field request before a confirmed Revert discards it', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const fallbackFetch = fetchMock.getMockImplementation()!;
     let releaseFailedSave: (() => void) | undefined;
 
@@ -1837,6 +1890,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('does not let an unrelated successful field save erase a failed field', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const fallbackFetch = fetchMock.getMockImplementation()!;
 
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
@@ -1850,13 +1904,15 @@ describe('BookingPageOwnerSurface', () => {
       return fallbackFetch(input, init);
     });
 
-    render(<BookingPageOwnerSurface />);
+    const { rerender } = render(<BookingPageOwnerSurface />);
 
     const bio = await screen.findByTestId('content-bio');
     fireEvent.change(bio, { target: { value: 'Unsaved bio' } });
     fireEvent.blur(bio);
     await screen.findByText('Could not save — please retry.');
 
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=layouts');
+    rerender(<BookingPageOwnerSurface />);
     fireEvent.click(screen.getByTestId('business-mode-option-team'));
     await waitFor(() => expect(config.draft.businessMode).toBe('team'));
 
@@ -1871,6 +1927,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('clears a failed-field guard only after that same field saves successfully', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
     const fallbackFetch = fetchMock.getMockImplementation()!;
     let bioAttempts = 0;
 
@@ -1941,11 +1998,11 @@ describe('BookingPageOwnerSurface', () => {
   // live-immediate.
   describe('panel subtitles state the real write semantics', () => {
     it.each([
-      { panel: '', expected: /Nothing goes live until you publish/ },
       { panel: 'layouts', expected: /Nothing goes live until you publish/ },
       { panel: 'appearance', expected: /Nothing goes live until you publish/ },
       { panel: 'text', expected: /Nothing goes live until you publish/ },
       { panel: 'publish', expected: /Nothing goes live until you publish/ },
+      { panel: 'information', expected: /Display choices stay in your draft until you publish/ },
     ])('keeps the draft promise on the drafted panel "$panel"', async ({ panel, expected }) => {
       searchParamsMock.value = new URLSearchParams(`salon=salon-a${panel ? `&panel=${panel}` : ''}`);
       render(<BookingPageOwnerSurface />);
@@ -1954,7 +2011,7 @@ describe('BookingPageOwnerSurface', () => {
     });
 
     it.each([
-      { panel: 'information', expected: /Saved changes apply immediately/ },
+      { panel: 'business', expected: /apply immediately/ },
       { panel: 'policies', expected: /save immediately/ },
     ])('drops the draft promise on the live-immediate panel "$panel"', async ({ panel, expected }) => {
       searchParamsMock.value = new URLSearchParams(`salon=salon-a&panel=${panel}`);

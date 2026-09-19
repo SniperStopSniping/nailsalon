@@ -150,6 +150,32 @@ beforeEach(() => {
 });
 
 describe('Account & Plan — Choose plan wiring (P7)', () => {
+  it('keeps billing actions unavailable after a failed read and restores them only after Retry succeeds', async () => {
+    mockEndpoints({ billingMode: 'STRIPE', billingSource: 'billing_subscription' });
+    const successfulFetch = fetchMock.getMockImplementation()!;
+    let failBillingRead = true;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/admin/salon/settings?') && failBillingRead) {
+        return Promise.resolve(new Response('{}', { status: 503 }));
+      }
+      return successfulFetch(input, init);
+    });
+    const { SettingsModal } = await import('./SettingsModal');
+    render(<SettingsModal initialView="plan-billing" leafOnly onClose={vi.fn()} salonSlug="salon-a" salonId="salon_1" userName="Daniela" />);
+
+    expect(await screen.findByTestId('plan-billing-unavailable')).toBeInTheDocument();
+    expect(screen.queryByTestId('manage-billing-button')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cash / Offline billing enabled')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Plans' })).not.toBeInTheDocument();
+
+    failBillingRead = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(await screen.findByTestId('manage-billing-button')).toBeInTheDocument();
+    expect(screen.getByText('Stripe Billing (active)')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/api/billing/portal'))).toBe(false);
+  });
+
   it('the old Compare Plans dead end is gone from the source', async () => {
     const source = await import('node:fs').then(fs =>
       fs.readFileSync('src/components/admin/SettingsModal.tsx', 'utf-8'));
@@ -163,9 +189,7 @@ describe('Account & Plan — Choose plan wiring (P7)', () => {
 
   it('renders a "Plans" button (not "Compare Plans") that opens ChoosePlanPanel for the current salon', async () => {
     const { SettingsModal } = await import('./SettingsModal');
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
-
-    fireEvent.click(await screen.findByText('Account & Plan'));
+    render(<SettingsModal initialView="plan-billing" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     expect(screen.queryByText('Compare Plans')).not.toBeInTheDocument();
     expect(screen.queryByTestId('choose-plan-panel-stub')).not.toBeInTheDocument();
@@ -191,9 +215,7 @@ describe('Account & Plan — Choose plan wiring (P7)', () => {
       billingSource: 'billing_subscription',
     });
     const { SettingsModal } = await import('./SettingsModal');
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" salonId="salon_1" userName="Daniela" />);
-
-    fireEvent.click(await screen.findByText('Account & Plan'));
+    render(<SettingsModal initialView="plan-billing" leafOnly onClose={vi.fn()} salonSlug="salon-a" salonId="salon_1" userName="Daniela" />);
 
     expect(await screen.findByTestId('manage-billing-button')).toBeInTheDocument();
     expect(screen.getByText('Stripe Billing (active)')).toBeInTheDocument();
@@ -203,9 +225,7 @@ describe('Account & Plan — Choose plan wiring (P7)', () => {
   it('still shows the cash/offline state when the display resolves to legacy NONE', async () => {
     mockEndpoints({ billingMode: 'NONE', billingSource: 'legacy' });
     const { SettingsModal } = await import('./SettingsModal');
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" salonId="salon_1" userName="Daniela" />);
-
-    fireEvent.click(await screen.findByText('Account & Plan'));
+    render(<SettingsModal initialView="plan-billing" leafOnly onClose={vi.fn()} salonSlug="salon-a" salonId="salon_1" userName="Daniela" />);
 
     expect(await screen.findByText('Cash / Offline billing enabled')).toBeInTheDocument();
     expect(screen.queryByTestId('manage-billing-button')).not.toBeInTheDocument();
@@ -219,10 +239,10 @@ describe('Account & Plan — Choose plan wiring (P7)', () => {
         salonSlug="salon-a"
         userName="Daniela"
         isFreeSolo
+        initialView="plan-billing"
+        leafOnly
       />,
     );
-
-    fireEvent.click(await screen.findByText('Account & Plan'));
 
     expect(screen.queryByText('Plans')).not.toBeInTheDocument();
   });

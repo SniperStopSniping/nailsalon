@@ -48,6 +48,7 @@ export default async function WebsiteHubPage({ params, searchParams }: {
     <BookingPageHub
       canPublish={canEditSetup || admin.isSuperAdmin}
       hasDraftChanges={hasUnpublishedBookingPageChanges(config, content)}
+      isFreeSolo={salon.freeSoloEnabled === true}
       locale={locale}
       published={salon.publicationStatus === 'published'}
       publicUrl={buildSalonTenantPublicUrl('/', { slug: salon.slug, customDomain: salon.customDomain }, locale)}

@@ -72,6 +72,29 @@ function reorderableSectionOrder(
 }
 
 describe('BookingPageBuilder', () => {
+  it('keeps the Services presentation control for existing callers and hides only that duplicate when Layouts owns the menu chooser', () => {
+    const view = render(
+      <BookingPageBuilder
+        draft={side()}
+        pending={false}
+        onOperation={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('combobox', { name: 'Services presentation' })).toBeVisible();
+
+    view.rerender(
+      <BookingPageBuilder
+        draft={side()}
+        hideServiceMenuPresentation
+        pending={false}
+        onOperation={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('combobox', { name: 'Services presentation' })).not.toBeInTheDocument();
+  });
+
   it('shows the canonical Services choice after an independent site reset and permits a targeted reset', () => {
     const onOperation = vi.fn();
     render(

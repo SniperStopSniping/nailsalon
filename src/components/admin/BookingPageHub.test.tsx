@@ -1,7 +1,11 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { BookingPageHub } from './BookingPageHub';
+
+vi.mock('./ownerAssistant/OwnerAssistantLauncher', () => ({
+  default: ({ salonSlug }: { salonSlug: string }) => <div data-testid="hub-owner-assistant" data-salon-slug={salonSlug} />,
+}));
 
 const props = { locale: 'en', salonName: 'Another Nail Studio', salonSlug: 'another-studio', published: true, hasDraftChanges: false, setupUrl: null };
 
@@ -13,16 +17,30 @@ describe('Booking Page hub', () => {
     expect(screen.getByRole('link', { name: 'Open live site' })).toHaveAttribute('href', 'https://another-studio.example/');
   });
 
-  it('shows seven focused editors, the actual owner and an authenticated draft preview', () => {
+  it('shows the focused editors, the actual owner and an authenticated draft preview', () => {
     render(<BookingPageHub {...props} />);
 
     expect(screen.getByText(props.salonName)).toBeVisible();
-    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(7);
+    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(10);
     expect(screen.getByRole('link', { name: 'Preview draft' })).toHaveAttribute('href', '/en/admin/booking-page/preview/another-studio');
+    expect(screen.getByRole('link', { name: /Business Information/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=business');
     expect(screen.getByRole('link', { name: /Layout 22 website layouts/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=layouts');
     expect(screen.getByRole('link', { name: /Photos & Gallery/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=gallery');
+    expect(screen.getByRole('link', { name: /Public Booking Experience/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=experience');
+    expect(screen.getByRole('link', { name: /Booking Flow/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=flow');
     expect(screen.getByText('Live · All changes published')).toBeVisible();
     expect(screen.queryByText(/Daniela|Isla/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('hub-owner-assistant')).toHaveAttribute('data-salon-slug', 'another-studio');
+  });
+
+  it('keeps the team-only Flow editor out of the Free Solo hub while retaining Public Booking Experience', () => {
+    render(<BookingPageHub {...props} isFreeSolo />);
+
+    const editors = screen.getByRole('navigation', { name: 'Booking Page editors' });
+
+    expect(editors.querySelectorAll('a')).toHaveLength(9);
+    expect(screen.getByRole('link', { name: /Public Booking Experience/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=experience');
+    expect(screen.queryByRole('link', { name: /Booking Flow/ })).not.toBeInTheDocument();
   });
 
   it('does not offer a public link or reset path before publication', () => {
@@ -44,7 +62,7 @@ describe('Booking Page hub', () => {
     expect(screen.getByText('Publishing is owner only')).toBeVisible();
     // Everything else the collaborator legitimately uses stays put.
     expect(screen.getByRole('link', { name: 'Preview draft' })).toBeVisible();
-    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(7);
+    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(10);
   });
 
   it('keeps the publish CTA for the owner', () => {
