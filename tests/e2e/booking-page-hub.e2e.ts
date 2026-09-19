@@ -20,10 +20,13 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await expect(page.getByText(/^Live · /)).toBeVisible();
     expect(await noHorizontalOverflow()).toBe(true);
 
+    const businessEditorUrl = new RegExp(
+      `/(${e2eConfig.locale}/)?admin/booking-page\\?salon=${encodeURIComponent(e2eConfig.salonSlug)}&panel=business$`,
+    );
     for (const legacyView of ['business-profile', 'location']) {
       await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}&app=settings&view=${legacyView}`);
 
-      await expect(page).toHaveURL(`${editorUrl}&panel=business`);
+      await expect(page).toHaveURL(businessEditorUrl);
       await expect(page.getByRole('heading', { level: 1, name: 'Business Information', exact: true })).toBeVisible();
       await expect(page.getByTestId('information-business-name')).toHaveValue(e2eConfig.salonName);
       expect(await noHorizontalOverflow()).toBe(true);
