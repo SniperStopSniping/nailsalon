@@ -158,7 +158,7 @@ describe('OwnerManagementModal', () => {
     state.query = 'client=client_9&returnTo=calendar';
     const rendered = renderModal({ app: 'plan-usage' });
 
-    fireEvent.click(screen.getByRole('button', { name: /usage & billing/i }));
+    fireEvent.click(screen.getByRole('button', { name: /messages & credits/i }));
 
     expect(pushMock).toHaveBeenCalledTimes(1);
 
@@ -178,10 +178,31 @@ describe('OwnerManagementModal', () => {
     expect(usageBillingModalMock).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'isla' }));
   });
 
+  it('hosts the existing plan and billing presentation as a URL-backed leaf', () => {
+    state.query = 'client=client_9&returnTo=calendar';
+    const rendered = renderModal({ app: 'plan-usage' });
+
+    fireEvent.click(screen.getByRole('button', { name: /plan & billing/i }));
+
+    const query = queryOf(pushMock.mock.calls[0]![0]);
+
+    expect(query.get('app')).toBe('plan-usage');
+    expect(query.get('view')).toBe('billing');
+    expect(query.get('salon')).toBe('isla');
+    expect(query.get('client')).toBe('client_9');
+
+    state.query = query.toString();
+    rendered.rerender(
+      <OwnerManagementModal app="plan-usage" salonSlug="isla" salonId="salon_1" isFreeSolo={false} teamAvailable={false} onClose={vi.fn()} />,
+    );
+
+    expect(screen.getByTestId('settings-modal')).toHaveTextContent('plan-billing');
+  });
+
   it('reuses the existing billing gate when no salon is selected', () => {
     renderModal({ app: 'plan-usage', salonSlug: null });
 
-    expect(screen.getByRole('button', { name: /usage & billing/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /messages & credits/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /compare plans/i })).toBeDisabled();
     expect(usageBillingModalMock).not.toHaveBeenCalled();
   });
@@ -190,7 +211,7 @@ describe('OwnerManagementModal', () => {
     state.query = 'salon=isla&app=plan-usage&view=plans';
     renderModal({ app: 'plan-usage', isFreeSolo: true });
 
-    expect(screen.getByRole('button', { name: /usage & billing/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /messages & credits/i })).toBeEnabled();
     expect(screen.queryByRole('button', { name: /compare plans/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId('choose-plan-panel')).not.toBeInTheDocument();
   });

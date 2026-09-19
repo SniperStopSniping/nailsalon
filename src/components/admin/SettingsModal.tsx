@@ -1756,6 +1756,7 @@ type SettingsView
   | 'messages'
   | 'advanced'
   | 'account'
+  | 'plan-billing'
   | 'location'
   | 'branding'
   | 'booking-experience'
@@ -1785,6 +1786,7 @@ const SETTINGS_VIEW_IDS: readonly SettingsView[] = [
   'messages',
   'advanced',
   'account',
+  'plan-billing',
   'location',
   'branding',
   'booking-experience',
@@ -1815,7 +1817,8 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'booking-availability': 'Booking & Availability',
   'messages': 'Messages & Notifications',
   'advanced': 'Advanced',
-  'account': 'Account & Plan',
+  'account': 'Account',
+  'plan-billing': 'Plan & Billing',
   'location': 'Location',
   'branding': 'Branding',
   'booking-experience': 'Public booking experience',
@@ -2043,6 +2046,7 @@ export function SettingsModal({
     () => normalizeSettingsView(initialView),
   );
   const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const [pendingWorkspaceApp, setPendingWorkspaceApp] = useState<string | null>(null);
 
   // Per-view unsaved-edit tracking (explicit-save views only; autosave views
   // never hold unsaved state)
@@ -3634,6 +3638,7 @@ export function SettingsModal({
 
   const goToIndex = () => {
     setConfirmingLeave(false);
+    setPendingWorkspaceApp(null);
     revertViewDrafts(view);
     setView('index');
     if (pushedViewDepthRef.current > 0) {
@@ -3647,6 +3652,16 @@ export function SettingsModal({
   };
 
   const discardChanges = () => {
+    if (pendingWorkspaceApp && onOpenApp) {
+      const appId = pendingWorkspaceApp;
+      setPendingWorkspaceApp(null);
+      setConfirmingLeave(false);
+      revertViewDrafts(view);
+      setView('index');
+      pushedViewDepthRef.current = 0;
+      onOpenApp(appId);
+      return;
+    }
     if (!leafOnly) {
       goToIndex();
       return;
@@ -3684,6 +3699,7 @@ export function SettingsModal({
    */
   const openView = (next: SettingsView) => {
     setConfirmingLeave(false);
+    setPendingWorkspaceApp(null);
     setView(next);
     if (next !== 'index' && next !== urlView) {
       pushedViewDepthRef.current += 1;
@@ -3698,6 +3714,11 @@ export function SettingsModal({
    */
   const openWorkspaceApp = (appId: string) => {
     if (!onOpenApp) {
+      return;
+    }
+    if (currentViewDirty) {
+      setPendingWorkspaceApp(appId);
+      setConfirmingLeave(true);
       return;
     }
     setConfirmingLeave(false);
@@ -3721,6 +3742,7 @@ export function SettingsModal({
       revertViewDrafts(viewRef.current);
       pushedViewDepthRef.current = 0;
     }
+    setPendingWorkspaceApp(null);
     setView(urlView);
     // `revertViewDrafts` is re-created every render; the URL is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3776,7 +3798,10 @@ export function SettingsModal({
           <div className="flex shrink-0 gap-2">
             <button
               type="button"
-              onClick={() => setConfirmingLeave(false)}
+              onClick={() => {
+                setConfirmingLeave(false);
+                setPendingWorkspaceApp(null);
+              }}
               className="rounded-full border border-amber-300 px-3 py-1.5 text-xs font-semibold text-amber-900"
             >
               Keep editing
@@ -3796,12 +3821,11 @@ export function SettingsModal({
       <div className="overflow-y-auto pb-10">
         {view === 'index' && (
           <SettingsCardGrid items={[
-            { title: 'Business', description: 'Profile, address, hours and business branding', icon: MapPin, onClick: () => openView('business') },
-            { title: 'Booking & Availability', description: 'Availability, rules, policies, flow and Smart Fit', icon: CalendarClock, onClick: () => openView('booking-availability') },
-            { title: 'Messages & Notifications', description: 'Client messages, reminders, alerts and quiet hours', icon: MessageSquare, onClick: () => openView('messages') },
-            { title: 'Features', description: 'Turn included Luster modules on or off', icon: Boxes, onClick: () => openView('features') },
-            { title: 'Account & Plan', description: 'Owner profile, Luster plan, usage and billing', icon: User, onClick: () => openView('account') },
-            { title: 'Advanced', description: 'Legacy page themes and appointment photo rules', icon: Camera, onClick: () => openView('advanced') },
+            { title: 'Account', description: 'Your profile and sign-in details', icon: User, onClick: () => openView('account') },
+            { title: 'Owner & Staff Alerts', description: 'New booking and cancellation alerts', icon: Bell, onClick: () => openView('notifications') },
+            { title: 'Workspace Features', description: 'Turn included Luster modules on or off', icon: Boxes, onClick: () => openView('features') },
+            { title: 'Appointment Photo Rules', description: 'Before and after photo requirements', icon: Camera, onClick: () => router.push(`/${locale}/admin/policies${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}&section=photos` : '?section=photos'}`) },
+            { title: 'Advanced', description: 'Legacy themes, previews and legal information', icon: Palette, onClick: () => openView('advanced') },
           ]}
           />
         )}
@@ -5683,7 +5707,7 @@ export function SettingsModal({
             {hasClientPrograms && (
               <Section
                 title="Programs"
-                footer="Control whether reviews and rewards programs are available. Offer values live in Rewards & Reviews."
+                footer="Control whether reviews and rewards programs are available. Offer values live in Marketing, and Google review-request automation is configured separately in Marketing & Messages."
               >
                 {programsLoading
                   ? (
@@ -5910,78 +5934,106 @@ export function SettingsModal({
             </Section>
 
             <Section
-              title="Luster plan & billing"
-              footer={
-                billingMode === 'STRIPE'
-                  ? 'This is what your salon pays Luster. Manage billing opens the secure Stripe portal to update payment details, view invoices, or cancel.'
-                  : 'This is what your salon pays Luster. This salon is billed offline; contact Luster to change plans.'
-              }
+              title="Plan & Usage"
+              footer="Your Luster subscription, billing and message usage are managed together in Plan & Usage."
             >
-              <div className="space-y-3 p-4">
-                {/* Billing status (read-only, moved from Programs) */}
-                {billingMode === 'STRIPE'
-                  ? (
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`size-2 rounded-full ${subscriptionStatus === 'active' ? 'bg-green-500' : 'bg-amber-500'}`}
-                        />
-                        <span className="text-sm text-[var(--owner-ink)]">
-                          Stripe Billing
-                          {subscriptionStatus
-                            ? ` (${subscriptionStatus})`
-                            : ''}
-                        </span>
-                      </div>
-                    )
-                  : (
-                      <div className="flex items-center gap-2">
-                        <div className="size-2 rounded-full bg-gray-400" />
-                        <span className="text-sm text-[var(--owner-muted)]">
-                          Cash / Offline billing enabled
-                        </span>
-                      </div>
-                    )}
-
-                {portalError && (
-                  <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                    <span>{portalError}</span>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-2">
-                  {billingMode === 'STRIPE' && salonId && (
-                    <button
-                      type="button"
-                      onClick={() => void openBillingPortal()}
-                      disabled={portalOpening}
-                      data-testid="manage-billing-button"
-                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <CreditCard className="size-4" />
-                      <span>{portalOpening ? 'Opening…' : 'Manage billing'}</span>
-                    </button>
-                  )}
-                  {!isFreeSolo && (
-                    <button
-                      type="button"
-                      onClick={() => setShowChoosePlan(true)}
-                      className="rounded-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
-                    >
-                      Plans
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setShowUsageBilling(true)}
-                    className="rounded-[10px] border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
-                  >
-                    Usage & billing
-                  </button>
-                </div>
+              <div className="p-4">
+                <button
+                  type="button"
+                  onClick={() => openWorkspaceApp('plan-usage')}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-4 text-sm font-semibold text-[var(--owner-ink)]"
+                >
+                  <CreditCard className="size-4" />
+                  Open Plan & Usage
+                </button>
               </div>
             </Section>
           </>
+        )}
+
+        {view === 'plan-billing' && (bookingConfigLoading
+          ? <p className="p-4" role="status">Loading plan and billing…</p>
+          : !bookingConfigHydrated
+              ? (
+                  <div className="space-y-3 p-4" data-testid="plan-billing-unavailable">
+                    <p role="alert">Could not load your plan and billing status. Try again before managing billing.</p>
+                    <button type="button" className="min-h-11 rounded-xl border px-4" onClick={() => void fetchPrograms()}>Try again</button>
+                  </div>
+                )
+              : (
+                  <Section
+                    title="Luster plan & billing"
+                    footer={
+                      billingMode === 'STRIPE'
+                        ? 'This is what your salon pays Luster. Manage billing opens the secure Stripe portal to update payment details, view invoices, or cancel.'
+                        : 'This is what your salon pays Luster. This salon is billed offline; contact Luster to change plans.'
+                    }
+                  >
+                    <div className="space-y-3 p-4">
+                      {/* Billing status (read-only, moved from Programs) */}
+                      {billingMode === 'STRIPE'
+                        ? (
+                            <div className="flex items-center gap-2">
+                              <div
+                                className={`size-2 rounded-full ${subscriptionStatus === 'active' ? 'bg-green-500' : 'bg-amber-500'}`}
+                              />
+                              <span className="text-sm text-[var(--owner-ink)]">
+                                Stripe Billing
+                                {subscriptionStatus
+                                  ? ` (${subscriptionStatus})`
+                                  : ''}
+                              </span>
+                            </div>
+                          )
+                        : (
+                            <div className="flex items-center gap-2">
+                              <div className="size-2 rounded-full bg-gray-400" />
+                              <span className="text-sm text-[var(--owner-muted)]">
+                                Cash / Offline billing enabled
+                              </span>
+                            </div>
+                          )}
+
+                      {portalError && (
+                        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                          <span>{portalError}</span>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-2">
+                        {billingMode === 'STRIPE' && salonId && (
+                          <button
+                            type="button"
+                            onClick={() => void openBillingPortal()}
+                            disabled={portalOpening}
+                            data-testid="manage-billing-button"
+                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <CreditCard className="size-4" />
+                            <span>{portalOpening ? 'Opening…' : 'Manage billing'}</span>
+                          </button>
+                        )}
+                        {!isFreeSolo && (
+                          <button
+                            type="button"
+                            onClick={() => setShowChoosePlan(true)}
+                            className="rounded-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
+                          >
+                            Plans
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowUsageBilling(true)}
+                          className="rounded-[10px] border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
+                        >
+                          Usage & billing
+                        </button>
+                      </div>
+                    </div>
+                  </Section>
+                )
         )}
       </div>
 

@@ -336,7 +336,7 @@ describe('SettingsModal index', () => {
     mockEndpoints();
   });
 
-  it('shows the six card-based settings homes with no editing controls', async () => {
+  it('shows only secondary settings homes with no editing controls', async () => {
     render(
       <SettingsModal
         onClose={vi.fn()}
@@ -346,12 +346,14 @@ describe('SettingsModal index', () => {
       />,
     );
 
-    expect(await screen.findByText('Business')).toBeInTheDocument();
-    expect(screen.getByText('Booking & Availability')).toBeInTheDocument();
-    expect(screen.getByText('Messages & Notifications')).toBeInTheDocument();
-    expect(screen.getByText('Features')).toBeInTheDocument();
-    expect(screen.getByText('Account & Plan')).toBeInTheDocument();
+    expect(await screen.findByText('Account')).toBeInTheDocument();
+    expect(screen.getByText('Owner & Staff Alerts')).toBeInTheDocument();
+    expect(screen.getByText('Workspace Features')).toBeInTheDocument();
+    expect(screen.getByText('Appointment Photo Rules')).toBeInTheDocument();
     expect(screen.getByText('Advanced')).toBeInTheDocument();
+    expect(screen.queryByText('Business')).not.toBeInTheDocument();
+    expect(screen.queryByText('Booking & Availability')).not.toBeInTheDocument();
+    expect(screen.queryByText('Messages & Notifications')).not.toBeInTheDocument();
     expect(screen.queryByText(/tax/i)).not.toBeInTheDocument();
 
     // The index holds navigation rows only, not editing inputs.
@@ -366,10 +368,10 @@ describe('SettingsModal index', () => {
         salonSlug="salon-a"
         userName="Daniela"
         onOpenApp={onOpenApp}
+        initialView="messages"
+        leafOnly
       />,
     );
-
-    fireEvent.click(await screen.findByText('Messages & Notifications'));
     fireEvent.click(await screen.findByText('Delivery Setup'));
 
     expect(onOpenApp).toHaveBeenCalledWith('integrations');
@@ -392,10 +394,8 @@ describe('SettingsModal index', () => {
   });
 
   it('warns before leaving a focused view with unsaved changes', async () => {
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
-
-    fireEvent.click(await screen.findByText('Booking & Availability'));
-    fireEvent.click(await screen.findByText('Booking Rules'));
+    const onClose = vi.fn();
+    render(<SettingsModal initialView="booking" leafOnly leafBackLabel="Settings" onClose={onClose} salonSlug="salon-a" userName="Daniela" />);
     const buffer = await screen.findByDisplayValue('10');
     fireEvent.change(buffer, { target: { value: '20' } });
 
@@ -411,13 +411,12 @@ describe('SettingsModal index', () => {
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
     fireEvent.click(await screen.findByRole('button', { name: 'Discard' }));
 
-    expect(await screen.findByText('Booking & Availability')).toBeInTheDocument();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('opens the canonical Booking Page business editor without a competing parking form', async () => {
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="business" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Business'));
     fireEvent.click(await screen.findByText('Business Information'));
 
     expect(pushMock).toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-a&panel=business', { scroll: false });
@@ -500,10 +499,9 @@ describe('SettingsModal index', () => {
     fetchMock.mockReset();
     mockEndpoints({ bookingExperience: CONFIGURED_BOOKING_EXPERIENCE });
 
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="booking-policy" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking & Availability'));
-    fireEvent.click(await screen.findByText('Client Policies'));
+    await screen.findByTestId('booking-policy-preview');
 
     expect(await screen.findByRole('checkbox', {
       name: 'Enable booking policy',
@@ -544,10 +542,9 @@ describe('SettingsModal index', () => {
 
   it('forces required policy dependencies and keeps the acknowledgment preview local until Save', async () => {
     const longPolicy = `${'Please contact the salon as soon as possible if you cannot attend. '.repeat(5)}Thank you.`;
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="booking-policy" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking & Availability'));
-    fireEvent.click(await screen.findByText('Client Policies'));
+    await screen.findByTestId('booking-policy-preview');
     await screen.findByTestId('booking-policy-preview');
 
     const requireAcknowledgment = screen.getByRole('checkbox', {
@@ -633,10 +630,9 @@ describe('SettingsModal index', () => {
   });
 
   it('counts acknowledgment wording by Unicode code point and blocks oversized drafts', async () => {
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="booking-policy" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking & Availability'));
-    fireEvent.click(await screen.findByText('Client Policies'));
+    await screen.findByTestId('booking-policy-preview');
     const wording = await screen.findByRole('textbox', {
       name: 'Acknowledgment wording',
     });
@@ -659,10 +655,9 @@ describe('SettingsModal index', () => {
     fetchMock.mockReset();
     mockEndpoints();
 
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="booking-policy" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking & Availability'));
-    fireEvent.click(await screen.findByText('Client Policies'));
+    await screen.findByTestId('booking-policy-preview');
     fireEvent.click(screen.getByRole('checkbox', {
       name: 'Require acknowledgment',
     }));
@@ -758,10 +753,9 @@ describe('SettingsModal index', () => {
       bookingExperienceEntitled: false,
     });
 
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="booking-policy" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking & Availability'));
-    fireEvent.click(await screen.findByText('Client Policies'));
+    await screen.findByTestId('booking-policy-preview');
     await screen.findByTestId('booking-policy-preview');
 
     expect(screen.queryByTestId('booking-policy-locked')).not.toBeInTheDocument();
@@ -815,10 +809,9 @@ describe('SettingsModal index', () => {
   });
 
   it('updates explicit quick facts and the canonical policy preview from an unsaved policy draft', async () => {
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="booking-policy" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking & Availability'));
-    fireEvent.click(await screen.findByText('Client Policies'));
+    await screen.findByTestId('booking-policy-preview');
     await screen.findByTestId('booking-policy-preview');
 
     fireEvent.click(screen.getByRole('checkbox', {
@@ -850,10 +843,9 @@ describe('SettingsModal index', () => {
     fetchMock.mockReset();
     mockEndpoints({ bookingExperience: CONFIGURED_BOOKING_EXPERIENCE });
 
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="booking-policy" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking & Availability'));
-    fireEvent.click(await screen.findByText('Client Policies'));
+    await screen.findByTestId('booking-policy-preview');
     fireEvent.change(await screen.findByRole('textbox', {
       name: 'Policy title',
     }), {
@@ -1183,10 +1175,9 @@ describe('SettingsModal index', () => {
       ),
     });
 
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    render(<SettingsModal initialView="booking-policy" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking & Availability'));
-    fireEvent.click(await screen.findByText('Client Policies'));
+    await screen.findByTestId('booking-policy-preview');
     await screen.findByTestId('booking-policy-preview');
     fireEvent.change(screen.getByRole('textbox', { name: 'Policy title' }), {
       target: { value: 'Unsaved policy title' },
@@ -1244,10 +1235,33 @@ describe('SettingsModal index', () => {
   // AG-w2-settings-integrations-08/09: the address is shown and locked, and a
   // name-only edit saves on its own instead of demanding the address be
   // retyped from memory into a field nothing verifies.
+  it('does not reuse a cancelled Plan destination when discarding a later Account edit', async () => {
+    const onOpenApp = vi.fn();
+    render(<SettingsModal onClose={vi.fn()} onOpenApp={onOpenApp} salonSlug="salon-a" userName="Daniela" />);
+    fireEvent.click(await screen.findByText('Account'));
+    await screen.findByDisplayValue('daniela@example.com');
+    fireEvent.change(screen.getByDisplayValue('Daniela'), { target: { value: 'First draft' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Open Plan & Usage' }));
+
+    expect(await screen.findByRole('button', { name: 'Discard' })).toBeInTheDocument();
+    expect(onOpenApp).not.toHaveBeenCalled();
+
+    // Ordinary header Back ends the first confirmation and its destination.
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    fireEvent.click(await screen.findByText('Account'));
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Name' }), { target: { value: 'Second draft' } });
+    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard' }));
+
+    expect(await screen.findByText('Account')).toBeInTheDocument();
+    expect(onOpenApp).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.filter(([input, init]) => String(input) === '/api/admin/profile' && init?.method === 'POST')).toEqual([]);
+  });
+
   it('shows the stored owner email read-only and saves a name-only edit', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Account & Plan'));
+    fireEvent.click(await screen.findByText('Account'));
     const saveButton = await screen.findByRole('button', { name: /save profile/i });
 
     expect(saveButton).toBeDisabled();
@@ -1289,10 +1303,10 @@ describe('SettingsModal index', () => {
         salonSlug="salon-a"
         salonId="salon_1"
         userName="Daniela"
+        initialView="plan-billing"
+        leafOnly
       />,
     );
-
-    fireEvent.click(await screen.findByText('Account & Plan'));
 
     expect(await screen.findByText('Cash / Offline billing enabled')).toBeInTheDocument();
     expect(screen.queryByTestId('manage-billing-button')).not.toBeInTheDocument();
@@ -1312,10 +1326,10 @@ describe('SettingsModal index', () => {
         salonSlug="salon-a"
         salonId="salon_1"
         userName="Daniela"
+        initialView="plan-billing"
+        leafOnly
       />,
     );
-
-    fireEvent.click(await screen.findByText('Account & Plan'));
     const manageButton = await screen.findByTestId('manage-billing-button');
     fireEvent.click(manageButton);
 

@@ -171,6 +171,9 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
   }
 
   if (app === 'plan-usage') {
+    if (view === 'billing') {
+      return <SettingsModal key={`${salonSlug}:plan-billing`} initialView="plan-billing" leafOnly leafBackLabel="Plan & Usage" onClose={back} salonSlug={salonSlug} salonId={salonId} isFreeSolo={isFreeSolo} onOpenApp={onOpenApp} />;
+    }
     return (
       <>
         <OwnerAppHub
@@ -179,7 +182,8 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
           onBack={onClose}
           onOpen={open}
           items={[
-            { id: 'usage', title: 'Usage & billing', description: 'SMS credits, delivery history and billing management', icon: CreditCard, disabled: !salonSlug },
+            { id: 'billing', title: 'Plan & billing', description: 'Subscription status, secure billing portal and plan options', icon: CreditCard, disabled: !salonSlug },
+            { id: 'usage', title: 'Messages & credits', description: 'SMS balance, usage and delivery history', icon: CreditCard, disabled: !salonSlug },
             ...(!isFreeSolo ? [{ id: 'plans', title: 'Compare plans', description: 'Current Luster plans and available options', icon: CalendarClock, disabled: !salonSlug }] : []),
           ]}
         />

@@ -74,6 +74,7 @@ export const OWNER_ASSISTANT_REGISTRY: readonly RegistryEntry[] = [
   entry('settings_visibility', 'Visibility', 'What client details team members can see.', ['visibility', 'hide phone', 'hide client', 'privacy of client details'], { type: 'admin', app: 'settings', view: 'visibility' }),
   entry('settings_features', 'Features', 'Which Luster features are turned on.', ['features', 'feature', 'turn on', 'turn off', 'enable', 'disable', 'plan'], { type: 'admin', app: 'settings', view: 'features' }),
   entry('settings_account', 'Account', 'Your account and sign-in.', ['account', 'sign in', 'login', 'password', 'phone number', 'email address'], { type: 'admin', app: 'settings', view: 'account' }),
+  entry('plan_usage', 'Plan & Usage', 'Your Luster subscription, billing portal and message usage.', ['plan', 'subscription', 'billing', 'manage billing', 'invoice', 'usage'], { type: 'admin', app: 'plan-usage', view: 'billing' }, 'exact_on_open'),
 
   entry('booking_page_hub', 'Booking Page', 'Your booking page: preview, edit and publish.', ['booking page', 'website', 'my page', 'public page', 'link to my page', 'share link'], { type: 'path', path: '/admin/website' }),
   entry('page_layouts', 'Layouts', 'Choose the layout of your booking page.', ['layout', 'layouts', 'design', 'template', 'quick book'], { type: 'bookingPage', panel: 'layouts' }),

@@ -24,6 +24,12 @@ describe('owner navigation aliases', () => {
     expect(original.get('app')).toBe('settings');
   });
 
+  it('moves legacy Settings plan billing to Plan & Usage while retaining context', () => {
+    const resolved = resolveOwnerNavigationAlias(new URLSearchParams('salon=isla&app=settings&view=plan-billing&returnTo=calendar'));
+
+    expect(resolved?.toString()).toBe('salon=isla&app=plan-usage&returnTo=calendar&view=billing');
+  });
+
   it('moves legacy Settings links without losing salon, record, or return context', () => {
     const query = new URLSearchParams('salon=isla&appointment=apt_42&returnTo=calendar&app=settings&view=booking-policy');
 
@@ -59,6 +65,7 @@ describe('owner navigation aliases', () => {
     expect(ownerManagementView('booking-rules', 'policies')).toBe('policies');
     expect(ownerManagementView('booking-rules', 'usage')).toBe('home');
     expect(ownerManagementView('plan-usage', 'plans')).toBe('plans');
+    expect(ownerManagementView('plan-usage', 'billing')).toBe('billing');
     expect(ownerManagementView('help', 'anything')).toBe('home');
   });
 });

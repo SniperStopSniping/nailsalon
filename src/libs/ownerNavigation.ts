@@ -2,7 +2,7 @@
 export const OWNER_MANAGEMENT_VIEWS = {
   'hours': ['home', 'working-hours', 'time-off', 'requests'],
   'booking-rules': ['home', 'rules', 'policies'],
-  'plan-usage': ['home', 'usage', 'plans'],
+  'plan-usage': ['home', 'billing', 'usage', 'plans'],
   'help': ['home'],
 } as const;
 
@@ -25,6 +25,7 @@ const SETTINGS_ALIASES: Record<string, { app: string; view?: string }> = {
   'review-requests': { app: 'marketing', view: 'reviews' },
   'communications': { app: 'marketing', view: 'messages' },
   'smart-fit': { app: 'marketing', view: 'smart-fit' },
+  'plan-billing': { app: 'plan-usage', view: 'billing' },
 };
 
 /** Preserve salon/record/return context; replace the history entry at the caller. */

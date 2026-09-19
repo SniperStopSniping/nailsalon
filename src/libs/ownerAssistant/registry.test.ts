@@ -55,6 +55,7 @@ const SETTINGS_VIEW_IDS = [
   'messages',
   'advanced',
   'account',
+  'plan-billing',
   'location',
   'branding',
   'booking-experience',
@@ -143,7 +144,9 @@ describe('every registry target resolves against the shell allowlists', () => {
               ? ['rules', 'policies']
               : entry.target.app === 'hours'
                 ? ['working-hours', 'time-off', 'requests']
-                : entry.target.app === 'marketing' ? ['reviews', 'messages', 'smart-fit'] : ['permissions'];
+                : entry.target.app === 'marketing'
+                  ? ['reviews', 'messages', 'smart-fit']
+                  : entry.target.app === 'plan-usage' ? ['billing', 'usage', 'plans'] : ['permissions'];
 
           expect(allowed).toContain(entry.target.view);
         }

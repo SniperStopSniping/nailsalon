@@ -111,11 +111,7 @@ function mockEndpoints(entitled: Partial<Record<string, boolean>>) {
 }
 
 async function openFeaturesView() {
-  const user = userEvent.setup();
-  render(<SettingsModal onClose={vi.fn()} salonSlug="salon-b" userName="Daniela" />);
-
-  const row = await screen.findByText('Features');
-  await user.click(row);
+  render(<SettingsModal initialView="features" leafOnly onClose={vi.fn()} salonSlug="salon-b" userName="Daniela" />);
 
   return screen.findByText('Modules');
 }

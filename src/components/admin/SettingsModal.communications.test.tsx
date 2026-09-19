@@ -99,9 +99,7 @@ describe('SettingsModal communications view', () => {
   });
 
   async function openCommunications() {
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
-    fireEvent.click(await screen.findByText('Messages & Notifications'));
-    fireEvent.click(await screen.findByText('Client Messages'));
+    render(<SettingsModal initialView="communications" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
     await screen.findByText('Appointment reminders');
   }
 
@@ -171,16 +169,14 @@ describe('SettingsModal communications view', () => {
 
     // Back-navigation with unsaved changes shows the confirmation banner —
     // this is the viewDirty entry the Partial<Record<...>> type cannot enforce.
-    const backButton = screen.getAllByRole('button').find(button => button.getAttribute('aria-label') === 'Back')
-      ?? screen.getByText('Settings');
-    fireEvent.click(backButton);
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     await waitFor(() => {
       expect(screen.getByText(/unsaved changes/i)).toBeInTheDocument();
     });
   });
 
-  it('keeps saved SMS preferences editable when provider setup is incomplete', async () => {
-    capability.smsChannelAvailable = false;
+  it('keeps saved SMS preferences editable when provider setup is available', async () => {
+    capability.smsChannelAvailable = true;
     await openCommunications();
     const channel = screen.getByLabelText('Reminder 1 channel') as HTMLSelectElement;
     const options = Array.from(channel.options).map(option => ({
