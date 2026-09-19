@@ -22,7 +22,7 @@ export type RegistryAddressable = 'exact' | 'exact_on_open' | 'parent';
 
 export type RegistryTarget =
   | { type: 'admin'; app?: string; view?: string }
-  | { type: 'bookingPage'; panel: 'business' | 'layouts' | 'appearance' | 'information' | 'text' | 'gallery' | 'policies' | 'publish' }
+  | { type: 'bookingPage'; panel: 'business' | 'layouts' | 'appearance' | 'information' | 'text' | 'gallery' | 'policies' | 'experience' | 'flow' | 'publish' }
   | { type: 'path'; path: string; query?: Record<string, string> };
 
 export type RegistryEntry = {
@@ -63,10 +63,10 @@ export const OWNER_ASSISTANT_REGISTRY: readonly RegistryEntry[] = [
   entry('business_hours', 'Business hours', 'Regular salon hours and timezone (Hours & Availability).', ['business hours', 'opening hours', 'hours', 'open', 'closed', 'timezone', 'time zone', 'change my hours'], { type: 'admin', app: 'hours' }),
   entry('settings_location', 'Business Information', 'Salon address, parking and arrival instructions.', ['location', 'address', 'map', 'city', 'where I am', 'parking', 'arrival instructions'], { type: 'bookingPage', panel: 'business' }),
   entry('business_information', 'Business Information', 'Your salon name, contact details, address and arrival instructions.', ['business profile', 'business name', 'salon name', 'phone', 'email', 'contact details', 'address', 'parking', 'arrival'], { type: 'bookingPage', panel: 'business' }),
-  entry('settings_branding', 'Booking messages & social links', 'Booking confirmation messages and social links.', ['social links', 'instagram', 'booking messages', 'confirmation message'], { type: 'admin', app: 'settings', view: 'branding' }),
+  entry('settings_branding', 'Public booking experience', 'Booking messages, social links and confirmation text.', ['social links', 'instagram', 'booking messages', 'confirmation message'], { type: 'bookingPage', panel: 'experience' }),
   entry('booking_rules', 'Booking rules', 'Minimum notice, slot interval, buffers, currency and confirmation settings.', ['booking rules', 'minimum notice', 'notice', 'slot interval', 'buffer', 'currency', 'confirmation', 'cutoff', 'lead time', 'how far in advance'], { type: 'admin', app: 'booking-rules', view: 'rules' }),
   entry('settings_booking_policy', 'Booking policy', 'Cancellation and no-show policy shown to customers.', ['booking policy', 'cancellation policy', 'no-show', 'no show', 'policy', 'terms'], { type: 'admin', app: 'booking-rules', view: 'policies' }),
-  entry('settings_booking_flow', 'Booking flow', 'The order of steps customers take when booking.', ['booking flow', 'steps', 'choose artist step', 'flow order'], { type: 'admin', app: 'settings', view: 'booking-flow' }),
+  entry('settings_booking_flow', 'Booking flow', 'The order of steps customers take when booking.', ['booking flow', 'steps', 'choose artist step', 'flow order'], { type: 'bookingPage', panel: 'flow' }),
   entry('settings_smart_fit', 'Smart Fit', 'Smart Fit offers that fill gaps in your calendar.', ['smart fit', 'gap', 'fill gaps', 'offers'], { type: 'admin', app: 'settings', view: 'smart-fit' }),
   entry('settings_communications', 'Communications', 'Reminders, quiet hours, pausing texts and SMS credits.', ['communications', 'reminders', 'reminder', 'quiet hours', 'pause texts', 'sms credits', 'text messages', 'texts'], { type: 'admin', app: 'settings', view: 'communications' }),
   entry('settings_notifications', 'Notifications', 'What you get notified about.', ['notifications', 'notify', 'alerts', 'bell'], { type: 'admin', app: 'settings', view: 'notifications' }),

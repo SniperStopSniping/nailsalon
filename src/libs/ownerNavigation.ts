@@ -60,12 +60,21 @@ export function resolveOwnerNavigationPathAlias(
   const app = query.get('app');
   const view = query.get('view');
   const isAdminDashboard = /\/(?:en|fr)\/admin$/.test(pathname);
-  if (!isAdminDashboard || app !== 'settings' || !['business-profile', 'location'].includes(view ?? '')) {
+  const bookingPagePanel = app === 'settings'
+    ? ({
+        'business-profile': 'business',
+        'location': 'business',
+        'branding': 'experience',
+        'booking-experience': 'experience',
+        'booking-flow': 'flow',
+      } as Record<string, string>)[view ?? '']
+    : undefined;
+  if (!isAdminDashboard || !bookingPagePanel) {
     return null;
   }
   const next = new URLSearchParams(query);
   next.delete('app');
   next.delete('view');
-  next.set('panel', 'business');
+  next.set('panel', bookingPagePanel);
   return { pathname: `${pathname}/booking-page`, query: next };
 }

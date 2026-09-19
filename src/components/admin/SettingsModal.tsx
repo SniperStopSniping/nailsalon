@@ -650,6 +650,7 @@ function getBookingExperienceSaveError(responseBody: unknown): string {
 type BookingExperienceEditorProps = {
   draft: BookingExperienceFormState;
   loading: boolean;
+  hydrated: boolean;
   saving: boolean;
   saved: boolean;
   dirty: boolean;
@@ -659,6 +660,7 @@ type BookingExperienceEditorProps = {
   ) => void;
   onReset: () => void;
   onSave: () => void;
+  onRetryLoad: () => void;
   /** Booking Page → Style & Colours, the single colour authority. */
   appearanceHref?: string;
 };
@@ -666,6 +668,7 @@ type BookingExperienceEditorProps = {
 function BookingExperienceEditor({
   draft,
   loading,
+  hydrated,
   saving,
   saved,
   dirty,
@@ -673,6 +676,7 @@ function BookingExperienceEditor({
   onChange,
   onReset,
   onSave,
+  onRetryLoad,
   appearanceHref,
 }: BookingExperienceEditorProps) {
   if (loading) {
@@ -684,6 +688,21 @@ function BookingExperienceEditor({
       >
         <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
         <span className="sr-only">Loading booking experience settings</span>
+      </div>
+    );
+  }
+
+  if (!hydrated) {
+    return (
+      <div className="space-y-3 p-4" data-testid="booking-experience-unavailable">
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="alert">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          <span>{error ?? 'We could not read your saved booking experience, so it is not shown here. Nothing has changed.'}</span>
+        </div>
+        <button type="button" onClick={onRetryLoad} className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-4 py-2.5 text-sm font-semibold text-gray-800 transition-colors hover:bg-[var(--owner-ground)]">
+          <RotateCcw className="size-4" />
+          Try again
+        </button>
       </div>
     );
   }
@@ -1764,6 +1783,8 @@ type SettingsView
   | 'account'
   | 'location'
   | 'branding'
+  | 'booking-experience'
+  | 'legacy-themes'
   | 'booking'
   | 'booking-policy'
   | 'booking-flow'
@@ -1790,6 +1811,8 @@ const SETTINGS_VIEW_IDS: readonly SettingsView[] = [
   'account',
   'location',
   'branding',
+  'booking-experience',
+  'legacy-themes',
   'booking',
   'booking-policy',
   'booking-flow',
@@ -1818,6 +1841,8 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'account': 'Account & Plan',
   'location': 'Location',
   'branding': 'Branding',
+  'booking-experience': 'Public booking experience',
+  'legacy-themes': 'Legacy Page Themes',
   'booking': 'Booking rules',
   'booking-policy': 'Booking policy',
   'booking-flow': 'Booking flow',
@@ -2024,6 +2049,16 @@ export function SettingsModal({
     return `/${locale}/admin/booking-page?${query.toString()}`;
   })();
   const openBusinessInformation = () => router.push(businessInformationHref, { scroll: false });
+  const openBookingPagePanel = (panel: 'experience' | 'flow') => {
+    const query = new URLSearchParams(searchParams?.toString());
+    if (salonSlug) {
+      query.set('salon', salonSlug);
+    }
+    query.delete('app');
+    query.delete('view');
+    query.set('panel', panel);
+    router.push(`/${locale}/admin/booking-page?${query.toString()}`, { scroll: false });
+  };
 
   // View navigation state (index + focused editing views)
   const [view, setView] = useState<SettingsView>(
@@ -2034,6 +2069,14 @@ export function SettingsModal({
   // Per-view unsaved-edit tracking (explicit-save views only; autosave views
   // never hold unsaved state)
   const [bookingConfigDirty, setBookingConfigDirty] = useState(false);
+  const [bookingFlowDirty, setBookingFlowDirty] = useState(false);
+  const [bookingFlowSaving, setBookingFlowSaving] = useState(false);
+  const [bookingFlowExitMessage, setBookingFlowExitMessage] = useState<string | null>(null);
+  // State updates do not become visible to the Back handler until React has
+  // rendered them. The editor calls onSave immediately before starting its
+  // request, so retain that fact synchronously as well. Otherwise an owner
+  // could be offered Discard during the small window where a PUT is underway.
+  const bookingFlowSavingRef = useRef(false);
   const [notificationsDirty, setNotificationsDirty] = useState(false);
   const [profileDirty, setProfileDirty] = useState(false);
   const [paymentsDirty, setPaymentsDirty] = useState(false);
@@ -3337,27 +3380,42 @@ export function SettingsModal({
   }, [profileSaved]);
 
   // Handle booking flow save (called by BookingFlowEditor's auto-save)
-  const handleBookingFlowSave = async (flow: BookingStep[]) => {
+  const handleBookingFlowSave = useCallback(async (flow: BookingStep[]) => {
     if (!salonSlug) {
       return;
     }
 
-    const response = await fetch('/api/admin/settings/booking-flow', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        salonSlug,
-        bookingFlow: flow,
-      }),
-    });
+    bookingFlowSavingRef.current = true;
+    setBookingFlowSaving(true);
+    try {
+      const response = await fetch('/api/admin/settings/booking-flow', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug,
+          bookingFlow: flow,
+        }),
+      });
 
-    if (!response.ok) {
-      throw new Error('Failed to save booking flow');
+      if (!response.ok) {
+        throw new Error('Failed to save booking flow');
+      }
+
+      const data = await response.json();
+      setBookingFlow(data.data.bookingFlow);
+    } finally {
+      bookingFlowSavingRef.current = false;
+      setBookingFlowSaving(false);
     }
+  }, [salonSlug]);
 
-    const data = await response.json();
-    setBookingFlow(data.data.bookingFlow);
-  };
+  const handleBookingFlowStateChange = useCallback(({ dirty, saving }: { dirty: boolean; saving: boolean }) => {
+    setBookingFlowDirty(dirty || saving);
+    setBookingFlowSaving(saving);
+    if (!saving) {
+      setBookingFlowExitMessage(null);
+    }
+  }, []);
 
   // Save owner profile (Account view) — existing /api/admin/profile contract
   const saveProfile = async () => {
@@ -3501,8 +3559,10 @@ export function SettingsModal({
 
   const viewDirty: Partial<Record<SettingsView, boolean>> = {
     'branding': bookingExperienceDirty,
+    'booking-experience': bookingExperienceDirty,
     'booking-policy': bookingPolicyDirty,
     'booking': bookingConfigDirty,
+    'booking-flow': bookingFlowDirty,
     'payments': paymentsDirty,
     'smart-fit': smartFitDirty,
     'notifications': notificationsDirty,
@@ -3541,7 +3601,7 @@ export function SettingsModal({
 
   /** Drop the unsaved draft a focused view was holding. */
   const revertViewDrafts = (from: SettingsView) => {
-    if (from === 'branding') {
+    if (from === 'branding' || from === 'booking-experience') {
       setBookingExperienceDraft(current => ({
         ...current,
         primaryColor: savedBookingExperience.primaryColor,
@@ -3572,6 +3632,12 @@ export function SettingsModal({
       setBookingPolicyDirty(false);
       setBookingPolicyError(null);
       setBookingPolicySaved(false);
+    }
+    if (from === 'booking-flow') {
+      setBookingFlowDirty(false);
+      setBookingFlowSaving(false);
+      bookingFlowSavingRef.current = false;
+      setBookingFlowExitMessage(null);
     }
     setSmartFitDirty(false);
   };
@@ -3604,6 +3670,10 @@ export function SettingsModal({
   const handleBack = () => {
     if (view === 'index') {
       onClose();
+      return;
+    }
+    if (view === 'booking-flow' && (bookingFlowSavingRef.current || bookingFlowSaving)) {
+      setBookingFlowExitMessage('Booking flow is saving. Please wait before leaving.');
       return;
     }
     if (currentViewDirty && !confirmingLeave) {
@@ -3698,6 +3768,9 @@ export function SettingsModal({
             {VIEW_TITLES[view]}
           </h1>
         </div>
+        {bookingFlowExitMessage && view === 'booking-flow' && (
+          <p className="px-4 pb-2 text-sm text-[var(--owner-muted)]" role="status">{bookingFlowExitMessage}</p>
+        )}
       </div>
 
       {/* Unsaved-change guard */}
@@ -3747,7 +3820,7 @@ export function SettingsModal({
           <SettingsCardGrid items={[
             { title: 'Business Information', description: 'Salon name, contact, address and arrival instructions', icon: User, onClick: openBusinessInformation },
             { title: 'Hours & Availability', description: 'Salon hours, working schedules and time off', icon: CalendarClock, onClick: () => openWorkspaceApp('hours') },
-            { title: 'Branding & Social', description: 'Booking messages and social links', icon: Palette, onClick: () => openView('branding') },
+            { title: 'Branding & Social', description: 'Booking messages and social links', icon: Palette, onClick: () => openBookingPagePanel('experience') },
           ]}
           />
         )}
@@ -3757,7 +3830,7 @@ export function SettingsModal({
             { title: 'Availability', description: bookingConfigLoading ? 'Buffer, time slots and booking notice' : `${bookingConfigForm.slotIntervalMinutes} minute slots · ${formatMinimumNotice(bookingConfigForm.minimumNoticeMinutes)} notice`, icon: CalendarClock, onClick: () => openView('booking') },
             { title: 'Booking Rules', description: 'Automatic confirmation or owner approval', icon: Check, onClick: () => openView('booking') },
             { title: 'Client Policies', description: bookingExperienceLoading ? 'Policy wording and acknowledgments' : bookingExperienceDraft.policy.enabled ? 'Policy enabled' : 'Policy off', icon: Shield, onClick: () => openView('booking-policy') },
-            ...(!isFreeSolo ? [{ title: 'Booking Flow', description: 'Service, technician, date/time and confirmation order', icon: ListOrdered, onClick: () => openView('booking-flow') }] : []),
+            ...(!isFreeSolo ? [{ title: 'Booking Flow', description: 'Service, technician, date/time and confirmation order', icon: ListOrdered, onClick: () => openBookingPagePanel('flow') }] : []),
             { title: 'Smart Fit', description: 'Fill useful schedule gaps with controlled discounts', icon: Gift, onClick: () => openView('smart-fit') },
           ]}
           />
@@ -3778,7 +3851,7 @@ export function SettingsModal({
 
         {view === 'advanced' && (
           <SettingsCardGrid items={[
-            { title: 'Legacy Page Themes', description: 'Existing themes for older booking and profile pages', icon: Palette, onClick: () => openView('branding') },
+            { title: 'Legacy Page Themes', description: 'Existing themes for older booking and profile pages', icon: Palette, onClick: () => openView('legacy-themes') },
             { title: 'Appointment Photo Rules', description: 'Before and after photo requirements', icon: Camera, onClick: () => router.push(`/${locale}/admin/policies${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}&section=photos` : '?section=photos'}`) },
             ...(sectionLibraryV1Enabled ? [{ title: 'Section gallery (preview)', description: 'Early look at new page sections', icon: LayoutTemplate, onClick: () => router.push(`/${locale}/admin/site-builder/section-gallery`) }] : []),
             { title: 'Terms of Service', description: 'The terms for using Luster', icon: Boxes, onClick: () => router.push(`/${locale}/terms`) },
@@ -3807,54 +3880,69 @@ export function SettingsModal({
           </Section>
         )}
 
+        {view === 'legacy-themes' && (
+          <Section
+            title="Legacy Page Themes"
+            footer="Existing per-page themes for older client-facing pages. Booking Page → Style & Colours owns the current website design."
+          >
+            <PageThemesSettings className="overflow-visible rounded-[10px] bg-[var(--owner-surface)]" />
+          </Section>
+        )}
+
         {view === 'branding' && (
-          <>
-            <Section
-              title="Legacy Page Themes"
-              footer="Existing per-page themes for older client-facing pages. Booking Page → Style & Colours owns the current website design."
-            >
-              <PageThemesSettings className="overflow-visible rounded-[10px] bg-[var(--owner-surface)]" />
-            </Section>
-            <Section
-              title="Public booking experience"
-              footer="These bounded controls customize booking and confirmation content without changing the site theme or email template."
-            >
-              <BookingExperienceEditor
-                appearanceHref={appearanceHubHref}
-                draft={bookingExperienceDraft}
-                loading={bookingExperienceLoading}
-                saving={bookingExperienceSaving}
-                saved={bookingExperienceSaved}
-                dirty={bookingExperienceDirty}
-                error={bookingExperienceError}
-                onChange={updateBookingExperienceDraft}
-                onReset={() => {
-                  const defaults = copyBookingExperience(
-                    BOOKING_EXPERIENCE_DEFAULTS,
-                  );
-                  const next = {
-                    ...bookingExperienceDraft,
-                    // `primaryColor` is deliberately preserved: this screen no
-                    // longer authors website colour, so Reset must not write it.
-                    primaryColor: bookingExperienceDraft.primaryColor,
-                    bookingMessage: defaults.bookingMessage,
-                    socialLinks: { ...defaults.socialLinks },
-                    confirmationMessage: defaults.confirmationMessage,
-                  };
-                  setBookingExperienceDraft(next);
-                  setBookingExperienceDirty(
-                    !bookingExperienceAppearancesMatch(
-                      next,
-                      savedBookingExperience,
-                    ),
-                  );
-                  setBookingExperienceSaved(false);
-                  setBookingExperienceError(null);
-                }}
-                onSave={() => void saveBookingExperience()}
-              />
-            </Section>
-          </>
+          <Section
+            title="Public booking experience"
+            footer="This former Settings destination now opens the canonical Booking Page editor."
+          >
+            <div className="space-y-3 p-4" data-testid="settings-booking-experience-handoff">
+              <p className="text-sm text-[var(--owner-muted)]">Booking messages, social links and confirmation text are managed on Booking Page.</p>
+              {bookingPageHubHref && <a className="inline-flex min-h-11 items-center rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white" href={`${bookingPageHubHref}&panel=experience`}>Open Public Booking Experience</a>}
+            </div>
+          </Section>
+        )}
+
+        {view === 'booking-experience' && (
+          <Section
+            title="Public booking experience"
+            footer="Booking messages and social links save immediately. Website colours stay in Booking Page → Style & Colours until you publish."
+          >
+            <BookingExperienceEditor
+              appearanceHref={appearanceHubHref}
+              draft={bookingExperienceDraft}
+              loading={bookingExperienceLoading}
+              hydrated={bookingExperienceHydrated}
+              saving={bookingExperienceSaving}
+              saved={bookingExperienceSaved}
+              dirty={bookingExperienceDirty}
+              error={bookingExperienceError}
+              onChange={updateBookingExperienceDraft}
+              onReset={() => {
+                const defaults = copyBookingExperience(
+                  BOOKING_EXPERIENCE_DEFAULTS,
+                );
+                const next = {
+                  ...bookingExperienceDraft,
+                  // `primaryColor` is deliberately preserved: this screen no
+                  // longer authors website colour, so Reset must not write it.
+                  primaryColor: bookingExperienceDraft.primaryColor,
+                  bookingMessage: defaults.bookingMessage,
+                  socialLinks: { ...defaults.socialLinks },
+                  confirmationMessage: defaults.confirmationMessage,
+                };
+                setBookingExperienceDraft(next);
+                setBookingExperienceDirty(
+                  !bookingExperienceAppearancesMatch(
+                    next,
+                    savedBookingExperience,
+                  ),
+                );
+                setBookingExperienceSaved(false);
+                setBookingExperienceError(null);
+              }}
+              onRetryLoad={() => void fetchPrograms()}
+              onSave={() => void saveBookingExperience()}
+            />
+          </Section>
         )}
 
         {view === 'booking-policy' && (
@@ -4169,7 +4257,7 @@ export function SettingsModal({
         {view === 'booking-flow' && !isFreeSolo && (
           <Section
             title="Booking Flow"
-            footer="Customize the order of steps in your online booking flow."
+            footer="Customize the order of steps in your online booking flow. Changes apply to new bookings immediately."
           >
             {bookingFlowLoading
               ? (
@@ -4181,7 +4269,9 @@ export function SettingsModal({
                   <BookingFlowEditor
                     bookingFlowCustomizationEnabled={bookingFlowEnabled}
                     bookingFlow={bookingFlow}
+                    onStateChange={handleBookingFlowStateChange}
                     onSave={handleBookingFlowSave}
+                    paused={confirmingLeave}
                   />
                 )}
           </Section>
