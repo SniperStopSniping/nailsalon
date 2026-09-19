@@ -15,9 +15,19 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await page.goto(hubUrl);
 
     await expect(page.getByRole('heading', { name: 'Booking Page', exact: true })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Booking Page editors' }).getByRole('link')).toHaveCount(7);
+    await expect(page.getByRole('navigation', { name: 'Booking Page editors' }).getByRole('link')).toHaveCount(8);
+    await expect(page.getByRole('link', { name: /^Business Information/ })).toHaveAttribute('href', `${editorUrl}&panel=business`);
     await expect(page.getByText(/^Live · /)).toBeVisible();
     expect(await noHorizontalOverflow()).toBe(true);
+
+    for (const legacyView of ['business-profile', 'location']) {
+      await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}&app=settings&view=${legacyView}`);
+
+      await expect(page).toHaveURL(`${editorUrl}&panel=business`);
+      await expect(page.getByRole('heading', { level: 1, name: 'Business Information', exact: true })).toBeVisible();
+      await expect(page.getByTestId('information-business-name')).toHaveValue(e2eConfig.salonName);
+      expect(await noHorizontalOverflow()).toBe(true);
+    }
 
     await page.goto(`${editorUrl}&panel=text&guided=1`);
 
@@ -50,19 +60,19 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await page.getByRole('link', { name: /Business Info Display/ }).click();
 
     // Booking Page presents the canonical business record without exposing a
-    // second editor. Owners follow the link to Settings for operational data.
+    // second editor. Owners follow the link to Business Information for live data.
     const informationEditor = page.getByTestId('booking-page-information-editor');
 
     await expect(informationEditor).toContainText(e2eConfig.salonName);
     await expect(page.getByTestId('information-business-name')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Edit business profile/ })).toHaveAttribute('href', /app=settings&view=business-profile/);
+    await expect(page.getByRole('link', { name: /Edit business profile/ })).toHaveAttribute('href', `${editorUrl}&panel=business`);
     expect(await noHorizontalOverflow()).toBe(true);
 
     await page.getByText('Contact', { exact: true }).click();
 
     await expect(page.getByRole('switch', { name: /Show phone/ })).toBeVisible();
     await expect(page.getByTestId('information-phone')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Edit contact details/ })).toHaveAttribute('href', /app=settings&view=business-profile/);
+    await expect(page.getByRole('link', { name: /Edit contact details/ })).toHaveAttribute('href', `${editorUrl}&panel=business`);
 
     await page.getByText('Location', { exact: true }).click();
 
@@ -70,7 +80,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await expect(privacyRadios).toHaveCount(3);
     await expect(page.getByTestId('information-address-street')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Edit salon address/ })).toHaveAttribute('href', /app=settings&view=location/);
+    await expect(page.getByRole('link', { name: /Edit salon address/ })).toHaveAttribute('href', `${editorUrl}&panel=business`);
 
     // Toggle away from whatever is saved, prove it persists across a reload,
     // then restore the original choice in `finally`.
@@ -105,6 +115,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await expect(page.getByTestId('information-timezone')).toHaveCount(0);
     await expect(page.getByTestId('information-hours-monday-open-toggle')).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Edit business hours/ })).toHaveAttribute('href', /app=hours(?:&|$)/);
+
     await page.getByRole('link', { name: /Edit business hours/ }).click();
 
     // The More destination remains mounted behind the sheet with the same
