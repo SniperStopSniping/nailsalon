@@ -2140,7 +2140,8 @@ function AdminDashboardContent() {
           searchParams.get('google'),
           searchParams.get('twilio'),
         )}
-        onOpenSettingsFromIntegrations={() => router.push(`${buildAdminUrl('settings')}&view=communications`)}
+        onOpenAppointmentMessagesFromIntegrations={() => openAppViaUrl('marketing', 'messages')}
+        onOpenOwnerAlertsFromIntegrations={() => openAppViaUrl('settings', 'notifications')}
         onManageReminders={() => router.push(`${buildAdminUrl('settings')}&view=communications`)}
         onOpenSocialPosting={() => router.push(`/${locale}/admin/policies${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}&section=social` : '?section=social'}`)}
         showNotifications={showNotifications}

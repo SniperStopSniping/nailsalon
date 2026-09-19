@@ -171,8 +171,10 @@ type IntegrationsModalProps = {
   initialView?: IntegrationsView;
   /** One-time notice carried by ?google= / ?twilio= callback params. */
   initialNotice?: string | null;
-  /** Optional hop to the Settings app (used by the Email/Texting views). */
-  onOpenSettings?: () => void;
+  /** Appointment messages and reminders are configured in Marketing & Messages. */
+  onOpenAppointmentMessages?: () => void;
+  /** Owner and staff alert channels are configured in Settings. */
+  onOpenOwnerAlerts?: () => void;
   /** Stripe setup is owned by Payments; this remains a connection-status shortcut. */
   onOpenPayments?: () => void;
 };
@@ -182,7 +184,8 @@ export function IntegrationsModal({
   salonSlug,
   initialView = 'home',
   initialNotice = null,
-  onOpenSettings,
+  onOpenAppointmentMessages,
+  onOpenOwnerAlerts,
   onOpenPayments,
 }: IntegrationsModalProps) {
   const [view, setView] = useState<IntegrationsView>(initialView);
@@ -775,7 +778,7 @@ export function IntegrationsModal({
                   </div>
                   <div>
                     <dt className="font-medium text-[var(--owner-ink)]">Automatic texts</dt>
-                    <dd>{health.sms.smsEnabled ? 'Enabled in Settings' : 'Off in Settings'}</dd>
+                    <dd>{health.sms.smsEnabled ? 'Enabled in Marketing & Messages' : 'Off in Marketing & Messages'}</dd>
                   </div>
                   <div>
                     <dt className="font-medium text-[var(--owner-ink)]">Text reminders</dt>
@@ -792,13 +795,13 @@ export function IntegrationsModal({
                 </dl>
               )}
 
-              {health && onOpenSettings && (
+              {health && onOpenAppointmentMessages && (
                 <button
                   type="button"
-                  onClick={onOpenSettings}
-                  className="mt-3 text-sm font-semibold text-[var(--owner-accent)] underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
+                  onClick={onOpenAppointmentMessages}
+                  className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-[var(--owner-accent)] underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
                 >
-                  Manage texts and reminders in Settings
+                  Manage appointment messages &amp; reminders
                 </button>
               )}
               {health?.latestSmsDeliveryError && (
@@ -862,13 +865,13 @@ export function IntegrationsModal({
                   way and starts working the moment one of them is available.
                 </p>
               )}
-              {onOpenSettings && (
+              {onOpenOwnerAlerts && (
                 <button
                   type="button"
-                  onClick={onOpenSettings}
-                  className="mt-3 text-sm font-semibold text-[var(--owner-accent)] underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
+                  onClick={onOpenOwnerAlerts}
+                  className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-[var(--owner-accent)] underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
                 >
-                  Choose alert channels in Settings
+                  Choose Owner &amp; Staff Alerts
                 </button>
               )}
             </div>
@@ -899,17 +902,27 @@ export function IntegrationsModal({
             */}
             <p className="text-[12px] leading-5 text-[var(--owner-muted)]" data-testid="integrations-scope-note">
               This app shows whether each channel is connected and working.
-              What gets sent and when — reminders, confirmations, alert
-              channels — is set in Settings.
+              Appointment messages and reminders are managed in Marketing &amp;
+              Messages. Owner &amp; Staff Alerts are managed in Settings.
             </p>
-            {onOpenSettings && (
+            {onOpenAppointmentMessages && (
               <button
                 type="button"
-                data-testid="integrations-open-settings"
-                onClick={onOpenSettings}
+                data-testid="integrations-open-appointment-messages"
+                onClick={onOpenAppointmentMessages}
                 className="min-h-11 text-[13px] font-semibold text-[var(--owner-accent)] underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
               >
-                Open reminder and alert settings
+                Open Appointment Messages &amp; Reminders
+              </button>
+            )}
+            {onOpenOwnerAlerts && (
+              <button
+                type="button"
+                data-testid="integrations-open-owner-alerts"
+                onClick={onOpenOwnerAlerts}
+                className="min-h-11 text-[13px] font-semibold text-[var(--owner-accent)] underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
+              >
+                Open Owner &amp; Staff Alerts
               </button>
             )}
           </div>

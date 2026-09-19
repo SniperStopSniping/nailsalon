@@ -58,7 +58,8 @@ type AdminModalHostProps = {
   onNavigate?: (app: string, view?: string, technicianId?: string, replace?: boolean) => void;
   onNavigateBack?: () => void;
   integrationsNotice?: string | null;
-  onOpenSettingsFromIntegrations?: () => void;
+  onOpenAppointmentMessagesFromIntegrations?: () => void;
+  onOpenOwnerAlertsFromIntegrations?: () => void;
   onManageReminders?: () => void;
   onOpenSocialPosting?: () => void;
   showNotifications: boolean;
@@ -104,7 +105,8 @@ export function AdminModalHost({
   onNavigate,
   onNavigateBack,
   integrationsNotice,
-  onOpenSettingsFromIntegrations,
+  onOpenAppointmentMessagesFromIntegrations,
+  onOpenOwnerAlertsFromIntegrations,
   onManageReminders,
   onOpenSocialPosting,
   showNotifications,
@@ -276,7 +278,8 @@ export function AdminModalHost({
           salonSlug={activeSalonSlug}
           initialView={integrationsInitialView}
           initialNotice={integrationsNotice}
-          onOpenSettings={onOpenSettingsFromIntegrations}
+          onOpenAppointmentMessages={onOpenAppointmentMessagesFromIntegrations}
+          onOpenOwnerAlerts={onOpenOwnerAlertsFromIntegrations}
           onOpenPayments={onNavigate ? () => onNavigate('payments', 'stripe') : undefined}
         />
       </AppModal>

@@ -98,6 +98,38 @@ async function mockInformationApi(page: import('@playwright/test').Page) {
       await route.fulfill({ json: { data: { timeOff: [] } } });
       return;
     }
+    if (url.pathname === '/api/salon/services' && request.method() === 'GET') {
+      await route.fulfill({ json: { data: {
+        services: [{
+          id: 'service_biab',
+          name: 'BIAB Manicure',
+          description: null,
+          price: 6500,
+          durationMinutes: 60,
+          category: 'manicure',
+          bookingCategory: 'manicure',
+          imageUrl: null,
+          isActive: true,
+        }],
+        activeTechnicianCount: 1,
+      } } });
+      return;
+    }
+    if (url.pathname === '/api/salon/add-ons' && request.method() === 'GET') {
+      await route.fulfill({ json: { data: { addOns: [] } } });
+      return;
+    }
+    if (url.pathname === '/api/admin/salon/settings' && request.method() === 'GET') {
+      await route.fulfill({ json: {
+        merchandising: { lusterPromoDismissed: true, serviceLibraryIntroDismissed: true, showServiceImages: true, featureLusterManicure: false },
+        bookingConfig: { introPriceDefaultLabel: '', firstVisitDiscountEnabled: false },
+      } });
+      return;
+    }
+    if (url.pathname === '/api/salon/services/from-templates' && request.method() === 'GET') {
+      await route.fulfill({ json: { data: { ownedTemplateKeys: [] } } });
+      return;
+    }
     if (!url.pathname.startsWith('/api/')) {
       await route.continue();
       return;
@@ -150,6 +182,37 @@ test('mobile More is ranked in task groups and Hours opens first with browser hi
   await page.goForward();
 
   await expect(page.getByText('Hours & Availability', { exact: true })).toBeVisible();
+  expect(unexpected).toEqual([]);
+});
+
+test('Services keeps Library and Advanced Catalog out of the 320px menu until More opens them', async ({ page }) => {
+  const { unexpected } = await mockInformationApi(page);
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto('/?app=services&salon=isla');
+
+  const more = page.getByRole('button', { name: 'More' });
+
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('services-tab-menu')).toBeVisible();
+  await expect(page.getByTestId('services-tab-addons')).toBeVisible();
+  await expect(page.getByTestId('services-more-tabs')).toHaveCount(0);
+  await expect(page.getByTestId('services-tab-library')).toHaveCount(0);
+  await expect(page.getByTestId('services-tab-catalog')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await more.tap();
+
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('services-more-tabs')).toBeVisible();
+  await expect(page.getByTestId('services-tab-library')).toBeVisible();
+  await expect(page.getByTestId('services-tab-catalog')).toBeVisible();
+
+  await page.getByTestId('services-tab-library').tap();
+
+  await expect(more).toBeDisabled();
+  await expect(more).toHaveAttribute('aria-controls', 'services-more-tabs');
+  await expect(page.getByTestId('services-tab-library')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(unexpected).toEqual([]);
 });
 

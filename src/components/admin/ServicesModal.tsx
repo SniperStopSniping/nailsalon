@@ -2280,6 +2280,11 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const showServiceImagesSaveAbort = useRef<AbortController | null>(null);
   const [activeTab, setActiveTab] = useState<'menu' | 'library' | 'addons' | 'catalog'>('menu');
   const [showMoreTabs, setShowMoreTabs] = useState(false);
+  const isAdvancedTab = activeTab === 'library' || activeTab === 'catalog';
+  // An active advanced editor must retain its own selector. In particular,
+  // collapsing More while a catalog form has unsaved changes would hide the
+  // only way back without leaving that editor.
+  const advancedTabsVisible = showMoreTabs || isAdvancedTab;
   /**
    * Tab-switch scroll memory (w2-services "scroll position on tab switch",
    * recorded NOT TESTED in the audit).
@@ -3159,48 +3164,51 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
             </button>
             <button
               type="button"
-              aria-expanded={showMoreTabs}
-              aria-controls="services-more-tabs"
+              aria-expanded={advancedTabsVisible}
+              aria-controls={advancedTabsVisible ? 'services-more-tabs' : undefined}
               onClick={() => setShowMoreTabs(current => !current)}
-              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
-                activeTab === 'library' || activeTab === 'catalog' || showMoreTabs ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
+              disabled={isAdvancedTab}
+              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-default disabled:opacity-100 ${
+                advancedTabsVisible ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
               }`}
             >
               More
             </button>
           </div>
-          <div
-            id="services-more-tabs"
-            hidden={!showMoreTabs}
-            className="mt-2 grid grid-cols-2 gap-2"
-            role="group"
-            aria-label="More service settings"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'library'}
-              data-testid="services-tab-library"
-              onClick={() => selectTab('library')}
-              className={`min-h-11 rounded-xl border px-3 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
-                activeTab === 'library' ? 'border-[var(--owner-accent)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
-              }`}
+          {advancedTabsVisible && (
+            <div
+              id="services-more-tabs"
+              data-testid="services-more-tabs"
+              className="mt-2 grid grid-cols-2 gap-2"
+              role="group"
+              aria-label="More service settings"
             >
-              Library
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'catalog'}
-              data-testid="services-tab-catalog"
-              onClick={() => selectTab('catalog')}
-              className={`min-h-11 rounded-xl border px-3 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
-                activeTab === 'catalog' ? 'border-[var(--owner-accent)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
-              }`}
-            >
-              Advanced Catalog
-            </button>
-          </div>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'library'}
+                data-testid="services-tab-library"
+                onClick={() => selectTab('library')}
+                className={`min-h-11 rounded-xl border px-3 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
+                  activeTab === 'library' ? 'border-[var(--owner-accent)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
+                }`}
+              >
+                Library
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'catalog'}
+                data-testid="services-tab-catalog"
+                onClick={() => selectTab('catalog')}
+                className={`min-h-11 rounded-xl border px-3 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
+                  activeTab === 'catalog' ? 'border-[var(--owner-accent)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
+                }`}
+              >
+                Advanced Catalog
+              </button>
+            </div>
+          )}
         </div>
         {activeTab === 'menu' && (
           <>
