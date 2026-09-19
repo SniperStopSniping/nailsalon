@@ -1,3 +1,16 @@
+# [1.122.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.121.0...v1.122.0) (2026-09-19)
+
+
+### Bug Fixes
+
+* **owner-assistant:** route intraday blocks to Calendar ([df74a15](https://github.com/SniperStopSniping/nailsalon/commit/df74a158a66003448b24c1df7243b6a6bf7321a8))
+
+
+### Features
+
+* **owner:** make Today an operational briefing ([2196eac](https://github.com/SniperStopSniping/nailsalon/commit/2196eac0d2dec32f574c22da136360fd36a6a3d7))
+* **owner:** refine navigation and add guarded calendar block time ([67dd184](https://github.com/SniperStopSniping/nailsalon/commit/67dd18496b2d6536b815ba27808c8939886303a1))
+
 # [1.121.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.120.0...v1.121.0) (2026-09-19)
 
 
