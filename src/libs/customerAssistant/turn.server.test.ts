@@ -44,6 +44,28 @@ describe('customer assistant bounded turn', () => {
     expect(verifyCustomerConversation(result.conversation, 'salon-a', secret).messages).toEqual(['Gel-X with French']);
   });
 
+  it('proposes services before availability for the Gel Manicure and French dated-request regression', async () => {
+    const request = { ...input(), message: 'I would like a Gel Manicure on natural nails with French Tips, no removal and no other extras, on Saturday September 19.' };
+    const selection = { baseServiceId: 'gel-manicure', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] };
+    mocks.proposal.mockResolvedValue({ selection, fingerprint: acceptedFingerprint, service: { id: 'gel-manicure', name: 'Gel Manicure', priceCents: 4000 }, addOns: [{ id: 'french', name: 'French Tips', quantity: 1, priceCents: 1000 }], subtotalCents: 5000, durationMinutes: 75, currency: 'CAD', expiresAt: '2026-09-18T00:00:00Z' });
+    const output = { ...interpretation, serviceId: 'gel-manicure', datePreference: null };
+    const result = await runCustomerAssistantTurn(request, provider(output));
+
+    expect(mocks.proposal).toHaveBeenCalledWith('salon-a', null, selection);
+    expect(result.result).toMatchObject({ kind: 'proposal', proposal: { subtotalCents: 5000, durationMinutes: 75 } });
+    expect(verifyCustomerConversation(result.conversation, 'salon-a', secret).context?.selection).toEqual(selection);
+    expect(mocks.lookup).not.toHaveBeenCalled();
+  });
+
+  it('still fails closed before proposal authority if a provider returns the reproduced malformed times', async () => {
+    const result = await runCustomerAssistantTurn(input(), provider({ ...interpretation, datePreference: { date: '2026-09-19', earliest: '', latest: '' } }));
+
+    expect(result.result).toEqual({ kind: 'unavailable', reason: 'unavailable' });
+    expect(mocks.proposal).not.toHaveBeenCalled();
+    expect(mocks.lookup).not.toHaveBeenCalled();
+    expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ usage, outcome: 'failed' }));
+  });
+
   it('rejects a cross-tenant or forged capability before quota, tools or provider', async () => {
     const model = provider();
     const otherSalon = { ...input(), salonId: 'salon-b' };
