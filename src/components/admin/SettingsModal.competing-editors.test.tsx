@@ -336,12 +336,18 @@ describe('SettingsModal — one writer per record', () => {
   });
 
   describe('appearance authorities (AG-more-settings-06)', () => {
-    it('names the two Business rows and where each one goes', async () => {
-      openBookingExperience();
-      await screen.findByTestId('booking-experience-preview');
+    it('routes the legacy Branding & Social row to the canonical booking experience editor', async () => {
+      render(<SettingsModal initialView="business" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
       expect(screen.queryByText('Website layout & colours')).not.toBeInTheDocument();
       expect(screen.queryByText('Branding & appearance')).not.toBeInTheDocument();
+
+      fireEvent.click(await screen.findByText('Branding & Social'));
+
+      expect(pushMock).toHaveBeenLastCalledWith(
+        '/en/admin/booking-page?salon=salon-a&panel=experience',
+        { scroll: false },
+      );
     });
 
     it('replaces the free colour control with a link to the drafted palette', async () => {

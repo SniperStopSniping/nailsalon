@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -72,18 +72,27 @@ describe('SettingsModal booking-flow leaf', () => {
 
   it('discards a pending debounce without sending a flow write', async () => {
     render(<LeafHarness />);
-    fireEvent.click(await screen.findByTitle('Click to hide technician step'));
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    const toggle = await screen.findByTitle('Click to hide technician step');
+    // Hold the debounce clock so a busy CI runner cannot save before Back.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
 
-    expect(await screen.findByRole('alertdialog', { name: 'Unsaved changes' })).toBeInTheDocument();
+      expect(screen.getByRole('alertdialog', { name: 'Unsaved changes' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
 
-    expect(await screen.findByText('Closed')).toBeInTheDocument();
+      expect(screen.getByText('Closed')).toBeInTheDocument();
 
-    await new Promise(resolve => setTimeout(resolve, 600));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
 
-    expect(fetchMock.mock.calls.filter(([url, init]) => String(url).includes('/api/admin/settings/booking-flow') && (init as RequestInit | undefined)?.method === 'PUT')).toHaveLength(0);
+      expect(fetchMock.mock.calls.filter(([url, init]) => String(url).includes('/api/admin/settings/booking-flow') && (init as RequestInit | undefined)?.method === 'PUT')).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not retry a failed flow write when Back opens the leave confirmation', async () => {

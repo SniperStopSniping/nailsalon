@@ -22,8 +22,20 @@ describe('Booking Page hub', () => {
     expect(screen.getByRole('link', { name: /Business Information/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=business');
     expect(screen.getByRole('link', { name: /Layout 22 website layouts/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=layouts');
     expect(screen.getByRole('link', { name: /Photos & Gallery/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=gallery');
+    expect(screen.getByRole('link', { name: /Public Booking Experience/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=experience');
+    expect(screen.getByRole('link', { name: /Booking Flow/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=flow');
     expect(screen.getByText('Live · All changes published')).toBeVisible();
     expect(screen.queryByText(/Daniela|Isla/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the team-only Flow editor out of the Free Solo hub while retaining Public Booking Experience', () => {
+    render(<BookingPageHub {...props} isFreeSolo />);
+
+    const editors = screen.getByRole('navigation', { name: 'Booking Page editors' });
+
+    expect(editors.querySelectorAll('a')).toHaveLength(9);
+    expect(screen.getByRole('link', { name: /Public Booking Experience/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=experience');
+    expect(screen.queryByRole('link', { name: /Booking Flow/ })).not.toBeInTheDocument();
   });
 
   it('does not offer a public link or reset path before publication', () => {

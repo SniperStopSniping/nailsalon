@@ -12,7 +12,9 @@ async function mockApi(page: import('@playwright/test').Page, freeSolo: boolean,
       await route.continue(); return;
     }
     if (url.pathname === '/api/admin/auth/me') {
-      if (authDelayMs) await new Promise(resolve => setTimeout(resolve, authDelayMs));
+      if (authDelayMs) {
+        await new Promise(resolve => setTimeout(resolve, authDelayMs));
+      }
       await route.fulfill({ json: { user: { id: 'owner', salons: [{ slug: 'isla', freeSoloEnabled: freeSolo }] } } }); return;
     }
     if (url.pathname === '/api/admin/booking-page') {
@@ -53,7 +55,9 @@ test('experience is mobile canonical and Flow fails closed for Free Solo', async
   await page.goto('/?salon=isla&panel=flow');
 
   await expect(page.getByTestId('booking-flow-unavailable')).toContainText('not included with Free Solo');
+
   await page.getByRole('button', { name: 'Booking Page' }).click();
+
   await expect(page).toHaveURL(/\/en\/admin\/website\?salon=isla$/);
 });
 
