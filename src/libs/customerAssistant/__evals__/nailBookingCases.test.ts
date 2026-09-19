@@ -60,6 +60,8 @@ describe('synthetic L1 nail-booking interpretation evaluation', () => {
 
     expect(scoreNailBookingInterpretation({ action: 'clarify', serviceId: SYNTHETIC_NAIL_IDS.gelx, addOns: [], question: 'length', optionIds: [SYNTHETIC_NAIL_IDS.short, SYNTHETIC_NAIL_IDS.medium, SYNTHETIC_NAIL_IDS.long], datePreference: null }, testCase).passed).toBe(true);
     expect(scoreNailBookingInterpretation({ action: 'clarify', serviceId: SYNTHETIC_NAIL_IDS.gelx, addOns: [], question: 'finish', optionIds: [SYNTHETIC_NAIL_IDS.short], datePreference: null }, testCase).passed).toBe(false);
+    expect(scoreNailBookingInterpretation({ action: 'clarify', serviceId: null, addOns: [], question: 'length', optionIds: [SYNTHETIC_NAIL_IDS.short, SYNTHETIC_NAIL_IDS.medium, SYNTHETIC_NAIL_IDS.long], datePreference: null }, testCase).passed).toBe(false);
+    expect(scoreNailBookingInterpretation({ action: 'clarify', serviceId: SYNTHETIC_NAIL_IDS.gelManicure, addOns: [], question: 'length', optionIds: [SYNTHETIC_NAIL_IDS.short, SYNTHETIC_NAIL_IDS.medium, SYNTHETIC_NAIL_IDS.long], datePreference: null }, testCase).passed).toBe(false);
   });
 
   it('accepts additional relevant service choices but rejects unrelated IDs', () => {
