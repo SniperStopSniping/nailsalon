@@ -134,9 +134,11 @@ test('component-browser fixture shows a bounded customer/assistant transcript wi
   await page.screenshot({ path: path.join(artifactDirectory, `${testInfo.project.name}-conversation-transcript-390px-100zoom.png`), fullPage: true });
 
   await page.getByRole('button', { name: 'Classic French' }).tap();
+
   await expect(page.getByLabel('You chose: Classic French', { exact: true })).toBeVisible();
   await expect(page.getByLabel('You', { exact: true })).toHaveText('I would like a gel manicure with French tips');
   await expect(page.getByText('Got it — classic French tips.')).toBeVisible();
+
   await page.screenshot({ path: path.join(artifactDirectory, `${testInfo.project.name}-selected-quick-reply-390px.png`), fullPage: true });
 
   expect(unexpected).toEqual([]);
