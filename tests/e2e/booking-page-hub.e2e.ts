@@ -104,7 +104,12 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await expect(page.getByTestId('information-timezone')).toHaveCount(0);
     await expect(page.getByTestId('information-hours-monday-open-toggle')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: /Edit business hours/ })).toHaveAttribute('href', /app=settings&view=business-profile/);
+    await expect(page.getByRole('link', { name: /Edit business hours/ })).toHaveAttribute('href', /app=hours(?:&|$)/);
+    await page.getByRole('link', { name: /Edit business hours/ }).click();
+
+    await expect(page.getByRole('heading', { name: 'Hours & Availability', exact: true })).toBeVisible();
+    await expect(page.getByTestId('information-timezone')).toBeVisible();
+    await expect(page.getByTestId('information-hours-monday-open-toggle')).toBeVisible();
     expect(await noHorizontalOverflow()).toBe(true);
 
     // Photos & Gallery owns the three public image roles and links onward to
