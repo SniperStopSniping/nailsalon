@@ -9,7 +9,7 @@ import {
   RefreshCw,
   Save,
 } from 'lucide-react';
-import { useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   type Ref,
   useCallback,
@@ -19,7 +19,6 @@ import {
   useState,
 } from 'react';
 
-import { CommunicationSettingsPanel } from '@/components/admin/CommunicationSettingsPanel';
 import { LusterClientSms } from '@/components/admin/LusterClientSms';
 import { MarketingMessageComposer } from '@/components/admin/MarketingMessageComposer';
 import { ReviewRequestSettings } from '@/components/admin/ReviewRequestSettings';
@@ -36,6 +35,7 @@ import type {
 } from '@/types/retention';
 
 import { BackButton, ModalHeader } from './AppModal';
+import { SettingsModal } from './SettingsModal';
 
 type MarketingModalProps = {
   onClose: () => void;
@@ -52,6 +52,8 @@ type MarketingModalProps = {
   > | null;
   onManageReminders?: () => void;
   onOpenSocialPosting?: () => void;
+  /** Whether Analytics is available for the Smart Fit results shortcut. */
+  smartFitResultsAvailable?: boolean;
 };
 
 type AvailableService = {
@@ -458,29 +460,32 @@ function PromotionEditor({
 }
 
 // =============================================================================
-// Marketing workspace — Home / Follow-ups / Campaigns / Results / Reviews.
+// Marketing workspace — Home / Appointment messages / Follow-ups / Offers /
+// Results / Reviews.
 // Everything here is honest: manual texting is a native-Messages draft the
 // technician reviews and sends themselves (opening the composer is never
 // recorded as sent or delivered); automatic texting status comes from the same
 // shared resolver as the Integrations app; Results show only measurable facts.
 // =============================================================================
 
-type MarketingView = 'home' | 'compose' | 'followups' | 'messages' | 'campaigns' | 'results' | 'reviews';
+type MarketingView = 'home' | 'compose' | 'followups' | 'messages' | 'offers' | 'smart-fit' | 'campaigns' | 'results' | 'reviews';
 
-const MARKETING_VIEWS: MarketingView[] = ['home', 'compose', 'followups', 'messages', 'campaigns', 'results', 'reviews'];
+const MARKETING_VIEWS: MarketingView[] = ['home', 'compose', 'followups', 'messages', 'offers', 'smart-fit', 'campaigns', 'results', 'reviews'];
 
 function isMarketingView(value: string | null): value is MarketingView {
   return value !== null && (MARKETING_VIEWS as string[]).includes(value);
 }
 
 const VIEW_TITLES: Record<MarketingView, string> = {
-  home: 'Marketing & Messages',
-  compose: 'Write a message',
-  followups: 'Follow-ups',
-  messages: 'Message settings',
-  campaigns: 'Retention',
-  results: 'Results',
-  reviews: 'Review settings',
+  'home': 'Marketing & Messages',
+  'compose': 'Write a message',
+  'followups': 'Follow-ups',
+  'messages': 'Appointment messages',
+  'offers': 'Offers',
+  'smart-fit': 'Smart Fit',
+  'campaigns': 'Follow-up offers',
+  'results': 'Results',
+  'reviews': 'Reviews',
 };
 
 type FollowupItem = {
@@ -552,21 +557,60 @@ export function MarketingModal({
   onOpenClient,
   onOpenNativeUrl,
   onOpenSocialPosting,
+  smartFitResultsAvailable = false,
 }: MarketingModalProps) {
   const { salonSlug } = useSalon();
+  const router = useRouter();
+  const params = useParams<{ locale?: string }>();
   const searchParams = useSearchParams();
   // A one-tap hop from the Review rewards app lands here: ?app=marketing&view=reviews.
   // Null in unit tests / outside an App Router tree — a missing param is just 'home'.
   const requestedView = searchParams?.get('view') ?? null;
+  const locale = params?.locale === 'fr' ? 'fr' : 'en';
   const sixWeekPromotionRef = useRef<HTMLElement>(null);
   const eightWeekPromotionRef = useRef<HTMLElement>(null);
   const focusedPromotionStageRef = useRef<MarketingModalProps['initialPromotionStage']>(null);
+  const pushedViewDepthRef = useRef(0);
   const [view, setView] = useState<MarketingView>(() => {
     if (initialPromotionStage) {
       return 'campaigns';
     }
     return isMarketingView(requestedView) ? requestedView : 'home';
   });
+  const marketingHref = useCallback((next: MarketingView) => {
+    const query = new URLSearchParams(searchParams?.toString());
+    if (salonSlug) {
+      query.set('salon', salonSlug);
+    }
+    query.set('app', 'marketing');
+    query.delete('view');
+    if (next !== 'home') {
+      query.set('view', next);
+    }
+    return `/${locale}/admin?${query.toString()}`;
+  }, [locale, salonSlug, searchParams]);
+  const openView = useCallback((next: MarketingView) => {
+    if (next === view) {
+      return;
+    }
+    pushedViewDepthRef.current += 1;
+    setView(next);
+    router.push(marketingHref(next), { scroll: false });
+  }, [marketingHref, router, view]);
+  const backTo = useCallback((next: MarketingView) => {
+    setView(next);
+    if (pushedViewDepthRef.current > 0) {
+      pushedViewDepthRef.current -= 1;
+      router.back();
+    } else {
+      router.replace(marketingHref(next), { scroll: false });
+    }
+  }, [marketingHref, router]);
+  useEffect(() => {
+    if (!initialPromotionStage) {
+      setView(isMarketingView(requestedView) ? requestedView : 'home');
+    }
+  }, [initialPromotionStage, requestedView]);
   const [settings, setSettings] = useState<RetentionSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<RetentionSettings | null>(null);
   const [services, setServices] = useState<AvailableService[]>([]);
@@ -796,7 +840,7 @@ export function MarketingModal({
       // Win-back stages: the offer must be configured before anything opens.
       const promotion = item.stage === 'promo_6w' ? settings?.sixWeekPromotion : settings?.eightWeekPromotion;
       if (!promotion?.enabled || promotion.value <= 0) {
-        setView('campaigns');
+        openView('campaigns');
         setActionError('Set up this win-back offer before texting it.');
         return;
       }
@@ -845,7 +889,7 @@ export function MarketingModal({
     } finally {
       setPreparing(null);
     }
-  }, [salonSlug, preparing, salonName, links, settings, recordOutreach]);
+  }, [salonSlug, preparing, salonName, links, settings, recordOutreach, openView]);
 
   const finishPendingAsk = useCallback(async (status: 'marked_sent' | 'not_sent') => {
     if (!pendingAsk || recordingStatus) {
@@ -928,6 +972,34 @@ export function MarketingModal({
     </button>
   );
 
+  if (view === 'smart-fit') {
+    return (
+      <SettingsModal
+        key={`${salonSlug}:${view}`}
+        initialView="smart-fit"
+        leafOnly
+        leafBackLabel="Offers"
+        onClose={() => backTo('offers')}
+        onOpenApp={onOpenApp}
+        salonSlug={salonSlug}
+        smartFitResultsAvailable={smartFitResultsAvailable}
+      />
+    );
+  }
+
+  if (view === 'messages') {
+    return (
+      <SettingsModal
+        key={`${salonSlug}:${view}`}
+        initialView="communications"
+        leafOnly
+        leafBackLabel="Marketing & Messages"
+        onClose={() => backTo('home')}
+        salonSlug={salonSlug}
+      />
+    );
+  }
+
   return (
     <div className="relative flex min-h-full w-full flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]">
       <div className="sticky top-0 z-20 bg-[var(--owner-ground)] backdrop-blur-md">
@@ -935,7 +1007,7 @@ export function MarketingModal({
           title={VIEW_TITLES[view]}
           leftAction={(
             <BackButton
-              onClick={view === 'home' ? onClose : () => setView('home')}
+              onClick={view === 'home' ? onClose : () => backTo('home')}
               label={view === 'home' ? 'Back' : 'Marketing & Messages'}
             />
           )}
@@ -980,7 +1052,7 @@ export function MarketingModal({
                       <div className="space-y-3" data-testid="marketing-home">
                         <button
                           type="button"
-                          onClick={() => setView('compose')}
+                          onClick={() => openView('compose')}
                           className="flex min-h-20 w-full items-center gap-3 rounded-[18px] bg-gradient-to-br from-[var(--owner-accent)] to-[var(--owner-accent-strong)] p-4 text-left text-white shadow-sm active:opacity-90"
                           data-testid="marketing-write-message-action"
                         >
@@ -996,7 +1068,7 @@ export function MarketingModal({
                         <button
                           type="button"
                           data-testid="marketing-home-followups"
-                          onClick={() => setView('followups')}
+                          onClick={() => openView('followups')}
                           className="flex min-h-16 w-full items-center justify-between gap-3 rounded-[16px] border border-rose-100 bg-rose-50 p-4 text-left"
                         >
                           <span>
@@ -1007,31 +1079,38 @@ export function MarketingModal({
                         </button>
                         {homeRow({
                           testId: 'marketing-home-campaigns',
-                          title: 'Follow-up settings',
+                          title: 'Follow-up offers',
                           detail: 'Rebooking timing, win-back offers and saved wording.',
                           status: winbackConfigured ? 'Set up' : 'Not set up',
-                          onClick: () => setView('campaigns'),
+                          onClick: () => openView('campaigns'),
                         })}
                         {homeRow({
                           testId: 'marketing-home-appointment-messages',
                           title: 'Appointment messages',
-                          detail: 'Confirmations, reminders, cancellations and channels.',
+                          detail: automaticStatus.detail || 'Confirmations, reminders, cancellations and channels.',
+                          status: automaticStatus.label === 'Ready' ? 'Luster texting ready' : automaticStatus.label,
+                          onClick: () => openView('messages'),
+                        })}
+                        {homeRow({
+                          testId: 'marketing-home-offers',
+                          title: 'Offers',
+                          detail: 'Smart Fit discounts and follow-up offers for returning clients.',
                           status: 'Manage',
-                          onClick: () => setView('messages'),
+                          onClick: () => openView('offers'),
                         })}
                         {homeRow({
                           testId: 'marketing-home-results',
                           title: 'Results',
                           detail: 'What you sent and what it earned — measured only.',
                           status: markedSent30d === null ? '…' : `${markedSent30d} sent · ${redeemedTotal} redeemed`,
-                          onClick: () => setView('results'),
+                          onClick: () => openView('results'),
                         })}
                         {homeRow({
                           testId: 'marketing-home-reviews',
-                          title: 'Google reviews',
+                          title: 'Reviews',
                           detail: 'Your review link, saved message and automatic requests.',
                           status: settings.googleReviewUrl ? 'Link set' : 'Add link',
-                          onClick: () => setView('reviews'),
+                          onClick: () => openView('reviews'),
                         })}
                         {homeRow({
                           testId: 'marketing-home-rewards',
@@ -1048,13 +1127,6 @@ export function MarketingModal({
                           onClick: onOpenSocialPosting,
                         })}
 
-                        {homeRow({
-                          testId: 'marketing-home-texting-settings',
-                          title: 'Texting settings',
-                          detail: automaticStatus.detail || 'Credits, quiet hours, pause controls and delivery setup.',
-                          status: automaticStatus.label === 'Ready' ? 'Luster texting ready' : automaticStatus.label,
-                          onClick: () => setView('messages'),
-                        })}
                       </div>
                     )}
 
@@ -1066,8 +1138,30 @@ export function MarketingModal({
                       />
                     )}
 
-                    {view === 'messages' && salonSlug && (
-                      <CommunicationSettingsPanel salonSlug={salonSlug} />
+                    {view === 'offers' && (
+                      <div className="space-y-3" data-testid="marketing-offers">
+                        {homeRow({
+                          testId: 'marketing-offers-smart-fit',
+                          title: 'Smart Fit',
+                          detail: 'Fill useful schedule gaps with controlled discounts.',
+                          status: 'Manage',
+                          onClick: () => openView('smart-fit'),
+                        })}
+                        {homeRow({
+                          testId: 'marketing-offers-followups',
+                          title: 'Follow-up offers',
+                          detail: 'Rebooking timing, win-back offers and saved wording.',
+                          status: winbackConfigured ? 'Set up' : 'Not set up',
+                          onClick: () => openView('campaigns'),
+                        })}
+                        {homeRow({
+                          testId: 'marketing-offers-first-visit',
+                          title: 'First-visit offer',
+                          detail: 'Set the first-visit offer and intro labels on your service menu.',
+                          status: 'Service menu',
+                          onClick: onOpenApp ? () => onOpenApp('services') : undefined,
+                        })}
+                      </div>
                     )}
 
                     {view === 'followups' && (
@@ -1221,7 +1315,7 @@ export function MarketingModal({
                               <p className="mt-1 text-[13px] text-[var(--owner-muted)]">
                                 Reminder timing is an operational message setting.
                               </p>
-                              <button type="button" onClick={() => setView('messages')} className="mt-2 min-h-11 text-[13px] font-semibold text-[var(--owner-accent)] underline">Manage reminders →</button>
+                              <button type="button" onClick={() => openView('messages')} className="mt-2 min-h-11 text-[13px] font-semibold text-[var(--owner-accent)] underline">Manage reminders →</button>
                             </div>
                           </div>
                         </section>
@@ -1379,6 +1473,10 @@ export function MarketingModal({
 
                     {view === 'reviews' && (
                       <div className="space-y-4" data-testid="marketing-reviews">
+                        <div className="px-1">
+                          <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">Review Requests</h2>
+                          <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">Google review requests are customer follow-up messages, separate from rewards and promotional campaigns.</p>
+                        </div>
                         {salonSlug && <ReviewRequestSettings salonSlug={salonSlug} />}
                       </div>
                     )}

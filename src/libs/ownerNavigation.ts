@@ -22,6 +22,8 @@ const SETTINGS_ALIASES: Record<string, { app: string; view?: string }> = {
   'booking': { app: 'booking-rules', view: 'rules' },
   'booking-policy': { app: 'booking-rules', view: 'policies' },
   'review-requests': { app: 'marketing', view: 'reviews' },
+  'communications': { app: 'marketing', view: 'messages' },
+  'smart-fit': { app: 'marketing', view: 'smart-fit' },
 };
 
 /** Preserve salon/record/return context; replace the history entry at the caller. */

@@ -135,7 +135,7 @@ describe('every registry target resolves against the shell allowlists', () => {
             ? (SETTINGS_VIEW_IDS as readonly string[])
             : entry.target.app === 'booking-rules'
               ? ['rules', 'policies']
-              : entry.target.app === 'marketing' ? ['reviews'] : ['permissions'];
+              : entry.target.app === 'marketing' ? ['reviews', 'messages', 'smart-fit'] : ['permissions'];
 
           expect(allowed).toContain(entry.target.view);
         }
@@ -227,6 +227,8 @@ describe('owner IA stable destination keys', () => {
     ['booking_rules', 'booking-rules', 'rules'],
     ['settings_booking_policy', 'booking-rules', 'policies'],
     ['settings_review_requests', 'marketing', 'reviews'],
+    ['settings_smart_fit', 'marketing', 'smart-fit'],
+    ['settings_communications', 'marketing', 'messages'],
   ])('resolves %s to its canonical screen without changing the key', (key, app, view) => {
     const href = buildRegistryHref(key!, { locale: 'fr', salonSlug: 'studio & nails' });
     const url = new URL(href!, 'https://luster.test');
