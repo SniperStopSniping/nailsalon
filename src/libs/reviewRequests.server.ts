@@ -271,16 +271,18 @@ export async function materializeCompletedReviewTriggers(
         if (usesRuntimePostgres) {
           await lockOperationalSalonClientContactWithHandle(transaction, { salonId: trigger.salonId, clientId: unlockedAppointment.salonClientId });
         }
-        const appointmentLock = transaction.select().from(appointmentSchema)
-          .where(and(eq(appointmentSchema.id, trigger.appointmentId), eq(appointmentSchema.salonId, trigger.salonId)));
-        const salonLock = transaction.select({ id: salonSchema.id }).from(salonSchema)
-          .where(eq(salonSchema.id, trigger.salonId));
-        const [lockedAppointment] = usesRuntimePostgres
-          ? await appointmentLock.for('update', { noWait: true }).limit(1)
-          : await appointmentLock.for('update').limit(1);
-        const [lockedSalon] = usesRuntimePostgres
-          ? await salonLock.for('share', { noWait: true }).limit(1)
-          : await salonLock.for('share').limit(1);
+        if (usesRuntimePostgres) {
+          // Drizzle's current noWait option renders `no wait`, which PostgreSQL
+          // rejects. Take the exact NOWAIT locks explicitly, then use typed
+          // reads while those transaction locks remain held.
+          await transaction.execute(sql`select id from appointment where id = ${trigger.appointmentId} and salon_id = ${trigger.salonId} for update nowait`);
+          await transaction.execute(sql`select id from salon where id = ${trigger.salonId} for share nowait`);
+        }
+        const [lockedAppointment] = await transaction.select().from(appointmentSchema)
+          .where(and(eq(appointmentSchema.id, trigger.appointmentId), eq(appointmentSchema.salonId, trigger.salonId)))
+          .for('update').limit(1);
+        const [lockedSalon] = await transaction.select({ id: salonSchema.id }).from(salonSchema)
+          .where(eq(salonSchema.id, trigger.salonId)).for('share').limit(1);
         if (!lockedAppointment || !lockedSalon) {
           await transaction.update(reviewRequestTriggerSchema).set({
             state: 'skipped',
