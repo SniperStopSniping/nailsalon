@@ -593,10 +593,13 @@ jobs:
         run: |
           SYNTHETIC_PHONE="$(printf '%s%s%s' '999' '555' '0150')"
           SYNTHETIC_PASSWORD="ci-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RANDOM}${RANDOM}"
+          SYNTHETIC_CRON_SECRET="ci-review-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RANDOM}${RANDOM}"
           echo "::add-mask::${SYNTHETIC_PASSWORD}"
+          echo "::add-mask::${SYNTHETIC_CRON_SECRET}"
           {
             echo "E2E_SUPER_ADMIN_PHONE=${SYNTHETIC_PHONE}"
             echo "E2E_SUPER_ADMIN_PASSWORD=${SYNTHETIC_PASSWORD}"
+            echo "CRON_SECRET=${SYNTHETIC_CRON_SECRET}"
           } >> "$GITHUB_ENV"
 
       - name: Test disposable database target guard
