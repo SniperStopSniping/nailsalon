@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   unknownOutcomes: vi.fn(),
   lowBalance: vi.fn(),
   reviews: vi.fn(),
+  scheduledEnd: vi.fn(),
   sms: vi.fn(),
   email: vi.fn(),
   warningEmail: vi.fn(),
@@ -17,7 +18,10 @@ vi.mock('@/libs/communicationDispatcher', () => ({ processDueCommunications: moc
 vi.mock('@/libs/smsInboundRetention', () => ({ releaseExpiredInboundEvidence: mocks.retention }));
 vi.mock('@/libs/unknownOutcomeResolver', () => ({ resolveUnknownOutcomes: mocks.unknownOutcomes }));
 vi.mock('@/libs/lowBalanceWarnings', () => ({ evaluateLowBalanceWarnings: mocks.lowBalance, sendLowBalanceWarningEmail: mocks.warningEmail }));
-vi.mock('@/libs/reviewRequests.server', () => ({ materializeCompletedReviewTriggers: mocks.reviews }));
+vi.mock('@/libs/reviewRequests.server', () => ({
+  materializeCompletedReviewTriggers: mocks.reviews,
+  scanScheduledEndReviewTriggers: mocks.scheduledEnd,
+}));
 vi.mock('@/libs/twilioMessagingSend', () => ({ sendViaTwilio: mocks.sms, sendIntentEmail: mocks.email }));
 
 function authorizedRequest() {
@@ -33,6 +37,7 @@ describe('communications cron review-phase compatibility', () => {
     mocks.unknownOutcomes.mockResolvedValue({ reconciled: 0 });
     mocks.lowBalance.mockResolvedValue({ warnings: 0 });
     mocks.reviews.mockResolvedValue({ materialized: 1, pending: 0, skipped: 0, deferred: 0, phaseError: false });
+    mocks.scheduledEnd.mockResolvedValue({ recorded: 0, skipped: 0, deferred: 0, phaseError: false });
   });
 
   afterEach(() => vi.unstubAllEnvs());
@@ -89,7 +94,14 @@ describe('communications cron review-phase compatibility', () => {
       retention: { released: 0 },
       unknownOutcomes: { reconciled: 0 },
       lowBalance: { warnings: 0 },
-      reviewTriggers: { materialized: 0, pending: 0, skipped: 0, deferred: 0, phaseError: true },
+      reviewTriggers: {
+        materialized: 0,
+        pending: 0,
+        skipped: 0,
+        deferred: 0,
+        phaseError: true,
+        scheduledEnd: { recorded: 0, skipped: 0, deferred: 0, phaseError: false },
+      },
     });
     expect(mocks.dispatch).toHaveBeenCalledOnce();
   });

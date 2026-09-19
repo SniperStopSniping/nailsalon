@@ -126,7 +126,10 @@ async function waitForDispatcherTx1IntentLock(holderPid: number) {
       from pg_stat_activity
       where application_name = 'review-request-automation-concurrency'
         and wait_event_type = 'Lock'
-        and query ~* 'select.*communication_intent.*for update'
+        -- The Drizzle query can be SELECT FOR UPDATE or an equivalent
+        -- prepared statement, so establish the real row-lock dependency
+        -- rather than depending on a renderer-specific SQL spelling.
+        and query ~* 'communication_intent'
         and $1 = any(pg_blocking_pids(pid))
     `, [holderPid]);
     if (Number(waiting.rows[0]?.count ?? 0) > 0) {
