@@ -1,3 +1,10 @@
+## [1.122.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.122.0...v1.122.1) (2026-09-19)
+
+
+### Bug Fixes
+
+* **owner:** keep advanced services secondary ([19a04b8](https://github.com/SniperStopSniping/nailsalon/commit/19a04b88a6b68ee182cab47b2f1f82a355abb4af))
+
 # [1.122.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.121.0...v1.122.0) (2026-09-19)
 
 
