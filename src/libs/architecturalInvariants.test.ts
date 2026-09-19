@@ -154,10 +154,9 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
 
   /**
    * Closed allowlist of (importer -> imported set member) edges. Every entry
-   * must be a PRODUCTION file (never a test) deliberately wired to consume
-   * the PR3 core through its intended boundary (`catalogResolver.server.ts`,
-   * the server wrapper — never `catalogResolverCore.ts`/`catalogDomain.ts`
-   * directly, which stay DB-free and browser-safe per ADR 0004).
+   * must be a real non-test file deliberately wired to consume the shared
+   * authority. Database loading uses the server wrapper; pure selection
+   * consumers and offline evaluations use the DB-free core explicitly.
    */
   const AUTHORIZED_PRODUCTION_IMPORTS: ReadonlyArray<{ importer: string; imports: string }> = [
     { importer: 'src/libs/publicBookingCatalog.ts', imports: 'src/libs/catalogFingerprint.ts' },
@@ -167,6 +166,14 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
     { importer: 'src/libs/l1BookingAuthority.server.ts', imports: 'src/libs/catalogResolver.server.ts' },
     { importer: 'src/libs/l1BookingReconciliation.server.ts', imports: 'src/libs/catalogResolver.server.ts' },
     { importer: 'src/libs/customerAssistant/catalogue.server.ts', imports: 'src/libs/catalogResolver.server.ts' },
+    // Clarification viability uses the same pure L1 authority on a server-loaded
+    // public projection; evaluation fixtures exercise that authority offline.
+    { importer: 'src/libs/customerAssistant/clarification.ts', imports: 'src/libs/catalogResolverCore.ts' },
+    { importer: 'src/libs/customerAssistant/__evals__/nailBookingCases.ts', imports: 'src/libs/catalogResolverCore.ts' },
+    { importer: 'src/libs/customerAssistant/__evals__/nailBookingCases.ts', imports: 'src/libs/catalogResolverFixtures.ts' },
+    { importer: 'src/libs/customerAssistant/__evals__/nailBookingScorer.ts', imports: 'src/libs/catalogResolverCore.ts' },
+    { importer: 'src/libs/customerAssistant/__evals__/semanticCases.ts', imports: 'src/libs/catalogResolverCore.ts' },
+    { importer: 'src/libs/customerAssistant/__evals__/semanticCases.ts', imports: 'src/libs/catalogResolverFixtures.ts' },
     { importer: 'src/app/(unauth)/book/service/BookServicePageServer.tsx', imports: 'src/libs/catalogResolver.server.ts' },
     { importer: 'src/app/(unauth)/book/service/BookServiceClient.tsx', imports: 'src/libs/catalogResolverCore.ts' },
     {
@@ -240,6 +247,23 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
   it('a hypothetical UNAUTHORIZED importer of the same module-set member is still caught (non-vacuous)', () => {
     expect(isAuthorized('src/libs/someRandomFile.ts', 'src/libs/catalogResolver.server.ts')).toBe(false);
     expect(isAuthorized('src/libs/catalogSubmissionReconciliation.server.ts', 'src/libs/catalogResolverCore.ts')).toBe(false);
+  });
+
+  it('offline customer evaluation fixtures never enter application runtime imports', () => {
+    const offenders: string[] = [];
+    for (const file of allSrcFiles) {
+      if (isTestOrStoryFile(file) || file.includes('/__evals__/')) {
+        continue;
+      }
+      for (const specifier of getValueImportSpecifiers(read(file), file)) {
+        const resolved = resolveModuleSpecifier(file, specifier, fileExists);
+        if (resolved?.startsWith('src/libs/customerAssistant/__evals__/')) {
+          offenders.push(`${file} imports ${resolved}`);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
   });
 
   it('no production file outside the set imports any set member except through an authorized edge', () => {

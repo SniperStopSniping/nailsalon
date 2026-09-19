@@ -5,6 +5,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 
 import { customerAvailableSlotSchema, customerDatePreferenceSchema, customerSelectionSchema } from './contracts';
+import { factsSchema } from './semanticFacts';
 
 const CONVERSATION_TTL_MS = 30 * 60 * 1000;
 export const CUSTOMER_CONVERSATION_MAX_MESSAGES = 16;
@@ -14,7 +15,7 @@ export const CUSTOMER_CONVERSATION_MAX_TOKEN_BYTES = 24_576;
 const customerMessageSchema = z.string().min(1).max(CUSTOMER_CONVERSATION_MAX_MESSAGE_CHARS);
 
 const customerConversationContextSchema = z.object({
-  question: z.enum(['service', 'removal', 'length', 'finish', 'quantity', 'details', 'date']).nullable(),
+  question: z.enum(['service', 'removal', 'product', 'origin', 'length', 'finish', 'quantity', 'details', 'date']).nullable(),
   options: z.array(z.string().min(1).max(160)).max(8),
   selection: customerSelectionSchema.nullable(),
 }).strict();
@@ -39,6 +40,7 @@ const conversationSchema = z.object({
   // denies that index if it is presented for a thirteenth request.
   turnIndex: z.number().int().min(0).max(12),
   messages: z.array(customerMessageSchema).max(CUSTOMER_CONVERSATION_MAX_MESSAGES),
+  facts: factsSchema.optional(),
   context: customerConversationContextSchema.optional(),
   booking: customerConversationBookingSchema.optional(),
 }).strict().superRefine((value, context) => {

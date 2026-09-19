@@ -25,6 +25,7 @@ export async function POST(request: Request, context: { params: Promise<{ salonS
     ...body.data,
     salonId: salon.id,
     salonSlug: salon.slug,
+    salonName: salon.name,
     features: salon.features as SalonFeatures | null,
     clientIp: getPublicBookingClientIp(request),
   });

@@ -98,6 +98,18 @@ export async function loadCustomerMenu(salonId: string, features: SalonFeatures 
   };
 }
 
+/** Server-only clarification authority; never serialize this snapshot to GPT. */
+export async function loadCustomerClarificationSnapshot(salonId: string): Promise<PublicCatalogSnapshot> {
+  const [result, bookable] = await Promise.all([
+    resolvePublicCatalogSnapshot({ salonId, requestedSource: 'live' }),
+    getPublicBookableServiceIds(salonId),
+  ]);
+  if (!result.ok) {
+    throw new Error('CUSTOMER_CATALOGUE_UNAVAILABLE');
+  }
+  return projectPublicBookingCatalog(result.snapshot, bookable);
+}
+
 export function validateCustomerMenuSelection(menu: CustomerMenu, selection: CustomerSelection): void {
   if (!menu.services.some(service => service.id === selection.baseServiceId)) {
     throw new Error('CUSTOMER_SELECTION_CHANGED');

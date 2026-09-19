@@ -8,11 +8,14 @@ import type { SalonFeatures } from '@/types/salonPolicy';
 
 import { getCustomerAssistantConfig } from './access.server';
 import { reserveCustomerAssistantTurn } from './budget.server';
-import { buildCustomerProposal, loadCustomerMenu, validateCustomerMenuSelection } from './catalogue.server';
+import { buildCustomerProposal, loadCustomerClarificationSnapshot, loadCustomerMenu, validateCustomerMenuSelection } from './catalogue.server';
+import { planCustomerClarification } from './clarification';
 import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL, type CustomerAssistantLocale, type CustomerAssistantResponse, type CustomerAssistantResult } from './contracts';
 import { signCustomerConversation, verifyCustomerConversation } from './conversation.server';
 import { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } from './interpretation';
 import { recordCustomerAssistantUsage } from './ledger.server';
+import { emptyFacts, hasKnownClarificationAnswer, mergeFacts } from './semanticFacts';
+import { resolveSemanticSelection, selectionConflictsWithExplicitFacts } from './semanticSelection';
 import { getCustomerAvailabilityContext, lookupCustomerSlots } from './slots.server';
 
 /** One bounded model call, no owner dispatcher, no writable model tool. */
@@ -20,6 +23,7 @@ export async function runCustomerAssistantTurn(args: {
   salonId: string;
   /** Route-resolved public slug; never supplied by model or request JSON. */
   salonSlug: string;
+  salonName?: string;
   features: SalonFeatures | null;
   conversation: string;
   message: string;
@@ -76,6 +80,8 @@ export async function runCustomerAssistantTurn(args: {
     const availabilityContext = await getCustomerAvailabilityContext(args.salonId);
     const data = JSON.stringify({
       locale: args.locale,
+      bookingSalon: { name: args.salonName ?? args.salonSlug, slug: args.salonSlug },
+      previousFacts: conversation.facts ?? emptyFacts(),
       menu,
       customerMessages: messages,
       lastShown: conversation.context ?? null,
@@ -108,13 +114,59 @@ export async function runCustomerAssistantTurn(args: {
       throw new Error('CUSTOMER_MODEL_INVALID');
     }
     const intent = customerInterpretationSchema.parse(JSON.parse(text));
-    if (intent.action === 'propose' && intent.serviceId) {
-      const proposal = await buildCustomerProposal(args.salonId, args.features, {
-        baseServiceId: intent.serviceId,
-        selectedAddOns: intent.addOns,
+    const previousFacts = conversation.facts ?? emptyFacts();
+    const facts = mergeFacts(previousFacts, intent.factUpdates);
+    nextState.facts = facts;
+    if (JSON.stringify(facts) !== JSON.stringify(previousFacts)) {
+      // A previously accepted catalog selection cannot authorize changed intent.
+      nextState.booking = undefined;
+      nextState.context = undefined;
+    }
+    const resolveServiceIntent = intent.action === 'propose'
+      || (intent.action === 'clarify' && intent.question !== 'date' && (menu.l1 || hasKnownClarificationAnswer(intent.question, facts)));
+    if (resolveServiceIntent) {
+      let resolved = resolveSemanticSelection({
+        menu,
+        facts,
+        candidate: intent.serviceId ? { baseServiceId: intent.serviceId, selectedAddOns: intent.addOns } : null,
       });
-      result = { kind: 'proposal', proposal };
-    } else if (intent.action === 'availability' && conversation.context?.selection && conversation.booking?.acceptedFingerprint && intent.datePreference) {
+      if (menu.l1) {
+        const requestedQuestion = intent.action === 'clarify' ? intent.question : resolved.kind === 'clarification' ? resolved.question : 'details';
+        if (requestedQuestion === 'date') {
+          throw new Error('CUSTOMER_MODEL_INVALID');
+        }
+        resolved = planCustomerClarification({
+          menu,
+          action: intent.action === 'propose' ? 'propose' : 'clarify',
+          snapshot: await loadCustomerClarificationSnapshot(args.salonId),
+          facts,
+          candidate: intent.serviceId ? { baseServiceId: intent.serviceId, selectedAddOns: intent.addOns } : null,
+          question: requestedQuestion,
+          optionIds: intent.optionIds,
+        });
+      }
+      if (resolved.kind === 'no_match') {
+        result = { kind: 'unavailable', reason: 'no_match' };
+      } else if (resolved.kind === 'clarification') {
+        const labels = resolved.optionIds.map(id => [...menu.services, ...menu.addOns].find(item => item.id === id)?.name);
+        if (labels.includes(undefined)) {
+          throw new Error('CUSTOMER_MODEL_INVALID');
+        }
+        result = { kind: 'clarification', question: resolved.question, options: labels as string[] };
+      } else {
+        const proposal = await buildCustomerProposal(args.salonId, args.features, resolved.selection);
+        // L1 may apply required/automatic selections. Never silently promise a
+        // choice that contradicts the facts after that authoritative resolution.
+        if (selectionConflictsWithExplicitFacts(menu, facts, {
+          baseServiceId: proposal.service.id,
+          selectedAddOns: proposal.addOns.map(item => ({ addOnId: item.id, quantity: item.quantity })),
+        })) {
+          result = { kind: 'unavailable', reason: 'selection_changed' };
+        } else {
+          result = { kind: 'proposal', proposal };
+        }
+      }
+    } else if (intent.action === 'availability' && conversation.context?.selection && nextState.booking?.acceptedFingerprint && intent.datePreference) {
       const fresh = await lookupCustomerSlots({
         salon: { id: args.salonId, slug: args.salonSlug },
         features: args.features,
@@ -123,7 +175,7 @@ export async function runCustomerAssistantTurn(args: {
       });
       if (!fresh) {
         result = { kind: 'unavailable', reason: 'unavailable' };
-      } else if (fresh.quoteChanged || fresh.proposal.fingerprint !== conversation.booking.acceptedFingerprint) {
+      } else if (fresh.quoteChanged || fresh.proposal.fingerprint !== nextState.booking.acceptedFingerprint) {
         nextState.booking = undefined;
         result = { kind: 'proposal', proposal: fresh.proposal };
       } else {
@@ -136,10 +188,10 @@ export async function runCustomerAssistantTurn(args: {
           checkedAt: new Date().toISOString(),
         };
       }
-    } else if (intent.action === 'availability' && conversation.context?.selection && conversation.booking?.acceptedFingerprint) {
+    } else if (intent.action === 'availability' && conversation.context?.selection && nextState.booking?.acceptedFingerprint) {
       result = { kind: 'clarification', question: 'date', options: [] };
     } else if (intent.action === 'clarify') {
-      if (intent.question === 'date' && !(conversation.context?.selection && conversation.booking?.acceptedFingerprint)) {
+      if (intent.question === 'date' && !(conversation.context?.selection && nextState.booking?.acceptedFingerprint)) {
         result = { kind: 'unavailable', reason: 'no_match' };
       } else {
       // Only current public labels can become chips. Unknown/cross-tenant IDs
@@ -180,7 +232,7 @@ export async function runCustomerAssistantTurn(args: {
   }
   if (result.kind === 'proposal') {
     nextState.context = { question: null, options: [], selection: result.proposal.selection };
-    if (conversation.booking?.acceptedFingerprint !== result.proposal.fingerprint) {
+    if (nextState.booking?.acceptedFingerprint !== result.proposal.fingerprint) {
       nextState.booking = undefined;
     }
   } else if (result.kind === 'clarification') {
