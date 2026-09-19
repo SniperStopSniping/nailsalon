@@ -129,7 +129,7 @@ describe('repeat-review coordinator preparation', () => {
 
     // Inspect the reader before any insert: a database unique constraint alone
     // cannot satisfy this identity assertion.
-    expect(await getAppointmentReviewState(fixture.salonId, nextId)).toMatchObject({ status: 'sending' });
+    expect(await getAppointmentReviewState(fixture.salonId, nextId)).toMatchObject({ status: 'not_eligible', canSendManually: false, reason: expect.stringContaining('uncertain outcome') });
   });
 
   it('does not use another salon\'s durable history for the same recipient', async () => {
@@ -626,6 +626,6 @@ describe('review request production', () => {
     await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId);
 
     expect(await rows(fixture.salonId)).toHaveLength(0);
-    expect(await getAppointmentReviewState(fixture.salonId, fixture.appointmentId)).toMatchObject({ status: 'sent', message: 'Previously sent review request' });
+    expect(await getAppointmentReviewState(fixture.salonId, fixture.appointmentId)).toMatchObject({ status: 'not_eligible', sentAt: null, canSendManually: false, reason: expect.stringContaining('marked sent by the owner') });
   });
 });

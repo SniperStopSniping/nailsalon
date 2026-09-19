@@ -90,7 +90,7 @@ describe('scheduled-end review automation', () => {
     try {
       await expect(getAppointmentReviewState(fixture.salonId, fixture.appointmentId)).resolves.toMatchObject({
         status: 'scheduled',
-        reason: null,
+        reason: 'Eligibility is checked again before sending.',
       });
     } finally {
       vi.useRealTimers();
