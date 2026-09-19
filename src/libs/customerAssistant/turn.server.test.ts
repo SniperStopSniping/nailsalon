@@ -8,6 +8,10 @@ vi.mock('./access.server', () => ({ getCustomerAssistantConfig: () => ({ apiKey:
 vi.mock('./budget.server', () => ({ reserveCustomerAssistantTurn: mocks.reserve }));
 vi.mock('./catalogue.server', () => ({ loadCustomerMenu: mocks.menu, loadCustomerClarificationSnapshot: mocks.snapshot, buildCustomerProposal: mocks.proposal, validateCustomerMenuSelection: mocks.validate }));
 vi.mock('./ledger.server', () => ({ recordCustomerAssistantUsage: mocks.record }));
+vi.mock('./turnReplay.server', () => ({
+  readCompletedCustomerTurn: vi.fn().mockResolvedValue(null),
+  storeCompletedCustomerTurn: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('./slots.server', () => ({
   getCustomerAvailabilityContext: vi.fn().mockResolvedValue({ today: '2026-09-18', timeZone: 'America/Toronto' }),
   lookupCustomerSlots: mocks.lookup,
