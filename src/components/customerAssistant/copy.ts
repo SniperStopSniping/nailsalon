@@ -10,6 +10,7 @@ type CustomerAssistantCopy = {
   changePlaceholder: string;
   answerPlaceholder: string;
   send: string;
+  selectedAnswer: string;
   loading: string;
   restart: string;
   retry: string;
@@ -37,6 +38,7 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     changePlaceholder: 'Add or change anything…',
     answerPlaceholder: 'Type an answer or choose below',
     send: 'Send',
+    selectedAnswer: 'You chose',
     loading: 'Finding the best match…',
     restart: 'Start over',
     retry: 'Try again',
@@ -89,6 +91,7 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     changePlaceholder: 'Ajoutez ou modifiez quelque chose…',
     answerPlaceholder: 'Répondez ou choisissez ci-dessous',
     send: 'Envoyer',
+    selectedAnswer: 'Votre choix',
     loading: 'Recherche de la meilleure option…',
     restart: 'Recommencer',
     retry: 'Réessayer',

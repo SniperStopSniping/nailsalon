@@ -23,7 +23,7 @@ import { AcceptSelection } from './ScheduleCards';
 
 type CustomerAssistantLauncherProps = { salonSlug: string; salonId?: string; locale: CustomerAssistantLocale };
 type CustomerAssistantPanelProps = CustomerAssistantLauncherProps & { onClose: () => void; visibleHeight?: number };
-type DisplayMessage = { id: number; role: 'assistant' | 'user'; message: string };
+type DisplayMessage = { id: number; role: 'assistant' | 'user'; message: string; kind?: 'quick_reply' };
 type StoredConversation = { version: 2; conversation: string; messages: DisplayMessage[]; result: CustomerAssistantResult | null };
 type StoredOperation = CustomerBookingOperationReference & { version: 1; salonId: string };
 
@@ -387,7 +387,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
     setResult(null);
     void createSession();
   };
-  const send = async (message: string) => {
+  const send = async (message: string, kind?: 'quick_reply') => {
     const trimmed = message.trim();
     if (!trimmed || loading || inFlight.current || !conversation || error === 'token') {
       return;
@@ -398,7 +398,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
     setError(null);
     setInput('');
     retryMessage.current = trimmed;
-    setMessages(current => [...current, { id: Date.now(), role: 'user' as const, message: trimmed }].slice(-MAX_DISPLAY_MESSAGES));
+    setMessages(current => [...current, { id: Date.now(), role: 'user' as const, message: trimmed, ...(kind ? { kind } : {}) }].slice(-MAX_DISPLAY_MESSAGES));
     try {
       const response = await fetch(`${endpoint(salonSlug)}/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation, message: trimmed, locale }) });
       const data = await response.json() as CustomerAssistantResponse;
@@ -506,7 +506,14 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
       </div>
       <div ref={transcriptRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-5 sm:px-5">
         <p className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 text-sm leading-6 text-neutral-700">{copy.introduction}</p>
-        {messages.map(message => <p key={message.id} aria-label={message.role === 'assistant' ? 'Assistant' : 'You'} className={message.role === 'user' ? 'ml-auto max-w-[85%] rounded-2xl bg-neutral-950 px-4 py-3 text-sm leading-6 text-white' : 'max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 text-sm leading-6 text-neutral-800'}>{message.message}</p>)}
+        {messages.map(message => message.role === 'user' && message.kind === 'quick_reply'
+          ? (
+              <p key={message.id} aria-label={`${copy.selectedAnswer}: ${message.message}`} className="ml-auto w-fit max-w-[85%] rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-950">
+                <span className="mb-0.5 block text-xs text-neutral-500">{copy.selectedAnswer}</span>
+                {message.message}
+              </p>
+            )
+          : <p key={message.id} aria-label={message.role === 'assistant' ? 'Assistant' : 'You'} className={message.role === 'user' ? 'ml-auto max-w-[85%] rounded-2xl bg-neutral-950 px-4 py-3 text-sm leading-6 text-white' : 'max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 text-sm leading-6 text-neutral-800'}>{message.message}</p>)}
         {loading && <p role="status" className="text-sm text-neutral-600">{copy.loading}</p>}
         {error === 'network' && (
           <div role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-950">
@@ -550,7 +557,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
             )}
           </div>
         )}
-        {result && <AssistantResult result={result} locale={locale} loading={loading} onOption={option => void send(option)} onHandoff={fingerprint => void handoffToNormalBooking(fingerprint)} />}
+        {result && <AssistantResult result={result} locale={locale} loading={loading} onOption={option => void send(option, 'quick_reply')} onHandoff={fingerprint => void handoffToNormalBooking(fingerprint)} />}
       </div>
       <form onSubmit={handleSubmit} className="shrink-0 border-t border-black/10 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5">
         <label htmlFor="customer-assistant-message" className="sr-only">{copy.placeholder}</label>

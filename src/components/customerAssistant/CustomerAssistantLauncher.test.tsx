@@ -143,7 +143,8 @@ describe('CustomerAssistantLauncher', () => {
   it('renders assistant answers with optional quick replies', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(sessionResponse('session'))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'answer-token', result: { kind: 'answer', message: 'Would you like French tips?', options: ['Yes', 'No'] } }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'answer-token', result: { kind: 'answer', message: 'Would you like French tips?', options: ['Yes', 'No'] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'next-token', result: { kind: 'answer', message: 'French tips selected.', options: [] } }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
     render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
@@ -163,6 +164,15 @@ describe('CustomerAssistantLauncher', () => {
 
     await user.click(screen.getByRole('button', { name: 'Yes' }));
     await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/chat', expect.objectContaining({ body: JSON.stringify({ conversation: 'answer-token', message: 'Yes', locale: 'en' }) })));
+
+    expect(await screen.findByText('French tips selected.')).toBeVisible();
+    expect(screen.getByLabelText('You chose: Yes')).toHaveTextContent('Yes');
+    expect(screen.getByLabelText('You')).toHaveTextContent('Gel manicure');
+
+    await user.click(screen.getByLabelText('Close assistant'));
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+
+    expect(await screen.findByLabelText('You chose: Yes')).toBeVisible();
   });
 
   it('renders authoritative availability with the salon-local date and time zone', async () => {
