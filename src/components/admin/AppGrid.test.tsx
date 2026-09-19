@@ -21,61 +21,57 @@ function contrastWithWhite(hex: string): number {
 }
 
 describe('AppGrid', () => {
-  it('puts Booking Page first, keeps ten permanent apps, and moves the tour to Help', () => {
+  it('renders ranked task groups and keeps legacy app ids for compatible links', () => {
     render(<AppGrid onAppTap={vi.fn()} />);
     const buttons = screen.getAllByRole('button');
     const indexOf = (id: string) =>
       buttons.findIndex(button => button.dataset.testid === `admin-app-tile-${id}`);
 
-    expect(buttons[0]).toHaveAttribute('data-testid', 'admin-app-tile-booking-page');
-    expect(APPS.filter(app => !['schedule', 'bookings', 'clients', 'services'].includes(app.id))).toHaveLength(10);
-    expect(screen.queryByTestId('admin-app-tile-workspace-tour')).not.toBeInTheDocument();
-    expect(screen.getByTestId('more-workspace-tour')).toHaveTextContent('Help & workspace tour');
-    expect(indexOf('luster')).toBeGreaterThan(indexOf('settings'));
-    expect(screen.getByTestId('admin-app-tile-team')).toHaveTextContent('Team');
-  });
-
-  it('shows the approved More apps, including the Integrations tile with its description', () => {
-    render(
-      <AppGrid
-        onAppTap={vi.fn()}
-        hiddenIds={['schedule', 'bookings', 'clients', 'services']}
-      />,
-    );
-
-    for (const id of ['booking-page', 'marketing', 'analytics', 'team', 'payments', 'integrations', 'rewards-reviews', 'portfolio', 'settings', 'luster']) {
-      expect(screen.getByTestId(`admin-app-tile-${id}`)).toBeInTheDocument();
+    for (const heading of ['Booking', 'Clients & Growth', 'Business', 'Luster']) {
+      expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
     }
 
-    // Descriptions name the destination rather than a department. "Reviews"
-    // in particular has to read differently from Marketing → Reviews, which is
-    // where the Google review *link* is configured (AG-w2-more-tools-05).
+    expect(indexOf('hours')).toBeLessThan(indexOf('booking-rules'));
+    expect(indexOf('booking-rules')).toBeLessThan(indexOf('booking-page'));
+    expect(indexOf('marketing')).toBeLessThan(indexOf('portfolio'));
+    expect(indexOf('payments')).toBeLessThan(indexOf('analytics'));
+    expect(indexOf('analytics')).toBeLessThan(indexOf('team'));
+    expect(indexOf('team')).toBeLessThan(indexOf('integrations'));
+    expect(indexOf('plan-usage')).toBeLessThan(indexOf('settings'));
+    expect(indexOf('settings')).toBeLessThan(indexOf('help'));
+
+    expect(APPS.find(app => app.id === 'rewards-reviews')).toBeDefined();
+    expect(APPS.find(app => app.id === 'luster')).toBeDefined();
+    expect(screen.queryByTestId('admin-app-tile-rewards-reviews')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('admin-app-tile-luster')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('more-workspace-tour')).not.toBeInTheDocument();
+  });
+
+  it('shows approved descriptions in their final destinations', () => {
+    render(<AppGrid onAppTap={vi.fn()} />);
+
     expect(screen.getByTestId('admin-app-tile-integrations')).toHaveTextContent(
-      'Calendar, messaging and Stripe setup',
+      'Calendar and connection setup',
     );
     expect(screen.getByTestId('admin-app-tile-settings')).toHaveTextContent(
-      'Business, booking and account setup',
+      'Account, notifications and workspace preferences',
     );
-    expect(screen.getByTestId('admin-app-tile-rewards-reviews')).toHaveTextContent(
-      'Loyalty, referrals and review rewards',
-    );
-    expect(screen.getByTestId('more-workspace-tour')).toHaveTextContent(
-      'Replay the five-step guide',
-    );
+    expect(screen.getByTestId('admin-app-tile-hours')).toHaveTextContent('Working hours, time off and availability');
+    expect(screen.getByTestId('admin-app-tile-help')).toHaveTextContent('Guides, support and workspace tour');
   });
 
   it('hides bottom-nav destinations and entitlement-gated apps', () => {
     render(
       <AppGrid
         onAppTap={vi.fn()}
-        hiddenIds={['schedule', 'bookings', 'clients', 'services', 'analytics', 'rewards-reviews']}
+        hiddenIds={['schedule', 'bookings', 'clients', 'services', 'analytics', 'team']}
       />,
     );
 
     expect(screen.queryByTestId('admin-app-tile-schedule')).not.toBeInTheDocument();
     expect(screen.queryByTestId('admin-app-tile-clients')).not.toBeInTheDocument();
     expect(screen.queryByTestId('admin-app-tile-analytics')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('admin-app-tile-rewards-reviews')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('admin-app-tile-team')).not.toBeInTheDocument();
     expect(screen.getByTestId('admin-app-tile-integrations')).toBeInTheDocument();
   });
 
@@ -83,14 +79,14 @@ describe('AppGrid', () => {
     render(
       <AppGrid
         onAppTap={vi.fn()}
-        hiddenIds={['schedule', 'bookings', 'clients', 'services', 'analytics', 'rewards-reviews']}
+        hiddenIds={['schedule', 'bookings', 'clients', 'services', 'analytics', 'team']}
       />,
     );
 
     const locked = screen.getByTestId('more-locked-apps');
 
     expect(within(locked).getByTestId('locked-feature-analytics')).toHaveTextContent('Analytics');
-    expect(within(locked).getByTestId('locked-feature-rewards-reviews')).toHaveTextContent('Rewards & Reviews');
+    expect(within(locked).getByTestId('locked-feature-team')).toHaveTextContent('Team');
     expect(within(locked).getByTestId('locked-feature-analytics')).toHaveTextContent(
       /Not available for this salon yet/i,
     );
@@ -124,12 +120,12 @@ describe('AppGrid', () => {
       <AppGrid
         onAppTap={vi.fn()}
         hiddenIds={[]}
-        badges={{ 'marketing': 3, 'rewards-reviews': 0 }}
+        badges={{ 'marketing': 3, 'plan-usage': 0 }}
       />,
     );
 
     expect(screen.getByTestId('admin-app-tile-marketing')).toHaveTextContent('3');
-    expect(screen.getByTestId('admin-app-tile-rewards-reviews')).not.toHaveTextContent(/\d/);
+    expect(screen.getByTestId('admin-app-tile-plan-usage')).not.toHaveTextContent(/\d/);
   });
 
   it('keeps every icon chip dark enough for its white glyph', () => {

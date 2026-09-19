@@ -548,6 +548,7 @@ export function MarketingModal({
   onClose,
   initialPromotionStage = null,
   salonName = 'your salon',
+  onOpenApp,
   onOpenClient,
   onOpenNativeUrl,
   onOpenSocialPosting,
@@ -1031,6 +1032,13 @@ export function MarketingModal({
                           detail: 'Your review link, saved message and automatic requests.',
                           status: settings.googleReviewUrl ? 'Link set' : 'Add link',
                           onClick: () => setView('reviews'),
+                        })}
+                        {homeRow({
+                          testId: 'marketing-home-rewards',
+                          title: 'Rewards & Referrals',
+                          detail: 'Client rewards, referrals and existing review-reward tools.',
+                          status: 'Manage',
+                          onClick: () => onOpenApp?.('rewards-reviews'),
                         })}
                         {homeRow({
                           testId: 'marketing-home-social-posting',

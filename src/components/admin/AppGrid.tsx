@@ -4,7 +4,7 @@
  * AppGrid Component
  *
  * The "More" workspace application launcher.
- * Mobile-first two-column grid of tappable cards:
+ * Mobile-first, ranked destination rows:
  * - Icon chips painted from the owner plum/rose/amber palette. Every stop is
  *   dark enough that the white glyph clears 4.5:1 (AppGrid.contrast.test.ts
  *   asserts it): the old chips ran to stone-300 / yellow-300, where a white
@@ -13,7 +13,7 @@
  * - Short descriptions that name the destination, not the department
  * - Real notification badges only (counts come from API data)
  *
- * Below the grid the More tab also carries the two things an owner could not
+ * Below the destinations the More tab also carries the two things an owner could not
  * find anywhere else:
  * - the capabilities this salon's plan does not include, kept visible and
  *   named (they used to vanish without explanation — AG-more-settings-01,
@@ -63,10 +63,32 @@ type AppItem = {
   badge?: number;
 };
 
+type AppGroup = {
+  id: string;
+  name: string;
+  appIds: string[];
+};
+
 // App definitions.
 // schedule/bookings/clients/services are always hidden by the dashboard (they
 // live in the bottom navigation) but stay defined for tab-based modal routing.
 const APPS: AppItem[] = [
+  {
+    id: 'hours',
+    name: 'Hours & Availability',
+    description: 'Working hours, time off and availability',
+    icon: CalendarDays,
+    iconFrom: '#70213F',
+    iconTo: '#A83A5F',
+  },
+  {
+    id: 'booking-rules',
+    name: 'Booking Rules & Policies',
+    description: 'How clients book, change and cancel',
+    icon: BookOpen,
+    iconFrom: '#7C4A24',
+    iconTo: '#A2570B',
+  },
   {
     // Luster UI/UX plan rev 3, PR 5 / section 10: "Booking Page becomes a
     // prominent destination inside More / the App Grid" — the one genuinely
@@ -100,7 +122,7 @@ const APPS: AppItem[] = [
   {
     id: 'team',
     name: 'Team',
-    description: 'People, schedules and time off',
+    description: 'People, services and permissions',
     icon: Shield,
     iconFrom: '#4A4340',
     iconTo: '#6B6461',
@@ -116,7 +138,7 @@ const APPS: AppItem[] = [
   {
     id: 'integrations',
     name: 'Integrations',
-    description: 'Calendar, messaging and Stripe setup',
+    description: 'Calendar and connection setup',
     icon: Plug,
     iconFrom: '#44403C',
     iconTo: '#78716C',
@@ -172,7 +194,7 @@ const APPS: AppItem[] = [
   {
     id: 'settings',
     name: 'Settings',
-    description: 'Business, booking and account setup',
+    description: 'Account, notifications and workspace preferences',
     icon: Settings,
     iconFrom: '#292524',
     iconTo: '#57534E',
@@ -185,15 +207,51 @@ const APPS: AppItem[] = [
     iconFrom: '#4C1D2E',
     iconTo: '#8B1538',
   },
+  {
+    id: 'plan-usage',
+    name: 'Plan & Usage',
+    description: 'Subscription, credits and usage',
+    icon: CreditCard,
+    iconFrom: '#4C1D2E',
+    iconTo: '#8B1538',
+  },
+  {
+    id: 'help',
+    name: 'Help & Resources',
+    description: 'Guides, support and workspace tour',
+    icon: HelpCircle,
+    iconFrom: '#4A4340',
+    iconTo: '#6B6461',
+  },
 ];
 
 /**
- * Grid order (the audit's one presentation rule): Booking Page first because
- * it is the destination owners come to More for; the two "not a business tool"
- * tiles last, the tour before the Luster brand page; everything else keeps its
- * declaration order.
+ * More is organized by the task an owner believes they are doing. `APPS`
+ * deliberately also retains legacy destinations for typed deep links and
+ * compatibility aliases; only these grouped destinations are rendered here.
  */
-const TILE_ORDER: Record<string, number> = {};
+const MORE_GROUPS: AppGroup[] = [
+  {
+    id: 'booking',
+    name: 'Booking',
+    appIds: ['hours', 'booking-rules', 'booking-page'],
+  },
+  {
+    id: 'clients-growth',
+    name: 'Clients & Growth',
+    appIds: ['marketing', 'portfolio'],
+  },
+  {
+    id: 'business',
+    name: 'Business',
+    appIds: ['payments', 'analytics', 'team', 'integrations'],
+  },
+  {
+    id: 'luster',
+    name: 'Luster',
+    appIds: ['plan-usage', 'settings', 'help'],
+  },
+];
 
 /**
  * Apps that leave the grid because of a module entitlement rather than because
@@ -202,12 +260,11 @@ const TILE_ORDER: Record<string, number> = {};
  */
 const ENTITLEMENT_LOCKABLE_APP_IDS = [
   'analytics',
-  'rewards-reviews',
   'team',
 ];
 
 /**
- * Single App Card — the entire card is one tappable button.
+ * Single More row — the entire row is one tappable button.
  */
 type AppTileProps = {
   app: AppItem;
@@ -226,9 +283,9 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
       transition={{ type: 'spring', stiffness: 400, damping: 17 }}
       data-testid={`admin-app-tile-${app.id}`}
       className={`
-        relative flex w-full flex-col items-start gap-2.5 rounded-2xl border p-3.5 text-left outline-none
-        transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]
-        ${theme === 'tesla' ? 'border-white/10 bg-stone-900 active:bg-stone-800' : 'border-rose-100/80 bg-white shadow-sm active:bg-rose-50/60'}
+        relative flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors
+        focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus,#b85075)]
+        ${theme === 'tesla' ? 'bg-stone-900 active:bg-stone-800' : 'bg-white active:bg-rose-50/60'}
       `}
     >
       {/*
@@ -237,7 +294,7 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
         points, which is part of what pushed the pale chips below legibility.
       */}
       <span
-        className="relative flex size-12 shrink-0 items-center justify-center rounded-[13px]"
+        className="relative flex size-10 shrink-0 items-center justify-center rounded-xl"
         style={{
           backgroundColor: app.iconFrom,
           backgroundImage: `linear-gradient(135deg, ${app.iconFrom} 0%, ${app.iconTo} 100%)`,
@@ -245,7 +302,7 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
             theme === 'apple' ? `0 8px 18px -6px ${app.iconFrom}55` : 'none',
         }}
       >
-        <Icon className="relative z-10 size-6 text-white" strokeWidth={2.5} />
+        <Icon className="relative z-10 size-5 text-white" strokeWidth={2.5} />
         {/* Real notification badge only (0 renders nothing) */}
         {typeof app.badge === 'number' && app.badge > 0 && (
           <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF3B30] px-1">
@@ -256,8 +313,7 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
         )}
       </span>
 
-      {/* Name + description (stacked below the icon so nothing truncates) */}
-      <span className="w-full min-w-0">
+      <span className="min-w-0 flex-1">
         <span
           className={`block text-[15px] font-semibold leading-tight ${
             theme === 'tesla' ? 'text-gray-100' : 'text-stone-950'
@@ -266,13 +322,14 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
           {app.name}
         </span>
         <span
-          className={`mt-0.5 hidden text-[12px] leading-snug min-[360px]:block ${
+          className={`mt-0.5 block text-[13px] leading-snug ${
             theme === 'tesla' ? 'text-gray-400' : 'text-stone-500'
           }`}
         >
           {app.description}
         </span>
       </span>
+      <ChevronRight aria-hidden="true" className={theme === 'tesla' ? 'size-4 shrink-0 text-gray-500' : 'size-4 shrink-0 text-stone-400'} />
     </motion.button>
   );
 }
@@ -409,13 +466,16 @@ const EMPTY_BADGES: Record<string, number> = {};
 const EMPTY_HIDDEN_IDS: string[] = [];
 
 export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, account }: AppGridProps) {
-  // Merge badges into apps
-  const appsWithBadges = APPS.filter(app => !hiddenIds.includes(app.id)).sort(
-    (a, b) => (TILE_ORDER[a.id] ?? 0) - (TILE_ORDER[b.id] ?? 0),
-  ).map(app => ({
-    ...app,
-    badge: badges[app.id] || 0,
-  }));
+  const appById = new Map(APPS.map(app => [app.id, app]));
+  const visibleGroups = MORE_GROUPS.map(group => ({
+    ...group,
+    apps: group.appIds.flatMap((appId) => {
+      const app = appById.get(appId);
+      return app && !hiddenIds.includes(app.id)
+        ? [{ ...app, badge: badges[app.id] || 0 }]
+        : [];
+    }),
+  })).filter(group => group.apps.length > 0);
 
   // Capabilities this salon's plan does not include. Named rather than absent:
   // a tile that is simply gone reads as a product that lost a feature.
@@ -431,10 +491,23 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
       `}
       style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 6rem)' }}
     >
-      {/* Grid: 2 columns, mobile-first */}
-      <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
-        {appsWithBadges.map(app => (
-          <AppTile key={app.id} app={app} theme={theme} onTap={onAppTap} />
+      <div className="mx-auto max-w-md space-y-6">
+        {visibleGroups.map(group => (
+          <section aria-labelledby={`more-${group.id}-heading`} key={group.id}>
+            <h2
+              className="px-1 text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--owner-muted,#706267)]"
+              id={`more-${group.id}-heading`}
+            >
+              {group.name}
+            </h2>
+            <div className={`mt-2 overflow-hidden rounded-2xl border shadow-sm ${theme === 'tesla' ? 'border-white/10' : 'border-[var(--owner-line,#dfd1d4)]'}`}>
+              {group.apps.map((app, index) => (
+                <div className={index === 0 ? '' : theme === 'tesla' ? 'border-t border-white/10' : 'border-t border-[var(--owner-line,#dfd1d4)]'} key={app.id}>
+                  <AppTile app={app} theme={theme} onTap={onAppTap} />
+                </div>
+              ))}
+            </div>
+          </section>
         ))}
       </div>
 
@@ -463,30 +536,6 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
         </section>
       )}
 
-      <section className="mx-auto mt-6 w-full max-w-md" aria-labelledby="more-help-heading">
-        <h2
-          className="px-1 text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--owner-muted,#706267)]"
-          id="more-help-heading"
-        >
-          Help
-        </h2>
-        <button
-          type="button"
-          onClick={() => onAppTap?.('workspace-tour')}
-          className="mt-2 flex min-h-14 w-full items-center gap-3 rounded-2xl border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] px-4 py-3 text-left shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]"
-          data-testid="more-workspace-tour"
-        >
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent,#8f3155)]">
-            <HelpCircle aria-hidden="true" className="size-5" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Help &amp; workspace tour</span>
-            <span className="block text-[13px] text-[var(--owner-muted,#706267)]">Replay the five-step guide</span>
-          </span>
-          <ChevronRight aria-hidden="true" className="size-4 text-[var(--owner-muted,#706267)]" />
-        </button>
-      </section>
-
       {account ? <AccountSection account={account} theme={theme} /> : null}
     </div>
   );
@@ -494,4 +543,4 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
 
 // Export app IDs for type safety
 export type AppId = (typeof APPS)[number]['id'];
-export { APPS };
+export { APPS, MORE_GROUPS };
