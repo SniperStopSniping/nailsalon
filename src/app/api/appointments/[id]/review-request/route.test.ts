@@ -4,6 +4,7 @@ vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
   getAppointmentReviewState: vi.fn(),
+  lockSalonReviewMutation: vi.fn(),
   requireAppointmentManagerAccess: vi.fn(),
   scheduleReviewRequest: vi.fn(),
   transaction: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock('@/libs/rateLimit', () => ({
 }));
 vi.mock('@/libs/reviewRequests.server', () => ({
   getAppointmentReviewState: mocks.getAppointmentReviewState,
+  lockSalonReviewMutation: mocks.lockSalonReviewMutation,
   scheduleReviewRequest: mocks.scheduleReviewRequest,
 }));
 vi.mock('@/libs/routeAccessGuards', () => ({ requireAppointmentManagerAccess: mocks.requireAppointmentManagerAccess }));
@@ -42,6 +44,7 @@ describe('appointment review request route', () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ data: { status: 'scheduled', phone: '4165550100' } });
     expect(mocks.scheduleReviewRequest).toHaveBeenCalledWith({ marker: 'transaction' }, 'salon_1', 'appt_1', false);
+    expect(mocks.lockSalonReviewMutation).toHaveBeenCalledWith({ marker: 'transaction' }, 'salon_1');
   });
 
   it('keeps repeated POSTs stable by delegating both requests to the idempotent service', async () => {
