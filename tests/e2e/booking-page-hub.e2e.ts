@@ -10,7 +10,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await page.setViewportSize(viewport);
     await impersonateSalonAsSuperAdmin(page);
     const hubUrl = `${appPath('/admin/website')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`;
-    const editorUrl = `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`;
+    const editorUrl = `/${e2eConfig.locale}/admin/booking-page?salon=${encodeURIComponent(e2eConfig.salonSlug)}`;
     const noHorizontalOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
     await page.goto(hubUrl);
 
