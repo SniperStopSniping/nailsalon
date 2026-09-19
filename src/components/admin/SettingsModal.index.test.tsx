@@ -414,30 +414,19 @@ describe('SettingsModal index', () => {
     expect(await screen.findByText('Booking & Availability')).toBeInTheDocument();
   });
 
-  it('keeps parking instructions in the Locations view as the single directions source', async () => {
+  it('opens the canonical Booking Page business editor without a competing parking form', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     fireEvent.click(await screen.findByText('Business'));
-    fireEvent.click(await screen.findByText('Location & Arrival'));
+    fireEvent.click(await screen.findByText('Business Information'));
 
-    const parking = await screen.findByDisplayValue('Free parking behind the salon.');
-    fireEvent.change(parking, { target: { value: 'Park in the back.' } });
-    fireEvent.click(screen.getByRole('button', { name: /save parking info/i }));
-
-    await waitFor(() => {
-      const patchCall = fetchMock.mock.calls.find(([input, init]) =>
-        String(input).includes('/api/admin/retention/settings')
-        && (init as RequestInit | undefined)?.method === 'PATCH');
-
-      expect(patchCall).toBeTruthy();
-
-      const body = JSON.parse(String((patchCall![1] as RequestInit).body));
-
-      // Saves only the parking field — never other retention settings.
-      expect(body).toEqual({ parkingInstructions: 'Park in the back.' });
-    });
-
-    expect(await screen.findByText('Parking instructions saved.')).toBeInTheDocument();
+    expect(pushMock).toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-a&panel=business', { scroll: false });
+    expect(screen.queryByDisplayValue('Free parking behind the salon.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save parking info/i })).not.toBeInTheDocument();
+    // The extracted editor has its own explicit partial-PATCH regression.
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).includes('/api/admin/retention/settings')
+      && (init as RequestInit | undefined)?.method === 'PATCH')).toBe(false);
   });
 
   it('keeps the page-theme editor and loads the bounded booking experience editor in Branding', async () => {
