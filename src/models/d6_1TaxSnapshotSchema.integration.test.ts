@@ -334,7 +334,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(81);
+    expect(journal.entries).toHaveLength(82);
     // The Stripe prerequisite keeps its own identity assertion as the tail
     // grows: 0078 appends, it does not displace what 0076 pinned.
     expect(journal.entries[76]).toMatchObject({
@@ -354,6 +354,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     });
     expect(journal.entries[79]).toMatchObject({ idx: 79, when: 1789753533025, tag: '0080_customer_booking_operation' });
     expect(journal.entries[80]).toMatchObject({ idx: 80, tag: '0081_review_request_automation_contract' });
+    expect(journal.entries[81]).toMatchObject({ idx: 81, when: 1789809175297, tag: '0082_review_request_nullable_contract' });
     expect(createHash('sha256')
       .update(readFileSync(path.join(process.cwd(), 'migrations/0076_deposit_shadow_evidence.sql')))
       .digest('hex')).toBe('3626d5427a18d1762ae6e4807cb9a31f8dc093c22cc700b7a6a712a4945f1765');
@@ -363,7 +364,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     [76, '0075'],
     [77, 'Stripe 0076'],
     [78, 'Review 0077'],
-  ])('upgrades a %s ledger through review request automation contract 0081', async (existingCount) => {
+  ])('upgrades a %s ledger through review request nullable contract 0082', async (existingCount) => {
     const upgradeClient = new PGlite();
     const upgradeDb = drizzle(upgradeClient);
     const migrationsFolder = path.join(process.cwd(), 'migrations');
@@ -381,7 +382,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
         'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',
       );
 
-      expect(rows.rows).toHaveLength(81);
+      expect(rows.rows).toHaveLength(82);
       expect(Number(rows.rows[76]?.created_at)).toBe(1787476392670);
       expect(Number(rows.rows[77]?.created_at)).toBe(1787562792670);
       expect(Number(rows.rows[78]?.created_at)).toBe(1787649192670);
