@@ -71,7 +71,7 @@ describe('ReviewRequestSuppression', () => {
 
     const control = await screen.findByRole('checkbox', { name: 'Do not send review requests' });
 
-    expect(screen.getByText('Sent to SMS provider')).toBeVisible();
+    expect(await screen.findByText('Sent to SMS provider')).toBeVisible();
     expect(screen.getByText('Owner reported sent — delivery not verified')).toBeVisible();
     expect(screen.getByText(/Automatic · SMS/)).toBeVisible();
     expect(screen.getByText(/Owner-reported · Owner device/)).toBeVisible();
@@ -112,7 +112,7 @@ describe('ReviewRequestSuppression', () => {
     const control = await screen.findByRole('checkbox', { name: 'Do not send review requests' });
 
     expect(control).toBeDisabled();
-    expect(screen.getByRole('alert')).toHaveTextContent('Unavailable');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unavailable');
 
     fireEvent.click(control);
 
