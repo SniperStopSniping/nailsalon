@@ -7,6 +7,7 @@ describe('synthetic L1 nail-booking interpretation evaluation', () => {
   it('contains the representative natural-language cases and only public menu IDs', () => {
     expect(NAIL_BOOKING_EVAL_CASES.map(item => item.id)).toEqual(expect.arrayContaining([
       'gel-manicure-french-paraphrase-1',
+      'isla-pilot-smoke-gel-manicure-french',
       'biab-natural-language',
       'gelx-removal-french-short',
       'gelx-length-is-genuine-clarification',
@@ -59,5 +60,13 @@ describe('synthetic L1 nail-booking interpretation evaluation', () => {
 
     expect(scoreNailBookingInterpretation({ action: 'clarify', serviceId: SYNTHETIC_NAIL_IDS.gelx, addOns: [], question: 'length', optionIds: [SYNTHETIC_NAIL_IDS.short, SYNTHETIC_NAIL_IDS.medium, SYNTHETIC_NAIL_IDS.long], datePreference: null }, testCase).passed).toBe(true);
     expect(scoreNailBookingInterpretation({ action: 'clarify', serviceId: SYNTHETIC_NAIL_IDS.gelx, addOns: [], question: 'finish', optionIds: [SYNTHETIC_NAIL_IDS.short], datePreference: null }, testCase).passed).toBe(false);
+  });
+
+  it('accepts additional relevant service choices but rejects unrelated IDs', () => {
+    const testCase = NAIL_BOOKING_EVAL_CASES.find(item => item.id === 'gel-nails-genuine-ambiguity')!;
+    const relevant = [SYNTHETIC_NAIL_IDS.gelManicure, SYNTHETIC_NAIL_IDS.biab, SYNTHETIC_NAIL_IDS.gelx, SYNTHETIC_NAIL_IDS.gelxFill];
+
+    expect(scoreNailBookingInterpretation({ action: 'clarify', serviceId: null, addOns: [], question: 'service', optionIds: relevant, datePreference: null }, testCase).passed).toBe(true);
+    expect(scoreNailBookingInterpretation({ action: 'clarify', serviceId: null, addOns: [], question: 'service', optionIds: [...relevant, SYNTHETIC_NAIL_IDS.french], datePreference: null }, testCase).passed).toBe(false);
   });
 });

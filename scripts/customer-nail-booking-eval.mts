@@ -19,7 +19,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const { createOpenAiResponsesProvider } = require('../src/libs/ai/openaiResponses.server') as typeof import('../src/libs/ai/openaiResponses.server');
 const { customerInterpretationSchema, CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT } = require('../src/libs/customerAssistant/interpretation') as typeof import('../src/libs/customerAssistant/interpretation');
-const { NAIL_BOOKING_EVAL_CASES, SYNTHETIC_NAIL_BOOKING_MENU } = require('../src/libs/customerAssistant/__evals__/nailBookingCases') as typeof import('../src/libs/customerAssistant/__evals__/nailBookingCases');
+const { NAIL_BOOKING_EVAL_CASES, SYNTHETIC_NAIL_BOOKING_MENUS } = require('../src/libs/customerAssistant/__evals__/nailBookingCases') as typeof import('../src/libs/customerAssistant/__evals__/nailBookingCases');
 const { scoreNailBookingInterpretation } = require('../src/libs/customerAssistant/__evals__/nailBookingScorer') as typeof import('../src/libs/customerAssistant/__evals__/nailBookingScorer');
 
 const model = 'gpt-5.6-luna';
@@ -83,7 +83,7 @@ function costMicros(usage: import('../src/libs/ai/provider').ModelProviderUsage 
 }
 
 function inputFor(testCase: (typeof NAIL_BOOKING_EVAL_CASES)[number]): string {
-  return JSON.stringify({ locale: 'en', menu: SYNTHETIC_NAIL_BOOKING_MENU, customerMessages: testCase.messages, lastShown: testCase.lastShown, today: '2026-09-18', timeZone: 'America/Toronto', bookingState: null });
+  return JSON.stringify({ locale: 'en', menu: SYNTHETIC_NAIL_BOOKING_MENUS[testCase.catalog], customerMessages: testCase.messages, lastShown: testCase.lastShown, today: '2026-09-18', timeZone: 'America/Toronto', bookingState: null });
 }
 
 async function main(): Promise<void> {
