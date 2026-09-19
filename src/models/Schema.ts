@@ -67,6 +67,23 @@ export const autopostStatusEnum = pgEnum('autopost_status', [
   'failed',
 ]);
 
+export const reviewRequestAutomationModeEnum = pgEnum('review_request_automation_mode', [
+  'manual',
+  'marked_completed',
+  'scheduled_end',
+]);
+
+export const reviewRequestTriggerKindEnum = pgEnum('review_request_trigger_kind', [
+  'completed',
+  'scheduled_end',
+]);
+
+export const reviewRequestTriggerStateEnum = pgEnum('review_request_trigger_state', [
+  'pending',
+  'materialized',
+  'skipped',
+]);
+
 export const serviceCategoryEnum = pgEnum('service_category', [
   'manicure',
   'builder_gel',
@@ -1470,6 +1487,11 @@ export const salonRetentionSettingsSchema = pgTable(
     automaticReviewRequests: boolean('automatic_review_requests').notNull().default(false),
     reviewRequestsEnabledAt: timestamp('review_requests_enabled_at', { mode: 'date', withTimezone: true }),
     reviewRequestDelayMinutes: integer('review_request_delay_minutes').notNull().default(60),
+    // NULL preserves the historical automatic_review_requests contract until
+    // a salon explicitly adopts the new automation policy.
+    reviewRequestAutomationMode: reviewRequestAutomationModeEnum('review_request_automation_mode'),
+    reviewRequestRepeatCooldownDays: integer('review_request_repeat_cooldown_days'),
+    reviewRequestPolicyRevision: integer('review_request_policy_revision').notNull().default(0),
     reviewRequestMessage: text('review_request_message'),
     googleReviewUrl: text('google_review_url'),
     parkingInstructions: text('parking_instructions'),
@@ -1507,6 +1529,16 @@ export const salonRetentionSettingsSchema = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
   },
+  table => ({
+    reviewRequestCooldownValid: check(
+      'salon_retention_settings_review_request_cooldown_valid',
+      sql`${table.reviewRequestRepeatCooldownDays} IS NULL OR ${table.reviewRequestRepeatCooldownDays} IN (90, 180, 365)`,
+    ),
+    reviewRequestPolicyRevisionNonnegative: check(
+      'salon_retention_settings_review_request_policy_revision_nonnegative',
+      sql`${table.reviewRequestPolicyRevision} >= 0`,
+    ),
+  }),
 );
 
 // -----------------------------------------------------------------------------
@@ -5162,6 +5194,55 @@ export type NewOnboardingDraftClaim = typeof onboardingDraftClaimSchema.$inferIn
 export type OnboardingSiteMedia = typeof onboardingSiteMediaSchema.$inferSelect;
 export type NewOnboardingSiteMedia = typeof onboardingSiteMediaSchema.$inferInsert;
 
+// A durable, salon-scoped scheduling decision. It retains appointment ids as
+// history rather than referencing appointment because later automation must
+// still explain a decision after an appointment has been removed.
+export const reviewRequestTriggerSchema = pgTable('review_request_trigger', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  appointmentId: text('appointment_id').notNull(),
+  kind: reviewRequestTriggerKindEnum('kind').notNull(),
+  triggerAt: timestamp('trigger_at', { mode: 'date', withTimezone: true }).notNull(),
+  appointmentStartAt: timestamp('appointment_start_at', { mode: 'date', withTimezone: true }).notNull(),
+  appointmentEndAt: timestamp('appointment_end_at', { mode: 'date', withTimezone: true }).notNull(),
+  policyRevision: integer('policy_revision').notNull(),
+  state: reviewRequestTriggerStateEnum('state').notNull().default('pending'),
+  reasonCode: text('reason_code'),
+  // This is an immutable scheduling snapshot. Changing a salon delay only
+  // affects future triggers; a reschedule supersedes an unresolved trigger.
+  scheduledFor: timestamp('scheduled_for', { mode: 'date', withTimezone: true }).notNull(),
+  availableAt: timestamp('available_at', { mode: 'date', withTimezone: true }).notNull(),
+  expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+  resolvedAt: timestamp('resolved_at', { mode: 'date', withTimezone: true }),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, table => ({
+  appointmentPolicyOnce: uniqueIndex('review_request_trigger_appointment_policy_once').on(
+    table.salonId,
+    table.appointmentId,
+    table.kind,
+    table.triggerAt,
+    table.appointmentStartAt,
+    table.appointmentEndAt,
+    table.policyRevision,
+  ),
+  pendingDue: index('review_request_trigger_pending_due_idx').on(table.availableAt, table.id)
+    .where(sql`${table.state} = 'pending'`),
+  salonAppointmentHistory: index('review_request_trigger_salon_appointment_created_idx').on(
+    table.salonId,
+    table.appointmentId,
+    table.createdAt,
+  ),
+  policyRevisionNonnegative: check(
+    'review_request_trigger_policy_revision_nonnegative',
+    sql`${table.policyRevision} >= 0`,
+  ),
+  expiresAfterScheduled: check(
+    'review_request_trigger_expires_after_scheduled',
+    sql`${table.expiresAt} > ${table.scheduledFor}`,
+  ),
+}));
+
 // A durable business record; delivery state lives on the existing intent.
 export const reviewRequestSchema = pgTable('review_request', {
   id: text('id').primaryKey(),
@@ -5171,8 +5252,9 @@ export const reviewRequestSchema = pgTable('review_request', {
   recipient: text('recipient').notNull(),
   source: text('source').$type<'automatic' | 'manual'>().notNull(),
   status: text('status').$type<'scheduled' | 'cancelled'>().notNull().default('scheduled'),
+  triggerId: text('trigger_id').references(() => reviewRequestTriggerSchema.id),
   intentId: text('intent_id').notNull().unique(),
-  completedAt: timestamp('completed_at', { mode: 'date', withTimezone: true }).notNull(),
+  completedAt: timestamp('completed_at', { mode: 'date', withTimezone: true }),
   scheduledFor: timestamp('scheduled_for', { mode: 'date', withTimezone: true }).notNull(),
   cancelledAt: timestamp('cancelled_at', { mode: 'date', withTimezone: true }),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
@@ -5180,4 +5262,9 @@ export const reviewRequestSchema = pgTable('review_request', {
 }, table => ({
   clientOnce: uniqueIndex('review_request_client_once').on(table.salonId, table.clientId).where(sql`${table.status} <> 'cancelled'`),
   phoneOnce: uniqueIndex('review_request_phone_once').on(table.salonId, table.recipient).where(sql`${table.status} <> 'cancelled'`),
+  triggerOnce: uniqueIndex('review_request_trigger_once').on(table.triggerId),
+  appointmentActiveOnce: uniqueIndex('review_request_appointment_active_once').on(table.salonId, table.appointmentId).where(sql`${table.status} <> 'cancelled' and ${table.appointmentId} is not null`),
+  salonClientCreated: index('review_request_salon_client_created_idx').on(table.salonId, table.clientId, table.createdAt),
+  salonRecipientCreated: index('review_request_salon_recipient_created_idx').on(table.salonId, table.recipient, table.createdAt),
+  completedOrTriggered: check('review_request_completed_or_triggered', sql`${table.completedAt} is not null or ${table.triggerId} is not null`),
 }));

@@ -395,6 +395,9 @@ jobs:
               e62b6f637ee0c90f995657c15dd7ea4138bc102f) ;;
               # Review requests: add the tenant-scoped review_request purge step.
               3c824ab5a65b2376af76d105f9fb5f555b22b1ff) ;;
+              # Review-automation trigger contract: purge review_request before
+              # its NO ACTION trigger reference, then remove the trigger row.
+              27fd38cdd3e1ae7dbb0b5ec5f4180febb6a50584) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -433,7 +436,14 @@ jobs:
               migrations/0079_billing_customer.sql) ;;
               # Dark customer booking operation; no billing or appointment rewrites.
               migrations/0080_customer_booking_operation.sql) ;;
+              # Inert review-automation policy and durable trigger contract;
+              # no appointment scan, delivery, or activation behavior.
+              migrations/0081_review_request_automation_contract.sql) ;;
+              # Reviewed nullable review contract, retaining lifetime indexes.
+              migrations/0082_review_request_nullable_contract.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
+              migrations/meta/0081_snapshot.json) ;;
+              migrations/meta/0082_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -545,6 +555,9 @@ jobs:
               # New-track Stripe customer identity (billing_customer).
               0079_billing_customer) ;;
               0080_customer_booking_operation) ;;
+              # Inert review-automation policy and durable trigger contract.
+              0081_review_request_automation_contract) ;;
+              0082_review_request_nullable_contract) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -580,10 +593,13 @@ jobs:
         run: |
           SYNTHETIC_PHONE="$(printf '%s%s%s' '999' '555' '0150')"
           SYNTHETIC_PASSWORD="ci-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RANDOM}${RANDOM}"
+          SYNTHETIC_CRON_SECRET="ci-review-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RANDOM}${RANDOM}"
           echo "::add-mask::${SYNTHETIC_PASSWORD}"
+          echo "::add-mask::${SYNTHETIC_CRON_SECRET}"
           {
             echo "E2E_SUPER_ADMIN_PHONE=${SYNTHETIC_PHONE}"
             echo "E2E_SUPER_ADMIN_PASSWORD=${SYNTHETIC_PASSWORD}"
+            echo "CRON_SECRET=${SYNTHETIC_CRON_SECRET}"
           } >> "$GITHUB_ENV"
 
       - name: Test disposable database target guard
@@ -739,6 +755,9 @@ jobs:
 
       - name: Verify review previews and delivery states in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/reviews/playwright.config.ts --output=test-results/review-components
+
+      - name: Verify review automation settings in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/reviewAutomationSettings/playwright.config.ts --output=test-results/review-automation-settings-components
 
       - name: Verify dark customer assistant proposal shell in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/customerAssistant/playwright.config.ts --output=test-results/customer-assistant-components
@@ -1172,6 +1191,21 @@ jobs:
           grep -Fqx \
             'BOOKING_PAGE_LIFECYCLE_POSTGRES_TESTS_EXECUTED=10 BOOKING_PAGE_LIFECYCLE_POSTGRES_TESTS_SKIPPED=0' \
             booking-page-lifecycle-postgres.log
+
+      - name: Verify review-trigger transactions and races on real PostgreSQL with zero skips
+        shell: bash
+        env:
+          REVIEW_REQUEST_AUTOMATION_PG_REQUIRED: 'true'
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism \
+            src/libs/reviewRequests.concurrency.integration.test.ts \
+            | tee review-request-postgres.log
+          grep -Fqx \
+            'REVIEW_REQUEST_POSTGRES_TESTS_EXECUTED=16 REVIEW_REQUEST_POSTGRES_TESTS_SKIPPED=0' \
+            review-request-postgres.log
 
       - name: Verify durable customer booking operations on real PostgreSQL with zero skips
         shell: bash
