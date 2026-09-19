@@ -11,7 +11,7 @@ import { appPath, authStatePaths, e2eConfig } from './support/config';
 // Normal isolated owner authentication; review writes cannot enqueue real SMS.
 test.use({ storageState: authStatePaths.superAdmin });
 
-test('review settings require explicit automation opt-in @mobile-safari', async ({ page }) => {
+test('review settings require an explicit automation mode @mobile-safari', async ({ page }) => {
   let settings = {
     googleReviewUrl: null as string | null,
     automaticEnabled: false,
@@ -19,9 +19,13 @@ test('review settings require explicit automation opt-in @mobile-safari', async 
     messageTemplate: 'Hi {{firstName}}! Thanks for visiting {{businessName}}. Review us: {{reviewLink}}',
     businessName: 'Daniela Nails',
   };
+  const updates: Array<Record<string, unknown>> = [];
   await page.route('**/api/admin/review-requests/settings?**', async (route) => {
     if (route.request().method() === 'PATCH') {
-      settings = { ...settings, ...route.request().postDataJSON() };
+      const update = route.request().postDataJSON() as Record<string, unknown>;
+
+      updates.push(update);
+      settings = { ...settings, ...update };
     }
     await route.fulfill({ json: { data: settings } });
   });
@@ -33,14 +37,23 @@ test('review settings require explicit automation opt-in @mobile-safari', async 
 
   await panel.getByLabel('Google review link', { exact: true }).fill('https://g.page/daniela/review');
 
-  await expect(panel.getByRole('checkbox', { name: 'Automatically request reviews' })).not.toBeChecked();
+  const automation = panel.getByRole('radiogroup', { name: 'Automatic review requests' });
+
+  await expect(automation.getByRole('radio', { name: 'Manual only' })).toBeChecked();
 
   await panel.getByRole('button', { name: 'Save review settings' }).click();
 
   await expect(panel.getByRole('button', { name: 'Saved', exact: true })).toBeVisible();
-  expect(settings.automaticEnabled).toBe(false);
+  expect(updates).toHaveLength(1);
+  expect(updates[0]).toEqual({
+    googleReviewUrl: 'https://g.page/daniela/review',
+    delayMinutes: 60,
+    messageTemplate: 'Hi {{firstName}}! Thanks for visiting {{businessName}}. Review us: {{reviewLink}}',
+    automationMode: 'manual',
+    repeatCooldownDays: 'never',
+  });
 
-  await panel.getByRole('checkbox', { name: 'Automatically request reviews' }).check();
+  await automation.getByRole('radio', { name: 'After marked completed' }).check();
   await panel.getByLabel('Send after', { exact: true }).selectOption('60');
 
   await expect(panel.getByText('Reply STOP to opt out.', { exact: false })).toBeVisible();
@@ -48,7 +61,14 @@ test('review settings require explicit automation opt-in @mobile-safari', async 
   await panel.getByRole('button', { name: 'Save review settings' }).click();
 
   await expect(panel.getByRole('button', { name: 'Saved', exact: true })).toBeVisible();
-  expect(settings.automaticEnabled).toBe(true);
+  expect(updates).toHaveLength(2);
+  expect(updates[1]).toEqual({
+    googleReviewUrl: 'https://g.page/daniela/review',
+    delayMinutes: 60,
+    messageTemplate: 'Hi {{firstName}}! Thanks for visiting {{businessName}}. Review us: {{reviewLink}}',
+    automationMode: 'marked_completed',
+    repeatCooldownDays: 'never',
+  });
 });
 
 test('client profile keeps the Google review action visible above More actions @mobile-safari', async ({ page }) => {
@@ -151,12 +171,16 @@ test('isolated owner completes and queues one review through the real APIs @mobi
 
     await expect(panel.locator('p').filter({ hasText: 'Share a Google review:' })).toBeVisible();
 
-    await panel.getByRole('checkbox', { name: 'Automatically request reviews' }).uncheck();
+    const automation = panel.getByRole('radiogroup', { name: 'Automatic review requests' });
+
+    await automation.getByRole('radio', { name: 'Manual only' }).check();
     await panel.getByRole('button', { name: 'Save review settings' }).click();
 
     await expect(panel.getByRole('button', { name: 'Saved', exact: true })).toBeVisible();
 
-    await panel.getByRole('checkbox', { name: 'Automatically request reviews' }).check();
+    // This flow exercises the legacy completion trigger, so choose it
+    // deliberately instead of adopting scheduled-end automation implicitly.
+    await automation.getByRole('radio', { name: 'After marked completed' }).check();
     await panel.getByLabel('Send after', { exact: true }).selectOption('60');
     await panel.getByRole('button', { name: 'Save review settings' }).click();
 
@@ -225,7 +249,7 @@ test('isolated owner completes and queues one review through the real APIs @mobi
 
     await page.screenshot({ path: testInfo.outputPath('owner-review-queued.png'), fullPage: true });
     await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}&app=settings&view=review-requests`);
-    await panel.getByRole('checkbox', { name: 'Automatically request reviews' }).uncheck();
+    await automation.getByRole('radio', { name: 'Manual only' }).check();
     await panel.getByRole('button', { name: 'Save review settings' }).click();
 
     await expect(panel.getByRole('button', { name: 'Saved', exact: true })).toBeVisible();
