@@ -20,7 +20,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await expect(page.getByRole('heading', { name: 'Booking Page', exact: true })).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Booking Page editors' }).getByRole('link')).toHaveCount(expectedEditorCount);
     await expect(page.getByRole('link', { name: /^Business Information/ })).toHaveAttribute('href', `${editorUrl}&panel=business`);
-    await expect(page.getByRole('link', { name: /^Public Booking Experience/ })).toHaveAttribute('href', `${editorUrl}&panel=experience`);
+    await expect(page.getByRole('link', { name: /^Booking Messages & Social Links/ })).toHaveAttribute('href', `${editorUrl}&panel=experience`);
     await expect(page.getByRole('link', { name: /^Booking Flow/ })).toHaveCount(expectedFlowCount);
     await expect(page.getByText(/^Live · /)).toBeVisible();
     expect(await noHorizontalOverflow()).toBe(true);
@@ -34,9 +34,9 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await expect(page).toHaveURL(new RegExp(`/(${e2eConfig.locale}/)?admin/website\\?salon=${encodeURIComponent(e2eConfig.salonSlug)}&returnTo=calendar$`));
 
-    await page.getByRole('link', { name: /^Layout / }).click();
+    await page.getByRole('link', { name: /^Layout & Menu/ }).click();
 
-    await expect(page.getByRole('heading', { level: 1, name: 'Layouts', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Layout & Menu', exact: true })).toBeVisible();
     await expect(page.getByTestId('booking-page-preset-picker')).toBeVisible();
 
     const advancedBusinessSetup = page.getByTestId('business-type-advanced');
@@ -88,7 +88,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await expect(page.getByRole('heading', { name: 'Booking Page', exact: true })).toBeVisible();
 
-    await page.getByRole('link', { name: /Business Info Display/ }).click();
+    await page.getByRole('link', { name: /What Clients See/ }).click();
 
     // Booking Page presents the canonical business record without exposing a
     // second editor. Owners follow the link to Business Information for live data.

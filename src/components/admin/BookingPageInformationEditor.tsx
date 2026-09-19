@@ -785,7 +785,7 @@ export function BookingPageInformationEditor({
   return (
     <section className="rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm" data-testid="booking-page-information-editor">
       <h2 className="text-lg font-semibold text-[var(--owner-ink)]">
-        {mode === 'hours' ? 'Regular salon hours' : mode === 'booking' ? 'Business Info Display' : mode === 'business' ? 'Business Information' : 'Your Information'}
+        {mode === 'hours' ? 'Regular salon hours' : mode === 'booking' ? 'What Clients See' : mode === 'business' ? 'Business Information' : 'Your Information'}
       </h2>
       <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-publish-summary">
         {mode === 'hours'

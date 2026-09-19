@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { lockTechnicianAndAssertSlotFree, lockTechnicianSchedule, SlotConflictError } from '@/libs/bookingConflictGuard';
+
 import { PUT } from './route';
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/libs/bookingConflictGuard', async original => ({ ...await original<typeof import('@/libs/bookingConflictGuard')>(), lockTechnicianSchedule: vi.fn(async () => undefined), lockTechnicianAndAssertSlotFree: vi.fn(async () => undefined) }));
 
 const {
   requireAdminSalon,
@@ -20,7 +23,7 @@ const {
   const select = vi.fn(() => ({
     from: vi.fn(() => ({
       where: vi.fn(() => {
-        const result = selectResults.shift() ?? [];
+        const result = (selectResults.shift() ?? []).map(row => typeof row === 'object' && row && 'status' in row ? { startTime: new Date('2026-03-14T10:00:00Z'), endTime: new Date('2026-03-14T11:00:00Z'), totalDurationMinutes: 60, bufferMinutes: 10, ...row } : row);
         const limit = vi.fn(async () => result);
         return {
           for: vi.fn(() => ({ limit })),
@@ -376,5 +379,21 @@ describe('PUT /api/admin/appointments/[id]/reassign', () => {
     expect(logTechReassignment).not.toHaveBeenCalled();
 
     consoleError.mockRestore();
+  });
+
+  it('refuses reassignment into blocked time after locking both technicians in stable order', async () => {
+    requireAdminSalon.mockResolvedValue({ error: null, salon: { id: 'salon_1' } });
+    getAdminSession.mockResolvedValue({ id: 'admin_1', name: 'Owner' });
+    const appointment = { id: 'appt_1', salonId: 'salon_1', technicianId: 'tech_z', status: 'confirmed', updatedAt: new Date(), startTime: new Date('2026-03-14T10:00:00Z'), endTime: new Date('2026-03-14T11:00:00Z') };
+    selectResults.push([appointment], [{ id: 'tech_a', salonId: 'salon_1', name: 'New Tech', isActive: true }], [], [{ name: 'Old Tech' }], [appointment]);
+    vi.mocked(lockTechnicianAndAssertSlotFree).mockRejectedValueOnce(new SlotConflictError());
+    const response = await PUT(new Request('http://localhost/api/admin/appointments/appt_1/reassign', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ salonSlug: 'salon-1', technicianId: 'tech_a', reason: 'Coverage' }) }), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(409);
+    expect(lockTechnicianSchedule).toHaveBeenNthCalledWith(1, expect.anything(), 'salon_1', 'tech_a');
+    expect(lockTechnicianSchedule).toHaveBeenNthCalledWith(2, expect.anything(), 'salon_1', 'tech_z');
+    expect(lockTechnicianAndAssertSlotFree).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ salonId: 'salon_1', technicianId: 'tech_a', excludedAppointmentId: 'appt_1', blockedEndTime: new Date('2026-03-14T11:10:00Z') }));
+    expect(db.update).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
   });
 });

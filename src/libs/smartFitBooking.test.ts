@@ -222,6 +222,12 @@ describe('buildSmartFitDayContext — blocks', () => {
     });
   });
 
+  it('keeps exact intraday blocks at their saved instant when wall-time labels differ', () => {
+    const context = buildSmartFitDayContext({ ...baseArgs(), blockedSlots: [{ startTime: '09:00', endTime: '10:00', startsAt: at('12:00'), endsAt: at('13:00'), label: 'Exact block' }] });
+
+    expect(context!.blocks[0]).toMatchObject({ startMs: atMs('12:00'), endMs: atMs('13:00'), kind: 'break' });
+  });
+
   it('converts breaks on the slot-grid basis and appends Google busy as shrink-only blocks', () => {
     const context = buildSmartFitDayContext({
       ...baseArgs(),

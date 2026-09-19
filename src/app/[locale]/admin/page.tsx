@@ -368,6 +368,7 @@ function AdminDashboardContent() {
 
   // Dashboard data state
   const [data, setData] = useState<DashboardData>(getEmptyDashboardData);
+  const [isTeamSalon, setIsTeamSalon] = useState(false);
   const [coreAppointments, setCoreAppointments] = useState<
     DashboardData['appointments']
   >(getEmptyDashboardData().appointments);
@@ -429,6 +430,7 @@ function AdminDashboardContent() {
     null,
   );
   // Explains a deep link to an app this salon cannot open (entitlement-gated).
+  const [blockedAppCanEnable, setBlockedAppCanEnable] = useState(false);
   const [blockedAppNotice, setBlockedAppNotice] = useState<string | null>(null);
   // Billing Checkout return (G19, §8.5 UX): shared by the top-up Checkout
   // (?topup=success|cancelled, P5a) and the subscription Checkout
@@ -568,9 +570,6 @@ function AdminDashboardContent() {
   );
   // Badge count: use total from API, decrement optimistically on resolve
   const fraudSignalCount = fraudSignalsTotalCount;
-
-  // Notification count (in production, this would come from API)
-  const notificationCount = data.badges.alerts + data.badges.reviews;
 
   // Sync each selected salon/session without retriggering the auth request.
   const syncedSalonSessionRef = useRef<string | null>(null);
@@ -1233,11 +1232,12 @@ function AdminDashboardContent() {
     ) {
       return;
     }
+    setIsTeamSalon(false);
     const controller = new AbortController();
     const now = new Date();
     const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     fetch(
-      `/api/admin/appointments?date=${date}&status=pending,confirmed,in_progress,awaiting_payment,completed,no_show`,
+      `/api/admin/appointments?salonSlug=${encodeURIComponent(activeDashboardSalonSlug)}&date=${date}&status=pending,confirmed,in_progress,awaiting_payment,completed,no_show`,
       { signal: controller.signal },
     )
       .then(async response =>
@@ -1250,6 +1250,7 @@ function AdminDashboardContent() {
           status: string;
           startTime: string;
         }>;
+        setIsTeamSalon((payload.data?.schedule?.technicians?.length ?? 0) > 1);
         setCoreAppointments({
           total: appointments.length,
           completed: appointments.filter(item => item.status === 'completed')
@@ -1373,8 +1374,19 @@ function AdminDashboardContent() {
 
   /** Open an app through the URL so it is deep-linkable and Back closes it. */
   const openAppViaUrl = useCallback(
-    (appId: string) => {
-      router.push(buildAdminUrl(appId));
+    (appId: string, view?: string, technicianId?: string, replace = false) => {
+      const url = new URL(buildAdminUrl(appId), window.location.origin);
+      if (view) {
+        url.searchParams.set('view', view);
+      }
+      if (technicianId) {
+        url.searchParams.set('technician', technicianId);
+      }
+      if (replace) {
+        router.replace(`${url.pathname}${url.search}`);
+      } else {
+        router.push(`${url.pathname}${url.search}`);
+      }
     },
     [router, buildAdminUrl],
   );
@@ -1452,6 +1464,7 @@ function AdminDashboardContent() {
       // instead of dropping the link silently, and stop the address bar
       // advertising an app that is not open.
       setBlockedAppNotice(describeBlockedApp(appParam, moduleReasons));
+      setBlockedAppCanEnable((GATED_APP_MODULES[appParam] ?? []).some(module => moduleReasons[module] === 'MODULE_DISABLED'));
       setWorkspaceTab('more');
       router.replace(buildAdminUrl(null));
     } else if (!appParam) {
@@ -1528,9 +1541,8 @@ function AdminDashboardContent() {
         setShowWalkIn(true);
         break;
       case 'send-sms':
-        setInitialPromotionStage(null);
-        setPromotionSettingsReturnClientId(null);
-        setActiveModal('marketing');
+        setInitialClientId(null);
+        openAppViaUrl('clients', 'message');
         break;
       case 'today-schedule':
         openAppViaUrl('schedule');
@@ -1663,6 +1675,10 @@ function AdminDashboardContent() {
 
   // Close modal
   const handleCloseModal = () => {
+    setShowScheduleCalendar(false);
+    if (workspaceTab === 'calendar') {
+      setWorkspaceTab('today');
+    }
     setActiveModal(null);
     setInitialAppointmentId(null);
     setInitialClientId(null);
@@ -1868,7 +1884,7 @@ function AdminDashboardContent() {
         {/* Header */}
         <div className="mx-auto max-w-2xl px-5 pb-3 pt-4">
           <WorkspacePageHeader
-            title="Luster Workspace"
+            title={workspaceTab === 'more' ? 'More' : 'Today'}
             subtitle={
               activeDashboardSalonName
                 ? `Managing ${activeDashboardSalonName}`
@@ -1892,21 +1908,11 @@ function AdminDashboardContent() {
                 <button
                   type="button"
                   onClick={() => setShowNotifications(true)}
-                  aria-label={
-                    notificationCount > 0
-                      ? `Notifications (${notificationCount} unread)`
-                      : 'Notifications'
-                  }
+                  aria-label="Activity"
                   className="relative flex size-11 items-center justify-center rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 active:bg-[var(--owner-blush)]"
                 >
                   <Bell size={20} aria-hidden="true" />
-                  {notificationCount > 0 && (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[var(--owner-accent-strong)] px-1">
-                      <span className="text-[11px] font-bold text-white">
-                        {notificationCount > 9 ? '9+' : notificationCount}
-                      </span>
-                    </span>
-                  )}
+
                 </button>
                 {/*
                   AG-w2-settings-integrations-12: Log Out used to be a 32 px
@@ -1959,7 +1965,21 @@ function AdminDashboardContent() {
             data-testid="blocked-app-notice"
             role="status"
           >
-            <p className="flex-1 text-sm text-amber-700">{blockedAppNotice}</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-amber-700">{blockedAppNotice}</p>
+              {blockedAppCanEnable && (
+                <button
+                  type="button"
+                  className="min-h-11 rounded-lg px-2 text-sm font-semibold underline focus-visible:ring-2 focus-visible:ring-rose-700"
+                  onClick={() => {
+                    setBlockedAppNotice(null);
+                    openAppViaUrl('settings', 'features');
+                  }}
+                >
+                  Open Optional Features
+                </button>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => setBlockedAppNotice(null)}
@@ -1997,6 +2017,7 @@ function AdminDashboardContent() {
               >
                 <AppGrid
                   theme="apple"
+                  isTeamSalon={isTeamSalon}
                   badges={appBadges}
                   onAppTap={handleAppTap}
                   /*
@@ -2007,7 +2028,7 @@ function AdminDashboardContent() {
                     never runs) it was invisible to everyone. The tour walks
                     tabs the owner already has, so it needs neither.
                   */
-                  hiddenIds={hiddenAppIds}
+                  hiddenIds={hiddenAppIds.filter(id => !(id === 'analytics' && moduleReasons.analyticsDashboard === 'MODULE_DISABLED'))}
                   /*
                     AG-w2-settings-integrations-12: the session-ending control
                     lives here, in the Account row AppGrid renders under the
@@ -2039,6 +2060,7 @@ function AdminDashboardContent() {
                     )
                   : null}
                 <OwnerTodayWorkspace
+                  key={activeDashboardSalonSlug}
                   salonSlug={activeDashboardSalonSlug || ''}
                   appointments={coreAppointments}
                   analyticsTitle={analyticsUnavailableState?.title}
@@ -2049,6 +2071,8 @@ function AdminDashboardContent() {
                   onQuickAction={handleQuickAction}
                   onOpenBookings={() => setActiveModal('bookings')}
                   onOpenCalendar={() => openAppViaUrl('schedule')}
+                  onOpenGoogleReview={() => openAppViaUrl('schedule', 'google-review')}
+                  onOpenFollowups={() => openAppViaUrl('clients', 'insights')}
                   onOpenIntegrations={() => openAppViaUrl('integrations')}
                   onOpenAppointment={(appointmentId) => {
                     setInitialClientId(null);
@@ -2075,6 +2099,8 @@ function AdminDashboardContent() {
       <AdminModalHost
         teamAppAvailable={!hiddenAppIds.includes('team')}
         settingsInitialView={searchParams.get('view') ?? undefined}
+        onNavigate={openAppViaUrl}
+        onNavigateBack={() => router.back()}
         activeModal={activeModal}
         activeSalonSlug={activeDashboardSalonSlug}
         activeSalonId={activeDashboardSalon?.id ?? null}

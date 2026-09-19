@@ -152,8 +152,8 @@ export function buildSmartFitDayContext(args: SmartFitDayContextArgs): SmartFitD
   }
 
   for (const slot of args.blockedSlots ?? []) {
-    const startMs = timeToMs(slot.startTime);
-    const endMs = timeToMs(slot.endTime);
+    const startMs = slot.startsAt?.getTime() ?? timeToMs(slot.startTime);
+    const endMs = slot.endsAt?.getTime() ?? timeToMs(slot.endTime);
     if (endMs <= startMs) {
       continue;
     }

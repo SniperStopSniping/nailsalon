@@ -1906,6 +1906,16 @@ export const technicianTimeOffSchema = pgTable(
 // -----------------------------------------------------------------------------
 // TechnicianBlockedSlot - Block specific time slots (lunch, breaks, cleaning)
 // -----------------------------------------------------------------------------
+/** Write barrier shared by booking and intraday blocks across isolation levels. */
+export const technicianScheduleGuardSchema = pgTable('technician_schedule_guard', {
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  technicianId: text('technician_id').notNull(),
+  revision: bigint('revision', { mode: 'number' }).notNull().default(0),
+}, table => ({
+  pk: primaryKey({ columns: [table.salonId, table.technicianId] }),
+  technicianFk: foreignKey({ columns: [table.salonId, table.technicianId], foreignColumns: [technicianSchema.salonId, technicianSchema.id], name: 'technician_schedule_guard_salon_technician_fk' }).onDelete('cascade'),
+}));
+
 export const technicianBlockedSlotSchema = pgTable(
   'technician_blocked_slot',
   {
@@ -1925,6 +1935,11 @@ export const technicianBlockedSlotSchema = pgTable(
     // For one-time blocks (specific date)
     specificDate: timestamp('specific_date', { mode: 'date' }), // null if recurring
 
+    // Exact instants for owner-created intraday blocks. Legacy recurring/date
+    // rows retain their existing wall-clock interpretation.
+    startsAt: timestamp('starts_at', { mode: 'date', withTimezone: true }),
+    endsAt: timestamp('ends_at', { mode: 'date', withTimezone: true }),
+
     // Description
     label: text('label'), // "Lunch", "Cleaning", "Personal"
     isRecurring: boolean('is_recurring').default(true),
@@ -1937,6 +1952,8 @@ export const technicianBlockedSlotSchema = pgTable(
       .notNull(),
   },
   table => ({
+    exactWindowCheck: check('blocked_slot_exact_window', sql`(${table.startsAt} IS NULL AND ${table.endsAt} IS NULL) OR (${table.startsAt} IS NOT NULL AND ${table.endsAt} IS NOT NULL AND ${table.endsAt} > ${table.startsAt} AND ${table.isRecurring} IS FALSE)`),
+    exactWindowIdx: index('blocked_slot_exact_window_idx').on(table.salonId, table.technicianId, table.startsAt, table.endsAt),
     technicianIdx: index('blocked_slot_technician_idx').on(table.technicianId),
     salonIdx: index('blocked_slot_salon_idx').on(table.salonId),
     dayIdx: index('blocked_slot_day_idx').on(table.technicianId, table.dayOfWeek),

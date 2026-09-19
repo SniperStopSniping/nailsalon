@@ -34,9 +34,9 @@ describe('AppGrid', () => {
     expect(indexOf('hours')).toBeLessThan(indexOf('booking-rules'));
     expect(indexOf('booking-rules')).toBeLessThan(indexOf('booking-page'));
     expect(indexOf('marketing')).toBeLessThan(indexOf('portfolio'));
-    expect(indexOf('payments')).toBeLessThan(indexOf('analytics'));
-    expect(indexOf('analytics')).toBeLessThan(indexOf('team'));
-    expect(indexOf('team')).toBeLessThan(indexOf('integrations'));
+    expect(indexOf('analytics')).toBeLessThan(indexOf('payments'));
+    expect(indexOf('payments')).toBeLessThan(indexOf('integrations'));
+    expect(indexOf('team')).toBe(-1);
     expect(indexOf('plan-usage')).toBeLessThan(indexOf('settings'));
     expect(indexOf('settings')).toBeLessThan(indexOf('help'));
 
@@ -45,6 +45,15 @@ describe('AppGrid', () => {
     expect(screen.queryByTestId('admin-app-tile-rewards-reviews')).not.toBeInTheDocument();
     expect(screen.queryByTestId('admin-app-tile-luster')).not.toBeInTheDocument();
     expect(screen.queryByTestId('more-workspace-tour')).not.toBeInTheDocument();
+  });
+
+  it('puts Team first in Business only for a salon with an actual team', () => {
+    render(<AppGrid isTeamSalon onAppTap={vi.fn()} />);
+    const buttons = screen.getAllByRole('button');
+    const indexOf = (id: string) => buttons.findIndex(button => button.dataset.testid === `admin-app-tile-${id}`);
+
+    expect(indexOf('team')).toBeLessThan(indexOf('analytics'));
+    expect(indexOf('analytics')).toBeLessThan(indexOf('payments'));
   });
 
   it('shows approved descriptions in their final destinations', () => {

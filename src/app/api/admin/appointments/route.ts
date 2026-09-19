@@ -9,7 +9,7 @@
  * admin salon selection. NEVER accepts a salonId from query params.
  */
 
-import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, ne, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
@@ -66,6 +66,7 @@ const querySchema = z.object({
 async function loadCalendarSchedule(args: {
   salonId: string;
   salonBusinessHours: BusinessHours;
+  timeZone: string;
   technicians: Array<{ id: string; name: string; weeklySchedule: WeeklySchedule | null }>;
   rangeStart: Date;
   rangeEndExclusive: Date;
@@ -108,6 +109,8 @@ async function loadCalendarSchedule(args: {
         }),
       db
         .select({
+          startsAt: technicianBlockedSlotSchema.startsAt,
+          endsAt: technicianBlockedSlotSchema.endsAt,
           id: technicianBlockedSlotSchema.id,
           technicianId: technicianBlockedSlotSchema.technicianId,
           dayOfWeek: technicianBlockedSlotSchema.dayOfWeek,
@@ -125,7 +128,8 @@ async function loadCalendarSchedule(args: {
             // Recurring blocks apply to every week in view; a one-off block
             // only matters when its own date is inside the range.
             or(
-              isNull(technicianBlockedSlotSchema.specificDate),
+              and(isNull(technicianBlockedSlotSchema.startsAt), isNull(technicianBlockedSlotSchema.specificDate)),
+              and(lt(technicianBlockedSlotSchema.startsAt, args.rangeEndExclusive), gt(technicianBlockedSlotSchema.endsAt, args.rangeStart)),
               and(
                 gte(technicianBlockedSlotSchema.specificDate, args.rangeStart),
                 lt(technicianBlockedSlotSchema.specificDate, args.rangeEndExclusive),
@@ -150,6 +154,8 @@ async function loadCalendarSchedule(args: {
 
     blockedSlots = blockedRows.map(row => ({
       id: row.id,
+      startsAt: row.startsAt?.toISOString() ?? null,
+      endsAt: row.endsAt?.toISOString() ?? null,
       technicianId: row.technicianId,
       dayOfWeek: row.dayOfWeek ?? null,
       startTime: row.startTime,
@@ -161,6 +167,7 @@ async function loadCalendarSchedule(args: {
   }
 
   return {
+    timeZone: args.timeZone,
     businessHours: ceiling.businessHours,
     businessHoursSource: ceiling.source,
     technicians: args.technicians.map(technician => ({
@@ -292,6 +299,7 @@ export async function GET(request: Request): Promise<Response> {
     // appointments it has to be consistent with (one round trip, one tenant
     // check) rather than becoming three more client fetches.
     const schedule = await loadCalendarSchedule({
+      timeZone: bookingConfig.timezone,
       salonId,
       salonBusinessHours: salon.businessHours ?? null,
       technicians: technicians.map(technician => ({

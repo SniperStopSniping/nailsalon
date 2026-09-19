@@ -51,19 +51,6 @@ type ChecklistItem = {
   statusLabel: string;
 };
 
-const integrationPresentation = (
-  kind: 'google' | 'payments' | 'share',
-  status: HandoffSetupStatus,
-): Pick<ChecklistItem, 'statusLabel'> => {
-  if (status === 'complete') {
-    return { statusLabel: kind === 'share' ? 'Shared' : 'Connected' };
-  }
-  if (status === 'needs_attention') {
-    return { statusLabel: 'Needs attention' };
-  }
-  return { statusLabel: kind === 'share' ? 'Not shared yet' : 'Not connected' };
-};
-
 function ChecklistRow({ icon: Icon, item }: {
   icon: typeof MonitorSmartphone;
   item: ChecklistItem;
@@ -252,32 +239,19 @@ export function OnboardingWorkspaceHandoff({
         statusLabel: handoff.setup.servicesAdded ? 'Ready' : 'Add services',
       },
     ];
-    const next: ChecklistItem[] = [
-      {
-        href: `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=integrations&focus=google`,
-        label: 'Connect Google Calendar',
-        status: handoff.setup.googleCalendar,
-        ...integrationPresentation('google', handoff.setup.googleCalendar),
-      },
-      {
-        href: `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=integrations&focus=payments`,
-        label: 'Set up payments',
-        status: handoff.setup.payments,
-        ...integrationPresentation('payments', handoff.setup.payments),
-      },
-      {
-        href: handoff.setup.shareLink === 'complete'
-          ? handoff.site.previewUrl
-          : undefined,
-        label: 'Share booking link',
-        status: handoff.setup.shareLink,
-        ...integrationPresentation('share', handoff.setup.shareLink),
-      },
-    ];
-    return [...core, ...next].filter(item => item.status !== 'complete');
+    // Google Calendar, payments, and sharing are valuable but not universally
+    // required to operate. They remain discoverable in their natural homes;
+    // this first-fold checklist is reserved for the essentials that make an
+    // owner site and menu usable.
+    return core.filter(item => item.status !== 'complete');
   }, [canChangeSetup, handoff, locale, salonSlug]);
 
   if (!handoff || handoffSalonSlug !== salonSlug) {
+    return null;
+  }
+
+  const shouldShowChecklist = checklist.length > 0;
+  if (!handoff.handoff.showWelcome && !shouldShowChecklist) {
     return null;
   }
 
@@ -400,55 +374,57 @@ export function OnboardingWorkspaceHandoff({
           )
         : null}
 
-      <section
-        aria-labelledby="onboarding-checklist-title"
-        className="owner-surface mt-4 rounded-[28px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm sm:p-6"
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--owner-accent)]">Your setup</p>
-            <h2 className="mt-1 text-xl font-semibold text-[var(--owner-ink)]" id="onboarding-checklist-title">What’s next</h2>
-          </div>
-          <button
-            className="min-h-11 rounded-full px-3 text-sm font-semibold text-[var(--owner-accent)] hover:bg-[var(--owner-ground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
-            onClick={onTakeTour}
-            type="button"
-          >
-            Take tour
-          </button>
-        </div>
-
-        <a
-          className="mt-4 flex min-h-12 items-center gap-3 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-ground)] px-4 py-2 text-sm font-semibold text-[var(--owner-ink)] transition-colors hover:border-[var(--owner-line-strong)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
-          href={bookingPageUrl}
+      {shouldShowChecklist && (
+        <section
+          aria-labelledby="onboarding-checklist-title"
+          className="owner-surface mt-4 rounded-[28px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm sm:p-6"
         >
-          <CalendarCheck aria-hidden="true" className="text-[var(--owner-accent)]" size={20} />
-          <span className="flex-1">Manage &amp; publish Booking Page</span>
-          <ExternalLink aria-hidden="true" className="text-[var(--owner-muted)]" size={16} />
-        </a>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--owner-accent)]">Your setup</p>
+              <h2 className="mt-1 text-xl font-semibold text-[var(--owner-ink)]" id="onboarding-checklist-title">What’s next</h2>
+            </div>
+            <button
+              className="min-h-11 rounded-full px-3 text-sm font-semibold text-[var(--owner-accent)] hover:bg-[var(--owner-ground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
+              onClick={onTakeTour}
+              type="button"
+            >
+              Take tour
+            </button>
+          </div>
 
-        {checklist.length > 0
-          ? (
-              <div className="mt-5 border-t border-[var(--owner-line)] pt-5">
-                <h3 className="text-sm font-semibold text-[var(--owner-ink)]">Whenever you’re ready</h3>
-                <div className="mt-1 divide-y divide-[var(--owner-line)]">
-                  {checklist.map((item) => {
-                    const icon = item.label.includes('Calendar')
-                      ? CalendarCheck
-                      : item.label.includes('payment')
-                        ? CreditCard
-                        : item.label.includes('link')
-                          ? Link2
-                          : item.label.includes('Service')
-                            ? Settings2
-                            : MonitorSmartphone;
-                    return <ChecklistRow icon={icon} item={item} key={item.label} />;
-                  })}
+          <a
+            className="mt-4 flex min-h-12 items-center gap-3 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-ground)] px-4 py-2 text-sm font-semibold text-[var(--owner-ink)] transition-colors hover:border-[var(--owner-line-strong)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
+            href={bookingPageUrl}
+          >
+            <CalendarCheck aria-hidden="true" className="text-[var(--owner-accent)]" size={20} />
+            <span className="flex-1">Manage &amp; publish Booking Page</span>
+            <ExternalLink aria-hidden="true" className="text-[var(--owner-muted)]" size={16} />
+          </a>
+
+          {checklist.length > 0
+            ? (
+                <div className="mt-5 border-t border-[var(--owner-line)] pt-5">
+                  <h3 className="text-sm font-semibold text-[var(--owner-ink)]">Whenever you’re ready</h3>
+                  <div className="mt-1 divide-y divide-[var(--owner-line)]">
+                    {checklist.map((item) => {
+                      const icon = item.label.includes('Calendar')
+                        ? CalendarCheck
+                        : item.label.includes('payment')
+                          ? CreditCard
+                          : item.label.includes('link')
+                            ? Link2
+                            : item.label.includes('Service')
+                              ? Settings2
+                              : MonitorSmartphone;
+                      return <ChecklistRow icon={icon} item={item} key={item.label} />;
+                    })}
+                  </div>
                 </div>
-              </div>
-            )
-          : null}
-      </section>
+              )
+            : null}
+        </section>
+      )}
     </div>
   );
 }

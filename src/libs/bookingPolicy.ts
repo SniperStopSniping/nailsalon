@@ -55,6 +55,8 @@ export type AppointmentWindow = {
 };
 
 export type BlockedSlotWindow = {
+  startsAt?: Date | null;
+  endsAt?: Date | null;
   startTime: string;
   endTime: string;
   label: string | null;
@@ -374,14 +376,19 @@ export function hasBlockedSlotConflict(args: {
   startTime: Date;
   endTime: Date;
   blockedSlots: BlockedSlotWindow[];
+  bufferMinutes?: number;
 }): boolean {
-  const { startTime, endTime, blockedSlots } = args;
+  const { startTime, endTime, blockedSlots, bufferMinutes = 0 } = args;
   const startInToronto = getTorontoDate(startTime);
   const endInToronto = getTorontoDate(endTime);
   const startMinutes = startInToronto.getHours() * 60 + startInToronto.getMinutes();
   const endMinutes = endInToronto.getHours() * 60 + endInToronto.getMinutes();
 
   return blockedSlots.some((blockedSlot) => {
+    if (blockedSlot.startsAt && blockedSlot.endsAt) {
+      return startTime < blockedSlot.endsAt
+        && endTime.getTime() + bufferMinutes * 60000 > blockedSlot.startsAt.getTime();
+    }
     const blockedStartMinutes = timeStringToMinutes(blockedSlot.startTime);
     const blockedEndMinutes = timeStringToMinutes(blockedSlot.endTime);
 
@@ -499,7 +506,7 @@ export function canTechnicianTakeAppointment(args: {
     return { available: false, reason: 'location_unavailable' };
   }
 
-  if (hasBlockedSlotConflict({ startTime, endTime, blockedSlots })) {
+  if (hasBlockedSlotConflict({ startTime, endTime, blockedSlots, bufferMinutes })) {
     return { available: false, reason: 'blocked_slot' };
   }
 
@@ -604,10 +611,14 @@ export async function loadBookingPolicy(args: {
     specificDate: Date | null;
     label: string | null;
     isRecurring: boolean | null;
+    startsAt: Date | null;
+    endsAt: Date | null;
   }> = [];
   try {
     blockedSlotRows = await database
       .select({
+        startsAt: technicianBlockedSlotSchema.startsAt,
+        endsAt: technicianBlockedSlotSchema.endsAt,
         technicianId: technicianBlockedSlotSchema.technicianId,
         dayOfWeek: technicianBlockedSlotSchema.dayOfWeek,
         startTime: technicianBlockedSlotSchema.startTime,
@@ -694,6 +705,14 @@ export async function loadBookingPolicy(args: {
 
   const blockedSlotsByTechnician = new Map<string, BlockedSlotWindow[]>();
   for (const blockedSlot of blockedSlotRows) {
+    if (blockedSlot.startsAt && blockedSlot.endsAt) {
+      if (blockedSlot.startsAt < endOfDay && blockedSlot.endsAt > startOfDay) {
+        const existing = blockedSlotsByTechnician.get(blockedSlot.technicianId) ?? [];
+        existing.push({ startTime: blockedSlot.startTime, endTime: blockedSlot.endTime, startsAt: blockedSlot.startsAt, endsAt: blockedSlot.endsAt, label: blockedSlot.label });
+        blockedSlotsByTechnician.set(blockedSlot.technicianId, existing);
+      }
+      continue;
+    }
     const recurringMatch = blockedSlot.isRecurring !== false
       && blockedSlot.dayOfWeek !== null
       && blockedSlot.dayOfWeek === selectedDayIndex;

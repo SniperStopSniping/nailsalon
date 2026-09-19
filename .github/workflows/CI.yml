@@ -444,11 +444,14 @@ jobs:
               # Reviewed manual admission and coordinated repeat-policy migrations.
               migrations/0083_review_request_manual_contract.sql) ;;
               migrations/0084_review_request_repeat_cooldown.sql) ;;
+              # Reviewed intraday calendar blocks and per-technician write guard.
+              migrations/0085_calendar_intraday_blocks.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
               migrations/meta/0083_snapshot.json) ;;
               migrations/meta/0084_snapshot.json) ;;
+              migrations/meta/0085_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -513,6 +516,42 @@ jobs:
             fi
           fi
 
+          # 0085 is a reviewed two-artifact migration packet. It may be
+          # introduced once, with these exact SQL and snapshot postimages; once
+          # main contains either artifact, both are immutable.
+          if ! git diff --quiet "$base" -- migrations/0085_calendar_intraday_blocks.sql migrations/meta/0085_snapshot.json; then
+            if git cat-file -e "$base:migrations/0085_calendar_intraday_blocks.sql" 2>/dev/null \
+              || git cat-file -e "$base:migrations/meta/0085_snapshot.json" 2>/dev/null; then
+              echo "::error::Migration 0085 and its snapshot are already shipped and immutable."
+              exit 1
+            fi
+            migration_0085_sql_status="$(git diff --name-status "$base" -- migrations/0085_calendar_intraday_blocks.sql)"
+            migration_0085_snapshot_status="$(git diff --name-status "$base" -- migrations/meta/0085_snapshot.json)"
+            if [ "$migration_0085_sql_status" != $'A\tmigrations/0085_calendar_intraday_blocks.sql' ] \
+              || [ "$migration_0085_snapshot_status" != $'A\tmigrations/meta/0085_snapshot.json' ]; then
+              echo "::error::Migration 0085 must introduce exactly one SQL file and one snapshot."
+              printf 'SQL status: %s\nSnapshot status: %s\n' "$migration_0085_sql_status" "$migration_0085_snapshot_status"
+              exit 1
+            fi
+            migration_0085_sql_sha256="$(sha256sum migrations/0085_calendar_intraday_blocks.sql | awk '{print $1}')"
+            migration_0085_snapshot_sha256="$(sha256sum migrations/meta/0085_snapshot.json | awk '{print $1}')"
+            if [ "$migration_0085_sql_sha256" != "3f6eecda4b285df784027cddd2b92ba46207503ff446f19457378bf8a9549e86" ] \
+              || [ "$migration_0085_snapshot_sha256" != "dcf01f06a74a13e3499d93aa392a5e7d3e9f869c3d6343e86e0cf8bcdec9a7da" ]; then
+              echo "::error::Migration 0085 artifacts do not match the reviewed intraday-block postimage."
+              printf 'SQL SHA256: %s\nSnapshot SHA256: %s\n' "$migration_0085_sql_sha256" "$migration_0085_snapshot_sha256"
+              exit 1
+            fi
+          fi
+
+          # Check even on journal-only changes: missing or duplicate 0085 entries
+          # must never pass the general append-only tag allowlist.
+          expected_0085_journal='{"breakpoints":true,"idx":84,"tag":"0085_calendar_intraday_blocks","version":"7","when":1789847765426}'
+          actual_0085_journal="$(jq -cS '.entries[] | select(.tag == "0085_calendar_intraday_blocks")' migrations/meta/_journal.json)"
+          if [ "$actual_0085_journal" != "$expected_0085_journal" ]; then
+            echo "::error::Migration 0085 journal entry does not match the reviewed postimage."
+            exit 1
+          fi
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -565,6 +604,7 @@ jobs:
               0082_review_request_nullable_contract) ;;
               0083_review_request_manual_contract) ;;
               0084_review_request_repeat_cooldown) ;;
+              0085_calendar_intraday_blocks) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1263,6 +1303,20 @@ jobs:
             | tee customer-booking-postgres.log
           grep -Fqx 'CUSTOMER_OPERATION_POSTGRES_TESTS_EXECUTED=12 CUSTOMER_OPERATION_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
           grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=30 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
+
+      - name: Verify calendar block and booking fence races on real PostgreSQL with zero skips
+        shell: bash
+        env:
+          CALENDAR_BLOCK_PG_REQUIRED: 'true'
+          CALENDAR_BLOCK_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism \
+            src/libs/calendarBlocks.concurrency.integration.test.ts \
+            | tee calendar-block-postgres.log
+          grep -Fqx 'CALENDAR_BLOCK_POSTGRES_TESTS_EXECUTED=11 CALENDAR_BLOCK_POSTGRES_TESTS_SKIPPED=0' calendar-block-postgres.log
 
       - name: Install mobile browser engines for the real customer booking journey
         run: npx playwright install --with-deps chromium webkit

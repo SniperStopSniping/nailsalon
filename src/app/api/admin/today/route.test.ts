@@ -65,6 +65,17 @@ beforeAll(async () => {
     name: 'Today Salon',
     slug: 'today-salon',
   });
+  await db.insert(schema.salonSchema).values({
+    id: 'salon_other',
+    name: 'Other Salon',
+    slug: 'other-salon',
+  });
+  await db.insert(schema.technicianSchema).values([
+    { id: 'today_tech_avery_one', salonId: 'salon_today', name: 'Avery', isActive: true },
+    { id: 'today_tech_avery_two', salonId: 'salon_today', name: 'Avery', isActive: true },
+    { id: 'today_tech_inactive', salonId: 'salon_today', name: 'Former tech', isActive: false },
+    { id: 'other_tech', salonId: 'salon_other', name: 'Other salon tech', isActive: true },
+  ]);
   await db.insert(schema.salonClientSchema).values([
     {
       id: 'today_active',
@@ -131,6 +142,7 @@ beforeAll(async () => {
     status: 'completed',
     totalPrice: 5000,
     totalDurationMinutes: 60,
+    technicianId: 'today_tech_avery_one',
   });
 }, 60_000);
 
@@ -153,7 +165,22 @@ describe('GET /api/admin/today', () => {
       expect.objectContaining({
         id: 'today_archived_appointment',
         clientSensitivities: 'Historical sensitivity',
+        technicianId: 'today_tech_avery_one',
       }),
     ]);
+  });
+
+  it('returns the active, tenant-scoped technician roster independently of today appointment names', async () => {
+    const response = await GET(new Request(
+      'http://localhost/api/admin/today?salonSlug=today-salon',
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.technicians).toEqual(expect.arrayContaining([
+      { id: 'today_tech_avery_one', name: 'Avery' },
+      { id: 'today_tech_avery_two', name: 'Avery' },
+    ]));
+    expect(body.data.technicians).toHaveLength(2);
   });
 });

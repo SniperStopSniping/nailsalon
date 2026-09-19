@@ -2279,6 +2279,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const showServiceImagesSaveInFlight = useRef(false);
   const showServiceImagesSaveAbort = useRef<AbortController | null>(null);
   const [activeTab, setActiveTab] = useState<'menu' | 'library' | 'addons' | 'catalog'>('menu');
+  const [showMoreTabs, setShowMoreTabs] = useState(false);
   /**
    * Tab-switch scroll memory (w2-services "scroll position on tab switch",
    * recorded NOT TESTED in the audit).
@@ -3045,6 +3046,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       // Reorder is a My Menu mode. Leaving the tab in it would strand the
       // owner in a list whose rows no longer open.
       setReorderMode(false);
+      setShowMoreTabs(next === 'library' || next === 'catalog');
       setActiveTab(next);
     },
     [getTabScroller],
@@ -3130,7 +3132,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           )}
         />
         <div className="px-4 pb-2">
-          <div className="grid grid-cols-4 gap-1 rounded-full bg-[var(--owner-blush)] p-1" role="tablist">
+          <div className="grid grid-cols-3 gap-1 rounded-full bg-[var(--owner-blush)] p-1" role="tablist" aria-label="Service menu sections">
             <button
               type="button"
               role="tab"
@@ -3157,12 +3159,31 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
             </button>
             <button
               type="button"
+              aria-expanded={showMoreTabs}
+              aria-controls="services-more-tabs"
+              onClick={() => setShowMoreTabs(current => !current)}
+              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
+                activeTab === 'library' || activeTab === 'catalog' || showMoreTabs ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
+              }`}
+            >
+              More
+            </button>
+          </div>
+          <div
+            id="services-more-tabs"
+            hidden={!showMoreTabs}
+            className="mt-2 grid grid-cols-2 gap-2"
+            role="group"
+            aria-label="More service settings"
+          >
+            <button
+              type="button"
               role="tab"
               aria-selected={activeTab === 'library'}
               data-testid="services-tab-library"
               onClick={() => selectTab('library')}
-              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
-                activeTab === 'library' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
+              className={`min-h-11 rounded-xl border px-3 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
+                activeTab === 'library' ? 'border-[var(--owner-accent)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
               }`}
             >
               Library
@@ -3173,11 +3194,11 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               aria-selected={activeTab === 'catalog'}
               data-testid="services-tab-catalog"
               onClick={() => selectTab('catalog')}
-              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
-                activeTab === 'catalog' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
+              className={`min-h-11 rounded-xl border px-3 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
+                activeTab === 'catalog' ? 'border-[var(--owner-accent)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
               }`}
             >
-              Setup
+              Advanced Catalog
             </button>
           </div>
         </div>
@@ -3434,11 +3455,11 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
         {activeTab === 'catalog' && (
           <div className="mb-3 space-y-2 px-4" data-testid="menu-display-settings">
             <div className="px-1">
-              <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">Menu display &amp; offers</h3>
+              <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">Advanced menu settings</h3>
               <p className="mt-0.5 text-[12px] leading-4 text-[var(--owner-muted)]">
                 How your menu looks to clients. These used to sit above every
-                service; they live here so the menu itself opens straight onto
-                your services.
+                service; they live in Advanced Catalog so My Menu opens
+                straight onto your services.
               </p>
             </div>
             <div

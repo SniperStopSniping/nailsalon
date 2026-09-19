@@ -22,7 +22,9 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { CalendarBlockTime } from '@/components/admin/CalendarBlockTime';
 import { DepositPanel } from '@/components/admin/DepositPanel';
+import { GoogleEventReviewQueue } from '@/components/admin/GoogleEventReviewQueue';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { DialogShell } from '@/components/ui/dialog-shell';
@@ -88,6 +90,9 @@ type ScheduleCalendarModalProps = {
    * is the reliable source and the provider is only the fallback.
    */
   salonSlug?: string | null;
+  initialView?: string;
+  onNavigate?: (app: string, view?: string, technicianId?: string, replace?: boolean) => void;
+  onNavigateBack?: () => void;
 };
 
 // Helper functions
@@ -728,9 +733,34 @@ function DayDetailPanel({
 }
 
 // Main Component
-export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: ScheduleCalendarModalProps) {
+export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initialView, onNavigate, onNavigateBack }: ScheduleCalendarModalProps) {
   const { salonSlug: contextSalonSlug } = useSalon();
   const salonSlug = salonSlugProp?.trim() || contextSalonSlug;
+  const subviewHeading = useRef<HTMLHeadingElement>(null);
+  const [localView, setLocalView] = useState(initialView ?? 'calendar');
+  useEffect(() => {
+    setLocalView(initialView ?? 'calendar');
+  }, [initialView]);
+  const openedSubview = useRef(false);
+  const navigateView = (view: string) => {
+    setLocalView(view);
+    if (view === 'calendar') {
+      if (openedSubview.current && onNavigateBack) {
+        onNavigateBack();
+      } else {
+        onNavigate?.('schedule', undefined, undefined, true);
+      }
+      openedSubview.current = false;
+    } else {
+      openedSubview.current = true;
+      onNavigate?.('schedule', view);
+    }
+  };
+  useEffect(() => {
+    if (localView === 'google-review') {
+      subviewHeading.current?.focus();
+    }
+  }, [localView]);
   const [viewMode, setViewMode] = useState<ViewMode>('monthly');
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>('all');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -1207,11 +1237,28 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+  if (localView === 'block-time' && !loading && salonSlug) {
+    return <CalendarBlockTime salonSlug={salonSlug} date={selectedDateKey ?? formatDateKey(currentDate)} technicians={schedule.technicians} technicianId={technicianFilter} onClose={() => navigateView('calendar')} />;
+  }
+  if (localView === 'google-review' && salonSlug) {
+    return (
+      <section aria-labelledby="calendar-review-heading" className="space-y-4 p-4 pb-24">
+        <BackButton onClick={() => navigateView('calendar')} label="Back to Calendar" />
+        <h2 id="calendar-review-heading" ref={subviewHeading} tabIndex={-1} className="text-xl font-semibold">Google events to review</h2>
+        {loading
+          ? <p role="status">Loading your calendar…</p>
+          : error
+            ? <p role="alert">{error}</p>
+            : <GoogleEventReviewQueue salonSlug={salonSlug} timeZone={schedule.timeZone} />}
+      </section>
+    );
+  }
+
   return (
     <div className="flex min-h-full w-full flex-col bg-[#FFF8F5] font-sans text-black">
       {/* Header */}
       <ModalHeader
-        title="Schedule"
+        title="Calendar"
         subtitle={
           viewMode === 'weekly'
             ? formatWeekRange(getWeekStart(currentDate))
@@ -1229,6 +1276,12 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
         )}
       />
 
+      <div className="flex flex-wrap gap-2 border-b border-gray-200 bg-white px-4 py-3">
+        <button type="button" className="min-h-11 rounded-xl border border-stone-300 px-3 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-rose-700" disabled={loading || Boolean(error) || schedule.technicians.length === 0} onClick={() => navigateView('block-time')}>Block Time</button>
+        {onNavigate && <button type="button" className="min-h-11 rounded-xl border border-stone-300 px-3 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-rose-700" onClick={() => onNavigate('hours', 'working-hours', technicianFilter === 'all' ? undefined : technicianFilter)}>Edit working hours</button>}
+        {onNavigate && <button type="button" className="min-h-11 rounded-xl border border-stone-300 px-3 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-rose-700" onClick={() => onNavigate('hours', 'time-off', technicianFilter === 'all' ? undefined : technicianFilter)}>Days Off</button>}
+        {googleConnected && <button type="button" className="min-h-11 rounded-xl px-3 py-2 text-sm font-semibold underline focus-visible:ring-2 focus-visible:ring-rose-700" onClick={() => navigateView('google-review')}>Review Google events</button>}
+      </div>
       {/* View Mode Toggle */}
       <div className="flex justify-center border-b border-gray-200 bg-white px-4 pb-3 pt-2">
         <div className="flex rounded-lg bg-gray-100 p-1">
@@ -1341,7 +1394,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
           />
         </div>
 
-        {schedule.technicians.length > 0 && (
+        {schedule.technicians.length > 1 && (
           <div
             role="group"
             aria-label="Filter calendar by technician"

@@ -21,10 +21,18 @@ vi.mock('./QuickActionsWidget', () => ({
 
 const fetchMock = vi.fn();
 
+const todayDate = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Toronto',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date());
+
 const todayPayload = {
   data: {
-    date: '2026-07-17',
+    date: todayDate,
     timeZone: 'America/Toronto',
+    technicians: [],
     appointments: [],
     dueClients: [],
     failedConfirmations: [],
@@ -44,6 +52,8 @@ const todayPayload = {
 function renderWorkspace(overrides?: {
   onOpenAppointment?: (appointmentId: string) => void;
   onOpenClient?: (clientId: string) => void;
+  onOpenFollowups?: () => void;
+  onOpenGoogleReview?: () => void;
 }) {
   return render(
     <OwnerTodayWorkspace
@@ -55,6 +65,8 @@ function renderWorkspace(overrides?: {
       onOpenIntegrations={vi.fn()}
       onOpenAppointment={overrides?.onOpenAppointment ?? vi.fn()}
       onOpenClient={overrides?.onOpenClient ?? vi.fn()}
+      onOpenFollowups={overrides?.onOpenFollowups}
+      onOpenGoogleReview={overrides?.onOpenGoogleReview}
     />,
   );
 }
@@ -279,7 +291,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     await screen.findByText('$100.00');
     await openRevenueBreakdown();
 
-    expect(revenue).toHaveTextContent('Revenue today');
+    expect(revenue).toHaveTextContent('Completed service revenue today');
     expect(revenue).toHaveTextContent('Revenue this week');
     expect(revenue).toHaveTextContent('Revenue this month');
     expect(revenue).toHaveTextContent('Completed appointment revenue');
@@ -710,8 +722,8 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('shows only the strongest retention stage per client and opens that exact client', async () => {
-    const onOpenClient = vi.fn();
+  it('summarizes client follow-ups and opens the canonical Clients workflow', async () => {
+    const onOpenFollowups = vi.fn();
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith('/api/admin/today?')) {
@@ -751,21 +763,16 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
       throw new Error(`Unhandled fetch: ${url}`);
     });
 
-    renderWorkspace({ onOpenClient });
+    renderWorkspace({ onOpenFollowups });
 
-    const winBack = await screen.findByRole('button', { name: 'Win back Bob' });
+    const summary = await screen.findByRole('button', { name: /client ready for follow-up/i });
 
-    expect(screen.queryByRole('button', { name: 'Rebook Bob' })).not.toBeInTheDocument();
+    await userEvent.click(summary);
 
-    expect(screen.getByText('8-week win-back')).toBeInTheDocument();
-
-    await userEvent.click(winBack);
-
-    expect(onOpenClient).toHaveBeenCalledWith('client_bob');
+    expect(onOpenFollowups).toHaveBeenCalledTimes(1);
   });
 
-  it('opens the exact client profile from a due reminder', async () => {
-    const onOpenClient = vi.fn();
+  it('does not turn automatic appointment reminders into manual Today tasks', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith('/api/admin/today?')) {
@@ -794,13 +801,11 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
       throw new Error(`Unhandled fetch: ${url}`);
     });
 
-    renderWorkspace({ onOpenClient });
+    renderWorkspace();
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Send reminder to Ada' }),
-    );
+    await screen.findByTestId('owner-today-agenda');
 
-    expect(onOpenClient).toHaveBeenCalledWith('client_ada');
+    expect(screen.queryByRole('button', { name: 'Send reminder to Ada' })).not.toBeInTheDocument();
   });
 
   it('shows an actionable error and retries the retention queue', async () => {
@@ -847,7 +852,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
-    expect(await screen.findByRole('button', { name: 'Rebook Ada' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /client ready for follow-up/i })).toBeInTheDocument();
 
     await waitFor(() => expect(retentionAttempts).toBe(2));
   });
@@ -972,10 +977,12 @@ describe('OwnerTodayWorkspace first fold', () => {
       status: string;
     }>>,
     integrationOverrides?: Record<string, unknown>,
+    technicians = [{ id: 'tech_daniela', name: 'Daniela' }],
   ) {
     return {
       data: {
         ...todayPayload.data,
+        technicians,
         appointments: appointmentOverrides.map((appointment, index) => ({
           id: appointment.id ?? `appt_${index}`,
           clientName: appointment.clientName ?? `Client ${index}`,
@@ -985,6 +992,7 @@ describe('OwnerTodayWorkspace first fold', () => {
           totalPrice: 8000,
           totalDurationMinutes: 60,
           technicianName: 'Daniela',
+          technicianId: 'tech_daniela',
           services: ['Gel manicure'],
           clientSensitivities: null,
         })),
@@ -1014,7 +1022,7 @@ describe('OwnerTodayWorkspace first fold', () => {
     });
   }
 
-  it('surfaces a booking still waiting for an answer, and confirming it opens that appointment', async () => {
+  it('surfaces a booking request ahead of the appointment hero and opens its existing sheet', async () => {
     mockWorkspace(todayWith([
       { id: 'appt_confirmed', status: 'confirmed' },
       {
@@ -1027,26 +1035,24 @@ describe('OwnerTodayWorkspace first fold', () => {
 
     renderWorkspace({ onOpenAppointment });
 
-    const attention = await screen.findByTestId('owner-needs-attention');
+    const attention = await screen.findByTestId('owner-urgent-attention');
 
-    expect(
-      screen.getByTestId('owner-needs-attention-pending-count'),
-    ).toHaveTextContent('1 booking needs confirming');
+    expect(attention).toHaveTextContent('Booking request');
     expect(attention).toHaveTextContent('AUDIT Client Dev');
 
     await userEvent.click(
-      within(attention).getByRole('button', { name: /^Confirm AUDIT Client Dev at/ }),
+      within(attention).getByRole('button', { name: 'Review booking request from AUDIT Client Dev' }),
     );
 
     expect(onOpenAppointment).toHaveBeenCalledWith('appt_audit_a11');
   });
 
-  it('puts what needs attention above the schedule', async () => {
+  it('puts urgent appointment work above the appointment hero and schedule', async () => {
     mockWorkspace(todayWith([{ id: 'appt_pending', status: 'pending' }]));
 
     renderWorkspace();
 
-    const attention = await screen.findByTestId('owner-needs-attention');
+    const attention = await screen.findByTestId('owner-urgent-attention');
     const agenda = screen.getByTestId('owner-today-agenda');
 
     expect(
@@ -1068,7 +1074,7 @@ describe('OwnerTodayWorkspace first fold', () => {
     expect(screen.queryByTestId('owner-needs-attention')).not.toBeInTheDocument();
   });
 
-  it('states the day once, as a total and what is left of it', async () => {
+  it('uses a confirmed appointment as Next and does not render the old count tile', async () => {
     mockWorkspace(todayWith([
       { id: 'a', status: 'confirmed' },
       { id: 'b', status: 'confirmed' },
@@ -1078,14 +1084,11 @@ describe('OwnerTodayWorkspace first fold', () => {
 
     renderWorkspace();
 
-    const tile = await screen.findByTestId('owner-today-count-tile');
+    const hero = await screen.findByTestId('owner-current-next-appointment');
 
-    await waitFor(() => expect(tile).toHaveTextContent('4 appointments today'));
-
-    expect(tile).toHaveTextContent('4 still to come');
-    // The redundant second tile is gone (AG-today-calendar-07).
-    expect(screen.queryByText('Upcoming today')).not.toBeInTheDocument();
-    expect(screen.queryByText('Appointments today')).not.toBeInTheDocument();
+    expect(hero).toHaveTextContent('Next appointment');
+    expect(hero).toHaveTextContent('Client 0');
+    expect(screen.queryByTestId('owner-today-count-tile')).not.toBeInTheDocument();
   });
 
   it('opens the revenue card on its headline figures, with the detail behind a disclosure', async () => {
@@ -1112,37 +1115,33 @@ describe('OwnerTodayWorkspace first fold', () => {
     expect(revenue).toHaveTextContent('Collected today');
   });
 
-  it('offers to connect Google Calendar instead of describing a sync that does not exist', async () => {
+  it('keeps disconnected Google Calendar wayfinding inside collapsed utilities', async () => {
     mockWorkspace(todayWith([], {
       google: { status: 'disconnected', readiness: 'not_connected' },
     }));
 
     renderWorkspace();
 
-    const card = await screen.findByTestId('owner-google-calendar-card');
+    const utilities = await screen.findByTestId('owner-today-utilities');
+    await userEvent.click(within(utilities).getByRole('button', { name: /Utilities/ }));
 
-    await waitFor(() =>
-      expect(card).toHaveTextContent('Connect Google Calendar'));
-
-    expect(card).not.toHaveTextContent('two-way sync');
-    expect(card).toHaveTextContent('Not connected yet.');
+    expect(utilities).toHaveTextContent('Connect Google Calendar');
   });
 
-  it('keeps the connected calendar copy when the integration is ready', async () => {
+  it('keeps connected integration wayfinding inside utilities', async () => {
     mockWorkspace(todayWith([], {
       google: { status: 'connected', readiness: 'ready' },
     }));
 
     renderWorkspace();
 
-    const card = await screen.findByTestId('owner-google-calendar-card');
+    const utilities = await screen.findByTestId('owner-today-utilities');
+    await userEvent.click(within(utilities).getByRole('button', { name: /Utilities/ }));
 
-    await waitFor(() => expect(card).toHaveTextContent('two-way sync'));
-
-    expect(card).toHaveTextContent('Google Calendar & reminders');
+    expect(utilities).toHaveTextContent('Manage integrations');
   });
 
-  it('gives every schedule row the same background', async () => {
+  it('keeps the hero and urgent request out of Rest of Today while retaining ordinary schedule rows', async () => {
     mockWorkspace(todayWith([
       { id: 'a', status: 'confirmed' },
       { id: 'b', status: 'confirmed' },
@@ -1153,28 +1152,106 @@ describe('OwnerTodayWorkspace first fold', () => {
 
     const agenda = await screen.findByTestId('owner-today-agenda');
 
-    await waitFor(() =>
-      expect(within(agenda).getAllByText(/Client [012]/)).toHaveLength(3));
+    await waitFor(() => expect(within(agenda).getAllByText('Client 1')).toHaveLength(1));
 
-    const rows = within(agenda)
-      .getAllByRole('button')
-      .filter(button => button.className.includes('py-4'));
+    expect(within(agenda).queryByText('Client 0')).not.toBeInTheDocument();
+    expect(within(agenda).queryByText('Client 2')).not.toBeInTheDocument();
+  });
 
-    expect(rows).toHaveLength(3);
+  it('uses the active roster for the team filter, even when names duplicate', async () => {
+    const technicians = [
+      { id: 'tech_avery_one', name: 'Avery' },
+      { id: 'tech_avery_two', name: 'Avery' },
+    ];
+    const today = todayWith([
+      { id: 'one', clientName: 'First Avery client' },
+      { id: 'two', clientName: 'Second Avery client' },
+    ], undefined, technicians);
+    today.data.appointments[0]!.technicianId = 'tech_avery_one';
+    today.data.appointments[1]!.technicianId = 'tech_avery_two';
+    mockWorkspace(today);
 
-    // r27 cohesion sweep: the shared ground moved from the literal `bg-white`
-    // onto the owner surface token, so Today, the calendar and the sheets all
-    // paint from one layer. The rule under test is unchanged — every row has
-    // the SAME ground, and "next" is never carried by an amber wash.
-    const grounds = new Set(
-      rows.map(row =>
-        (row.className.match(/bg-\[var\(--owner-surface[^\]]*\]|bg-white/) ?? [''])[0]),
-    );
+    renderWorkspace();
 
-    expect(grounds).toEqual(new Set(['bg-[var(--owner-surface,#fffdfb)]']));
+    const filters = await screen.findByLabelText('Filter schedule by technician');
+    const averyFilters = within(filters).getAllByRole('button', { name: 'Avery' });
 
-    for (const row of rows) {
-      expect(row.className).not.toContain('bg-amber-50');
-    }
+    expect(averyFilters).toHaveLength(2);
+
+    await userEvent.click(averyFilters[0]!);
+
+    expect(averyFilters[0]).toHaveAttribute('aria-pressed', 'true');
+    expect(averyFilters[1]).toHaveAttribute('aria-pressed', 'false');
+
+    const hero = screen.getByTestId('owner-current-next-appointment');
+
+    expect(hero).toHaveTextContent('First Avery client');
+    expect(hero).not.toHaveTextContent('Second Avery client');
+  });
+
+  it('does not create a team filter from a single appointment name', async () => {
+    mockWorkspace(todayWith([
+      { id: 'only', clientName: 'One client' },
+    ], undefined, [{ id: 'tech_one', name: 'Avery' }]));
+
+    renderWorkspace();
+
+    await screen.findByTestId('owner-current-next-appointment');
+
+    expect(screen.queryByLabelText('Filter schedule by technician')).not.toBeInTheDocument();
+  });
+
+  it('keeps a quiet team simple when there are no appointments to filter', async () => {
+    mockWorkspace(todayWith([], undefined, [
+      { id: 'tech_one', name: 'Avery' },
+      { id: 'tech_two', name: 'Blair' },
+    ]));
+
+    renderWorkspace();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh dashboard' })).toBeEnabled());
+
+    expect(screen.queryByLabelText('Filter schedule by technician')).not.toBeInTheDocument();
+  });
+
+  it('keeps pending and unresolved appointments out of Rest of Today after surfacing them in urgent attention', async () => {
+    const pastStart = new Date(Date.now() - 7_200_000).toISOString();
+    const pastEnd = new Date(Date.now() - 3_600_000).toISOString();
+    mockWorkspace(todayWith([
+      { id: 'unresolved', clientName: 'Earlier client', status: 'confirmed', startTime: pastStart, endTime: pastEnd },
+      { id: 'pending', clientName: 'Requested client', status: 'pending' },
+      { id: 'next', clientName: 'Later client', status: 'confirmed' },
+    ]));
+
+    renderWorkspace();
+
+    const urgent = await screen.findByTestId('owner-urgent-attention');
+    const agenda = screen.getByTestId('owner-today-agenda');
+
+    expect(urgent).toHaveTextContent('Earlier client needs an update');
+    expect(urgent).toHaveTextContent('Booking request from Requested client');
+    expect(within(agenda).queryByText('Earlier client')).not.toBeInTheDocument();
+    expect(within(agenda).queryByText('Requested client')).not.toBeInTheDocument();
+    expect(screen.getByTestId('owner-current-next-appointment')).toHaveTextContent('Later client');
+  });
+
+  it('shows an authoritative in-progress appointment as Current and keeps a past-ended confirmed appointment actionable', async () => {
+    const PAST_START = new Date(Date.now() - 7_200_000).toISOString();
+    const PAST_END = new Date(Date.now() - 3_600_000).toISOString();
+    mockWorkspace(todayWith([
+      { id: 'unresolved', clientName: 'Earlier client', status: 'confirmed', startTime: PAST_START, endTime: PAST_END },
+      { id: 'current', clientName: 'Current client', status: 'in_progress' },
+      { id: 'hold', clientName: 'Payment hold', status: 'awaiting_payment' },
+    ]));
+
+    renderWorkspace();
+
+    const urgent = await screen.findByTestId('owner-urgent-attention');
+    const hero = await screen.findByTestId('owner-current-next-appointment');
+
+    expect(urgent).toHaveTextContent('Earlier client needs an update');
+    expect(hero).toHaveTextContent('Current appointment');
+    expect(hero).toHaveTextContent('Current client');
+    expect(hero).not.toHaveTextContent('Payment hold');
   });
 });

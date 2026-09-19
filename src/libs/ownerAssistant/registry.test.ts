@@ -144,9 +144,11 @@ describe('every registry target resolves against the shell allowlists', () => {
               ? ['rules', 'policies']
               : entry.target.app === 'hours'
                 ? ['working-hours', 'time-off', 'requests']
-                : entry.target.app === 'marketing'
-                  ? ['reviews', 'messages', 'smart-fit']
-                  : entry.target.app === 'plan-usage' ? ['billing', 'usage', 'plans'] : ['permissions'];
+                : entry.target.app === 'schedule'
+                  ? ['block-time']
+                  : entry.target.app === 'marketing'
+                    ? ['reviews', 'messages', 'smart-fit']
+                    : entry.target.app === 'plan-usage' ? ['billing', 'usage', 'plans'] : ['permissions'];
 
           expect(allowed).toContain(entry.target.view);
         }
@@ -214,7 +216,11 @@ describe('searchRegistry answers the questions this slice must handle', () => {
     ['policies display', 'page_policies'],
     ['google reviews', 'settings_review_requests'],
     ['review rewards', 'rewards_reviews'],
-    ['blocked time', 'team_time_off'],
+    ['blocked time', 'calendar_block_time'],
+    ['where do I block 2 to 4 PM tomorrow', 'calendar_block_time'],
+    ['block time 2 to 4 PM tomorrow', 'calendar_block_time'],
+    ['block time 10 to 11 Friday', 'calendar_block_time'],
+    ['take a day off', 'team_time_off'],
     ['working days', 'working_hours'],
     ['schedules', 'working_hours'],
   ])('%s → %s', (query, expectedKey) => {
@@ -246,6 +252,7 @@ describe('owner IA stable destination keys', () => {
   it.each([
     ['business_hours', 'hours', null],
     ['working_hours', 'hours', 'working-hours'],
+    ['calendar_block_time', 'schedule', 'block-time'],
     ['booking_rules', 'booking-rules', 'rules'],
     ['settings_booking_policy', 'booking-rules', 'policies'],
     ['settings_review_requests', 'marketing', 'reviews'],

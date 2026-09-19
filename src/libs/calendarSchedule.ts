@@ -17,6 +17,7 @@
  */
 
 import type { BusinessHours } from '@/libs/bookingPolicy';
+import { getTimeKeyInTimeZone, getZonedDayBounds } from '@/libs/timeZone';
 import { normalizeScheduleDay } from '@/libs/weeklySchedule';
 import type { WeeklySchedule } from '@/models/Schema';
 
@@ -49,6 +50,8 @@ export type CalendarTimeOff = {
 };
 
 export type CalendarBlockedSlot = {
+  startsAt?: string | null;
+  endsAt?: string | null;
   id: string;
   technicianId: string;
   /** 0 = Sunday … 6 = Saturday; null for a one-off block. */
@@ -62,6 +65,7 @@ export type CalendarBlockedSlot = {
 };
 
 export type CalendarSchedule = {
+  timeZone?: string;
   businessHours: BusinessHours;
   /** Which record the hours came from — `none` means no hours are published. */
   businessHoursSource: 'location' | 'salon' | 'none';
@@ -273,6 +277,15 @@ export function getDayAvailability(
   const blockedWindows: CalendarBlockedWindow[] = [];
   for (const slot of schedule.blockedSlots) {
     if (technicianFilter && slot.technicianId !== technicianFilter) {
+      continue;
+    }
+    if (slot.startsAt && slot.endsAt) {
+      const { startOfDay, endOfDay } = getZonedDayBounds(dateKey, schedule.timeZone);
+      const start = new Date(slot.startsAt);
+      const end = new Date(slot.endsAt);
+      if (start <= endOfDay && end > startOfDay) {
+        blockedWindows.push({ id: slot.id, technicianId: slot.technicianId, technicianName: technicianNames.get(slot.technicianId) ?? null, label: slot.label, startMinutes: start <= startOfDay ? 0 : parseTimeToMinutes(getTimeKeyInTimeZone(start, schedule.timeZone))!, endMinutes: end > endOfDay ? 1440 : parseTimeToMinutes(getTimeKeyInTimeZone(end, schedule.timeZone))! });
+      }
       continue;
     }
     if (!blockedSlotAppliesToDate(slot, dateKey)) {

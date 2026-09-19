@@ -348,7 +348,7 @@ describe('SettingsModal index', () => {
 
     expect(await screen.findByText('Account')).toBeInTheDocument();
     expect(screen.getByText('Owner & Staff Alerts')).toBeInTheDocument();
-    expect(screen.getByText('Workspace Features')).toBeInTheDocument();
+    expect(screen.queryByText('Workspace Features')).not.toBeInTheDocument();
     expect(screen.getByText('Appointment Photo Rules')).toBeInTheDocument();
     expect(screen.getByText('Advanced')).toBeInTheDocument();
     expect(screen.queryByText('Business')).not.toBeInTheDocument();
@@ -380,17 +380,24 @@ describe('SettingsModal index', () => {
     expect(screen.queryByText(/authorize twilio/i)).not.toBeInTheDocument();
   });
 
-  it('wires the About rows to the real terms and privacy pages', async () => {
+  it('keeps Advanced focused on Optional Features and legacy themes', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     fireEvent.click(await screen.findByText('Advanced'));
-    fireEvent.click(await screen.findByText('Terms of Service'));
 
-    expect(pushMock).toHaveBeenCalledWith('/en/terms');
+    expect(await screen.findByText('Optional Features')).toBeInTheDocument();
+    expect(screen.getByText('Legacy Page Themes')).toBeInTheDocument();
+    expect(screen.queryByText('Terms of Service')).not.toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByText('Privacy Policy'));
+  it('keeps a canonical team entry for a solo owner adding their next technician', async () => {
+    const onOpenApp = vi.fn();
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" initialView="features" leafOnly onOpenApp={onOpenApp} />);
 
-    expect(pushMock).toHaveBeenCalledWith('/en/privacy');
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Team Members' }));
+
+    expect(onOpenApp).toHaveBeenCalledWith('team');
+    expect(screen.queryByRole('textbox', { name: /technician/i })).not.toBeInTheDocument();
   });
 
   it('warns before leaving a focused view with unsaved changes', async () => {
@@ -1359,7 +1366,6 @@ describe('SettingsModal index', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByText('Advanced'));
     fireEvent.click(await screen.findByText('Appointment Photo Rules'));
 
     expect(pushMock).toHaveBeenCalledWith('/en/admin/policies?salon=salon-a&section=photos');
@@ -1375,7 +1381,6 @@ describe('SettingsModal index', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByText('Advanced'));
     await screen.findByText('Appointment Photo Rules');
 
     expect(screen.queryByText(/section gallery/i)).not.toBeInTheDocument();

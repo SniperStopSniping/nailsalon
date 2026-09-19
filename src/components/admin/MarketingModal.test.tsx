@@ -414,6 +414,21 @@ describe('MarketingModal', () => {
     expect(replaceMock.mock.calls[0]![0]).not.toContain('view=reviews');
   });
 
+  it('keeps the legacy follow-ups URL by replacing it with Clients insights', async () => {
+    state.query = 'salon=salon-a&returnTo=calendar&app=marketing&view=followups';
+    installSuccessfulFetch();
+    render(<MarketingModal onClose={vi.fn()} salonName="Luster Demo Studio" />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith(
+      expect.stringContaining('app=clients&view=insights'),
+      { scroll: false },
+    ));
+    const query = queryOf(replaceMock.mock.calls[0]![0]);
+
+    expect(query.get('salon')).toBe('salon-a');
+    expect(query.get('returnTo')).toBe('calendar');
+  });
+
   it('routes the first-visit offer shortcut to the existing Services menu', async () => {
     const onOpenApp = vi.fn();
     installSuccessfulFetch();
@@ -459,102 +474,16 @@ describe('MarketingModal', () => {
     expect(screen.getByTestId('marketing-home-appointment-messages')).not.toHaveTextContent('Luster texting ready');
   });
 
-  it('follow-up rows show reason, last service, consent and honest channel', async () => {
+  it('routes follow-ups to the canonical Clients insights workflow', async () => {
     installSuccessfulFetch();
+    state.query = 'salon=salon-a&returnTo=calendar&app=marketing';
     await renderMarketing();
     fireEvent.click(screen.getByTestId('marketing-home-followups'));
 
-    const row = await screen.findByTestId('followup-row-sclient_1');
-
-    expect(row).toHaveTextContent('Ava Client');
-    expect(row).toHaveTextContent('Due to return');
-    expect(row).toHaveTextContent('last: BIAB Short');
-    expect(row).toHaveTextContent('no upcoming visit');
-    expect(row).toHaveTextContent('Text (manual)');
-    expect(row).toHaveTextContent('Text consent on file');
-
-    const row2 = screen.getByTestId('followup-row-sclient_2');
-
-    expect(row2).toHaveTextContent('No text consent recorded');
-    // Staged sequence copy uses plain-language timing.
-    expect(screen.getByText('After 56 days if the client still has not booked')).toBeInTheDocument();
-  });
-
-  it('review-and-text opens an editable preview whose composer launch is recorded as prepared, never sent', async () => {
-    installSuccessfulFetch();
-    const openNative = vi.fn();
-    await renderMarketing({ onOpenNativeUrl: openNative });
-    fireEvent.click(screen.getByTestId('marketing-home-followups'));
-    fireEvent.click(await screen.findByTestId('followup-review-text-sclient_1'));
-
-    const preview = await screen.findByRole('dialog', { name: 'Text Ava Client' });
-
-    expect(preview).toBeVisible();
-    expect(screen.getByText(/saved template will not change/i)).toBeInTheDocument();
-
-    // Editable message with prefilled, fully-resolved copy (no {placeholders}).
-    const textarea = screen.getByLabelText('Message') as HTMLTextAreaElement;
-
-    expect(textarea.value).toContain('Ava');
-    expect(textarea.value).toContain('Luster Demo Studio');
-    expect(textarea.value).not.toMatch(/\{\w+\}/);
-
-    fireEvent.change(textarea, { target: { value: `${textarea.value} See you soon!` } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send from my phone · no Luster credits' }));
-
-    // Prefilled recipient + edited body reach the native composer URL.
-    await waitFor(() => expect(openNative).toHaveBeenCalledTimes(1));
-
-    const href = openNative.mock.calls[0]![0] as string;
-
-    expect(href.startsWith('sms:4165550111')).toBe(true);
-    expect(decodeURIComponent(href)).toContain('See you soon!');
-
-    // Opening recorded ONLY as prepared — and the outcome question appears.
-    const prepared = fetchMock.mock.calls.filter(([url, init]) =>
-      String(url).startsWith('/api/admin/retention?')
-      && (init as RequestInit | undefined)?.method === 'POST');
-
-    expect(prepared).toHaveLength(1);
-    expect(JSON.parse(String((prepared[0]![1] as RequestInit).body)).status).toBe('prepared');
-    expect(await screen.findByTestId('marketing-did-you-send')).toHaveClass(
-      'touch-pan-y',
-      'overflow-y-auto',
-      'overscroll-contain',
+    expect(pushMock).toHaveBeenCalledWith(
+      expect.stringContaining('app=clients&view=insights'),
+      { scroll: false },
     );
-
-    // Only the explicit confirmation records marked_sent.
-    fireEvent.click(screen.getByTestId('marketing-mark-sent'));
-    await waitFor(() => {
-      const statuses = fetchMock.mock.calls
-        .filter(([url, init]) => String(url).startsWith('/api/admin/retention?') && (init as RequestInit | undefined)?.method === 'POST')
-        .map(([, init]) => JSON.parse(String((init as RequestInit).body)).status);
-
-      expect(statuses).toEqual(['prepared', 'marked_sent']);
-    });
-  });
-
-  it('offers both deliberate send paths in the shared composer', async () => {
-    installSuccessfulFetch();
-    await renderMarketing();
-    fireEvent.click(screen.getByTestId('marketing-home-followups'));
-    fireEvent.click(await screen.findByTestId('followup-review-text-sclient_1'));
-    await screen.findByRole('dialog', { name: 'Text Ava Client' });
-
-    expect(screen.getByRole('button', { name: 'Send from my phone · no Luster credits' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Send text' })).toBeVisible();
-  });
-
-  it('win-back texting for an unconfigured offer routes to Campaigns instead of failing silently', async () => {
-    installSuccessfulFetch(makeSettings({
-      eightWeekPromotion: { ...makeSettings().eightWeekPromotion, enabled: false },
-    }));
-    await renderMarketing();
-    fireEvent.click(screen.getByTestId('marketing-home-followups'));
-    fireEvent.click(await screen.findByTestId('followup-review-text-sclient_2'));
-
-    expect(await screen.findByTestId('marketing-campaigns')).toBeInTheDocument();
-    expect(screen.getByText('Set up this win-back offer before texting it.')).toBeInTheDocument();
   });
 
   it('results show only measured outcomes with tax separated from revenue and no click metrics', async () => {

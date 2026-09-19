@@ -39,12 +39,29 @@ async function mockApi(page: import('@playwright/test').Page) {
 test('mobile Settings exposes only secondary destinations and guards a dirty Account exit', async ({ page }) => {
   await mockApi(page);
   await page.goto('/?salon=salon-a&app=settings');
-  for (const item of ['Account', 'Owner & Staff Alerts', 'Workspace Features', 'Appointment Photo Rules', 'Advanced']) {
+  for (const item of ['Account', 'Owner & Staff Alerts', 'Appointment Photo Rules', 'Advanced']) {
     await expect(page.getByText(item, { exact: true })).toBeVisible();
   }
 
   await expect(page.getByText('Business', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Booking & Availability', { exact: true })).toHaveCount(0);
+
+  await page.getByText('Advanced', { exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'Advanced', exact: true })).toBeVisible();
+  await expect(page.getByText('Optional Features', { exact: true })).toBeVisible();
+
+  await page.getByText('Optional Features', { exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'Optional Features', exact: true })).toBeVisible();
+
+  await page.goBack();
+
+  await expect(page.getByRole('heading', { name: 'Advanced', exact: true })).toBeVisible();
+
+  await page.goBack();
+
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 
   await page.getByText('Account', { exact: true }).click();
 

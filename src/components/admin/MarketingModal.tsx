@@ -460,8 +460,9 @@ function PromotionEditor({
 }
 
 // =============================================================================
-// Marketing workspace — Home / Appointment messages / Follow-ups / Offers /
-// Results / Reviews.
+// Marketing workspace — Home / Appointment Messages & Reminders / Win-back
+// Offers / Offers / Review Requests / Results. Client follow-ups deliberately
+// live in Clients, where an owner can see the client's history before acting.
 // Everything here is honest: manual texting is a native-Messages draft the
 // technician reviews and sends themselves (opening the composer is never
 // recorded as sent or delivered); automatic texting status comes from the same
@@ -479,13 +480,13 @@ function isMarketingView(value: string | null): value is MarketingView {
 const VIEW_TITLES: Record<MarketingView, string> = {
   'home': 'Marketing & Messages',
   'compose': 'Write a message',
-  'followups': 'Follow-ups',
-  'messages': 'Appointment messages',
+  'followups': 'Client follow-ups',
+  'messages': 'Appointment Messages & Reminders',
   'offers': 'Offers',
   'smart-fit': 'Smart Fit',
-  'campaigns': 'Follow-up offers',
+  'campaigns': 'Win-back Offers',
   'results': 'Results',
-  'reviews': 'Reviews',
+  'reviews': 'Review Requests',
 };
 
 type FollowupItem = {
@@ -589,6 +590,20 @@ export function MarketingModal({
     }
     return `/${locale}/admin?${query.toString()}`;
   }, [locale, salonSlug, searchParams]);
+  const clientsInsightsHref = useCallback(() => {
+    const query = new URLSearchParams(searchParams?.toString());
+    if (salonSlug) {
+      query.set('salon', salonSlug);
+    }
+    query.set('app', 'clients');
+    query.set('view', 'insights');
+    return `/${locale}/admin?${query.toString()}`;
+  }, [locale, salonSlug, searchParams]);
+  const openClientFollowups = useCallback(() => {
+    // Follow-ups are a client workflow. This keeps a single canonical queue
+    // with the profile, rebooking and communication history beside it.
+    router.push(clientsInsightsHref(), { scroll: false });
+  }, [clientsInsightsHref, router]);
   const openView = useCallback((next: MarketingView) => {
     if (next === view) {
       return;
@@ -611,6 +626,13 @@ export function MarketingModal({
       setView(isMarketingView(requestedView) ? requestedView : 'home');
     }
   }, [initialPromotionStage, requestedView]);
+  useEffect(() => {
+    // Keep existing marketing deep links working, while moving the actual
+    // follow-up workflow to its canonical Clients destination.
+    if (view === 'followups') {
+      router.replace(clientsInsightsHref(), { scroll: false });
+    }
+  }, [clientsInsightsHref, router, view]);
   const [settings, setSettings] = useState<RetentionSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<RetentionSettings | null>(null);
   const [services, setServices] = useState<AvailableService[]>([]);
@@ -1068,25 +1090,25 @@ export function MarketingModal({
                         <button
                           type="button"
                           data-testid="marketing-home-followups"
-                          onClick={() => openView('followups')}
+                          onClick={openClientFollowups}
                           className="flex min-h-16 w-full items-center justify-between gap-3 rounded-[16px] border border-rose-100 bg-rose-50 p-4 text-left"
                         >
                           <span>
                             <span className="block text-[16px] font-semibold text-[var(--owner-ink)]">Follow-ups due</span>
-                            <span className="mt-0.5 block text-[13px] text-[var(--owner-muted)]">Review clients ready for a personal message.</span>
+                            <span className="mt-0.5 block text-[13px] text-[var(--owner-muted)]">Review clients, history and next steps in Clients.</span>
                           </span>
                           <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--owner-accent)]">{followupCount === null ? '…' : `${followupCount} due`}</span>
                         </button>
                         {homeRow({
                           testId: 'marketing-home-campaigns',
-                          title: 'Follow-up offers',
-                          detail: 'Rebooking timing, win-back offers and saved wording.',
+                          title: 'Win-back Offers',
+                          detail: 'Rebooking timing, return offers and saved wording.',
                           status: winbackConfigured ? 'Set up' : 'Not set up',
                           onClick: () => openView('campaigns'),
                         })}
                         {homeRow({
                           testId: 'marketing-home-appointment-messages',
-                          title: 'Appointment messages',
+                          title: 'Appointment Messages & Reminders',
                           detail: automaticStatus.detail || 'Confirmations, reminders, cancellations and channels.',
                           status: automaticStatus.label === 'Ready' ? 'Luster texting ready' : automaticStatus.label,
                           onClick: () => openView('messages'),
@@ -1099,15 +1121,8 @@ export function MarketingModal({
                           onClick: () => openView('offers'),
                         })}
                         {homeRow({
-                          testId: 'marketing-home-results',
-                          title: 'Results',
-                          detail: 'What you sent and what it earned — measured only.',
-                          status: markedSent30d === null ? '…' : `${markedSent30d} sent · ${redeemedTotal} redeemed`,
-                          onClick: () => openView('results'),
-                        })}
-                        {homeRow({
                           testId: 'marketing-home-reviews',
-                          title: 'Reviews',
+                          title: 'Review Requests',
                           detail: 'Your review link, saved message and automatic requests.',
                           status: settings.googleReviewUrl ? 'Link set' : 'Add link',
                           onClick: () => openView('reviews'),
@@ -1125,6 +1140,13 @@ export function MarketingModal({
                           detail: 'Auto-post finished work and control captions.',
                           status: 'Photo policy',
                           onClick: onOpenSocialPosting,
+                        })}
+                        {homeRow({
+                          testId: 'marketing-home-results',
+                          title: 'Results',
+                          detail: 'What you sent and what it earned — measured only.',
+                          status: markedSent30d === null ? '…' : `${markedSent30d} sent · ${redeemedTotal} redeemed`,
+                          onClick: () => openView('results'),
                         })}
 
                       </div>
@@ -1149,8 +1171,8 @@ export function MarketingModal({
                         })}
                         {homeRow({
                           testId: 'marketing-offers-followups',
-                          title: 'Follow-up offers',
-                          detail: 'Rebooking timing, win-back offers and saved wording.',
+                          title: 'Win-back Offers',
+                          detail: 'Rebooking timing, return offers and saved wording.',
                           status: winbackConfigured ? 'Set up' : 'Not set up',
                           onClick: () => openView('campaigns'),
                         })}
@@ -1296,7 +1318,7 @@ export function MarketingModal({
                         <section className={`${card}`}>
                           <div className="mb-4 flex items-center gap-2">
                             <BellRing className="size-5 text-[var(--owner-accent)]" />
-                            <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">Follow-up timing</h2>
+                            <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">Win-back timing</h2>
                           </div>
                           <div className="grid gap-5 sm:grid-cols-2">
                             <NumberField
@@ -1326,8 +1348,8 @@ export function MarketingModal({
                             <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">Win-back sequence</h2>
                           </div>
                           <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">
-                            Two staged offers. Clients appear in Follow-ups at each stage;
-                            you review and text every message yourself.
+                            Two staged offers. Clients appear in Insights & Follow-ups at each
+                            stage; you review and text every message yourself.
                           </p>
                         </div>
 

@@ -459,6 +459,27 @@ describe('appointment detail route auth', () => {
     expect(updateAppointmentStatus).not.toHaveBeenCalled();
   });
 
+  it('a reason-only edit never writes a remembered appointment status', async () => {
+    requireAppointmentAccess.mockResolvedValue({ ok: true, actorRole: 'admin', appointment: { ...mockDbState.appointmentRows[0] } });
+    const response = await PATCH(new Request('http://localhost/api/appointments/appt_1', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cancelReason: 'client_request' }) }), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(200);
+    expect(updateAppointmentStatus).not.toHaveBeenCalled();
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({ cancelReason: 'client_request' }));
+    expect(mockDbState.lastUpdateValues).not.toHaveProperty('status');
+    expect(sendCancellationConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('rejects a reason-only edit when the appointment changed before its CAS', async () => {
+    requireAppointmentAccess.mockResolvedValue({ ok: true, actorRole: 'admin', appointment: { ...mockDbState.appointmentRows[0] } });
+    transitionReturning.mockResolvedValueOnce([]);
+    const response = await PATCH(new Request('http://localhost/api/appointments/appt_1', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cancelReason: 'client_request' }) }), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(409);
+    expect(updateAppointmentStatus).not.toHaveBeenCalled();
+    expect(sendCancellationConfirmation).not.toHaveBeenCalled();
+  });
+
   it('allows the owning client to cancel their own appointment', async () => {
     requireAppointmentAccess.mockResolvedValue({
       ok: true,

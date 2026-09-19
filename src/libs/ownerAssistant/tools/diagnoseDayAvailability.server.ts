@@ -144,7 +144,7 @@ export const CAUSE_LINKS: Record<DiagnosisCode, string | null> = {
   service_unsupported: 'team',
   outside_schedule: 'team',
   location_unavailable: 'team',
-  blocked_slot: 'team',
+  blocked_slot: 'calendar',
   time_conflict: 'calendar',
   min_notice: 'booking_rules',
   google_busy: 'integrations',

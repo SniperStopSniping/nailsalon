@@ -112,6 +112,13 @@ describe('isSalonClosedOnDate', () => {
 });
 
 describe('getDayAvailability', () => {
+  it('renders exact blocks in the salon timezone and only on the overlapping day', () => {
+    const schedule = { ...SALON_B, timeZone: 'America/Vancouver', blockedSlots: [{ id: 'exact', technicianId: 'tech_daniela', startTime: '09:00', endTime: '10:00', startsAt: '2026-09-15T18:00:00Z', endsAt: '2026-09-15T20:00:00Z', isRecurring: false, specificDate: null, dayOfWeek: null, label: 'Private' }] };
+
+    expect(getDayAvailability(schedule, '2026-09-15').blockedWindows).toEqual([expect.objectContaining({ id: 'exact', startMinutes: 660, endMinutes: 780 })]);
+    expect(getDayAvailability(schedule, '2026-09-16').blockedWindows).toHaveLength(0);
+  });
+
   it('reports the salon closure, who is off and who is working', () => {
     // 2026-09-09 is a Wednesday inside Jenny's approved time off.
     const availability = getDayAvailability(SALON_B, '2026-09-09');

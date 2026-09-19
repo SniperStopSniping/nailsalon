@@ -11,6 +11,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientsModal } from './ClientsModal';
 
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 const { fetchMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
 }));
@@ -1488,7 +1492,7 @@ describe('ClientsModal', () => {
     });
   });
 
-  it('renames Client Hub to Client Insights and opens exact server-filtered directory results', async () => {
+  it('opens Insights & Follow-ups and filters exact server-backed directory results', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), 'http://localhost');
 
@@ -1528,7 +1532,7 @@ describe('ClientsModal', () => {
 
     const directory = screen.getByTestId('clients-directory-scroll');
     directory.scrollTop = 137;
-    fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Insights & Follow-ups' }));
 
     expect(await screen.findByRole('heading', { name: 'Client health' })).toBeInTheDocument();
     expect(screen.queryByText('Client Hub')).not.toBeInTheDocument();
@@ -1538,7 +1542,7 @@ describe('ClientsModal', () => {
       screen.getByTestId('clients-directory-scroll').scrollTop,
     ).toBe(137));
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Insights & Follow-ups' }));
 
     expect(await screen.findByRole('heading', { name: 'Client health' })).toBeInTheDocument();
 
@@ -1716,7 +1720,7 @@ describe('ClientsModal', () => {
 
       expect(await screen.findByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Insights & Follow-ups' }));
       fireEvent.click(await screen.findByTestId('client-insights-kpi-overdue'));
 
       expect(await screen.findByTestId('clients-active-segment')).toBeInTheDocument();
@@ -1763,14 +1767,14 @@ describe('ClientsModal', () => {
 
       expect(await screen.findByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Insights & Follow-ups' }));
       fireEvent.click(await screen.findByTestId('client-insights-kpi-active'));
 
       expect(await screen.findByTestId('clients-active-segment')).toHaveTextContent(
         'Active clients',
       );
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Insights & Follow-ups' }));
       fireEvent.click(await screen.findByTestId('client-insights-kpi-overdue'));
 
       expect(await screen.findByTestId('clients-active-segment')).toHaveTextContent(
@@ -1891,7 +1895,7 @@ describe('ClientsModal', () => {
 
       expect(await screen.findByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Insights & Follow-ups' }));
       fireEvent.click(await screen.findByTestId('client-insights-kpi-overdue'));
 
       expect(await screen.findByRole('button', { name: /Overdue Page One/ }))
@@ -1943,7 +1947,7 @@ describe('ClientsModal', () => {
 
       expect(await screen.findByRole('button', { name: /Ava Thompson/ })).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Client Insights' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Insights & Follow-ups' }));
       fireEvent.click(await screen.findByTestId('client-insights-kpi-overdue'));
 
       expect(await screen.findByTestId('clients-active-segment')).toBeInTheDocument();

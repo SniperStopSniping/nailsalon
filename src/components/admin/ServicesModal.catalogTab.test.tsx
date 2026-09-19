@@ -92,7 +92,7 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
     vi.stubGlobal('fetch', fetchMock);
   });
 
-  it('adds a fourth "Catalog" tab alongside the existing three, without disturbing them', async () => {
+  it('keeps Library and Advanced Catalog behind More while My Menu and Add-ons stay primary', async () => {
     mockLegacySalonRoutes();
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
@@ -100,6 +100,12 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
     expect(screen.getByTestId('services-tab-addons')).toBeInTheDocument();
     expect(screen.getByTestId('services-tab-library')).toBeInTheDocument();
     expect(screen.getByTestId('services-tab-catalog')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+
+    expect(screen.getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('tab', { name: 'Advanced Catalog' })).toBeVisible();
   });
 
   it('legacy simplicity: the Catalog tab is fully opt-in — no catalog-config fetch happens until it is opened, and the everyday tabs are unaffected', async () => {

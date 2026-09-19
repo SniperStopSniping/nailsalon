@@ -34,15 +34,15 @@ describe('owner dashboard app hubs', () => {
     render(<TeamModal onClose={vi.fn()} salonSlug="studio" />);
 
     expect(screen.getByText('Team Members')).toBeInTheDocument();
-    expect(screen.getByText('Team schedules')).toBeInTheDocument();
-    expect(screen.getByText('Time Off')).toBeInTheDocument();
+    expect(screen.getByText('Working Hours')).toBeInTheDocument();
+    expect(screen.getByText('Days Off')).toBeInTheDocument();
     expect(screen.getByText('Time-off requests')).toBeInTheDocument();
     expect(screen.getByText('Services & Skills')).toBeInTheDocument();
     expect(screen.getByText('Permissions')).toBeInTheDocument();
     expect(screen.getByText('Earnings')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('Team schedules'));
-    fireEvent.click(screen.getByText('Time Off'));
+    fireEvent.click(screen.getByText('Working Hours'));
+    fireEvent.click(screen.getByText('Days Off'));
     fireEvent.click(screen.getByText('Time-off requests'));
 
     expect(pushMock).toHaveBeenCalledTimes(3);
@@ -73,12 +73,10 @@ describe('owner dashboard app hubs', () => {
     expect(query.get('view')).toBe('working-hours');
   });
 
-  it('keeps client-payment behavior together and hands Stripe setup to Integrations', () => {
-    const onOpenIntegrations = vi.fn();
+  it('keeps Stripe setup in the canonical Payments destination', async () => {
     render(
       <PaymentsModal
         onClose={vi.fn()}
-        onOpenIntegrations={onOpenIntegrations}
         salonSlug="studio"
       />,
     );
@@ -90,7 +88,9 @@ describe('owner dashboard app hubs', () => {
 
     fireEvent.click(screen.getByText('Stripe / Payouts'));
 
-    expect(onOpenIntegrations).toHaveBeenCalledOnce();
+    expect(screen.getByRole('heading', { name: 'Stripe & Payouts' })).toBeInTheDocument();
+
+    await screen.findByRole('status');
   });
 
   it('combines rewards, referrals, reviews and offer rules without bypassing gates', () => {

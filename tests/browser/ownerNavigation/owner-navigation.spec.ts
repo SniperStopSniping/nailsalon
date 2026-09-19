@@ -128,9 +128,8 @@ test('mobile More is ranked in task groups and Hours opens first with browser hi
     'admin-app-tile-booking-page',
     'admin-app-tile-marketing',
     'admin-app-tile-portfolio',
-    'admin-app-tile-payments',
     'admin-app-tile-analytics',
-    'admin-app-tile-team',
+    'admin-app-tile-payments',
     'admin-app-tile-integrations',
     'admin-app-tile-plan-usage',
     'admin-app-tile-settings',
@@ -206,11 +205,11 @@ test('solo Hours opens a separate working-hours editor and persists the first Mo
   expect(unexpected).toEqual([]);
 });
 
-test('solo Hours opens time off without mounting a competing recurring-hours editor', async ({ page }) => {
+test('solo Hours opens Days Off without mounting a competing recurring-hours editor', async ({ page }) => {
   const { unexpected } = await mockInformationApi(page);
   await page.goto('/?app=hours&salon=isla&freeSolo=1');
 
-  await page.getByRole('button', { name: 'Time off' }).tap();
+  await page.getByRole('button', { name: 'Days Off' }).tap();
 
   await expect(page.getByText('Time off is an exception to your normal working hours. Adding time off keeps existing appointments in place.')).toBeVisible();
   await expect(page.getByText('No upcoming time off')).toBeVisible();

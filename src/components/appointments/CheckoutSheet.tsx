@@ -4,6 +4,7 @@ import { Banknote, Camera, CheckCircle2, Copy, Minus, Plus, QrCode, Trash2, X } 
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { OwnerPhotoRulesLink } from '@/components/appointments/OwnerPhotoRulesLink';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import {
@@ -1341,6 +1342,7 @@ export function CheckoutSheet({
           {!loading && error && (
             <div data-testid="checkout-error" className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
+              {/photo/i.test(error) && <OwnerPhotoRulesLink salonSlug={salonSlug} />}
             </div>
           )}
 

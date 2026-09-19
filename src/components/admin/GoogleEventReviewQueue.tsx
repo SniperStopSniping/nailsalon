@@ -25,7 +25,7 @@ type ReviewEvent = {
   };
 };
 
-export function GoogleEventReviewQueue({ salonSlug }: { salonSlug: string }) {
+export function GoogleEventReviewQueue({ salonSlug, timeZone = 'America/Toronto' }: { salonSlug: string; timeZone?: string }) {
   const [events, setEvents] = useState<ReviewEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState<string | null>(null);
@@ -159,11 +159,11 @@ export function GoogleEventReviewQueue({ salonSlug }: { salonSlug: string }) {
                       <p className="truncate font-semibold text-stone-950">{event.title || 'Untitled Google event'}</p>
                       <p className="mt-1 flex items-center gap-1.5 text-xs text-stone-500">
                         <CalendarDays size={14} />
-                        {new Date(event.startTime).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                        {new Date(event.startTime).toLocaleDateString([], { timeZone, weekday: 'short', month: 'short', day: 'numeric' })}
                       </p>
                       <p className="mt-1 flex items-center gap-1.5 text-xs text-stone-500">
                         <Clock size={14} />
-                        {new Date(event.startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        {new Date(event.startTime).toLocaleTimeString([], { timeZone, hour: 'numeric', minute: '2-digit' })}
                         {' '}
                         ·
                         {event.durationMinutes}

@@ -5,20 +5,15 @@
  *
  * iOS-style quick action buttons for common admin tasks.
  * Features:
- * - 4 action buttons in a row
+ * - Three frequent actions; Calendar stays in persistent navigation.
  * - Gradient icons matching app grid style
  * - Tap animations with spring physics
  * - Callbacks for each action
  */
 
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
-import {
-  Calendar,
-  CalendarPlus,
-  MessageSquare,
-  UserPlus,
-} from 'lucide-react';
+import { CalendarPlus, MessageSquare, UserPlus } from 'lucide-react';
 
 // Action definitions
 type QuickAction = {
@@ -32,7 +27,7 @@ type QuickAction = {
 const QUICK_ACTIONS: QuickAction[] = [
   {
     id: 'new-appointment',
-    label: 'New Appt',
+    label: 'New Appointment',
     icon: CalendarPlus,
     gradient: 'from-rose-800 to-rose-500',
     shadowColor: '#9f1239',
@@ -46,17 +41,10 @@ const QUICK_ACTIONS: QuickAction[] = [
   },
   {
     id: 'send-sms',
-    label: 'Send SMS',
+    label: 'Message Client',
     icon: MessageSquare,
     gradient: 'from-stone-800 to-stone-600',
     shadowColor: '#292524',
-  },
-  {
-    id: 'today-schedule',
-    label: 'Schedule',
-    icon: Calendar,
-    gradient: 'from-rose-500 to-amber-400',
-    shadowColor: '#e11d48',
   },
 ];
 
@@ -67,6 +55,7 @@ type QuickActionButtonProps = {
 
 function QuickActionButton({ action, onTap }: QuickActionButtonProps) {
   const Icon = action.icon;
+  const reducedMotion = useReducedMotion();
 
   return (
     // The caption lives INSIDE the button so the control carries its own
@@ -76,8 +65,8 @@ function QuickActionButton({ action, onTap }: QuickActionButtonProps) {
       type="button"
       data-testid={`quick-action-${action.id}`}
       onClick={() => onTap(action.id)}
-      whileTap={{ scale: 0.9 }}
-      whileHover={{ scale: 1.05 }}
+      whileTap={reducedMotion ? undefined : { scale: 0.9 }}
+      whileHover={reducedMotion ? undefined : { scale: 1.05 }}
       transition={{ type: 'spring', stiffness: 400, damping: 17 }}
       className="flex flex-col items-center gap-1.5 rounded-[18px] p-1 outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-2"
     >
@@ -119,7 +108,7 @@ export function QuickActionsWidget({ onAction }: QuickActionsWidgetProps) {
       <div className="mb-4 text-[12px] font-semibold uppercase tracking-[0.18em] text-rose-800">
         Quick Actions
       </div>
-      <div className="flex justify-between">
+      <div className="grid grid-cols-3 gap-3">
         {QUICK_ACTIONS.map(action => (
           <QuickActionButton
             key={action.id}

@@ -10,6 +10,7 @@ import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
 import {
   isSlotConstraintViolation,
   lockTechnicianAndAssertSlotFree,
+  SlotConflictError,
 } from '@/libs/bookingConflictGuard';
 import {
   lockOperationalSalonClientContactWithHandle,
@@ -175,7 +176,7 @@ async function attemptRestoreThenRefund(deposit: DepositRow): Promise<RecoveryRe
     // somebody took the slot (the advisory-lock guard, the 0054-successor
     // partial unique, or the gist exclusion), or the one-active partial unique
     // fired because a second deposit already claims this appointment.
-    if (!isSlotConstraintViolation(error) && !(error instanceof RestoreLostError)) {
+    if (!isSlotConstraintViolation(error) && !(error instanceof RestoreLostError) && !(error instanceof SlotConflictError)) {
       throw error;
     }
   }

@@ -12,8 +12,8 @@ type TeamView = 'home' | 'members' | 'schedules' | 'time-off' | 'requests' | 'bl
 
 const TEAM_ITEMS: ReadonlyArray<OwnerAppHubItem<Exclude<TeamView, 'home' | 'blocked-time'>>> = [
   { id: 'members', title: 'Team Members', description: 'People, roles, contact details and employment status', icon: Users },
-  { id: 'schedules', title: 'Team schedules', description: 'Open Hours & Availability to manage weekly working hours', icon: CalendarClock },
-  { id: 'time-off', title: 'Time Off', description: 'Open Hours & Availability to add time away from work', icon: Clock3 },
+  { id: 'schedules', title: 'Working Hours', description: 'Manage each technician’s regular schedule in Hours & Availability', icon: CalendarClock },
+  { id: 'time-off', title: 'Days Off', description: 'Manage team absences in Hours & Availability', icon: Clock3 },
   { id: 'requests', title: 'Time-off requests', description: 'Review pending, approved and denied team requests', icon: Clock3 },
   { id: 'services', title: 'Services & Skills', description: 'Choose which services each technician can perform', icon: Scissors },
   { id: 'permissions', title: 'Permissions', description: 'Choose what staff can see in their workspace', icon: KeyRound },
@@ -73,7 +73,7 @@ export function TeamModal({
     return (
       <OwnerAppHub
         title="Team"
-        subtitle="People, schedules, skills and access"
+        subtitle="People, skills, access and earnings"
         items={TEAM_ITEMS}
         onBack={onClose}
         onOpen={(id) => {

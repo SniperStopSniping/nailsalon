@@ -55,6 +55,8 @@ type AdminModalHostProps = {
   onClosePromotionSettings?: () => void;
   integrationsInitialView?: IntegrationsView;
   settingsInitialView?: string;
+  onNavigate?: (app: string, view?: string, technicianId?: string, replace?: boolean) => void;
+  onNavigateBack?: () => void;
   integrationsNotice?: string | null;
   onOpenSettingsFromIntegrations?: () => void;
   onManageReminders?: () => void;
@@ -99,6 +101,8 @@ export function AdminModalHost({
   onClosePromotionSettings,
   integrationsInitialView,
   settingsInitialView,
+  onNavigate,
+  onNavigateBack,
   integrationsNotice,
   onOpenSettingsFromIntegrations,
   onManageReminders,
@@ -108,7 +112,6 @@ export function AdminModalHost({
   showFraudSignals,
   setShowFraudSignals,
   showScheduleCalendar,
-  setShowScheduleCalendar,
   showWalkIn,
   setShowWalkIn,
   userName,
@@ -195,7 +198,7 @@ export function AdminModalHost({
         <AnalyticsWidgets
           {...analyticsProps}
           salonSlug={activeSalonSlug}
-          onOpenSmartFitSettings={onOpenApp ? () => onOpenApp('settings') : undefined}
+          onOpenSmartFitSettings={onNavigate ? () => onNavigate('marketing', 'smart-fit') : undefined}
         />
       </AppModal>
 
@@ -206,6 +209,7 @@ export function AdminModalHost({
         <ClientsModal
           onClose={onCloseModal}
           initialClientId={initialClientId}
+          initialView={settingsInitialView === 'insights' ? 'insights' : 'directory'}
           onOpenPromotionSettings={onOpenPromotionSettings}
         />
       </AppModal>
@@ -273,6 +277,7 @@ export function AdminModalHost({
           initialView={integrationsInitialView}
           initialNotice={integrationsNotice}
           onOpenSettings={onOpenSettingsFromIntegrations}
+          onOpenPayments={onNavigate ? () => onNavigate('payments', 'stripe') : undefined}
         />
       </AppModal>
 
@@ -304,7 +309,6 @@ export function AdminModalHost({
           salonSlug={activeSalonSlug}
           salonId={activeSalonId}
           isFreeSolo={isFreeSolo}
-          onOpenIntegrations={onOpenApp ? () => onOpenApp('integrations') : undefined}
         />
       </AppModal>
 
@@ -332,11 +336,16 @@ export function AdminModalHost({
 
       <AppModal
         isOpen={showScheduleCalendar}
-        onClose={() => setShowScheduleCalendar(false)}
+        onClose={onCloseModal}
+        allowDragToDismiss={false}
       >
         <ScheduleCalendarModal
-          onClose={() => setShowScheduleCalendar(false)}
+          key={activeSalonSlug}
+          onClose={onCloseModal}
           salonSlug={activeSalonSlug}
+          initialView={settingsInitialView}
+          onNavigate={onNavigate}
+          onNavigateBack={onNavigateBack}
         />
       </AppModal>
 

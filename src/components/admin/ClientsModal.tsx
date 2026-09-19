@@ -13,6 +13,7 @@ import {
   User,
   UserPlus,
 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import {
   type ReactNode,
   useCallback,
@@ -300,6 +301,8 @@ type ClientPhoto = {
 type ClientsModalProps = {
   onClose: () => void;
   initialClientId?: string | null;
+  /** Deep-link contract for canonical client workflows. */
+  initialView?: 'directory' | 'insights';
   onOpenPromotionSettings?: (
     stage: PromotionSettingsStage,
     clientId: string,
@@ -2626,9 +2629,14 @@ function ClientDetail({
 export function ClientsModal({
   onClose,
   initialClientId = null,
+  initialView,
   onOpenPromotionSettings,
 }: ClientsModalProps) {
   const { salonSlug, salonName } = useSalon();
+  const searchParams = useSearchParams();
+  const requestedView = searchParams?.get('view');
+  const messageIntent = requestedView === 'message';
+  const shouldOpenInsights = initialView === 'insights' || requestedView === 'insights';
   const [clients, setClients] = useState<ClientSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2640,13 +2648,22 @@ export function ClientsModal({
   const [hasMore, setHasMore] = useState(false);
   const [totalClients, setTotalClients] = useState(0);
   const [selectedClient, setSelectedClient] = useState<ClientSummary | null>(null);
-  const [showHub, setShowHub] = useState(false);
+  const [showHub, setShowHub] = useState(() => shouldOpenInsights);
   const [activeSegment, setActiveSegment] = useState<ClientInsightSegmentId | null>(null);
   const [insightsBookingClient, setInsightsBookingClient] = useState<ClientInsightAttentionItem | null>(null);
   const [insightsRefreshKey, setInsightsRefreshKey] = useState(0);
   const [initialClientError, setInitialClientError] = useState<string | null>(null);
   const [lifecycleNotice, setLifecycleNotice] = useState<string | null>(null);
   const [showAddClient, setShowAddClient] = useState(false);
+
+  useEffect(() => {
+    // /admin?app=clients&view=insights is the stable destination used by
+    // Today and Marketing. Do not interrupt a profile already opened from
+    // that workspace when the URL changes underneath it.
+    if (!selectedClient) {
+      setShowHub(shouldOpenInsights);
+    }
+  }, [selectedClient, shouldOpenInsights]);
 
   const [moduleAvailability, setModuleAvailability] = useState<ModuleAvailability>({
     loaded: false,
@@ -3168,8 +3185,8 @@ export function ClientsModal({
     <div className="relative flex min-h-full w-full flex-col bg-[var(--owner-ground,#f8f2ed)] font-sans text-[var(--owner-ink,#30262a)]">
       <div className="bg-[var(--owner-ground,#f8f2ed)]/85 sticky top-0 z-20 backdrop-blur-md">
         <ModalHeader
-          title={showHub ? 'Client Insights' : 'Clients'}
-          subtitle={showHub ? 'Client health and follow-up' : `${totalClients} total`}
+          title={showHub ? 'Insights & Follow-ups' : 'Clients'}
+          subtitle={showHub ? 'Client health, follow-ups and return opportunities' : `${totalClients} total`}
           leftAction={<BackButton onClick={onClose} label="Back" />}
           rightAction={showHub
             ? undefined
@@ -3186,8 +3203,8 @@ export function ClientsModal({
               )}
         />
         <div className="space-y-3 px-4 pb-3">
-          <div className="flex rounded-[10px] bg-[var(--owner-blush,#f6e7ec)] p-0.5" role="tablist" aria-label="Clients or Client Insights">
-            {([['clients', 'Clients'], ['insights', 'Client Insights']] as const).map(([id, label]) => (
+          <div className="flex rounded-[10px] bg-[var(--owner-blush,#f6e7ec)] p-0.5" role="tablist" aria-label="Clients or Insights and Follow-ups">
+            {([['clients', messageIntent ? 'Choose a client to message' : 'Clients'], ['insights', 'Insights & Follow-ups']] as const).map(([id, label]) => (
               <button
                 key={id}
                 type="button"

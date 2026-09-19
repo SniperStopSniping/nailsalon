@@ -25,6 +25,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -823,9 +824,39 @@ describe('step 8 — what the slot loop found', () => {
       code: 'blocked_slot',
       count: 1,
       technicianName: 'Bree',
-      link: 'team',
+      link: 'calendar',
     });
     expect(result.bookableSlotCount).toBe(15);
+  });
+
+  it('uses saved exact intraday blocks in authoritative availability and links recovery to Calendar', async () => {
+    await db.insert(schema.technicianBlockedSlotSchema).values({
+      id: 'blocked_diag_exact',
+      salonId: 'salon_diag_blocked',
+      technicianId: 'tech_blocked',
+      startTime: '13:00',
+      endTime: '14:00',
+      startsAt: at(D_FRI, '13:00'),
+      endsAt: at(D_FRI, '14:00'),
+      isRecurring: false,
+      label: 'Private appointment',
+    });
+    try {
+      const result = await diagnose('salon_diag_blocked', { date: 'friday' });
+
+      expect(causeFor(result, 'blocked_slot')).toEqual({
+        code: 'blocked_slot',
+        count: 3,
+        technicianName: 'Bree',
+        link: 'calendar',
+      });
+      expect(result.bookableSlotCount).toBe(13);
+      expect(JSON.stringify(result)).not.toContain('Private appointment');
+
+      expectNoPii(result, 'exact blocked time');
+    } finally {
+      await db.delete(schema.technicianBlockedSlotSchema).where(eq(schema.technicianBlockedSlotSchema.id, 'blocked_diag_exact'));
+    }
   });
 
   it('reports one booked half-hour as a time conflict, with no trace of the booking', async () => {
