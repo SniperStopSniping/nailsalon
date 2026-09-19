@@ -123,6 +123,20 @@ function productMatches(addOn: PublicAddOn, product: Facts['existingProduct']): 
   }
 }
 
+/** Shared vocabulary mapping only; catalog rules remain with the L1 resolver. */
+export const semanticCatalog = {
+  serviceFamily,
+  serviceApplication,
+  serviceVariantLength,
+  isRefill,
+  isFrench,
+  lengthFor,
+  isRepair,
+  isRemoval,
+  isForeignRemoval,
+  productMatches,
+};
+
 function unique<T>(items: T[]): T | null {
   return items.length === 1 ? items[0] ?? null : null;
 }
@@ -219,7 +233,7 @@ export function resolveSemanticSelection(args: {
     replaceSemanticChoice(choices, isFrench, null, menu);
   }
 
-  if (facts.length !== 'unknown') {
+  if (facts.length !== 'unknown' && serviceVariantLength(menu, service) !== facts.length) {
     const exactLength = allowed.filter(addOn => lengthFor(addOn) === facts.length);
     if (facts.length === 'short' && exactLength.length === 0) {
       // Short is a real customer request, not permission to select a paid

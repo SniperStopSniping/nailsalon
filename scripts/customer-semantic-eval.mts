@@ -19,9 +19,9 @@ const require = createRequire(import.meta.url);
 const { ModelProviderError } = require('../src/libs/ai/provider') as typeof import('../src/libs/ai/provider');
 const { createOpenAiResponsesProvider } = require('../src/libs/ai/openaiResponses.server') as typeof import('../src/libs/ai/openaiResponses.server');
 const { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } = require('../src/libs/customerAssistant/interpretation') as typeof import('../src/libs/customerAssistant/interpretation');
-const { SEMANTIC_EVAL_CASES, SEMANTIC_L1_MENU, candidateForSemanticSelection, matchesExpectedSemanticSelection, resolveSyntheticSemanticFixture } = require('../src/libs/customerAssistant/__evals__/semanticCases') as typeof import('../src/libs/customerAssistant/__evals__/semanticCases');
-const { emptyFacts, hasKnownClarificationAnswer, mergeFacts } = require('../src/libs/customerAssistant/semanticFacts') as typeof import('../src/libs/customerAssistant/semanticFacts');
-const { resolveSemanticSelection } = require('../src/libs/customerAssistant/semanticSelection') as typeof import('../src/libs/customerAssistant/semanticSelection');
+const { SEMANTIC_EVAL_CASES, SEMANTIC_L1_MENU, SEMANTIC_L1_SNAPSHOT, candidateForSemanticSelection, matchesExpectedSemanticSelection, resolveSyntheticCanonicalSelection, resolveSyntheticSemanticFixture } = require('../src/libs/customerAssistant/__evals__/semanticCases') as typeof import('../src/libs/customerAssistant/__evals__/semanticCases');
+const { emptyFacts, mergeFacts } = require('../src/libs/customerAssistant/semanticFacts') as typeof import('../src/libs/customerAssistant/semanticFacts');
+const { planCustomerClarification } = require('../src/libs/customerAssistant/clarification') as typeof import('../src/libs/customerAssistant/clarification');
 
 const model = 'gpt-5.6-luna';
 const maxOutputTokens = 1_200;
@@ -167,10 +167,14 @@ async function main(): Promise<void> {
         const intent = customerInterpretationSchema.parse(JSON.parse(text));
         facts = mergeFacts(facts, intent.factUpdates);
         const shouldResolveService = intent.action === 'propose'
-          || (intent.action === 'clarify' && hasKnownClarificationAnswer(intent.question, facts));
+          || (intent.action === 'clarify' && intent.question !== 'date');
         const semantic = shouldResolveService
-          ? resolveSemanticSelection({
+          ? planCustomerClarification({
             menu: SEMANTIC_L1_MENU,
+            snapshot: SEMANTIC_L1_SNAPSHOT,
+            action: intent.action === 'propose' ? 'propose' : 'clarify',
+            question: intent.question === 'date' ? 'details' : intent.question,
+            optionIds: intent.optionIds,
             facts,
             candidate: intent.serviceId ? { baseServiceId: intent.serviceId, selectedAddOns: intent.addOns } : null,
           })
@@ -178,7 +182,7 @@ async function main(): Promise<void> {
             ? { kind: 'no_match' as const }
             : { kind: 'clarification' as const, question: intent.question, optionIds: intent.optionIds };
         const resolved = semantic.kind === 'selection'
-          ? resolveSyntheticSemanticFixture({ facts, candidate: semantic.selection })
+          ? resolveSyntheticCanonicalSelection(semantic.selection)
           : semantic;
         let category: SafeCategory = 'passed';
         if (!expectedFactsMatch(facts, turn.expectedFacts)) {

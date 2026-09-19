@@ -8,7 +8,8 @@ import type { SalonFeatures } from '@/types/salonPolicy';
 
 import { getCustomerAssistantConfig } from './access.server';
 import { reserveCustomerAssistantTurn } from './budget.server';
-import { buildCustomerProposal, loadCustomerMenu, validateCustomerMenuSelection } from './catalogue.server';
+import { buildCustomerProposal, loadCustomerClarificationSnapshot, loadCustomerMenu, validateCustomerMenuSelection } from './catalogue.server';
+import { planCustomerClarification } from './clarification';
 import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL, type CustomerAssistantLocale, type CustomerAssistantResponse, type CustomerAssistantResult } from './contracts';
 import { signCustomerConversation, verifyCustomerConversation } from './conversation.server';
 import { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } from './interpretation';
@@ -122,13 +123,28 @@ export async function runCustomerAssistantTurn(args: {
       nextState.context = undefined;
     }
     const resolveServiceIntent = intent.action === 'propose'
-      || (intent.action === 'clarify' && hasKnownClarificationAnswer(intent.question, facts));
+      || (intent.action === 'clarify' && intent.question !== 'date' && (menu.l1 || hasKnownClarificationAnswer(intent.question, facts)));
     if (resolveServiceIntent) {
-      const resolved = resolveSemanticSelection({
+      let resolved = resolveSemanticSelection({
         menu,
         facts,
         candidate: intent.serviceId ? { baseServiceId: intent.serviceId, selectedAddOns: intent.addOns } : null,
       });
+      if (menu.l1) {
+        const requestedQuestion = intent.action === 'clarify' ? intent.question : resolved.kind === 'clarification' ? resolved.question : 'details';
+        if (requestedQuestion === 'date') {
+          throw new Error('CUSTOMER_MODEL_INVALID');
+        }
+        resolved = planCustomerClarification({
+          menu,
+          action: intent.action === 'propose' ? 'propose' : 'clarify',
+          snapshot: await loadCustomerClarificationSnapshot(args.salonId),
+          facts,
+          candidate: intent.serviceId ? { baseServiceId: intent.serviceId, selectedAddOns: intent.addOns } : null,
+          question: requestedQuestion,
+          optionIds: intent.optionIds,
+        });
+      }
       if (resolved.kind === 'no_match') {
         result = { kind: 'unavailable', reason: 'no_match' };
       } else if (resolved.kind === 'clarification') {

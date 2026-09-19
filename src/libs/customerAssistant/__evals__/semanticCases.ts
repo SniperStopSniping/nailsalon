@@ -125,9 +125,13 @@ export function resolveSyntheticSemanticFixture(args: { facts: Facts; candidate:
   if (semantic.kind === 'no_match') {
     return { kind: 'no_match' };
   }
+  return resolveSyntheticCanonicalSelection(semantic.selection);
+}
+
+export function resolveSyntheticCanonicalSelection(selection: CustomerSelection): SemanticFixtureResolution {
   const resolved = resolveCatalogSelection(SEMANTIC_L1_SNAPSHOT, {
-    serviceId: semantic.selection.baseServiceId,
-    selectedAddOns: semantic.selection.selectedAddOns,
+    serviceId: selection.baseServiceId,
+    selectedAddOns: selection.selectedAddOns,
   });
   if (!resolved.ok) {
     return { kind: 'invalid' };
@@ -217,5 +221,5 @@ export const SEMANTIC_EVAL_CASES: SemanticEvalCase[] = [
   { id: 'generic-gel-ambiguity', trustedBookingSalon: syntheticSalon, turns: [{ message: 'I have gel on right now and want something new.', expectedFacts: {}, expectedAction: 'clarify', expectedSelection: 'clarify_existing_product', critical: false }] },
   { id: 'unknown-origin-extensions', trustedBookingSalon: syntheticSalon, turns: [{ message: 'I have extensions but I do not know where they were done.', expectedFacts: { existingProduct: 'unknown', origin: 'unknown' }, expectedAction: 'clarify', expectedSelection: 'clarify_service', critical: false }] },
   { id: 'natural-versus-existing-ambiguity', trustedBookingSalon: syntheticSalon, turns: [{ message: 'I want French Gel-X. I might still have something on my nails.', expectedFacts: { treatment: 'gel_x', french: 'yes', existingProduct: 'unknown' }, expectedAction: 'clarify', expectedSelection: 'clarify_existing_product', critical: false }] },
-  { id: 'unsupported-acrylic', trustedBookingSalon: syntheticSalon, turns: [{ message: 'I need an acrylic refill with ombré.', expectedFacts: { treatment: 'acrylic', maintenance: 'refill', existingProduct: 'acrylic' }, expectedAction: 'no_match', critical: true }] },
+  { id: 'unsupported-acrylic', trustedBookingSalon: syntheticSalon, turns: [{ message: 'I need an acrylic refill with ombré.', expectedFacts: { treatment: 'acrylic', maintenance: 'refill' }, expectedAction: 'no_match', critical: true }] },
 ];

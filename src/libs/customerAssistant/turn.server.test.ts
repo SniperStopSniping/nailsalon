@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ reserve: vi.fn(), menu: vi.fn(), proposal: vi.fn(), record: vi.fn(), validate: vi.fn(), lookup: vi.fn() }));
+import { SEMANTIC_L1_MENU, SEMANTIC_L1_SNAPSHOT } from './__evals__/semanticCases';
+
+const mocks = vi.hoisted(() => ({ reserve: vi.fn(), menu: vi.fn(), snapshot: vi.fn(), proposal: vi.fn(), record: vi.fn(), validate: vi.fn(), lookup: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('./access.server', () => ({ getCustomerAssistantConfig: () => ({ apiKey: 'customer-only', signingSecret: 'x'.repeat(32) }) }));
 vi.mock('./budget.server', () => ({ reserveCustomerAssistantTurn: mocks.reserve }));
-vi.mock('./catalogue.server', () => ({ loadCustomerMenu: mocks.menu, buildCustomerProposal: mocks.proposal, validateCustomerMenuSelection: mocks.validate }));
+vi.mock('./catalogue.server', () => ({ loadCustomerMenu: mocks.menu, loadCustomerClarificationSnapshot: mocks.snapshot, buildCustomerProposal: mocks.proposal, validateCustomerMenuSelection: mocks.validate }));
 vi.mock('./ledger.server', () => ({ recordCustomerAssistantUsage: mocks.record }));
 vi.mock('./slots.server', () => ({
   getCustomerAvailabilityContext: vi.fn().mockResolvedValue({ today: '2026-09-18', timeZone: 'America/Toronto' }),
@@ -27,6 +29,7 @@ const provider = (output: unknown = interpretation) => ({ createResponse: vi.fn(
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.reserve.mockResolvedValue({ ok: true });
+  mocks.snapshot.mockResolvedValue(SEMANTIC_L1_SNAPSHOT);
   mocks.menu.mockResolvedValue({ services: [{ id: 'gelx', name: 'Gel-X' }], addOns: [{ id: 'french', name: 'French' }], bindings: [{ serviceId: 'gelx', addOnId: 'french' }] });
   mocks.proposal.mockResolvedValue({ selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] }, fingerprint: acceptedFingerprint, service: { id: 'gelx', name: 'Gel-X', priceCents: 6000 }, addOns: [], subtotalCents: 6000, durationMinutes: 60, currency: 'CAD', expiresAt: '2026-09-18T00:00:00Z' });
   mocks.record.mockResolvedValue(undefined);
@@ -66,6 +69,25 @@ describe('customer assistant bounded turn', () => {
     expect(mocks.proposal).not.toHaveBeenCalled();
     expect(mocks.lookup).not.toHaveBeenCalled();
     expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ usage, outcome: 'failed' }));
+  });
+
+  it('replaces incompatible model length clarification with an authoritative BIAB proposal without leaking the snapshot', async () => {
+    mocks.menu.mockResolvedValue(SEMANTIC_L1_MENU);
+    const biab = SEMANTIC_L1_MENU.services.find(item => item.name === 'BIAB Builder Gel')!.id;
+    const lengths = SEMANTIC_L1_MENU.addOns.filter(item => item.name.includes('Length')).map(item => item.id);
+    const selection = { baseServiceId: biab, selectedAddOns: [] };
+    mocks.proposal.mockResolvedValue({ selection, fingerprint: acceptedFingerprint, service: { id: biab, name: 'BIAB Builder Gel', priceCents: 5500 }, addOns: [], subtotalCents: 5500, durationMinutes: 90, currency: 'CAD', expiresAt: '2026-09-18T00:00:00Z' });
+    const model = provider({ ...interpretation, action: 'clarify', serviceId: biab, question: 'length', optionIds: lengths, addOns: [], factUpdates: { ...noFactUpdates, treatment: 'builder_gel', desiredApplication: 'natural_nails', existingProduct: 'none' } });
+    const result = await runCustomerAssistantTurn({ ...input(), message: 'BIAB on my natural nails' }, model);
+
+    expect(result.result).toMatchObject({ kind: 'proposal', proposal: { subtotalCents: 5500, durationMinutes: 90 } });
+    expect(mocks.snapshot).toHaveBeenCalledWith('salon-a');
+    expect(mocks.proposal).toHaveBeenCalledWith('salon-a', null, selection);
+
+    const payload = model.createResponse.mock.calls[0]![0].input[1].content;
+
+    expect(payload).not.toContain(SEMANTIC_L1_SNAPSHOT.revision.canonical);
+    expect(JSON.parse(payload).menu).not.toHaveProperty('revision');
   });
 
   it('preserves a genuinely unknown length clarification instead of quoting an incomplete L1 selection', async () => {
