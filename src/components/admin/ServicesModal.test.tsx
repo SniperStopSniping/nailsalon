@@ -355,10 +355,11 @@ function findCall(predicate: (url: string, init?: RequestInit) => boolean) {
 
 /**
  * Menu-display settings (service images, intro label, first-visit offer) live
- * on the Setup tab. They used to be pinned above every service on every tab,
+ * in Advanced Catalog. They used to be pinned above every service on every tab,
  * which cost the list ~120 px of permanent chrome on a phone.
  */
 function openSetupTab() {
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
   fireEvent.click(screen.getByTestId('services-tab-catalog'));
 }
 
@@ -376,7 +377,7 @@ describe('ServicesModal', () => {
     vi.stubGlobal('fetch', fetchMock);
   });
 
-  it('keeps the service-images control off the browsing tabs and available in Setup', async () => {
+  it('keeps the service-images control off browsing tabs and available in Advanced Catalog', async () => {
     mockRoutes({
       services: [],
       merchandising: {
