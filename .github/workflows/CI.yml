@@ -752,6 +752,9 @@ jobs:
       - name: Verify Booking Page business information in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerBusinessInformation/playwright.config.ts --output=test-results/owner-business-information-components
 
+      - name: Verify Booking Page experience and flow in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerBookingExperience/playwright.config.ts --output=test-results/owner-booking-experience-components
+
       - name: Run storybook tests
         run: npm run test-storybook:ci
 

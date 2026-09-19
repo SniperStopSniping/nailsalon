@@ -57,6 +57,8 @@ const SETTINGS_VIEW_IDS = [
   'account',
   'location',
   'branding',
+  'booking-experience',
+  'legacy-themes',
   'booking',
   'booking-policy',
   'booking-flow',
@@ -79,6 +81,8 @@ const BOOKING_PAGE_PANEL_IDS = [
   'text',
   'gallery',
   'policies',
+  'experience',
+  'flow',
   'publish',
 ] as const;
 
@@ -111,7 +115,7 @@ describe('the duplicated allowlists still match their source files', () => {
     }
 
     expect(source).toContain(
-      `['business', 'layouts', 'appearance', 'information', 'text', 'gallery', 'policies', 'publish'].includes(`,
+      `['business', 'layouts', 'appearance', 'information', 'text', 'gallery', 'policies', 'experience', 'flow', 'publish'].includes(`,
     );
   });
 });

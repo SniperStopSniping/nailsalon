@@ -35,6 +35,10 @@ type BookingFlowEditorProps = {
   bookingFlowCustomizationEnabled: boolean;
   bookingFlow: BookingStep[] | null;
   onSave: (flow: BookingStep[]) => Promise<void>;
+  /** Lets a hosting leaf protect Back while its debounced save is pending. */
+  onStateChange?: (state: { dirty: boolean; saving: boolean }) => void;
+  /** A host confirmation pauses the debounce until the owner decides. */
+  paused?: boolean;
 };
 
 // =============================================================================
@@ -148,6 +152,8 @@ export function BookingFlowEditor({
   bookingFlowCustomizationEnabled,
   bookingFlow,
   onSave,
+  onStateChange,
+  paused = false,
 }: BookingFlowEditorProps) {
   // Local state for the flow being edited
   const [localFlow, setLocalFlow] = useState<BookingStep[]>(() =>
@@ -155,10 +161,17 @@ export function BookingFlowEditor({
   );
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveAttempt, setSaveAttempt] = useState(0);
+  const [failedFlowSignature, setFailedFlowSignature] = useState<string | null>(null);
 
   // Track if the flow has been modified
   const normalizedOriginal = normalizeBookingFlow(bookingFlow);
   const isDirty = JSON.stringify(localFlow) !== JSON.stringify(normalizedOriginal);
+
+  useEffect(() => {
+    onStateChange?.({ dirty: isDirty, saving });
+  }, [isDirty, onStateChange, saving]);
 
   // Check if tech step is enabled
   const techEnabled = localFlow.includes('tech');
@@ -173,25 +186,29 @@ export function BookingFlowEditor({
 
   // Debounced auto-save effect
   useEffect(() => {
-    if (!isDirty) {
+    const flowSignature = JSON.stringify(localFlow);
+    if (!isDirty || paused || failedFlowSignature === flowSignature) {
       return;
     }
 
     const timer = setTimeout(async () => {
       setSaving(true);
+      setSaveError(null);
       try {
         await onSave(localFlow);
+        setFailedFlowSignature(null);
         setJustSaved(true);
         setTimeout(() => setJustSaved(false), 1500);
-      } catch (error) {
-        console.error('Failed to save booking flow:', error);
+      } catch {
+        setFailedFlowSignature(flowSignature);
+        setSaveError('Could not save booking flow. Your changes are still here. Try again or keep editing.');
       } finally {
         setSaving(false);
       }
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [localFlow, isDirty, onSave]);
+  }, [localFlow, isDirty, onSave, paused, failedFlowSignature, saveAttempt]);
 
   // Drag-and-drop sensors
   const sensors = useSensors(
@@ -356,6 +373,22 @@ export function BookingFlowEditor({
               : null}
         </div>
       </div>
+
+      {saveError && (
+        <div className="mt-3 flex items-center gap-3" role="alert">
+          <p className="text-sm text-red-700">{saveError}</p>
+          <button
+            type="button"
+            className="min-h-11 rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-700"
+            onClick={() => {
+              setFailedFlowSignature(null);
+              setSaveAttempt(current => current + 1);
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
       {/* Preview */}
       <div className="mt-6 border-t border-gray-100 pt-4">

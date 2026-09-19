@@ -74,6 +74,20 @@ describe('owner navigation path aliases', () => {
     expect(alias?.query.toString()).toBe('salon=isla&returnTo=calendar&technician=tech_1&panel=business');
   });
 
+  it.each([
+    ['branding', 'experience'],
+    ['booking-experience', 'experience'],
+    ['booking-flow', 'flow'],
+  ])('moves legacy Settings %s to Booking Page %s without losing context', (view, panel) => {
+    const alias = resolveOwnerNavigationPathAlias(
+      '/en/admin',
+      new URLSearchParams(`salon=isla&returnTo=calendar&technician=tech_1&app=settings&view=${view}`),
+    );
+
+    expect(alias?.pathname).toBe('/en/admin/booking-page');
+    expect(alias?.query.toString()).toBe(`salon=isla&returnTo=calendar&technician=tech_1&panel=${panel}`);
+  });
+
   it('leaves query-only aliases and unrelated paths alone', () => {
     expect(resolveOwnerNavigationPathAlias('/en/admin', new URLSearchParams('app=settings&view=booking-policy'))).toBeNull();
     expect(resolveOwnerNavigationPathAlias('/en/admin/booking-page', new URLSearchParams('app=settings&view=location'))).toBeNull();
