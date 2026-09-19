@@ -1173,8 +1173,7 @@ describe('OwnerTodayWorkspace first fold', () => {
 
     renderWorkspace();
 
-    await screen.findByTestId('owner-today-agenda');
-    const filters = screen.getByLabelText('Filter schedule by technician');
+    const filters = await screen.findByLabelText('Filter schedule by technician');
     const averyFilters = within(filters).getAllByRole('button', { name: 'Avery' });
 
     expect(averyFilters).toHaveLength(2);
@@ -1197,9 +1196,9 @@ describe('OwnerTodayWorkspace first fold', () => {
 
     renderWorkspace();
 
-    const agenda = await screen.findByTestId('owner-today-agenda');
+    await screen.findByTestId('owner-current-next-appointment');
 
-    expect(within(agenda).queryByLabelText('Filter schedule by technician')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Filter schedule by technician')).not.toBeInTheDocument();
   });
 
   it('keeps a quiet team simple when there are no appointments to filter', async () => {
@@ -1210,7 +1209,7 @@ describe('OwnerTodayWorkspace first fold', () => {
 
     renderWorkspace();
 
-    await screen.findByTestId('owner-today-agenda');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh dashboard' })).toBeEnabled());
 
     expect(screen.queryByLabelText('Filter schedule by technician')).not.toBeInTheDocument();
   });

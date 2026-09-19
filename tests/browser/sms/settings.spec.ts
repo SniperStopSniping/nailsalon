@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('Workspace Features opens included SMS credits and paused Client communications with a canonical save', async ({ page }) => {
+test('Advanced Optional Features opens included SMS credits and paused Client communications with a canonical save', async ({ page }) => {
   const browserErrors: string[] = [];
   const unexpectedRequests: string[] = [];
   const mutations: Array<{ path: string; method: string; body: unknown }> = [];
@@ -95,7 +95,14 @@ test('Workspace Features opens included SMS credits and paused Client communicat
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
   await expect(page.locator('vite-error-overlay, [data-nextjs-dialog]')).toHaveCount(0);
 
-  await page.getByRole('button', { name: /^Workspace Features/ }).click();
+  await page.getByRole('button', { name: /^Advanced/ }).click();
+
+  await expect(page.getByRole('heading', { name: 'Advanced', exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: /^Optional Features/ }).click();
+
+  await expect(page.getByRole('heading', { name: 'Optional Features', exact: true })).toBeVisible();
+
   const smsEntry = page.getByTestId('settings-sms-communications');
 
   await expect(smsEntry).toContainText('Included on every plan · Uses SMS credits');
