@@ -1332,7 +1332,8 @@ export async function getAppointmentReviewState(salonId: string, appointmentId: 
   if (!ctx.appointment) {
     return { ...display, reason: 'The appointment is no longer available.' };
   }
-  const [row] = await db.select().from(reviewRequestSchema).where(and(eq(reviewRequestSchema.salonId, salonId), eq(reviewRequestSchema.appointmentId, appointmentId))).orderBy(desc(reviewRequestSchema.createdAt)).limit(1);
+  const [row] = await db.select().from(reviewRequestSchema).where(and(eq(reviewRequestSchema.salonId, salonId), eq(reviewRequestSchema.appointmentId, appointmentId)))
+    .orderBy(sql`case when ${reviewRequestSchema.status} = 'cancelled' then 1 else 0 end`, desc(reviewRequestSchema.createdAt), desc(reviewRequestSchema.id)).limit(1);
   const [trigger] = await db.select().from(reviewRequestTriggerSchema).where(and(eq(reviewRequestTriggerSchema.salonId, salonId), eq(reviewRequestTriggerSchema.appointmentId, appointmentId))).orderBy(desc(reviewRequestTriggerSchema.createdAt)).limit(1);
   const rowDisplay = row ? await displayRequest(ctx, salonId, row) : null;
   if (rowDisplay && !['cancelled', 'skipped'].includes(rowDisplay.status)) {
@@ -1343,6 +1344,12 @@ export async function getAppointmentReviewState(salonId: string, appointmentId: 
     return blocked ? { ...display, status: 'skipped', reason: blocked } : displayTrigger(ctx, trigger);
   }
   if (rowDisplay) {
+    if (rowDisplay.status === 'cancelled' && !ineligible(ctx, false) && !await blockingHistoryReason(salonId, ctx)) {
+      // Cancellation is history, not a permanent ban on a proven-unsent
+      // request. Preview the current recipient/template for the new manual
+      // action; historical body snapshots remain in client history.
+      return { ...rowDisplay, canSendManually: true, message: display.message, phone: display.phone };
+    }
     return rowDisplay;
   }
   const [legacy] = await db.select().from(clientCommunicationSchema).where(and(

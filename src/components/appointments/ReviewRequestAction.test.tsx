@@ -47,7 +47,8 @@ describe('ReviewRequestAction', () => {
       .mockResolvedValueOnce(response(reviewRequest('sending', { canSendManually: false })));
     render(<ReviewRequestAction appointmentId="appt_1" salonSlug="salon-a" timeZone="America/Toronto" appointmentStatus="completed" />);
 
-    expect(await screen.findByRole('button', { name: 'Request review' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Request review' })).toBeEnabled());
+
     expect(screen.getByText('Eligible — send manually.')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: 'Request review' }));
@@ -59,6 +60,17 @@ describe('ReviewRequestAction', () => {
 
     expect(fetchMock.mock.calls[1]).toEqual([expect.stringContaining('/api/appointments/appt_1/review-request?salonSlug=salon-a'), expect.objectContaining({ method: 'POST' })]);
     expect(await screen.findByRole('button', { name: 'Review request sending' })).toBeDisabled();
+  });
+
+  it('offers a new manual action for a proven cancelled request with the current preview', async () => {
+    fetchMock.mockResolvedValue(response(reviewRequest('cancelled', { canSendManually: true, phone: '4165559999', message: 'Current review message', reason: 'The pending request was stopped before sending.' })));
+    render(<ReviewRequestAction appointmentId="appt_1" salonSlug="salon-a" timeZone="America/Toronto" appointmentStatus="completed" />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Request review' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Request review' }));
+
+    expect(screen.getByText('We\'ll send this to 4165559999.')).toBeVisible();
+    expect(screen.getByText('Current review message')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Send review request' })).toBeEnabled();
   });
 
   it('explains a scheduled-end request for Send now and shows the cancellation/no-show warning', async () => {
@@ -126,7 +138,7 @@ describe('ReviewRequestAction', () => {
       }));
     const { rerender } = render(<ReviewRequestAction appointmentId="appt_1" salonSlug="salon-a" timeZone="America/Toronto" appointmentStatus="completed" />);
 
-    expect(await screen.findByRole('button', { name: 'Request review' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Request review' })).toBeEnabled());
 
     rerender(<ReviewRequestAction appointmentId="appt_1" salonSlug="salon-a" timeZone="America/Toronto" appointmentStatus="no_show" />);
 
@@ -145,7 +157,8 @@ describe('ReviewRequestAction', () => {
       .mockRejectedValueOnce(new Error('Still offline'))
       .mockResolvedValueOnce(response(reviewRequest('eligible')));
     render(<ReviewRequestAction appointmentId="appt_1" salonSlug="salon-a" timeZone="America/Toronto" appointmentStatus="completed" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Request review' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Request review' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Request review' }));
     fireEvent.click(screen.getByRole('button', { name: 'Send review request' }));
     await screen.findByRole('alert');
 

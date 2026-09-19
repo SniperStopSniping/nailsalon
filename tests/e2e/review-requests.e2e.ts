@@ -229,7 +229,7 @@ test('isolated owner completes and queues one review through the real APIs @mobi
     await openAdminBookings(page);
     await openAdminAppointmentSheet(page, appointmentId, getDateKeyInTimeZone(start));
     const action = page.getByTestId('appointment-review-request-action');
-    await action.getByRole('button', { name: 'Review request scheduled', exact: true }).click();
+    await action.getByRole('button', { name: 'Send now', exact: true }).click();
     const confirmation = page.getByRole('dialog', { name: 'Send review request', exact: true });
 
     await expect(confirmation.getByText(phone, { exact: false })).toBeVisible();
@@ -239,7 +239,7 @@ test('isolated owner completes and queues one review through the real APIs @mobi
     await confirmation.getByRole('button', { name: 'Send now', exact: true }).click();
 
     await expect(confirmation).toBeHidden();
-    await expect(action.getByRole('button', { name: 'Review request scheduled', exact: true })).toBeVisible();
+    await expect(action.getByRole('button', { name: 'Send now', exact: true })).toBeVisible();
     await expect(action.getByText(/^Sent /)).toHaveCount(0);
 
     const submit = await page.request.post(`/api/appointments/${appointmentId}/review-request?salonSlug=${e2eConfig.salonSlug}`, { data: {} });
@@ -257,7 +257,7 @@ test('isolated owner completes and queues one review through the real APIs @mobi
     const status = await page.request.get(`/api/appointments/${appointmentId}/review-request?salonSlug=${e2eConfig.salonSlug}`);
 
     // Proven-unsent cancellation frees manual eligibility while retaining history.
-    expect((await status.json()).data.status).toBe('eligible');
+    expect((await status.json()).data).toMatchObject({ status: 'cancelled', canSendManually: true });
 
     const cancelled = await database.query('SELECT r.status AS request_status, i.status AS intent_status FROM review_request r JOIN communication_intent i ON i.id = r.intent_id WHERE r.client_id = $1', [clientId]);
 

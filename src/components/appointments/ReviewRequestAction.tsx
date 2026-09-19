@@ -52,7 +52,7 @@ function statusLabel(request: ReviewRequestDisplay | null) {
     return 'Review request failed';
   }
   if (request.status === 'cancelled') {
-    return 'Review request cancelled';
+    return request.canSendManually ? 'Request review' : 'Review request cancelled';
   }
   if (request.status === 'skipped') {
     return 'Review request skipped';

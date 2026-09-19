@@ -149,6 +149,55 @@ describe('owner review status and history', () => {
     expect(await getClientReviewOverview(fixture.salonId, fixture.clientId)).toMatchObject({ reviewRequestsSuppressed: false, hasMore: false, history: [{ status: 'reported_sent', sentAt: now.toISOString(), reason: expect.stringContaining('cannot verify') }] });
   });
 
+  it('retains cancelled history while permitting a new manual request with current contact and template', async () => {
+    const fixture = await seed('marked_completed');
+    const row = await request(fixture);
+    const { getAppointmentReviewState, getClientReviewOverview, saveReviewSettings, scheduleReviewRequest } = await import('./reviewRequests.server');
+    // Exercise the actual policy writer's proven-unsent cancellation.
+    await db.update(schema.reviewRequestSchema).set({ source: 'automatic' }).where(eq(schema.reviewRequestSchema.id, row.id));
+    await saveReviewSettings(fixture.salonId, { googleReviewUrl: 'https://g.page/r/new-link', automaticEnabled: false, delayMinutes: 60, messageTemplate: 'Current message {{firstName}} {{reviewLink}}' });
+    const phone = '4165559911';
+    await db.update(schema.salonClientSchema).set({ phone }).where(eq(schema.salonClientSchema.id, fixture.clientId));
+    await db.insert(schema.communicationConsentSchema).values({ id: `new-consent-${fixture.clientId}`, salonId: fixture.salonId, recipient: phone, channel: 'sms', purpose: 'appointment_transactional', status: 'granted', source: 'test', wordingVersion: 'test' });
+    const state = await getAppointmentReviewState(fixture.salonId, fixture.appointmentId);
+
+    expect(state).toMatchObject({ status: 'cancelled', canSendManually: true, phone, message: expect.stringContaining('Current message Sarah https://g.page/r/new-link') });
+    expect((await getClientReviewOverview(fixture.salonId, fixture.clientId)).history).toEqual([expect.objectContaining({ status: 'cancelled', canSendManually: false, phone: fixture.phone })]);
+
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, false);
+    const replacementRows = await db.select().from(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, fixture.salonId));
+
+    expect(replacementRows).toHaveLength(2);
+    expect(replacementRows).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'scheduled', source: 'manual', recipient: phone })]));
+
+    const replacement = replacementRows.find(item => item.source === 'manual')!;
+    // Equal timestamps must not let cancelled history hide its active replacement.
+    await db.update(schema.reviewRequestSchema).set({ createdAt: replacement.createdAt }).where(eq(schema.reviewRequestSchema.id, row.id));
+
+    expect(await getAppointmentReviewState(fixture.salonId, fixture.appointmentId)).toMatchObject({ status: 'scheduled', source: 'manual', phone });
+  });
+
+  it.each(['stop', 'suppressed', 'another_pending', 'uncertain', 'no_show'] as const)('keeps a cancelled request closed when current eligibility is %s', async (blocker) => {
+    const fixture = await seed();
+    const row = await request(fixture);
+    await db.update(schema.communicationIntentSchema).set({ status: 'canceled', resolvedAt: now }).where(eq(schema.communicationIntentSchema.id, row.intentId));
+    await db.update(schema.reviewRequestSchema).set({ status: 'cancelled' }).where(eq(schema.reviewRequestSchema.id, row.id));
+    const { getAppointmentReviewState, queueClientReviewRequest } = await import('./reviewRequests.server');
+    if (blocker === 'stop') {
+      await db.insert(schema.smsGlobalConsentEventSchema).values({ id: `stop-${fixture.clientId}`, senderIdentity: 'luster_shared_v1', recipient: fixture.phone, state: 'suppressed', source: 'operator', occurredAt: now });
+    } else if (blocker === 'suppressed') {
+      await db.update(schema.salonClientSchema).set({ reviewRequestsSuppressed: true }).where(eq(schema.salonClientSchema.id, fixture.clientId));
+    } else if (blocker === 'another_pending') {
+      await queueClientReviewRequest({ salonId: fixture.salonId, clientId: fixture.clientId, requestId: `pending-${fixture.clientId}`, message: 'A different pending request', now });
+    } else if (blocker === 'uncertain') {
+      await db.update(schema.communicationIntentSchema).set({ status: 'send_outcome_unknown' }).where(eq(schema.communicationIntentSchema.id, row.intentId));
+    } else {
+      await db.update(schema.appointmentSchema).set({ status: 'no_show' }).where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    }
+
+    expect(await getAppointmentReviewState(fixture.salonId, fixture.appointmentId)).toMatchObject({ canSendManually: false });
+  });
+
   it('shows manual client-only requests without inventing an appointment', async () => {
     const fixture = await seed();
     const { queueClientReviewRequest, getClientReviewOverview } = await import('./reviewRequests.server');
