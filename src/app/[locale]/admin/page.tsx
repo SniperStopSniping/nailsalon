@@ -40,6 +40,7 @@ import { LuckyCharmLoader } from '@/components/loading/LuckyCharmLoader';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 import { formatMoney } from '@/libs/formatMoney';
+import { resolveOwnerNavigationAlias } from '@/libs/ownerNavigation';
 // =============================================================================
 // Main Page Component
 // =============================================================================
@@ -143,6 +144,10 @@ function shiftAnchor(ymd: string, period: TimePeriod, dir: -1 | 1): string {
  * history entry so the browser Back button closes it again.
  */
 const URL_APP_IDS = [
+  'hours',
+  'booking-rules',
+  'plan-usage',
+  'help',
   'bookings',
   // The Calendar is a workspace destination, not a transient overlay: it is
   // addressable (?app=schedule), survives a reload, and Back closes it.
@@ -1385,17 +1390,17 @@ function AdminDashboardContent() {
       return;
     }
     const appParam = searchParams.get('app');
-    const viewParam = searchParams.get('view');
 
     // Keep old bookmarked Settings destinations working while giving each
     // control one canonical app. Replace (rather than push) so Back does not
     // return the owner to the retired duplicate location.
-    if (appParam === 'settings' && viewParam === 'payments') {
-      router.replace(buildAdminUrl('payments'));
-      return;
-    }
-    if (appParam === 'settings' && viewParam === 'visibility') {
-      router.replace(`${buildAdminUrl('team')}&view=permissions`);
+    const canonicalQuery = resolveOwnerNavigationAlias(new URLSearchParams(searchParams.toString()));
+    if (canonicalQuery) {
+      const salon = canonicalQuery.get('salon') ?? activeDashboardSalonSlug;
+      if (salon) {
+        canonicalQuery.set('salon', salon);
+      }
+      router.replace(`/${locale}/admin?${canonicalQuery.toString()}`);
       return;
     }
     // Salon notification emails deep-link to a single appointment. The
@@ -1453,6 +1458,8 @@ function AdminDashboardContent() {
     authLoading,
     adminUser,
     analyticsModuleStatus,
+    activeDashboardSalonSlug,
+    locale,
     buildAdminUrl,
     moduleReasons,
     router,
@@ -2051,11 +2058,12 @@ function AdminDashboardContent() {
       </div>
 
       <AdminModalHost
+        teamAppAvailable={!hiddenAppIds.includes('team')}
         settingsInitialView={searchParams.get('view') ?? undefined}
         activeModal={activeModal}
         activeSalonSlug={activeDashboardSalonSlug}
         activeSalonId={activeDashboardSalon?.id ?? null}
-        onOpenApp={openAppViaUrl}
+        onOpenApp={handleAppTap}
         analyticsAppAvailable={!hiddenAppIds.includes('analytics')}
         rewardsAvailable={!hiddenAppIds.includes('rewards')}
         reviewsAvailable={!hiddenAppIds.includes('reviews')}

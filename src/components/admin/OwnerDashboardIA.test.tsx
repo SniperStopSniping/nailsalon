@@ -5,6 +5,12 @@ import { PaymentsModal } from './PaymentsModal';
 import { RewardsReviewsModal } from './RewardsReviewsModal';
 import { TeamModal } from './TeamModal';
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
+  useParams: () => ({ locale: 'en' }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 afterEach(() => {
   cleanup();
 });
@@ -38,6 +44,7 @@ describe('owner dashboard app hubs', () => {
     expect(screen.getByText('Deposits')).toBeInTheDocument();
     expect(screen.getByText('Payment Methods')).toBeInTheDocument();
     expect(screen.getByText('Taxes')).toBeInTheDocument();
+    expect(screen.getByText('Currency')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Stripe / Payouts'));
 

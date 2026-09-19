@@ -168,6 +168,25 @@ describe('BookingPageInformationEditor', () => {
     return { onAddressPrivacyChange, onConfigPatch, registerFlush };
   }
 
+  it('opens only regular hours in the Hours destination and saves through the existing business endpoint', async () => {
+    renderEditor({ mode: 'hours' });
+
+    expect(await screen.findByTestId('information-hours-monday-open')).toHaveValue('10:00');
+    expect(screen.getByTestId('information-hours')).toHaveAttribute('open');
+    expect(screen.queryByTestId('information-identity')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('information-contact')).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('switch')).toHaveLength(0);
+
+    fireEvent.change(screen.getByTestId('information-hours-monday-open'), { target: { value: '11:00' } });
+    fireEvent.click(screen.getByTestId('information-save-hours'));
+    await waitFor(() => expect(calls.filter(call => call.method === 'PATCH')).toHaveLength(1));
+
+    expect(calls.find(call => call.method === 'PATCH')).toMatchObject({
+      url: '/api/admin/salon/information?salonSlug=salon-a',
+      body: { businessHours: { monday: { open: '11:00', close: '19:00' } } },
+    });
+  });
+
   it('loads the actual saved values into every accordion and never edits the private account profile', async () => {
     renderEditor();
 
