@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
 
 import { ClientLifecycleStabilizationError, getSalonClientLineageIdentityWithHandle, lockOperationalSalonClientContactWithHandle, resolveOperationalSalonClientContactWithHandle } from '@/libs/clientLifecycleStabilization';
 import type { CommunicationIntentDatabase, CommunicationIntentTransaction } from '@/libs/communicationIntent';
@@ -10,6 +10,7 @@ import { resolveCommunicationSettingsFromSettings } from '@/libs/communicationSe
 import { db, usesRuntimePostgres } from '@/libs/DB';
 import { isValidPhone } from '@/libs/phone';
 import { resolveReviewAutomationPolicy } from '@/libs/reviewAutomationPolicy';
+import { evaluateReviewHistory } from '@/libs/reviewRequestHistory';
 import { DEFAULT_REVIEW_MESSAGE, isReviewUrl, renderReviewMessage, reviewMessageFits, reviewSettingsSchema, reviewSmsBody } from '@/libs/reviewRequests';
 import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
 import { readSharedSenderEnvConfig } from '@/libs/smsSender';
@@ -299,7 +300,7 @@ export async function materializeCompletedReviewTriggers(
           return 'deferred' as const;
         }
 
-        const ctx = await context(transaction, trigger.salonId, trigger.appointmentId);
+        const ctx = await context(transaction, trigger.salonId, trigger.appointmentId, freshNow);
         const snapshotsMatch = ctx.appointment?.completedAt?.getTime() === trigger.triggerAt.getTime()
           && ctx.appointment.startTime.getTime() === trigger.appointmentStartAt.getTime()
           && ctx.appointment.endTime.getTime() === trigger.appointmentEndAt.getTime();
@@ -412,27 +413,35 @@ export async function getReviewSettings(salonId: string, database: Communication
     enabledAt: settings?.reviewRequestsEnabledAt ?? null,
     delayMinutes: settings?.reviewRequestDelayMinutes ?? 60,
     messageTemplate: settings?.reviewRequestMessage ?? DEFAULT_REVIEW_MESSAGE,
+    policy: resolveReviewAutomationPolicy(settings),
     businessName: salon?.name ?? '',
     salon,
   };
 }
 
-async function context(database: CommunicationIntentDatabase, salonId: string, appointmentId: string) {
+async function context(database: CommunicationIntentDatabase, salonId: string, appointmentId: string, now = new Date()) {
   const [appointment] = await database.select().from(appointmentSchema).where(and(eq(appointmentSchema.id, appointmentId), eq(appointmentSchema.salonId, salonId))).limit(1);
   const settings = await getReviewSettings(salonId, database);
   if (!appointment?.salonClientId) {
-    return { appointment, settings, client: null, legacyReview: null, consent: false, clientIds: [] as string[] };
+    return { appointment, settings, now, client: null, legacyReview: null, consent: false, clientIds: [] as string[] };
   }
   try {
     const contact = await resolveOperationalSalonClientContactWithHandle(database, { salonId, clientId: appointment.salonClientId });
     const identity = await getSalonClientLineageIdentityWithHandle(database, { salonId, terminalClientId: contact.id });
     const [client] = await database.select().from(salonClientSchema).where(and(eq(salonClientSchema.id, contact.id), eq(salonClientSchema.salonId, salonId))).limit(1);
-    const [legacyReview] = await database.select().from(clientCommunicationSchema).where(and(
+    const legacyReviews = await database.select().from(clientCommunicationSchema).where(and(
       eq(clientCommunicationSchema.salonId, salonId),
-      inArray(clientCommunicationSchema.salonClientId, identity.clientIds),
+      or(inArray(clientCommunicationSchema.salonClientId, identity.clientIds), eq(clientCommunicationSchema.appointmentId, appointmentId)),
       eq(clientCommunicationSchema.kind, 'google_review'),
-      eq(clientCommunicationSchema.status, 'marked_sent'),
-    )).orderBy(desc(clientCommunicationSchema.markedSentAt)).limit(1);
+      or(eq(clientCommunicationSchema.status, 'marked_sent'), isNotNull(clientCommunicationSchema.markedSentAt)),
+    )).orderBy(desc(clientCommunicationSchema.markedSentAt));
+    const legacyDecision = evaluateReviewHistory({
+      history: legacyReviews.map(row => ({ id: row.id, appointmentId: row.appointmentId, state: 'sent', sentAt: row.markedSentAt })),
+      appointmentId,
+      cooldownDays: settings.policy.repeatCooldownDays,
+      now,
+    });
+    const legacyReview = legacyReviews.find(row => row.id === legacyDecision.blockingId);
     const recipient = normalizeConsentRecipient(contact.phone);
     const [consent] = await database.select().from(communicationConsentSchema).where(and(
       eq(communicationConsentSchema.salonId, salonId),
@@ -444,13 +453,13 @@ async function context(database: CommunicationIntentDatabase, salonId: string, a
       eq(smsGlobalConsentEventSchema.recipient, recipient),
       eq(smsGlobalConsentEventSchema.senderIdentity, readSharedSenderEnvConfig().senderIdentity),
     )).orderBy(desc(smsGlobalConsentEventSchema.seq)).limit(1);
-    return { appointment, settings, client: client ?? null, legacyReview: legacyReview ?? null, consent: consent?.status === 'granted' && global?.state !== 'suppressed', clientIds: identity.clientIds };
+    return { appointment, settings, now, client: client ?? null, legacyReview: legacyReview ?? null, consent: consent?.status === 'granted' && global?.state !== 'suppressed', clientIds: identity.clientIds };
   } catch (error) {
     if (!(error instanceof ClientLifecycleStabilizationError)) {
       throw error;
     }
     // Archived, missing, or malformed identity always fails closed.
-    return { appointment, settings, client: null, legacyReview: null, consent: false, clientIds: [] as string[] };
+    return { appointment, settings, now, client: null, legacyReview: null, consent: false, clientIds: [] as string[] };
   }
 }
 
@@ -490,16 +499,36 @@ function ineligible(ctx: ReviewContext, automatic: boolean): string | null {
   return reviewMessageFits(body) ? null : 'Shorten the review message to 10 SMS segments or fewer.';
 }
 
-async function existingRequest(database: CommunicationIntentDatabase, salonId: string, ctx: ReviewContext) {
+async function existingRequest(database: CommunicationIntentDatabase, salonId: string, ctx: ReviewContext, excludeIntentId?: string) {
   if (!ctx.client || ctx.clientIds.length === 0) {
     return undefined;
   }
-  const [row] = await database.select().from(reviewRequestSchema).where(and(
-    eq(reviewRequestSchema.salonId, salonId),
-    ne(reviewRequestSchema.status, 'cancelled'),
-    or(inArray(reviewRequestSchema.clientId, ctx.clientIds), eq(reviewRequestSchema.recipient, normalizeConsentRecipient(ctx.client.phone))),
-  )).orderBy(desc(reviewRequestSchema.createdAt)).limit(1);
-  return row;
+  const rows = await database.select({ request: reviewRequestSchema, intent: communicationIntentSchema, delivery: notificationDeliverySchema })
+    .from(reviewRequestSchema)
+    .leftJoin(communicationIntentSchema, and(eq(communicationIntentSchema.id, reviewRequestSchema.intentId), eq(communicationIntentSchema.salonId, salonId)))
+    .leftJoin(notificationDeliverySchema, and(eq(notificationDeliverySchema.id, communicationIntentSchema.deliveryId), eq(notificationDeliverySchema.salonId, salonId)))
+    .where(and(
+      eq(reviewRequestSchema.salonId, salonId),
+      excludeIntentId ? ne(reviewRequestSchema.intentId, excludeIntentId) : undefined,
+      or(
+        inArray(reviewRequestSchema.clientId, ctx.clientIds),
+        eq(reviewRequestSchema.recipient, normalizeConsentRecipient(ctx.client.phone)),
+        ctx.appointment ? eq(reviewRequestSchema.appointmentId, ctx.appointment.id) : undefined,
+      ),
+    ));
+  const decision = evaluateReviewHistory({
+    history: rows.map(({ request, intent, delivery }) => ({
+      id: request.id,
+      appointmentId: request.appointmentId,
+      state: intent?.status ?? null,
+      sentAt: intent?.status === 'sent' ? intent.resolvedAt : null,
+      hasProviderEvidence: !!delivery?.providerMessageId || ['sent', 'delivered'].includes(delivery?.status ?? ''),
+    })),
+    appointmentId: ctx.appointment?.id ?? '',
+    cooldownDays: ctx.settings.policy.repeatCooldownDays,
+    now: ctx.now,
+  });
+  return rows.find(({ request }) => request.id === decision.blockingId)?.request;
 }
 
 /** Only a proven never-sent intent can release a client's normal request slot. */
@@ -585,7 +614,9 @@ export async function scheduleReviewRequest(database: CommunicationIntentDatabas
   await cancelReleasedReviewReservations(database, salonId, ctx, new Date());
   const existing = await existingRequest(database, salonId, ctx);
   if (existing) {
-    if (!automatic && existing.source === 'automatic' && !ineligible(ctx, false)) {
+    if (!automatic && existing.source === 'automatic' && existing.appointmentId === appointmentId
+      && ctx.clientIds.includes(existing.clientId) && existing.recipient === normalizeConsentRecipient(ctx.client.phone)
+      && !ineligible(ctx, false)) {
       // Keep its immutable send identity. An accepted/unknown attempt is never reset.
       await database.update(communicationIntentSchema).set({ scheduledFor: new Date(), availableAt: new Date() }).where(and(eq(communicationIntentSchema.id, existing.intentId), eq(communicationIntentSchema.salonId, salonId), eq(communicationIntentSchema.status, 'pending')));
     }
@@ -640,6 +671,12 @@ export async function reviewRequestSendContext(salonId: string, intentId: string
   }
   if (ineligible(ctx, row.source === 'automatic') || !ctx.client || !ctx.clientIds.includes(row.clientId)
     || normalizeConsentRecipient(ctx.client.phone) !== row.recipient || ctx.appointment?.completedAt?.getTime() !== row.completedAt.getTime()) {
+    return null;
+  }
+  // Another appointment may have been manually requested or marked sent after
+  // this intent was scheduled. Re-read the same history at dispatch, excluding
+  // only this intent's own reservation.
+  if (await existingRequest(db, salonId, ctx, intentId)) {
     return null;
   }
   return { message: renderReviewMessage({ template: ctx.settings.messageTemplate, clientName: ctx.client.fullName, businessName: ctx.settings.businessName, reviewLink: ctx.settings.googleReviewUrl! }) };
