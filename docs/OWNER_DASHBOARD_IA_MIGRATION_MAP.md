@@ -1,3 +1,5 @@
+> Historical implementation snapshot. The approved September 19 owner IA supersedes this hierarchy and its canonical destinations. See [the current implementation and release record](OWNER_IA_REVIEW_IMPLEMENTATION.md). This file remains historical evidence, not the current navigation contract.
+
 # Luster Owner Dashboard — IA Migration Map
 
 This map was prepared from `OWNER_DASHBOARD_CURRENT_INVENTORY.md` and the current `origin/main` implementation before application code was changed. “Link” means the old surface may show status/context but does not own a competing editor.

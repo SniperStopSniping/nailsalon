@@ -1,3 +1,5 @@
+> Final integrated hierarchy, canonical control ownership and release gates: [Owner IA and Review Automation release record](OWNER_IA_REVIEW_RELEASE.md). The slice-by-slice notes below retain their original verification dates and must not be read as current release status.
+
 # Owner navigation and review-request implementation
 
 Approved project, begun after Customer AI PR #253 merged at
