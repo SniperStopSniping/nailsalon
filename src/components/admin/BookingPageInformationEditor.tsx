@@ -288,6 +288,7 @@ export function BookingPageInformationEditor({
   mode = 'legacy',
   onDirtyChange,
   onOpenWorkingHours,
+  onNavigate,
 }: {
   locale: string;
   salonSlug: string;
@@ -316,6 +317,8 @@ export function BookingPageInformationEditor({
   mode?: 'booking' | 'business' | 'gallery' | 'legacy' | 'hours';
   onDirtyChange?: (dirty: boolean) => void;
   onOpenWorkingHours?: () => void;
+  /** Lets a page-level dirty guard settle drafted display writes before following a canonical editor link. */
+  onNavigate?: (href: string) => void;
 }) {
   const [info, setInfo] = useState<SalonInformation | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'forbidden' | 'error'>('loading');
@@ -337,6 +340,7 @@ export function BookingPageInformationEditor({
   const query = `salonSlug=${encodeURIComponent(salonSlug)}`;
   const workspace = `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}`;
   const businessInformationHref = `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=business`;
+  const policiesDisplayHref = `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=policies`;
   const showSwitches = mode !== 'hours' && mode !== 'business' && mode !== 'gallery' && draft.layout === 'quick_book';
   const showEditors = mode !== 'booking' && mode !== 'gallery';
 
@@ -1129,7 +1133,21 @@ export function BookingPageInformationEditor({
 
         {showSwitches && (
           <Accordion subtitle="Policies and reviews on Quick Book" testId="information-other" title="Other public content">
-            {renderSwitches('Other public content')}
+            <p className="text-sm text-[var(--owner-muted)]">
+              Policies and review visibility are managed together in Policies Display.
+            </p>
+            <a
+              className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline"
+              href={policiesDisplayHref}
+              onClick={(event) => {
+                if (onNavigate) {
+                  event.preventDefault();
+                  onNavigate(policiesDisplayHref);
+                }
+              }}
+            >
+              Open Policies Display →
+            </a>
           </Accordion>
         )}
       </div>

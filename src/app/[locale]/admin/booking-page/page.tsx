@@ -82,9 +82,9 @@ import { getI18nPath } from '@/utils/Helpers';
  *    AG-w2-information-parity-03) but under the canonical name, and it links
  *    to the panel that owns the rest of the address.
  *
- * Business type remains legacy-only. Website images now defer to the
- * Photos & Gallery panel so the old route cannot become a second editor for
- * the cover-photo field.
+ * Business type now also appears in Layouts → Advanced with the other
+ * presentation controls. The legacy URL is replaced with the hub below, so
+ * this retained compatibility markup is not an alternate owner destination.
  */
 const BUSINESS_MODE_OPTIONS: Array<{ id: BusinessMode; label: string; description: string }> = [
   { id: 'solo', label: 'Independent nail tech', description: 'I work on my own — one calendar.' },
@@ -429,6 +429,20 @@ function BookingPageOwnerSurfaceContent() {
   useEffect(() => {
     setNavigationPending(false);
   }, [panel]);
+
+  // `booking-page` without a focused panel was the old all-in-one editor.
+  // Wait for its existing auth fallback to resolve a bare saved bookmark,
+  // then replace it with the hub so Back does not reopen a duplicate surface.
+  useEffect(() => {
+    if (panel !== null || loading) {
+      return;
+    }
+    const query = new URLSearchParams(searchParams.toString());
+    if (salonSlug && !query.get('salon')) {
+      query.set('salon', salonSlug);
+    }
+    router.replace(`/${locale}/admin/website${query.size ? `?${query}` : ''}`);
+  }, [loading, locale, panel, router, salonSlug, searchParams]);
 
   // Phase A (draft/publish split): the salon's OWN publicationStatus — not
   // the booking-page config draft/live pair above. Drives whether
@@ -1144,6 +1158,16 @@ function BookingPageOwnerSurfaceContent() {
     );
   }
 
+  // Never leave the retired combined editor interactive while its compatibility
+  // replacement is in flight.
+  if (panel === null) {
+    return (
+      <main className="owner-workspace-theme flex min-h-screen items-center justify-center bg-[var(--owner-ground)]" data-theme-scope="owner">
+        <div className="size-8 animate-spin rounded-full border-2 border-[var(--owner-line-strong)] border-t-[var(--owner-accent)]" />
+      </main>
+    );
+  }
+
   // These are standalone leaves. Their one visible Back action belongs to
   // SettingsModal's existing dirty guard, rather than a second page header
   // that could route away from an unsaved explicit-save editor.
@@ -1361,6 +1385,7 @@ function BookingPageOwnerSurfaceContent() {
               mode="booking"
               onAddressPrivacyChange={mode => void saveContentPatch({ locationDisplayMode: mode })}
               onConfigPatch={patch => void saveConfigPatch(patch)}
+              onNavigate={href => void navigateAfterSaving(href)}
               onUploadCover={file => void uploadCover(file)}
               onUseDefaultCover={() => void saveCoverChoice({ heroImageUrl: null })}
               registerFlush={registerInformationFlush}
@@ -1401,6 +1426,58 @@ function BookingPageOwnerSurfaceContent() {
               presentationPreview={presentationPreview}
               textHref={salonSlug ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=text` : null}
             />
+          )}
+
+          {panel === 'layouts' && (
+            <>
+              <BookingPagePresetPicker
+                draft={{ ...draft, presetBase: config.draftPresetBase }}
+                pending={presentationPending}
+                status={presetStatus}
+                previewBaseUrl={previewFrameSrc}
+                onOperation={operation => void handleBuilderOperation(operation)}
+              />
+              <SectionCard
+                title="Business type"
+                description="Choose whether your booking page and calendar show one nail tech or several."
+              >
+                <details data-testid="business-type-advanced">
+                  <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold text-[var(--owner-ink)]">Advanced business setup</summary>
+                  <div className="grid grid-cols-2 gap-2 pt-2">
+                    {BUSINESS_MODE_OPTIONS.map(option => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        disabled={presentationPending}
+                        data-testid={`business-mode-option-${option.id}`}
+                        aria-pressed={draft.businessMode === option.id}
+                        onClick={() => handleBusinessModeSelect(option.id)}
+                        className={`rounded-2xl border p-3 text-left text-sm font-medium transition-colors ${
+                          draft.businessMode === option.id
+                            ? 'border-rose-600 bg-[var(--owner-blush)] text-[var(--owner-accent)]'
+                            : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)] hover:border-rose-300'
+                        }`}
+                      >
+                        {option.label}
+                        <span className="mt-1 block text-[11px] font-normal text-[var(--owner-line-strong)]">{option.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                </details>
+              </SectionCard>
+              <BookingPageBuilder
+                draft={draft}
+                completedMoveRevision={completedMoveRevision}
+                hideServiceMenuPresentation
+                pending={presentationPending}
+                presetBase={config.draftPresetBase}
+                previewAdmissionRevision={previewAdmission?.revision ?? null}
+                previewRequestRevision={previewRevision}
+                previewedSectionIds={previewAdmission?.sectionIds ?? null}
+                previewedReorderableSectionOrder={previewAdmission?.reorderableSectionOrder ?? null}
+                onOperation={operation => void handleBuilderOperation(operation)}
+              />
+            </>
           )}
 
           {panel === 'policies' && (

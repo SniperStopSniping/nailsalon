@@ -3,6 +3,8 @@
 import { ArrowLeft, Building2, Check, Copy, Images, LayoutTemplate, ListOrdered, Lock, MessageSquare, Palette, Scissors, ShieldCheck, Type, UserRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
+import OwnerAssistantLauncher from '@/components/admin/ownerAssistant/OwnerAssistantLauncher';
+
 /**
  * AG-hub-publish-08 — the owner draft preview's "Back to editor" control
  * returns here with this fragment. Focus has to land back on the control the
@@ -175,6 +177,12 @@ export function BookingPageHub({
                 )}
         </section>
       </div>
+      <OwnerAssistantLauncher
+        locale={locale === 'fr' ? 'fr' : 'en'}
+        placement="standalone"
+        salonSlug={salonSlug}
+        screen="booking-page"
+      />
     </main>
   );
 }

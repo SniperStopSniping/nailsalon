@@ -35,6 +35,12 @@ export type BookingPageBuilderProps = {
   previewRequestRevision?: number;
   /** Admin-only base recipe provenance; never passed to the public renderer. */
   presetBase?: BookingPagePresetReference | null;
+  /**
+   * Layouts owns the complete booking-menu chooser. Hide the builder's older
+   * service-menu presentation selector there so one draft field has one
+   * owner-facing editor; other builder surfaces keep their established UI.
+   */
+  hideServiceMenuPresentation?: boolean;
   pending: boolean;
   onOperation: (operation: BookingPageBuilderOperation) => void;
 };
@@ -235,6 +241,7 @@ export function BookingPageBuilder({
   presetBase = null,
   pending,
   onOperation,
+  hideServiceMenuPresentation = false,
 }: BookingPageBuilderProps) {
   const presentationState = { ...draft, presetBase };
   const sectionDefinitions = listBookingPageBuilderSections(
@@ -537,6 +544,7 @@ export function BookingPageBuilder({
               </div>
 
               {definition.supported
+              && !(hideServiceMenuPresentation && definition.id === 'serviceMenu')
               && (definition.allowedVariants.length > 1 || explicitVariant !== undefined)
                 ? (
                     <div className="mt-4">

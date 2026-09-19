@@ -61,6 +61,25 @@ test('experience is mobile canonical and Flow fails closed for Free Solo', async
   await expect(page).toHaveURL(/\/en\/admin\/website\?salon=isla$/);
 });
 
+test('legacy Booking Page links replace to the hub and Layouts owns presentation controls at 320 and 390px', async ({ page }) => {
+  await mockApi(page, false);
+
+  for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/?salon=isla&returnTo=calendar');
+
+    await expect(page).toHaveURL('/en/admin/website?salon=isla&returnTo=calendar');
+
+    await page.goto('/?salon=isla&panel=layouts');
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Layouts', exact: true })).toBeVisible();
+    await expect(page.getByTestId('booking-page-preset-picker')).toBeVisible();
+    await expect(page.getByText('Business type')).toBeVisible();
+    await expect(page.getByTestId('booking-page-builder')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+});
+
 test('team Flow stays closed while its scoped access check is pending', async ({ page }) => {
   await mockApi(page, false, 250);
   await page.goto('/?salon=isla&panel=flow');

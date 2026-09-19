@@ -28,6 +28,21 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     const businessEditorUrl = new RegExp(
       `/(${e2eConfig.locale}/)?admin/booking-page\\?salon=${encodeURIComponent(e2eConfig.salonSlug)}&panel=business$`,
     );
+    // Old direct links do not reopen the all-in-one editor. `replace` keeps
+    // the owner’s Back stack clean while retaining salon and return context.
+    await page.goto(`${editorUrl}&returnTo=calendar`);
+
+    await expect(page).toHaveURL(new RegExp(`/(${e2eConfig.locale}/)?admin/website\\?salon=${encodeURIComponent(e2eConfig.salonSlug)}&returnTo=calendar$`));
+
+    await page.getByRole('link', { name: /^Layout / }).click();
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Layouts', exact: true })).toBeVisible();
+    await expect(page.getByTestId('booking-page-preset-picker')).toBeVisible();
+    await page.locator('details').filter({ has: page.getByText('Business type', { exact: true }) }).locator('summary').click();
+    await expect(page.getByText('Business type', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('booking-page-builder')).toBeVisible();
+    expect(await noHorizontalOverflow()).toBe(true);
+
     for (const legacyView of ['business-profile', 'location']) {
       await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}&app=settings&view=${legacyView}`);
 

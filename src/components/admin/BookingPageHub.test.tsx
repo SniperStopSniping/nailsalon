@@ -1,7 +1,11 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { BookingPageHub } from './BookingPageHub';
+
+vi.mock('./ownerAssistant/OwnerAssistantLauncher', () => ({
+  default: ({ salonSlug }: { salonSlug: string }) => <div data-testid="hub-owner-assistant" data-salon-slug={salonSlug} />,
+}));
 
 const props = { locale: 'en', salonName: 'Another Nail Studio', salonSlug: 'another-studio', published: true, hasDraftChanges: false, setupUrl: null };
 
@@ -26,6 +30,7 @@ describe('Booking Page hub', () => {
     expect(screen.getByRole('link', { name: /Booking Flow/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=flow');
     expect(screen.getByText('Live · All changes published')).toBeVisible();
     expect(screen.queryByText(/Daniela|Isla/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('hub-owner-assistant')).toHaveAttribute('data-salon-slug', 'another-studio');
   });
 
   it('keeps the team-only Flow editor out of the Free Solo hub while retaining Public Booking Experience', () => {

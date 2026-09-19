@@ -202,7 +202,8 @@ describe('BookingPageInformationEditor', () => {
     expect(screen.getByTestId('information-hours-monday-open')).toHaveValue('10:00');
     expect(screen.getByTestId('information-hours-tuesday-open-toggle')).not.toBeChecked();
     expect(screen.getByTestId('information-timezone')).toHaveValue('America/Toronto');
-    expect(screen.getAllByRole('switch')).toHaveLength(11);
+    expect(screen.getAllByRole('switch')).toHaveLength(8);
+    expect(screen.getByRole('link', { name: 'Open Policies Display →' })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=policies');
     expect(calls.map(call => call.url)).toEqual(['/api/admin/salon/information?salonSlug=salon-a']);
     expect(calls.some(call => call.url.includes('/api/admin/profile'))).toBe(false);
   });
@@ -218,6 +219,21 @@ describe('BookingPageInformationEditor', () => {
 
     expect(screen.queryByTestId('information-address-street')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Edit salon address/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=business');
+  });
+
+  it('keeps the Policies Display href for standalone callers and delegates it to a page navigation guard when provided', async () => {
+    const onNavigate = vi.fn();
+    renderEditor({ onNavigate });
+
+    await userEvent.click(await screen.findByText('Other public content'));
+
+    const link = screen.getByRole('link', { name: 'Open Policies Display →' });
+
+    expect(link).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=policies');
+
+    await userEvent.click(link);
+
+    expect(onNavigate).toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-a&panel=policies');
   });
 
   it('keeps public photo controls out of Business Information and links to their canonical Booking Page home', async () => {
@@ -534,7 +550,7 @@ describe('BookingPageInformationEditor', () => {
     expect(await screen.findAllByText('Only the salon owner can change these details.')).not.toHaveLength(0);
     expect(screen.queryByTestId('information-business-name')).not.toBeInTheDocument();
     expect(screen.getByText('Current Studio')).toBeVisible();
-    expect(screen.getAllByRole('switch')).toHaveLength(11);
+    expect(screen.getAllByRole('switch')).toHaveLength(8);
   });
 
   it('registers a flush that saves dirty sections before navigation and reports failure', async () => {
