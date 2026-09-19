@@ -1493,11 +1493,38 @@ function BookingPageOwnerSurfaceContent() {
                 </SectionCard>
               )}
               <SectionCard title="Customer-facing policies" description="Review the policy wording and acknowledgment clients see. Policy wording does not enable automatic charges.">
-                <a className="inline-flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=booking-policy`}>Edit booking policy</a>
+                <a
+                  className="inline-flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4"
+                  href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=booking-rules&view=policies`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void navigateAfterSaving(event.currentTarget.href);
+                  }}
+                >
+                  Edit client policies
+                </a>
               </SectionCard>
               <SectionCard title="Operational booking settings" description="These settings affect booking logic directly. Saving here is separate from publishing website appearance.">
-                <a className="inline-flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=booking`}>Booking rules & availability</a>
-                <a className="mt-3 flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=payments`}>Payments & deposits</a>
+                <a
+                  className="inline-flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4"
+                  href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=booking-rules&view=rules`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void navigateAfterSaving(event.currentTarget.href);
+                  }}
+                >
+                  Booking rules
+                </a>
+                <a
+                  className="mt-3 flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4"
+                  href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=payments`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void navigateAfterSaving(event.currentTarget.href);
+                  }}
+                >
+                  Payments & deposits
+                </a>
               </SectionCard>
             </>
           )}
