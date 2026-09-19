@@ -12,6 +12,17 @@ describe('owner navigation aliases', () => {
       .toBe('salon=isla&app=payments&view=currency');
   });
 
+  it.each([['communications', 'messages'], ['smart-fit', 'smart-fit']])('opens the canonical Marketing editor for %s', (legacy, view) => {
+    const original = new URLSearchParams(`salon=isla&app=settings&view=${legacy}&returnTo=calendar`);
+    const resolved = resolveOwnerNavigationAlias(original);
+
+    expect(resolved?.get('app')).toBe('marketing');
+    expect(resolved?.get('view')).toBe(view);
+    expect(resolved?.get('salon')).toBe('isla');
+    expect(resolved?.get('returnTo')).toBe('calendar');
+    expect(original.get('app')).toBe('settings');
+  });
+
   it('moves legacy Settings links without losing salon, record, or return context', () => {
     const query = new URLSearchParams('salon=isla&appointment=apt_42&returnTo=calendar&app=settings&view=booking-policy');
 

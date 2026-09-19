@@ -151,3 +151,18 @@ payloads prevents resubmitting unrelated browser fields, but simultaneous server
 requests can still overwrite sibling fields. This UI slice does not change that
 shared persistence behavior or claim atomic per-field writes. A separate fix
 would require concurrent handler tests and an independent booking/payment review.
+
+Marketing consolidation evidence: Appointment messages reuses the complete
+existing communications editor, including booking SMS default and persisted
+reminder timings. Offers links to Smart Fit, follow-up offers and the existing
+first-visit controls in Services. Reviews retains the existing Review Requests
+editor; automation behavior has not changed. Stable Owner Assistant destinations
+and legacy settings URLs point to these homes. Smart Fit results retain the
+existing Analytics availability check.
+
+The final focused unit suite passed 136 tests, including communications control
+parity and destination aliases. The actual-component mobile harness passed 8/8
+at 390px Chromium and 320px WebKit: history, direct links, Smart Fit's guarded
+header, existing reminder/default saves, and same-mounted destination switches.
+Independent source review approved the final changes. Deployed, authenticated
+Preview verification remains a separate gate.

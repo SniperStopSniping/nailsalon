@@ -258,6 +258,7 @@ export function AdminModalHost({
           onOpenClient={onOpenMarketingClient}
           onManageReminders={onManageReminders}
           onOpenSocialPosting={onOpenSocialPosting}
+          smartFitResultsAvailable={analyticsAppAvailable}
         />
       </AppModal>
 
