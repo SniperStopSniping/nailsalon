@@ -1946,6 +1946,7 @@ describe('BookingPageOwnerSurface', () => {
       { panel: 'appearance', expected: /Nothing goes live until you publish/ },
       { panel: 'text', expected: /Nothing goes live until you publish/ },
       { panel: 'publish', expected: /Nothing goes live until you publish/ },
+      { panel: 'information', expected: /Display choices stay in your draft until you publish/ },
     ])('keeps the draft promise on the drafted panel "$panel"', async ({ panel, expected }) => {
       searchParamsMock.value = new URLSearchParams(`salon=salon-a${panel ? `&panel=${panel}` : ''}`);
       render(<BookingPageOwnerSurface />);
@@ -1954,7 +1955,7 @@ describe('BookingPageOwnerSurface', () => {
     });
 
     it.each([
-      { panel: 'information', expected: /Saved changes apply immediately/ },
+      { panel: 'business', expected: /apply immediately/ },
       { panel: 'policies', expected: /save immediately/ },
     ])('drops the draft promise on the live-immediate panel "$panel"', async ({ panel, expected }) => {
       searchParamsMock.value = new URLSearchParams(`salon=salon-a&panel=${panel}`);

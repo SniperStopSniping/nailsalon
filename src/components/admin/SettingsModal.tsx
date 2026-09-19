@@ -56,7 +56,6 @@ import {
 } from 'react';
 
 import { useOwnerAdminFeatureFlags } from '@/app/[locale]/admin/OwnerAdminFeatureFlags';
-import { BookingPageInformationEditor } from '@/components/admin/BookingPageInformationEditor';
 import { LockedFeatureRow } from '@/components/ui/locked-feature-row';
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
@@ -98,21 +97,6 @@ import { PageThemesSettings } from './PageThemesSettings';
 import { ReviewRequestSettings } from './ReviewRequestSettings';
 import { SmartFitSettingsCard } from './SmartFitSettingsCard';
 import { UsageBillingModal } from './UsageBillingModal';
-
-const BUSINESS_PROFILE_VISIBILITY = {
-  version: 1 as const,
-  showTechName: false,
-  showTechPhoto: false,
-  showLocation: false,
-  showHours: false,
-  showPhone: false,
-  showEmail: false,
-  showBookingPolicy: false,
-  showCancellationPolicy: false,
-  showReviews: false,
-  showInstagram: false,
-  showBio: false,
-};
 
 /**
  * Formats a Canadian postal code readably (`m5h2m9` → `M5H 2M9`). Values that
@@ -483,163 +467,6 @@ function ProfileCard({
  * directions text used in customer messages. Stored in retention settings
  * (its long-standing home); the Marketing screen no longer duplicates it.
  */
-function ParkingInstructionsCard({
-  salonSlug,
-  onDirtyChange,
-}: {
-  salonSlug: string;
-  onDirtyChange?: (dirty: boolean) => void;
-}) {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [value, setValue] = useState('');
-  const [dirty, setDirty] = useState(false);
-
-  const markDirty = useCallback(
-    (next: boolean) => {
-      setDirty(next);
-      onDirtyChange?.(next);
-    },
-    [onDirtyChange],
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await fetch(
-          `/api/admin/retention/settings?salonSlug=${encodeURIComponent(salonSlug)}`,
-          { cache: 'no-store' },
-        );
-        const body = await response.json().catch(() => null);
-        if (cancelled) {
-          return;
-        }
-        if (!response.ok) {
-          throw new Error(body?.error?.message || 'Failed to load parking instructions');
-        }
-        setValue(body?.data?.settings?.parkingInstructions ?? '');
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : 'Failed to load parking instructions',
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [salonSlug]);
-
-  useEffect(() => {
-    if (!saved) {
-      return undefined;
-    }
-    const timer = window.setTimeout(() => setSaved(false), 2500);
-    return () => window.clearTimeout(timer);
-  }, [saved]);
-
-  const handleSave = async () => {
-    if (saving) {
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const response = await fetch(
-        `/api/admin/retention/settings?salonSlug=${encodeURIComponent(salonSlug)}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ parkingInstructions: value.trim() || null }),
-        },
-      );
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error?.message || 'Failed to save parking instructions');
-      }
-      setValue(body?.data?.settings?.parkingInstructions ?? value.trim());
-      setSaved(true);
-      markDirty(false);
-    } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : 'Failed to save parking instructions',
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Section
-      title="Parking & entry"
-      footer="Added to the editable Directions text alongside the salon address and Maps link when you text a client directions."
-    >
-      {loading
-        ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
-            </div>
-          )
-        : (
-            <div className="space-y-3 p-4">
-              {error && (
-                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                  <span>{error}</span>
-                </div>
-              )}
-              <label htmlFor="settings-parking-instructions" className="block">
-                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                  Parking & entry instructions
-                </span>
-                <textarea
-                  id="settings-parking-instructions"
-                  value={value}
-                  onChange={(event) => {
-                    setValue(event.target.value);
-                    setSaved(false);
-                    markDirty(true);
-                  }}
-                  rows={3}
-                  maxLength={2000}
-                  className="mt-2 w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                  placeholder="Free parking behind the salon. Enter from Queen Street."
-                />
-              </label>
-              <div className="flex items-center justify-end gap-3">
-                {saved && !error && (
-                  <span className="text-xs font-medium text-green-600">
-                    Parking instructions saved.
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void handleSave()}
-                  disabled={saving || !dirty}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Save className="size-4" />
-                  <span>{saving ? 'Saving...' : 'Save parking info'}</span>
-                </button>
-              </div>
-            </div>
-          )}
-    </Section>
-  );
-}
-
 type BookingConfigFormState = {
   bufferMinutes: number;
   slotIntervalMinutes: 5 | 10 | 15 | 30;
@@ -2186,6 +2013,17 @@ export function SettingsModal({
     ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`
     : null;
   const appearanceHubHref = bookingPageHubHref ? `${bookingPageHubHref}&panel=appearance` : undefined;
+  const businessInformationHref = (() => {
+    const query = new URLSearchParams(searchParams?.toString());
+    if (salonSlug) {
+      query.set('salon', salonSlug);
+    }
+    query.delete('app');
+    query.delete('view');
+    query.set('panel', 'business');
+    return `/${locale}/admin/booking-page?${query.toString()}`;
+  })();
+  const openBusinessInformation = () => router.push(businessInformationHref, { scroll: false });
 
   // View navigation state (index + focused editing views)
   const [view, setView] = useState<SettingsView>(
@@ -2195,7 +2033,6 @@ export function SettingsModal({
 
   // Per-view unsaved-edit tracking (explicit-save views only; autosave views
   // never hold unsaved state)
-  const [parkingDirty, setParkingDirty] = useState(false);
   const [bookingConfigDirty, setBookingConfigDirty] = useState(false);
   const [notificationsDirty, setNotificationsDirty] = useState(false);
   const [profileDirty, setProfileDirty] = useState(false);
@@ -3663,7 +3500,6 @@ export function SettingsModal({
   }, [salonSlug, communicationsSaving, communicationsForm]);
 
   const viewDirty: Partial<Record<SettingsView, boolean>> = {
-    'location': parkingDirty,
     'branding': bookingExperienceDirty,
     'booking-policy': bookingPolicyDirty,
     'booking': bookingConfigDirty,
@@ -3737,7 +3573,6 @@ export function SettingsModal({
       setBookingPolicyError(null);
       setBookingPolicySaved(false);
     }
-    setParkingDirty(false);
     setSmartFitDirty(false);
   };
 
@@ -3910,9 +3745,8 @@ export function SettingsModal({
 
         {view === 'business' && (
           <SettingsCardGrid items={[
-            { title: 'Business Profile', description: 'Business name, phone, email and public nail-tech identity', icon: User, onClick: () => openView('business-profile') },
-            { title: 'Location & Arrival', description: 'Salon address, parking and arrival instructions', icon: MapPin, onClick: () => openView('location') },
-            { title: 'Business Hours', description: 'Weekly salon hours and timezone', icon: CalendarClock, onClick: () => openView('business-profile') },
+            { title: 'Business Information', description: 'Salon name, contact, address and arrival instructions', icon: User, onClick: openBusinessInformation },
+            { title: 'Hours & Availability', description: 'Salon hours, working schedules and time off', icon: CalendarClock, onClick: () => openWorkspaceApp('hours') },
             { title: 'Branding & Social', description: 'Booking messages and social links', icon: Palette, onClick: () => openView('branding') },
           ]}
           />
@@ -3953,54 +3787,24 @@ export function SettingsModal({
           />
         )}
 
-        {view === 'business-profile' && salonSlug && (
-          <div className="px-4 pb-8">
-            <BookingPageInformationEditor
-              addressPrivacy="city_only"
-              disabled={false}
-              draft={{ layout: 'quick_book', quickBookProfile: BUSINESS_PROFILE_VISIBILITY }}
-              liveAddressPrivacy="city_only"
-              locale={locale}
-              mode="business"
-              onAddressPrivacyChange={() => undefined}
-              onConfigPatch={() => undefined}
-              salonSlug={salonSlug}
-            />
-          </div>
-        )}
-
-        {view === 'location' && salonSlug && (
-          <>
-            {/*
-              One address editor. This screen used to carry a second copy of
-              the same five location fields writing the same
-              `PATCH /api/admin/location` as Booking Page → Your Information →
-              Location (source map §C1 row 1), with no address-privacy control
-              beside it. The row stays; the editing goes to the canonical one.
-            */}
-            <Section
-              title="Location, contact and hours"
-              footer="Your actual address is saved in Business Profile. Booking Page controls only how much of it customers can see."
-            >
-              <div className="space-y-3 p-4" data-testid="settings-location-handoff">
-                <p className="text-sm text-[var(--owner-muted)]">
-                  Your salon address is part of your canonical Business Profile.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => openView('business-profile')}
-                  className="inline-flex min-h-11 items-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--owner-accent-strong)] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <MapPin className="size-4" />
-                  <span>Edit salon address</span>
-                </button>
-              </div>
-            </Section>
-            <ParkingInstructionsCard
-              salonSlug={salonSlug}
-              onDirtyChange={setParkingDirty}
-            />
-          </>
+        {(view === 'business-profile' || view === 'location') && salonSlug && (
+          <Section
+            title="Business Information"
+            footer="This legacy Settings view now opens the one canonical business record."
+          >
+            <div className="space-y-3 p-4" data-testid="settings-business-information-handoff">
+              <p className="text-sm text-[var(--owner-muted)]">
+                Salon name, contact, address, parking and arrival instructions are managed together on Booking Page.
+              </p>
+              <a
+                className="inline-flex min-h-11 items-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 py-2.5 text-sm font-semibold text-white"
+                href={businessInformationHref}
+              >
+                <MapPin className="size-4" />
+                Open Business Information
+              </a>
+            </div>
+          </Section>
         )}
 
         {view === 'branding' && (
@@ -6111,4 +5915,4 @@ export function SettingsModal({
 }
 
 // Export sub-components for reuse
-export { ParkingInstructionsCard, ProfileCard, Row, Section };
+export { ProfileCard, Row, Section };
