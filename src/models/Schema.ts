@@ -5260,8 +5260,6 @@ export const reviewRequestSchema = pgTable('review_request', {
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, table => ({
-  clientOnce: uniqueIndex('review_request_client_once').on(table.salonId, table.clientId).where(sql`${table.status} <> 'cancelled'`),
-  phoneOnce: uniqueIndex('review_request_phone_once').on(table.salonId, table.recipient).where(sql`${table.status} <> 'cancelled'`),
   triggerOnce: uniqueIndex('review_request_trigger_once').on(table.triggerId),
   appointmentActiveOnce: uniqueIndex('review_request_appointment_active_once').on(table.salonId, table.appointmentId).where(sql`${table.status} <> 'cancelled' and ${table.appointmentId} is not null`),
   salonClientCreated: index('review_request_salon_client_created_idx').on(table.salonId, table.clientId, table.createdAt),

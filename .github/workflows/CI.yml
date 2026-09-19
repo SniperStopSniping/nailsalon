@@ -441,9 +441,14 @@ jobs:
               migrations/0081_review_request_automation_contract.sql) ;;
               # Reviewed nullable review contract, retaining lifetime indexes.
               migrations/0082_review_request_nullable_contract.sql) ;;
+              # Reviewed manual admission and coordinated repeat-policy migrations.
+              migrations/0083_review_request_manual_contract.sql) ;;
+              migrations/0084_review_request_repeat_cooldown.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
+              migrations/meta/0083_snapshot.json) ;;
+              migrations/meta/0084_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -558,6 +563,8 @@ jobs:
               # Inert review-automation policy and durable trigger contract.
               0081_review_request_automation_contract) ;;
               0082_review_request_nullable_contract) ;;
+              0083_review_request_manual_contract) ;;
+              0084_review_request_repeat_cooldown) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1206,6 +1213,26 @@ jobs:
           grep -Fqx \
             'REVIEW_REQUEST_POSTGRES_TESTS_EXECUTED=16 REVIEW_REQUEST_POSTGRES_TESTS_SKIPPED=0' \
             review-request-postgres.log
+
+      - name: Verify repeat-review cooldown races on real PostgreSQL with zero skips
+        shell: bash
+        env:
+          REVIEW_REPEAT_PG_REQUIRED: 'true'
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism src/libs/reviewRepeat.concurrency.integration.test.ts | tee review-repeat-postgres.log
+          grep -Fqx 'REVIEW_REPEAT_POSTGRES_TESTS_EXECUTED=9 REVIEW_REPEAT_POSTGRES_TESTS_SKIPPED=0' review-repeat-postgres.log
+
+      - name: Upload review scanner query-plan evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-query-plan
+          path: test-results/review-query-plan.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Verify durable customer booking operations on real PostgreSQL with zero skips
         shell: bash

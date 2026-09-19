@@ -171,7 +171,7 @@ describe('migration 0081 — review request automation contract', () => {
     );
   });
 
-  it('makes completion nullable only for trigger-backed records while retaining legacy indexes', async () => {
+  it('makes completion nullable only for trigger-backed records while retaining appointment and history indexes', async () => {
     const result = await db.execute(sql`
       select is_nullable
       from information_schema.columns
@@ -190,12 +190,13 @@ describe('migration 0081 — review request automation contract', () => {
 
     expect(completedAt).toEqual([{ is_nullable: 'YES' }]);
     expect(names).toEqual(expect.arrayContaining([
-      'review_request_client_once',
-      'review_request_phone_once',
       'review_request_appointment_active_once',
       'review_request_salon_client_created_idx',
       'review_request_salon_recipient_created_idx',
     ]));
+    expect(names).not.toContain('review_request_client_once');
+    expect(names).not.toContain('review_request_phone_once');
+    expect(names).toContain('review_request_trigger_once');
 
     await expectSqlState(
       db.insert(schema.reviewRequestSchema).values({
