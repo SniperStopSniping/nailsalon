@@ -3356,8 +3356,10 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
       });
 
       const builderPage = await ownerContext.newPage();
+      // Omit the salon query so bootstrap reads the intercepted account data,
+      // including its deliberately cross-host public booking URL.
       const builderResponse = await builderPage.goto(
-        `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&ownerPublishEvidence=1`,
+        `${appPath('/admin/booking-page')}?panel=layouts&ownerPublishEvidence=1`,
         { waitUntil: 'domcontentloaded' },
       );
 
