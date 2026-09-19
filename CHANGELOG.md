@@ -1,3 +1,40 @@
+# [1.121.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.120.0...v1.121.0) (2026-09-19)
+
+
+### Bug Fixes
+
+* distinguish customer quick replies in conversation ([f3d62f2](https://github.com/SniperStopSniping/nailsalon/commit/f3d62f29187e7d288b245e014aa5f9c1180d4790))
+* **owner:** align assistant destination descriptions with canonical controls ([15e01d0](https://github.com/SniperStopSniping/nailsalon/commit/15e01d09dc8526de61d3232772cc27cf27c77cb1))
+* **owner:** guard canonical policy links and await module readiness ([aa8f0df](https://github.com/SniperStopSniping/nailsalon/commit/aa8f0df633e152ef122a715a82b03235c93ae2dc))
+* **reviews:** issue valid PostgreSQL NOWAIT locks ([b5e346c](https://github.com/SniperStopSniping/nailsalon/commit/b5e346cbfd5c69e2d05689da0958b5dbde9c94c8))
+* **reviews:** preserve manual requests after unsent cancellation ([ec7593b](https://github.com/SniperStopSniping/nailsalon/commit/ec7593bf0b6653185d3f71b0d69c5e6917500bb9))
+* show booking recovery readiness before confirmation ([ad7f238](https://github.com/SniperStopSniping/nailsalon/commit/ad7f2385476fee784d31ebf77ae6ef19c59d68ab))
+
+
+### Features
+
+* **owner:** add task-oriented navigation foundation ([726fd34](https://github.com/SniperStopSniping/nailsalon/commit/726fd34170910e7f8b10151dadf3fd4f468f24d0))
+* **owner:** consolidate business information under Booking Page ([f67bc54](https://github.com/SniperStopSniping/nailsalon/commit/f67bc540ba9819d75b30fc8f7125f436ebd44c48))
+* **owner:** consolidate Marketing and Messages destinations ([fc6a128](https://github.com/SniperStopSniping/nailsalon/commit/fc6a1284698c0bec52be4d1670fc8b208848586a))
+* **owner:** finish canonical Booking Page layout and policy controls ([a4a39f5](https://github.com/SniperStopSniping/nailsalon/commit/a4a39f5fa3d60891496970a03810cd0d75e13ec4))
+* **owner:** integrate reviewed owner information architecture ([d987808](https://github.com/SniperStopSniping/nailsalon/commit/d9878083cc185409f02a20a8478db8eb47449025))
+* **owner:** make Hours the canonical schedule workspace ([f250da4](https://github.com/SniperStopSniping/nailsalon/commit/f250da4e00fedc886a7ad26ccfa412b8717ebc33))
+* **owner:** organize booking experience and flow editors ([864f11d](https://github.com/SniperStopSniping/nailsalon/commit/864f11dce98b9d5d7f4f0c6b51819e9f996cea49))
+* **owner:** reserve Settings for workspace configuration ([ee8a207](https://github.com/SniperStopSniping/nailsalon/commit/ee8a207359fb247bd0ff1a92d745698aba876799))
+* **owner:** reuse working schedule editor outside team management ([57f946d](https://github.com/SniperStopSniping/nailsalon/commit/57f946da3bf2ef473150d0dbceee55abfd06f646))
+* **owner:** separate booking rules from currency and timezone ([c3e3424](https://github.com/SniperStopSniping/nailsalon/commit/c3e3424df0eae53a5edd1b35c282df0b1d7c3801))
+* refine customer receptionist and hand off to normal booking ([6803e7b](https://github.com/SniperStopSniping/nailsalon/commit/6803e7b294fbe2c97137efb1333a33ff970e21b5))
+* **reviews:** add compatible automation policy and trigger contract ([f48511f](https://github.com/SniperStopSniping/nailsalon/commit/f48511faf348dcac436dfd06150f16c33d3e9ebd))
+* **reviews:** capture scheduled appointment end requests safely ([fcfac3a](https://github.com/SniperStopSniping/nailsalon/commit/fcfac3a0908ec66c33c9697783a2f5cbb4344a23))
+* **reviews:** configure salon automation modes and repeat policy ([5f7ced9](https://github.com/SniperStopSniping/nailsalon/commit/5f7ced9744ce53bce0739883ffd781373aba763f))
+* **reviews:** coordinate client presets and legacy review history ([f9e86c3](https://github.com/SniperStopSniping/nailsalon/commit/f9e86c367c423a721e855087bf54be69a3d065fd))
+* **reviews:** coordinate repeat eligibility from durable send history ([428ebde](https://github.com/SniperStopSniping/nailsalon/commit/428ebde83e900783cd238cd7f765b5c6db9a2a6e))
+* **reviews:** integrate reviewed automation and repeat policy ([3cdddbb](https://github.com/SniperStopSniping/nailsalon/commit/3cdddbb65d855022250f198412e861fd2304206a))
+* **reviews:** prepare nullable completion and appointment deduplication ([1359527](https://github.com/SniperStopSniping/nailsalon/commit/13595275bbd67c896160bcae8861d1198e21fa08))
+* **reviews:** record durable completion triggers before dispatch ([151846f](https://github.com/SniperStopSniping/nailsalon/commit/151846f56995f0eb577334c494e8f7700a338c40))
+* **reviews:** retire lifetime indexes behind coordinated cooldown rules ([5461407](https://github.com/SniperStopSniping/nailsalon/commit/54614071c6c02682bad9db2e427f6357f79b97c5))
+* **reviews:** show appointment and client request status honestly ([a1a7e3a](https://github.com/SniperStopSniping/nailsalon/commit/a1a7e3a331b30a4189541df4720c9c61e097fe10))
+
 # [1.120.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.119.1...v1.120.0) (2026-09-19)
 
 
