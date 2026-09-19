@@ -204,7 +204,7 @@ describe('SettingsModal — Features view entitlement states', () => {
     await openFeaturesView();
     const user = userEvent.setup();
 
-    await user.click(screen.getByTestId('settings-sms-communications'));
+    await user.click(await screen.findByTestId('settings-sms-communications'));
 
     expect(await screen.findByRole('heading', { name: 'Client communications' })).toBeInTheDocument();
     expect(screen.getByText('100 SMS credits available. See Usage for details.')).toBeInTheDocument();

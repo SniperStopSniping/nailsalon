@@ -549,6 +549,40 @@ describe('BookingPageOwnerSurface', () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['Edit client policies', 'app=booking-rules&view=policies'],
+    ['Booking rules', 'app=booking-rules&view=rules'],
+    ['Payments & deposits', 'app=payments'],
+  ])('keeps %s navigation inside the pending or failed policy-display save guard', async (label, destination) => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=policies');
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseFailedSave: (() => void) | undefined;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.config?.quickBookProfile) {
+        return new Promise<Response>((resolve) => {
+          releaseFailedSave = () => resolve(new Response(JSON.stringify({ error: 'Save failed' }), { status: 500 }));
+        });
+      }
+      return fallbackFetch(input, init);
+    });
+    render(<BookingPageOwnerSurface />);
+    const link = await screen.findByRole('link', { name: label });
+
+    expect(link).toHaveAttribute('href', `/en/admin?salon=salon-a&${destination}`);
+
+    await userEvent.click(screen.getByRole('switch', { name: /Show reviews/i }));
+    await waitFor(() => expect(releaseFailedSave).toBeTypeOf('function'));
+    fireEvent.click(link);
+
+    expect(pushMock).not.toHaveBeenCalled();
+
+    await act(async () => releaseFailedSave?.());
+    await screen.findByText('Your changes could not be saved. Please retry before leaving this editor.');
+
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
   it('does not render Quick Book visibility controls for Editorial', async () => {
     config = baseConfig({ layout: 'editorial' });
     searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=policies');
