@@ -13,7 +13,7 @@ const { pushMock, replaceMock, state } = vi.hoisted(() => ({
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ locale: 'en' }),
-  useRouter: () => ({ push: pushMock, replace: replaceMock }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, back: vi.fn() }),
   useSearchParams: () => new URLSearchParams(state.query),
 }));
 
@@ -86,6 +86,7 @@ describe('owner dashboard app hubs', () => {
     expect(screen.getByText('Deposits')).toBeInTheDocument();
     expect(screen.getByText('Payment Methods')).toBeInTheDocument();
     expect(screen.getByText('Taxes')).toBeInTheDocument();
+    expect(screen.getByText('Currency')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Stripe / Payouts'));
 

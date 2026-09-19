@@ -62,6 +62,7 @@ const SETTINGS_VIEW_IDS = [
   'booking-flow',
   'smart-fit',
   'payments',
+  'currency',
   'notifications',
   'communications',
   'review-requests',
