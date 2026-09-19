@@ -29,6 +29,8 @@ type ScheduleTabProps = {
   technicianId: string;
   weeklySchedule: WeeklySchedule | null;
   onUpdate: (schedule: WeeklySchedule) => void;
+  section?: 'all' | 'hours' | 'time-off';
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 const DAYS = [
@@ -104,7 +106,7 @@ function getEditorSchedule(weeklySchedule: WeeklySchedule | null): WeeklySchedul
 // Component
 // =============================================================================
 
-export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate }: ScheduleTabProps) {
+export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate, section = 'all', onDirtyChange }: ScheduleTabProps) {
   const [schedule, setSchedule] = useState<WeeklySchedule>(() => getEditorSchedule(weeklySchedule));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -128,6 +130,10 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate 
   useEffect(() => {
     setSchedule(getEditorSchedule(weeklySchedule));
   }, [technicianId, weeklySchedule]);
+
+  useEffect(() => {
+    onDirtyChange?.(section !== 'time-off' && (saving || JSON.stringify(schedule) !== JSON.stringify(getEditorSchedule(weeklySchedule))));
+  }, [schedule, weeklySchedule, saving, section, onDirtyChange]);
 
   // Fetch time off entries
   const fetchTimeOff = useCallback(async () => {
@@ -154,8 +160,10 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate 
   }, [salonSlug, technicianId]);
 
   useEffect(() => {
-    fetchTimeOff();
-  }, [fetchTimeOff]);
+    if (section !== 'hours') {
+      void fetchTimeOff();
+    }
+  }, [fetchTimeOff, section]);
 
   const handleAddTimeOff = async () => {
     if (!salonSlug || !newTimeOff.startDate || !newTimeOff.endDate) {
@@ -297,170 +305,176 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate 
 
   return (
     <div className="space-y-4 p-4 pb-24">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
-          Weekly Schedule
-        </h3>
-      </div>
+      {section !== 'time-off' && (
+        <>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
+              Weekly Schedule
+            </h3>
+          </div>
 
-      {/* Schedule Grid */}
-      <div className="overflow-hidden rounded-[12px] bg-white">
-        {DAYS.map((day, index) => {
-          const daySchedule = schedule[day.key];
-          const isWorking = daySchedule !== null;
+          {/* Schedule Grid */}
+          <div className="overflow-hidden rounded-[12px] bg-white">
+            {DAYS.map((day, index) => {
+              const daySchedule = schedule[day.key];
+              const isWorking = daySchedule !== null;
 
-          return (
-            <div
-              key={day.key}
-              className={`p-4 ${index !== DAYS.length - 1 ? 'border-b border-gray-100' : ''}`}
-            >
-              <div className="flex items-center justify-between">
-                {/* Day Toggle */}
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => toggleDay(day.key)}
-                    aria-label={`Toggle ${day.label} working`}
-                    className={`h-[31px] w-[51px] rounded-full p-[2px] transition-colors ${
-                      isWorking ? 'bg-[#34C759]' : 'bg-[#E5E5EA]'
-                    }`}
-                  >
-                    <motion.div
-                      className="size-[27px] rounded-full bg-white shadow-sm"
-                      animate={{ x: isWorking ? 20 : 0 }}
-                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                    />
-                  </button>
-                  <span className={`text-[17px] ${isWorking ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
-                    {day.label}
-                  </span>
+              return (
+                <div
+                  key={day.key}
+                  className={`p-4 ${index !== DAYS.length - 1 ? 'border-b border-gray-100' : ''}`}
+                >
+                  <div className="flex items-center justify-between">
+                    {/* Day Toggle */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => toggleDay(day.key)}
+                        aria-label={`Toggle ${day.label} working`}
+                        className={`h-[31px] w-[51px] rounded-full p-[2px] transition-colors ${
+                          isWorking ? 'bg-[#34C759]' : 'bg-[#E5E5EA]'
+                        }`}
+                      >
+                        <motion.div
+                          className="size-[27px] rounded-full bg-white shadow-sm"
+                          animate={{ x: isWorking ? 20 : 0 }}
+                          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                        />
+                      </button>
+                      <span className={`text-[17px] ${isWorking ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
+                        {day.label}
+                      </span>
+                    </div>
+
+                    {/* Copy Button */}
+                    {isWorking && (
+                      <button
+                        type="button"
+                        onClick={() => copyToAll(day.key)}
+                        className="rounded-lg p-2 text-[#007AFF] active:bg-gray-100"
+                        title="Copy to all working days"
+                      >
+                        <Copy className="size-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Time Pickers */}
+                  {isWorking && (
+                    <div className="ml-[63px] mt-3 flex items-center gap-3">
+                      <select
+                        value={daySchedule?.start ?? '09:00'}
+                        onChange={e => updateTime(day.key, 'start', e.target.value)}
+                        aria-label={`${day.label} start time`}
+                        className="flex-1 rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] focus:outline-none"
+                      >
+                        {TIME_OPTIONS.map(time => (
+                          <option key={time} value={time}>
+                            {formatTime(time)}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="text-[#8E8E93]">to</span>
+                      <select
+                        value={daySchedule?.end ?? '18:00'}
+                        onChange={e => updateTime(day.key, 'end', e.target.value)}
+                        aria-label={`${day.label} end time`}
+                        className="flex-1 rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] focus:outline-none"
+                      >
+                        {TIME_OPTIONS.map(time => (
+                          <option key={time} value={time}>
+                            {formatTime(time)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
+              );
+            })}
+          </div>
 
-                {/* Copy Button */}
-                {isWorking && (
-                  <button
-                    type="button"
-                    onClick={() => copyToAll(day.key)}
-                    className="rounded-lg p-2 text-[#007AFF] active:bg-gray-100"
-                    title="Copy to all working days"
-                  >
-                    <Copy className="size-4" />
-                  </button>
-                )}
-              </div>
-
-              {/* Time Pickers */}
-              {isWorking && (
-                <div className="ml-[63px] mt-3 flex items-center gap-3">
-                  <select
-                    value={daySchedule?.start ?? '09:00'}
-                    onChange={e => updateTime(day.key, 'start', e.target.value)}
-                    aria-label={`${day.label} start time`}
-                    className="flex-1 rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] focus:outline-none"
-                  >
-                    {TIME_OPTIONS.map(time => (
-                      <option key={time} value={time}>
-                        {formatTime(time)}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-[#8E8E93]">to</span>
-                  <select
-                    value={daySchedule?.end ?? '18:00'}
-                    onChange={e => updateTime(day.key, 'end', e.target.value)}
-                    aria-label={`${day.label} end time`}
-                    className="flex-1 rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] focus:outline-none"
-                  >
-                    {TIME_OPTIONS.map(time => (
-                      <option key={time} value={time}>
-                        {formatTime(time)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Save Button */}
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={saving}
-        className={`
+          {/* Save Button */}
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className={`
           flex w-full items-center justify-center gap-2
           rounded-xl py-3 text-[17px] font-semibold
           ${saved ? 'bg-[#34C759] text-white' : 'bg-[#007AFF] text-white'}
           disabled:opacity-50
         `}
-      >
-        {saved
-          ? (
-              <>
-                <Check className="size-5" />
-                Saved
-              </>
-            )
-          : saving
-            ? (
-                'Saving...'
-              )
-            : (
-                'Save Schedule'
-              )}
-      </button>
+          >
+            {saved
+              ? (
+                  <>
+                    <Check className="size-5" />
+                    Saved
+                  </>
+                )
+              : saving
+                ? (
+                    'Saving...'
+                  )
+                : (
+                    'Save Schedule'
+                  )}
+          </button>
 
-      {saveError && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-          {saveError}
-        </div>
+          {saveError && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {saveError}
+            </div>
+          )}
+        </>
       )}
 
       {/* Time Off Section */}
-      <div className="pt-4">
-        <div className="mb-2 flex items-center justify-between px-1">
-          <h3 className="text-[13px] font-semibold uppercase text-[#8E8E93]">
-            Time Off
-          </h3>
-          <button
-            type="button"
-            onClick={() => setShowAddTimeOff(true)}
-            className="flex items-center gap-1 text-[13px] font-medium text-[#007AFF]"
-          >
-            <Plus className="size-4" />
-            Add
-          </button>
-        </div>
+      {section !== 'hours' && (
+        <div className="pt-4">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <h3 className="text-[13px] font-semibold uppercase text-[#8E8E93]">
+              Time Off
+            </h3>
+            <button
+              type="button"
+              onClick={() => setShowAddTimeOff(true)}
+              className="flex items-center gap-1 text-[13px] font-medium text-[#007AFF]"
+            >
+              <Plus className="size-4" />
+              Add
+            </button>
+          </div>
 
-        {loadingTimeOff
-          ? (
-              <div className="animate-pulse rounded-[12px] bg-white p-4">
-                <div className="h-12 rounded bg-gray-100" />
-              </div>
-            )
-          : timeOff.length === 0
+          {loadingTimeOff
             ? (
-                <div className="rounded-[12px] bg-white p-6 text-center">
-                  <Calendar className="mx-auto mb-2 size-8 text-[#C7C7CC]" />
-                  <p className="text-[15px] text-[#8E8E93]">No upcoming time off</p>
+                <div className="animate-pulse rounded-[12px] bg-white p-4">
+                  <div className="h-12 rounded bg-gray-100" />
                 </div>
               )
-            : (
-                <div className="overflow-hidden rounded-[12px] bg-white">
-                  {timeOff.map((entry, index) => (
-                    <TimeOffRow
-                      key={entry.id}
-                      entry={entry}
-                      isLast={index === timeOff.length - 1}
-                      onDelete={() => setTimeOffPendingDeletion(entry)}
-                      isDeleting={deletingTimeOffId === entry.id}
-                    />
-                  ))}
-                </div>
-              )}
-      </div>
+            : timeOff.length === 0
+              ? (
+                  <div className="rounded-[12px] bg-white p-6 text-center">
+                    <Calendar className="mx-auto mb-2 size-8 text-[#C7C7CC]" />
+                    <p className="text-[15px] text-[#8E8E93]">No upcoming time off</p>
+                  </div>
+                )
+              : (
+                  <div className="overflow-hidden rounded-[12px] bg-white">
+                    {timeOff.map((entry, index) => (
+                      <TimeOffRow
+                        key={entry.id}
+                        entry={entry}
+                        isLast={index === timeOff.length - 1}
+                        onDelete={() => setTimeOffPendingDeletion(entry)}
+                        isDeleting={deletingTimeOffId === entry.id}
+                      />
+                    ))}
+                  </div>
+                )}
+        </div>
+      )}
 
       {/* Add Time Off Modal */}
       <DialogShell
