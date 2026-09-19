@@ -413,6 +413,7 @@ export function ClientCommunicationActions({
   const [composerTitle, setComposerTitle] = useState('Write a message');
   const [composerDraft, setComposerDraft] = useState('');
   const [composerOutreach, setComposerOutreach] = useState<PendingOutreach | null>(null);
+  const [composerPurpose, setComposerPurpose] = useState<'google_review' | undefined>();
 
   const loadSupportData = useCallback(async () => {
     if (!salonSlug) {
@@ -653,6 +654,7 @@ export function ClientCommunicationActions({
     }
     setComposerTitle(title);
     setComposerDraft(kind === 'text' ? '' : body);
+    setComposerPurpose(kind === 'google_review' ? 'google_review' : undefined);
     setComposerOutreach(kind === 'text'
       ? null
       : {
@@ -1237,10 +1239,11 @@ export function ClientCommunicationActions({
         salonSlug={salonSlug}
         salonName={salonName}
         clientId={client.id}
-        appointmentId={upcomingAppointment?.id}
+        appointmentId={composerPurpose ? undefined : upcomingAppointment?.id}
         composerOpen={smsComposerOpen}
         composerTitle={composerTitle}
         initialDraft={composerDraft}
+        purpose={composerPurpose}
         recipientPhone={client.phone}
         onOpenNativeUrl={onOpenNativeUrl}
         onPhoneDraftOpened={(message) => {
@@ -1254,6 +1257,7 @@ export function ClientCommunicationActions({
         onClose={() => {
           setSmsComposerOpen(false);
           setComposerOutreach(null);
+          setComposerPurpose(undefined);
         }}
         showHistory={showHistory}
       />

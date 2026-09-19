@@ -11,7 +11,7 @@ const {
   getAdminSession,
   logAuditEvent,
   getRetentionSettingsForSalon,
-  saveRetentionSettingsForSalon,
+  patchRetentionSettingsForSalon,
   selectQueue,
   db,
 } = vi.hoisted(() => {
@@ -32,7 +32,7 @@ const {
     getAdminSession: vi.fn(),
     logAuditEvent: vi.fn(),
     getRetentionSettingsForSalon: vi.fn(),
-    saveRetentionSettingsForSalon: vi.fn(),
+    patchRetentionSettingsForSalon: vi.fn(),
     selectQueue,
     db: {
       select: vi.fn(() => query(selectQueue.shift() ?? [])),
@@ -45,7 +45,7 @@ vi.mock('@/libs/auditLog', () => ({ logAuditEvent }));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/retentionSettings.server', () => ({
   getRetentionSettingsForSalon,
-  saveRetentionSettingsForSalon,
+  patchRetentionSettingsForSalon,
 }));
 
 describe('/api/admin/retention/settings', () => {
@@ -55,7 +55,7 @@ describe('/api/admin/retention/settings', () => {
     requireAdminSalon.mockResolvedValue({ salon: { id: 'salon_1', slug: 'salon-a' }, error: null });
     getAdminSession.mockResolvedValue({ id: 'admin_1' });
     getRetentionSettingsForSalon.mockResolvedValue(DEFAULT_RETENTION_SETTINGS);
-    saveRetentionSettingsForSalon.mockImplementation(async (_salonId, settings) => settings);
+    patchRetentionSettingsForSalon.mockImplementation(async (_salonId, settings) => settings);
   });
 
   it('rejects an admin who does not own the requested salon', async () => {
@@ -96,7 +96,7 @@ describe('/api/admin/retention/settings', () => {
 
     expect(response.status).toBe(400);
     expect(body.error.code).toBe('INVALID_SERVICE');
-    expect(saveRetentionSettingsForSalon).not.toHaveBeenCalled();
+    expect(patchRetentionSettingsForSalon).not.toHaveBeenCalled();
   });
 
   it('merges and persists valid partial settings without dropping promotion fields', async () => {
@@ -123,18 +123,16 @@ describe('/api/admin/retention/settings', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(saveRetentionSettingsForSalon).toHaveBeenCalledWith(
+    expect(patchRetentionSettingsForSalon).toHaveBeenCalledWith(
       'salon_1',
-      expect.objectContaining({
+      {
         defaultRebookDays: 28,
-        sixWeekPromotion: expect.objectContaining({
+        sixWeekPromotion: {
           enabled: true,
           value: 15,
           eligibleServiceIds: ['service_1'],
-          expiryDays: 14,
-          singleUse: true,
-        }),
-      }),
+        },
+      },
     );
     expect(body.data.availableServices).toEqual([{ id: 'service_1', name: 'Builder Gel' }]);
     expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({

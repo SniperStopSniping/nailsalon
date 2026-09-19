@@ -7,7 +7,7 @@ const fetchMock = vi.fn();
 const sms = { manualAvailable: true, senderLabel: 'Luster messaging number', senderMode: 'shared_luster' };
 const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
 function renderComposer(overrides: Partial<React.ComponentProps<typeof LusterClientSms>> = {}) {
-  render(
+  return render(
     <LusterClientSms
       salonSlug="test-salon"
       salonName="Test Salon"
@@ -92,6 +92,67 @@ describe('Luster SMS composer', () => {
     expect(sends[0]![1].body).toBe(sends[1]![1].body);
 
     await screen.findByText('Text queued. Delivery updates appear below.');
+  });
+
+  it('marks an explicit Google review send without forwarding an incidental appointment', async () => {
+    renderComposer({
+      appointmentId: 'upcoming-appointment',
+      purpose: 'google_review',
+      initialDraft: 'Hi Ava, please leave a review: https://g.page/review',
+    });
+    await screen.findByText('Luster messaging number');
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Owner-edited review invitation.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send text' }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1));
+    const send = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    const body = JSON.parse(String(send?.[1]?.body));
+
+    expect(body).toMatchObject({
+      salonSlug: 'test-salon',
+      purpose: 'google_review',
+      message: 'Owner-edited review invitation.',
+    });
+    expect(body).not.toHaveProperty('appointmentId');
+  });
+
+  it('keeps ordinary message payloads unchanged', async () => {
+    renderComposer({ appointmentId: 'upcoming-appointment' });
+    await screen.findByText('Luster messaging number');
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Please call about your appointment.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send text' }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1));
+    const send = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
+    const body = JSON.parse(String(send?.[1]?.body));
+
+    expect(body).toMatchObject({ salonSlug: 'test-salon', appointmentId: 'upcoming-appointment' });
+    expect(body).not.toHaveProperty('purpose');
+  });
+
+  it('preserves an owner edit when the same review preset rerenders', async () => {
+    const { rerender } = renderComposer({
+      purpose: 'google_review',
+      initialDraft: 'Hi Ava, please leave a review: https://g.page/review',
+    });
+    await screen.findByText('Luster messaging number');
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Owner-edited review invitation.' } });
+
+    rerender(
+      <LusterClientSms
+        salonSlug="test-salon"
+        salonName="Test Salon"
+        clientId="client-test"
+        recipientPhone="4165551234"
+        composerOpen
+        composerTitle="Send Google review link"
+        initialDraft="Hi Ava, please leave a review: https://g.page/review"
+        purpose="google_review"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('Message')).toHaveValue('Owner-edited review invitation.');
   });
 
   it('prefills a contextual draft and opens the phone composer without using Luster', async () => {

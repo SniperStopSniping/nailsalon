@@ -15,6 +15,13 @@ vi.mock('@/libs/clientMessaging', () => ({
   getClientSmsPreference: mocks.preference,
   retryClientSms: mocks.retry,
 }));
+vi.mock('@/libs/reviewRequests.server', () => ({
+  ClientReviewRequestError: class extends Error {
+    constructor(public code: string, message: string, public status = 409) {
+      super(message);
+    }
+  },
+}));
 vi.mock('@/libs/integrationHealth', () => ({ getSalonSmsReadiness: mocks.readiness }));
 vi.mock('@/libs/rateLimit', () => ({ checkEndpointRateLimit: () => ({ allowed: true }), getClientIp: () => 'test', rateLimitResponse: vi.fn() }));
 const ctx = { params: Promise.resolve({ id: 'client-a' }) };
@@ -115,6 +122,37 @@ describe('owner manual SMS route', () => {
 
     expect((await POST(send(), ctx)).status).toBe(202);
     expect(mocks.queue).toHaveBeenCalledWith(expect.objectContaining({ salonId: 'salon-from-session', clientId: 'client-a' }));
+  });
+
+  it('passes an explicit Google-review purpose through the server-authorized queue', async () => {
+    const { POST } = await import('./route');
+    const requestId = crypto.randomUUID();
+    const response = await POST(new Request('https://luster.test/messages', {
+      method: 'POST',
+      body: JSON.stringify({ salonSlug: 'salon-a', requestId, message: 'Please review us', purpose: 'google_review' }),
+    }), ctx);
+
+    expect(response.status).toBe(202);
+    expect(mocks.queue).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon-from-session',
+      clientId: 'client-a',
+      requestId,
+      purpose: 'google_review',
+    }));
+  });
+
+  it('keeps ordinary messages purpose-free and rejects an appointment on the Google preset', async () => {
+    const { POST } = await import('./route');
+    await POST(send(), ctx);
+
+    expect(mocks.queue).toHaveBeenCalledWith(expect.not.objectContaining({ purpose: expect.anything() }));
+
+    const response = await POST(new Request('https://luster.test/messages', {
+      method: 'POST',
+      body: JSON.stringify({ salonSlug: 'salon-a', requestId: crypto.randomUUID(), message: 'Review', purpose: 'google_review', appointmentId: 'appt_1' }),
+    }), ctx);
+
+    expect(response.status).toBe(400);
   });
 
   it('rejects a client-supplied recipient or salon identifier', async () => {

@@ -2,11 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { POST } from './route';
 
+vi.mock('server-only', () => ({}));
+
 const {
   requireAppointmentManagerAccess,
   getSalonById,
   getOrCreateSalonClient,
   getRetentionSettingsForSalon,
+  getSalonClientLineageIdentityWithHandle,
+  lockSalonReviewMutation,
+  cancelReviewRequests,
   lockTerminalSalonClientWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
   withClientLifecycleTransactionRetry,
@@ -53,6 +58,9 @@ const {
     getSalonById: vi.fn(),
     getOrCreateSalonClient: vi.fn(),
     getRetentionSettingsForSalon: vi.fn(),
+    getSalonClientLineageIdentityWithHandle: vi.fn(),
+    lockSalonReviewMutation: vi.fn(),
+    cancelReviewRequests: vi.fn(),
     lockTerminalSalonClientWithHandle: vi.fn(),
     resolveOperationalSalonClientByPhoneWithHandle: vi.fn(),
     withClientLifecycleTransactionRetry: vi.fn(
@@ -68,9 +76,11 @@ const {
 vi.mock('@/libs/clientLifecycleStabilization', () => ({
   ClientLifecycleStabilizationError: class ClientLifecycleStabilizationError extends Error {},
   lockTerminalSalonClientWithHandle,
+  getSalonClientLineageIdentityWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
   withClientLifecycleTransactionRetry,
 }));
+vi.mock('@/libs/reviewRequests.server', () => ({ lockSalonReviewMutation, cancelReviewRequests }));
 vi.mock('@/libs/routeAccessGuards', () => ({ requireAppointmentManagerAccess }));
 vi.mock('@/libs/queries', () => ({
   getSalonById,
@@ -138,6 +148,10 @@ describe('POST /api/appointments/[id]/review-followup', () => {
       redirectedFromClientId: 'salon_client_1',
       lineagePath: ['salon_client_1', 'primary_client_1'],
     });
+    getSalonClientLineageIdentityWithHandle.mockResolvedValue({
+      clientIds: ['salon_client_1', 'primary_client_1'],
+      terminal: { id: 'primary_client_1', phone: '4165551234' },
+    });
   });
 
   it('threads the explicit salon hint into the access guard', async () => {
@@ -159,14 +173,14 @@ describe('POST /api/appointments/[id]/review-followup', () => {
     expect(body.data.message).not.toContain('https://legacy.example/review');
   });
 
-  it('falls back to the legacy salon-settings review URL when retention settings have none', async () => {
+  it('does not resurrect a cleared review link from legacy salon settings', async () => {
     getRetentionSettingsForSalon.mockResolvedValue({ googleReviewUrl: null });
 
     const response = await post('google_review_link');
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.data.message).toContain('https://legacy.example/review');
+    expect(body.data.message).toBeNull();
   });
 
   it('marks the client as reviewed for already_reviewed without composing a message', async () => {
@@ -193,6 +207,11 @@ describe('POST /api/appointments/[id]/review-followup', () => {
     expect(reviewedUpdate).toBeTruthy();
     expect(collectSqlValues(reviewedUpdate?.where)).toContain('primary_client_1');
     expect(collectSqlValues(reviewedUpdate?.where)).not.toContain('salon_client_1');
+    expect(lockSalonReviewMutation).toHaveBeenCalledWith(transactionHandle, 'salon_1');
+    expect(cancelReviewRequests).toHaveBeenCalledWith(transactionHandle, 'salon_1', {
+      clientIds: ['salon_client_1', 'primary_client_1'],
+      recipient: '4165551234',
+    });
   });
 
   it('uses a historical operational phone alias without creating a duplicate client', async () => {

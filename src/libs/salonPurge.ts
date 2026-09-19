@@ -51,6 +51,7 @@ import {
   onboardingSiteSchema,
   referralSchema,
   reviewRequestSchema,
+  reviewRequestTriggerSchema,
   reviewSchema,
   rewardSchema,
   salonClientSchema,
@@ -291,6 +292,14 @@ export const SALON_PURGE_PLAN: PurgeStep[] = [
     target: reviewRequestSchema,
     reason: 'Review request evidence is scoped to the salon being purged.',
     where: (_tx, salonId) => eq(reviewRequestSchema.salonId, salonId),
+  }),
+  deleteStep({
+    table: 'review_request_trigger',
+    group: 'appointments',
+    target: reviewRequestTriggerSchema,
+    reason:
+      'review_request.trigger_id is NO ACTION so durable review records must be removed before their scheduling triggers.',
+    where: (_tx, salonId) => eq(reviewRequestTriggerSchema.salonId, salonId),
   }),
   deleteStep({
     table: 'fraud_signal',

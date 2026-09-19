@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0080_customer_booking_operation';
-const MIGRATION_COUNT = 80;
+const FINAL_MIGRATION = '0084_review_request_repeat_cooldown';
+const MIGRATION_COUNT = 84;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -302,6 +302,7 @@ type ForeignKeyAction = typeof FOREIGN_KEY_ACTIONS[keyof typeof FOREIGN_KEY_ACTI
 type IncomingForeignKeyIdentity = readonly [childSchema: string, childTable: string, constraintName: string, childColumns: readonly string[], parentSchema: string, parentTable: string, parentColumns: readonly string[], updateAction: ForeignKeyAction, deleteAction: ForeignKeyAction];
 const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'review_request', 'review_request_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'review_request_trigger', 'review_request_trigger_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'appointment_add_on', 'appointment_add_on_add_on_id_fkey', ['add_on_id'], 'public', 'add_on', ['id'], 'NO ACTION', 'NO ACTION'],
   ['public', 'appointment_final_item', 'appointment_final_item_catalog_add_on_id_fkey', ['catalog_add_on_id'], 'public', 'add_on', ['id'], 'NO ACTION', 'NO ACTION'],
   ['public', 'service_add_on', 'service_add_on_add_on_id_fkey', ['add_on_id'], 'public', 'add_on', ['id'], 'NO ACTION', 'CASCADE'],
