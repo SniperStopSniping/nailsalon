@@ -6,6 +6,7 @@ import { redis } from '@/core/redis/redisClient';
 
 import type { CustomerAssistantResponse } from './contracts';
 import { verifyCustomerConversation } from './conversation.server';
+import { isCurrentCustomerRevision } from './revision.server';
 
 type ReplayRequest = { salonId: string; conversation: string; message: string; locale: string };
 
@@ -35,8 +36,8 @@ export async function readCompletedCustomerTurn(request: ReplayRequest, secret: 
       return null;
     }
     const result = JSON.parse(encoded) as CustomerAssistantResponse;
-    verifyCustomerConversation(result.conversation, request.salonId, secret);
-    return result;
+    const state = verifyCustomerConversation(result.conversation, request.salonId, secret);
+    return await isCurrentCustomerRevision(state, result.conversation) ? result : null;
   } catch {
     return null;
   }

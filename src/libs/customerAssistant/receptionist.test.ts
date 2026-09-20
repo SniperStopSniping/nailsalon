@@ -53,6 +53,15 @@ describe('receptionist semantic boundaries', () => {
     expect(() => mergeCatalogChoices({ menu, previous, serviceId: gelx, addOns: [], updates: { add: [], remove: ['another-salon-private'] } })).toThrow();
   });
 
+  it('keeps compatible designs across a service switch and drops inherited length options', () => {
+    const chrome = menu.addOns.find(item => item.name === 'Chrome Finish')!.id;
+    const manicure = menu.services.find(item => item.name === 'Gel Manicure')!.id;
+    const previous = { baseServiceId: gelx, selectedAddOns: [{ addOnId: medium, quantity: 1 }, { addOnId: chrome, quantity: 1 }] };
+
+    expect(mergeCatalogChoices({ menu, previous, serviceId: manicure, addOns: previous.selectedAddOns, updates: { add: [], remove: [] } })).toEqual({ baseServiceId: manicure, selectedAddOns: [{ addOnId: chrome, quantity: 1 }] });
+    expect(mergeCatalogChoices({ menu, previous, serviceId: manicure, addOns: [], updates: { add: [{ addOnId: medium, quantity: 1 }], remove: [] } })?.selectedAddOns).toContainEqual({ addOnId: medium, quantity: 1 });
+  });
+
   it('records expressed uncertainty separately from an unanswered current-product question', () => {
     expect(emptyFacts().currentProductUncertain).toBeUndefined();
 

@@ -228,6 +228,38 @@ describe('grounded receptionist reply boundary', () => {
     expect(fallbackReceptionistReply(input, facts)).toContain('75 minutes');
   });
 
+  it('requires a server-resolved alternative for a configured price comparison without changing the draft', () => {
+    const proposal = { selection: { baseServiceId: 'gel', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] }, fingerprint: 'x', service: { id: 'gel', name: 'Gel Manicure', priceCents: 4000 }, addOns: [{ id: 'french', name: 'French', quantity: 1, priceCents: 1500 }], currency: 'CAD', subtotalCents: 5500, durationMinutes: 75, expiresAt: '' };
+    const input: ReplyInput = {
+      ...args,
+      currentProposal: proposal,
+      result: { kind: 'answer', topic: 'price', message: '', options: [], alternatives: [{ label: 'Without French', message: 'Without French', subtotalCents: 4000, durationMinutes: 60, deltaCents: -1500, currency: 'CAD' }] },
+    };
+    const { facts, requiredFactKeys, data } = buildReplyInput(input);
+
+    expect(requiredFactKeys).toContain('alternative_0');
+    expect(facts.alternative_0).toMatch(/Without French: (?:CA)?\$40\.00 subtotal, 60 minutes, (?:CA)?\$15\.00 less/);
+    expect(JSON.parse(data).result.alternatives).toEqual(['alternative_0']);
+    expect(() => parseReceptionistReply(output('It would be less.'), facts, menu, requiredFactKeys)).toThrow('CUSTOMER_REPLY_MISSING_REQUIREMENT');
+    expect(parseReceptionistReply(output('[[alternative_0]]'), facts, menu, requiredFactKeys).message).toBe(facts.alternative_0);
+    expect(fallbackReceptionistReply(input, facts)).toBe(facts.alternative_0);
+  });
+
+  it('keeps a proposal fallback warm and concise without repeating the package card', () => {
+    const proposal = { selection: { baseServiceId: 'gel', selectedAddOns: [] }, fingerprint: 'x', service: { id: 'gel', name: 'Gel Manicure', priceCents: 4000 }, addOns: [], currency: 'CAD', subtotalCents: 4000, durationMinutes: 60, expiresAt: '' };
+    const input: ReplyInput = { ...args, result: { kind: 'proposal', proposal } };
+
+    expect(fallbackReceptionistReply(input, buildReplyInput(input).facts)).toBe('Here’s your appointment package at Synthetic salon 💅');
+  });
+
+  it('accepts complete conversational sentences ending in tasteful emoji without weakening value guards', () => {
+    const { facts } = buildReplyInput(args);
+
+    expect(parseReceptionistReply(output('BIAB can help reinforce your natural nails. ✨'), facts, menu).message).toContain('✨');
+    expect(() => parseReceptionistReply(output('It costs $20. ✨'), facts, menu)).toThrow('CUSTOMER_REPLY_UNGROUNDED_VALUE');
+    expect(() => parseReceptionistReply(output('BIAB costs ✨'), facts, menu)).toThrow('CUSTOMER_REPLY_INCOMPLETE_TEXT');
+  });
+
   it('omits unreachable add-on facts even when a legacy source returns one', () => {
     const extra = { id: 'private-addon', name: 'Unbound add-on', description: null, category: 'art', pricingType: 'fixed', durationMinutes: 10, price: { baseCents: 1000, baseDisplay: '$10', displayLabel: null, range: null } };
     const { data } = buildReplyInput({ ...args, publicFacts: { ...publicFacts, catalogue: { ...publicFacts.catalogue, addOns: [extra] } } });

@@ -17,7 +17,7 @@ function dimension(addOn: AddOn, question: SemanticClarificationQuestion): boole
     case 'product':
     case 'origin': return vocabulary.isRemoval(addOn);
     case 'quantity': return vocabulary.isRepair(addOn) && addOn.pricingType === 'per_unit';
-    case 'finish': return vocabulary.isFrench(addOn) || /\b(?:chrome|art|design|finish)\b/i.test(addOn.name);
+    case 'finish': return vocabulary.isDesign(addOn);
     default: return false;
   }
 }
@@ -37,6 +37,7 @@ export function planCustomerClarification(args: {
   optionIds: string[];
   maxVisits?: number;
   action?: 'propose' | 'clarify';
+  includeSelection?: boolean;
 }): SemanticSelectionResult {
   const { menu, snapshot, facts, candidate, question, optionIds } = args;
   const candidateService = candidate && menu.services.find(item => item.id === candidate.baseServiceId);
@@ -78,7 +79,7 @@ export function planCustomerClarification(args: {
     selectedAddOns: [...selection.selectedAddOns.filter(item => item.addOnId !== id), { addOnId: id, quantity }],
   });
 
-  const witness = (seed: CustomerSelection, requirements: Requirement[], seen = new Set<string>()): boolean => {
+  const witness = (seed: CustomerSelection, requirements: Requirement[], seen = new Set<string>(), witnessFacts = facts): boolean => {
     const key = keyFor(seed);
     if (seen.has(key)) {
       return false;
@@ -99,12 +100,12 @@ export function planCustomerClarification(args: {
     } else if (!missing) {
       const unmet = requirements.find(required => !result.selection.addOns.some(item => required.ids.includes(item.addOnId) && item.quantity === required.quantity));
       if (!unmet) {
-        return !selectionConflictsWithExplicitFacts(menu, facts, seed, result.selection.addOns.map(item => ({ id: item.addOnId, quantity: item.quantity })));
+        return !selectionConflictsWithExplicitFacts(menu, witnessFacts, seed, result.selection.addOns.map(item => ({ id: item.addOnId, quantity: item.quantity })));
       }
       choices = unmet.ids;
       quantity = unmet.quantity;
     }
-    return choices.some(id => !seed.selectedAddOns.some(item => item.addOnId === id) && witness(withChoice(seed, id, quantity), requirements, seen));
+    return choices.some(id => !seed.selectedAddOns.some(item => item.addOnId === id) && witness(withChoice(seed, id, quantity), requirements, seen, witnessFacts));
   };
 
   const compatibleServices = menu.services.filter(service => serviceIds.has(service.id)
@@ -124,7 +125,7 @@ export function planCustomerClarification(args: {
   const seedFor = (serviceId: string): Seed | null => {
     const questions: SemanticClarificationQuestion[] = [];
     let mappingFacts = facts;
-    let proposed: CustomerSelection = { baseServiceId: serviceId, selectedAddOns: candidate?.selectedAddOns ?? [] };
+    let proposed: CustomerSelection = { baseServiceId: serviceId, selectedAddOns: (candidate?.selectedAddOns ?? []).filter(line => candidate?.baseServiceId === serviceId || facts.length !== 'unknown' || !menu.addOns.some(item => item.id === line.addOnId && vocabulary.lengthFor(item) !== 'unknown')) };
     // Relax an unanswered dimension only while constructing a partial seed.
     // The original facts still constrain EVERY completed witness below.
     for (let step = 0; step < 6; step += 1) {
@@ -153,15 +154,13 @@ export function planCustomerClarification(args: {
     }
     const requirements: Requirement[] = [];
     const requireChoice = (items: AddOn[], requiredQuestion: SemanticClarificationQuestion, quantity = 1) => requirements.push({ ids: items.map(item => item.id), quantity, question: requiredQuestion });
-    if (facts.french === 'yes') {
+    if (facts.french === 'yes' && facts.designPreference !== 'plain') {
       requireChoice(menu.addOns.filter(vocabulary.isFrench), 'finish');
     }
-    if (facts.length !== 'unknown' && vocabulary.serviceVariantLength(menu, menu.services.find(item => item.id === serviceId)!) !== facts.length) {
+    if (facts.length !== 'unknown' && vocabulary.includedBaseLength(menu, menu.services.find(item => item.id === serviceId)!) !== facts.length) {
       const offered = menu.addOns.filter(item => menu.bindings.some(binding => binding.serviceId === serviceId && binding.addOnId === item.id));
       const lengths = offered.filter(item => vocabulary.lengthFor(item) === facts.length);
-      if (lengths.length || facts.length !== 'short') {
-        requireChoice(lengths, 'length');
-      }
+      requireChoice(lengths, 'length');
     }
     if (typeof facts.repairCount === 'number' && facts.repairCount > 0) {
       requireChoice(menu.addOns.filter(item => dimension(item, 'quantity')), 'quantity', facts.repairCount);
@@ -193,12 +192,16 @@ export function planCustomerClarification(args: {
     return { kind: 'clarification', question: 'service', optionIds: viable.map(item => item.service.id).slice(0, 8) };
   }
   const { seed } = viable[0]!;
-  const compatible = (ids: string[], quantity = 1) => ids.filter(id => addOnIds.has(id) && witness(withChoice(seed.selection, id, quantity), seed.requirements));
+  const compatible = (ids: string[], quantity = 1) => ids.filter((id) => {
+    const addOn = menu.addOns.find(item => item.id === id);
+    const length = addOn ? vocabulary.lengthFor(addOn) : 'unknown';
+    return addOnIds.has(id) && witness(withChoice(seed.selection, id, quantity), seed.requirements, new Set<string>(), length === 'unknown' ? facts : { ...facts, length });
+  });
   const clarify = (needed: SemanticClarificationQuestion, ids: string[], quantity = 1): SemanticSelectionResult => {
     const values = compatible(ids, quantity);
     return exhausted || values.length === 0
       ? { kind: 'no_match' }
-      : { kind: 'clarification', question: needed, optionIds: ['product', 'origin', 'quantity'].includes(needed) ? [] : values.slice(0, 8) };
+      : { kind: 'clarification', question: needed, optionIds: ['product', 'origin', 'quantity'].includes(needed) ? [] : values.slice(0, 8), ...(args.includeSelection ? { selection: seed.selection } : {}) };
   };
   // Semantic missing facts (e.g. which product needs removal) precede catalog
   // choices. These questions cannot be erased by a complete base-service quote.
@@ -257,7 +260,7 @@ export function planCustomerClarification(args: {
       return { kind: 'no_match' };
     }
     if (values.length) {
-      return { kind: 'clarification', question, optionIds: ['product', 'origin', 'quantity'].includes(question) ? [] : values.slice(0, 8) };
+      return { kind: 'clarification', question, optionIds: ['product', 'origin', 'quantity'].includes(question) ? [] : values.slice(0, 8), ...(args.includeSelection ? { selection: seed.selection } : {}) };
     }
   }
   return { kind: 'selection', selection: seed.selection };

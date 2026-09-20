@@ -226,8 +226,6 @@ test('uncertainty Check again performs status recovery only at 320px', async ({ 
   await seedAttemptBeforeNavigation(page, pendingAttempt());
   await openConfirm(page);
 
-  await page.reload();
-
   await expect(page.getByRole('button', { name: 'Check again' })).toBeVisible({ timeout: 10_000 });
 
   await expect.poll(() => routes.recoveryPosts.length).toBeGreaterThan(0);

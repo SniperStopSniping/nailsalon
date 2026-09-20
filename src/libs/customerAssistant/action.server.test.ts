@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CustomerConversation } from './conversation.server';
 
-const mocks = vi.hoisted(() => ({ reserve: vi.fn(), proposal: vi.fn(), context: vi.fn(), lookup: vi.fn(), record: vi.fn() }));
+const mocks = vi.hoisted(() => ({ reserve: vi.fn(), complete: vi.fn(), proposal: vi.fn(), context: vi.fn(), lookup: vi.fn(), record: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('./access.server', () => ({ getCustomerAssistantConfig: () => ({ apiKey: 'customer-only', signingSecret: 'x'.repeat(32) }) }));
 vi.mock('./budget.server', () => ({ reserveCustomerAssistantTurn: mocks.reserve }));
-vi.mock('./catalogue.server', () => ({ buildCustomerProposal: mocks.proposal }));
+vi.mock('./readiness.server', () => ({ assessReadyCustomerProposal: async (...args: unknown[]) => ({ proposal: await mocks.proposal(...args) }) }));
+vi.mock('./revision.server', () => ({ completeCustomerRevision: mocks.complete }));
 vi.mock('./slots.server', () => ({ getCustomerAvailabilityContext: mocks.context, lookupCustomerSlots: mocks.lookup, hasOfferedCustomerSlot: (slots: Array<{ startTime: string }>, startTime: string) => slots.find(slot => slot.startTime === startTime) ?? null }));
 vi.mock('./ledger.server', () => ({ recordCustomerAssistantUsage: mocks.record }));
 
@@ -35,6 +36,7 @@ const input = (conversation: string, action: Parameters<typeof runCustomerAssist
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.reserve.mockResolvedValue({ ok: true });
+  mocks.complete.mockResolvedValue(true);
   mocks.proposal.mockResolvedValue(proposal);
   mocks.context.mockResolvedValue({ today: '2026-09-18', timeZone: 'America/Toronto' });
   mocks.lookup.mockResolvedValue({ proposal, today: '2026-09-18', timeZone: 'America/Toronto', slots: [slot] });
@@ -42,6 +44,19 @@ beforeEach(() => {
 });
 
 describe('customer assistant deterministic availability actions', () => {
+  it('rejects incomplete drafts without offering dates, and fails closed if completion cannot commit', async () => {
+    mocks.proposal.mockResolvedValueOnce(null);
+    const incomplete = await runCustomerAssistantAction(input(state(), { action: 'accept_selection', fingerprint }));
+
+    expect(incomplete.result).toEqual({ kind: 'unavailable', reason: 'selection_changed' });
+    expect(mocks.context).not.toHaveBeenCalled();
+
+    mocks.complete.mockResolvedValue(false);
+    const unavailable = await runCustomerAssistantAction(input(state(), { action: 'accept_selection', fingerprint }));
+
+    expect(unavailable.result).toEqual({ kind: 'unavailable', reason: 'unavailable' });
+  });
+
   it('requires a current, clicked proposal fingerprint before dates', async () => {
     const response = await runCustomerAssistantAction(input(state(), { action: 'accept_selection', fingerprint }));
 

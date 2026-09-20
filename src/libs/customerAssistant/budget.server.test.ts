@@ -76,7 +76,7 @@ describe('customer assistant budget reservation', () => {
     const keys = rest.slice(0, keyCount);
     const args = rest.slice(keyCount);
 
-    expect(keyCount).toBe(8);
+    expect(keyCount).toBe(9);
     expect(keys).toEqual(buildCustomerAssistantBudgetKeys(input));
     expect(keys.every(key => key.includes('{customer-booking-assistant}'))).toBe(true);
     expect(keys.join('|')).not.toContain(input.clientIp);
@@ -106,7 +106,7 @@ describe('customer assistant budget reservation', () => {
 
     evalMock.mockResolvedValue(0);
     await reserveCustomerAssistantTurn(beforeMidnight);
-    const args = (evalMock.mock.calls[0] as unknown[]).slice(2 + 8).map(String);
+    const args = (evalMock.mock.calls[0] as unknown[]).slice(2 + 9).map(String);
 
     expect(args.slice(6, 10)).toEqual([
       String(2 * 60 * 60 + 60),

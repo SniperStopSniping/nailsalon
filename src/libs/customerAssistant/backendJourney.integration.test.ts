@@ -82,6 +82,17 @@ vi.mock('@/libs/customerAssistant/budget.server', async importOriginal => ({
   ...(await importOriginal<typeof import('@/libs/customerAssistant/budget.server')>()),
   reserveCustomerAssistantTurn: vi.fn(async () => ({ ok: true as const })),
 }));
+const revisions = vi.hoisted(() => new Map<string, string>());
+// Redis fencing has separate real-loopback race tests. This browser fixture
+// retains the exact latest signed revision while substituting that boundary.
+vi.mock('@/libs/customerAssistant/revision.server', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/customerAssistant/revision.server')>()),
+  completeCustomerRevision: vi.fn(async (state: { salonId: string; sessionId: string }, conversation: string) => {
+    revisions.set(JSON.stringify([state.salonId, state.sessionId]), conversation);
+    return true;
+  }),
+  isCurrentCustomerRevision: vi.fn(async (state: { salonId: string; sessionId: string }, conversation: string) => revisions.get(JSON.stringify([state.salonId, state.sessionId])) === conversation),
+}));
 vi.mock('@/libs/publicBookingRateLimit.server', async importOriginal => ({
   ...(await importOriginal<typeof import('@/libs/publicBookingRateLimit.server')>()),
   checkPublicBookingRateLimit: vi.fn(async () => ({ allowed: true as const, reason: 'allowed' as const })),
@@ -97,7 +108,7 @@ function setProposalModelResponses(serviceId: string, addOns: Array<{ addOnId: s
       items: [{
         type: 'message',
         text: JSON.stringify({
-          factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null },
+          factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: addOns.some(item => item.addOnId === L1_OPTIONAL) ? 'yes' : 'no', existingProduct: 'none', currentProductUncertain: false, origin: null, removal: 'no', repairCount: null, designPreference: addOns.some(item => item.addOnId === L1_OPTIONAL) ? 'selected' : 'plain' },
           action: 'propose',
           serviceId,
           addOns,
@@ -115,7 +126,6 @@ function setProposalModelResponses(serviceId: string, addOns: Array<{ addOnId: s
         text: JSON.stringify({
           segments: [
             { kind: 'text', text: 'I found a suitable choice.' },
-            { kind: 'fact', key: 'selection' },
           ],
           serviceOptions: [],
         }),
@@ -289,6 +299,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    revisions.clear();
     // This explicitly disposable fixture can already exist after a prior run.
     // Reset its test policy so no previous fixture changes alter this proof.
     await database.update(schema.salonSchema).set({ settings: SETTINGS }).where(eq(schema.salonSchema.id, SALON));
@@ -379,7 +390,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     });
     await page.goto('http://127.0.0.1:3130/?backend=1', { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await page.getByRole('button', { name: 'Help me choose & book' }).click();
-    await page.getByLabel('Tell me what you would like').fill('Synthetic gel manicure');
+    await page.getByLabel('Tell me what you would like').fill(l1 ? 'Synthetic L1 Forty Five with French on bare nails, no removal.' : 'Synthetic Browser Gel Service on bare nails, no removal, plain please.');
     await page.getByRole('button', { name: 'Send' }).click();
     await browserExpect.poll(() => serverResults.find(row => row.path.endsWith('/chat'))?.kind).toBe('proposal');
 
@@ -391,9 +402,13 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       addOns: expect.arrayContaining(expected.addOnIds.map(id => expect.objectContaining({ id }))),
     });
     expect(chatResult?.message).toContain('I found a suitable choice.');
-    expect(chatResult?.message).toContain(l1 ? 'Synthetic L1 Forty Five' : 'Synthetic Browser Gel Service');
+
+    // Service/price/duration belong to the deterministic package card, not
+    // a duplicate fact sentence in the conversational lead-in.
+    await browserExpect(page.getByRole('region', { name: 'Your appointment package' })).toContainText(l1 ? 'Synthetic L1 Forty Five' : 'Synthetic Browser Gel Service');
 
     await page.getByRole('button', { name: 'Choose these services' }).click();
+    await browserExpect.poll(() => serverResults.find(row => row.path.endsWith('/handoff'))).toMatchObject({ status: 200, kind: 'handoff' });
     await browserExpect(page.locator('[data-testid^="time-slot-"]').first()).toBeVisible({ timeout: 60_000 });
     await browserExpect.poll(() => page.locator('[data-testid^="time-slot-"]').first().evaluate((element) => {
       for (let current: Element | null = element; current; current = current.parentElement) {

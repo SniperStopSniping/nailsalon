@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   reserve: vi.fn(),
+  complete: vi.fn(),
+  readiness: vi.fn(),
   lookup: vi.fn(),
   quote: vi.fn(),
   prepare: vi.fn(),
@@ -10,6 +12,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('server-only', () => ({}));
 vi.mock('./access.server', () => ({ getCustomerAssistantConfig: () => ({ apiKey: 'customer', signingSecret: 'x'.repeat(32) }) }));
 vi.mock('./budget.server', () => ({ reserveCustomerAssistantTurn: mocks.reserve }));
+vi.mock('./revision.server', () => ({ completeCustomerRevision: mocks.complete }));
+vi.mock('./readiness.server', () => ({ assessReadyCustomerProposal: mocks.readiness }));
 vi.mock('./slots.server', () => ({ lookupCustomerSlots: mocks.lookup }));
 vi.mock('./prepareQuote.server', () => ({ prepareCustomerBookingQuote: mocks.quote }));
 vi.mock('./operationStore.server', () => ({
@@ -51,6 +55,8 @@ const input = (token = conversation()) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.reserve.mockResolvedValue({ ok: true });
+  mocks.complete.mockResolvedValue(true);
+  mocks.readiness.mockResolvedValue({ proposal });
   mocks.lookup.mockResolvedValue({ proposal, today: '2026-09-18', timeZone: 'America/Toronto', slots: [slot], selected: slot, quoteChanged: false });
   mocks.quote.mockResolvedValue({ review: { status: 'READY', timeZone: 'America/Toronto', financial: { subtotalCents: 7500, currency: 'CAD' }, reminders: { mode: 'default_on', selection: 'default_on', requestedEnabled: true } } });
   mocks.prepare.mockImplementation(async (args: { material: unknown }) => ({ material: args.material }));
@@ -139,5 +145,30 @@ describe('customer assistant durable review', () => {
 
     expect(response.result).toEqual({ kind: 'unavailable', reason: 'unavailable' });
     expect(verifyCustomerConversation(response.conversation, 'salon-a', secret, Date.parse('2026-09-18T12:00:00Z')).turnIndex).toBe(1);
+  });
+});
+
+describe('review consultation revision continuity', () => {
+  it('binds reservation to the exact token and commits the returned signed revision', async () => {
+    const args = input();
+    const response = await prepareCustomerAssistantReview(args);
+
+    expect(mocks.reserve).toHaveBeenCalledWith(expect.objectContaining({ conversation: args.conversation }));
+    expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({ turnIndex: 1 }), response.conversation);
+  });
+
+  it('returns missing configuration without preparing an operation or reading slots', async () => {
+    mocks.readiness.mockResolvedValue({ clarification: { kind: 'clarification', question: 'length', options: ['Medium'] } });
+    const response = await prepareCustomerAssistantReview(input());
+
+    expect(response.result).toMatchObject({ kind: 'clarification', question: 'length' });
+    expect(mocks.lookup).not.toHaveBeenCalled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+
+  it('never returns a usable review when revision completion fails', async () => {
+    mocks.complete.mockResolvedValue(false);
+
+    expect((await prepareCustomerAssistantReview(input())).result).toMatchObject({ kind: 'unavailable', reason: 'stale_conversation' });
   });
 });

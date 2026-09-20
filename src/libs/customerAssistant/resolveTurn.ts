@@ -4,13 +4,13 @@ import type { SalonFeatures } from '@/types/salonPolicy';
 
 import type { CustomerMenu } from './catalogue.server';
 import { validateCustomerMenuDraft } from './catalogueSelection';
-import { planCustomerClarification } from './clarification';
+import { assessCustomerConsultation, customerConsultationChoices, withConsultationConfiguration } from './consultation';
 import type { CustomerAssistantLocale, CustomerAssistantResult } from './contracts';
 import type { CustomerConversation } from './conversation.server';
 import type { customerInterpretationSchema } from './interpretation';
 import { applyTimingFeedback, clarificationChoices, mergeCatalogChoices, receptionistAnswer, transitionFailure } from './receptionist';
 import { emptyFacts, hasKnownClarificationAnswer, mergeFacts } from './semanticFacts';
-import { resolveSemanticSelection, selectionConflictsWithExplicitFacts } from './semanticSelection';
+import { resolveSemanticSelection, selectionConflictsWithExplicitFacts, semanticCatalog } from './semanticSelection';
 
 type Authorities = {
   buildCustomerProposal: typeof import('./catalogue.server').buildCustomerProposal;
@@ -21,8 +21,8 @@ type Authorities = {
 
 /**
  * A length belongs to an extension design, not permanently to a customer.
- * When a customer explicitly switches both treatment and desired application
- * from extensions to a natural-nail service, do not make the new service ask
+ * When a customer switches from extensions to a natural-nail service
+ * identified by explicit intent or the chosen public catalogue entry, do not make the new service ask
  * for the old extension length. A changed supplied length still wins. Model
  * patches repeat prior values in some valid structured outputs, so merely
  * echoing the old value cannot keep an extension-only fact alive. Explicitly
@@ -33,12 +33,16 @@ function clearInheritedServiceFacts(args: {
   facts: import('./semanticFacts').Facts;
   patch: z.infer<typeof customerInterpretationSchema>['factUpdates'];
   lengthExplicitThisTurn: boolean;
+  selectedApplication: import('./semanticFacts').Facts['desiredApplication'];
 }): import('./semanticFacts').Facts {
   const changedTreatment = args.patch.treatment !== null && args.patch.treatment !== args.previous.treatment;
   const changedApplication = args.patch.desiredApplication !== null && args.patch.desiredApplication !== args.previous.desiredApplication;
-  const switchedApplication = args.previous.desiredApplication === 'extensions' && args.patch.desiredApplication === 'natural_nails';
+  const switchedApplication = args.previous.desiredApplication === 'extensions'
+    && (args.patch.desiredApplication === 'natural_nails'
+      || (changedTreatment && args.patch.desiredApplication === null && args.selectedApplication === 'natural_nails'));
   const changedLength = args.patch.length !== null && args.patch.length !== args.previous.length;
-  const length = changedTreatment && switchedApplication && !changedLength && !args.lengthExplicitThisTurn
+  const treatment = changedApplication && args.patch.treatment === null ? 'unknown' : args.facts.treatment;
+  const length = (changedTreatment || changedApplication) && switchedApplication && !changedLength && !args.lengthExplicitThisTurn
     ? 'unknown'
     : args.facts.length;
   // A refill describes the prior requested service. A changed treatment or
@@ -59,7 +63,7 @@ function clearInheritedServiceFacts(args: {
     && args.previous.removal === 'no'
     ? 'unknown'
     : args.facts.removal;
-  return { ...args.facts, length, desiredApplication, maintenance, removal };
+  return { ...args.facts, treatment, length, desiredApplication, maintenance, removal, ...((changedTreatment || changedApplication) && args.patch.lengthChoice !== 'base' ? { lengthChoice: undefined } : {}) };
 }
 
 /** Channel-independent interpretation orchestration. All booking facts come from injected Luster authorities. */
@@ -133,12 +137,33 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
     nextState.subjects = subjects;
   }
   const previousFacts = conversation.facts ?? emptyFacts();
-  const facts = clearInheritedServiceFacts({
-    previous: previousFacts,
-    facts: mergeFacts(previousFacts, intent.factUpdates),
-    patch: intent.factUpdates,
-    lengthExplicitThisTurn: intent.lengthExplicitThisTurn,
-  });
+  const informationalOnly = intent.action === 'answer' && !intent.selectionChangeExplicitThisTurn;
+  let facts = informationalOnly
+    ? previousFacts
+    : clearInheritedServiceFacts({
+      previous: previousFacts,
+      facts: mergeFacts(previousFacts, intent.factUpdates),
+      patch: intent.factUpdates,
+      lengthExplicitThisTurn: intent.lengthExplicitThisTurn,
+      selectedApplication: (() => {
+        const selected = intent.action !== 'answer' && menu.services.find(service => service.id === intent.serviceId);
+        return selected ? semanticCatalog.serviceApplication(selected) : 'unknown';
+      })(),
+    });
+  if (!informationalOnly && intent.addOnUpdates) {
+    const chosen = new Set(facts.designChoiceIds ?? []);
+    for (const id of intent.addOnUpdates.remove) {
+      chosen.delete(id);
+    }
+    for (const item of intent.addOnUpdates.add) {
+      if (menu.addOns.some(addOn => addOn.id === item.addOnId && semanticCatalog.isDesign(addOn))) {
+        chosen.add(item.addOnId);
+      }
+    }
+    if (chosen.size || facts.designChoiceIds) {
+      facts = { ...facts, designChoiceIds: intent.factUpdates.designPreference === 'plain' ? [] : [...chosen], designPreference: intent.factUpdates.designPreference === 'plain' || intent.factUpdates.designPreference === 'skip' ? intent.factUpdates.designPreference : chosen.size ? 'selected' : facts.designPreference ?? 'selected' };
+    }
+  }
   nextState.facts = facts;
   if (JSON.stringify(facts) !== JSON.stringify(previousFacts)) {
     // A previously accepted catalog selection cannot authorize changed intent.
@@ -152,7 +177,12 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
   const priorDraft = conversation.requestedSelection ?? conversation.context?.selection ?? null;
   // An educational subject is not a request to switch services. Explicit fact
   // and design patches still survive the answer; the next proposal resolves them.
-  const candidate = mergeCatalogChoices({ menu, previous: priorDraft, serviceId: intent.action === 'answer' ? priorDraft?.baseServiceId ?? null : intent.serviceId, addOns: intent.action === 'answer' ? [] : intent.addOns, updates: intent.addOnUpdates ?? (intent.action === 'answer' ? { add: [], remove: [] } : undefined) });
+  const candidate = mergeCatalogChoices({ menu, previous: priorDraft, serviceId: intent.action === 'answer' ? priorDraft?.baseServiceId ?? null : intent.serviceId, addOns: intent.action === 'answer' ? [] : intent.addOns, updates: informationalOnly ? { add: [], remove: [] } : intent.addOnUpdates ?? (intent.action === 'answer' ? { add: [], remove: [] } : undefined) });
+  if (candidate && priorDraft && candidate.baseServiceId !== priorDraft.baseServiceId && facts.designPreference === 'selected'
+    && !candidate.selectedAddOns.some(item => menu.addOns.some(addOn => addOn.id === item.addOnId && semanticCatalog.isDesign(addOn)))) {
+    facts = { ...facts, designPreference: 'unknown' };
+    nextState.facts = facts;
+  }
   if (JSON.stringify(candidate) !== JSON.stringify(priorDraft)) {
     nextState.context = undefined;
     nextState.booking = undefined;
@@ -173,7 +203,7 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
   // Resolve that change through the same L1 path before displaying any amount.
   const candidateChanged = JSON.stringify(candidate) !== JSON.stringify(priorDraft);
   const explicitDesignUpdate = Boolean(intent.addOnUpdates?.add.length || intent.addOnUpdates?.remove.length);
-  if ((intent.action === 'answer' || (intent.action === 'clarify' && candidateChanged && explicitDesignUpdate)) && candidate
+  if (((intent.action === 'answer' && intent.selectionChangeExplicitThisTurn) || (intent.action === 'clarify' && candidateChanged && explicitDesignUpdate)) && candidate
     && (JSON.stringify(facts) !== JSON.stringify(previousFacts) || candidateChanged)) {
     // This edit consumes a malformed model clarification. Do not carry its
     // semantic option IDs into the L1 planner after the authoritative draft has
@@ -258,6 +288,29 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
     result = educational ? receptionistAnswer({ menu, facts, topic: topic as import('./receptionist').AnswerTopic, locale: args.locale, serviceId: intent.serviceId }) : { kind: 'answer', topic, message: '', options: [] };
     // Informational chips follow the actual subjects, never the whole menu.
     result.options = subjects.map(id => menu.services.find(service => service.id === id)!.name).slice(0, 3);
+    if (intent.priceComparison && priorDraft) {
+      const alternative = {
+        ...priorDraft,
+        selectedAddOns: intent.priceComparison === 'base_only' ? [] : priorDraft.selectedAddOns.filter(item => !menu.addOns.some(addOn => addOn.id === item.addOnId && semanticCatalog.isFrench(addOn))),
+      };
+      try {
+        const [current, compared] = await Promise.all([
+          buildCustomerProposal(args.salonId, args.features, priorDraft),
+          buildCustomerProposal(args.salonId, args.features, alternative),
+        ]);
+        if (intent.priceComparison === 'without_french' && compared.addOns.some(item => menu.addOns.some(addOn => addOn.id === item.id && semanticCatalog.isFrench(addOn)))) {
+          throw new Error('CUSTOMER_COMPARISON_UNAVAILABLE');
+        }
+        const label = intent.priceComparison === 'without_french'
+          ? args.locale === 'fr' ? 'Sans French' : 'Without French'
+          : args.locale === 'fr' ? 'Service de base uniquement' : 'Base service only';
+        result.alternatives = [{ label, message: label, subtotalCents: compared.subtotalCents, durationMinutes: compared.durationMinutes, deltaCents: compared.subtotalCents - current.subtotalCents, currency: compared.currency }];
+      } catch {
+        // Required groups or a changed menu can make the hypothetical invalid.
+        // Preserve the draft and never fabricate a difference from raw prices.
+        result.message = args.locale === 'fr' ? 'Cette combinaison ne peut pas être chiffrée avec le menu actuel.' : 'That combination cannot be priced from the current menu.';
+      }
+    }
   } else if (transition) {
     result = { kind: 'unavailable', reason: transition };
   } else if (facts.currentProductUncertain && facts.existingProduct === 'unknown' && resolveServiceIntent) {
@@ -269,27 +322,20 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       candidate,
     });
     if (menu.l1) {
-      const modelQuestion = intent.action === 'clarify' ? intent.question : resolved.kind === 'clarification' ? resolved.question : 'details';
-      // Establish the starting condition before offering removal products. A
-      // customer need not choose a removal SKU to say their nails are bare.
-      const requestedQuestion = modelQuestion === 'removal' && facts.existingProduct === 'unknown' ? 'product' : modelQuestion;
-      if (requestedQuestion === 'date') {
-        throw new Error('CUSTOMER_MODEL_INVALID');
-      }
       const snapshot = await loadCustomerClarificationSnapshot(args.salonId);
-      resolved = planCustomerClarification({
-        menu,
-        action: intent.action === 'propose' ? 'propose' : 'clarify',
-        snapshot,
-        facts,
-        candidate,
-        question: requestedQuestion,
-        optionIds: intent.optionIds,
-      });
-      // Starting condition matters only when THIS viable selection has a
-      // compatible removal path. Reuse the L1 witness check, not menu-wide hints.
-      if (resolved.kind === 'selection' && facts.existingProduct === 'unknown' && facts.removal !== 'no') {
-        resolved = planCustomerClarification({ menu, snapshot, facts, candidate: resolved.selection, action: 'clarify', question: 'product', optionIds: [] });
+      resolved = assessCustomerConsultation({ menu, snapshot, facts, candidate });
+      if (resolved.kind === 'clarification') {
+        if (resolved.selection) {
+          nextState.requestedSelection = resolved.selection;
+        }
+        const semanticDraft = resolveSemanticSelection({ menu, facts, candidate: resolved.selection ?? candidate });
+        const choices = customerConsultationChoices({ menu, snapshot, facts, candidate: semanticDraft.kind === 'selection' ? semanticDraft.selection : candidate, result: resolved, locale: args.locale });
+        const labels = resolved.optionIds.map(id => [...menu.services, ...menu.addOns].find(item => item.id === id)?.name);
+        if (labels.includes(undefined)) {
+          throw new Error('CUSTOMER_MODEL_INVALID');
+        }
+        const options = choices.length ? choices.map(choice => choice.label) : clarificationChoices(resolved.question, labels as string[], args.locale);
+        return { kind: 'clarification', question: resolved.question, options, ...(choices.length ? { choices } : {}) };
       }
     }
     if (resolved.kind === 'no_match') {
@@ -313,7 +359,10 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       })) {
         result = { kind: 'unavailable', reason: 'selection_changed' };
       } else {
-        result = { kind: 'proposal', proposal };
+        if (proposal.addOns.some(item => menu.addOns.some(addOn => addOn.id === item.id && semanticCatalog.isDesign(addOn))) && !['plain', 'skip'].includes(facts.designPreference ?? '')) {
+          nextState.facts = { ...facts, designPreference: 'selected', designChoiceIds: proposal.addOns.filter(item => menu.addOns.some(addOn => addOn.id === item.id && semanticCatalog.isDesign(addOn))).map(item => item.id) };
+        }
+        result = { kind: 'proposal', proposal: withConsultationConfiguration(proposal, facts, args.locale, menu) };
       }
     }
   } else if (intent.action === 'availability' && nextState.context?.selection && intent.datePreference) {

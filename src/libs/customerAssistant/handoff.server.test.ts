@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ proposal: vi.fn(), readOperation: vi.fn(), reference: vi.fn() }));
+const mocks = vi.hoisted(() => ({ proposal: vi.fn(), clarification: vi.fn(), current: vi.fn(), readOperation: vi.fn(), reference: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('./access.server', () => ({ getCustomerAssistantConfig: () => ({ apiKey: 'customer-only', signingSecret: 'x'.repeat(32) }) }));
-vi.mock('./catalogue.server', () => ({ buildCustomerProposal: mocks.proposal }));
+vi.mock('./readiness.server', () => ({ assessReadyCustomerProposal: async (...args: unknown[]) => ({ proposal: await mocks.proposal(...args), clarification: mocks.clarification() }) }));
+vi.mock('./revision.server', () => ({ isCurrentCustomerRevision: mocks.current }));
 vi.mock('./operationStore.server', () => ({
   readCustomerBookingOperation: mocks.readOperation,
   customerBookingOperationReference: mocks.reference,
@@ -29,11 +30,40 @@ function conversation(salonId = 'salon-a') {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.proposal.mockResolvedValue(proposal);
+  mocks.current.mockResolvedValue(true);
+  mocks.clarification.mockReturnValue(undefined);
   mocks.readOperation.mockResolvedValue({ salonId: 'salon-a', sessionId: '123e4567-e89b-12d3-a456-426614174000', appointmentId: null });
   mocks.reference.mockReturnValue({ capability: 'server-derived-capability', revision: 1, fingerprint, expiresAt: '2030-01-01T00:05:00.000Z' });
 });
 
 describe('customer assistant normal-flow handoff', () => {
+  it('rejects incomplete drafts and historical tokens, including edits during revalidation', async () => {
+    mocks.proposal.mockResolvedValueOnce(null);
+    const incomplete = await runCustomerHandoff({ salon: { id: 'salon-a', slug: 'isla-nail-studio' }, features: null, conversation: conversation(), fingerprint, now });
+
+    expect(incomplete.result).toEqual({ kind: 'unavailable', reason: 'selection_changed' });
+    expect(mocks.current).not.toHaveBeenCalled();
+
+    mocks.proposal.mockImplementationOnce(async () => {
+      mocks.current.mockResolvedValue(false);
+      return proposal;
+    });
+    const stale = await runCustomerHandoff({ salon: { id: 'salon-a', slug: 'isla-nail-studio' }, features: null, conversation: conversation(), fingerprint, now });
+
+    expect(stale.result).toEqual({ kind: 'unavailable', reason: 'selection_changed' });
+  });
+
+  it('returns missing choices with the same latest signed facts instead of accepting an incomplete draft', async () => {
+    const token = conversation();
+    const clarification = { kind: 'clarification', question: 'finish', options: ['Plain / no extras'] };
+    mocks.proposal.mockResolvedValue(null);
+    mocks.clarification.mockReturnValue(clarification);
+    const response = await runCustomerHandoff({ salon: { id: 'salon-a', slug: 'isla-nail-studio' }, features: null, conversation: token, fingerprint, now });
+
+    expect(response).toEqual({ conversation: token, result: clarification });
+    expect(mocks.current).toHaveBeenCalled();
+  });
+
   it('revalidates the signed selection and emits only an opaque tenant-bound flow token', async () => {
     const response = await runCustomerHandoff({ salon: { id: 'salon-a', slug: 'isla-nail-studio' }, features: null, conversation: conversation(), fingerprint, now });
 

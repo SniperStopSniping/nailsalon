@@ -175,6 +175,10 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
     // Clarification viability uses the same pure L1 authority on a server-loaded
     // public projection; evaluation fixtures exercise that authority offline.
     { importer: 'src/libs/customerAssistant/clarification.ts', imports: 'src/libs/catalogResolverCore.ts' },
+    // Consultation readiness and its display-only partial quote use the same
+    // pure resolver over the server-loaded public snapshot. This does not
+    // authorize a booking or create an alternate pricing path.
+    { importer: 'src/libs/customerAssistant/consultation.ts', imports: 'src/libs/catalogResolverCore.ts' },
     { importer: 'src/libs/customerAssistant/__evals__/nailBookingCases.ts', imports: 'src/libs/catalogResolverCore.ts' },
     { importer: 'src/libs/customerAssistant/__evals__/nailBookingCases.ts', imports: 'src/libs/catalogResolverFixtures.ts' },
     { importer: 'src/libs/customerAssistant/__evals__/nailBookingScorer.ts', imports: 'src/libs/catalogResolverCore.ts' },

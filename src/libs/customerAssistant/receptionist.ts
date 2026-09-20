@@ -101,9 +101,17 @@ export function mergeCatalogChoices(args: {
   if (args.updates.remove.some(id => !publicIds.has(id))) {
     throw new Error('CUSTOMER_SELECTION_INVALID');
   }
-  const choices = new Map((args.previous?.baseServiceId === serviceId ? args.previous.selectedAddOns : []).map(item => [item.addOnId, item.quantity]));
+  const switched = Boolean(args.previous && args.previous.baseServiceId !== serviceId);
+  const compatibleIds = new Set(args.menu.bindings.filter(item => item.serviceId === serviceId).map(item => item.addOnId));
+  const retained = (args.previous?.selectedAddOns ?? []).filter(item => !switched || compatibleIds.has(item.addOnId));
+  const choices = new Map(retained.map(item => [item.addOnId, item.quantity]));
   for (const item of args.addOns) {
-    choices.set(item.addOnId, item.quantity);
+    // An inherited option from the old service is not a new purchase request.
+    // Explicit additions remain intact so the resolver can explain conflicts.
+    const inherited = args.previous?.selectedAddOns.some(previous => previous.addOnId === item.addOnId && previous.quantity === item.quantity);
+    if (!switched || !inherited || compatibleIds.has(item.addOnId)) {
+      choices.set(item.addOnId, item.quantity);
+    }
   }
   for (const id of args.updates.remove) {
     choices.delete(id);

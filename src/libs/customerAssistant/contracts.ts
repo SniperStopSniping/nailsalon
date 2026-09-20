@@ -28,11 +28,12 @@ export type CustomerProposal = {
   selection: CustomerSelection;
   fingerprint: string;
   service: { id: string; name: string; priceCents: number };
-  addOns: { id: string; name: string; quantity: number; priceCents: number }[];
+  addOns: { id: string; name: string; quantity: number; priceCents: number; unitPriceCents?: number }[];
   currency: string;
   subtotalCents: number;
   durationMinutes: number;
   expiresAt: string;
+  configuration?: string[];
 };
 
 export const customerDatePreferenceSchema = z.object({
@@ -70,6 +71,7 @@ export type CustomerAssistantAction =
 
 /** Explicitly accepts a currently signed, authoritative proposal for the normal booking flow. */
 export const customerHandoffRequestSchema = z.object({
+  locale: z.enum(['en', 'fr']).optional(),
   conversation: z.string().min(1).max(24_576),
   fingerprint: z.string().length(64),
   flowToken: z.string().min(1).max(1_024).optional(),
@@ -86,16 +88,26 @@ export type CustomerAssistantHandoff = {
 export type CustomerAssistantHandoffResponse = {
   conversation: string;
   result: { kind: 'handoff'; handoff: CustomerAssistantHandoff }
-    | Extract<CustomerAssistantResult, { kind: 'proposal' | 'unavailable' }>;
+    | Extract<CustomerAssistantResult, { kind: 'proposal' | 'clarification' | 'unavailable' }>;
+};
+
+/** A public choice whose optional amounts were resolved by the same L1 authority as booking. */
+export type CustomerConsultationChoice = {
+  label: string;
+  message: string;
+  subtotalCents?: number;
+  durationMinutes?: number;
+  deltaCents?: number;
+  currency?: string;
 };
 
 export type CustomerAssistantResult = (
-  | { kind: 'answer'; message: string; options: string[]; topic?: 'compare_treatments' | 'length_options' | 'service_options' | 'unknown_product' | 'service_information' | 'price' | 'duration' | 'recall' | 'salon_information' | 'recommendation' | 'conversation' }
+  | { kind: 'answer'; message: string; options: string[]; alternatives?: CustomerConsultationChoice[]; topic?: 'compare_treatments' | 'length_options' | 'service_options' | 'unknown_product' | 'service_information' | 'price' | 'duration' | 'recall' | 'salon_information' | 'recommendation' | 'conversation' }
   | { kind: 'proposal'; proposal: CustomerProposal }
   | { kind: 'date_prompt'; proposal: CustomerProposal; today: string; timeZone: string }
   | { kind: 'slots'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slots: CustomerAvailableSlot[]; checkedAt: string; slotDisappeared?: boolean; search?: CustomerAvailabilitySearch }
   | { kind: 'slot_selected'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slot: CustomerAvailableSlot }
-  | { kind: 'clarification'; question: 'service' | 'removal' | 'product' | 'origin' | 'length' | 'finish' | 'quantity' | 'details' | 'date'; options: string[] }
+  | { kind: 'clarification'; question: 'service' | 'removal' | 'product' | 'origin' | 'length' | 'finish' | 'quantity' | 'details' | 'date'; options: string[]; choices?: CustomerConsultationChoice[] }
   | { kind: 'unavailable'; reason: 'no_match' | 'unsupported_combination' | 'unavailable' | 'rate_limited' | 'conversation_used' | 'selection_changed' | 'invalid_conversation' | 'conversation_expired' | 'session_limit' | 'stale_conversation' | 'unsupported_service' | 'unsupported_removal' | 'transition_needs_confirmation' | 'incompatible_selection' | 'unknown_product' | 'no_availability' | 'handoff_expired' | 'invalid_handoff' }) & { message?: string; availabilitySearch?: CustomerAvailabilitySearch };
 
 export type CustomerAssistantResponse = { conversation: string; result: CustomerAssistantResult };

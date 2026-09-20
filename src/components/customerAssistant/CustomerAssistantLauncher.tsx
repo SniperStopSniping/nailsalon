@@ -24,7 +24,7 @@ import { AcceptSelection } from './ScheduleCards';
 type CustomerAssistantLauncherProps = { salonSlug: string; salonId?: string; locale: CustomerAssistantLocale; campaignToken?: string | null };
 type CustomerAssistantPanelProps = CustomerAssistantLauncherProps & { onClose: () => void; visibleHeight?: number };
 type DisplayMessage = { id: number; role: 'assistant' | 'user'; message: string; kind?: 'quick_reply' };
-type StoredConversation = { version: 2; conversation: string; messages: DisplayMessage[]; result: CustomerAssistantResult | null; campaignBinding?: string };
+type StoredConversation = { version: 2; conversation: string; messages: DisplayMessage[]; result: CustomerAssistantResult | null; welcomeQuickReplies?: string[]; campaignBinding?: string };
 type StoredOperation = CustomerBookingOperationReference & { version: 1; salonId: string };
 type StorageScope = { binding: string | null; persist: boolean };
 
@@ -189,7 +189,10 @@ function readStoredConversation(salonSlug: string, scope: StorageScope): StoredC
       return null;
     }
     const messages = value.messages.filter((message): message is DisplayMessage => typeof message === 'object' && message !== null && typeof (message as DisplayMessage).id === 'number' && ((message as DisplayMessage).role === 'assistant' || (message as DisplayMessage).role === 'user') && typeof (message as DisplayMessage).message === 'string').slice(-MAX_DISPLAY_MESSAGES);
-    return { version: 2, conversation: value.conversation, messages, result: value.result ?? null };
+    const welcomeQuickReplies = Array.isArray(value.welcomeQuickReplies)
+      ? value.welcomeQuickReplies.filter((reply): reply is string => typeof reply === 'string' && reply.length > 0 && reply.length <= 160).slice(0, 3)
+      : undefined;
+    return { version: 2, conversation: value.conversation, messages, result: value.result ?? null, ...(welcomeQuickReplies?.length ? { welcomeQuickReplies } : {}) };
   } catch {
     const legacy = raw.trim();
     return scope.binding === null && legacy && !legacy.startsWith('{') && legacy.length <= 24_576
@@ -262,13 +265,17 @@ function formatAvailabilitySlot(startTime: string, fallbackTime: string, timeZon
 function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantResult, { kind: 'proposal' }>; locale: CustomerAssistantLocale }) {
   const copy = customerAssistantCopy[locale];
   const { proposal } = result;
+  const configuration = proposal.configuration ?? [];
   return (
     <section aria-label={copy.proposal} data-testid="customer-assistant-proposal" className="min-w-0 overflow-hidden rounded-2xl border border-black/10 bg-white p-[12px] shadow-sm">
       <h3 className="text-base font-semibold text-neutral-950">{copy.proposal}</h3>
       <dl className="mt-[10px] min-w-0 space-y-[10px] text-sm text-neutral-700">
         <div className="flex min-w-0 items-start justify-between gap-[8px]">
           <dt className="min-w-0 shrink">{copy.services}</dt>
-          <dd className="min-w-0 max-w-[62%] break-words text-right font-medium text-neutral-950">{proposal.service.name}</dd>
+          <dd className="min-w-0 max-w-[62%] break-words text-right font-medium text-neutral-950">
+            {proposal.service.name}
+            <span className="block text-xs font-normal text-neutral-600">{formatMoney(proposal.service.priceCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}</span>
+          </dd>
         </div>
         {proposal.addOns.length > 0 && (
           <div className="flex min-w-0 items-start justify-between gap-[8px]">
@@ -277,9 +284,28 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
               {proposal.addOns.map(addOn => (
                 <div key={addOn.id}>
                   {addOn.quantity > 1 ? `${addOn.quantity} × ` : ''}
-                  {addOn.name}
+                  <span>{addOn.name}</span>
+                  <span className="block text-xs font-normal text-neutral-600">
+                    {addOn.priceCents === 0
+                      ? copy.included
+                      : (
+                          <>
+                            {addOn.quantity > 1 && addOn.unitPriceCents !== undefined && `${formatMoney(addOn.unitPriceCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')} ${copy.each} · `}
+                            {formatMoney(addOn.priceCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}
+                            {addOn.quantity > 1 && ` ${copy.lineTotal}`}
+                          </>
+                        )}
+                  </span>
                 </div>
               ))}
+            </dd>
+          </div>
+        )}
+        {configuration.length > 0 && (
+          <div className="flex min-w-0 items-start justify-between gap-[8px]">
+            <dt className="min-w-0 shrink">{copy.configuration}</dt>
+            <dd className="min-w-0 max-w-[62%] space-y-1 break-words text-right font-medium text-neutral-950">
+              {configuration.map(item => <div key={item}>{item}</div>)}
             </dd>
           </div>
         )}
@@ -296,6 +322,28 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
         </div>
       </dl>
     </section>
+  );
+}
+
+function ConsultationChoiceButton({ choice, locale, disabled, onChoose }: {
+  choice: { label: string; message: string; subtotalCents?: number; durationMinutes?: number; deltaCents?: number; currency?: string };
+  locale: CustomerAssistantLocale;
+  disabled: boolean;
+  onChoose: (message: string) => void;
+}) {
+  const currency = choice.currency ?? 'CAD';
+  const price = choice.deltaCents === 0
+    ? customerAssistantCopy[locale].noExtraCharge
+    : choice.deltaCents === undefined
+      ? choice.subtotalCents === undefined ? null : formatMoney(choice.subtotalCents, currency, locale === 'fr' ? 'fr-CA' : 'en-CA')
+      : `${choice.deltaCents > 0 ? '+' : choice.deltaCents < 0 ? '−' : ''}${formatMoney(Math.abs(choice.deltaCents), currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}`;
+  const subtotal = choice.deltaCents !== undefined && choice.subtotalCents !== undefined ? `${customerAssistantCopy[locale].subtotal} ${formatMoney(choice.subtotalCents, currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}` : null;
+  const duration = choice.durationMinutes === undefined ? null : formatDuration(choice.durationMinutes);
+  return (
+    <button type="button" disabled={disabled} onClick={() => onChoose(choice.message)} className="min-h-11 rounded-2xl border border-neutral-300 bg-white px-4 py-2 text-left text-sm font-medium text-neutral-900 disabled:opacity-50">
+      <span className="block">{choice.label}</span>
+      {(price || duration) && <span className="mt-0.5 block text-xs font-normal text-neutral-600">{[price, subtotal, duration].filter(Boolean).join(' · ')}</span>}
+    </button>
   );
 }
 
@@ -337,9 +385,12 @@ function AssistantResult({ result, locale, loading, onOption, onHandoff }: { res
     );
   }
   if (result.kind === 'clarification') {
+    const choices = result.choices?.length
+      ? result.choices
+      : result.options.map(option => ({ label: option, message: option }));
     return (
       <section aria-live="polite">
-        <div className="mt-3 flex flex-wrap gap-2">{result.options.map(option => <button key={option} type="button" disabled={loading} onClick={() => onOption(option)} className="min-h-11 rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 disabled:opacity-50">{option}</button>)}</div>
+        <div className="mt-3 flex flex-wrap gap-2">{choices.map(choice => <ConsultationChoiceButton key={`${choice.label}:${choice.message}`} choice={choice} locale={locale} disabled={loading} onChoose={onOption} />)}</div>
       </section>
     );
   }
@@ -357,6 +408,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
   const copy = customerAssistantCopy[locale];
   const [conversation, setConversation] = useState<string | null>(null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const [welcomeQuickReplies, setWelcomeQuickReplies] = useState<string[]>([]);
   const [result, setResult] = useState<CustomerAssistantResult | null>(null);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -377,7 +429,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
       const response = await fetch(`${endpoint(salonSlug)}/session`, campaignToken
         ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ campaignToken }) }
         : { method: 'POST' });
-      const data = await response.json() as { conversation?: unknown };
+      const data = await response.json() as { conversation?: unknown; salon?: { name?: unknown } };
       if (!response.ok || typeof data.conversation !== 'string' || data.conversation.length === 0) {
         throw new Error('invalid session response');
       }
@@ -385,6 +437,10 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
         return;
       }
       setConversation(data.conversation);
+      if (typeof data.salon?.name === 'string' && data.salon.name.trim()) {
+        setMessages([{ id: Date.now(), role: 'assistant', message: copy.welcome(data.salon.name.trim()) }]);
+        setWelcomeQuickReplies([...copy.welcomeQuickReplies]);
+      }
     } catch {
       if (generation === scopeGenerationRef.current) {
         setError('network');
@@ -404,6 +460,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
     setStorageScope(null);
     setConversation(null);
     setMessages([]);
+    setWelcomeQuickReplies([]);
     setResult(null);
     setError(null);
     setLoading(false);
@@ -422,6 +479,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
         setConversation(stored.conversation);
         setMessages(stored.messages);
         setResult(stored.result);
+        setWelcomeQuickReplies(stored.welcomeQuickReplies ?? []);
       } else {
         void createSession(generation);
       }
@@ -443,9 +501,9 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
   }, [messages, result, loading, error]);
   useEffect(() => {
     if (conversation && storageScope && storageScopeRef.current === storageScope) {
-      storeConversation(salonSlug, { version: 2, conversation, messages, result }, storageScope);
+      storeConversation(salonSlug, { version: 2, conversation, messages, result, ...(welcomeQuickReplies.length ? { welcomeQuickReplies } : {}) }, storageScope);
     }
-  }, [conversation, messages, result, salonSlug, storageScope]);
+  }, [conversation, messages, result, salonSlug, storageScope, welcomeQuickReplies]);
   useEffect(() => {
     if (!loading && restoreComposerFocus.current) {
       restoreComposerFocus.current = false;
@@ -467,6 +525,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
     }
     setConversation(null);
     setMessages([]);
+    setWelcomeQuickReplies([]);
     setResult(null);
     void createSession(generation);
   };
@@ -483,6 +542,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
     setInput('');
     retryMessage.current = trimmed;
     setMessages(current => [...current, { id: Date.now(), role: 'user' as const, message: trimmed, ...(kind ? { kind } : {}) }].slice(-MAX_DISPLAY_MESSAGES));
+    setWelcomeQuickReplies([]);
     try {
       const response = await fetch(`${endpoint(salonSlug)}/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation, message: trimmed, locale }) });
       const data = await response.json() as CustomerAssistantResponse;
@@ -545,15 +605,22 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
           return;
         }
         const existingFlow = readNormalConfirmHandoff(salonId);
-        const response = await fetch(`${endpoint(salonSlug)}/handoff`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation, fingerprint, operationCapability: legacy.capability, ...(existingFlow ? { flowToken: existingFlow.flowToken } : {}) }) });
+        const response = await fetch(`${endpoint(salonSlug)}/handoff`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation, fingerprint, locale, operationCapability: legacy.capability, ...(existingFlow ? { flowToken: existingFlow.flowToken } : {}) }) });
         const data = await response.json() as CustomerAssistantHandoffResponse;
-        if (!response.ok || !data.conversation || data.result.kind !== 'handoff' || !data.result.handoff.operation) {
+        if (!response.ok || !data.conversation) {
           throw new Error('invalid legacy handoff response');
         }
         if (generation !== scopeGenerationRef.current) {
           return;
         }
         setConversation(data.conversation);
+        if (data.result.kind !== 'handoff') {
+          setResult(data.result);
+          return;
+        }
+        if (!data.result.handoff.operation) {
+          throw new Error('missing legacy handoff operation');
+        }
         writeNormalConfirmHandoff(salonId, data.result.handoff.flow);
         adoptNormalBookingOperation(salonId, data.result.handoff.flow.flowToken, data.result.handoff.operation);
         if (applyAssistantHandoff(data.result.handoff.selection) === false) {
@@ -564,7 +631,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
         return;
       }
       const existingFlow = readNormalConfirmHandoff(salonId);
-      const response = await fetch(`${endpoint(salonSlug)}/handoff`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation, fingerprint, ...(existingFlow ? { flowToken: existingFlow.flowToken } : {}) }) });
+      const response = await fetch(`${endpoint(salonSlug)}/handoff`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation, fingerprint, locale, ...(existingFlow ? { flowToken: existingFlow.flowToken } : {}) }) });
       const data = await response.json() as CustomerAssistantHandoffResponse;
       if (!response.ok || !data.conversation || !data.result) {
         throw new Error('invalid handoff response');
@@ -603,12 +670,14 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
   };
   return (
     <div role="dialog" aria-modal="true" aria-label={copy.title} style={visibleHeight ? { height: `min(42rem, calc(${visibleHeight}px - 2rem))`, maxHeight: `calc(${visibleHeight}px - 2rem)` } : undefined} className="flex h-[min(42rem,calc(100dvh-1rem))] flex-col sm:max-h-[calc(100dvh-2rem)]">
-      <div className="flex shrink-0 items-center justify-between gap-[12px] border-b border-black/10 px-[16px] py-[12px] sm:px-5">
-        <h2 className="text-lg font-semibold text-neutral-950">{copy.title}</h2>
-        <button type="button" onClick={onClose} aria-label={copy.close} className="grid size-11 shrink-0 place-items-center rounded-full text-neutral-700 hover:bg-neutral-100"><X className="size-5" /></button>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-[12px] border-b border-black/10 px-[16px] py-[12px] sm:px-5">
+        <h2 className="min-w-0 flex-[1_1_12rem] text-lg font-semibold text-neutral-950">{copy.title}</h2>
+        <div className="flex shrink-0 items-center gap-1">
+          <button type="button" aria-label={locale === 'fr' ? 'Commencer une nouvelle conversation' : 'Start a new conversation'} onClick={restart} disabled={loading} className="min-h-11 whitespace-nowrap px-2 text-sm font-medium text-neutral-700 underline underline-offset-4 disabled:opacity-50">{copy.restart}</button>
+          <button type="button" onClick={onClose} aria-label={copy.close} className="grid size-11 shrink-0 place-items-center rounded-full text-neutral-700 hover:bg-neutral-100"><X className="size-5" /></button>
+        </div>
       </div>
       <div ref={transcriptRef} data-testid="customer-assistant-transcript" className="min-h-0 flex-1 space-y-[12px] overflow-y-auto overscroll-contain px-[16px] py-[12px] sm:px-5">
-        <p className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 text-sm leading-6 text-neutral-700">{copy.introduction}</p>
         {messages.map(message => message.role === 'user' && message.kind === 'quick_reply'
           ? (
               <p key={message.id} aria-label={`${copy.selectedAnswer}: ${message.message}`} className="ml-auto w-fit max-w-[85%] rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-950">
@@ -617,6 +686,11 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
               </p>
             )
           : <p key={message.id} aria-label={message.role === 'assistant' ? 'Assistant' : 'You'} className={message.role === 'user' ? 'ml-auto max-w-[85%] rounded-2xl bg-neutral-950 px-4 py-3 text-sm leading-6 text-white' : 'max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 text-sm leading-6 text-neutral-800'}>{message.message}</p>)}
+        {welcomeQuickReplies.length > 0 && messages.length === 1 && messages[0]?.role === 'assistant' && (
+          <div aria-label={locale === 'fr' ? 'Réponses rapides' : 'Quick replies'} className="flex flex-wrap gap-2">
+            {welcomeQuickReplies.map(reply => <button key={reply} type="button" disabled={loading} onClick={() => void send(reply, 'quick_reply')} className="min-h-11 rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 disabled:opacity-50">{reply}</button>)}
+          </div>
+        )}
         {loading && <p role="status" className="text-sm text-neutral-600">{copy.loading}</p>}
         {error === 'network' && (
           <div role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-950">

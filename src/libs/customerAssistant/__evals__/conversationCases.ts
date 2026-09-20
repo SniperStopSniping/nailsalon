@@ -7,6 +7,7 @@
 
 export type ConversationExpectation = {
   resultKinds: string[];
+  clarificationQuestion?: string;
   answerTopic?: 'compare_treatments' | 'length_options' | 'service_options' | 'unknown_product' | 'service_information' | 'price' | 'duration' | 'recall' | 'salon_information' | 'recommendation' | 'conversation';
   /** Some direct replies can be classified as general conversation while still answering correctly. */
   permittedAnswerTopics?: NonNullable<ConversationExpectation['answerTopic']>[];
@@ -76,6 +77,45 @@ const ids = {
  */
 export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
   {
+    id: 'consultation-manicure-switch-extensions',
+    category: 'complete configuration after service switch and informational comparison',
+    turns: [
+      { message: 'Hi I want a gel manicure', expect: { resultKinds: ['clarification'], clarificationQuestion: 'product' } },
+      { message: 'Nothing', expect: { resultKinds: ['clarification'], facts: { existingProduct: 'none' } } },
+      { message: 'Actually can I get an extension?', expect: { resultKinds: ['clarification'], clarificationQuestion: 'length', facts: { existingProduct: 'none', desiredApplication: 'extensions' }, noRepeatedQuestion: 'product' } },
+      { message: 'Medium', expect: { resultKinds: ['clarification'], clarificationQuestion: 'finish', facts: { length: 'medium', existingProduct: 'none' }, noRepeatedQuestion: 'product' } },
+      { message: 'French', expect: { resultKinds: ['proposal'], facts: { length: 'medium', french: 'yes' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french], subtotalCents: 9000, durationMinutes: 120 }, handoffReady: true } },
+      { message: 'How much without French?', expect: { resultKinds: ['answer'], facts: { length: 'medium', french: 'yes' }, preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french] } } },
+      { message: 'Okay, remove it', expect: { resultKinds: ['proposal'], facts: { length: 'medium', french: 'no' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium], subtotalCents: 8000, durationMinutes: 105 }, handoffReady: true } },
+    ],
+  },
+  {
+    id: 'consultation-partial-package-duration',
+    category: 'known configuration quoted before the optional design decision without handoff',
+    turns: [
+      { message: 'medium Gel-X on bare nails', expect: { resultKinds: ['clarification'], clarificationQuestion: 'finish', facts: { length: 'medium', existingProduct: 'none' } } },
+      { message: 'How long does that take?', expect: { resultKinds: ['answer'], reply: { configuredDurationMinutes: 105 }, preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.medium] } } },
+      { message: 'No extras thanks', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelx, addOnIds: [ids.medium], subtotalCents: 8000, durationMinutes: 105 }, handoffReady: true } },
+    ],
+  },
+  {
+    id: 'consultation-many-facts-then-length-change',
+    category: 'multiple facts and exclusive length replacement with retained design',
+    turns: [
+      { message: 'Book Gel-X, medium with French, nothing on my nails', expect: { resultKinds: ['proposal'], facts: { length: 'medium', french: 'yes', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french], subtotalCents: 9000, durationMinutes: 120 }, handoffReady: true } },
+      { message: 'Actually long please', expect: { resultKinds: ['proposal'], facts: { length: 'long', french: 'yes', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.long, ids.french], subtotalCents: 10000, durationMinutes: 135 }, handoffReady: true } },
+    ],
+  },
+  {
+    id: 'consultation-plain-typos-reopen',
+    category: 'declined extras and resumed conversation preserve facts',
+    turns: [
+      { message: 'i want gelx medum bare nails no extras pls', expect: { resultKinds: ['proposal'], facts: { length: 'medium', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium], subtotalCents: 8000, durationMinutes: 105 }, handoffReady: true } },
+      { message: 'How long will that take?', session: 'reopen', expect: { resultKinds: ['answer'], facts: { length: 'medium', existingProduct: 'none' }, preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.medium] }, reply: { configuredDurationMinutes: 105 } } },
+    ],
+  },
+
+  {
     id: 'beginner-guidance-biting',
     category: 'live outcome-only guidance without a forced service questionnaire',
     turns: [
@@ -102,7 +142,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     category: 'live fallback search retains provenance and clarifies relative direction',
     availabilityFixture: 'working_hours',
     turns: [
-      { message: 'gel manicure on bare nails', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
+      { message: 'gel manicure on bare nails, plain colour with no extras', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
       { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: true }, reply: { nonEmpty: true } } },
       { message: 'anything earlier?', expect: { resultKinds: ['clarification', 'date_prompt'], availability: { clarificationDirection: 'earlier' }, reply: { nonEmpty: true, excludes: ['There aren’t any earlier times', 'There are no earlier times'] } } },
       { message: 'earlier on Saturday please', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '00:00', latest: '16:59' }, fallback: false }, reply: { nonEmpty: true } } },
@@ -113,7 +153,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     category: 'relative follow-up resolves a signed original or displayed day after clarification',
     availabilityFixture: 'working_hours' as const,
     turns: [
-      { message: 'gel manicure on bare nails', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
+      { message: 'gel manicure on bare nails, plain colour with no extras', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
       { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: true }, reply: { nonEmpty: true } } },
       { message: 'anything earlier?', expect: { resultKinds: ['clarification'], availability: { clarificationDirection: 'earlier' as const }, reply: { nonEmpty: true } } },
       { message: anchor === 'requested' ? 'the original day I asked about' : anchor === 'corrected' ? 'the shown day, actually later' : 'the day you just showed', expect: { resultKinds: ['slots'], availability: { requested: anchor === 'requested' ? { date: '2026-09-19', earliest: '00:00', latest: '16:59' } : anchor === 'corrected' ? { date: '2026-09-21', earliest: '09:01', latest: '23:59' } : { date: '2026-09-21', earliest: '00:00', latest: '08:59' }, fallback: anchor === 'displayed' }, reply: { nonEmpty: true } } },
@@ -124,7 +164,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     category: 'continues an unanswered time request after a synthetic provider failure',
     availabilityFixture: 'working_hours' as const,
     turns: [
-      { message: 'gel manicure on bare nails', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
+      { message: 'gel manicure on bare nails, plain colour with no extras', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
       { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: true } } },
       { message, priorFailure: { message: 'anything earlier?' }, expect: { resultKinds: ['slots', 'clarification'], availability: { whenSlotsOnly: true, requested: { date: '2026-09-19', earliest: '00:00', latest: '16:59' }, fallback: false }, preservesSelection: { serviceId: ids.gelManicure }, reply: { nonEmpty: true, excludes: ['matching service', 'not available to book'] } } },
     ],
@@ -134,7 +174,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     category: 'an explicit clock limit wins over earlier fallback boundaries',
     availabilityFixture: 'working_hours' as const,
     turns: [
-      { message: 'gel manicure on bare nails', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
+      { message: 'gel manicure on bare nails, plain colour with no extras', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
       { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: true } } },
       { message, expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '00:00', latest: '11:59' }, fallback: false } } },
     ],
@@ -238,7 +278,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     id: 'corrections-add-remove-french',
     category: 'incremental corrections and authoritative total',
     turns: [
-      { message: 'medium Gel-X, nothing on my nails', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium], subtotalCents: 8000, durationMinutes: 105 } } },
+      { message: 'medium Gel-X, nothing on my nails, plain colour with no extras', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium], subtotalCents: 8000, durationMinutes: 105 } } },
       { message: 'add French', expect: { resultKinds: ['proposal'], facts: { french: 'yes', length: 'medium' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french], subtotalCents: 9000, durationMinutes: 120 } } },
       { message: 'how much now?', expect: { resultKinds: ['answer'], answerTopic: 'price', facts: { french: 'yes', length: 'medium' }, reply: { configuredTotalCents: 9000 } } },
       { message: 'remove French', expect: { resultKinds: ['proposal'], facts: { french: 'no', length: 'medium' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium], subtotalCents: 8000, durationMinutes: 105 } } },
@@ -248,7 +288,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     id: 'repair-quantity',
     category: 'repair quantity and correction',
     turns: [
-      { message: 'BIAB on my natural nails and two are broken', expect: { resultKinds: ['clarification'], facts: { treatment: 'builder_gel', desiredApplication: 'natural_nails', repairCount: 2 }, noRepeatedQuestion: 'quantity' } },
+      { message: 'BIAB on my natural nails, plain colour with no extras, and two are broken', expect: { resultKinds: ['clarification'], facts: { treatment: 'builder_gel', desiredApplication: 'natural_nails', repairCount: 2 }, noRepeatedQuestion: 'quantity' } },
       { message: 'nothing on my nails right now', expect: { resultKinds: ['proposal'], facts: { existingProduct: 'none', repairCount: 2 }, proposal: { serviceId: ids.biab, addOnIds: [ids.repair], subtotalCents: 6100, durationMinutes: 100 } } },
       { message: 'actually only one repair', expect: { resultKinds: ['proposal'], facts: { repairCount: 1 }, proposal: { serviceId: ids.biab, addOnIds: [ids.repair], subtotalCents: 5800, durationMinutes: 95 } } },
     ],
@@ -257,7 +297,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     id: 'informational-detour-preserves-draft',
     category: 'information during booking keeps state',
     turns: [
-      { message: 'medium Gel-X on bare nails', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium] } } },
+      { message: 'medium Gel-X on bare nails, plain colour with no extras', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium] } } },
       { message: 'How long does that take?', expect: { resultKinds: ['answer'], answerTopic: 'duration', facts: { treatment: 'gel_x', length: 'medium', existingProduct: 'none' }, subjects: [ids.gelx], preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.medium] }, reply: { configuredDurationMinutes: 105 } } },
       { message: 'Okay add French', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', french: 'yes', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french] } } },
     ],
@@ -266,7 +306,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     id: 'availability-followups',
     category: 'availability follow-ups',
     turns: [
-      { message: 'medium Gel-X on bare nails', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelx, addOnIds: [ids.medium] } } },
+      { message: 'medium Gel-X on bare nails, plain colour with no extras', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelx, addOnIds: [ids.medium] } } },
       { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: false }, reply: { nonEmpty: true } } },
       { message: 'anything earlier?', expect: { resultKinds: ['slots'], reply: { nonEmpty: true } } },
       { message: 'what about Sunday instead', expect: { resultKinds: ['slots'], reply: { nonEmpty: true } } },
@@ -304,7 +344,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     id: 'explicit-same-length-survives-treatment-switch',
     category: 'explicit same-length instruction is not mistaken for stale state',
     turns: [
-      { message: 'long Gel-X on bare nails', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', desiredApplication: 'extensions', length: 'long', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.long] } } },
+      { message: 'long Gel-X on bare nails, plain colour with no extras', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', desiredApplication: 'extensions', length: 'long', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.long] } } },
       { message: 'Actually I want BIAB, but keep them long', expect: { resultKinds: ['clarification', 'unavailable', 'proposal'], facts: { treatment: 'builder_gel', length: 'long' }, reply: { nonEmpty: true, excludes: ['We could not find a matching service'] } } },
     ],
   },
@@ -313,7 +353,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     category: 'maintenance advice does not silently switch a service',
     turns: [
       { message: 'I have Gel-X already. Should I get a fill or a new set?', expect: { resultKinds: ['answer', 'clarification'], facts: { existingProduct: 'gel_x' }, reply: { mentionsAny: ['fill', 'new set', 'gel-x'] } } },
-      { message: 'I want a fill', expect: { resultKinds: ['proposal'], facts: { maintenance: 'refill', existingProduct: 'gel_x' }, proposal: { serviceId: ids.gelxFill } } },
+      { message: 'I want a fill, plain colour with no extras', expect: { resultKinds: ['proposal'], facts: { maintenance: 'refill', existingProduct: 'gel_x' }, proposal: { serviceId: ids.gelxFill } } },
     ],
   },
   {
@@ -335,7 +375,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     id: 'reopen-preserves-booking-state',
     category: 'close and reopen assistant with draft preserved',
     turns: [
-      { message: 'medium Gel-X on bare nails', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium] } } },
+      { message: 'medium Gel-X on bare nails, plain colour with no extras', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium] } } },
       { message: 'add chrome', session: 'reopen', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.chrome] } } },
     ],
   },

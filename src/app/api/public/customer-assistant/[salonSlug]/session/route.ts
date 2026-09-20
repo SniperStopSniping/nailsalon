@@ -43,5 +43,7 @@ export async function POST(request: Request, context: { params: Promise<{ salonS
     }
   }
   const conversation = signCustomerConversation(createCustomerConversation(salon.id, config.signingSecret, Date.now(), nextVisitOffer), config.signingSecret);
-  return Response.json({ conversation }, { headers: CUSTOMER_NO_STORE });
+  // This is a route-resolved public display name, not client-supplied tenant
+  // context. The client uses it for its deterministic, localized first welcome.
+  return Response.json({ conversation, salon: { name: salon.name } }, { headers: CUSTOMER_NO_STORE });
 }

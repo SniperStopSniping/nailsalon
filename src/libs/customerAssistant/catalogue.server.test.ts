@@ -21,7 +21,7 @@ beforeEach(() => {
   mocks.config.mockResolvedValue({ currency: 'CAD', timezone: 'America/Toronto' });
   mocks.validate.mockResolvedValue({ quote: {
     baseService: { id: 'gelx', name: 'Gel-X', priceCents: 6500 },
-    addOns: [{ addOnId: 'french', name: 'French', quantity: 1, lineTotalCents: 1500 }],
+    addOns: [{ addOnId: 'french', name: 'French', quantity: 1, unitPriceCents: 1500, lineTotalCents: 1500 }],
     subtotalCents: 8000,
     visibleDurationMinutes: 100,
   }, baseServiceRecord: { privateNote: 'NEVER_RETURN' } });
@@ -92,6 +92,7 @@ describe('public customer catalogue authority', () => {
 
     expect(mocks.validate).toHaveBeenCalledWith({ salonId: 'salon-a', selection });
     expect(first).toMatchObject({ subtotalCents: 8000, durationMinutes: 100, currency: 'CAD' });
+    expect(first.addOns).toContainEqual({ id: 'french', name: 'French', quantity: 1, unitPriceCents: 1500, priceCents: 1500 });
     expect(JSON.stringify(first)).not.toContain('NEVER_RETURN');
 
     mocks.validate.mockResolvedValue({ quote: { baseService: { id: 'gelx', name: 'Gel-X', priceCents: 7000 }, addOns: [], subtotalCents: 7000, visibleDurationMinutes: 90 } });

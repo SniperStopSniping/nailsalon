@@ -24,6 +24,7 @@ const { CUSTOMER_ASSISTANT_INTERPRETATION_MODEL, CUSTOMER_ASSISTANT_MAX_INPUT_BY
 const { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } = require('../src/libs/customerAssistant/interpretation') as typeof import('../src/libs/customerAssistant/interpretation');
 const { RECEPTIONIST_REPLY_PROMPT, buildReplyInput, createReplySchema, fallbackReceptionistReply, parseReceptionistReply } = require('../src/libs/customerAssistant/reply') as typeof import('../src/libs/customerAssistant/reply');
 const { createCustomerConversation, signCustomerConversation, verifyCustomerConversation } = require('../src/libs/customerAssistant/conversation.server') as typeof import('../src/libs/customerAssistant/conversation.server');
+const { customerPartialQuoteSelection } = require('../src/libs/customerAssistant/consultation') as typeof import('../src/libs/customerAssistant/consultation');
 const { emptyFacts } = require('../src/libs/customerAssistant/semanticFacts') as typeof import('../src/libs/customerAssistant/semanticFacts');
 const { selectionConflictsWithExplicitFacts } = require('../src/libs/customerAssistant/semanticSelection') as typeof import('../src/libs/customerAssistant/semanticSelection');
 const { evaluateReceptionistTurn } = require('../src/libs/customerAssistant/__evals__/receptionistHarness') as typeof import('../src/libs/customerAssistant/__evals__/receptionistHarness');
@@ -253,6 +254,9 @@ function evaluateTurn(args: {
 }): string[] {
   const failures: string[] = [];
   const { expect } = args.turn;
+  if (!args.reply.trim()) {
+    failures.push('reply_empty');
+  }
   if (!expect.resultKinds.includes(args.result.kind)) {
     failures.push(`result:${args.result.kind}`);
   }
@@ -310,6 +314,9 @@ function evaluateTurn(args: {
       failures.push('selection_addons_not_preserved');
     }
   }
+  if (expect.clarificationQuestion && (args.result.kind !== 'clarification' || args.result.question !== expect.clarificationQuestion)) {
+    failures.push('clarification_question');
+  }
   if (expect.noRepeatedQuestion && args.result.kind === 'clarification' && args.result.question === expect.noRepeatedQuestion) {
     failures.push('repeated_known_question');
   }
@@ -356,14 +363,22 @@ function evaluateTurn(args: {
       failures.push('reply_comparison_not_grounded');
     }
   }
-  if (expect.reply?.configuredTotalCents !== undefined) {
+  if (expect.reply?.configuredTotalCents !== undefined && args.result.kind === 'proposal') {
+    if (args.result.proposal.subtotalCents !== expect.reply.configuredTotalCents) {
+      failures.push('proposal_configured_total');
+    }
+  } else if (expect.reply?.configuredTotalCents !== undefined) {
     const replyFacts = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en', currentProposal: args.currentProposal }) as Record<string, string>;
     const expectedTotal = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(expect.reply.configuredTotalCents / 100);
     if (!replyFacts.selection?.includes(expectedTotal) || !reply.includes(folded(replyFacts.selection))) {
       failures.push('reply_configured_total_not_grounded');
     }
   }
-  if (expect.reply?.configuredDurationMinutes !== undefined) {
+  if (expect.reply?.configuredDurationMinutes !== undefined && args.result.kind === 'proposal') {
+    if (args.result.proposal.durationMinutes !== expect.reply.configuredDurationMinutes) {
+      failures.push('proposal_configured_duration');
+    }
+  } else if (expect.reply?.configuredDurationMinutes !== undefined) {
     const replyFacts = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en', currentProposal: args.currentProposal }) as Record<string, string>;
     if (!replyFacts.selection?.includes(`${expect.reply.configuredDurationMinutes} minutes`) || !reply.includes(folded(replyFacts.selection))) {
       failures.push('reply_configured_duration_not_grounded');
@@ -439,6 +454,9 @@ async function main(): Promise<void> {
   const results: Array<Record<string, unknown>> = [];
   let reservedMicros = 0;
   let stop = false;
+  const output = path.resolve(repositoryRoot, options.output ?? 'artifacts/customer-assistant/conversation-evaluation');
+  await mkdir(output, { recursive: true, mode: 0o700 });
+  const checkpoint = path.join(output, 'in-progress.json');
   for (let repeatIndex = 1; repeatIndex <= options.repeat; repeatIndex += 1) {
     for (const testCase of cases) {
       let conversation = createCustomerConversation('synthetic-isla', syntheticSecret, syntheticNow);
@@ -514,9 +532,15 @@ async function main(): Promise<void> {
           result = resolved.result;
           next = { ...resolved.next, dialogue: priorDialogue };
           let currentProposal: import('../src/libs/customerAssistant/contracts').CustomerProposal | undefined;
-          if (result.kind === 'answer' && next.context?.selection) {
+          let quoteIsDraft = false;
+          if (result.kind === 'answer') {
             try {
-              const checked = buildSyntheticProposal(next.context.selection);
+              const quoteSelection = next.context?.selection ?? customerPartialQuoteSelection({ menu: SEMANTIC_L1_MENU, snapshot: SEMANTIC_L1_SNAPSHOT, facts: next.facts ?? emptyFacts(), candidate: next.requestedSelection ?? null });
+              if (!quoteSelection) {
+                throw new Error('CUSTOMER_CONFIGURED_QUOTE_UNAVAILABLE');
+              }
+              quoteIsDraft = !next.context?.selection;
+              const checked = buildSyntheticProposal(quoteSelection);
               if (!selectionConflictsWithExplicitFacts(SEMANTIC_L1_MENU, next.facts ?? emptyFacts(), {
                 baseServiceId: checked.service.id,
                 selectedAddOns: checked.addOns.map(item => ({ addOnId: item.id, quantity: item.quantity })),
@@ -527,7 +551,7 @@ async function main(): Promise<void> {
               // Incomplete synthetic drafts have no configured total.
             }
           }
-          const replyInput = buildReplyInput({ menu: SEMANTIC_L1_MENU, publicFacts, result, conversation, nextState: next, message: turn.message, locale: 'en', currentProposal });
+          const replyInput = buildReplyInput({ menu: SEMANTIC_L1_MENU, publicFacts, result, conversation, nextState: next, message: turn.message, locale: 'en', currentProposal, quoteIsDraft });
           const replySchema = createReplySchema(replyInput.facts);
           const replyContext = compactEvaluationContext({ context: JSON.parse(replyInput.data), prompt: RECEPTIONIST_REPLY_PROMPT, schema: replySchema, maxBytes: 24_000 }, options.historyHeadroomBytes);
           if (!replyContext.fits) {
@@ -551,7 +575,7 @@ async function main(): Promise<void> {
             // shown to a visitor.
             replyFallback = true;
             replyParseFailure = error instanceof Error && /^CUSTOMER_REPLY_[A-Z_]+$/.test(error.message) ? error.message : 'CUSTOMER_REPLY_INVALID';
-            parsedReply = { message: fallbackReceptionistReply({ menu: SEMANTIC_L1_MENU, publicFacts, result, conversation, nextState: next, message: turn.message, locale: 'en', currentProposal }, replyInput.facts), options: [] };
+            parsedReply = { message: fallbackReceptionistReply({ menu: SEMANTIC_L1_MENU, publicFacts, result, conversation, nextState: next, message: turn.message, locale: 'en', currentProposal, quoteIsDraft }, replyInput.facts), options: [] };
           }
           result = { ...result, message: parsedReply.message, ...(result.kind === 'answer' || guidanceOptions ? { options: parsedReply.options } : {}) };
           // Match the live turn: sign the choices actually rendered after composition.
@@ -567,6 +591,7 @@ async function main(): Promise<void> {
           results.push({ caseId: testCase.id, category: testCase.category, repeat: repeatIndex, turn: turnIndex + 1, customer: turn.message, status: 'failed', failures: ['provider_or_contract_failure'], stage, intent, result, rawReply, error: error instanceof Error ? error.name : 'unknown' });
           break;
         }
+        await writeFile(checkpoint, JSON.stringify({ results, calls, reservedMicros }, null, 2), { mode: 0o600 });
       }
     }
   }
@@ -596,15 +621,14 @@ async function main(): Promise<void> {
     },
     results,
   };
-  const output = path.resolve(repositoryRoot, options.output ?? 'artifacts/customer-assistant/conversation-evaluation');
-  await mkdir(output, { recursive: true, mode: 0o700 });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const filename = path.join(output, `evaluation-${stamp}.json`);
   await writeFile(filename, `${JSON.stringify(report, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   process.stdout.write(`${JSON.stringify({ file: filename, ...report.summary })}\n`);
 }
 
-void main().catch(() => {
-  process.stderr.write('Customer conversation evaluation failed before dispatch or report generation.\n');
+void main().catch((error: unknown) => {
+  const code = error instanceof Error && /^[A-Z_]+$/.test(error.message) ? error.message : error instanceof Error ? error.name : 'unknown';
+  process.stderr.write(`Customer conversation evaluation stopped: ${code}. Inspect its checkpoint for completed calls.\n`);
   process.exitCode = 1;
 });
