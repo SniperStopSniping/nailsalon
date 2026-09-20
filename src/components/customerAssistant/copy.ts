@@ -22,6 +22,10 @@ type CustomerAssistantCopy = {
   services: string;
   addOns: string;
   configuration: string;
+  included: string;
+  each: string;
+  lineTotal: string;
+  noExtraCharge: string;
   duration: string;
   subtotal: string;
   subtotalNote: string;
@@ -52,6 +56,10 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     services: 'Service',
     addOns: 'Add-ons',
     configuration: 'Details',
+    included: 'Included',
+    each: 'each',
+    lineTotal: 'total',
+    noExtraCharge: 'No extra charge',
     duration: 'Duration',
     subtotal: 'Subtotal',
     subtotalNote: 'Before tax and any conditional discounts.',
@@ -109,6 +117,10 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     services: 'Service',
     addOns: 'Ajouts',
     configuration: 'Détails',
+    included: 'Inclus',
+    each: 'chacun',
+    lineTotal: 'total',
+    noExtraCharge: 'Sans supplément',
     duration: 'Durée',
     subtotal: 'Sous-total',
     subtotalNote: 'Avant les taxes et les rabais conditionnels.',

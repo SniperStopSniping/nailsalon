@@ -272,7 +272,10 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
       <dl className="mt-[10px] min-w-0 space-y-[10px] text-sm text-neutral-700">
         <div className="flex min-w-0 items-start justify-between gap-[8px]">
           <dt className="min-w-0 shrink">{copy.services}</dt>
-          <dd className="min-w-0 max-w-[62%] break-words text-right font-medium text-neutral-950">{proposal.service.name}</dd>
+          <dd className="min-w-0 max-w-[62%] break-words text-right font-medium text-neutral-950">
+            {proposal.service.name}
+            <span className="block text-xs font-normal text-neutral-600">{formatMoney(proposal.service.priceCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}</span>
+          </dd>
         </div>
         {proposal.addOns.length > 0 && (
           <div className="flex min-w-0 items-start justify-between gap-[8px]">
@@ -281,7 +284,18 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
               {proposal.addOns.map(addOn => (
                 <div key={addOn.id}>
                   {addOn.quantity > 1 ? `${addOn.quantity} × ` : ''}
-                  {addOn.name}
+                  <span>{addOn.name}</span>
+                  <span className="block text-xs font-normal text-neutral-600">
+                    {addOn.priceCents === 0
+                      ? copy.included
+                      : (
+                          <>
+                            {addOn.quantity > 1 && addOn.unitPriceCents !== undefined && `${formatMoney(addOn.unitPriceCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')} ${copy.each} · `}
+                            {formatMoney(addOn.priceCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}
+                            {addOn.quantity > 1 && ` ${copy.lineTotal}`}
+                          </>
+                        )}
+                  </span>
                 </div>
               ))}
             </dd>
@@ -318,14 +332,17 @@ function ConsultationChoiceButton({ choice, locale, disabled, onChoose }: {
   onChoose: (message: string) => void;
 }) {
   const currency = choice.currency ?? 'CAD';
-  const price = choice.deltaCents === undefined
-    ? choice.subtotalCents === undefined ? null : formatMoney(choice.subtotalCents, currency, locale === 'fr' ? 'fr-CA' : 'en-CA')
-    : `${choice.deltaCents > 0 ? '+' : choice.deltaCents < 0 ? '−' : ''}${formatMoney(Math.abs(choice.deltaCents), currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}`;
+  const price = choice.deltaCents === 0
+    ? customerAssistantCopy[locale].noExtraCharge
+    : choice.deltaCents === undefined
+      ? choice.subtotalCents === undefined ? null : formatMoney(choice.subtotalCents, currency, locale === 'fr' ? 'fr-CA' : 'en-CA')
+      : `${choice.deltaCents > 0 ? '+' : choice.deltaCents < 0 ? '−' : ''}${formatMoney(Math.abs(choice.deltaCents), currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}`;
+  const subtotal = choice.deltaCents !== undefined && choice.subtotalCents !== undefined ? `${customerAssistantCopy[locale].subtotal} ${formatMoney(choice.subtotalCents, currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}` : null;
   const duration = choice.durationMinutes === undefined ? null : formatDuration(choice.durationMinutes);
   return (
     <button type="button" disabled={disabled} onClick={() => onChoose(choice.message)} className="min-h-11 rounded-2xl border border-neutral-300 bg-white px-4 py-2 text-left text-sm font-medium text-neutral-900 disabled:opacity-50">
       <span className="block">{choice.label}</span>
-      {(price || duration) && <span className="mt-0.5 block text-xs font-normal text-neutral-600">{[price, duration].filter(Boolean).join(' · ')}</span>}
+      {(price || duration) && <span className="mt-0.5 block text-xs font-normal text-neutral-600">{[price, subtotal, duration].filter(Boolean).join(' · ')}</span>}
     </button>
   );
 }

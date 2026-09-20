@@ -18,7 +18,7 @@ The customer-only Redis revision record binds the latest completed signed conver
 
 ## Conversation and handoff
 
-Welcome is deterministic and uses the trusted route-resolved public salon name. Existing conversation persistence prevents duplicate welcomes on reopening; Start over creates fresh state. Structured priced choices are shortcuts alongside ordinary typing. The final package has a short conversational lead-in and one authoritative breakdown.
+Welcome is deterministic and uses the trusted route-resolved public salon name. Existing conversation persistence prevents duplicate welcomes on reopening; Start over creates fresh state. Structured priced choices are shortcuts alongside ordinary typing. The final package has a short conversational lead-in and one authoritative breakdown: service price, each selected add-on line total, quoted per-unit repair prices, included labels, subtotal and service duration. Choice chips show the resolver-computed price difference and resulting subtotal. Display code formats those server values without deriving prices.
 
 The journey remains consultation → Choose these services → normal Time → Details/reminders → Confirm. Recovery/idempotency and deposit/payment semantics remain owned by the existing booking flow.
 

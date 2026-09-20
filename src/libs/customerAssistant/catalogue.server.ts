@@ -123,7 +123,7 @@ export async function buildCustomerProposal(salonId: string, features: SalonFeat
   const material = {
     selection,
     service: { id: quote.baseService.id, name: quote.baseService.name, priceCents: quote.baseService.priceCents },
-    addOns: quote.addOns.map(item => ({ id: item.addOnId, name: item.name, quantity: item.quantity, priceCents: item.lineTotalCents })),
+    addOns: quote.addOns.map(item => ({ id: item.addOnId, name: item.name, quantity: item.quantity, priceCents: item.lineTotalCents, unitPriceCents: item.unitPriceCents })),
     currency: config.currency,
     subtotalCents: quote.subtotalCents,
     durationMinutes: quote.visibleDurationMinutes,

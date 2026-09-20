@@ -250,7 +250,7 @@ test('branded welcome, resume, start over, priced length choice, and keyboard st
       const body = request.postDataJSON() as { message: string };
       messages.push(body.message);
       const result = body.message === 'Extensions'
-        ? { kind: 'clarification', question: 'length', options: ['Medium'], choices: [{ label: 'Medium', message: 'Medium', deltaCents: 1000, durationMinutes: 100, currency: 'CAD' }] }
+        ? { kind: 'clarification', question: 'length', options: ['Medium'], choices: [{ label: 'Medium', message: 'Medium', deltaCents: 1000, subtotalCents: 8000, durationMinutes: 100, currency: 'CAD' }] }
         : { kind: 'answer', message: 'Perfect — medium it is 💅', options: [] };
       await route.fulfill({ json: { conversation: `turn-${messages.length}`, result } });
       return;

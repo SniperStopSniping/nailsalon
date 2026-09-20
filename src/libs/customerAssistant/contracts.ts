@@ -28,7 +28,7 @@ export type CustomerProposal = {
   selection: CustomerSelection;
   fingerprint: string;
   service: { id: string; name: string; priceCents: number };
-  addOns: { id: string; name: string; quantity: number; priceCents: number }[];
+  addOns: { id: string; name: string; quantity: number; priceCents: number; unitPriceCents?: number }[];
   currency: string;
   subtotalCents: number;
   durationMinutes: number;

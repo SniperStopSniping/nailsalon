@@ -111,7 +111,7 @@ describe('CustomerAssistantLauncher', () => {
           question: 'length',
           options: ['Medium'],
           choices: [
-            { label: 'Medium', message: 'Medium', deltaCents: 1000, durationMinutes: 100, currency: 'CAD' },
+            { label: 'Medium', message: 'Medium', deltaCents: 1000, subtotalCents: 8000, durationMinutes: 100, currency: 'CAD' },
           ],
         },
       }), { status: 200 }))
@@ -124,9 +124,33 @@ describe('CustomerAssistantLauncher', () => {
     await user.type(await screen.findByLabelText('Tell me what you would like'), 'Extensions');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     const medium = await screen.findByRole('button', { name: /Medium.*\+\$10\.00.*1h 40m/i });
+
+    expect(medium).toHaveTextContent('Subtotal $80.00');
+
     await user.click(medium);
 
     await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/chat', expect.objectContaining({ body: JSON.stringify({ conversation: 'length-token', message: 'Medium', locale: 'en' }) })));
+  });
+
+  it('shows authoritative service and add-on line prices, per-unit repairs, and included options', async () => {
+    const packageQuote = { ...proposal(), addOns: [
+      { id: 'repairs', name: 'Nail repair', quantity: 2, unitPriceCents: 300, priceCents: 600 },
+      { id: 'included', name: 'Included finish', quantity: 1, unitPriceCents: 0, priceCents: 0 },
+    ], subtotalCents: 9100 };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(sessionResponse()).mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'package-token', result: { kind: 'proposal', proposal: packageQuote } }), { status: 200 })));
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'My complete package');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    const card = await screen.findByRole('region', { name: 'Your appointment package' });
+
+    expect(card).toHaveTextContent('Gel-X Extensions$85.00');
+    expect(card).toHaveTextContent('2 × Nail repair$3.00 each · $6.00 total');
+    expect(card).toHaveTextContent('Included finishIncluded');
+    expect(card).toHaveTextContent('$91.00');
+    expect(card).not.toHaveTextContent('$0.00');
   });
 
   it('binds a campaign session without persisting its raw token and preserves it through assistant handoff', async () => {
