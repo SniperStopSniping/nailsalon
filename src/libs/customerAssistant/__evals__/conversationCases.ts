@@ -35,7 +35,7 @@ export type ConversationExpectation = {
     recallsLastUserQuestion?: boolean;
     explainsUnsupported?: boolean;
   };
-  availability?: { requested?: { date: string; earliest: string; latest: string }; fallback?: boolean; clarificationDirection?: 'earlier' | 'later' };
+  availability?: { whenSlotsOnly?: boolean; requested?: { date: string; earliest: string; latest: string }; fallback?: boolean; clarificationDirection?: 'earlier' | 'later' };
   noRepeatedQuestion?: 'service' | 'product' | 'origin' | 'length' | 'finish' | 'quantity';
   handoffReady?: boolean;
 };
@@ -126,7 +126,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     turns: [
       { message: 'gel manicure on bare nails', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
       { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: true } } },
-      { message, priorFailure: { message: 'anything earlier?' }, expect: { resultKinds: ['slots', 'clarification'], preservesSelection: { serviceId: ids.gelManicure }, reply: { nonEmpty: true, excludes: ['matching service', 'not available to book'] } } },
+      { message, priorFailure: { message: 'anything earlier?' }, expect: { resultKinds: ['slots', 'clarification'], availability: { whenSlotsOnly: true, requested: { date: '2026-09-19', earliest: '00:00', latest: '16:59' }, fallback: false }, preservesSelection: { serviceId: ids.gelManicure }, reply: { nonEmpty: true, excludes: ['matching service', 'not available to book'] } } },
     ],
   })),
   {

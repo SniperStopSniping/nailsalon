@@ -248,7 +248,8 @@ function evaluateTurn(args: {
   if (!expect.resultKinds.includes(args.result.kind)) {
     failures.push(`result:${args.result.kind}`);
   }
-  if (expect.availability?.requested) {
+  const checkAvailability = !expect.availability?.whenSlotsOnly || args.result.kind === 'slots';
+  if (checkAvailability && expect.availability?.requested) {
     const actual = args.result.kind === 'slots' ? args.result.search?.requestedPreference : undefined;
     for (const [key, value] of Object.entries(expect.availability.requested)) {
       if (actual?.[key as keyof NonNullable<typeof actual>] !== value) {
@@ -256,7 +257,7 @@ function evaluateTurn(args: {
       }
     }
   }
-  if (expect.availability?.fallback !== undefined && (args.result.kind !== 'slots' || args.result.search?.fallback !== expect.availability.fallback)) {
+  if (checkAvailability && expect.availability?.fallback !== undefined && (args.result.kind !== 'slots' || args.result.search?.fallback !== expect.availability.fallback)) {
     failures.push('availability_fallback');
   }
   if (expect.availability?.clarificationDirection && !folded(args.reply).includes(expect.availability.clarificationDirection)) {
