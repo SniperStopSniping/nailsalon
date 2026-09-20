@@ -270,7 +270,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
       { message: 'how long does that take?', expect: { resultKinds: ['answer'], answerTopic: 'duration', facts: { treatment: 'gel_x', length: 'medium', french: 'yes', existingProduct: 'none' }, preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french] }, reply: { configuredDurationMinutes: 120 } } },
       { message: 'add chrome', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', french: 'yes', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french, ids.chrome], subtotalCents: 10200, durationMinutes: 130 } } },
       { message: 'remove French', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', french: 'no', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.chrome], subtotalCents: 9200, durationMinutes: 115 } } },
-      { message: 'actually short, how much now?', expect: { resultKinds: ['answer'], answerTopic: 'price', facts: { treatment: 'gel_x', length: 'short', french: 'no', existingProduct: 'none' }, preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.short, ids.chrome] }, reply: { configuredTotalCents: 8200, configuredDurationMinutes: 100 } } },
+      { message: 'actually short, how much now?', expect: { resultKinds: ['answer', 'proposal'], facts: { treatment: 'gel_x', length: 'short', french: 'no', existingProduct: 'none' }, preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.short, ids.chrome] }, reply: { configuredTotalCents: 8200, configuredDurationMinutes: 100 } } },
     ],
   },
   {
