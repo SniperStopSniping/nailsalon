@@ -2,7 +2,9 @@ import 'server-only';
 
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
+import { resolveCatalogDomainView } from '@/libs/bookingCatalog';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { resolvePublicCatalogSnapshot } from '@/libs/catalogResolver.server';
 import {
   getSalonClientLineageIdsWithHandle,
   type LifecycleSqlHandle,
@@ -16,7 +18,9 @@ import {
   resolveNextVisitOfferSettings,
   toNextVisitRetentionPromotion,
 } from '@/libs/nextVisitOffer';
+import { projectPublicBookingCatalog } from '@/libs/publicBookingCatalog';
 import { createRetentionCampaignToken, hashRetentionCampaignToken } from '@/libs/retentionCampaigns';
+import { getPublicBookableServiceIds } from '@/libs/serviceAssignments';
 import {
   type Appointment,
   appointmentSchema,
@@ -26,6 +30,7 @@ import {
   salonClientSchema,
   salonRetentionSettingsSchema,
   salonSchema,
+  serviceSchema,
 } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
@@ -129,6 +134,90 @@ export async function mintNextVisitOfferLink(handle: NextVisitHandle, args: {
     singleUse: true,
   });
   return { token, offer };
+}
+
+/**
+ * Returns an already-issued offer only when the current program is enabled and
+ * its source visit still satisfies the same completion invariants used when a
+ * campaign is later validated. This is intentionally a read-only helper: a
+ * customer must still deliberately start a new booking before a campaign link
+ * is minted.
+ */
+export async function getAvailableNextVisitOfferForSourceAppointment(handle: NextVisitHandle, args: {
+  salonId: string;
+  sourceAppointmentId: string;
+  now?: Date;
+}): Promise<typeof nextVisitOfferSchema.$inferSelect | null> {
+  const now = args.now ?? new Date();
+  const [[retention], [offer], [source], [salon], activeServices] = await Promise.all([
+    handle.select({ nextVisitOffer: salonRetentionSettingsSchema.nextVisitOffer })
+      .from(salonRetentionSettingsSchema)
+      .where(eq(salonRetentionSettingsSchema.salonId, args.salonId))
+      .limit(1),
+    handle.select().from(nextVisitOfferSchema).where(and(
+      eq(nextVisitOfferSchema.salonId, args.salonId),
+      eq(nextVisitOfferSchema.sourceAppointmentId, args.sourceAppointmentId),
+    )).limit(1),
+    handle.select({
+      status: appointmentSchema.status,
+      completedAt: appointmentSchema.completedAt,
+      deletedAt: appointmentSchema.deletedAt,
+    }).from(appointmentSchema).where(and(
+      eq(appointmentSchema.salonId, args.salonId),
+      eq(appointmentSchema.id, args.sourceAppointmentId),
+    )).limit(1),
+    handle.select({ settings: salonSchema.settings, features: salonSchema.features }).from(salonSchema)
+      .where(eq(salonSchema.id, args.salonId)).limit(1),
+    handle.select({ id: serviceSchema.id, priceCents: serviceSchema.price }).from(serviceSchema).where(and(
+      eq(serviceSchema.salonId, args.salonId),
+      eq(serviceSchema.isActive, true),
+    )),
+  ]);
+  if (!resolveNextVisitOfferSettings(retention?.nextVisitOffer).enabled
+    || !offer
+    || offer.state !== 'available'
+    || offer.expiresAt <= now
+    || !source
+    || source.status !== 'completed'
+    || source.deletedAt
+    || !source.completedAt
+    || source.completedAt.getTime() !== offer.qualifiedAt.getTime()
+    || !salon
+    || offer.currency.toUpperCase() !== resolveBookingConfigFromSettings(salon.settings as SalonSettings | null).currency.toUpperCase()) {
+    return null;
+  }
+  const publicBookableIds = await getPublicBookableServiceIds(args.salonId);
+  let publicServices = activeServices.filter(service => publicBookableIds === null || publicBookableIds.has(service.id));
+  if (resolveCatalogDomainView(salon.features) === 'l1') {
+    const snapshot = await resolvePublicCatalogSnapshot({ salonId: args.salonId, requestedSource: 'live' });
+    if (!snapshot.ok) {
+      return null;
+    }
+    const l1ServiceIds = new Set(projectPublicBookingCatalog(snapshot.snapshot, publicBookableIds).services.map(service => service.id));
+    publicServices = publicServices.filter(service => l1ServiceIds.has(service.id));
+  }
+  if (calculateNextVisitOfferDiscount({ settings: offer.settingsSnapshot, services: publicServices }).discountAmountCents <= 0) {
+    return null;
+  }
+  try {
+    const terminal = await resolveTerminalSalonClientWithHandle(handle as LifecycleSqlHandle, {
+      salonId: args.salonId,
+      clientId: offer.salonClientId,
+    });
+    const [client] = await handle.select({ isBlocked: salonClientSchema.isBlocked })
+      .from(salonClientSchema)
+      .where(and(
+        eq(salonClientSchema.salonId, args.salonId),
+        eq(salonClientSchema.id, terminal.id),
+      ))
+      .limit(1);
+    if (!client || client.isBlocked) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return offer;
 }
 
 export type NextVisitOfferPreview = {

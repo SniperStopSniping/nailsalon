@@ -29,6 +29,8 @@ const {
 });
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/components/appointments/RebookingPrompt', () => ({ RebookingPrompt: () => <div data-testid="rebooking-prompt" /> }));
+vi.mock('@/components/appointments/NextVisitOfferRebook', () => ({ NextVisitOfferRebook: () => <div data-testid="legacy-offer-rebook" /> }));
 
 vi.mock('@/libs/appointmentAccess', () => ({
   verifyAppointmentAccessToken,
@@ -618,5 +620,37 @@ describe('appointment management page', () => {
     const { metadata } = await import('./page');
 
     expect(metadata.robots).toMatchObject({ index: false, follow: false });
+  });
+});
+
+describe('post-visit prompt visibility', () => {
+  it.each(['confirmed', 'pending', 'cancelled', 'no_show', 'declined', 'awaiting_payment', 'in_progress'])('never treats %s as a completed visit', async (status) => {
+    verifyAppointmentAccessToken.mockResolvedValue(capability({
+      salonSettings: { rebookingPrompt: { enabled: true } },
+      appointment: { status, completedAt: new Date('2026-08-31T20:00:00Z') },
+    }));
+    render(await ManageAppointmentView({ token: TOKEN, locale: 'en', slug: 'isla-nail-studio1' }));
+
+    expect(screen.queryByTestId('rebooking-prompt')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { enabled: true, completedAt: new Date('2026-08-31T20:00:00Z'), deletedAt: null, expected: true },
+    { enabled: true, completedAt: null, deletedAt: null, expected: false },
+    { enabled: true, completedAt: new Date('2026-08-31T20:00:00Z'), deletedAt: new Date(), expected: false },
+    { enabled: false, completedAt: new Date('2026-08-31T20:00:00Z'), deletedAt: null, expected: false },
+  ])('requires explicit completion and separate owner enablement: $expected', async ({ enabled, completedAt, deletedAt, expected }) => {
+    verifyAppointmentAccessToken.mockResolvedValue(capability({ salonSettings: { rebookingPrompt: { enabled } }, appointment: { status: 'completed', completedAt, deletedAt } }));
+    render(await ManageAppointmentView({ token: TOKEN, locale: 'en', slug: 'isla-nail-studio1' }));
+
+    expect(Boolean(screen.queryByTestId('rebooking-prompt'))).toBe(expected);
+  });
+
+  it('preserves the existing offer surface when the new setting is missing', async () => {
+    verifyAppointmentAccessToken.mockResolvedValue(capability({ appointment: { status: 'completed', completedAt: new Date() } }));
+    render(await ManageAppointmentView({ token: TOKEN, locale: 'en', slug: 'isla-nail-studio1' }));
+
+    expect(screen.queryByTestId('rebooking-prompt')).not.toBeInTheDocument();
+    expect(screen.getByTestId('legacy-offer-rebook')).toBeInTheDocument();
   });
 });

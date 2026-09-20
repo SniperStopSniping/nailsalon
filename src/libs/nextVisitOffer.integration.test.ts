@@ -22,6 +22,7 @@ vi.mock('@/libs/DB', () => ({
 const {
   issueNextVisitOfferOnCompletion,
   getNextVisitOfferAssistantFacts,
+  getAvailableNextVisitOfferForSourceAppointment,
   lockNextVisitOfferForBooking,
   mintNextVisitOfferLink,
   reserveNextVisitOffer,
@@ -148,6 +149,7 @@ beforeEach(async () => {
   await db.execute(sql`delete from next_visit_offer_event`);
   await db.execute(sql`delete from retention_campaign`);
   await db.execute(sql`delete from next_visit_offer`);
+  await db.execute(sql`delete from technician_services`);
   await db.execute(sql`delete from salon where id like 'next-visit-salon-%'`);
   sequence = 0;
 });
@@ -270,6 +272,139 @@ describe('next visit offer durable lifecycle', () => {
       services: [{ id: 'svc', priceCents: 5000 }],
       now: new Date('2031-03-02T00:00:00.000Z'),
     })).resolves.toMatchObject({ status: 'eligible', reference: { entitlementId: offer?.id } });
+  });
+
+  it('does not expose an issued offer to the rebooking prompt when the current program is off, expired, or outside its tenant', async () => {
+    const fixture = await seed();
+    await issue(fixture);
+    await db.insert(schema.serviceSchema).values({
+      id: 'svc',
+      salonId: fixture.salonId,
+      name: 'Eligible current service',
+      category: 'manicure',
+      price: 5000,
+      durationMinutes: 60,
+      isActive: true,
+    });
+    await db.insert(schema.technicianSchema).values({
+      id: 'prompt-tech',
+      salonId: fixture.salonId,
+      name: 'Prompt Technician',
+      isActive: true,
+    });
+    await db.insert(schema.technicianServicesSchema).values({
+      technicianId: 'prompt-tech',
+      serviceId: 'svc',
+      enabled: true,
+    });
+
+    await expect(getAvailableNextVisitOfferForSourceAppointment(db as never, {
+      salonId: fixture.salonId,
+      sourceAppointmentId: fixture.sourceId,
+      now: fixture.completedAt,
+    })).resolves.toMatchObject({ sourceAppointmentId: fixture.sourceId });
+
+    await expect(getAvailableNextVisitOfferForSourceAppointment(db as never, {
+      salonId: 'other-tenant',
+      sourceAppointmentId: fixture.sourceId,
+      now: fixture.completedAt,
+    })).resolves.toBeNull();
+
+    await db.update(schema.salonClientSchema)
+      .set({ isBlocked: true })
+      .where(eq(schema.salonClientSchema.id, fixture.clientId));
+
+    await expect(getAvailableNextVisitOfferForSourceAppointment(db as never, {
+      salonId: fixture.salonId,
+      sourceAppointmentId: fixture.sourceId,
+      now: fixture.completedAt,
+    })).resolves.toBeNull();
+
+    await db.update(schema.salonClientSchema)
+      .set({ isBlocked: false })
+      .where(eq(schema.salonClientSchema.id, fixture.clientId));
+
+    await db.update(schema.serviceSchema)
+      .set({ isActive: false })
+      .where(eq(schema.serviceSchema.id, 'svc'));
+
+    await expect(getAvailableNextVisitOfferForSourceAppointment(db as never, {
+      salonId: fixture.salonId,
+      sourceAppointmentId: fixture.sourceId,
+      now: fixture.completedAt,
+    })).resolves.toBeNull();
+
+    await db.update(schema.serviceSchema)
+      .set({ isActive: true })
+      .where(eq(schema.serviceSchema.id, 'svc'));
+
+    await db.update(schema.technicianServicesSchema)
+      .set({ enabled: false })
+      .where(eq(schema.technicianServicesSchema.technicianId, 'prompt-tech'));
+
+    await expect(getAvailableNextVisitOfferForSourceAppointment(db as never, {
+      salonId: fixture.salonId,
+      sourceAppointmentId: fixture.sourceId,
+      now: fixture.completedAt,
+    })).resolves.toBeNull();
+
+    await db.update(schema.technicianServicesSchema)
+      .set({ enabled: true })
+      .where(eq(schema.technicianServicesSchema.technicianId, 'prompt-tech'));
+
+    await db.update(schema.salonSchema)
+      .set({ features: { catalog: { variantsV1: true, addOnGroupsV1: false, bookingModesV1: false } } })
+      .where(eq(schema.salonSchema.id, fixture.salonId));
+    await db.update(schema.serviceSchema)
+      .set({ confirmationMode: 'consultation' })
+      .where(eq(schema.serviceSchema.id, 'svc'));
+
+    await expect(getAvailableNextVisitOfferForSourceAppointment(db as never, {
+      salonId: fixture.salonId,
+      sourceAppointmentId: fixture.sourceId,
+      now: fixture.completedAt,
+    })).resolves.toBeNull();
+
+    await db.update(schema.salonSchema)
+      .set({ features: null })
+      .where(eq(schema.salonSchema.id, fixture.salonId));
+    await db.update(schema.serviceSchema)
+      .set({ confirmationMode: null })
+      .where(eq(schema.serviceSchema.id, 'svc'));
+
+    await db.update(schema.salonSchema)
+      .set({ settings: { booking: { timezone: 'America/Toronto', currency: 'USD' } } })
+      .where(eq(schema.salonSchema.id, fixture.salonId));
+
+    await expect(getAvailableNextVisitOfferForSourceAppointment(db as never, {
+      salonId: fixture.salonId,
+      sourceAppointmentId: fixture.sourceId,
+      now: fixture.completedAt,
+    })).resolves.toBeNull();
+
+    await db.update(schema.salonSchema)
+      .set({ settings: { booking: { timezone: 'America/Toronto', currency: 'CAD' } } })
+      .where(eq(schema.salonSchema.id, fixture.salonId));
+
+    await db.update(schema.salonRetentionSettingsSchema)
+      .set({ nextVisitOffer: { ...OFFER_SETTINGS, enabled: false } })
+      .where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
+
+    await expect(getAvailableNextVisitOfferForSourceAppointment(db as never, {
+      salonId: fixture.salonId,
+      sourceAppointmentId: fixture.sourceId,
+      now: fixture.completedAt,
+    })).resolves.toBeNull();
+
+    await db.update(schema.salonRetentionSettingsSchema)
+      .set({ nextVisitOffer: OFFER_SETTINGS })
+      .where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
+
+    await expect(getAvailableNextVisitOfferForSourceAppointment(db as never, {
+      salonId: fixture.salonId,
+      sourceAppointmentId: fixture.sourceId,
+      now: new Date('2032-01-01T00:00:00.000Z'),
+    })).resolves.toBeNull();
   });
 
   it('reserves exactly once and the real lifecycle trigger releases cancellation, consumes no-shows/completions, and rejects reactivation', async () => {

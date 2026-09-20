@@ -617,6 +617,7 @@ describe.sequential('account-backed onboarding persistence', () => {
     expect(privateSalon).toMatchObject({
       email: 'private-contact@islanails.example',
       phone: '+14165550177',
+      settings: { rebookingPrompt: { enabled: true } },
     });
     expect(privateLocation).toEqual({
       email: 'private-contact@islanails.example',

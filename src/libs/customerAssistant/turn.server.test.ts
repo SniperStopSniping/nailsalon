@@ -977,6 +977,28 @@ describe('natural receptionist orchestration', () => {
     expect(composerInput).not.toContain('offer-internal');
   });
 
+  it.each([false, true])('distinguishes verified absence from an offer read failure: %s', async (failed) => {
+    enablePublicFacts();
+    if (failed) {
+      mocks.nextVisitOfferFacts.mockRejectedValueOnce(new Error('synthetic read failure'));
+    } else {
+      mocks.nextVisitOfferFacts.mockResolvedValueOnce(null);
+    }
+    const question = { ...interpretation, action: 'answer', answerTopic: 'salon_information', informationServiceIds: [], addOnUpdates: { add: [], remove: [] }, addOns: [] };
+    const model = provider(question);
+    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(question) }] })
+      .mockResolvedValueOnce(answer(failed ? 'I cannot verify an offer right now.' : '[[next_visit_offer]]'));
+    const response = await runCustomerAssistantTurn({ ...input(), message: 'Do I get a discount if I rebook?' }, model);
+    const composerInput = model.createResponse.mock.calls[1]?.[0].input[1].content as string;
+
+    if (failed) {
+      expect(composerInput).not.toContain('Rebooking itself does not add a discount');
+    } else {
+      expect(response.result.message).toContain('no verified Next Visit Offer attached to this booking session');
+      expect(response.result.message).toContain('Rebooking itself does not add a discount');
+    }
+  });
+
   it('supplies only public active-program terms when a visitor has no offer capability', async () => {
     enablePublicFacts();
     mocks.nextVisitOfferFacts.mockResolvedValue({

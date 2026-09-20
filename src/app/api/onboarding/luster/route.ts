@@ -25,6 +25,7 @@ import {
   technicianSchema,
   technicianServicesSchema,
 } from '@/models/Schema';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
 
@@ -278,6 +279,7 @@ export async function POST(request: Request) {
       let salonName = input.salonName;
       let slug = input.slug;
       let customDomain: string | null = null;
+      let claimRebookingPrompt: SalonSettings['rebookingPrompt'];
       const isClaim = invite.intent === 'claim_existing';
       if (isClaim) {
         claimAuditSalonId = invite.salonId;
@@ -294,6 +296,7 @@ export async function POST(request: Request) {
             customDomain: salonSchema.customDomain,
             ownerEmail: salonSchema.ownerEmail,
             ownerClerkUserId: salonSchema.ownerClerkUserId,
+            settings: salonSchema.settings,
           })
           .from(salonSchema)
           .where(eq(salonSchema.id, invite.salonId))
@@ -319,6 +322,17 @@ export async function POST(request: Request) {
         salonName = claimSalon.name;
         slug = claimSalon.slug;
         customDomain = claimSalon.customDomain;
+        const storedPrompt = claimSalon.settings
+          && typeof claimSalon.settings === 'object'
+          && !Array.isArray(claimSalon.settings)
+          ? (claimSalon.settings as Record<string, unknown>).rebookingPrompt
+          : undefined;
+        claimRebookingPrompt = storedPrompt
+        && typeof storedPrompt === 'object'
+        && !Array.isArray(storedPrompt)
+        && typeof (storedPrompt as Record<string, unknown>).enabled === 'boolean'
+          ? { enabled: (storedPrompt as Record<string, boolean>).enabled }
+          : undefined;
       } else {
         const [duplicateSalon] = await tx.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.slug, input.slug)).limit(1);
         if (duplicateSalon) {
@@ -371,6 +385,13 @@ export async function POST(request: Request) {
             timezone: input.timezone,
             firstVisitDiscountEnabled: false,
           },
+          // Only actual newly-created salons receive this non-promotional
+          // default. Claim/resume preserves its existing absence or value.
+          ...(isClaim
+            ? claimRebookingPrompt === undefined
+              ? {}
+              : { rebookingPrompt: claimRebookingPrompt }
+            : { rebookingPrompt: { enabled: true } }),
           modules: {
             smsReminders: true,
             referrals: false,

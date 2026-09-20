@@ -750,6 +750,10 @@ async function createBusiness(
     phone,
     publicationStatus: 'draft',
     publishedAt: null,
+    // The prompt is non-promotional, so new businesses can opt into the
+    // normal post-visit rebooking path from day one. Existing businesses are
+    // updated elsewhere and retain an absent/off setting.
+    settings: { rebookingPrompt: { enabled: true } },
     slug: salonSlug,
     slugLockedAt: null,
     status: 'active',

@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { CalendarDays, Clock, Download, ExternalLink, MapPin, Scissors, Sparkles, User } from 'lucide-react';
 
 import { NextVisitOfferRebook } from '@/components/appointments/NextVisitOfferRebook';
+import { RebookingPrompt } from '@/components/appointments/RebookingPrompt';
 import { describeAppointmentAccessFailure, verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
@@ -11,6 +12,7 @@ import { buildDirectionsDestination, buildGoogleMapsDirectionsUrl } from '@/libs
 import { formatMoney } from '@/libs/formatMoney';
 import { resolveManageDepositCheckout } from '@/libs/manageDepositCheckout';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
+import { resolveRebookingPromptSettings } from '@/libs/rebookingPromptSettings';
 import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import {
   applyLocationDisplayMode,
@@ -97,6 +99,9 @@ export async function ManageAppointmentView({
     return <ManageLinkError failure="invalid" findBookingHref={findBookingHref} />;
   }
   const appointment = capability.appointment;
+  const showRebookingPrompt = appointment.status === 'completed'
+    && Boolean(appointment.completedAt) && !appointment.deletedAt
+    && resolveRebookingPromptSettings(capability.salonSettings).enabled;
   const resolvedSlug = capability.salonSlug;
   const bookingConfig = resolveBookingConfigFromSettings(capability.salonSettings as SalonSettings | null);
   const timezone = bookingConfig.timezone;
@@ -510,6 +515,8 @@ export async function ManageAppointmentView({
                   : null}
           </div>
 
+          {showRebookingPrompt && <RebookingPrompt key={token} token={token} />}
+
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <a href={`https://calendar.google.com/calendar/render?${googleCalendarQuery.toString()}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-full border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-800">
               <ExternalLink className="size-4" />
@@ -522,7 +529,7 @@ export async function ManageAppointmentView({
           </div>
 
           <div className="mt-8">
-            {appointment.status === 'completed' && <NextVisitOfferRebook token={token} />}
+            {appointment.status === 'completed' && !showRebookingPrompt && <NextVisitOfferRebook token={token} />}
             <ManageAppointmentActions
               appointmentStatus={appointment.status}
               token={token}
