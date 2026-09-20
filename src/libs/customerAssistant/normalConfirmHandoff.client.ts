@@ -54,7 +54,10 @@ export function useNormalBookingFlowMarker(salonId: string | undefined, requeste
       return null;
     }
     try {
-      return sessionStorage.getItem(key(salonId)) === null ? null : 'assistant';
+      return sessionStorage.getItem(key(salonId)) !== null
+        || localStorage.getItem(`luster.customer-booking.operation.${salonId}`) !== null
+        ? 'assistant'
+        : null;
     } catch {
       return null;
     }

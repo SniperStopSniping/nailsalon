@@ -5,7 +5,10 @@ import { clearNormalConfirmHandoff, useNormalBookingFlowMarker, writeNormalConfi
 
 const flow = { flowToken: 'v1.00000000-0000-4000-8000-000000000001.1.synthetic', expiresAt: '2020-01-01T00:00:00Z' };
 
-beforeEach(() => sessionStorage.clear());
+beforeEach(() => {
+  sessionStorage.clear();
+  localStorage.clear();
+});
 
 it('preserves accepted identity on native Back to a URL from before the handoff', () => {
   const hook = renderHook(() => useNormalBookingFlowMarker('salon-a', null));
@@ -34,4 +37,11 @@ it('never adopts a different salon flow or downgrades a damaged flow into legacy
 
   expect(renderHook(() => useNormalBookingFlowMarker('salon-b', null)).result.current).toBe('assistant');
   expect(renderHook(() => useNormalBookingFlowMarker('salon-c', 'assistant')).result.current).toBe('assistant');
+});
+
+it('keeps legacy recovery evidence in the confirmation flow even before an AI marker exists', () => {
+  localStorage.setItem('luster.customer-booking.operation.salon-a', 'damaged-but-must-not-be-discarded');
+
+  expect(renderHook(() => useNormalBookingFlowMarker('salon-a', null)).result.current).toBe('assistant');
+  expect(renderHook(() => useNormalBookingFlowMarker('salon-b', null)).result.current).toBeNull();
 });

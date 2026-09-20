@@ -15,17 +15,20 @@ export function useSearchParams(): URLSearchParams {
   return new URLSearchParams(search);
 }
 
-export function useRouter(): { push: (href: string) => void; replace: (href: string) => void; back: () => void; refresh: () => void } {
-  return {
-    push: (href) => {
-      window.history.pushState(null, '', href);
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    },
-    replace: (href) => {
-      window.history.replaceState(null, '', href);
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    },
-    back: () => window.history.back(),
-    refresh: () => window.dispatchEvent(new PopStateEvent('popstate')),
-  };
+const router = {
+  push: (href: string) => {
+    window.history.pushState(null, '', href);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  },
+  replace: (href: string) => {
+    window.history.replaceState(null, '', href);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  },
+  back: () => window.history.back(),
+  refresh: () => window.dispatchEvent(new PopStateEvent('popstate')),
+};
+
+/** Match Next's stable router identity so effects do not restart on every render. */
+export function useRouter() {
+  return router;
 }
