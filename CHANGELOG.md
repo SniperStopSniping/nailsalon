@@ -1,3 +1,10 @@
+# [1.124.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.123.4...v1.124.0) (2026-09-20)
+
+
+### Features
+
+* add salon-controlled next visit offers ([869f15f](https://github.com/SniperStopSniping/nailsalon/commit/869f15f741735fa6f713ee59a6bf96853231b1c1))
+
 ## [1.123.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.123.3...v1.123.4) (2026-09-20)
 
 
