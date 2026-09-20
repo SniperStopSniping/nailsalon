@@ -17,7 +17,8 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const { createOpenAiResponsesProvider } = require('../src/libs/ai/openaiResponses.server') as typeof import('../src/libs/ai/openaiResponses.server');
-const { CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL } = require('../src/libs/customerAssistant/contracts') as typeof import('../src/libs/customerAssistant/contracts');
+const { compactCustomerModelContext } = require('../src/libs/customerAssistant/boundedModelContext') as typeof import('../src/libs/customerAssistant/boundedModelContext');
+const { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL } = require('../src/libs/customerAssistant/contracts') as typeof import('../src/libs/customerAssistant/contracts');
 const { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } = require('../src/libs/customerAssistant/interpretation') as typeof import('../src/libs/customerAssistant/interpretation');
 const { RECEPTIONIST_REPLY_PROMPT, buildReplyInput, createReplySchema, fallbackReceptionistReply, parseReceptionistReply } = require('../src/libs/customerAssistant/reply') as typeof import('../src/libs/customerAssistant/reply');
 const { createCustomerConversation, signCustomerConversation, verifyCustomerConversation } = require('../src/libs/customerAssistant/conversation.server') as typeof import('../src/libs/customerAssistant/conversation.server');
@@ -49,6 +50,7 @@ type Options = {
   filter: string | null;
   repeat: number;
   maxBudgetMicros: number;
+  historyHeadroomBytes: number | null;
   help: boolean;
 };
 
@@ -62,18 +64,18 @@ type SafeCall = {
 };
 
 function usage(): string {
-  return `Usage: node --conditions=react-server --import tsx scripts/customer-conversation-eval.mts --run --key-file <absolute path> --key-name <UPPERCASE_NAME> [--max-budget-usd <0.01-2>] [--filter <case id text>] [--repeat <1-5>] [--out <directory>]`;
+  return `Usage: node --conditions=react-server --import tsx scripts/customer-conversation-eval.mts --run --key-file <absolute path> --key-name <UPPERCASE_NAME> [--max-budget-usd <0.01-2>] [--filter <case id text>] [--repeat <1-5>] [--out <directory>] [--history-headroom-bytes <600-4000>]`;
 }
 
 function parseOptions(argv: string[]): Options | null {
-  const parsed: Options = { run: false, keyFile: null, keyName: null, output: null, filter: null, repeat: 1, maxBudgetMicros: 500_000, help: false };
+  const parsed: Options = { run: false, keyFile: null, keyName: null, output: null, filter: null, repeat: 1, maxBudgetMicros: 500_000, historyHeadroomBytes: null, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--run') {
       parsed.run = true;
     } else if (argument === '--help' || argument === '-h') {
       parsed.help = true;
-    } else if (argument === '--key-file' || argument === '--key-name' || argument === '--out' || argument === '--filter' || argument === '--repeat' || argument === '--max-budget-usd') {
+    } else if (argument === '--key-file' || argument === '--key-name' || argument === '--out' || argument === '--filter' || argument === '--repeat' || argument === '--max-budget-usd' || argument === '--history-headroom-bytes') {
       const value = argv[++index];
       if (!value || value.startsWith('--')) {
         return null;
@@ -97,6 +99,13 @@ function parseOptions(argv: string[]): Options | null {
         }
         parsed.repeat = count;
       }
+      if (argument === '--history-headroom-bytes') {
+        const bytes = Number(value);
+        if (!Number.isInteger(bytes) || bytes < 600 || bytes > 4000) {
+          return null;
+        }
+        parsed.historyHeadroomBytes = bytes;
+      }
       if (argument === '--max-budget-usd') {
         const dollars = Number(value);
         if (!Number.isFinite(dollars) || dollars < 0.01 || dollars > 2) {
@@ -109,6 +118,13 @@ function parseOptions(argv: string[]): Options | null {
     }
   }
   return parsed;
+}
+
+// Evaluation-only pressure reduces available history room without inventing
+// catalogue facts or raising Production caps. Default uses the exact live cap.
+function compactEvaluationContext(args: Parameters<typeof compactCustomerModelContext>[0], headroom: number | null) {
+  const fixedBytes = Buffer.byteLength(args.prompt + JSON.stringify({ ...args.context, dialogue: [] }) + (args.schema ? JSON.stringify(args.schema) : ''), 'utf8');
+  return compactCustomerModelContext({ ...args, maxBytes: headroom === null ? args.maxBytes : Math.min(args.maxBytes, fixedBytes + headroom) });
 }
 
 function readNamedEnv(contents: string, name: string): string | null {
@@ -424,17 +440,15 @@ async function main(): Promise<void> {
         if (turn.session === 'reopen') {
           conversation = verifyCustomerConversation(signCustomerConversation(conversation, syntheticSecret), 'synthetic-isla', syntheticSecret, syntheticNow);
         }
-        const messages = [...conversation.messages, turn.message].slice(-16);
         const priorDialogue: NonNullable<import('../src/libs/customerAssistant/conversation.server').CustomerConversation['dialogue']> = conversation.dialogue
           ? [...conversation.dialogue]
           : conversation.messages.map(content => ({ role: 'user' as const, content }));
-        const interpretationInput = JSON.stringify({
+        const interpretationContext = compactEvaluationContext({ prompt: CUSTOMER_INTERPRETATION_PROMPT, maxBytes: CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, context: {
           locale: 'en',
           bookingSalon: { name: publicFacts.salon.name, slug: 'synthetic-isla' },
           menu: SEMANTIC_L1_MENU,
           previousFacts: conversation.facts ?? emptyFacts(),
           requestedSelection: conversation.requestedSelection ?? null,
-          customerMessages: messages,
           latestCustomerMessage: turn.message,
           dialogue: priorDialogue,
           conversationalSubjects: conversation.subjects ?? [],
@@ -444,7 +458,11 @@ async function main(): Promise<void> {
           availabilitySearch: conversation.availabilitySearch ?? null,
           today: '2026-09-18',
           timeZone: 'America/Toronto',
-        });
+        } }, options.historyHeadroomBytes);
+        if (!interpretationContext.fits) {
+          throw new Error('SYNTHETIC_INTERPRETATION_CONTEXT_TOO_LARGE');
+        }
+        const interpretationInput = interpretationContext.data;
         const interpretationReservation = conservativeReservationMicros(CUSTOMER_INTERPRETATION_PROMPT + interpretationInput, maxOutputTokens);
         // The reply facts include every permitted public fact. Reserve against
         // the full synthetic projection rather than the smaller interpreter
@@ -491,8 +509,13 @@ async function main(): Promise<void> {
             }
           }
           const replyInput = buildReplyInput({ menu: SEMANTIC_L1_MENU, publicFacts, result, conversation, nextState: next, message: turn.message, locale: 'en', currentProposal });
+          const replySchema = createReplySchema(replyInput.facts);
+          const replyContext = compactEvaluationContext({ context: JSON.parse(replyInput.data), prompt: RECEPTIONIST_REPLY_PROMPT, schema: replySchema, maxBytes: 24_000 }, options.historyHeadroomBytes);
+          if (!replyContext.fits) {
+            throw new Error('SYNTHETIC_REPLY_CONTEXT_TOO_LARGE');
+          }
           const replyStarted = performance.now();
-          const replyResponse = await provider.createResponse({ model: CUSTOMER_ASSISTANT_MODEL, input: [{ role: 'system', content: RECEPTIONIST_REPLY_PROMPT }, { role: 'user', content: replyInput.data }], tools: [], toolChoice: 'none', reasoningEffort: 'low', jsonMode: 'schema', jsonSchema: createReplySchema(replyInput.facts), maxOutputTokens: maxReplyTokens, timeoutMs });
+          const replyResponse = await provider.createResponse({ model: CUSTOMER_ASSISTANT_MODEL, input: [{ role: 'system', content: RECEPTIONIST_REPLY_PROMPT }, { role: 'user', content: replyContext.data }], tools: [], toolChoice: 'none', reasoningEffort: 'low', jsonMode: 'schema', jsonSchema: replySchema, maxOutputTokens: maxReplyTokens, timeoutMs });
           calls.push({ stage: 'reply', latencyMs: Math.round(performance.now() - replyStarted), usage: replyResponse.usage, estimatedCostMicros: estimatedCostMicros(replyResponse.usage), status: 'completed', error: null });
           rawReply = modelText(replyResponse);
           const guidanceOptions = result.kind === 'clarification' && result.question === 'service' ? result.options : null;
@@ -518,7 +541,7 @@ async function main(): Promise<void> {
           next.dialogue = nextDialogue;
           failures.push(...evaluateTurn({ turn, result, next, reply: parsedReply.message, publicFacts, previous, currentProposal }));
           conversation = next;
-          results.push({ caseId: testCase.id, category: testCase.category, repeat: repeatIndex, turn: turnIndex + 1, customer: turn.message, status: failures.length ? 'review' : 'passed', failures, modelReplyFallback: replyFallback, replyParseFailure, intent, rawModelInterpretation: rawInterpretation, result, rawModelReply: rawReply, reply: parsedReply.message, nextFacts: next.facts, subjects: next.subjects ?? [], calls: calls.slice(-2) });
+          results.push({ caseId: testCase.id, category: testCase.category, repeat: repeatIndex, turn: turnIndex + 1, customer: turn.message, contextCompaction: { interpretation: interpretationContext.compacted, reply: replyContext.compacted }, status: failures.length ? 'review' : 'passed', failures, modelReplyFallback: replyFallback, replyParseFailure, intent, rawModelInterpretation: rawInterpretation, result, rawModelReply: rawReply, reply: parsedReply.message, nextFacts: next.facts, subjects: next.subjects ?? [], calls: calls.slice(-2) });
         } catch (error) {
           const stage = result ? 'reply' : 'interpretation';
           calls.push({ stage, latencyMs: null, usage: null, estimatedCostMicros: null, status: 'failed', error: error instanceof Error ? error.name : 'unknown' });
@@ -537,7 +560,7 @@ async function main(): Promise<void> {
     scope: 'synthetic public salon/catalogue and synthetic customer text only; no database, real salon, booking, payment, availability hold, or message',
     promptSha256: { interpretation: createHash('sha256').update(CUSTOMER_INTERPRETATION_PROMPT).digest('hex'), receptionist: createHash('sha256').update(RECEPTIONIST_REPLY_PROMPT).digest('hex') },
     fixtureSha256: createHash('sha256').update(JSON.stringify(CUSTOMER_CONVERSATION_EVAL_CASES)).digest('hex'),
-    limits: { maxBudgetMicros: options.maxBudgetMicros, reservedMicros, maxOutputTokens, maxReplyTokens, timeoutMs, repeat: options.repeat, filter: options.filter },
+    limits: { maxBudgetMicros: options.maxBudgetMicros, reservedMicros, maxOutputTokens, maxReplyTokens, timeoutMs, repeat: options.repeat, filter: options.filter, historyHeadroomBytes: options.historyHeadroomBytes },
     summary: {
       turns: results.length,
       passed: results.filter(item => item.status === 'passed').length,
