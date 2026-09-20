@@ -570,7 +570,7 @@ for (const viewport of [
             }
 
             const confirm = [...document.querySelectorAll('button')]
-              .find(button => button.textContent?.includes('Confirming appointment'));
+              .find(button => button.textContent?.includes('Confirming your appointment'));
             const contactName = document.querySelector<HTMLInputElement>('[aria-label="Customer name"]');
             Reflect.set(window, '__stage3bPendingSnapshot', {
               confirmDisabled: confirm instanceof HTMLButtonElement && confirm.disabled,
@@ -610,6 +610,7 @@ for (const viewport of [
           contentType: 'application/json',
           body: JSON.stringify({
             data: {
+              appointmentId: 'appt_e2e_pending',
               appointment: { id: 'appt_e2e_pending', status: 'pending' },
               manageUrl: appPath(`/${e2eConfig.salonSlug}/manage/pending-e2e-token`),
             },
@@ -687,6 +688,7 @@ test('confirmed receipt leads at the Chromium 200% CSS zoom approximation @mobil
         contentType: 'application/json',
         body: JSON.stringify({
           data: {
+            appointmentId: 'appt_e2e_confirmed',
             appointment: { id: 'appt_e2e_confirmed', status: 'confirmed' },
             manageUrl: appPath(`/${e2eConfig.salonSlug}/manage/confirmed-e2e-token`),
           },
@@ -972,7 +974,7 @@ test.describe('compact booking agreement and receipt', () => {
         // Exercise the receipt without creating an appointment or sending messages.
         await route.fulfill({
           status: 201,
-          json: { data: { appointment: { id: 'layout-fixture', status: 'confirmed' }, manageUrl, smsReminderStatus: 'customer_disabled' } },
+          json: { data: { appointmentId: 'layout-fixture', appointment: { id: 'layout-fixture', status: 'confirmed' }, manageUrl, smsReminderStatus: 'customer_disabled' } },
         });
       });
       const params = new URLSearchParams({
@@ -1001,8 +1003,10 @@ test.describe('compact booking agreement and receipt', () => {
 
       await expect(textReminders).toBeChecked();
       await expect.poll(() => textReminders.locator('..').evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+
       for (const name of ['Terms', 'Privacy']) {
         const link = page.getByRole('link', { name, exact: true });
+
         await expect.poll(() => link.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
         await expect.poll(() => link.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThanOrEqual(44);
       }
