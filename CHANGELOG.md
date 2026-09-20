@@ -1,3 +1,11 @@
+# [1.123.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.122.3...v1.123.0) (2026-09-20)
+
+
+### Features
+
+* **customer-ai:** answer naturally with authoritative facts and dialogue ([d929233](https://github.com/SniperStopSniping/nailsalon/commit/d929233f8d9d8019b7d90fe41edfb24b8e00bb16))
+* **customer-ai:** project public receptionist facts ([2fe542f](https://github.com/SniperStopSniping/nailsalon/commit/2fe542fc7934b75c3482666084785915858bb42a))
+
 ## [1.122.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.122.2...v1.122.3) (2026-09-20)
 
 
