@@ -45,6 +45,8 @@ export type ConversationEvalTurn = {
   expect: ConversationExpectation;
   /** Sign and verify the synthetic conversation before continuing this turn. */
   session?: 'reopen';
+  /** Inject an unsuccessful prior turn without calling a provider or changing booking state. */
+  priorFailure?: { message: string };
 };
 
 export type ConversationEvalCase = {
@@ -115,6 +117,16 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
       { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: true }, reply: { nonEmpty: true } } },
       { message: 'anything earlier?', expect: { resultKinds: ['clarification'], availability: { clarificationDirection: 'earlier' as const }, reply: { nonEmpty: true } } },
       { message: anchor === 'requested' ? 'the original day I asked about' : anchor === 'corrected' ? 'the shown day, actually later' : 'the day you just showed', expect: { resultKinds: ['slots'], availability: { requested: anchor === 'requested' ? { date: '2026-09-19', earliest: '00:00', latest: '16:59' } : anchor === 'corrected' ? { date: '2026-09-21', earliest: '09:01', latest: '23:59' } : { date: '2026-09-21', earliest: '00:00', latest: '08:59' }, fallback: anchor === 'displayed' }, reply: { nonEmpty: true } } },
+    ],
+  })),
+  ...(['the original day', 'earlier on Saturday please'] as const).map((message, index) => ({
+    id: `interrupted-availability-recovery-${index}`,
+    category: 'continues an unanswered time request after a synthetic provider failure',
+    availabilityFixture: 'working_hours' as const,
+    turns: [
+      { message: 'gel manicure on bare nails', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
+      { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: true } } },
+      { message, priorFailure: { message: 'anything earlier?' }, expect: { resultKinds: ['slots', 'clarification'], preservesSelection: { serviceId: ids.gelManicure }, reply: { nonEmpty: true, excludes: ['matching service', 'not available to book'] } } },
     ],
   })),
   {

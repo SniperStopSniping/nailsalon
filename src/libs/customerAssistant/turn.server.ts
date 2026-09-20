@@ -2,6 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
+import { customerAssistantCopy } from '@/components/customerAssistant/copy';
 import { createOpenAiResponsesProvider } from '@/libs/ai/openaiResponses.server';
 import { ModelProviderError, type ModelProviderUsage, type OwnerAssistantModelProvider } from '@/libs/ai/provider';
 import type { SalonFeatures } from '@/types/salonPolicy';
@@ -74,6 +75,7 @@ export async function runCustomerAssistantTurn(args: {
   }
   const attemptId = randomUUID();
   let usage: ModelProviderUsage | null = null;
+  let providerCallStarted = false;
   let result: CustomerAssistantResult = { kind: 'unavailable', reason: 'unavailable' };
   const started = performance.now();
   try {
@@ -114,12 +116,13 @@ export async function runCustomerAssistantTurn(args: {
       },
     });
     if (!interpreterContext.fits) {
-      return { conversation: signCustomerConversation(nextState, config.signingSecret), result };
+      throw new Error('CUSTOMER_CONTEXT_TOO_LARGE');
     }
     const data = interpreterContext.data;
     // Durable reservation BEFORE network: a failed outcome write still leaves
     // conservative unknown-spend evidence, and a failed reservation makes no call.
     await recordCustomerAssistantUsage({ salonId: args.salonId, attemptId, outcome: 'reserved', usage: null, latencyMs: 0 });
+    providerCallStarted = true;
     const response = await model.createResponse({
       model: CUSTOMER_ASSISTANT_MODEL,
       input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: data }],
@@ -226,6 +229,7 @@ export async function runCustomerAssistantTurn(args: {
       attemptId,
       usage,
       latencyMs: performance.now() - started,
+      deterministic: !providerCallStarted,
       outcome: result.kind === 'unavailable'
         ? (result.reason === 'no_match' ? 'no_match' : 'failed')
         : (result.kind === 'slots' || result.kind === 'date_prompt')
@@ -234,6 +238,11 @@ export async function runCustomerAssistantTurn(args: {
     });
   } catch {
     result = { kind: 'unavailable', reason: 'unavailable' };
+  }
+  if (result.kind === 'unavailable' && !result.message) {
+    // Remember the same safe error the customer sees. An unanswered user turn
+    // alone is not an honest transcript for the next conversational repair.
+    result = { ...result, message: customerAssistantCopy[args.locale].unavailable[result.reason] ?? customerAssistantCopy[args.locale].unavailable.unavailable! };
   }
   applyCustomerTurnResult(nextState, result);
   const spoken = result.message;
