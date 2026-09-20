@@ -19,6 +19,27 @@ type Authorities = {
   lookupNextCustomerSlots: typeof import('./slots.server').lookupNextCustomerSlots;
 };
 
+/**
+ * A length belongs to an extension design, not permanently to a customer.
+ * When a customer explicitly switches both treatment and desired application
+ * from extensions to a natural-nail service, do not make the new service ask
+ * for the old extension length. A changed supplied length still wins. Model
+ * patches repeat prior values in some valid structured outputs, so merely
+ * echoing the old value cannot keep an extension-only fact alive.
+ */
+function clearInheritedExtensionLength(args: {
+  previous: import('./semanticFacts').Facts;
+  facts: import('./semanticFacts').Facts;
+  patch: z.infer<typeof customerInterpretationSchema>['factUpdates'];
+}): import('./semanticFacts').Facts {
+  const changedTreatment = args.patch.treatment !== null && args.patch.treatment !== args.previous.treatment;
+  const switchedApplication = args.previous.desiredApplication === 'extensions' && args.patch.desiredApplication === 'natural_nails';
+  const changedLength = args.patch.length !== null && args.patch.length !== args.previous.length;
+  return changedTreatment && switchedApplication && !changedLength
+    ? { ...args.facts, length: 'unknown' }
+    : args.facts;
+}
+
 /** Channel-independent interpretation orchestration. All booking facts come from injected Luster authorities. */
 export async function resolveCustomerTurn(args: { salonId: string; salonSlug: string; features: SalonFeatures | null; locale: CustomerAssistantLocale }, menu: CustomerMenu, intent: z.infer<typeof customerInterpretationSchema>, conversation: CustomerConversation, nextState: CustomerConversation, authority: Authorities): Promise<CustomerAssistantResult> {
   const { buildCustomerProposal, loadCustomerClarificationSnapshot, lookupCustomerSlots, lookupNextCustomerSlots } = authority;
@@ -26,8 +47,22 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
   if (intent.datePreference) {
     intent = { ...intent, datePreference: applyTimingFeedback(intent.datePreference, intent.timingFeedback, conversation.booking?.offeredSlots ?? []) };
   }
+  if (intent.informationServiceIds.some(id => !menu.services.some(service => service.id === id)) || (intent.action === 'answer' && intent.serviceId && !menu.services.some(service => service.id === intent.serviceId))) {
+    throw new Error('CUSTOMER_MODEL_INVALID');
+  }
+  const subjects = intent.informationServiceIds.length ? intent.informationServiceIds : intent.action === 'answer' && intent.serviceId ? [intent.serviceId] : [];
+  if (subjects.length) {
+    if (JSON.stringify(subjects) !== JSON.stringify(conversation.subjects ?? [])) {
+      nextState.priorSubjects = conversation.subjects;
+    }
+    nextState.subjects = subjects;
+  }
   const previousFacts = conversation.facts ?? emptyFacts();
-  const facts = mergeFacts(previousFacts, intent.factUpdates);
+  const facts = clearInheritedExtensionLength({
+    previous: previousFacts,
+    facts: mergeFacts(previousFacts, intent.factUpdates),
+    patch: intent.factUpdates,
+  });
   nextState.facts = facts;
   if (JSON.stringify(facts) !== JSON.stringify(previousFacts)) {
     // A previously accepted catalog selection cannot authorize changed intent.
@@ -40,7 +75,7 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
   const priorDraft = conversation.requestedSelection ?? conversation.context?.selection ?? null;
   // An educational subject is not a request to switch services. Explicit fact
   // and design patches still survive the answer; the next proposal resolves them.
-  const candidate = mergeCatalogChoices({ menu, previous: priorDraft, serviceId: intent.action === 'answer' ? priorDraft?.baseServiceId ?? null : intent.serviceId, addOns: intent.action === 'answer' ? [] : intent.addOns, updates: intent.addOnUpdates });
+  const candidate = mergeCatalogChoices({ menu, previous: priorDraft, serviceId: intent.action === 'answer' ? priorDraft?.baseServiceId ?? null : intent.serviceId, addOns: intent.action === 'answer' ? [] : intent.addOns, updates: intent.addOnUpdates ?? (intent.action === 'answer' ? { add: [], remove: [] } : undefined) });
   if (JSON.stringify(candidate) !== JSON.stringify(priorDraft)) {
     nextState.context = undefined;
     nextState.booking = undefined;
@@ -56,11 +91,21 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       return { kind: 'unavailable', reason: 'incompatible_selection' };
     }
   }
+  // A question can also explicitly edit a selection. Resolve that edit through
+  // exactly the same L1 path before displaying any configured amount.
+  if (intent.action === 'answer' && candidate
+    && (JSON.stringify(facts) !== JSON.stringify(previousFacts) || JSON.stringify(candidate) !== JSON.stringify(priorDraft))) {
+    return resolveCustomerTurn(args, menu, { ...intent, action: 'propose', serviceId: candidate.baseServiceId, addOns: candidate.selectedAddOns }, conversation, nextState, authority);
+  }
   const transition = transitionFailure(menu, facts);
   const resolveServiceIntent = intent.action === 'propose'
     || (intent.action === 'clarify' && intent.question !== 'date' && (menu.l1 || hasKnownClarificationAnswer(intent.question, facts)));
-  if (intent.action === 'answer' && intent.answerTopic) {
-    result = receptionistAnswer({ menu, facts, topic: intent.answerTopic, locale: args.locale, serviceId: intent.serviceId });
+  if (intent.action === 'answer') {
+    const topic = intent.answerTopic ?? 'conversation';
+    const educational = ['compare_treatments', 'length_options', 'service_options', 'unknown_product', 'service_information'].includes(topic);
+    result = educational ? receptionistAnswer({ menu, facts, topic: topic as import('./receptionist').AnswerTopic, locale: args.locale, serviceId: intent.serviceId }) : { kind: 'answer', topic, message: '', options: [] };
+    // Informational chips follow the actual subjects, never the whole menu.
+    result.options = subjects.map(id => menu.services.find(service => service.id === id)!.name).slice(0, 3);
   } else if (transition) {
     result = { kind: 'unavailable', reason: transition };
   } else if (facts.currentProductUncertain && facts.existingProduct === 'unknown' && resolveServiceIntent) {

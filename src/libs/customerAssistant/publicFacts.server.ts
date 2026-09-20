@@ -9,7 +9,7 @@ import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import type { BusinessHours } from '@/libs/bookingPolicy';
 import { resolvePublicCatalogSnapshot } from '@/libs/catalogResolver.server';
 import { projectPublicBookingCatalog } from '@/libs/publicBookingCatalog';
-import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getSalonById, getServicesBySalonId } from '@/libs/queries';
+import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getSalonById, getServiceAddOnRulesBySalonId, getServicesBySalonId } from '@/libs/queries';
 import { applyLocationDisplayMode } from '@/libs/salonContent';
 import { getPublicBookableServiceIds } from '@/libs/serviceAssignments';
 import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
@@ -314,8 +314,9 @@ export async function loadCustomerPublicFacts(args: LoadCustomerPublicFactsArgs)
     if (redacted.name) {
       location.name = redacted.name;
     }
-    if (optionalText(redacted.address, 400)) {
-      location.address = redacted.address;
+    const address = optionalText(redacted.address, 400);
+    if (address) {
+      location.address = address;
     }
     if (locality) {
       location.locality = locality;
@@ -382,12 +383,16 @@ export async function loadCustomerPublicFacts(args: LoadCustomerPublicFactsArgs)
       price: priceFact(addOn, currency, args.locale),
     }));
   } else {
-    const [rawServices, rawAddOns] = await Promise.all([
+    const [rawServices, rawAddOns, rules] = await Promise.all([
       getServicesBySalonId(salon.id),
       getActiveAddOnsBySalonId(salon.id),
+      getServiceAddOnRulesBySalonId(salon.id),
     ]);
-    const publicServices = rawServices.filter(service => bookable === null || bookable.has(service.id));
-    if (publicServices.length > MAX_PUBLIC_SERVICES || rawAddOns.length > MAX_PUBLIC_ADD_ONS) {
+    const publicServices = rawServices.filter(service => service.isActive && (bookable === null || bookable.has(service.id)));
+    const serviceIds = new Set(publicServices.map(service => service.id));
+    const boundIds = new Set(rules.filter(rule => serviceIds.has(rule.serviceId)).map(rule => rule.addOnId));
+    const publicAddOns = rawAddOns.filter(addOn => addOn.isActive && boundIds.has(addOn.id));
+    if (publicServices.length > MAX_PUBLIC_SERVICES || publicAddOns.length > MAX_PUBLIC_ADD_ONS) {
       throw new Error('CUSTOMER_PUBLIC_FACTS_UNAVAILABLE');
     }
     currency = bookingConfig.currency;
@@ -399,7 +404,7 @@ export async function loadCustomerPublicFacts(args: LoadCustomerPublicFactsArgs)
       durationMinutes: service.durationMinutes,
       price: priceFact({ priceCents: service.price, priceDisplayText: service.priceDisplayText }, currency, args.locale),
     }));
-    addOns = rawAddOns.map(addOn => ({
+    addOns = publicAddOns.map(addOn => ({
       id: addOn.id,
       name: addOn.name,
       description: description(addOn.descriptionItems),

@@ -237,17 +237,17 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
   const copy = customerAssistantCopy[locale];
   const { proposal } = result;
   return (
-    <section aria-label={copy.proposal} className="rounded-2xl border border-black/10 bg-white p-4 shadow-sm">
+    <section aria-label={copy.proposal} data-testid="customer-assistant-proposal" className="min-w-0 overflow-hidden rounded-2xl border border-black/10 bg-white p-[12px] shadow-sm">
       <h3 className="text-base font-semibold text-neutral-950">{copy.proposal}</h3>
-      <dl className="mt-3 space-y-3 text-sm text-neutral-700">
-        <div className="flex items-start justify-between gap-4">
-          <dt>{copy.services}</dt>
-          <dd className="text-right font-medium text-neutral-950">{proposal.service.name}</dd>
+      <dl className="mt-[10px] min-w-0 space-y-[10px] text-sm text-neutral-700">
+        <div className="flex min-w-0 items-start justify-between gap-[8px]">
+          <dt className="min-w-0 shrink">{copy.services}</dt>
+          <dd className="min-w-0 max-w-[62%] break-words text-right font-medium text-neutral-950">{proposal.service.name}</dd>
         </div>
         {proposal.addOns.length > 0 && (
-          <div className="flex items-start justify-between gap-4">
-            <dt>{copy.addOns}</dt>
-            <dd className="space-y-1 text-right font-medium text-neutral-950">
+          <div className="flex min-w-0 items-start justify-between gap-[8px]">
+            <dt className="min-w-0 shrink">{copy.addOns}</dt>
+            <dd className="min-w-0 max-w-[62%] space-y-1 break-words text-right font-medium text-neutral-950">
               {proposal.addOns.map(addOn => (
                 <div key={addOn.id}>
                   {addOn.quantity > 1 ? `${addOn.quantity} × ` : ''}
@@ -257,16 +257,16 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
             </dd>
           </div>
         )}
-        <div className="flex items-center justify-between gap-4">
-          <dt>{copy.duration}</dt>
-          <dd className="font-medium text-neutral-950">{formatDuration(proposal.durationMinutes)}</dd>
+        <div className="flex min-w-0 items-center justify-between gap-[8px]">
+          <dt className="min-w-0 shrink">{copy.duration}</dt>
+          <dd className="shrink-0 text-right font-medium text-neutral-950">{formatDuration(proposal.durationMinutes)}</dd>
         </div>
-        <div className="border-t border-black/10 pt-3">
-          <div className="flex items-center justify-between gap-4 text-base font-semibold text-neutral-950">
-            <dt>{copy.subtotal}</dt>
-            <dd>{formatMoney(proposal.subtotalCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}</dd>
+        <div className="border-t border-black/10 pt-[10px]">
+          <div className="flex min-w-0 items-center justify-between gap-[8px] text-base font-semibold text-neutral-950">
+            <dt className="min-w-0 shrink break-words">{copy.subtotal}</dt>
+            <dd className="shrink-0 whitespace-nowrap">{formatMoney(proposal.subtotalCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}</dd>
           </div>
-          <p className="mt-1 text-xs text-neutral-500">{copy.subtotalNote}</p>
+          <p className="mt-[4px] text-xs text-neutral-500">{copy.subtotalNote}</p>
         </div>
       </dl>
     </section>
@@ -340,6 +340,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
   const inputRef = useRef<HTMLInputElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const inFlight = useRef(false);
+  const restoreComposerFocus = useRef(false);
   const createSession = async () => {
     setLoading(true);
     setError(null);
@@ -379,6 +380,17 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
       storeConversation(salonSlug, { version: 2, conversation, messages, result });
     }
   }, [conversation, messages, result, salonSlug]);
+  useEffect(() => {
+    if (!loading && restoreComposerFocus.current) {
+      restoreComposerFocus.current = false;
+      const input = inputRef.current;
+      // React must first commit disabled=false. Do not steal focus if the
+      // customer moved to another control while waiting for the response.
+      if (input && !input.disabled && (document.activeElement === document.body || document.activeElement === input)) {
+        input.focus();
+      }
+    }
+  }, [loading, error]);
   const restart = () => {
     retryMessage.current = null;
     clearStoredConversation(salonSlug);
@@ -424,9 +436,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
     } finally {
       inFlight.current = false;
       setLoading(false);
-      if (wasTyping) {
-        inputRef.current?.focus();
-      }
+      restoreComposerFocus.current = wasTyping;
     }
   };
   const handoffToNormalBooking = async (fingerprint: string) => {
@@ -500,11 +510,11 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
   };
   return (
     <div role="dialog" aria-modal="true" aria-label={copy.title} style={visibleHeight ? { height: `min(42rem, calc(${visibleHeight}px - 2rem))`, maxHeight: `calc(${visibleHeight}px - 2rem)` } : undefined} className="flex h-[min(42rem,calc(100dvh-1rem))] flex-col sm:max-h-[calc(100dvh-2rem)]">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-black/10 p-4 sm:px-5">
+      <div className="flex shrink-0 items-center justify-between gap-[12px] border-b border-black/10 px-[16px] py-[12px] sm:px-5">
         <h2 className="text-lg font-semibold text-neutral-950">{copy.title}</h2>
         <button type="button" onClick={onClose} aria-label={copy.close} className="grid size-11 shrink-0 place-items-center rounded-full text-neutral-700 hover:bg-neutral-100"><X className="size-5" /></button>
       </div>
-      <div ref={transcriptRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-5 sm:px-5">
+      <div ref={transcriptRef} data-testid="customer-assistant-transcript" className="min-h-0 flex-1 space-y-[12px] overflow-y-auto overscroll-contain px-[16px] py-[12px] sm:px-5">
         <p className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 text-sm leading-6 text-neutral-700">{copy.introduction}</p>
         {messages.map(message => message.role === 'user' && message.kind === 'quick_reply'
           ? (
@@ -559,13 +569,13 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
         )}
         {result && <AssistantResult result={result} locale={locale} loading={loading} onOption={option => void send(option, 'quick_reply')} onHandoff={fingerprint => void handoffToNormalBooking(fingerprint)} />}
       </div>
-      <form onSubmit={handleSubmit} className="shrink-0 border-t border-black/10 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5">
+      <form onSubmit={handleSubmit} className="shrink-0 border-t border-black/10 px-[16px] pb-[max(12px,env(safe-area-inset-bottom))] pt-[12px] sm:px-5">
         <label htmlFor="customer-assistant-message" className="sr-only">{copy.placeholder}</label>
         <div className="flex items-center gap-2">
           <input ref={inputRef} id="customer-assistant-message" value={input} onChange={event => setInput(event.target.value)} disabled={loading || !conversation || error === 'token' || error === 'stale'} maxLength={600} placeholder={result?.kind === 'clarification' ? copy.answerPlaceholder : messages.length ? copy.changePlaceholder : copy.placeholder} className="min-h-11 min-w-0 flex-1 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-950 placeholder:text-neutral-500 focus:border-neutral-950 focus:outline-none disabled:bg-neutral-100" />
           <button type="submit" disabled={loading || !conversation || !input.trim() || error === 'token'} className="grid size-11 shrink-0 place-items-center rounded-xl bg-neutral-950 text-white disabled:cursor-not-allowed disabled:opacity-45" aria-label={copy.send}><Send className="size-4" /></button>
         </div>
-        <button type="button" onClick={onClose} className="mt-3 min-h-11 text-sm font-medium text-neutral-700 underline underline-offset-4">{copy.continueManually}</button>
+        <button type="button" onClick={onClose} className="mt-[12px] min-h-11 text-sm font-medium text-neutral-700 underline underline-offset-4">{copy.continueManually}</button>
       </form>
     </div>
   );

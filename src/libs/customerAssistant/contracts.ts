@@ -77,7 +77,7 @@ export type CustomerAssistantHandoffResponse = {
 };
 
 export type CustomerAssistantResult = (
-  | { kind: 'answer'; message: string; options: string[]; topic?: 'compare_treatments' | 'length_options' | 'service_options' | 'unknown_product' | 'service_information' }
+  | { kind: 'answer'; message: string; options: string[]; topic?: 'compare_treatments' | 'length_options' | 'service_options' | 'unknown_product' | 'service_information' | 'price' | 'duration' | 'recall' | 'salon_information' | 'recommendation' | 'conversation' }
   | { kind: 'proposal'; proposal: CustomerProposal }
   | { kind: 'date_prompt'; proposal: CustomerProposal; today: string; timeZone: string }
   | { kind: 'slots'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slots: CustomerAvailableSlot[]; checkedAt: string; slotDisappeared?: boolean }

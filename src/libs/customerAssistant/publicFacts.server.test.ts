@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   publicServiceIds: vi.fn(),
   salonById: vi.fn(),
   services: vi.fn(),
+  serviceAddOnRules: vi.fn(),
   quickBook: vi.fn(),
   sharedProfile: vi.fn(),
 }));
@@ -30,6 +31,7 @@ vi.mock('@/libs/queries', () => ({
   getActiveAddOnsBySalonId: mocks.activeAddOns,
   getSalonById: mocks.salonById,
   getServicesBySalonId: mocks.services,
+  getServiceAddOnRulesBySalonId: mocks.serviceAddOnRules,
 }));
 vi.mock('@/libs/serviceAssignments', () => ({ getPublicBookableServiceIds: mocks.publicServiceIds }));
 vi.mock('@/app/(unauth)/book/service/quickBookProfile', () => ({ resolvePublicQuickBookProfile: mocks.quickBook }));
@@ -79,12 +81,14 @@ beforeEach(() => {
   mocks.catalogView.mockReturnValue('legacy');
   mocks.services.mockResolvedValue([]);
   mocks.activeAddOns.mockResolvedValue([]);
+  mocks.serviceAddOnRules.mockResolvedValue([]);
 });
 
 describe('loadCustomerPublicFacts', () => {
   it('returns only public legacy catalogue facts and reuses the redacted public profile', async () => {
     mocks.services.mockResolvedValue([{
       id: 'gel',
+      isActive: true,
       name: 'Gel Manicure',
       description: 'Legacy description',
       descriptionItems: null,
@@ -95,6 +99,7 @@ describe('loadCustomerPublicFacts', () => {
     }]);
     mocks.activeAddOns.mockResolvedValue([{
       id: 'french',
+      isActive: true,
       name: 'French',
       descriptionItems: ['White tips'],
       category: 'art',
@@ -103,6 +108,8 @@ describe('loadCustomerPublicFacts', () => {
       priceCents: 1200,
       priceDisplayText: null,
     }]);
+
+    mocks.serviceAddOnRules.mockResolvedValue([{ serviceId: 'gel', addOnId: 'french' }]);
 
     const result = await loadCustomerPublicFacts({ salonId: 'salon-a', salonSlug: 'isla', features: null, locale: 'en-CA' });
 
@@ -137,6 +144,19 @@ describe('loadCustomerPublicFacts', () => {
     expect(mocks.quickBook.mock.calls[0]?.[0].salon.address).toBe('123 Private Street');
     expect(result.salon.location).not.toHaveProperty('address');
     expect(result.salon).not.toHaveProperty('contact');
+  });
+
+  it('excludes inactive services and add-ons that cannot be reached from the public menu', async () => {
+    const service = { id: 'gel', isActive: true, name: 'Gel', description: null, category: 'nails', durationMinutes: 60, price: 4000 };
+    const addOn = { id: 'french', isActive: true, name: 'French', category: 'art', pricingType: 'flat', durationMinutes: 10, priceCents: 1000 };
+    mocks.services.mockResolvedValue([service, { ...service, id: 'hidden', isActive: false }]);
+    mocks.activeAddOns.mockResolvedValue([addOn, { ...addOn, id: 'unbound' }, { ...addOn, id: 'inactive', isActive: false }]);
+    mocks.serviceAddOnRules.mockResolvedValue([{ serviceId: 'gel', addOnId: 'french' }, { serviceId: 'hidden', addOnId: 'unbound' }, { serviceId: 'gel', addOnId: 'inactive' }]);
+
+    const result = await loadCustomerPublicFacts({ salonId: 'salon-a', salonSlug: 'isla', features: null, locale: 'en-CA' });
+
+    expect(result.catalogue.services.map(item => item.id)).toEqual(['gel']);
+    expect(result.catalogue.addOns.map(item => item.id)).toEqual(['french']);
   });
 
   it('uses the L1 public projection, preserves a family range, and fails closed for a mismatched tenant', async () => {

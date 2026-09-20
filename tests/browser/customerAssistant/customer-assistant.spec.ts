@@ -61,6 +61,63 @@ async function installSyntheticAssistantRoutes(page: Page, responseKind: 'answer
 async function setMobileViewportAndTextZoom(page: Page, width: number) {
   await page.setViewportSize({ width, height: 844 });
   await page.addStyleTag({ content: 'html { font-size: 200%; }' });
+
+  expect(await page.evaluate(() => window.innerWidth)).toBe(width);
+}
+
+function syntheticProposal(addFrench = false) {
+  return {
+    selection: { baseServiceId: 'gel-x', selectedAddOns: addFrench ? [{ addOnId: 'french', quantity: 1 }] : [] },
+    fingerprint: addFrench ? 'synthetic-gel-x-french' : 'synthetic-gel-x',
+    service: { id: 'gel-x', name: 'Gel-X Extensions', priceCents: 8500 },
+    addOns: addFrench ? [{ id: 'french', name: 'French tips', quantity: 1, priceCents: 1500 }] : [],
+    currency: 'CAD',
+    subtotalCents: addFrench ? 10000 : 8500,
+    durationMinutes: addFrench ? 120 : 105,
+    expiresAt: '2030-01-01T00:00:00.000Z',
+  };
+}
+
+async function installNaturalConversationRoutes(page: Page) {
+  const messages: string[] = [];
+  const unexpected: string[] = [];
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.origin !== 'http://127.0.0.1:3130') {
+      unexpected.push(`${request.method()} ${url.origin}${url.pathname}`);
+      await route.abort();
+      return;
+    }
+    if (!url.pathname.startsWith('/api/')) {
+      await route.continue();
+      return;
+    }
+    if (url.pathname.endsWith('/session') && request.method() === 'POST') {
+      await route.fulfill({ json: { conversation: 'natural-session' } });
+      return;
+    }
+    if (url.pathname.endsWith('/chat') && request.method() === 'POST') {
+      const body = request.postDataJSON() as { message: string };
+      messages.push(body.message);
+      const result = body.message === 'How much is gel manicure'
+        ? { kind: 'answer', message: 'Gel Manicure is $40 and takes about 60 minutes. Would you like to book one?', options: ['Book Gel Manicure'] }
+        : body.message === 'What did I just ask?'
+          ? { kind: 'answer', message: 'You asked how much a Gel Manicure costs. It is $40.', options: [] }
+          : body.message === 'I want medium Gel-X'
+            ? { kind: 'proposal', proposal: syntheticProposal() }
+            : body.message === 'How long does that take?'
+              ? { kind: 'answer', message: 'Medium Gel-X takes about 1 hour 45 minutes.', options: [] }
+              : body.message === 'Add French'
+                ? { kind: 'proposal', proposal: syntheticProposal(true) }
+                : { kind: 'answer', message: 'I can help with that.', options: [] };
+      await route.fulfill({ json: { conversation: `natural-${messages.length}`, result } });
+      return;
+    }
+    unexpected.push(`${request.method()} ${url.pathname}`);
+    await route.fulfill({ status: 404, json: { error: 'Unknown component-browser fixture endpoint' } });
+  });
+  return { messages, unexpected };
 }
 
 test('component-browser fixture shows an authoritative proposal at 200% text zoom without horizontal overflow', async ({ page }, testInfo) => {
@@ -165,5 +222,95 @@ test('component-browser fixture preserves the manual escape at 320px and 200% te
   await manual.tap();
 
   await expect(page.getByRole('heading', { name: 'Help me choose' })).toHaveCount(0);
+  expect(unexpected).toEqual([]);
+});
+
+test('natural text remains primary through price recall, informational detours, and close/reopen at 320px/200%', async ({ page }, testInfo) => {
+  const { messages, unexpected } = await installNaturalConversationRoutes(page);
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.addInitScript(() => localStorage.setItem('booking_state:v2:isla-nail-studio', JSON.stringify({
+    technicianId: 'manual-tech',
+    technicianSelectionSource: 'explicit',
+    serviceIds: ['manual-service'],
+    baseServiceId: 'manual-service',
+    selectedAddOns: [],
+    locationId: null,
+  })));
+  await page.goto('/');
+  await page.addStyleTag({ content: 'html { font-size: 200%; }' });
+
+  expect(await page.evaluate(() => window.innerWidth)).toBe(320);
+
+  await page.getByRole('button', { name: 'Help me choose & book' }).tap();
+  const input = page.getByLabel('Tell me what you would like');
+  await input.focus();
+  await page.keyboard.type('How much is gel manicure');
+  await page.keyboard.press('Enter');
+
+  await expect(page.getByText('Gel Manicure is $40 and takes about 60 minutes. Would you like to book one?')).toBeVisible();
+
+  const optionalChip = page.getByRole('button', { name: 'Book Gel Manicure' });
+
+  await expect(optionalChip).toBeVisible();
+  expect((await optionalChip.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  await expect(input).toBeFocused();
+
+  // The customer can ignore a chip and keep talking naturally.
+  await page.keyboard.type('What did I just ask?');
+  await page.keyboard.press('Enter');
+
+  await expect(page.getByText('You asked how much a Gel Manicure costs. It is $40.')).toBeVisible();
+  await expect(input).toBeFocused();
+
+  await page.getByLabel('Close assistant').tap();
+  await page.getByRole('button', { name: 'Help me choose & book' }).tap();
+
+  await expect(page.getByText('You asked how much a Gel Manicure costs. It is $40.')).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('booking_state:v2:isla-nail-studio'))).toContain('manual-service');
+
+  await input.fill('I want medium Gel-X');
+  await page.getByRole('button', { name: 'Send' }).tap();
+
+  await expect(page.getByRole('region', { name: 'Suggested services' })).toContainText('Gel-X Extensions');
+
+  await input.fill('How long does that take?');
+  await page.getByRole('button', { name: 'Send' }).tap();
+
+  await expect(page.getByText('Medium Gel-X takes about 1 hour 45 minutes.')).toBeVisible();
+
+  await input.fill('Add French');
+  await page.getByRole('button', { name: 'Send' }).tap();
+
+  await expect(page.getByRole('region', { name: 'Suggested services' })).toContainText('French tips');
+
+  const subtotal = page.getByText('$100.00');
+  const proposalCard = page.getByTestId('customer-assistant-proposal');
+  const transcript = page.getByTestId('customer-assistant-transcript');
+
+  await expect(subtotal).toBeVisible();
+
+  const [subtotalBox, proposalBox] = await Promise.all([
+    subtotal.boundingBox(),
+    proposalCard.boundingBox(),
+  ]);
+
+  expect(subtotalBox).not.toBeNull();
+  expect(proposalBox).not.toBeNull();
+  expect(subtotalBox!.x).toBeGreaterThanOrEqual(proposalBox!.x);
+  expect(subtotalBox!.x + subtotalBox!.width).toBeLessThanOrEqual(proposalBox!.x + proposalBox!.width);
+  expect(await proposalCard.evaluate(card => card.scrollWidth <= card.clientWidth)).toBe(true);
+  expect(await transcript.evaluate(region => region.clientHeight)).toBeGreaterThan(150);
+
+  expect(messages).toEqual([
+    'How much is gel manicure',
+    'What did I just ask?',
+    'I want medium Gel-X',
+    'How long does that take?',
+    'Add French',
+  ]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.screenshot({ path: path.join(artifactDirectory, `${testInfo.project.name}-natural-conversation-320px-200zoom.png`), fullPage: true });
+
   expect(unexpected).toEqual([]);
 });

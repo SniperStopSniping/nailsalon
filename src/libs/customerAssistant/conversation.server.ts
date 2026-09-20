@@ -18,7 +18,7 @@ const customerMessageSchema = z.string().min(1).max(CUSTOMER_CONVERSATION_MAX_ME
 
 const customerConversationContextSchema = z.object({
   question: z.enum(['service', 'removal', 'product', 'origin', 'length', 'finish', 'quantity', 'details', 'date']).nullable(),
-  answerTopic: z.enum(['compare_treatments', 'length_options', 'service_options', 'unknown_product', 'service_information']).optional(),
+  answerTopic: z.enum(['compare_treatments', 'length_options', 'service_options', 'unknown_product', 'service_information', 'price', 'duration', 'recall', 'salon_information', 'recommendation', 'conversation']).optional(),
   options: z.array(z.string().min(1).max(160)).max(8),
   selection: customerSelectionSchema.nullable(),
 }).strict();
@@ -40,6 +40,9 @@ const conversationSchema = z.object({
   issuedAtMs: z.number().int().nonnegative(),
   expiresAtMs: z.number().int().nonnegative(),
   turnIndex: z.number().int().min(0).max(CUSTOMER_CONVERSATION_MAX_TURNS),
+  dialogue: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(2400) }).strict()).max(24).optional(),
+  subjects: z.array(z.string().min(1).max(100)).max(4).optional(),
+  priorSubjects: z.array(z.string().min(1).max(100)).max(4).optional(),
   messages: z.array(customerMessageSchema).max(CUSTOMER_CONVERSATION_MAX_MESSAGES),
   facts: factsSchema.optional(),
   requestedSelection: customerSelectionSchema.optional(),
@@ -88,7 +91,19 @@ export function signCustomerConversation(payload: CustomerConversation, secret: 
     throw new CustomerConversationInvalidError('payload');
   }
 
-  const encoded = Buffer.from(JSON.stringify(parsed.data), 'utf8').toString('base64url');
+  // Old turns are presentation context, never booking authority. Trim by actual
+  // encoded bytes rather than expiring an otherwise valid long conversation.
+  const bounded = { ...parsed.data, dialogue: parsed.data.dialogue?.slice(), messages: parsed.data.messages.slice() };
+  while (Buffer.byteLength(JSON.stringify(bounded), 'utf8') > 16000) {
+    if ((bounded.dialogue?.length ?? 0) > 2) {
+      bounded.dialogue!.splice(0, 2);
+    } else if (bounded.messages.length > 1) {
+      bounded.messages.shift();
+    } else {
+      break;
+    }
+  }
+  const encoded = Buffer.from(JSON.stringify(bounded), 'utf8').toString('base64url');
   const signature = createHmac('sha256', secret).update(encoded).digest('base64url');
   const token = `${encoded}.${signature}`;
   if (Buffer.byteLength(token, 'utf8') > CUSTOMER_CONVERSATION_MAX_TOKEN_BYTES) {
