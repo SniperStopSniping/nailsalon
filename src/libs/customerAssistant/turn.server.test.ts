@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SEMANTIC_L1_MENU, SEMANTIC_L1_SNAPSHOT } from './__evals__/semanticCases';
 
-const mocks = vi.hoisted(() => ({ reserve: vi.fn(), menu: vi.fn(), snapshot: vi.fn(), proposal: vi.fn(), record: vi.fn(), validate: vi.fn(), lookup: vi.fn(), nextSlots: vi.fn() }));
+const mocks = vi.hoisted(() => ({ reserve: vi.fn(), menu: vi.fn(), snapshot: vi.fn(), proposal: vi.fn(), record: vi.fn(), validate: vi.fn(), lookup: vi.fn(), nextSlots: vi.fn(), publicFacts: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('./access.server', () => ({ getCustomerAssistantConfig: () => ({ apiKey: 'customer-only', signingSecret: 'x'.repeat(32) }) }));
 vi.mock('./budget.server', () => ({ reserveCustomerAssistantTurn: mocks.reserve }));
 vi.mock('./catalogue.server', () => ({ loadCustomerMenu: mocks.menu, loadCustomerClarificationSnapshot: mocks.snapshot, buildCustomerProposal: mocks.proposal, validateCustomerMenuSelection: mocks.validate }));
+vi.mock('./publicFacts.server', () => ({ loadCustomerPublicFacts: mocks.publicFacts }));
 vi.mock('./ledger.server', () => ({ recordCustomerAssistantUsage: mocks.record }));
 vi.mock('./turnReplay.server', () => ({
   readCompletedCustomerTurn: vi.fn().mockResolvedValue(null),
@@ -33,6 +34,7 @@ const provider = (output: unknown = interpretation) => ({ createResponse: vi.fn(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.publicFacts.mockRejectedValue(new Error('PUBLIC_FACTS_UNAVAILABLE'));
   mocks.reserve.mockResolvedValue({ ok: true });
   mocks.nextSlots.mockResolvedValue(null);
   mocks.snapshot.mockResolvedValue(SEMANTIC_L1_SNAPSHOT);
@@ -268,5 +270,54 @@ describe('customer assistant bounded turn', () => {
 
     expect(response.result).toMatchObject({ kind: 'proposal' });
     expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).booking).toBeUndefined();
+  });
+});
+
+describe('natural receptionist orchestration', () => {
+  const enablePublicFacts = () => mocks.publicFacts.mockResolvedValue({ salon: { name: 'Synthetic salon' }, catalogue: { currency: 'CAD', services: [{ id: 'gelx', name: 'Gel-X', category: 'manicure', description: null, durationMinutes: 60, price: { baseCents: 6000, baseDisplay: '$60.00', displayLabel: null, range: null } }], addOns: [] } });
+  const information = { ...interpretation, action: 'answer', answerTopic: 'price', informationServiceIds: ['gelx'], addOnUpdates: { add: [], remove: [] }, addOns: [] };
+  const answer = (message: string) => ({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify({ segments: message.startsWith('[[') ? [{ kind: 'fact', key: message.slice(2, -2) }] : [{ kind: 'text', text: message }], serviceOptions: ['gelx'] }) }] });
+
+  it('answers price through fresh facts, stores actual dialogue and does not select a booking', async () => {
+    enablePublicFacts();
+    const model = provider(information);
+    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(information) }] }).mockResolvedValueOnce(answer('[[service_0_price]]'));
+    const result = await runCustomerAssistantTurn({ ...input(), message: 'How much is Gel-X?' }, model);
+
+    expect(result.result).toMatchObject({ kind: 'answer', message: expect.stringContaining('$60.00') });
+
+    const restored = verifyCustomerConversation(result.conversation, 'salon-a', secret);
+
+    expect(restored.requestedSelection).toBeUndefined();
+    expect(restored.dialogue).toEqual([{ role: 'user', content: 'How much is Gel-X?' }, { role: 'assistant', content: result.result.message }]);
+    expect(model.createResponse).toHaveBeenCalledTimes(2);
+    expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ usage: { inputTokens: 200, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 100 } }));
+    expect(mocks.proposal).not.toHaveBeenCalled();
+  });
+
+  it('keeps an authoritative useful price fallback when composer output invents a value', async () => {
+    enablePublicFacts();
+    const model = provider(information);
+    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(information) }] }).mockResolvedValueOnce(answer('It costs $1.'));
+    const result = await runCustomerAssistantTurn({ ...input(), message: 'How much?' }, model);
+
+    expect(result.result.message).toContain('$60.00');
+    expect(result.result.message).not.toContain('$1.');
+  });
+
+  it('does not emit a silent answer when public facts fail', async () => {
+    const result = await runCustomerAssistantTurn(input(), provider(information));
+
+    expect(result.result).toMatchObject({ kind: 'answer', message: expect.stringContaining('can’t verify') });
+  });
+
+  it('marks aggregate usage unknown when the second call fails without usage', async () => {
+    enablePublicFacts();
+    const model = provider(information);
+    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(information) }] }).mockRejectedValueOnce(new Error('synthetic transport failure'));
+    const result = await runCustomerAssistantTurn(input(), model);
+
+    expect(result.result.message).toContain('$60.00');
+    expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ usage: null }));
   });
 });

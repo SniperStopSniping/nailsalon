@@ -74,13 +74,21 @@ describe('customer conversation token', () => {
     }, SECRET)).toThrow(CustomerConversationInvalidError);
   });
 
-  it('checks encoded token bytes when signing Unicode transcript text', () => {
+  it('bounds encoded Unicode history by trimming old turns rather than expiring the conversation', () => {
     const oversizedUnicode = {
       ...createCustomerConversation('salon_a', SECRET, NOW),
       messages: Array.from({ length: 16 }, () => '🙂'.repeat(300)),
     };
 
-    expect(() => signCustomerConversation(oversizedUnicode, SECRET)).toThrow(CustomerConversationInvalidError);
+    const token = signCustomerConversation(oversizedUnicode, SECRET);
+
+    expect(Buffer.byteLength(token)).toBeLessThanOrEqual(24576);
+
+    const restored = verifyCustomerConversation(token, 'salon_a', SECRET, NOW);
+
+    expect(restored.messages.length).toBeLessThan(16);
+    expect(restored.messages.at(-1)).toBe('🙂'.repeat(300));
+    expect(restored.sessionId).toBe(oversizedUnicode.sessionId);
   });
 
   it('signs and verifies the terminal twelfth-turn payload', () => {
