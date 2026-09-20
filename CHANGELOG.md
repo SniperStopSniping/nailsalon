@@ -1,3 +1,11 @@
+# [1.126.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.125.0...v1.126.0) (2026-09-20)
+
+
+### Features
+
+* expose authoritative owner client profile context ([549ee7f](https://github.com/SniperStopSniping/nailsalon/commit/549ee7fb57f60f9f44e9d1019094fefc4460ab9e))
+* prioritize salon work in owner client profiles ([c599314](https://github.com/SniperStopSniping/nailsalon/commit/c5993148e08efce49d09e4e2fc78a73c889cda18))
+
 # [1.125.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.124.0...v1.125.0) (2026-09-20)
 
 
