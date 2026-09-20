@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OwnerPhotoRulesLink } from '@/components/appointments/OwnerPhotoRulesLink';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
+import { completeAppointmentSchema, type CompletionValidationIssue, completionValidationIssues } from '@/libs/appointmentCompletionContract';
 import {
   computeCheckoutTotals,
   type ResolvedTaxConfig,
@@ -377,6 +378,8 @@ export function CheckoutSheet({
   const [context, setContext] = useState<CheckoutContext | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationIssues, setValidationIssues] = useState<CompletionValidationIssue[]>([]);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [items, setItems] = useState<CheckoutItem[]>([]);
@@ -731,12 +734,91 @@ export function CheckoutSheet({
     }
   }, [apiPath, appointmentId, context?.appointment.status, financialBlockReason]);
 
+  const completionPayload = useMemo(() => {
+    if (!context || !totals) {
+      return null;
+    }
+    const payments = paymentNowCents > 0
+      ? [{ amountCents: paymentNowCents, ...(paymentMethod ? { method: paymentMethod } : {}), ...(paymentRefInput.trim() ? { reference: paymentRefInput.trim() } : {}) }]
+      : [];
+    return {
+      finalItems: items.map(item => ({
+        kind: item.kind,
+        catalogServiceId: item.catalogServiceId,
+        catalogAddOnId: item.catalogAddOnId,
+        name: item.name,
+        quantity: item.quantity,
+        unitPriceCents: item.unitPriceCents,
+        durationMinutes: item.durationMinutes,
+        taxable: item.taxable,
+      })),
+      discountCents: inputToCents(discountInput),
+      ...(discountReason.trim() ? { discountReason: discountReason.trim() } : {}),
+      tipCents: inputToCents(tipInput),
+      ...(context.permissions.canTaxExempt && taxExempt
+        ? { taxExempt: true, ...(taxExemptReason.trim() ? { taxExemptReason: taxExemptReason.trim() } : {}) }
+        : {}),
+      ...(actualStart ? { actualStartAt: Number.isNaN(new Date(actualStart).getTime()) ? actualStart : new Date(actualStart).toISOString() } : {}),
+      ...(actualEnd ? { actualEndAt: Number.isNaN(new Date(actualEnd).getTime()) ? actualEnd : new Date(actualEnd).toISOString() } : {}),
+      ...(comp ? { paymentStatusIntent: 'comp', payments: [] } : { payments }),
+      ...(paymentMethod ? { paymentMethod } : {}),
+      ...(notes.trim() ? { techNotes: notes.trim() } : {}),
+      expectedTotalDueCents: totals.totalDueCents,
+      ...(skipPhotoConfirmed ? { skipPhotoValidation: true } : {}),
+    };
+  }, [context, totals, paymentNowCents, paymentMethod, paymentRefInput, items, discountInput, discountReason, tipInput, taxExempt, taxExemptReason, actualStart, actualEnd, comp, notes, skipPhotoConfirmed]);
+
+  const revealValidation = useCallback((issues: CompletionValidationIssue[]) => {
+    setValidationIssues(issues);
+    setError(issues[0]?.message ?? 'Check the appointment details.');
+    setView('edit');
+    requestAnimationFrame(() => {
+      const sections = new Set(issues.map(issue => issue.path.startsWith('finalItems') ? 'items' : issue.path.startsWith('actual') ? 'time' : issue.path === 'photos' ? 'photos' : issue.path === 'techNotes' ? 'notes' : 'price'));
+      for (const section of sections) {
+        const details = sheetRef.current?.querySelector<HTMLDetailsElement>(`[data-checkout-details="${section}"]`);
+        if (details) {
+          details.open = true;
+        }
+      }
+      const errorElement = sheetRef.current?.querySelector<HTMLElement>('[data-testid="checkout-error"]');
+      errorElement?.focus();
+      errorElement?.scrollIntoView?.({ block: 'nearest' });
+    });
+  }, []);
+
+  const validateForReview = useCallback(() => {
+    if (!completionPayload) {
+      return false;
+    }
+    const parsed = completeAppointmentSchema.safeParse(completionPayload);
+    const issues = parsed.success ? [] : completionValidationIssues(parsed.error.issues);
+    if (parsed.success && parsed.data.actualStartAt && parsed.data.actualEndAt) {
+      const duration = parsed.data.actualEndAt.getTime() - parsed.data.actualStartAt.getTime();
+      if (duration < 0 || duration > 24 * 60 * 60 * 1000) {
+        issues.push({ path: 'actualEndAt', message: duration < 0 ? 'Actual finish cannot be before actual start.' : 'Actual duration cannot exceed 24 hours.' });
+      }
+    }
+    if (!hasAfterPhoto && photoPolicyMode === 'required') {
+      issues.push({ path: 'photos', message: 'Add an after photo before completing this appointment. Your salon requires one.' });
+    }
+    if (issues.length) {
+      revealValidation(issues);
+      return false;
+    }
+    setValidationIssues([]);
+    setError(null);
+    return true;
+  }, [completionPayload, hasAfterPhoto, photoPolicyMode, revealValidation]);
+
   const submitCompletion = useCallback(async (options: { skipPhoto?: boolean } = {}) => {
     if (!appointmentId || !context || !totals) {
       return;
     }
     if (financialBlockReason) {
       setError(financialBlockReason);
+      return;
+    }
+    if (!validateForReview()) {
       return;
     }
     if (submitInFlightRef.current) {
@@ -746,45 +828,18 @@ export function CheckoutSheet({
     try {
       setSubmitting(true);
       setError(null);
-      const payments = paymentNowCents > 0
-        ? [{
-            amountCents: paymentNowCents,
-            ...(paymentMethod ? { method: paymentMethod } : {}),
-            ...(paymentRefInput.trim() ? { reference: paymentRefInput.trim() } : {}),
-          }]
-        : [];
       const response = await fetch(apiPath(`/api/appointments/${appointmentId}/complete`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          finalItems: items.map(item => ({
-            kind: item.kind,
-            catalogServiceId: item.catalogServiceId,
-            catalogAddOnId: item.catalogAddOnId,
-            name: item.name,
-            quantity: item.quantity,
-            unitPriceCents: item.unitPriceCents,
-            durationMinutes: item.durationMinutes,
-            taxable: item.taxable,
-          })),
-          discountCents: inputToCents(discountInput),
-          ...(discountReason.trim() ? { discountReason: discountReason.trim() } : {}),
-          tipCents: inputToCents(tipInput),
-          ...(context.permissions.canTaxExempt && taxExempt
-            ? { taxExempt: true, ...(taxExemptReason.trim() ? { taxExemptReason: taxExemptReason.trim() } : {}) }
-            : {}),
-          ...(actualStart ? { actualStartAt: new Date(actualStart).toISOString() } : {}),
-          ...(actualEnd ? { actualEndAt: new Date(actualEnd).toISOString() } : {}),
-          ...(comp ? { paymentStatusIntent: 'comp', payments: [] } : { payments }),
-          ...(paymentMethod ? { paymentMethod } : {}),
-          ...(notes.trim() ? { techNotes: notes.trim() } : {}),
-          expectedTotalDueCents: totals.totalDueCents,
-          ...(options.skipPhoto || skipPhotoConfirmed ? { skipPhotoValidation: true } : {}),
-        }),
+        body: JSON.stringify({ ...completionPayload, ...(options.skipPhoto || skipPhotoConfirmed ? { skipPhotoValidation: true } : {}) }),
       });
       const result = await response.json().catch(() => null);
       if (!response.ok) {
         const code = result?.error?.code;
+        if (code === 'VALIDATION_ERROR' && Array.isArray(result.error.details?.issues)) {
+          revealValidation(result.error.details.issues);
+          return;
+        }
         if (code === 'PHOTOS_REQUIRED') {
           if (result.error.details?.policy === 'required') {
             setError('This salon requires an after photo before completing. Add one in the Photos section.');
@@ -807,7 +862,7 @@ export function CheckoutSheet({
     } catch (submitError) {
       setError(
         submitError instanceof TypeError
-          ? 'No connection — the appointment was not completed. Reconnect and try again.'
+          ? 'Could not confirm completion. Reconnect and retry to check the saved result; a retry will not record the payment twice.'
           : submitError instanceof Error
             ? submitError.message
             : 'Unable to complete appointment',
@@ -816,7 +871,7 @@ export function CheckoutSheet({
       submitInFlightRef.current = false;
       setSubmitting(false);
     }
-  }, [apiPath, appointmentId, context, totals, financialBlockReason, paymentNowCents, items, discountInput, discountReason, tipInput, taxExempt, taxExemptReason, actualStart, actualEnd, comp, paymentMethod, paymentRefInput, notes, skipPhotoConfirmed, fetchContext, onCompleted]);
+  }, [apiPath, appointmentId, context, totals, financialBlockReason, skipPhotoConfirmed, fetchContext, onCompleted, completionPayload, validateForReview, revealValidation]);
 
   const recordPostPayment = useCallback(async (requestedAmount = postPaymentAmount) => {
     if (!appointmentId || !context) {
@@ -964,7 +1019,7 @@ export function CheckoutSheet({
   const sectionCard = 'rounded-2xl border border-neutral-200 p-4';
   const sectionTitle = 'mb-3 text-sm font-semibold text-neutral-900';
   const fieldLabel = 'mb-1 block text-xs font-medium uppercase tracking-[0.08em] text-neutral-400';
-  const inputClass = 'w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900';
+  const inputClass = 'min-w-0 w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900';
 
   const scheduledDuration = context?.appointment.totalDurationMinutes ?? 0;
   const actualDurationMinutes = actualStart && actualEnd
@@ -1302,10 +1357,10 @@ export function CheckoutSheet({
       alignClassName="items-end justify-center bg-black/50 p-0 sm:items-stretch sm:justify-end"
       contentClassName="flex h-[92vh] max-h-[92vh] min-h-0 flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl supports-[height:100dvh]:h-[92dvh] supports-[height:100dvh]:max-h-[92dvh] sm:ml-auto sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-3xl sm:supports-[height:100dvh]:h-full sm:supports-[height:100dvh]:max-h-none"
     >
-      <div data-testid="checkout-sheet" className="flex min-h-0 flex-1 flex-col">
+      <div ref={sheetRef} data-testid="checkout-sheet" className="flex min-h-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
-          <div className="min-w-0">
+        <div className="flex shrink-0 items-center justify-between gap-[12px] border-b border-neutral-100 px-[16px] pb-3 pt-4 sm:px-5">
+          <div className="min-w-0 break-words">
             <div className="text-lg font-semibold text-neutral-900">
               {view === 'success' ? 'Appointment completed' : view === 'receipt' ? 'Receipt' : 'Complete appointment'}
             </div>
@@ -1322,7 +1377,7 @@ export function CheckoutSheet({
               aria-label="Close checkout"
               disabled={submitting}
               onClick={requestClose}
-              className="flex size-11 items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2 disabled:opacity-50"
+              className="flex size-[44px] items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2 disabled:opacity-50"
             >
               <X aria-hidden="true" className="size-5" />
             </button>
@@ -1340,8 +1395,9 @@ export function CheckoutSheet({
           )}
 
           {!loading && error && (
-            <div data-testid="checkout-error" className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div role="alert" tabIndex={-1} data-testid="checkout-error" className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
+              {validationIssues.length > 1 && <ul className="mt-2 list-disc pl-5">{validationIssues.slice(1).map(issue => <li key={issue.path}>{issue.message}</li>)}</ul>}
               {/photo/i.test(error) && <OwnerPhotoRulesLink salonSlug={salonSlug} />}
             </div>
           )}
@@ -1352,356 +1408,19 @@ export function CheckoutSheet({
 
           {!loading && context && view === 'edit' && (
             <div className="space-y-4">
-              {/* Services & items */}
-              <div className={sectionCard} data-testid="checkout-items-section">
-                <div className={sectionTitle}>Services & items</div>
-                <div className="space-y-3">
+              <div className={sectionCard} data-testid="checkout-visit-summary">
+                <div className="mb-3 space-y-2 text-sm">
                   {items.map(item => (
-                    <div key={item.key} className="rounded-xl bg-neutral-50 p-3" data-testid={`checkout-item-${item.key}`}>
-                      <div className="flex items-start justify-between gap-2">
-                        {item.kind === 'custom'
-                          ? (
-                              <input
-                                type="text"
-                                value={item.name}
-                                placeholder="Custom item (e.g. Nail art, Repair)"
-                                onChange={event => updateItem(item.key, { name: event.target.value })}
-                                className="flex-1 rounded-lg border border-neutral-200 bg-white p-2 text-sm font-medium text-neutral-900"
-                                data-testid="checkout-custom-name"
-                              />
-                            )
-                          : (
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm font-medium text-neutral-900">{item.name}</div>
-                                <div className="text-xs uppercase tracking-wide text-neutral-400">{item.kind}</div>
-                              </div>
-                            )}
-                        <button
-                          type="button"
-                          aria-label={`Remove ${item.name || 'item'}`}
-                          onClick={() => removeItem(item.key)}
-                          className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-red-600"
-                        >
-                          <Trash2 className="size-4" />
-                        </button>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-3">
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            aria-label="Decrease quantity"
-                            onClick={() => updateItem(item.key, { quantity: Math.max(1, item.quantity - 1) })}
-                            className="rounded-lg border border-neutral-200 p-1.5 text-neutral-600"
-                          >
-                            <Minus className="size-3.5" />
-                          </button>
-                          <span className="w-7 text-center text-sm font-medium">{item.quantity}</span>
-                          <button
-                            type="button"
-                            aria-label="Increase quantity"
-                            onClick={() => updateItem(item.key, { quantity: Math.min(99, item.quantity + 1) })}
-                            className="rounded-lg border border-neutral-200 p-1.5 text-neutral-600"
-                          >
-                            <Plus className="size-3.5" />
-                          </button>
-                        </div>
-                        <div className="relative">
-                          <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-xs text-neutral-400">$</span>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            aria-label={`Price for ${item.name || 'item'}`}
-                            value={centsToInput(item.unitPriceCents)}
-                            onChange={event => updateItem(item.key, { unitPriceCents: inputToCents(event.target.value) })}
-                            className="w-24 rounded-lg border border-neutral-200 bg-white p-2 pl-6 text-sm text-neutral-900"
-                          />
-                        </div>
-                        {context.taxConfig.enabled && (
-                          <label className="flex items-center gap-1.5 text-xs text-neutral-500">
-                            <input
-                              type="checkbox"
-                              checked={item.taxable}
-                              onChange={event => updateItem(item.key, { taxable: event.target.checked })}
-                              className="size-3.5 rounded border-neutral-300"
-                            />
-                            Taxable
-                          </label>
-                        )}
-                        <div className="ml-auto text-sm font-medium text-neutral-900">
-                          {money(item.unitPriceCents * item.quantity)}
-                        </div>
-                      </div>
+                    <div key={item.key} className="flex justify-between gap-3">
+                      <span className="min-w-0 break-words">
+                        {item.name || 'Custom item'}
+                        {item.quantity > 1 ? ` × ${item.quantity}` : ''}
+                      </span>
+                      <span className="shrink-0">{money(item.unitPriceCents * item.quantity)}</span>
                     </div>
                   ))}
-                  {items.length === 0 && (
-                    <div className="rounded-xl border border-dashed border-neutral-200 p-3 text-center text-sm text-neutral-400">
-                      No items — add the services performed below.
-                    </div>
-                  )}
                 </div>
-
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <select
-                    aria-label="Add a service"
-                    data-testid="checkout-add-service"
-                    value=""
-                    onChange={(event) => {
-                      if (event.target.value) {
-                        addCatalogService(event.target.value);
-                      }
-                    }}
-                    className="rounded-xl border border-neutral-200 bg-white p-2.5 text-sm text-neutral-700"
-                  >
-                    <option value="">+ Add service…</option>
-                    {context.catalog.services.map(service => (
-                      <option key={service.id} value={service.id}>
-                        {service.name}
-                        {' '}
-                        ·
-                        {' '}
-                        {money(service.priceCents)}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label="Add an add-on"
-                    data-testid="checkout-add-addon"
-                    value=""
-                    onChange={(event) => {
-                      if (event.target.value) {
-                        addCatalogAddOn(event.target.value);
-                      }
-                    }}
-                    className="rounded-xl border border-neutral-200 bg-white p-2.5 text-sm text-neutral-700"
-                  >
-                    <option value="">+ Add add-on…</option>
-                    {context.catalog.addOns.map(addOn => (
-                      <option key={addOn.id} value={addOn.id}>
-                        {addOn.name}
-                        {' '}
-                        ·
-                        {' '}
-                        {money(addOn.priceCents)}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    data-testid="checkout-add-custom"
-                    onClick={addCustomItem}
-                    className="rounded-xl border border-dashed border-neutral-300 p-2.5 text-sm font-medium text-neutral-700"
-                  >
-                    + Custom item
-                  </button>
-                </div>
-              </div>
-
-              {/* Time */}
-              <div className={sectionCard} data-testid="checkout-time-section">
-                <div className={sectionTitle}>Time</div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className={fieldLabel}>Actual start</span>
-                    <input
-                      type="datetime-local"
-                      data-testid="checkout-actual-start"
-                      value={actualStart}
-                      onChange={event => setActualStart(event.target.value)}
-                      className={inputClass}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className={fieldLabel}>Actual finish</span>
-                    <input
-                      type="datetime-local"
-                      data-testid="checkout-actual-end"
-                      value={actualEnd}
-                      onChange={event => setActualEnd(event.target.value)}
-                      className={inputClass}
-                    />
-                  </label>
-                </div>
-                {actualStart && actualEnd && new Date(actualEnd) < new Date(actualStart) && (
-                  <div className="mt-2 text-sm text-red-600" data-testid="checkout-time-error">
-                    Finish cannot be before start.
-                  </div>
-                )}
-                <div className="mt-2 text-xs text-neutral-500">
-                  Scheduled
-                  {' '}
-                  {scheduledDuration}
-                  {' '}
-                  min
-                  {actualDurationMinutes !== null && (
-                    <>
-                      {' · Actual '}
-                      <span data-testid="checkout-actual-duration">{actualDurationMinutes}</span>
-                      {' '}
-                      min
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Photos */}
-              <div className={sectionCard} data-testid="checkout-photos-section">
-                <div className={sectionTitle}>Photos</div>
-                {context.photos.length > 0 && (
-                  <div className="mb-3 flex gap-2 overflow-x-auto">
-                    {context.photos.map(photo => (
-                      <div key={photo.id} className="relative size-20 shrink-0 overflow-hidden rounded-xl">
-                        <Image
-                          src={photo.thumbnailUrl || photo.imageUrl}
-                          alt={photo.photoType}
-                          fill
-                          className="object-cover"
-                        />
-                        <span className={`absolute left-1 top-1 rounded px-1 text-[10px] font-semibold uppercase text-white ${photo.photoType === 'before' ? 'bg-amber-600' : 'bg-emerald-600'}`}>
-                          {photo.photoType}
-                        </span>
-                        <button
-                          type="button"
-                          aria-label={`Remove ${photo.photoType} photo`}
-                          onClick={() => void removePhoto(photo.id)}
-                          className="absolute right-1 top-1 rounded bg-black/50 p-0.5 text-white"
-                        >
-                          <Trash2 className="size-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {!hasAfterPhoto && (
-                  <div className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900" data-testid="checkout-photo-nudge">
-                    {photoPolicyMode === 'required'
-                      ? 'This salon requires an after photo before completing.'
-                      : 'Add an after photo? Save the finished set to the client’s history.'}
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    data-testid="checkout-upload-before"
-                    disabled={uploadingPhoto}
-                    onClick={() => {
-                      setPendingPhotoType('before');
-                      fileInputRef.current?.click();
-                    }}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-dashed border-neutral-300 p-3 text-sm font-medium text-neutral-700 disabled:opacity-50"
-                  >
-                    <Camera className="size-4" />
-                    {uploadingPhoto && pendingPhotoType === 'before' ? 'Uploading…' : 'Add before'}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="checkout-upload-after"
-                    disabled={uploadingPhoto}
-                    onClick={() => {
-                      setPendingPhotoType('after');
-                      fileInputRef.current?.click();
-                    }}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-dashed border-neutral-300 p-3 text-sm font-medium text-neutral-700 disabled:opacity-50"
-                  >
-                    <Camera className="size-4" />
-                    {uploadingPhoto && pendingPhotoType === 'after' ? 'Uploading…' : 'Add after'}
-                  </button>
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  data-testid="checkout-photo-input"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) {
-                      void uploadPhoto(file, pendingPhotoType);
-                    }
-                    event.target.value = '';
-                  }}
-                />
-              </div>
-
-              {/* Price & tax */}
-              <div className={sectionCard} data-testid="checkout-price-section">
-                <div className={sectionTitle}>Price & tax</div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className={fieldLabel}>Discount ($)</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      data-testid="checkout-discount"
-                      value={discountInput}
-                      onChange={event => setDiscountInput(event.target.value.replace(/[^0-9.]/g, ''))}
-                      placeholder="0"
-                      className={inputClass}
-                      disabled={!context.permissions.canApplyDiscount}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className={fieldLabel}>Discount reason</span>
-                    <select
-                      data-testid="checkout-discount-reason"
-                      value={discountReason}
-                      onChange={event => setDiscountReason(event.target.value)}
-                      className={inputClass}
-                    >
-                      {discountReason !== '' && !DISCOUNT_REASON_PRESETS.includes(discountReason) && (
-                        <option value={discountReason}>{discountReason}</option>
-                      )}
-                      <option value="">No reason</option>
-                      <option value="Added service">Added service</option>
-                      <option value="Added nail art">Added nail art</option>
-                      <option value="Repair">Repair</option>
-                      <option value="Discount">Discount</option>
-                      <option value="Price correction">Price correction</option>
-                      <option value="Complimentary item">Complimentary item</option>
-                      <option value="Custom">Custom reason</option>
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className={fieldLabel}>Tip ($)</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      data-testid="checkout-tip"
-                      value={tipInput}
-                      onChange={event => setTipInput(event.target.value.replace(/[^0-9.]/g, ''))}
-                      placeholder="0"
-                      className={inputClass}
-                    />
-                  </label>
-                  {context.permissions.canTaxExempt && context.taxConfig.enabled && (
-                    <div className="block">
-                      <span className={fieldLabel}>Tax exemption</span>
-                      <label className="flex items-center justify-between rounded-xl border border-neutral-200 p-3 text-sm text-neutral-700">
-                        Tax exempt
-                        <input
-                          type="checkbox"
-                          data-testid="checkout-tax-exempt"
-                          checked={taxExempt}
-                          onChange={event => setTaxExempt(event.target.checked)}
-                          className="size-4 rounded border-neutral-300"
-                        />
-                      </label>
-                      {taxExempt && (
-                        <input
-                          type="text"
-                          data-testid="checkout-tax-exempt-reason"
-                          value={taxExemptReason}
-                          onChange={event => setTaxExemptReason(event.target.value)}
-                          placeholder="Exemption reason"
-                          className={`${inputClass} mt-2`}
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="mt-4 rounded-xl bg-neutral-50 p-3">
-                  {renderTotalsRows({ includePayment: false })}
-                </div>
+                {renderTotalsRows({ includePayment: false })}
               </div>
 
               {/* Payment */}
@@ -1721,6 +1440,7 @@ export function CheckoutSheet({
                 )}
                 {!comp && (
                   <>
+                    <div className="mb-2 text-sm text-neutral-600">Payment method (optional)</div>
                     <div className="mb-3 flex flex-wrap gap-2">
                       {PAYMENT_METHOD_OPTIONS.map(([value, label]) => (
                         <button
@@ -1728,7 +1448,7 @@ export function CheckoutSheet({
                           type="button"
                           data-testid={`checkout-method-${value}`}
                           onClick={() => setPaymentMethod(current => (current === value ? null : value))}
-                          className={`min-h-9 rounded-full px-3 py-1.5 text-xs font-medium ${paymentMethod === value ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600'}`}
+                          className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium ${paymentMethod === value ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600'}`}
                         >
                           {label}
                         </button>
@@ -1748,6 +1468,17 @@ export function CheckoutSheet({
                         className={inputClass}
                       />
                     </label>
+                    <button
+                      type="button"
+                      data-testid="checkout-record-later"
+                      onClick={() => {
+                        setAmountTouched(true);
+                        setAmountReceivedInput('0');
+                      }}
+                      className="min-h-11 text-sm font-medium underline"
+                    >
+                      Record payment later
+                    </button>
                     <div className="mt-1 text-xs text-neutral-500">
                       Enter less for a partial payment, or 0 to record it later. Luster will never record more than the balance due.
                     </div>
@@ -1785,7 +1516,7 @@ export function CheckoutSheet({
                               aria-label="Copy recipient"
                               disabled={financialBlocked}
                               onClick={() => void copyToClipboard('recipient', context.etransfer.recipient ?? '')}
-                              className="rounded-lg border border-neutral-200 p-1.5 text-neutral-600 disabled:opacity-40"
+                              className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-neutral-200 p-1.5 text-neutral-600 disabled:opacity-40"
                             >
                               {copied === 'recipient' ? <CheckCircle2 className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
                             </button>
@@ -1802,7 +1533,7 @@ export function CheckoutSheet({
                               data-testid="checkout-copy-amount"
                               disabled={financialBlocked || paymentNowCents <= 0}
                               onClick={() => void copyToClipboard('amount', (paymentNowCents / 100).toFixed(2))}
-                              className="rounded-lg border border-neutral-200 p-1.5 text-neutral-600 disabled:opacity-40"
+                              className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-neutral-200 p-1.5 text-neutral-600 disabled:opacity-40"
                             >
                               {copied === 'amount' ? <CheckCircle2 className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
                             </button>
@@ -1818,7 +1549,7 @@ export function CheckoutSheet({
                               aria-label="Copy reference"
                               disabled={financialBlocked}
                               onClick={() => void copyToClipboard('reference', context.paymentReference)}
-                              className="rounded-lg border border-neutral-200 p-1.5 text-neutral-600 disabled:opacity-40"
+                              className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-neutral-200 p-1.5 text-neutral-600 disabled:opacity-40"
                             >
                               {copied === 'reference' ? <CheckCircle2 className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
                             </button>
@@ -1864,19 +1595,378 @@ export function CheckoutSheet({
                 )}
               </div>
 
+              {/* Services & items */}
+              <details data-checkout-details="items" className={sectionCard} data-testid="checkout-items-section">
+                <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-neutral-900">Edit services & items</summary>
+                <div className="pt-3">
+                  <div className="space-y-3">
+                    {items.map(item => (
+                      <div key={item.key} className="rounded-xl bg-neutral-50 p-3" data-testid={`checkout-item-${item.key}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          {item.kind === 'custom'
+                            ? (
+                                <input
+                                  type="text"
+                                  value={item.name}
+                                  placeholder="Custom item (e.g. Nail art, Repair)"
+                                  onChange={event => updateItem(item.key, { name: event.target.value })}
+                                  className="min-h-11 min-w-0 flex-1 rounded-lg border border-neutral-200 bg-white p-2 text-sm font-medium text-neutral-900"
+                                  data-testid="checkout-custom-name"
+                                />
+                              )
+                            : (
+                                <div className="min-w-0 flex-1">
+                                  <div className="break-words text-sm font-medium text-neutral-900">{item.name}</div>
+                                  <div className="text-xs uppercase tracking-wide text-neutral-400">{item.kind}</div>
+                                </div>
+                              )}
+                          <button
+                            type="button"
+                            aria-label={`Remove ${item.name || 'item'}`}
+                            onClick={() => removeItem(item.key)}
+                            className="flex size-11 shrink-0 items-center justify-center rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-red-600"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              aria-label="Decrease quantity"
+                              onClick={() => updateItem(item.key, { quantity: Math.max(1, item.quantity - 1) })}
+                              className="flex size-11 items-center justify-center rounded-lg border border-neutral-200 p-1.5 text-neutral-600"
+                            >
+                              <Minus className="size-3.5" />
+                            </button>
+                            <span className="w-7 text-center text-sm font-medium">{item.quantity}</span>
+                            <button
+                              type="button"
+                              aria-label="Increase quantity"
+                              onClick={() => updateItem(item.key, { quantity: Math.min(99, item.quantity + 1) })}
+                              className="flex size-11 items-center justify-center rounded-lg border border-neutral-200 p-1.5 text-neutral-600"
+                            >
+                              <Plus className="size-3.5" />
+                            </button>
+                          </div>
+                          <div className="relative">
+                            <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-xs text-neutral-400">$</span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              aria-label={`Price for ${item.name || 'item'}`}
+                              value={centsToInput(item.unitPriceCents)}
+                              onChange={event => updateItem(item.key, { unitPriceCents: inputToCents(event.target.value) })}
+                              className="min-h-11 w-24 rounded-lg border border-neutral-200 bg-white p-2 pl-6 text-sm text-neutral-900"
+                            />
+                          </div>
+                          {context.taxConfig.enabled && (
+                            <label className="flex min-h-11 items-center gap-1.5 text-xs text-neutral-500">
+                              <input
+                                type="checkbox"
+                                checked={item.taxable}
+                                onChange={event => updateItem(item.key, { taxable: event.target.checked })}
+                                className="size-3.5 rounded border-neutral-300"
+                              />
+                              Taxable
+                            </label>
+                          )}
+                          <div className="ml-auto text-sm font-medium text-neutral-900">
+                            {money(item.unitPriceCents * item.quantity)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {items.length === 0 && (
+                      <div className="rounded-xl border border-dashed border-neutral-200 p-3 text-center text-sm text-neutral-400">
+                        No items — add the services performed below.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <select
+                      aria-label="Add a service"
+                      data-testid="checkout-add-service"
+                      value=""
+                      onChange={(event) => {
+                        if (event.target.value) {
+                          addCatalogService(event.target.value);
+                        }
+                      }}
+                      className="min-h-11 min-w-0 rounded-xl border border-neutral-200 bg-white p-2.5 text-sm text-neutral-700"
+                    >
+                      <option value="">+ Add service…</option>
+                      {context.catalog.services.map(service => (
+                        <option key={service.id} value={service.id}>
+                          {service.name}
+                          {' '}
+                          ·
+                          {' '}
+                          {money(service.priceCents)}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label="Add an add-on"
+                      data-testid="checkout-add-addon"
+                      value=""
+                      onChange={(event) => {
+                        if (event.target.value) {
+                          addCatalogAddOn(event.target.value);
+                        }
+                      }}
+                      className="min-h-11 min-w-0 rounded-xl border border-neutral-200 bg-white p-2.5 text-sm text-neutral-700"
+                    >
+                      <option value="">+ Add add-on…</option>
+                      {context.catalog.addOns.map(addOn => (
+                        <option key={addOn.id} value={addOn.id}>
+                          {addOn.name}
+                          {' '}
+                          ·
+                          {' '}
+                          {money(addOn.priceCents)}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      data-testid="checkout-add-custom"
+                      onClick={addCustomItem}
+                      className="min-h-11 rounded-xl border border-dashed border-neutral-300 p-2.5 text-sm font-medium text-neutral-700"
+                    >
+                      + Custom item
+                    </button>
+                  </div>
+                </div>
+              </details>
+
+              {/* Price & tax */}
+              <details data-checkout-details="price" className={sectionCard} data-testid="checkout-price-section">
+                <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-neutral-900">Discount, tip & tax</summary>
+                <div className="pt-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className={fieldLabel}>Discount ($)</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        data-testid="checkout-discount"
+                        value={discountInput}
+                        onChange={event => setDiscountInput(event.target.value.replace(/[^0-9.]/g, ''))}
+                        placeholder="0"
+                        className={inputClass}
+                        disabled={!context.permissions.canApplyDiscount}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={fieldLabel}>Discount reason</span>
+                      <select
+                        data-testid="checkout-discount-reason"
+                        value={discountReason}
+                        onChange={event => setDiscountReason(event.target.value)}
+                        className={inputClass}
+                      >
+                        {discountReason !== '' && !DISCOUNT_REASON_PRESETS.includes(discountReason) && (
+                          <option value={discountReason}>{discountReason}</option>
+                        )}
+                        <option value="">No reason</option>
+                        <option value="Added service">Added service</option>
+                        <option value="Added nail art">Added nail art</option>
+                        <option value="Repair">Repair</option>
+                        <option value="Discount">Discount</option>
+                        <option value="Price correction">Price correction</option>
+                        <option value="Complimentary item">Complimentary item</option>
+                        <option value="Custom">Custom reason</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className={fieldLabel}>Tip ($)</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        data-testid="checkout-tip"
+                        value={tipInput}
+                        onChange={event => setTipInput(event.target.value.replace(/[^0-9.]/g, ''))}
+                        placeholder="0"
+                        className={inputClass}
+                      />
+                    </label>
+                    {context.permissions.canTaxExempt && context.taxConfig.enabled && (
+                      <div className="block">
+                        <span className={fieldLabel}>Tax exemption</span>
+                        <label className="flex items-center justify-between rounded-xl border border-neutral-200 p-3 text-sm text-neutral-700">
+                          Tax exempt
+                          <input
+                            type="checkbox"
+                            data-testid="checkout-tax-exempt"
+                            checked={taxExempt}
+                            onChange={event => setTaxExempt(event.target.checked)}
+                            className="size-4 rounded border-neutral-300"
+                          />
+                        </label>
+                        {taxExempt && (
+                          <input
+                            type="text"
+                            data-testid="checkout-tax-exempt-reason"
+                            value={taxExemptReason}
+                            onChange={event => setTaxExemptReason(event.target.value)}
+                            placeholder="Exemption reason"
+                            className={`${inputClass} mt-2`}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </details>
+
+              {/* Photos */}
+              <details data-checkout-details="photos" open={photoPolicyMode === 'required' && !hasAfterPhoto} className={sectionCard} data-testid="checkout-photos-section">
+                <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-neutral-900">Appointment photos</summary>
+                <div className="pt-3">
+                  {context.photos.length > 0 && (
+                    <div className="mb-3 flex gap-2 overflow-x-auto">
+                      {context.photos.map(photo => (
+                        <div key={photo.id} className="relative size-20 shrink-0 overflow-hidden rounded-xl">
+                          <Image
+                            src={photo.thumbnailUrl || photo.imageUrl}
+                            alt={photo.photoType}
+                            fill
+                            className="object-cover"
+                          />
+                          <span className={`absolute left-1 top-1 rounded px-1 text-[10px] font-semibold uppercase text-white ${photo.photoType === 'before' ? 'bg-amber-600' : 'bg-emerald-600'}`}>
+                            {photo.photoType}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${photo.photoType} photo`}
+                            onClick={() => void removePhoto(photo.id)}
+                            className="absolute right-0 top-0 flex size-11 items-center justify-center rounded bg-black/50 text-white"
+                          >
+                            <Trash2 className="size-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!hasAfterPhoto && (
+                    <div className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900" data-testid="checkout-photo-nudge">
+                      {photoPolicyMode === 'required'
+                        ? 'This salon requires an after photo before completing.'
+                        : 'Add an after photo? Save the finished set to the client’s history.'}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      data-testid="checkout-upload-before"
+                      disabled={uploadingPhoto}
+                      onClick={() => {
+                        setPendingPhotoType('before');
+                        fileInputRef.current?.click();
+                      }}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-dashed border-neutral-300 p-3 text-sm font-medium text-neutral-700 disabled:opacity-50"
+                    >
+                      <Camera className="size-4" />
+                      {uploadingPhoto && pendingPhotoType === 'before' ? 'Uploading…' : 'Add before'}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="checkout-upload-after"
+                      disabled={uploadingPhoto}
+                      onClick={() => {
+                        setPendingPhotoType('after');
+                        fileInputRef.current?.click();
+                      }}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-dashed border-neutral-300 p-3 text-sm font-medium text-neutral-700 disabled:opacity-50"
+                    >
+                      <Camera className="size-4" />
+                      {uploadingPhoto && pendingPhotoType === 'after' ? 'Uploading…' : 'Add after'}
+                    </button>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    data-testid="checkout-photo-input"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) {
+                        void uploadPhoto(file, pendingPhotoType);
+                      }
+                      event.target.value = '';
+                    }}
+                  />
+                </div>
+              </details>
+
+              {/* Time */}
+              <details data-checkout-details="time" className={sectionCard} data-testid="checkout-time-section">
+                <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-neutral-900">Actual time</summary>
+                <div className="pt-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className={fieldLabel}>Actual start</span>
+                      <input
+                        type="datetime-local"
+                        data-testid="checkout-actual-start"
+                        value={actualStart}
+                        onChange={event => setActualStart(event.target.value)}
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={fieldLabel}>Actual finish</span>
+                      <input
+                        type="datetime-local"
+                        data-testid="checkout-actual-end"
+                        value={actualEnd}
+                        onChange={event => setActualEnd(event.target.value)}
+                        className={inputClass}
+                      />
+                    </label>
+                  </div>
+                  {actualStart && actualEnd && new Date(actualEnd) < new Date(actualStart) && (
+                    <div className="mt-2 text-sm text-red-600" data-testid="checkout-time-error">
+                      Finish cannot be before start.
+                    </div>
+                  )}
+                  <div className="mt-2 text-xs text-neutral-500">
+                    Scheduled
+                    {' '}
+                    {scheduledDuration}
+                    {' '}
+                    min
+                    {actualDurationMinutes !== null && (
+                      <>
+                        {' · Actual '}
+                        <span data-testid="checkout-actual-duration">{actualDurationMinutes}</span>
+                        {' '}
+                        min
+                      </>
+                    )}
+                  </div>
+                </div>
+              </details>
+
               {/* Notes */}
-              <div className={sectionCard}>
-                <div className={sectionTitle}>Private note</div>
-                <textarea
-                  value={notes}
-                  data-testid="checkout-notes"
-                  onChange={event => setNotes(event.target.value)}
-                  rows={2}
-                  maxLength={2000}
-                  placeholder="Only visible to your team"
-                  className={inputClass}
-                />
-              </div>
+              <details data-checkout-details="notes" className={sectionCard}>
+                <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-neutral-900">Private note</summary>
+                <div className="pt-3">
+                  <textarea
+                    value={notes}
+                    data-testid="checkout-notes"
+                    onChange={event => setNotes(event.target.value)}
+                    rows={2}
+                    maxLength={2000}
+                    placeholder="Only visible to your team"
+                    className={inputClass}
+                  />
+                </div>
+              </details>
             </div>
           )}
 
@@ -2005,13 +2095,13 @@ export function CheckoutSheet({
                         key={value}
                         type="button"
                         onClick={() => setPostPaymentMethod(current => (current === value ? null : value))}
-                        className={`min-h-9 rounded-full px-3 py-1.5 text-xs font-medium ${postPaymentMethod === value ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600'}`}
+                        className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium ${postPaymentMethod === value ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600'}`}
                       >
                         {label}
                       </button>
                     ))}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <input
                       type="text"
                       inputMode="decimal"
@@ -2095,10 +2185,10 @@ export function CheckoutSheet({
             className="shrink-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
           >
-            <div className="flex items-center gap-3">
-              <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex w-full min-w-0 items-baseline justify-between gap-2 break-words">
                 <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">
-                  {view === 'review' ? 'Balance after payment' : 'Balance due'}
+                  Balance
                 </div>
                 <div className="text-lg font-semibold" style={{ color: themeVars.primary }}>
                   {money(view === 'review' ? balanceAfterPayment : balanceBeforeNewPaymentCents)}
@@ -2106,22 +2196,26 @@ export function CheckoutSheet({
               </div>
               {view === 'edit'
                 ? (
-                    <div className="ml-auto flex min-w-0 flex-[1.8] gap-2">
+                    <div className="flex w-full min-w-0 gap-2">
                       <button
                         type="button"
                         data-testid="checkout-cancel"
                         disabled={submitting}
                         onClick={requestClose}
-                        className="rounded-2xl border border-neutral-200 p-3 text-sm font-medium text-neutral-700 disabled:opacity-50"
+                        className="min-w-11 shrink-0 rounded-2xl border border-neutral-200 px-1 py-3 text-sm font-medium text-neutral-700 disabled:opacity-50"
                       >
                         Cancel
                       </button>
                       <button
                         type="button"
                         data-testid="checkout-review-button"
-                        disabled={submitting || financialBlocked || isCompleted || Boolean(actualStart && actualEnd && new Date(actualEnd) < new Date(actualStart))}
-                        onClick={() => setView('review')}
-                        className="min-w-0 flex-1 rounded-2xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                        disabled={submitting || financialBlocked || isCompleted}
+                        onClick={() => {
+                          if (validateForReview()) {
+                            setView('review');
+                          }
+                        }}
+                        className="min-w-0 flex-1 break-words rounded-2xl px-1 py-3 text-sm font-semibold text-white disabled:opacity-50"
                         style={{ backgroundColor: themeVars.primary }}
                       >
                         Review
@@ -2129,19 +2223,20 @@ export function CheckoutSheet({
                     </div>
                   )
                 : (
-                    <div className="ml-auto flex min-w-0 flex-[2.2] gap-2">
+                    <div className="flex w-full min-w-0 gap-2">
                       <button
                         type="button"
                         data-testid="checkout-back"
                         disabled={submitting || financialBlocked}
                         onClick={() => setView('edit')}
-                        className="rounded-2xl border border-neutral-200 p-3 text-sm font-medium text-neutral-700 disabled:opacity-50"
+                        className="min-w-11 shrink-0 rounded-2xl border border-neutral-200 px-1 py-3 text-sm font-medium text-neutral-700 disabled:opacity-50"
                       >
                         Back
                       </button>
                       <button
                         type="button"
                         data-testid="checkout-complete-button"
+                        aria-label={submitting ? 'Completing appointment' : 'Complete appointment'}
                         disabled={submitting}
                         onClick={() => {
                           if (!hasAfterPhoto && photoPolicyMode !== 'required' && !skipPhotoConfirmed) {
@@ -2150,10 +2245,10 @@ export function CheckoutSheet({
                           }
                           void submitCompletion();
                         }}
-                        className="min-w-0 flex-1 rounded-2xl p-3 text-sm font-semibold text-white disabled:opacity-50"
+                        className="min-w-0 flex-1 break-words rounded-2xl px-1 py-3 text-sm font-semibold text-white disabled:opacity-50"
                         style={{ backgroundColor: themeVars.primary }}
                       >
-                        {submitting ? 'Completing…' : 'Complete appointment'}
+                        {submitting ? 'Completing…' : 'Complete'}
                       </button>
                     </div>
                   )}

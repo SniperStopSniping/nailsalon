@@ -118,6 +118,14 @@ const baseDetail: AppointmentManageDetail = {
 };
 
 describe('AppointmentQuickEditSheet', () => {
+  function showDetails() {
+    fireEvent.click(screen.getByRole('button', { name: /^Details/ }));
+  }
+
+  function showEditor() {
+    fireEvent.click(screen.getByTestId('appointment-sheet-edit-reschedule'));
+  }
+
   it('uses the shared focus lifecycle and restores the invoking control', async () => {
     const user = userEvent.setup();
 
@@ -253,6 +261,9 @@ describe('AppointmentQuickEditSheet', () => {
     expect(screen.getByTestId('appointment-sheet-financial-summary')).toHaveTextContent(
       'Financial detailsUnder review',
     );
+
+    showEditor();
+
     expect(screen.getByTestId('appointment-sheet-projected-price')).toHaveTextContent('Under review');
     expect(screen.queryByText('$45.00')).not.toBeInTheDocument();
   });
@@ -327,6 +338,8 @@ describe('AppointmentQuickEditSheet', () => {
         adminDepositPanelSlot={<div data-testid="admin-deposit-panel">Admin deposit controls</div>}
       />,
     );
+
+    showDetails();
 
     expect(screen.getByTestId('admin-deposit-panel')).toBeInTheDocument();
   });
@@ -408,6 +421,8 @@ describe('AppointmentQuickEditSheet', () => {
       />,
     );
 
+    showEditor();
+
     expect(screen.getByLabelText('Technician')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Next available' })).toBeInTheDocument();
   });
@@ -437,6 +452,7 @@ describe('AppointmentQuickEditSheet', () => {
       />,
     );
 
+    showEditor();
     fireEvent.change(screen.getByLabelText('Service'), { target: { value: 'svc_2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
@@ -445,6 +461,43 @@ describe('AppointmentQuickEditSheet', () => {
         baseServiceId: 'svc_2',
       }));
     });
+  });
+
+  it('returns to manage mode after cancelling edits and restores the stored values', () => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    showEditor();
+    const service = screen.getByLabelText('Service') as HTMLSelectElement;
+
+    expect(service).toHaveFocus();
+
+    fireEvent.change(service, { target: { value: 'svc_2' } });
+
+    expect(screen.getByTestId('appointment-sheet-save')).toBeEnabled();
+
+    fireEvent.click(screen.getByTestId('appointment-sheet-cancel-editing'));
+
+    expect(screen.queryByLabelText('Service')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start appointment' })).toBeInTheDocument();
+    expect(screen.getByTestId('appointment-sheet-mark-completed')).toBeInTheDocument();
+
+    showEditor();
+
+    expect(screen.getByLabelText('Service')).toHaveValue('svc_1');
   });
 
   it('reports a refused save beside Save and restores the rejected time', async () => {
@@ -482,6 +535,8 @@ describe('AppointmentQuickEditSheet', () => {
     }
 
     render(<RefusedSaveHarness />);
+
+    showEditor();
 
     const startTimeInput = screen.getByTestId('appointment-sheet-start-time') as HTMLInputElement;
     const storedValue = startTimeInput.value;
@@ -565,6 +620,7 @@ describe('AppointmentQuickEditSheet', () => {
       />,
     );
 
+    showDetails();
     fireEvent.click(screen.getByTestId('appointment-sheet-no-show'));
     fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
 
@@ -646,6 +702,7 @@ describe('AppointmentQuickEditSheet', () => {
     );
 
     // Make the form dirty, then click the backdrop.
+    showEditor();
     fireEvent.change(screen.getByLabelText('Service'), { target: { value: 'svc_2' } });
     fireEvent.click(screen.getAllByRole('presentation')[0]!);
 
@@ -707,6 +764,8 @@ describe('AppointmentQuickEditSheet', () => {
 
     // The first photo used to be unreachable (buttons only rendered once a
     // photo existed) — the uploader must render for an empty gallery too.
+    showDetails();
+
     expect(screen.getByTestId('appointment-sheet-photos')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('appointment-sheet-upload-after'));
@@ -744,6 +803,99 @@ describe('AppointmentQuickEditSheet', () => {
     expect(onViewReceipt).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps care notes visible while secondary details and communication evidence start collapsed', () => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={{
+          ...baseDetail,
+          communications: [{
+            channel: 'sms',
+            purpose: 'appointment_reminder',
+            status: 'delivered',
+            errorCode: null,
+            updatedAt: '2026-09-19T15:00:00.000Z',
+          }],
+        }}
+        loading={false}
+        saving={false}
+        actionError={null}
+        photos={[]}
+        onUploadPhoto={vi.fn()}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    expect(screen.getByTestId('appointment-client-prep-notes')).toHaveTextContent('HEMA sensitivity');
+    expect(screen.queryByTestId('appointment-sheet-photos')).not.toBeInTheDocument();
+    expect(screen.queryByText('appointment reminder')).not.toBeInTheDocument();
+
+    showDetails();
+
+    expect(screen.getByTestId('appointment-sheet-photos')).toBeInTheDocument();
+    expect(screen.queryByText('appointment reminder')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Communication history/ }));
+
+    expect(screen.getByText('appointment reminder')).toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      status: 'pending',
+      permissions: { canConfirm: true, canDecline: true },
+      expected: ['Confirm appointment', 'Decline request'],
+    },
+    {
+      status: 'confirmed',
+      permissions: { canStart: true, canMarkCompleted: true },
+      expected: ['Start appointment', 'Mark completed'],
+    },
+    {
+      status: 'in_progress',
+      permissions: { canStart: false, canMarkCompleted: true },
+      expected: ['Complete appointment'],
+    },
+    {
+      status: 'completed',
+      permissions: { canMarkCompleted: false },
+      expected: ['View receipt', 'Rebook client'],
+    },
+  ] as const)('shows the permitted $status lifecycle actions in the sticky footer', ({ status, permissions, expected }) => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={{
+          ...baseDetail,
+          appointment: { ...baseDetail.appointment, status },
+          permissions: { ...baseDetail.permissions, ...permissions },
+        }}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+        onConfirmAppointment={vi.fn(async () => {})}
+        onDeclineAppointment={vi.fn(async () => {})}
+        onViewReceipt={vi.fn()}
+        onRebook={vi.fn()}
+      />,
+    );
+
+    for (const label of expected) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    }
+  });
+
   it.each(['cancelled', 'no_show'] as const)('keeps review history visible for a %s appointment', (status) => {
     reviewRequestActionMock.mockClear();
     const detail = {
@@ -768,6 +920,29 @@ describe('AppointmentQuickEditSheet', () => {
     );
 
     expect(reviewRequestActionMock).toHaveBeenCalledWith(expect.objectContaining({ appointmentId: 'appt_1', salonSlug: 'salon-a', appointmentStatus: status }));
+  });
+
+  it.each(['pending', 'cancelled', 'no_show'] as const)('keeps Rebook available as a secondary action for a %s appointment', (status) => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={{ ...baseDetail, appointment: { ...baseDetail.appointment, status } }}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+        onRebook={vi.fn()}
+      />,
+    );
+
+    showDetails();
+
+    expect(screen.getByRole('button', { name: 'Rebook client' })).toBeInTheDocument();
   });
 
   it('shows the failure reason and a Try again action when detail cannot load', () => {

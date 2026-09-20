@@ -609,6 +609,7 @@ export function UpcomingAppointmentActions({
           clientId={detail.client.id}
           appointmentId={detail.appointment.id}
           historyAppointmentId={detail.appointment.id}
+          historyInitiallyOpen={false}
           composerOpen={smsComposerOpen}
           onClose={() => setSmsComposerOpen(false)}
         />

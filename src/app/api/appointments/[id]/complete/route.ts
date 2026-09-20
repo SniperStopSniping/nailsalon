@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { z } from 'zod';
 
 import { getSalonPolicy, getSuperAdminPolicy } from '@/core/appointments/policyRepo';
 import { getActiveAppointmentsForCanonicalClientWithHandle } from '@/libs/activeAppointments';
@@ -10,6 +9,7 @@ import {
   listPayments,
   resolveCheckoutActor,
 } from '@/libs/appointmentCheckoutServer';
+import { completeAppointmentSchema, type CompletePayload, completionValidationIssues } from '@/libs/appointmentCompletionContract';
 import {
   APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED,
   appointmentFinancialOverpayment,
@@ -59,7 +59,6 @@ import {
   appointmentPaymentSchema,
   appointmentPhotoSchema,
   appointmentSchema,
-  PAYMENT_METHODS,
   salonClientSchema,
   salonSchema,
   serviceSchema,
@@ -69,71 +68,6 @@ import type { SalonSettings } from '@/types/salonPolicy';
 // =============================================================================
 // REQUEST VALIDATION
 // =============================================================================
-
-const paymentMethodEnum = z.enum(PAYMENT_METHODS);
-
-const finalItemSchema = z.object({
-  kind: z.enum(['service', 'addon', 'custom']),
-  catalogServiceId: z.string().max(64).nullish(),
-  catalogAddOnId: z.string().max(64).nullish(),
-  name: z.string().trim().min(1).max(120),
-  quantity: z.number().int().min(1).max(99).default(1),
-  unitPriceCents: z.number().int().min(0).max(1_000_000),
-  durationMinutes: z.number().int().min(0).max(600).nullish(),
-  /** Defaults from the salon tax config per kind when omitted. */
-  taxable: z.boolean().optional(),
-});
-
-const paymentEntrySchema = z.object({
-  amountCents: z.number().int().min(1).max(5_000_000),
-  method: paymentMethodEnum.optional(),
-  reference: z.string().trim().max(120).optional(),
-  note: z.string().trim().max(500).optional(),
-});
-
-const completeAppointmentSchema = z.object({
-  // Photo gate: policy 'required' ignores this flag; otherwise it preserves
-  // the long-standing soft gate (missing after photo → 400 unless skipped).
-  skipPhotoValidation: z.boolean().optional().default(false),
-
-  // Legacy completion record (kept for back-compat: a body with none of the
-  // new checkout fields completes exactly as before this phase).
-  finalPriceCents: z.number().int().min(0).max(1_000_000).optional(),
-  tipCents: z.number().int().min(0).max(100_000).optional(),
-  paymentMethod: paymentMethodEnum.optional(),
-  techNotes: z.string().trim().max(2000).optional(),
-
-  // Legacy performed-item ids — translated into final items (the booked
-  // appointment_services/appointment_add_on snapshot is IMMUTABLE now).
-  performedServiceIds: z.array(z.string()).max(20).optional(),
-  performedAddOnIds: z.array(z.string()).max(20).optional(),
-
-  // Checkout payload (0058)
-  finalItems: z.array(finalItemSchema).max(40).optional(),
-  actualStartAt: z.coerce.date().optional(),
-  actualEndAt: z.coerce.date().optional(),
-  discountCents: z.number().int().min(0).max(1_000_000).optional(),
-  discountReason: z.string().trim().max(200).optional(),
-  // Admin-only
-  taxExempt: z.boolean().optional(),
-  // An empty or whitespace-only reason is "no reason supplied". Normalizing it
-  // to absent here keeps the stored scalar and the frozen snapshot identical:
-  // a stored '' beside a snapshot null would permanently fail chain validation.
-  taxExemptReason: z.string().trim().max(200).optional()
-    .transform(value => value || undefined),
-  // Payments recorded at checkout. PRESENCE of this field (even empty) opts
-  // into derived payment status; absence keeps the legacy hard-coded 'paid'.
-  payments: z.array(paymentEntrySchema).max(10).optional(),
-  // Admin-only. 'comp' = complimentary (0 revenue, no payments allowed).
-  paymentStatusIntent: z.literal('comp').optional(),
-  // Optimistic-concurrency check: server recomputes and 409s on drift.
-  expectedTotalDueCents: z.number().int().min(0).max(10_000_000).optional(),
-  // The client-reviewed amount before this request's new payment entries.
-  // Revalidated while holding appointment -> deposit locks.
-  expectedBalanceCents: z.number().int().min(0).max(10_000_000).optional(),
-});
-
-type CompletePayload = z.infer<typeof completeAppointmentSchema>;
 
 // =============================================================================
 // RESPONSE TYPES
@@ -407,6 +341,12 @@ function defaultTaxableFor(kind: ResolvedFinalItem['kind'], taxConfig: ResolvedT
   return taxConfig.taxCustomByDefault;
 }
 
+class CompletionCatalogReferenceError extends Error {
+  constructor(readonly issues: Array<{ path: string; message: string }>) {
+    super('One or more services or add-ons are unavailable. Reload the appointment and check Services & items.');
+  }
+}
+
 /**
  * Resolve the final line items from the payload. Three shapes:
  * - `finalItems` (the checkout sheet) — used as sent.
@@ -422,6 +362,32 @@ async function resolveFinalItems(
   taxConfig: ResolvedTaxConfig,
 ): Promise<ResolvedFinalItem[] | null> {
   if (payload.finalItems) {
+    // Opaque catalog IDs may be longer than legacy UI assumptions. Validate
+    // ownership, not spelling/length; archived booked references remain valid.
+    const serviceIds = [...new Set(payload.finalItems.flatMap(item => item.kind === 'service' && item.catalogServiceId != null ? [item.catalogServiceId] : []))];
+    const addOnIds = [...new Set(payload.finalItems.flatMap(item => item.kind === 'addon' && item.catalogAddOnId != null ? [item.catalogAddOnId] : []))];
+    const services = serviceIds.length
+      ? await database.select({ id: serviceSchema.id }).from(serviceSchema)
+        .where(and(eq(serviceSchema.salonId, appointment.salonId), inArray(serviceSchema.id, serviceIds)))
+      : [];
+    const addOns = addOnIds.length
+      ? await database.select({ id: addOnSchema.id }).from(addOnSchema)
+        .where(and(eq(addOnSchema.salonId, appointment.salonId), inArray(addOnSchema.id, addOnIds)))
+      : [];
+    const validServices = new Set(services.map(item => item.id));
+    const validAddOns = new Set(addOns.map(item => item.id));
+    const invalidPaths = payload.finalItems.flatMap((item, index) => {
+      if (item.kind === 'service' && item.catalogServiceId != null && !validServices.has(item.catalogServiceId)) {
+        return [{ path: ['finalItems', index, 'catalogServiceId'] }];
+      }
+      if (item.kind === 'addon' && item.catalogAddOnId != null && !validAddOns.has(item.catalogAddOnId)) {
+        return [{ path: ['finalItems', index, 'catalogAddOnId'] }];
+      }
+      return [];
+    });
+    if (invalidPaths.length) {
+      throw new CompletionCatalogReferenceError(completionValidationIssues(invalidPaths));
+    }
     return payload.finalItems.map(item => ({
       kind: item.kind,
       catalogServiceId: item.kind === 'service' ? item.catalogServiceId ?? null : null,
@@ -531,8 +497,8 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
         {
           error: {
             code: 'VALIDATION_ERROR',
-            message: 'Invalid request data',
-            details: validated.error.flatten(),
+            message: completionValidationIssues(validated.error.issues)[0]?.message ?? 'Check the appointment details before completing.',
+            details: { ...validated.error.flatten(), issues: completionValidationIssues(validated.error.issues) },
           },
         } satisfies ErrorResponse,
         { status: 400 },
@@ -1371,6 +1337,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       result.depositCredit,
     );
   } catch (error) {
+    if (error instanceof CompletionCatalogReferenceError) {
+      return Response.json({ error: { code: 'VALIDATION_ERROR', message: error.message, details: { issues: error.issues } } }, { status: 400 });
+    }
     console.error('Error completing appointment:', error);
     return Response.json(
       {

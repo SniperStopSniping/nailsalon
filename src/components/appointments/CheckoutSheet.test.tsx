@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { completeAppointmentSchema } from '@/libs/appointmentCompletionContract';
+import { PAYMENT_METHODS } from '@/libs/paymentMethods';
+
 import { CheckoutSheet } from './CheckoutSheet';
 
 const fetchMock = vi.fn();
@@ -180,6 +183,73 @@ describe('CheckoutSheet', () => {
     vi.stubGlobal('fetch', fetchMock);
   });
 
+  it('shows the common payment path while optional editors stay collapsed', async () => {
+    await renderSheet();
+
+    expect(screen.getByTestId('checkout-payment-section')).toBeVisible();
+
+    for (const id of ['checkout-items-section', 'checkout-time-section', 'checkout-photos-section', 'checkout-price-section']) {
+      expect(screen.getByTestId(id)).not.toHaveAttribute('open');
+    }
+
+    expect(screen.getByText('Payment method (optional)')).toBeVisible();
+
+    fireEvent.click(screen.getByTestId('checkout-record-later'));
+
+    expect(screen.getByTestId('checkout-amount-received')).toHaveValue('0');
+
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+
+    expect(screen.getByTestId('checkout-receiving-now')).toHaveTextContent('$0.00');
+    expect(screen.getByTestId('checkout-remaining-balance')).toHaveTextContent('$50.85');
+  });
+
+  it.each(PAYMENT_METHODS)('submits a shared-contract-valid payment using %s', async (method) => {
+    await renderSheet(buildContext({ photos: [{ id: 'synthetic_after', imageUrl: 'https://example.test/after.jpg', photoType: 'after' }] }));
+    fireEvent.click(screen.getByTestId(`checkout-method-${method}`));
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+    fireEvent.click(screen.getByTestId('checkout-complete-button'));
+    await screen.findByTestId('checkout-success');
+    const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH');
+    const body = JSON.parse(String((call![1] as RequestInit).body));
+
+    expect(completeAppointmentSchema.safeParse(body).success).toBe(true);
+    expect(body.payments).toEqual([{ amountCents: 5085, method }]);
+  });
+
+  it('passes an opaque 72-character service ID through Review with blank optional fields', async () => {
+    const context = buildContext();
+    context.bookedItems[0]!.catalogServiceId = `svc_${'x'.repeat(68)}`;
+    await renderSheet(context);
+    fireEvent.change(screen.getByTestId('checkout-actual-start'), { target: { value: '' } });
+    fireEvent.change(screen.getByTestId('checkout-actual-end'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+    fireEvent.click(screen.getByTestId('checkout-complete-button'));
+    fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
+    await screen.findByTestId('checkout-success');
+    const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH');
+    const body = JSON.parse(String((call![1] as RequestInit).body));
+
+    expect(completeAppointmentSchema.safeParse(body).success).toBe(true);
+    expect(body.finalItems[0].catalogServiceId).toHaveLength(72);
+    expect(body).not.toHaveProperty('actualStartAt');
+    expect(body).not.toHaveProperty('actualEndAt');
+    expect(body).not.toHaveProperty('paymentMethod');
+    expect(body.payments).toEqual([{ amountCents: 5085 }]);
+  });
+
+  it('explains invalid custom-item fields before Review without making a completion request', async () => {
+    await renderSheet();
+    fireEvent.click(screen.getByTestId('checkout-add-custom'));
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+
+    expect(screen.queryByTestId('checkout-review')).not.toBeInTheDocument();
+    expect(screen.getByTestId('checkout-error')).toHaveTextContent('Item 2: enter a name');
+    expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')).toBe(false);
+
+    await waitFor(() => expect(screen.getByTestId('checkout-items-section')).toHaveAttribute('open'));
+  });
+
   it('keeps checkout in a bounded mobile scroll region between a fixed header and action bar', async () => {
     await renderSheet();
 
@@ -282,7 +352,7 @@ describe('CheckoutSheet', () => {
   it('prefills the booked items and computes live totals with tax', async () => {
     await renderSheet();
 
-    expect(screen.getByText('BIAB Short')).toBeInTheDocument();
+    expect(screen.getByTestId('checkout-visit-summary')).toHaveTextContent('BIAB Short');
     // 4500 subtotal + 13% = 585 tax → 5085 total
     expect(screen.getByTestId('checkout-tax-amount')).toHaveTextContent('$5.85');
     expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$50.85');
@@ -320,7 +390,11 @@ describe('CheckoutSheet', () => {
     fireEvent.change(screen.getByTestId('checkout-actual-end'), { target: { value: '2026-07-18T14:00' } });
 
     expect(screen.getByTestId('checkout-time-error')).toBeInTheDocument();
-    expect(screen.getByTestId('checkout-review-button')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+
+    expect(screen.queryByTestId('checkout-review')).not.toBeInTheDocument();
+    expect(screen.getByTestId('checkout-error')).toHaveTextContent('Actual finish cannot be before actual start.');
 
     fireEvent.change(screen.getByTestId('checkout-actual-end'), { target: { value: '2026-07-18T16:10' } });
 
@@ -377,13 +451,15 @@ describe('CheckoutSheet', () => {
     expect(screen.getByText(/requires an after photo/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('checkout-review-button'));
-    fireEvent.click(await screen.findByTestId('checkout-complete-button'));
 
-    // No skip dialog — the server's hard block is surfaced as an error.
+    expect(screen.queryByTestId('checkout-complete-button')).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')).toBe(false);
+
+    // Required photo policy is explained before Review; the server remains authoritative.
     expect(screen.queryByText('Add an after photo?')).not.toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.getByTestId('checkout-error')).toHaveTextContent(/requires an after photo/i);
+      expect(screen.getByTestId('checkout-error')).toHaveTextContent(/Add an after photo before completing/i);
     });
 
     expect(screen.queryByTestId('checkout-success')).not.toBeInTheDocument();

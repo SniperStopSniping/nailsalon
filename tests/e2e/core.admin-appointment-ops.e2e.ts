@@ -134,6 +134,8 @@ test('admin can open the quick edit sheet, drag to a new slot, and use next avai
     await openAdminBookings(page);
     await openAdminAppointmentSheet(page, appointment.id, appointment.dateString);
 
+    await page.getByRole('button', { name: /^Details/ }).click();
+
     await expect(page.getByTestId('appointment-sheet-next-available')).toBeVisible();
 
     await page.getByTestId('appointment-sheet-close').click();
@@ -162,6 +164,7 @@ test('admin can open the quick edit sheet, drag to a new slot, and use next avai
     expect(confirmedMove?.startTime).not.toBe(original.startTime);
 
     await openAdminAppointmentSheet(page, appointment.id, confirmedMove ? await getBrowserDateKey(page, confirmedMove.startTime) : appointment.dateString);
+    await page.getByTestId('appointment-sheet-edit-reschedule').click();
     const movedStartTime = await page.getByTestId('appointment-sheet-start-time').inputValue();
     const nextAvailableResult = await clickNextAvailableAndWaitForManageResult(page, appointment.id);
 
@@ -245,6 +248,7 @@ test('admin can reassign technician from the quick edit sheet', async ({ browser
     await openAdminBookings(page);
     await openAdminAppointmentSheet(page, appointment.id, appointment.dateString);
     const blockBefore = await getAppointmentBlockState(page, appointment.id);
+    await page.getByTestId('appointment-sheet-edit-reschedule').click();
     await chooseDifferentTechnician(page);
     await page.getByTestId('appointment-sheet-save').click();
 
@@ -267,8 +271,11 @@ test('admin service change recalculates values, removes incompatible add-ons, an
     await openAdminBookings(page);
     await openAdminAppointmentSheet(page, booked.appointmentId, booked.dateString);
 
+    await page.getByRole('button', { name: /^Details/ }).click();
+
     await expect(page.getByTestId('appointment-sheet-addons')).toContainText(booked.addOnName);
 
+    await page.getByTestId('appointment-sheet-edit-reschedule').click();
     await page.getByTestId('appointment-sheet-service-select').selectOption(colourChange.id);
 
     await expect(page.getByTestId('appointment-sheet-projected-duration')).toContainText('30 min');
@@ -276,13 +283,20 @@ test('admin service change recalculates values, removes incompatible add-ons, an
 
     await page.getByTestId('appointment-sheet-save').click();
 
+    await page.getByRole('button', { name: /^Details/ }).click();
+
     await expect(page.getByTestId('appointment-sheet-warning')).toContainText(/removed/i);
+
+    await page.getByTestId('appointment-sheet-edit-reschedule').click();
+
     await expect(page.getByTestId('appointment-sheet-projected-duration')).toContainText('30 min');
     await expect(page.getByTestId('appointment-sheet-projected-price')).toContainText('$25.00');
     await expect(page.getByTestId('appointment-sheet-addons')).toHaveCount(0);
 
     await page.getByTestId('appointment-sheet-close').click();
     await openAdminAppointmentSheet(page, booked.appointmentId, booked.dateString);
+
+    await page.getByTestId('appointment-sheet-edit-reschedule').click();
 
     await expect(page.getByTestId('appointment-sheet-service-select')).toHaveValue(colourChange.id);
     await expect(page.getByTestId('appointment-sheet-projected-duration')).toContainText('30 min');
@@ -306,8 +320,16 @@ test('admin completes an appointment through the checkout flow with a custom ite
   await page.getByTestId('appointment-sheet-mark-completed').click();
 
   await expect(page.getByTestId('checkout-sheet')).toBeVisible();
-  await expect(page.getByTestId('checkout-items-section')).toBeVisible();
-  // The after-photo uploader is visible right in the flow.
+
+  const itemsSection = page.getByTestId('checkout-items-section');
+  const photosSection = page.getByTestId('checkout-photos-section');
+  await itemsSection.locator('summary').click();
+
+  await expect(itemsSection).toHaveAttribute('open', '');
+
+  // The after-photo uploader remains available in its expandable section.
+  await photosSection.locator('summary').click();
+
   await expect(page.getByTestId('checkout-upload-after')).toBeVisible();
 
   // Add a custom line item and take a partial payment.

@@ -203,7 +203,7 @@ export function ReviewRequestAction({ appointmentId, salonSlug, timeZone, appoin
   return (
     <>
       <div className={`rounded-2xl border border-neutral-200 p-4 ${className}`} data-testid="appointment-review-request-action">
-        <div className="flex items-center justify-between gap-3">
+        <div>
           <div className="min-w-0">
             <div className="text-sm font-semibold text-neutral-900">Review request</div>
             {request?.source && (
@@ -214,7 +214,7 @@ export function ReviewRequestAction({ appointmentId, salonSlug, timeZone, appoin
             )}
             {description && <p className="mt-1 text-xs text-neutral-500">{description}</p>}
           </div>
-          <button type="button" disabled={disabled} onClick={() => setConfirming(true)} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-sm font-semibold text-rose-800 shadow-sm disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-100 disabled:text-neutral-400">
+          <button type="button" disabled={disabled} onClick={() => setConfirming(true)} className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-sm font-semibold text-rose-800 shadow-sm disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-100 disabled:text-neutral-400">
             <span className="flex size-7 items-center justify-center rounded-full bg-rose-50">{sending || loading ? <LoaderCircle className="size-4 animate-spin" /> : ['sent', 'delivered', 'reported_sent'].includes(request?.status ?? '') ? <Check className="size-4" /> : <Star className="size-4" />}</span>
             {label}
           </button>
