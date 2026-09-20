@@ -18,6 +18,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url);
 const { customerAssistantCopy } = require('../src/components/customerAssistant/copy') as typeof import('../src/components/customerAssistant/copy');
 const { createOpenAiResponsesProvider } = require('../src/libs/ai/openaiResponses.server') as typeof import('../src/libs/ai/openaiResponses.server');
+const { projectCustomerInterpreterMenu } = require('../src/libs/customerAssistant/interpreterMenu') as typeof import('../src/libs/customerAssistant/interpreterMenu');
 const { compactCustomerModelContext } = require('../src/libs/customerAssistant/boundedModelContext') as typeof import('../src/libs/customerAssistant/boundedModelContext');
 const { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL } = require('../src/libs/customerAssistant/contracts') as typeof import('../src/libs/customerAssistant/contracts');
 const { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } = require('../src/libs/customerAssistant/interpretation') as typeof import('../src/libs/customerAssistant/interpretation');
@@ -456,7 +457,7 @@ async function main(): Promise<void> {
         const interpretationContext = compactEvaluationContext({ prompt: CUSTOMER_INTERPRETATION_PROMPT, maxBytes: CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, context: {
           locale: 'en',
           bookingSalon: { name: publicFacts.salon.name, slug: 'synthetic-isla' },
-          menu: SEMANTIC_L1_MENU,
+          menu: projectCustomerInterpreterMenu(SEMANTIC_L1_MENU),
           previousFacts: conversation.facts ?? emptyFacts(),
           requestedSelection: conversation.requestedSelection ?? null,
           latestCustomerMessage: turn.message,

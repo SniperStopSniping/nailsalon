@@ -191,6 +191,74 @@ describe('customer assistant bounded turn', () => {
     expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).dialogue?.at(-1)?.content).toBe(response.result.message);
   });
 
+  it('projects near-cap binding authority for interpretation while preserving the full menu for resolution', async () => {
+    const services = Array.from({ length: 8 }, (_, index) => ({
+      id: index === 0 ? 'gelx' : `s${index}${'s'.repeat(10)}`,
+      name: index === 0 ? 'Gel-X' : `S${index}`,
+      description: 'public'.repeat(3),
+      category: 'm',
+    }));
+    const addOns = Array.from({ length: 80 }, (_, index) => ({
+      id: index === 0 ? 'french' : `a${index}${'a'.repeat(10)}`,
+      name: index === 0 ? 'French' : `A${index}`,
+      description: '',
+      category: 'a',
+      pricingType: 'per_unit',
+      maxQuantity: 10,
+    }));
+    const bindings = Array.from({ length: 160 }, (_, index) => index === 0
+      ? { serviceId: 'gelx', addOnId: 'french', required: false, defaultQuantity: 1, maxQuantity: 1 }
+      : {
+          serviceId: 'gelx',
+          addOnId: addOns[index % addOns.length]!.id,
+          required: index % 3 === 0,
+          defaultQuantity: index % 5,
+          maxQuantity: Math.max(1, index % 8),
+        });
+    const menu = { services, addOns, bindings };
+    mocks.menu.mockResolvedValue(menu);
+    const selection = { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] };
+    const state = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      dialogue: [
+        { role: 'user', content: 'I want Gel-X with French.' },
+        { role: 'assistant', content: `A recent assistant answer: ${'💅é'.repeat(350)}` },
+      ],
+      context: { question: null, options: [], selection },
+      requestedSelection: selection,
+      booking: {
+        acceptedFingerprint: null,
+        datePreference: { date: '2026-09-28', earliest: '00:00', latest: '23:59' },
+        offeredSlots: Array.from({ length: 8 }, (_, index) => ({ time: `${String(9 + index).padStart(2, '0')}:00`, startTime: `2026-09-28T${String(13 + index).padStart(2, '0')}:00:00.000Z` })),
+        selectedSlot: null,
+      },
+    }, secret);
+    const target = addOns.at(-1)!;
+    const model = provider({
+      ...interpretation,
+      action: 'clarify',
+      serviceId: 'gelx',
+      addOns: [{ addOnId: 'french', quantity: 1 }],
+      question: 'finish',
+      optionIds: [target.id],
+    });
+
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: state, message: 'Can I choose another finish?' }, model);
+    const payload = JSON.parse(model.createResponse.mock.calls[0]![0].input[1].content);
+    const fullBindingPayload = { ...payload, menu };
+
+    expect(model.createResponse).toHaveBeenCalledTimes(1);
+    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(fullBindingPayload), 'utf8')).toBeGreaterThan(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
+    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(payload), 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
+    expect(payload.menu.bindings).toEqual({
+      columns: ['serviceId', 'addOnId', 'required', 'defaultQuantity', 'maxQuantity'],
+      rows: bindings.map(binding => [binding.serviceId, binding.addOnId, binding.required, binding.defaultQuantity, binding.maxQuantity]),
+    });
+    expect(payload.bookingState.offeredSlots).toHaveLength(8);
+    expect(response.result).toEqual({ kind: 'clarification', question: 'finish', options: [target.name] });
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).context?.selection).toEqual(selection);
+  });
+
   it('stores the same safe transient fallback shown to the customer after a provider interruption and preserves recovery state', async () => {
     const requested = { date: '2026-09-26', earliest: '17:00', latest: '23:59' };
     const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };

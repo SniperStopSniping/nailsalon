@@ -14,6 +14,7 @@ import { buildCustomerProposal, loadCustomerClarificationSnapshot, loadCustomerM
 import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL, type CustomerAssistantLocale, type CustomerAssistantResponse, type CustomerAssistantResult } from './contracts';
 import { advanceCustomerConversation, conversationInvalidReason, signCustomerConversation, verifyCustomerConversation } from './conversation.server';
 import { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } from './interpretation';
+import { projectCustomerInterpreterMenu } from './interpreterMenu';
 import { recordCustomerAssistantUsage } from './ledger.server';
 import { loadCustomerPublicFacts } from './publicFacts.server';
 import { buildReplyInput, createReplySchema, fallbackReceptionistReply, parseReceptionistReply, RECEPTIONIST_REPLY_PROMPT } from './reply';
@@ -104,7 +105,7 @@ export async function runCustomerAssistantTurn(args: {
         bookingSalon: { name: args.salonName ?? args.salonSlug, slug: args.salonSlug },
         previousFacts: conversation.facts ?? emptyFacts(),
         requestedSelection: conversation.requestedSelection ?? null,
-        menu,
+        menu: projectCustomerInterpreterMenu(menu),
         latestCustomerMessage: args.message,
         ...(conversation.dialogue?.length ? { dialogue: conversation.dialogue } : {}),
         conversationalSubjects: conversation.subjects ?? [],
