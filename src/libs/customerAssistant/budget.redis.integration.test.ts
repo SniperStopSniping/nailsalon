@@ -115,7 +115,7 @@ describeWithLoopbackRedis('customer assistant budget Redis concurrency', () => {
     );
 
     expect(results.filter(result => result.ok)).toHaveLength(1);
-    expect(results.filter(result => !result.ok && result.reason === 'conversation_used')).toHaveLength(9);
+    expect(results.filter(result => !result.ok && result.reason === 'stale_conversation')).toHaveLength(9);
     expect(await client.get(keys[1]!)).toBe('1');
   });
 });
