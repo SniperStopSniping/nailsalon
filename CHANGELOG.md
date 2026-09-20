@@ -1,3 +1,13 @@
+## [1.123.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.123.0...v1.123.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* **customer-ai:** distinguish unresolved transitions from missing services ([4630d02](https://github.com/SniperStopSniping/nailsalon/commit/4630d02d6b4a4853d6a2aeaa36af27c1d4c15090))
+* **customer-ai:** preserve conversation intent and availability references ([18aa791](https://github.com/SniperStopSniping/nailsalon/commit/18aa7912eda87f05ec26ed3815642573fb7975ef))
+* **customer-ai:** quote only authoritatively resolved selections ([5e8926b](https://github.com/SniperStopSniping/nailsalon/commit/5e8926bc30b4082d3f5c2f3289ebf68a86020db7))
+* **customer-ai:** revalidate product transitions before preparing a quote ([658cafd](https://github.com/SniperStopSniping/nailsalon/commit/658cafd67f499d840c69b8ea10c231dac57c4ac8))
+
 # [1.123.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.122.3...v1.123.0) (2026-09-20)
 
 
