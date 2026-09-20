@@ -894,9 +894,19 @@ export async function purgeSalonGroups(
   let totalRows = 0;
 
   for (const step of SALON_PURGE_PLAN) {
-    const isClientOfferDependency = groups.includes('client_records')
-      && ['next_visit_offer_event', 'retention_campaign', 'next_visit_offer'].includes(step.table);
-    if (step.group === 'salon' || (!groups.includes(step.group) && !isClientOfferDependency)) {
+    // Client-only reset must release the new offer references before clients.
+    // Keep the existing group selection unchanged for every other table.
+    if (groups.includes('client_records') && !groups.includes('appointments')
+      && ['next_visit_offer_event', 'retention_campaign', 'next_visit_offer'].includes(step.table)) {
+      const affected = await step.count(tx, salonId);
+      await step.apply(tx, salonId);
+      if (affected > 0) {
+        counts[step.table] = affected;
+        totalRows += affected;
+      }
+      continue;
+    }
+    if (step.group === 'salon' || !groups.includes(step.group)) {
       continue;
     }
     const affected = await step.count(tx, salonId);
