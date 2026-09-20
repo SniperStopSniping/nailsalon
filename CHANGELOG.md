@@ -1,3 +1,10 @@
+## [1.126.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.3...v1.126.4) (2026-09-20)
+
+
+### Bug Fixes
+
+* **customer-ai:** keep chat above the booking footer ([a2a4936](https://github.com/SniperStopSniping/nailsalon/commit/a2a4936fdd4836072ea04ae73b16936de9bd0964))
+
 ## [1.126.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.2...v1.126.3) (2026-09-20)
 
 
