@@ -1,3 +1,13 @@
+## [1.123.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.123.3...v1.123.4) (2026-09-20)
+
+
+### Bug Fixes
+
+* **customer-ai:** strengthen receptionist interpretation and preserve helpful replies ([4a27fe7](https://github.com/SniperStopSniping/nailsalon/commit/4a27fe7b31210715133eb4f28c44a209b5cc125f))
+* ground receptionist turns and preserve explicit time windows ([13e11fc](https://github.com/SniperStopSniping/nailsalon/commit/13e11fc224ac3737936bdd576b1f72469df4f8a0))
+* keep ambiguous availability references distinct ([b4c9087](https://github.com/SniperStopSniping/nailsalon/commit/b4c9087274758a5207a30d21861530f7e6429598))
+* retain receptionist context within bounded model input ([49f5638](https://github.com/SniperStopSniping/nailsalon/commit/49f56382bd9743f4806c04c5ee8d92cb1db6adf1))
+
 ## [1.123.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.123.2...v1.123.3) (2026-09-20)
 
 
