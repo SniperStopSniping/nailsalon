@@ -1,3 +1,10 @@
+## [1.126.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.0...v1.126.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* **sms:** optimize operational message segments and previews ([3ffe83c](https://github.com/SniperStopSniping/nailsalon/commit/3ffe83c483e195b570eaff7a05e979b40c8af34c))
+
 # [1.126.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.125.0...v1.126.0) (2026-09-20)
 
 
