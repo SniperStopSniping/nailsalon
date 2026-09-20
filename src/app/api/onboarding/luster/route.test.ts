@@ -7,6 +7,7 @@ const {
   insertValues,
   isClerkUserMissing,
   queueSelectResults,
+  setValues,
   transaction,
   tx,
 } = vi.hoisted(() => {
@@ -18,15 +19,19 @@ const {
     then: (resolve: (value: unknown[]) => unknown) => resolve(selectResults.shift() ?? []),
   };
   const insertValues = vi.fn(async () => undefined);
+  const setValues = vi.fn();
   const returning = vi.fn(async () => [{}]);
   const tx = {
     execute: vi.fn(async () => undefined),
     select: vi.fn(() => selectQuery),
     insert: vi.fn(() => ({ values: insertValues })),
     update: vi.fn(() => ({
-      set: vi.fn(() => ({
-        where: vi.fn(() => ({ returning })),
-      })),
+      set: vi.fn((values) => {
+        setValues(values);
+        return {
+          where: vi.fn(() => ({ returning })),
+        };
+      }),
     })),
   };
   const transaction = vi.fn();
@@ -38,6 +43,7 @@ const {
     queueSelectResults: (...rows: unknown[][]) => {
       selectResults.splice(0, selectResults.length, ...rows);
     },
+    setValues,
     transaction,
     tx,
   };
@@ -156,6 +162,7 @@ describe('POST /api/onboarding/luster', () => {
       publishedAt: null,
       slugLockedAt: null,
       plan: 'free',
+      settings: expect.objectContaining({ rebookingPrompt: { enabled: true } }),
     }));
     expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
       clerkUserId: 'clerk_owner_1',
@@ -248,6 +255,7 @@ describe('POST /api/onboarding/luster', () => {
         slug: 'best',
         ownerEmail: 'owner@example.com',
         ownerClerkUserId: null,
+        settings: { rebookingPrompt: { enabled: false } },
       }],
       [{ count: 0 }],
       [{ count: 0 }],
@@ -267,6 +275,12 @@ describe('POST /api/onboarding/luster', () => {
     expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
       salonId: 'salon_best',
       role: 'owner',
+    }));
+    expect(setValues).toHaveBeenCalledWith(expect.objectContaining({
+      settings: expect.not.objectContaining({ rebookingPrompt: { enabled: true } }),
+    }));
+    expect(setValues).toHaveBeenCalledWith(expect.objectContaining({
+      settings: expect.objectContaining({ rebookingPrompt: { enabled: false } }),
     }));
     expect(grantStarterCredits).toHaveBeenCalledOnce();
     expect(grantStarterCredits).toHaveBeenCalledWith(tx, {

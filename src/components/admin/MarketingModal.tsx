@@ -22,6 +22,7 @@ import {
 import { LusterClientSms } from '@/components/admin/LusterClientSms';
 import { MarketingMessageComposer } from '@/components/admin/MarketingMessageComposer';
 import { NextVisitOfferSettings } from '@/components/admin/NextVisitOfferSettings';
+import { RebookingPromptSettings } from '@/components/admin/RebookingPromptSettings';
 import { ReviewRequestSettings } from '@/components/admin/ReviewRequestSettings';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { buildClientSmsMessage } from '@/libs/clientSmsComposer';
@@ -470,9 +471,9 @@ function PromotionEditor({
 // shared resolver as the Integrations app; Results show only measurable facts.
 // =============================================================================
 
-type MarketingView = 'home' | 'compose' | 'followups' | 'messages' | 'offers' | 'next-visit' | 'smart-fit' | 'campaigns' | 'results' | 'reviews';
+type MarketingView = 'home' | 'compose' | 'followups' | 'messages' | 'offers' | 'next-visit' | 'rebooking-prompt' | 'smart-fit' | 'campaigns' | 'results' | 'reviews';
 
-const MARKETING_VIEWS: MarketingView[] = ['home', 'compose', 'followups', 'messages', 'offers', 'next-visit', 'smart-fit', 'campaigns', 'results', 'reviews'];
+const MARKETING_VIEWS: MarketingView[] = ['home', 'compose', 'followups', 'messages', 'offers', 'next-visit', 'rebooking-prompt', 'smart-fit', 'campaigns', 'results', 'reviews'];
 
 function isMarketingView(value: string | null): value is MarketingView {
   return value !== null && (MARKETING_VIEWS as string[]).includes(value);
@@ -485,6 +486,7 @@ const VIEW_TITLES: Record<MarketingView, string> = {
   'messages': 'Appointment Messages & Reminders',
   'offers': 'Offers',
   'next-visit': 'Next Visit Offer',
+  'rebooking-prompt': 'Rebooking Prompt',
   'smart-fit': 'Smart Fit',
   'campaigns': 'Win-back Offers',
   'results': 'Results',
@@ -1006,6 +1008,16 @@ export function MarketingModal({
     );
   }
 
+  if (view === 'rebooking-prompt') {
+    return (
+      <RebookingPromptSettings
+        key={`${salonSlug}:${view}`}
+        salonSlug={salonSlug ?? ''}
+        onClose={() => backTo('home')}
+      />
+    );
+  }
+
   if (view === 'smart-fit') {
     return (
       <SettingsModal
@@ -1111,6 +1123,13 @@ export function MarketingModal({
                           </span>
                           <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--owner-accent)]">{followupCount === null ? '…' : `${followupCount} due`}</span>
                         </button>
+                        {homeRow({
+                          testId: 'marketing-home-rebooking-prompt',
+                          title: 'Rebooking Prompt',
+                          detail: 'Invite clients to book again after a completed visit. No discount required.',
+                          status: 'Manage',
+                          onClick: () => openView('rebooking-prompt'),
+                        })}
                         {homeRow({
                           testId: 'marketing-home-campaigns',
                           title: 'Win-back Offers',

@@ -227,6 +227,10 @@ export async function runCustomerAssistantTurn(args: {
         });
         if (offer) {
           nextVisitOfferMessage = nextVisitOfferFact({ offer, menu, locale: args.locale, hasSelectedService: Boolean(currentProposal) });
+        } else {
+          nextVisitOfferMessage = args.locale === 'fr'
+            ? 'Aucune offre prochaine visite vérifiée n’est liée à cette session de réservation. Réserver à nouveau n’ajoute pas automatiquement une réduction.'
+            : 'There is no verified Next Visit Offer attached to this booking session. Rebooking itself does not add a discount.';
         }
       } catch {
         // Offers are optional public context. A read failure cannot weaken or

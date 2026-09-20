@@ -28,6 +28,7 @@ export async function verifyAppointmentAccessToken(token: string, options?: {
       expiresAt: appointmentAccessTokenSchema.expiresAt,
       appointment: appointmentSchema,
       salonSlug: salonSchema.slug,
+      salonCustomDomain: salonSchema.customDomain,
       salonName: salonSchema.name,
       // S7 (Stage 1): `salonEmail` was selected here and had zero consumers
       // after the manage view stopped serializing it. Removed on the same

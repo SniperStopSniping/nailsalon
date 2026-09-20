@@ -499,6 +499,12 @@ export type SalonSettings = {
     eligibleTechnicianIds?: string[]; // empty = all
   };
 
+  // Customer-facing post-visit encouragement. This is intentionally separate
+  // from Next Visit Offer discounts; missing remains OFF for existing salons.
+  rebookingPrompt?: {
+    enabled?: boolean;
+  };
+
   // Booking-page merchandising (featured services, owner promos).
   merchandising?: {
     featureLusterManicure?: boolean; // default: true
