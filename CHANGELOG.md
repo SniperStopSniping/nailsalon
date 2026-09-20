@@ -1,3 +1,11 @@
+## [1.122.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.122.1...v1.122.2) (2026-09-20)
+
+
+### Bug Fixes
+
+* **booking:** distinguish rejected attempts from unresolved recovery ([f47b7b9](https://github.com/SniperStopSniping/nailsalon/commit/f47b7b9b9691a970e0d238f9110eb9090a2d2a11))
+* **booking:** keep recovery contextual and preserve uncertain attempts ([7463562](https://github.com/SniperStopSniping/nailsalon/commit/74635622cbb2fc2c254dc9c99a4b43d5742482b6))
+
 ## [1.122.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.122.0...v1.122.1) (2026-09-19)
 
 
