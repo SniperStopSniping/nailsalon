@@ -1,3 +1,10 @@
+# [1.125.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.124.0...v1.125.0) (2026-09-20)
+
+
+### Features
+
+* add independent post-visit rebooking prompt ([b1b3526](https://github.com/SniperStopSniping/nailsalon/commit/b1b3526361bfd874ecab1a8bacacc55ae48467d6))
+
 # [1.124.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.123.4...v1.124.0) (2026-09-20)
 
 
