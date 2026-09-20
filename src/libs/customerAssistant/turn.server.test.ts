@@ -630,6 +630,26 @@ describe('natural receptionist orchestration', () => {
     expect(mocks.proposal).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])('only refreshes a configured quote from resolved selection authority: %s', async (resolved) => {
+    enablePublicFacts();
+    const selection = { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] };
+    const state = { ...createCustomerConversation('salon-a', secret), requestedSelection: selection, ...(resolved ? { context: { question: null, options: [], selection } } : {}) };
+    const model = provider(information);
+    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(information) }] }).mockResolvedValueOnce(answer('[[service_0_price]]'));
+    const result = await runCustomerAssistantTurn({ ...input(), conversation: signCustomerConversation(state, secret), message: 'What is the normal Gel-X price?' }, model);
+
+    expect(result.result.kind).toBe('answer');
+    expect(result.result.message).toContain('$60.00');
+
+    if (resolved) {
+      expect(mocks.proposal).toHaveBeenCalledWith('salon-a', null, selection);
+      expect(result.result.message).toContain('subtotal');
+    } else {
+      expect(mocks.proposal).not.toHaveBeenCalled();
+      expect(result.result.message).not.toContain('subtotal');
+    }
+  });
+
   it('keeps an authoritative useful price fallback when composer output invents a value', async () => {
     enablePublicFacts();
     const model = provider(information);

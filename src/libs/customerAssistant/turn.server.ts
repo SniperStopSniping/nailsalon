@@ -140,9 +140,9 @@ export async function runCustomerAssistantTurn(args: {
     }
     if (publicFacts) {
       let currentProposal;
-      if (result.kind === 'answer' && nextState.requestedSelection) {
+      if (result.kind === 'answer' && nextState.context?.selection) {
         try {
-          const checked = await buildCustomerProposal(args.salonId, args.features, nextState.requestedSelection);
+          const checked = await buildCustomerProposal(args.salonId, args.features, nextState.context.selection);
           if (!selectionConflictsWithExplicitFacts(menu, nextState.facts ?? emptyFacts(), { baseServiceId: checked.service.id, selectedAddOns: checked.addOns.map(item => ({ addOnId: item.id, quantity: item.quantity })) })) {
             currentProposal = checked;
           }

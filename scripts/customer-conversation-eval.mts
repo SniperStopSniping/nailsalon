@@ -477,9 +477,9 @@ async function main(): Promise<void> {
           result = resolved.result;
           next = { ...resolved.next, dialogue: priorDialogue };
           let currentProposal: import('../src/libs/customerAssistant/contracts').CustomerProposal | undefined;
-          if (result.kind === 'answer' && next.requestedSelection) {
+          if (result.kind === 'answer' && next.context?.selection) {
             try {
-              const checked = buildSyntheticProposal(next.requestedSelection);
+              const checked = buildSyntheticProposal(next.context.selection);
               if (!selectionConflictsWithExplicitFacts(SEMANTIC_L1_MENU, next.facts ?? emptyFacts(), {
                 baseServiceId: checked.service.id,
                 selectedAddOns: checked.addOns.map(item => ({ addOnId: item.id, quantity: item.quantity })),
