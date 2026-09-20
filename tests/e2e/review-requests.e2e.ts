@@ -147,7 +147,7 @@ test('isolated owner completes and queues one review through the real APIs @mobi
 
     phone = unusedPhone.rows[0].phone;
     // This journey asserts the exact trigger delay, independently of wall-clock quiet hours.
-    await database.query(`UPDATE salon SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{communications}', '{"sms":{"enabled":true},"quietHours":{"enabled":false}}'::jsonb) WHERE id = $1`, [salonId]);
+    await database.query(`UPDATE salon SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{communications}', '{"sms":{"enabled":true},"quietHours":{"enabled":false,"start":"21:00","end":"09:00"}}'::jsonb) WHERE id = $1`, [salonId]);
     await database.query(`INSERT INTO salon_client (id, salon_id, full_name, phone) VALUES ($1, $2, 'Sarah Review Fixture', $3)`, [clientId, salonId, phone]);
     await database.query(`INSERT INTO communication_consent (id, salon_id, recipient, channel, purpose, status, source, wording_version) VALUES ($1, $2, $3, 'sms', 'appointment_transactional', 'granted', 'test', 'test-v1')`, [`review-e2e-consent-${suffix}`, salonId, phone]);
     await database.query('INSERT INTO technician (id, salon_id, name, is_active) VALUES ($1, $2, \'Review Fixture Tech\', true)', [technicianId, salonId]);
