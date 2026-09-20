@@ -40,7 +40,7 @@ import {
   normalizeConsentRecipient,
 } from '@/libs/smsConsentShared';
 import { resolveSmsDestination } from '@/libs/smsDestination';
-import { calculateSmsSegments } from '@/libs/smsSegments';
+import { prepareSmsBody } from '@/libs/smsSegments';
 import {
   readSharedSenderEnvConfig,
   resolveByoSenderReadiness,
@@ -287,9 +287,13 @@ export async function dispatchClaimedIntent(
     return 'expired';
   }
 
-  // Render from the controlled template registry.
-  const template = Object.hasOwn(COMMUNICATION_TEMPLATES, intent.templateKey)
-    ? COMMUNICATION_TEMPLATES[intent.templateKey]
+  // Old proven-unsent review intents used the generic manual key. Apply the
+  // review presentation policy by the authoritative event, never draft text.
+  const templateKey = intent.eventType === 'review_request' && intent.templateKey === 'client_manual_text'
+    ? 'client_review_request'
+    : intent.templateKey;
+  const template = Object.hasOwn(COMMUNICATION_TEMPLATES, templateKey)
+    ? COMMUNICATION_TEMPLATES[templateKey]
     : undefined;
   if (template === undefined) {
     await transitionIntent(intent.id, { to: 'failed', lastError: 'UNKNOWN_TEMPLATE' }, now);
@@ -417,8 +421,7 @@ export async function dispatchClaimedIntent(
       return nextVariables;
     });
   }
-  const body = template.render({ ...variables, salonName: salon.name });
-  const segmentation = calculateSmsSegments(body);
+  const { finalBody: body, segmentation } = prepareSmsBody(template.render({ ...variables, salonName: salon.name }));
 
   // TX1: reserve + delivery(settling) + intent→sending, committed BEFORE the
   // provider call (invariant I1).
@@ -493,6 +496,8 @@ export async function dispatchClaimedIntent(
       status: 'sending',
       deliveryId,
       creditReservationId: reservation.reservationId,
+      templateKey: template.key,
+      templateVersion: template.version,
       bodySnapshot: body,
       bodyFingerprint,
       segmentCount: segmentation.segments,

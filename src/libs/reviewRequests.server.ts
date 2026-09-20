@@ -13,7 +13,7 @@ import { isValidPhone } from '@/libs/phone';
 import type { ReviewAutomationMode } from '@/libs/reviewAutomationPolicy';
 import { applyLegacyAutomaticReviewUpdate, evaluateScheduledEndReviewEligibility, resolveReviewAutomationPolicy, reviewSettingsUpdateSchema } from '@/libs/reviewAutomationPolicy';
 import { evaluateReviewHistory } from '@/libs/reviewRequestHistory';
-import { DEFAULT_REVIEW_MESSAGE, isReviewUrl, renderReviewMessage, reviewMessageFits, reviewSmsBody } from '@/libs/reviewRequests';
+import { isReviewUrl, renderReviewMessage, resolveReviewMessageTemplate, reviewMessageFits, reviewSmsBody } from '@/libs/reviewRequests';
 import type { ClientReviewHistoryItem, ClientReviewOverview, ReviewRequestDisplay } from '@/libs/reviewRequestStatus';
 import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
 import { readSharedSenderEnvConfig } from '@/libs/smsSender';
@@ -541,8 +541,8 @@ export async function materializeCompletedReviewTriggers(
           dedupeKey: `review:${trigger.salonId}:${id}`,
           recipient: ctx.client.phone,
           destinationCountry: 'CA',
-          templateKey: 'client_manual_text',
-          templateVersion: 'v1',
+          templateKey: 'client_review_request',
+          templateVersion: 'v2',
           variables: { clientId: ctx.client.id, reviewRequestId: id },
           schedulingRevision: id,
           scheduledFor: quiet.sendAt,
@@ -587,7 +587,7 @@ export async function getReviewSettings(salonId: string, database: Communication
     automaticEnabled: settings?.automaticReviewRequests ?? false,
     enabledAt: settings?.reviewRequestsEnabledAt ?? null,
     delayMinutes: settings?.reviewRequestDelayMinutes ?? 60,
-    messageTemplate: settings?.reviewRequestMessage ?? DEFAULT_REVIEW_MESSAGE,
+    messageTemplate: resolveReviewMessageTemplate(settings?.reviewRequestMessage),
     policy,
     storedAutomationMode: settings?.reviewRequestAutomationMode ?? null,
     policyRevision: settings?.reviewRequestPolicyRevision ?? 0,
@@ -758,7 +758,7 @@ function clientReviewIneligibility(ctx: ReviewContext, customMessage?: string): 
   }
   const body = customMessage === undefined
     ? reviewSmsBody({ template: settings.messageTemplate, clientName: client.fullName, businessName: settings.businessName, reviewLink: settings.googleReviewUrl })
-    : COMMUNICATION_TEMPLATES.client_manual_text!.render({ salonName: settings.businessName, message: customMessage });
+    : COMMUNICATION_TEMPLATES.client_review_request!.render({ salonName: settings.businessName, message: customMessage });
   return reviewMessageFits(body) ? null : 'Shorten the review message to 10 SMS segments or fewer.';
 }
 
@@ -970,7 +970,7 @@ export async function scheduleReviewRequest(database: CommunicationIntentDatabas
   if (!inserted.length) {
     return;
   }
-  const intent = await enqueueCommunicationIntent({ database, salonId, appointmentId, channel: 'sms', audience: 'client', eventType: 'review_request', dedupeKey: `review:${salonId}:${id}`, recipient: ctx.client.phone, destinationCountry: 'CA', templateKey: 'client_manual_text', templateVersion: 'v1', variables: { clientId: ctx.client.id, reviewRequestId: id }, schedulingRevision: id, scheduledFor: quiet.sendAt, notAfter });
+  const intent = await enqueueCommunicationIntent({ database, salonId, appointmentId, channel: 'sms', audience: 'client', eventType: 'review_request', dedupeKey: `review:${salonId}:${id}`, recipient: ctx.client.phone, destinationCountry: 'CA', templateKey: 'client_review_request', templateVersion: 'v2', variables: { clientId: ctx.client.id, reviewRequestId: id }, schedulingRevision: id, scheduledFor: quiet.sendAt, notAfter });
   await database.update(reviewRequestSchema).set({ intentId: intent.intentId }).where(and(eq(reviewRequestSchema.id, id), eq(reviewRequestSchema.salonId, salonId)));
 }
 
@@ -1061,8 +1061,8 @@ export async function queueClientReviewRequest(input: {
       dedupeKey,
       recipient: ctx.client.phone,
       destinationCountry: 'CA',
-      templateKey: 'client_manual_text',
-      templateVersion: 'v1',
+      templateKey: 'client_review_request',
+      templateVersion: 'v2',
       variables: { clientId: ctx.client.id, reviewRequestId: id, reviewRequestPurpose: 'client_google_review', message: input.message },
       schedulingRevision: id,
       scheduledFor: quiet.sendAt,

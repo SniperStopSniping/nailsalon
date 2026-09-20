@@ -43,7 +43,7 @@ describe('sanitizeSalonNameForSms', () => {
 });
 
 describe('controlled templates', () => {
-  it('opens every client body with the identity prefix and closes with STOP language', () => {
+  it('identifies every client message but only appends STOP to arbitrary manual text', () => {
     for (const template of Object.values(COMMUNICATION_TEMPLATES)) {
       if (template.audience !== 'client') {
         continue;
@@ -52,7 +52,7 @@ describe('controlled templates', () => {
         const body = template.render(variables);
 
         expect(body).toMatch(/^(?:.+ via Luster: |Luster: )/);
-        expect(body).toContain('Reply STOP to opt out.');
+        expect(body.includes('Reply STOP to opt out.')).toBe(template.key === 'client_manual_text');
       }
     }
   });
@@ -94,19 +94,41 @@ describe('controlled templates', () => {
     }
   });
 
-  it('KNOWN CONTRACT FINDING: a real manage link pushes the client reminder to exactly two segments', () => {
-    // The canonical manage URL (origin + /manage/ + 43-char token) plus the
-    // mandatory identity prefix and STOP tail cannot fit one GSM segment.
-    // Pinned at 2 so any drift (better or worse) is surfaced; resolving the
-    // finding (short-link route or a revised link-bearing client cap) is an
-    // owner decision for Gate B — see the Gate A owner report.
+  it('reports long management links honestly instead of enforcing artificial truncation', () => {
     const reminder = COMMUNICATION_TEMPLATES.client_appointment_reminder!;
-    for (const variables of reminder.worstCaseVariables) {
-      expect(calculateSmsSegments(reminder.render(variables)).segments).toBe(2);
-    }
-    const violations = validateTemplateSegments();
+    const lengths = reminder.worstCaseVariables.map(variables => calculateSmsSegments(reminder.render(variables)));
 
-    expect(violations.length).toBe(reminder.worstCaseVariables.length);
+    expect(lengths[0]!.segments).toBe(1);
+    expect(lengths[1]!.segments).toBe(2);
+    expect(validateTemplateSegments()).toHaveLength(1);
+  });
+
+  it.each([
+    ['client_booking_confirmation_shortlink', 120],
+    ['client_appointment_reminder_shortlink', 119],
+    ['client_appointment_rescheduled_shortlink', 113],
+    ['client_appointment_cancelled_shortlink', 109],
+    ['client_booking_request_received_shortlink', 115],
+    ['client_booking_request_approved_shortlink', 112],
+    ['client_booking_request_declined_shortlink', 116],
+    ['client_booking_request_expired_shortlink', 115],
+  ])('keeps %s useful and within one segment with long names and real link lengths', (key, expectedLength) => {
+    const template = COMMUNICATION_TEMPLATES[key]!;
+    const variables = {
+      salonName: 'Isla Nail Studio',
+      startTime: 'Wed, Sep 23, 12:30 PM',
+      manageUrl: 'https://lustergel.app/a/AbCdEfGhIjKlMnOpQrStUv',
+      clientName: 'Alexandria-Konstantina Papadopoulos',
+      serviceName: 'Deluxe Gel Extension Set with Hand-Painted Chrome Art',
+    };
+    const body = template.render(variables);
+
+    expect(calculateSmsSegments(body)).toMatchObject({ encoding: 'gsm7', billableUnits: expectedLength, segments: 1 });
+    expect(body).toContain(variables.startTime);
+    expect(body).toContain(variables.manageUrl);
+    expect(body).not.toContain('STOP');
+    expect(calculateSmsSegments(template.render({ ...variables, salonName: 'ABCDEFGHIJKLMNOPQRSTUVWX', manageUrl: 'https://xxxxxxxxxxxxxxxxxxxxxxx/a/AbCdEfGhIjKlMnOpQrStUv' })))
+      .toMatchObject({ encoding: 'gsm7', segments: 1 });
   });
 });
 

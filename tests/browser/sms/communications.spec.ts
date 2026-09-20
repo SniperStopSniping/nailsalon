@@ -119,6 +119,12 @@ test('Google review preset sends its explicit purpose without an appointment ass
 
   await page.goto('/?purpose=google_review');
   await page.getByRole('textbox', { name: 'Message' }).fill('Owner-edited review invitation.');
+
+  await expect(page.getByTestId('sms-message-preview')).toContainText('Test Studio via Luster: Owner-edited review invitation.');
+  await expect(page.getByTestId('sms-message-preview')).not.toContainText('Reply STOP to opt out.');
+
+  await expect(page.getByTestId('sms-segment-summary')).toHaveText('1 SMS segment · 1 credit');
+
   await page.getByRole('button', { name: 'Send text', exact: true }).tap();
 
   await expect.poll(() => requests).toHaveLength(1);

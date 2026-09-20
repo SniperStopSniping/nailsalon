@@ -31,18 +31,32 @@ describe('POST /api/admin/salon/communications/preview', () => {
     const payload = await response.json();
 
     expect(payload.data.body).toContain('Isla Nail Studio via Luster: ');
-    expect(payload.data.body).toContain('Reply STOP to opt out.');
+    expect(payload.data.body).not.toContain('Reply STOP to opt out.');
+    expect(payload.data.isSample).toBe(true);
+    expect(payload.data.predictedCredits).toBe(1);
     expect(payload.data.segmentation.segments).toBe(1);
     expect(payload.data.preview).toMatch(/\/160 · 1 SMS credit$/);
     expect(payload.data.warnings).toEqual([]);
   });
 
-  it('flags the tracked manage-link overflow as MULTI_SEGMENT instead of hiding it', async () => {
+  it('counts the full management-link preview after removing the footer', async () => {
     const response = await POST(previewRequest({ templateKey: 'client_appointment_reminder' }));
     const payload = await response.json();
 
-    expect(payload.data.segmentation.segments).toBe(2);
-    expect(payload.data.warnings).toContain('MULTI_SEGMENT');
+    expect(payload.data.segmentation.segments).toBe(1);
+    expect(payload.data.warnings).not.toContain('MULTI_SEGMENT');
+  });
+
+  it('uses the configured short-link shape for short-link previews without minting a token', async () => {
+    const { buildShortManageUrl } = await import('@/libs/shortManageLink');
+    const { calculateSmsSegments } = await import('@/libs/smsSegments');
+    const response = await POST(previewRequest({ templateKey: 'client_booking_confirmation_shortlink' }));
+    const { data } = await response.json();
+
+    expect(data.body).toContain(buildShortManageUrl('AAAAAAAAAAAAAAAAAAAAAA'));
+    expect(data.body).not.toContain('/manage/');
+    expect(data.segmentation).toEqual(calculateSmsSegments(data.body));
+    expect(data.predictedCredits).toBe(1);
   });
 
   it('enforces admin salon access', async () => {

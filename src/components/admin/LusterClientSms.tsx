@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { SmsMessagePreview } from '@/components/admin/SmsMessagePreview';
 import { Button } from '@/components/ui/button';
 import { buildNativeSmsUrl, detectNativeSmsPlatform } from '@/libs/clientSmsComposer';
 import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { RETENTION_DATA_CHANGED_EVENT } from '@/libs/dashboardEvents';
-import { calculateSmsSegments } from '@/libs/smsSegments';
+import { prepareSmsBody } from '@/libs/smsSegments';
 import type { SmsOperationalHealth } from '@/libs/textingStatus';
 
 type Message = {
@@ -108,7 +109,12 @@ export function LusterClientSms({
   const openedDraftRef = useRef<{ draft: string; purpose: MessagePurpose | undefined } | null>(null);
   const endpoint = `/api/admin/clients/${encodeURIComponent(clientId)}/messages`;
   const query = `salonSlug=${encodeURIComponent(salonSlug)}${historyAppointmentId ? `&appointmentId=${encodeURIComponent(historyAppointmentId)}` : ''}`;
-  const segments = calculateSmsSegments(COMMUNICATION_TEMPLATES.client_manual_text!.render({ salonName, message: draft.trim() })).segments;
+  const lusterTemplate = purpose === 'google_review'
+    ? COMMUNICATION_TEMPLATES.client_review_request!
+    : COMMUNICATION_TEMPLATES.client_manual_text!;
+  const finalLusterBody = lusterTemplate.render({ salonName, message: draft.trim() });
+  const { segmentation } = prepareSmsBody(finalLusterBody);
+  const segments = segmentation.segments;
 
   useEffect(() => {
     if (!composerOpen) {
@@ -311,16 +317,7 @@ export function LusterClientSms({
             className="mt-1 w-full rounded-xl border border-stone-300 bg-white p-3 text-base text-stone-900 focus:border-rose-500 focus:outline-none disabled:opacity-70"
             placeholder="Write an appointment-related message…"
           />
-          <p className="mt-1 text-xs text-stone-500">
-            {segments}
-            {' '}
-            SMS
-            {' '}
-            {segments === 1 ? 'segment' : 'segments'}
-            {' '}
-            · Salon name and STOP instructions included.
-            {sms?.senderMode === 'shared_luster' ? ' Each segment uses one SMS credit.' : ''}
-          </p>
+          <SmsMessagePreview body={finalLusterBody} className="mt-3" />
           <p className="mt-2 text-xs text-stone-500">Texts respect consent and quiet hours. Replies are not an inbox; clients should use their appointment link or call the salon for changes.</p>
           <div className="mt-auto grid gap-2 border-t border-stone-200 bg-white pt-3 sm:mt-4 sm:grid-cols-2">
             <Button type="button" variant="secondary" className="min-h-12" disabled={sending || !draft.trim()} onClick={openPhoneDraft}>

@@ -164,6 +164,31 @@ describe('review requests through the dispatcher', () => {
     });
   });
 
+  it.each(['client_manual_text', 'client_review_request'])('previews, counts and sends the same one-credit review for queued %s intents', async (templateKey) => {
+    const fixture = await seedReview();
+    await db.update(schema.salonSchema).set({ name: 'Isla Nail Studio' }).where(eq(schema.salonSchema.id, fixture.salonId));
+    await db.update(schema.salonRetentionSettingsSchema).set({ googleReviewUrl: 'https://g.page/r/Cd2cHWyZCr9bEBM/review' })
+      .where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
+    await db.update(schema.communicationIntentSchema).set({ templateKey, templateVersion: 'v1' })
+      .where(eq(schema.communicationIntentSchema.id, fixture.request.intentId));
+    const { getAppointmentReviewState } = await import('./reviewRequests.server');
+    const preview = await getAppointmentReviewState(fixture.salonId, fixture.appointmentId);
+    const intent = await claim(fixture.request.intentId);
+    const provider = vi.fn(async (_input: { body: string }) => ({ sid: `SM_review_exact_${sequence}` }));
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, provider, new Date())).toBe('sent');
+
+    const [stored] = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.id, intent.id));
+    const [reservation] = await db.select().from(schema.smsCreditReservationSchema).where(eq(schema.smsCreditReservationSchema.id, stored!.creditReservationId!));
+
+    expect(provider.mock.calls[0]![0].body).toBe(preview.message);
+    expect(stored).toMatchObject({ bodySnapshot: preview.message, encoding: 'gsm7', segmentCount: 1, templateKey: 'client_review_request', templateVersion: 'v2' });
+    expect(stored!.bodySnapshot).toHaveLength(119);
+    expect(stored!.bodySnapshot).not.toContain('STOP');
+    expect(reservation!.segments).toBe(1);
+  });
+
   it('does not resend a review request recovered from a possibly accepted provider call', async () => {
     const fixture = await seedReview();
     const claimed = await claim(fixture.request.intentId);

@@ -148,3 +148,9 @@ export function formatSegmentPreview(segmentation: SmsSegmentation): string {
   const creditNoun = segmentation.segments === 1 ? 'SMS credit' : 'SMS credits';
   return `${segmentation.billableUnits}/${segmentation.limitForSegments} · ${segmentation.segments} ${creditNoun}`;
 }
+
+/** Prepare the exact final text; never normalize or append after this boundary. */
+export function prepareSmsBody(finalBody: string) {
+  const segmentation = calculateSmsSegments(finalBody);
+  return { finalBody, segmentation, predictedCredits: segmentation.segments };
+}

@@ -129,6 +129,27 @@ describe('Luster SMS composer', () => {
     expect(body).not.toHaveProperty('appointmentId');
   });
 
+  it('previews the review-specific final body without the manual STOP footer', async () => {
+    renderComposer({
+      purpose: 'google_review',
+      initialDraft: 'Thanks for visiting! https://g.page/review',
+    });
+
+    expect(await screen.findByTestId('sms-message-preview')).toHaveTextContent(
+      'Test Salon via Luster: Thanks for visiting! https://g.page/review',
+    );
+    expect(screen.getByTestId('sms-message-preview')).not.toHaveTextContent('Reply STOP to opt out.');
+    expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('1 SMS segment · 1 credit');
+  });
+
+  it('shows the manual message footer in the final customer-facing preview', async () => {
+    renderComposer({ initialDraft: 'Please call about your appointment.' });
+
+    expect(await screen.findByTestId('sms-message-preview')).toHaveTextContent(
+      'Test Salon via Luster: Please call about your appointment. Reply STOP to opt out.',
+    );
+  });
+
   it('keeps ordinary message payloads unchanged', async () => {
     renderComposer({ appointmentId: 'upcoming-appointment' });
     await screen.findByText('Luster messaging number');

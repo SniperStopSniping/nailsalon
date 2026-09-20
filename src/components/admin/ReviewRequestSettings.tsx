@@ -3,8 +3,8 @@
 import { ExternalLink, RotateCcw, Save } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { SmsMessagePreview } from '@/components/admin/SmsMessagePreview';
 import { DEFAULT_REVIEW_MESSAGE, isReviewUrl, REVIEW_DELAY_MINUTES, reviewSmsBody } from '@/libs/reviewRequests';
-import { calculateSmsSegments } from '@/libs/smsSegments';
 
 const DELAY_LABELS: Record<(typeof REVIEW_DELAY_MINUTES)[number], string> = { 0: 'Immediately', 30: '30 minutes', 60: '1 hour', 120: '2 hours', 240: '4 hours', 1440: '24 hours' };
 const MODES = [
@@ -113,7 +113,6 @@ export function ReviewRequestSettings({ salonSlug }: { salonSlug: string }) {
     return () => controller.abort();
   }, [load]);
   const preview = useMemo(() => draft ? reviewSmsBody({ template: draft.messageTemplate, clientName: 'Avery Lee', businessName: draft.businessName, reviewLink: draft.googleReviewUrl || 'https://g.page/your-salon/review' }) : '', [draft]);
-  const segments = calculateSmsSegments(preview);
   const validUrl = !draft?.googleReviewUrl || isReviewUrl(draft.googleReviewUrl);
   const save = async () => {
     if (!draft || savingRef.current || editorSalonSlug !== salonSlug) {
@@ -234,21 +233,7 @@ export function ReviewRequestSettings({ salonSlug }: { salonSlug: string }) {
           </div>
           <textarea id="review-message" value={draft.messageTemplate} onChange={event => setDraft({ ...draft, messageTemplate: event.target.value })} rows={5} className="mt-2 w-full rounded-xl border border-[var(--owner-line)] bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--owner-focus)]" />
           <p className="mt-2 text-xs text-[var(--owner-muted)]">{'Use {{firstName}}, {{businessName}}, and {{reviewLink}}. Review requests are SMS only: sending requires SMS to be enabled, client consent, no STOP opt-out, and available credits.'}</p>
-          <div className="mt-4 rounded-xl bg-[var(--owner-blush)] p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">Preview</p>
-            <p className="mt-2 whitespace-pre-wrap break-words text-sm text-[var(--owner-ink)]">{preview}</p>
-            <p className="mt-2 text-xs text-[var(--owner-muted)]">
-              {segments.segments}
-              {' '}
-              SMS
-              {' '}
-              {segments.segments === 1 ? 'credit' : 'credits'}
-              {' '}
-              ·
-              {' '}
-              {segments.encoding.toUpperCase()}
-            </p>
-          </div>
+          <SmsMessagePreview body={preview} sample className="mt-4" />
         </div>
         <details className="rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
           <summary className="min-h-11 cursor-pointer pt-1 text-[15px] font-semibold text-[var(--owner-ink)]">Advanced</summary>
