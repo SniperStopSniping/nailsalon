@@ -1,3 +1,11 @@
+## [1.122.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.122.2...v1.122.3) (2026-09-20)
+
+
+### Bug Fixes
+
+* **appointments:** repair completion contract and prioritize mobile actions ([49e54a1](https://github.com/SniperStopSniping/nailsalon/commit/49e54a13c2fa285fb75b7bf36213838e1499d73e))
+* preserve checkout review space with enlarged text ([dce8d5c](https://github.com/SniperStopSniping/nailsalon/commit/dce8d5cc59221ca5b0ff3539da30778afa0c04a2))
+
 ## [1.122.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.122.1...v1.122.2) (2026-09-20)
 
 
