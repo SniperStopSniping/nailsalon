@@ -71,7 +71,7 @@ test('review settings require an explicit automation mode @mobile-safari', async
   });
 });
 
-test('client profile keeps the Google review action visible above More actions @mobile-safari', async ({ page }) => {
+test('client profile keeps the Google review composer reachable through More actions @mobile-safari', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/admin/review-requests/settings?**', route => route.fulfill({ json: { data: {
     googleReviewUrl: 'https://g.page/r/test/review',
@@ -87,10 +87,11 @@ test('client profile keeps the Google review action visible above More actions @
   await expect(firstClient).toBeVisible();
 
   await firstClient.click();
+  await page.getByText('More actions', { exact: true }).filter({ visible: true }).click();
   const action = page.getByRole('button', { name: 'Send Google review link', exact: true });
 
   await expect(action).toBeVisible();
-  await expect(action.locator('xpath=ancestor::details')).toHaveCount(0);
+  await expect(action.locator('xpath=ancestor::details')).toHaveAttribute('open', '');
 
   const bounds = await action.boundingBox();
 
