@@ -1,3 +1,13 @@
+## [1.126.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.1...v1.126.2) (2026-09-20)
+
+
+### Bug Fixes
+
+* **customer-ai:** finish salon-branded service consultation before handoff ([86cca5d](https://github.com/SniperStopSniping/nailsalon/commit/86cca5d30c50419fb8193db44c08a410e7233e00))
+* **customer-ai:** itemize authoritative package and choice prices ([1b56ae8](https://github.com/SniperStopSniping/nailsalon/commit/1b56ae8d6bd5d8dc1b5ba1d5a9e81cb40118d930))
+* **customer-ai:** preserve relevant intent across service changes ([87aada1](https://github.com/SniperStopSniping/nailsalon/commit/87aada1d327dcd8f7c72c59d50b0ffaa9b80ca30))
+* **customer-ai:** serialize acceptance catalogue reads ([eb727c0](https://github.com/SniperStopSniping/nailsalon/commit/eb727c07251088bf34c17fbdfa98b1d10ae97a11))
+
 ## [1.126.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.0...v1.126.1) (2026-09-20)
 
 
