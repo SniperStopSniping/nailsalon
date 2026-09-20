@@ -28,18 +28,38 @@ type Authorities = {
  * echoing the old value cannot keep an extension-only fact alive. Explicitly
  * retaining the same length is preserved using latest-turn provenance.
  */
-function clearInheritedExtensionLength(args: {
+function clearInheritedServiceFacts(args: {
   previous: import('./semanticFacts').Facts;
   facts: import('./semanticFacts').Facts;
   patch: z.infer<typeof customerInterpretationSchema>['factUpdates'];
   lengthExplicitThisTurn: boolean;
 }): import('./semanticFacts').Facts {
   const changedTreatment = args.patch.treatment !== null && args.patch.treatment !== args.previous.treatment;
+  const changedApplication = args.patch.desiredApplication !== null && args.patch.desiredApplication !== args.previous.desiredApplication;
   const switchedApplication = args.previous.desiredApplication === 'extensions' && args.patch.desiredApplication === 'natural_nails';
   const changedLength = args.patch.length !== null && args.patch.length !== args.previous.length;
-  return changedTreatment && switchedApplication && !changedLength && !args.lengthExplicitThisTurn
-    ? { ...args.facts, length: 'unknown' }
-    : args.facts;
+  const length = changedTreatment && switchedApplication && !changedLength && !args.lengthExplicitThisTurn
+    ? 'unknown'
+    : args.facts.length;
+  // A refill describes the prior requested service. A changed treatment or
+  // application without an explicit new maintenance choice must not turn a
+  // new service into an inherited refill. Keep current-product/origin facts:
+  // they are still required to determine whether the change needs removal.
+  const desiredApplication = changedTreatment && args.patch.desiredApplication === null
+    ? 'unknown'
+    : args.facts.desiredApplication;
+  const maintenance = (changedTreatment || changedApplication) && args.patch.maintenance === null
+    ? 'unknown'
+    : args.facts.maintenance;
+  // A prior “no removal” answer belongs to the prior service/refill. Do not
+  // reuse it to quote a changed service over a known current product unless
+  // the customer explicitly repeats that choice for the new request.
+  const removal = (changedTreatment || changedApplication)
+    && args.patch.removal === null
+    && args.previous.removal === 'no'
+    ? 'unknown'
+    : args.facts.removal;
+  return { ...args.facts, length, desiredApplication, maintenance, removal };
 }
 
 /** Channel-independent interpretation orchestration. All booking facts come from injected Luster authorities. */
@@ -107,7 +127,7 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
     nextState.subjects = subjects;
   }
   const previousFacts = conversation.facts ?? emptyFacts();
-  const facts = clearInheritedExtensionLength({
+  const facts = clearInheritedServiceFacts({
     previous: previousFacts,
     facts: mergeFacts(previousFacts, intent.factUpdates),
     patch: intent.factUpdates,
@@ -183,13 +203,23 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
     || (intent.action === 'clarify'
       && intent.question === 'service'
       && (facts.treatment !== 'unknown' || facts.desiredApplication !== 'unknown'));
+  const crossProductWithoutRemoval = facts.removal === 'no'
+    && facts.existingProduct !== 'unknown'
+    && facts.existingProduct !== 'none'
+    && facts.treatment !== 'unknown'
+    && facts.treatment !== facts.existingProduct;
+  if (serviceResolutionAttempt && !transition && crossProductWithoutRemoval) {
+    return { kind: 'unavailable', reason: 'transition_needs_confirmation' };
+  }
   const outsideStartingConditionUnresolved = serviceResolutionAttempt
     // A known unsupported transition is more useful than another generic
     // starting-condition question. Preserve that authoritative answer.
     && !transition
     && facts.existingProduct !== 'unknown'
     && facts.existingProduct !== 'none'
-    && facts.origin === 'other_salon'
+    // A stated “no removal” cannot make a cross-product change a bare-nail
+    // quote. Ask for the pre-visit starting condition instead of adding a
+    // removal or assuming the existing product is absent.
     && facts.removal === 'unknown'
     // A known refill is a different operational path. Never infer that an
     // outside set is a refill, but do not interrupt a verified refill with a
@@ -201,7 +231,7 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
   if (outsideStartingConditionUnresolved) {
     // Existing outside work does not authorize a new-set quote or assume a
     // removal/refill rule. Ask one truthful starting-condition question first.
-    return { kind: 'clarification', question: 'removal', options: [] };
+    return { kind: 'clarification', question: facts.origin === 'unknown' ? 'origin' : 'removal', options: [] };
   }
   if (intent.action === 'answer') {
     const topic = intent.answerTopic ?? 'conversation';

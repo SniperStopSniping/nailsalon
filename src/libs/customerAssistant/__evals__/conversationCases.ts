@@ -235,7 +235,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     category: 'availability follow-ups',
     turns: [
       { message: 'medium Gel-X on bare nails', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelx, addOnIds: [ids.medium] } } },
-      { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: true }, reply: { nonEmpty: true } } },
+      { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: false }, reply: { nonEmpty: true } } },
       { message: 'anything earlier?', expect: { resultKinds: ['slots'], reply: { nonEmpty: true } } },
       { message: 'what about Sunday instead', expect: { resultKinds: ['slots'], reply: { nonEmpty: true } } },
     ],
@@ -318,6 +318,14 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
       { message: 'add chrome', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', french: 'yes', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french, ids.chrome], subtotalCents: 10200, durationMinutes: 130 } } },
       { message: 'remove French', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', french: 'no', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.chrome], subtotalCents: 9200, durationMinutes: 115 } } },
       { message: 'actually short, how much now?', expect: { resultKinds: ['answer', 'proposal'], facts: { treatment: 'gel_x', length: 'short', french: 'no', existingProduct: 'none' }, preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.short, ids.chrome] }, reply: { configuredTotalCents: 8200, configuredDurationMinutes: 100 } } },
+    ],
+  },
+  {
+    id: 'unsupported-request-useful-explicit-no-transition',
+    category: 'current product remains authoritative during an explicit no-removal change',
+    turns: [
+      { message: 'I have acrylic on my nails from another salon and want BIAB, but no removal.', expect: { resultKinds: ['unavailable', 'clarification'], facts: { existingProduct: 'acrylic', treatment: 'builder_gel', removal: 'no' }, reply: { nonEmpty: true } } },
+      { message: 'What is the normal BIAB price though?', expect: { resultKinds: ['answer'], reply: { priceForServiceId: ids.biab }, facts: { existingProduct: 'acrylic', removal: 'no' } } },
     ],
   },
   {
