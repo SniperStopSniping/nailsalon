@@ -248,8 +248,8 @@ describe('customer assistant bounded turn', () => {
     const fullBindingPayload = { ...payload, menu };
 
     expect(model.createResponse).toHaveBeenCalledTimes(1);
-    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(fullBindingPayload), 'utf8')).toBeGreaterThan(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
-    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(payload), 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
+    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(fullBindingPayload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeGreaterThan(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
+    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(payload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
     expect(payload.menu.bindings).toEqual({
       columns: ['serviceId', 'addOnId', 'required', 'defaultQuantity', 'maxQuantity'],
       rows: bindings.map(binding => [binding.serviceId, binding.addOnId, binding.required, binding.defaultQuantity, binding.maxQuantity]),
@@ -421,6 +421,7 @@ describe('customer assistant bounded turn', () => {
     const response = await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'anything earlier?' }, provider({
       ...interpretation,
       action: 'availability',
+      question: 'date',
       datePreference: { date: '2026-09-29', earliest: '00:00', latest: '23:59' },
       timingFeedback: 'too_late',
       dateExplicitThisTurn: false,
@@ -477,7 +478,7 @@ describe('customer assistant bounded turn', () => {
     });
   });
 
-  it('asks one focused question for an ambiguous relative follow-up after a fallback instead of moving to another day', async () => {
+  it.each(['availability', 'clarify'] as const)('asks one focused question for an ambiguous %s follow-up after a fallback', async (action) => {
     const requested = { date: '2026-09-26', earliest: '17:00', latest: '23:59' };
     const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
     const accepted = signCustomerConversation({
@@ -488,7 +489,8 @@ describe('customer assistant bounded turn', () => {
     }, secret);
     const response = await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'anything earlier?' }, provider({
       ...interpretation,
-      action: 'availability',
+      action,
+      question: 'date',
       datePreference: { date: '2026-09-29', earliest: '00:00', latest: '23:59' },
       timingFeedback: 'too_late',
       dateExplicitThisTurn: false,
@@ -645,17 +647,56 @@ describe('customer assistant bounded turn', () => {
       booking: { acceptedFingerprint, datePreference: displayed, offeredSlots: [{ time: '10:00', startTime: '2026-09-28T14:00:00.000Z' }], selectedSlot: null },
       availabilitySearch: { requestedPreference: displayed, displayedPreference: displayed, fallback: false },
     }, secret);
-    await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'What about Tuesday instead, earlier?' }, provider({
+    await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'What about Tuesday instead, earlier, before five?' }, provider({
       ...interpretation,
       action: 'availability',
-      datePreference: { date: '2026-09-29', earliest: '00:00', latest: '23:59' },
+      datePreference: { date: '2026-09-29', earliest: '00:00', latest: '16:59' },
       timingFeedback: 'too_late',
       dateExplicitThisTurn: true,
     }));
 
     expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({
-      preference: { date: '2026-09-29', earliest: '00:00', latest: '09:59' },
+      preference: { date: '2026-09-29', earliest: '00:00', latest: '16:59' },
     }));
+  });
+
+  it('retains an earlier-clock comparison when changing the day without a supplied time window', async () => {
+    const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
+    const prior = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint: null, datePreference: displayed, offeredSlots: [{ time: '10:00', startTime: '2026-09-28T14:00:00.000Z' }], selectedSlot: null },
+    }, secret);
+    await runCustomerAssistantTurn({ ...input(), conversation: prior, message: 'Tuesday instead, earlier?' }, provider({
+      ...interpretation,
+      action: 'availability',
+      dateExplicitThisTurn: true,
+      timeDirection: 'earlier',
+      datePreference: { date: '2026-09-29', earliest: '00:00', latest: '23:59' },
+    }));
+
+    expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({ preference: { date: '2026-09-29', earliest: '00:00', latest: '09:59' } }));
+  });
+
+  it.each([true, false])('preserves an explicit clock limit on the original fallback day (named date: %s)', async (dateExplicitThisTurn) => {
+    const requested = { date: '2026-09-26', earliest: '17:00', latest: '23:59' };
+    const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
+    const prior = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint: null, datePreference: displayed, offeredSlots: [{ time: '10:00', startTime: '2026-09-28T14:00:00.000Z' }], selectedSlot: null },
+      availabilitySearch: { requestedPreference: requested, displayedPreference: displayed, fallback: true },
+    }, secret);
+    await runCustomerAssistantTurn({ ...input(), conversation: prior, message: dateExplicitThisTurn ? 'Earlier on Saturday, before noon please' : 'The original day, before noon please' }, provider({
+      ...interpretation,
+      action: 'availability',
+      dateExplicitThisTurn: true,
+      timeWindowExplicitThisTurn: true,
+      timeDirection: 'earlier',
+      datePreference: { date: '2026-09-26', earliest: '00:00', latest: '11:59' },
+    }));
+
+    expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({ preference: { date: '2026-09-26', earliest: '00:00', latest: '11:59' } }));
   });
 
   it('compacts a production-sized role history without losing the original fallback day', async () => {
@@ -697,14 +738,15 @@ describe('customer assistant bounded turn', () => {
     const payload = JSON.parse(model.createResponse.mock.calls[0]![0].input[1].content);
 
     expect(model.createResponse).toHaveBeenCalledTimes(1);
-    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(payload), 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
+    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(payload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
     expect(payload).not.toHaveProperty('customerMessages');
     expect(payload.dialogue.length).toBeLessThan(verifyCustomerConversation(state, 'salon-a', secret).dialogue!.length);
     expect(payload.dialogue.slice(-2)).toEqual([
       { role: 'user', content: 'Saturday after five please.' },
       { role: 'assistant', content: 'No matching Saturday time; I showed Monday times instead.' },
     ]);
-    expect(payload.latestCustomerMessage).toBe('Anything earlier on the original Saturday?');
+    expect(payload).not.toHaveProperty('latestCustomerMessage');
+    expect(model.createResponse.mock.calls[0]![0].input.at(-1)).toEqual({ role: 'user', content: 'Anything earlier on the original Saturday?' });
     expect(payload.menu.services).toHaveLength(8);
     expect(payload.lastShown.question).toBe('date');
     expect(payload.bookingState.offeredSlots).toHaveLength(8);

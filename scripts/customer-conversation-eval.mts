@@ -125,7 +125,7 @@ function parseOptions(argv: string[]): Options | null {
 // Evaluation-only pressure reduces available history room without inventing
 // catalogue facts or raising Production caps. Default uses the exact live cap.
 function compactEvaluationContext(args: Parameters<typeof compactCustomerModelContext>[0], headroom: number | null) {
-  const fixedBytes = Buffer.byteLength(args.prompt + JSON.stringify({ ...args.context, dialogue: [] }) + (args.schema ? JSON.stringify(args.schema) : ''), 'utf8');
+  const fixedBytes = Buffer.byteLength(args.prompt + (args.additionalInput ?? '') + JSON.stringify({ ...args.context, dialogue: [] }) + (args.schema ? JSON.stringify(args.schema) : ''), 'utf8');
   return compactCustomerModelContext({ ...args, maxBytes: headroom === null ? args.maxBytes : Math.min(args.maxBytes, fixedBytes + headroom) });
 }
 
@@ -455,13 +455,12 @@ async function main(): Promise<void> {
         const priorDialogue: NonNullable<import('../src/libs/customerAssistant/conversation.server').CustomerConversation['dialogue']> = conversation.dialogue
           ? [...conversation.dialogue]
           : conversation.messages.map(content => ({ role: 'user' as const, content }));
-        const interpretationContext = compactEvaluationContext({ prompt: CUSTOMER_INTERPRETATION_PROMPT, maxBytes: CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, context: {
+        const interpretationContext = compactEvaluationContext({ prompt: CUSTOMER_INTERPRETATION_PROMPT, additionalInput: turn.message, maxBytes: CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, context: {
           locale: 'en',
           bookingSalon: { name: publicFacts.salon.name, slug: 'synthetic-isla' },
           menu: projectCustomerInterpreterMenu(SEMANTIC_L1_MENU),
           previousFacts: conversation.facts ?? emptyFacts(),
           requestedSelection: conversation.requestedSelection ?? null,
-          latestCustomerMessage: turn.message,
           dialogue: priorDialogue,
           conversationalSubjects: conversation.subjects ?? [],
           priorConversationalSubjects: conversation.priorSubjects ?? [],
@@ -475,7 +474,7 @@ async function main(): Promise<void> {
           throw new Error('SYNTHETIC_INTERPRETATION_CONTEXT_TOO_LARGE');
         }
         const interpretationInput = interpretationContext.data;
-        const interpretationReservation = conservativeReservationMicros(CUSTOMER_INTERPRETATION_PROMPT + interpretationInput, maxOutputTokens);
+        const interpretationReservation = conservativeReservationMicros(CUSTOMER_INTERPRETATION_PROMPT + interpretationInput + turn.message, maxOutputTokens);
         // The reply facts include every permitted public fact. Reserve against
         // the full synthetic projection rather than the smaller interpreter
         // input so --max-budget-usd remains a hard ceiling.
@@ -497,7 +496,7 @@ async function main(): Promise<void> {
         const failures: string[] = [];
         try {
           const started = performance.now();
-          const modelResponse = await provider.createResponse({ model: CUSTOMER_ASSISTANT_MODEL, input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: interpretationInput }], tools: [], toolChoice: 'none', reasoningEffort: 'low', jsonMode: 'schema', jsonSchema: CUSTOMER_INTERPRETATION_JSON_SCHEMA, maxOutputTokens, timeoutMs });
+          const modelResponse = await provider.createResponse({ model: CUSTOMER_ASSISTANT_MODEL, input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: interpretationInput }, { role: 'user', content: turn.message }], tools: [], toolChoice: 'none', reasoningEffort: 'low', jsonMode: 'schema', jsonSchema: CUSTOMER_INTERPRETATION_JSON_SCHEMA, maxOutputTokens, timeoutMs });
           const interpretationCall: SafeCall = { stage: 'interpretation', latencyMs: Math.round(performance.now() - started), usage: modelResponse.usage, estimatedCostMicros: estimatedCostMicros(modelResponse.usage), status: 'completed', error: null };
           calls.push(interpretationCall);
           rawInterpretation = modelText(modelResponse);

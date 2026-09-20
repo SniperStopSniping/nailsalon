@@ -98,6 +98,7 @@ export async function runCustomerAssistantTurn(args: {
     const availabilityContext = await getCustomerAvailabilityContext(args.salonId);
     const interpreterContext = compactCustomerModelContext({
       prompt: CUSTOMER_INTERPRETATION_PROMPT,
+      additionalInput: args.message,
       maxBytes: CUSTOMER_ASSISTANT_MAX_INPUT_BYTES,
       legacyMessages: conversation.dialogue?.length ? undefined : conversation.messages,
       context: {
@@ -106,7 +107,6 @@ export async function runCustomerAssistantTurn(args: {
         previousFacts: conversation.facts ?? emptyFacts(),
         requestedSelection: conversation.requestedSelection ?? null,
         menu: projectCustomerInterpreterMenu(menu),
-        latestCustomerMessage: args.message,
         ...(conversation.dialogue?.length ? { dialogue: conversation.dialogue } : {}),
         conversationalSubjects: conversation.subjects ?? [],
         priorConversationalSubjects: conversation.priorSubjects ?? [],
@@ -126,7 +126,7 @@ export async function runCustomerAssistantTurn(args: {
     providerCallStarted = true;
     const response = await model.createResponse({
       model: CUSTOMER_ASSISTANT_MODEL,
-      input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: data }],
+      input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: data }, { role: 'user', content: args.message }],
       tools: [],
       toolChoice: 'none',
       reasoningEffort: 'low',

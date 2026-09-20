@@ -129,6 +129,24 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
       { message, priorFailure: { message: 'anything earlier?' }, expect: { resultKinds: ['slots', 'clarification'], availability: { whenSlotsOnly: true, requested: { date: '2026-09-19', earliest: '00:00', latest: '16:59' }, fallback: false }, preservesSelection: { serviceId: ids.gelManicure }, reply: { nonEmpty: true, excludes: ['matching service', 'not available to book'] } } },
     ],
   })),
+  ...(['earlier on Saturday, before noon please', 'the original day, before noon please'] as const).map((message, index) => ({
+    id: `explicit-clock-window-${index}`,
+    category: 'an explicit clock limit wins over earlier fallback boundaries',
+    availabilityFixture: 'working_hours' as const,
+    turns: [
+      { message: 'gel manicure on bare nails', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
+      { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: true } } },
+      { message, expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '00:00', latest: '11:59' }, fallback: false } } },
+    ],
+  })),
+  {
+    id: 'repair-quantity-existing-polish',
+    category: 'desired natural-nail service does not erase stated existing gel polish',
+    turns: [
+      { message: 'I want BIAB on my own natural nails, I already have gel polish on them and two are broken', expect: { resultKinds: ['clarification'], facts: { treatment: 'builder_gel', desiredApplication: 'natural_nails', existingProduct: 'gel_polish', repairCount: 2 } } },
+      { message: 'the polish was done here', expect: { resultKinds: ['proposal', 'clarification'], facts: { existingProduct: 'gel_polish', origin: 'this_salon', repairCount: 2 }, proposal: { serviceId: ids.biab, addOnIds: [ids.repair] } } },
+    ],
+  },
   {
     id: 'price-recall-repair-direct',
     category: 'price, recall, and conversational repair',

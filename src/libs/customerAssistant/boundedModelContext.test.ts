@@ -65,6 +65,18 @@ describe('bounded customer model context', () => {
     expect(result.fits).toBe(true);
   });
 
+  it('counts a separate final user turn within the unchanged UTF-8 input cap', () => {
+    const context = { menu: { services: [{ id: 'public-id' }] }, dialogue: [] };
+    const prompt = 'system';
+    const finalMessage = '💅'.repeat(200);
+    const base = compactCustomerModelContext({ context, prompt, maxBytes: 500 });
+    const withFinalTurn = compactCustomerModelContext({ context, prompt, additionalInput: finalMessage, maxBytes: 500 });
+
+    expect(base.fits).toBe(true);
+    expect(withFinalTurn.fits).toBe(false);
+    expect(withFinalTurn.data).toBe(base.data);
+  });
+
   it('converts legacy user-only history once and fails closed if protected context still exceeds the cap', () => {
     const result = compactCustomerModelContext({
       prompt: 'system',
