@@ -24,10 +24,8 @@ export async function assessReadyCustomerProposal(args: {
   if (!selection) {
     return { proposal: null };
   }
-  const [menu, snapshot] = await Promise.all([
-    loadCustomerMenu(args.salonId, args.features),
-    loadCustomerClarificationSnapshot(args.salonId),
-  ]);
+  const menu = await loadCustomerMenu(args.salonId, args.features);
+  const snapshot = await loadCustomerClarificationSnapshot(args.salonId);
   const facts = args.state.facts ?? emptyFacts();
   const assessment = assessCustomerConsultation({ menu, snapshot, facts, candidate: selection });
   if (assessment.kind === 'clarification') {

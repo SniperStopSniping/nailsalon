@@ -408,6 +408,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     await browserExpect(page.getByRole('region', { name: 'Your appointment package' })).toContainText(l1 ? 'Synthetic L1 Forty Five' : 'Synthetic Browser Gel Service');
 
     await page.getByRole('button', { name: 'Choose these services' }).click();
+    await browserExpect.poll(() => serverResults.find(row => row.path.endsWith('/handoff'))).toMatchObject({ status: 200, kind: 'handoff' });
     await browserExpect(page.locator('[data-testid^="time-slot-"]').first()).toBeVisible({ timeout: 60_000 });
     await browserExpect.poll(() => page.locator('[data-testid^="time-slot-"]').first().evaluate((element) => {
       for (let current: Element | null = element; current; current = current.parentElement) {
