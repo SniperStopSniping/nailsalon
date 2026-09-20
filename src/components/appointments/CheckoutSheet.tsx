@@ -1359,10 +1359,10 @@ export function CheckoutSheet({
     >
       <div ref={sheetRef} data-testid="checkout-sheet" className="flex min-h-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between gap-[12px] border-b border-neutral-100 px-[16px] pb-3 pt-4 sm:px-5">
+        <div className="flex shrink-0 items-center justify-between gap-[12px] border-b border-neutral-100 px-[16px] pb-[12px] pt-[16px] sm:px-5">
           <div className="min-w-0 break-words">
             <div className="text-lg font-semibold text-neutral-900">
-              {view === 'success' ? 'Appointment completed' : view === 'receipt' ? 'Receipt' : 'Complete appointment'}
+              {view === 'success' ? 'Appointment completed' : view === 'receipt' ? 'Receipt' : view === 'review' ? 'Review' : 'Complete appointment'}
             </div>
             <div className="text-sm text-neutral-500">
               {context?.appointment.clientName || 'Checkout'}
@@ -2182,10 +2182,10 @@ export function CheckoutSheet({
         {context && (view === 'edit' || view === 'review') && totals && (
           <div
             data-testid="checkout-action-bar"
-            className="shrink-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
-            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
+            className="shrink-0 border-t border-neutral-200 bg-white px-[16px] pt-[12px] sm:px-5"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}
           >
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-[12px]">
               <div className="flex w-full min-w-0 items-baseline justify-between gap-2 break-words">
                 <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">
                   Balance
