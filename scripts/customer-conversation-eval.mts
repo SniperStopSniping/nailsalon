@@ -212,7 +212,7 @@ function buildSyntheticProposal(selection: import('../src/libs/customerAssistant
 }
 
 function folded(value: string): string {
-  return value.toLocaleLowerCase('en-CA').replace(/\s+/g, ' ').trim();
+  return value.toLocaleLowerCase('en-CA').replace(/[’‘]/g, String.fromCharCode(39)).replace(/\s+/g, ' ').trim();
 }
 
 function evaluateTurn(args: {
@@ -222,6 +222,7 @@ function evaluateTurn(args: {
   reply: string;
   publicFacts: import('../src/libs/customerAssistant/publicFacts.server').CustomerPublicFacts;
   previous: import('../src/libs/customerAssistant/conversation.server').CustomerConversation;
+  currentProposal?: import('../src/libs/customerAssistant/contracts').CustomerProposal;
 }): string[] {
   const failures: string[] = [];
   const { expect } = args.turn;
@@ -307,27 +308,27 @@ function evaluateTurn(args: {
     const [leftId, rightId] = expect.reply.comparisonForServiceIds;
     const left = service(leftId);
     const right = service(rightId);
-    const replyFacts = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en' }) as Record<string, string>;
+    const replyFacts = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en', currentProposal: args.currentProposal }) as Record<string, string>;
     const comparison = Object.values(replyFacts).find(value => left && right && value.includes(left.name) && value.includes(right.name));
     if (!comparison || !reply.includes(folded(comparison))) {
       failures.push('reply_comparison_not_grounded');
     }
   }
   if (expect.reply?.configuredTotalCents !== undefined) {
-    const replyFacts = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en' }) as Record<string, string>;
+    const replyFacts = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en', currentProposal: args.currentProposal }) as Record<string, string>;
     const expectedTotal = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(expect.reply.configuredTotalCents / 100);
     if (!replyFacts.selection?.includes(expectedTotal) || !reply.includes(folded(replyFacts.selection))) {
       failures.push('reply_configured_total_not_grounded');
     }
   }
   if (expect.reply?.configuredDurationMinutes !== undefined) {
-    const replyFacts = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en' }) as Record<string, string>;
+    const replyFacts = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en', currentProposal: args.currentProposal }) as Record<string, string>;
     if (!replyFacts.selection?.includes(`${expect.reply.configuredDurationMinutes} minutes`) || !reply.includes(folded(replyFacts.selection))) {
       failures.push('reply_configured_duration_not_grounded');
     }
   }
   if (expect.reply?.publicFactKey) {
-    const replyFacts = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en' }) as Record<string, string>;
+    const replyFacts = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en', currentProposal: args.currentProposal }) as Record<string, string>;
     const fact = replyFacts[expect.reply.publicFactKey];
     if (!fact || !reply.includes(folded(fact))) {
       failures.push('reply_public_fact_missing');
@@ -346,7 +347,7 @@ function evaluateTurn(args: {
     }
   }
   if (expect.reply?.explainsUnsupported && args.result.kind === 'unavailable') {
-    const limitation = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en' }).limitation;
+    const limitation = require('../src/libs/customerAssistant/reply').buildReplyFacts({ menu: SEMANTIC_L1_MENU, publicFacts: args.publicFacts, result: args.result, conversation: args.previous, nextState: args.next, message: args.turn.message, locale: 'en', currentProposal: args.currentProposal }).limitation;
     if (!limitation || !reply.includes(folded(limitation))) {
       failures.push('reply_limitation_missing');
     }
@@ -489,7 +490,7 @@ async function main(): Promise<void> {
           result = { ...result, message: parsedReply.message };
           const nextDialogue: NonNullable<import('../src/libs/customerAssistant/conversation.server').CustomerConversation['dialogue']> = [...priorDialogue, { role: 'user' as const, content: turn.message }, { role: 'assistant' as const, content: parsedReply.message }].slice(-24);
           next.dialogue = nextDialogue;
-          failures.push(...evaluateTurn({ turn, result, next, reply: parsedReply.message, publicFacts, previous }));
+          failures.push(...evaluateTurn({ turn, result, next, reply: parsedReply.message, publicFacts, previous, currentProposal }));
           conversation = next;
           results.push({ caseId: testCase.id, category: testCase.category, repeat: repeatIndex, turn: turnIndex + 1, customer: turn.message, status: failures.length ? 'review' : 'passed', failures, modelReplyFallback: replyFallback, replyParseFailure, intent, result, rawModelReply: rawReply, reply: parsedReply.message, nextFacts: next.facts, subjects: next.subjects ?? [], calls: calls.slice(-2) });
         } catch (error) {

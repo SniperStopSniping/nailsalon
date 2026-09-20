@@ -59,6 +59,7 @@ const ids = {
   gelxFill: 'svc_semantic_gelx_fill',
   french: 'addon_semantic_french',
   chrome: 'addon_semantic_chrome',
+  short: 'addon_semantic_short',
   medium: 'addon_semantic_medium',
   long: 'addon_semantic_long',
   repair: 'addon_semantic_repair',
@@ -257,6 +258,19 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     turns: [
       { message: 'medium Gel-X on bare nails', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium] } } },
       { message: 'add chrome', session: 'reopen', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.chrome] } } },
+    ],
+  },
+  {
+    id: 'known-selection-survives-recall-public-facts-and-corrections',
+    category: 'known selection survives conversational detours and corrections',
+    turns: [
+      { message: 'medium Gel-X on bare nails with French', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', french: 'yes', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french], subtotalCents: 9000, durationMinutes: 120 } } },
+      { message: 'what did I ask you?', expect: { resultKinds: ['answer'], answerTopic: 'recall', permittedAnswerTopics: ['recall', 'conversation'], facts: { treatment: 'gel_x', length: 'medium', french: 'yes', existingProduct: 'none' }, preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french] }, reply: { recallsLastUserQuestion: true } } },
+      { message: 'where are you located?', expect: { resultKinds: ['answer'], answerTopic: 'salon_information', facts: { treatment: 'gel_x', length: 'medium', french: 'yes', existingProduct: 'none' }, preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french] }, reply: { publicFactKey: 'salon_location' } } },
+      { message: 'how long does that take?', expect: { resultKinds: ['answer'], answerTopic: 'duration', facts: { treatment: 'gel_x', length: 'medium', french: 'yes', existingProduct: 'none' }, preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french] }, reply: { configuredDurationMinutes: 120 } } },
+      { message: 'add chrome', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', french: 'yes', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.french, ids.chrome], subtotalCents: 10200, durationMinutes: 130 } } },
+      { message: 'remove French', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', length: 'medium', french: 'no', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium, ids.chrome], subtotalCents: 9200, durationMinutes: 115 } } },
+      { message: 'actually short, how much now?', expect: { resultKinds: ['answer'], answerTopic: 'price', facts: { treatment: 'gel_x', length: 'short', french: 'no', existingProduct: 'none' }, preservesSelection: { serviceId: ids.gelx, addOnIds: [ids.short, ids.chrome] }, reply: { configuredTotalCents: 8200, configuredDurationMinutes: 100 } } },
     ],
   },
   {

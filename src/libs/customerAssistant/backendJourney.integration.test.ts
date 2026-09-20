@@ -87,6 +87,42 @@ vi.mock('@/libs/publicBookingRateLimit.server', async importOriginal => ({
   checkPublicBookingRateLimit: vi.fn(async () => ({ allowed: true as const, reason: 'allowed' as const })),
 }));
 const model = vi.hoisted(() => ({ createResponse: vi.fn() }));
+
+function setProposalModelResponses(serviceId: string, addOns: Array<{ addOnId: string; quantity: number }> = []) {
+  const usage = { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0 };
+  model.createResponse.mockReset()
+    .mockResolvedValueOnce({
+      status: 'completed',
+      usage,
+      items: [{
+        type: 'message',
+        text: JSON.stringify({
+          factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null },
+          action: 'propose',
+          serviceId,
+          addOns,
+          question: 'details',
+          optionIds: [],
+          datePreference: null,
+        }),
+      }],
+    })
+    .mockResolvedValue({
+      status: 'completed',
+      usage,
+      items: [{
+        type: 'message',
+        text: JSON.stringify({
+          segments: [
+            { kind: 'text', text: 'I found a suitable choice.' },
+            { kind: 'fact', key: 'selection' },
+          ],
+          serviceOptions: [],
+        }),
+      }],
+    });
+}
+
 vi.mock('@/libs/ai/openaiResponses.server', () => ({
   createOpenAiResponsesProvider: vi.fn(() => ({ createResponse: model.createResponse })),
 }));
@@ -257,7 +293,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     // Reset its test policy so no previous fixture changes alter this proof.
     await database.update(schema.salonSchema).set({ settings: SETTINGS }).where(eq(schema.salonSchema.id, SALON));
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    model.createResponse.mockResolvedValue({ status: 'completed', usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null }, action: 'propose', serviceId: SERVICE, addOns: [], question: 'details', optionIds: [], datePreference: null }) }] });
+    setProposalModelResponses(SERVICE);
     await database.delete(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, SALON));
     await database.delete(schema.reviewRequestTriggerSchema).where(eq(schema.reviewRequestTriggerSchema.salonId, SALON));
     await database.delete(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.salonId, SALON));
@@ -304,14 +340,14 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     const expected = l1
       ? { subtotalCents: 6000, durationMinutes: 60, addOnIds: [L1_AUTO, L1_OPTIONAL] }
       : { subtotalCents: 6500, durationMinutes: 60, addOnIds: [] as string[] };
-    model.createResponse.mockResolvedValue({ status: 'completed', usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null }, action: 'propose', serviceId, addOns: requestedAddOns, question: 'details', optionIds: [], datePreference: null }) }] });
+    setProposalModelResponses(serviceId, requestedAddOns);
     browser = await (engine === 'chromium' ? chromium : webkit).launch();
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     const browserErrors: string[] = [];
     page.on('pageerror', error => browserErrors.push(error.message));
     let loseConfirmResponse = true;
     const unexpected: string[] = [];
-    const serverResults: Array<{ path: string; status: number; kind?: string; reason?: string; bookingState?: string; proposal?: unknown; review?: unknown }> = [];
+    const serverResults: Array<{ path: string; status: number; kind?: string; reason?: string; message?: string; bookingState?: string; proposal?: unknown; review?: unknown }> = [];
     await page.route('**/*', async (route) => {
       const request = route.request();
       const url = new URL(request.url());
@@ -332,7 +368,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       }
       const responseText = await response.text();
       const data = JSON.parse(responseText || '{}');
-      serverResults.push({ path: url.pathname, status: response.status, kind: data.result?.kind ?? data.kind, reason: data.result?.reason ?? data.reason, bookingState: data.status, proposal: data.result?.proposal, review: data.result?.review });
+      serverResults.push({ path: url.pathname, status: response.status, kind: data.result?.kind ?? data.kind, reason: data.result?.reason ?? data.reason, message: data.result?.message, bookingState: data.status, proposal: data.result?.proposal, review: data.result?.review });
       if (url.pathname.endsWith('/confirm') && loseConfirmResponse) {
         // Simulate a lost response AFTER the real creation transaction commits.
         loseConfirmResponse = false;
@@ -347,11 +383,15 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     await page.getByRole('button', { name: 'Send' }).click();
     await browserExpect.poll(() => serverResults.find(row => row.path.endsWith('/chat'))?.kind).toBe('proposal');
 
-    expect(serverResults.find(row => row.path.endsWith('/chat'))?.proposal).toMatchObject({
+    const chatResult = serverResults.find(row => row.path.endsWith('/chat'));
+
+    expect(chatResult?.proposal).toMatchObject({
       subtotalCents: expected.subtotalCents,
       durationMinutes: expected.durationMinutes,
       addOns: expect.arrayContaining(expected.addOnIds.map(id => expect.objectContaining({ id }))),
     });
+    expect(chatResult?.message).toContain('I found a suitable choice.');
+    expect(chatResult?.message).toContain(l1 ? 'Synthetic L1 Forty Five' : 'Synthetic Browser Gel Service');
 
     await page.getByRole('button', { name: 'Choose these services' }).click();
     await browserExpect(page.locator('[data-testid^="time-slot-"]').first()).toBeVisible({ timeout: 60_000 });
@@ -430,7 +470,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     expect(requests[0]?.intentId).toBe(reviewIntents.find(intent => intent.eventType === 'review_request')?.id);
     expect((await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, appointment.id)))[0]).toMatchObject({ status: 'confirmed', completedAt: null });
     expect(browserErrors).toEqual([]);
-    expect(model.createResponse).toHaveBeenCalledTimes(1);
+    expect(model.createResponse).toHaveBeenCalledTimes(2);
     expect(unexpected).toEqual([]);
 
     await page.close();

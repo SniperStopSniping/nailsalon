@@ -166,6 +166,9 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
     { importer: 'src/libs/l1BookingAuthority.server.ts', imports: 'src/libs/catalogResolver.server.ts' },
     { importer: 'src/libs/l1BookingReconciliation.server.ts', imports: 'src/libs/catalogResolver.server.ts' },
     { importer: 'src/libs/customerAssistant/catalogue.server.ts', imports: 'src/libs/catalogResolver.server.ts' },
+    // Reviewed receptionist public-fact projection: read the same live server
+    // snapshot, then restrict to public booking visibility; no second resolver.
+    { importer: 'src/libs/customerAssistant/publicFacts.server.ts', imports: 'src/libs/catalogResolver.server.ts' },
     // Clarification viability uses the same pure L1 authority on a server-loaded
     // public projection; evaluation fixtures exercise that authority offline.
     { importer: 'src/libs/customerAssistant/clarification.ts', imports: 'src/libs/catalogResolverCore.ts' },
