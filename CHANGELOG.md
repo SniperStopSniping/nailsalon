@@ -1,3 +1,10 @@
+## [1.126.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.2...v1.126.3) (2026-09-20)
+
+
+### Bug Fixes
+
+* **customer-ai:** keep clarification replies concise ([676a402](https://github.com/SniperStopSniping/nailsalon/commit/676a4021901ddcff6e2a689c39f0fe66ace3aeda))
+
 ## [1.126.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.1...v1.126.2) (2026-09-20)
 
 
