@@ -383,9 +383,9 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
 
     await browserExpect.poll(() => serverResults.find(row => row.path.endsWith('/confirm'))?.bookingState, { timeout: 60_000 }).toBe('confirmed');
 
-    await browserExpect(page.getByText('Your appointment is confirmed.', { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole('heading', { name: 'Appointment confirmed', exact: true })).toBeVisible();
     await page.reload();
-    await browserExpect(page.getByText('Your appointment is confirmed.', { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole('heading', { name: 'Appointment confirmed', exact: true })).toBeVisible();
     await page.screenshot({ path: path.resolve(process.cwd(), `artifacts/customer-assistant/receptionist-backend-${l1 ? 'l1' : 'legacy'}-${engine}-confirmed.png`), fullPage: true });
 
     expect(serverResults.filter(row => row.path.endsWith('/confirm'))).toHaveLength(1);

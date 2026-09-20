@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -51,6 +51,14 @@ const { routerBack, routerPush, routerReplace, syncFromUrl, clearBookingState, f
 }));
 
 const { confettiMock } = vi.hoisted(() => ({ confettiMock: vi.fn() }));
+const publicRecoveryMock = vi.hoisted(() => ({
+  begin: vi.fn(),
+  clear: vi.fn(),
+  isReceipt: vi.fn(),
+  read: vi.fn(),
+  recover: vi.fn(),
+  resolve: vi.fn(),
+}));
 const normalBookingMock = vi.hoisted(() => {
   class MockNormalBookingRecoveryError extends Error {
     constructor(readonly reason: string) {
@@ -86,15 +94,23 @@ vi.mock('@/libs/customerAssistant/normalBooking.client', () => ({
   normalBookingErrorMessage: (reason: string) => `normal booking: ${reason}`,
 }));
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({
-    back: routerBack,
-    push: routerPush,
-    replace: routerReplace,
-  }),
-  useParams: () => ({ locale: 'en' }),
-  useSearchParams: () => navigationMock.searchParams,
+vi.mock('@/libs/publicBookingRecovery.client', () => ({
+  beginPublicBookingAttempt: publicRecoveryMock.begin,
+  clearPublicBookingAttempt: publicRecoveryMock.clear,
+  isPublicBookingReceipt: publicRecoveryMock.isReceipt,
+  readPublicBookingAttempt: publicRecoveryMock.read,
+  recoverPublicBookingAttempt: publicRecoveryMock.recover,
+  resolvePublicBookingAttempt: publicRecoveryMock.resolve,
 }));
+
+vi.mock('next/navigation', () => {
+  const router = { back: routerBack, push: routerPush, replace: routerReplace };
+  return {
+    useRouter: () => router,
+    useParams: () => ({ locale: 'en' }),
+    useSearchParams: () => navigationMock.searchParams,
+  };
+});
 
 vi.mock('@/hooks/useBookingState', () => ({
   useBookingState: () => ({
@@ -148,6 +164,23 @@ describe('BookConfirmClient', () => {
     normalBookingMock.confirm.mockReset();
     normalBookingMock.recover.mockReset();
     normalBookingMock.recover.mockResolvedValue(null);
+    publicRecoveryMock.begin.mockReset();
+    publicRecoveryMock.clear.mockReset();
+    publicRecoveryMock.isReceipt.mockReset();
+    publicRecoveryMock.read.mockReset();
+    publicRecoveryMock.recover.mockReset();
+    publicRecoveryMock.resolve.mockReset();
+    publicRecoveryMock.read.mockReturnValue(null);
+    publicRecoveryMock.recover.mockResolvedValue(null);
+    publicRecoveryMock.isReceipt.mockImplementation(value => value !== null && value !== undefined);
+    publicRecoveryMock.begin.mockImplementation(({ salonId, attemptId, confirmationPath }) => ({
+      version: 1,
+      salonId,
+      attemptId,
+      confirmationPath,
+      recoveryKey: '11111111-1111-4111-8111-111111111111',
+      state: 'pending',
+    }));
     clearBookingState.mockReset();
     navigationMock.searchParams = new URLSearchParams('techId=tech_1');
     vi.stubGlobal('fetch', fetchMock);
@@ -185,6 +218,10 @@ describe('BookConfirmClient', () => {
       enabled: false,
       label: null,
     });
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   const renderBasicConfirm = (
@@ -270,6 +307,124 @@ describe('BookConfirmClient', () => {
     expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(syncFromUrl).toHaveBeenCalledWith(expect.objectContaining({ techId: 'tech_1' }));
+  });
+
+  it('persists a manual recovery identity before POST and preserves the original 201 success path', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: { appointmentId: 'appt_recovered', appointment: { id: 'appt_recovered' } },
+    }), { status: 201 }));
+
+    renderBasicConfirm({ salonId: 'salon_internal_a' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await screen.findByText('Appointment summary');
+
+    expect(publicRecoveryMock.begin).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon_internal_a',
+      confirmationPath: `${window.location.pathname}${window.location.search}`,
+      attemptId: expect.stringMatching(/^[0-9a-f-]{36}$/iu),
+    }));
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      headers: expect.objectContaining({
+        'X-Booking-Recovery-Key': '11111111-1111-4111-8111-111111111111',
+      }),
+    }));
+    expect(publicRecoveryMock.resolve).toHaveBeenCalledWith('salon_internal_a', expect.objectContaining({
+      data: expect.objectContaining({ appointmentId: 'appt_recovered' }),
+    }));
+  });
+
+  it('releases a definitively rejected request for deliberate correction without automatic replay', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'INVALID_PHONE' } }), { status: 400 }));
+    renderBasicConfirm({ salonId: 'salon_internal_a' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await screen.findByText(/Check your phone number before confirming again/);
+
+    expect(publicRecoveryMock.clear).toHaveBeenCalledWith('salon_internal_a');
+    expect(publicRecoveryMock.recover).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
+
+    errorLog.mockRestore();
+  });
+
+  it('restores a resolved manual receipt without creating another appointment', async () => {
+    publicRecoveryMock.read.mockReturnValue({
+      version: 1,
+      salonId: 'salon_internal_a',
+      attemptId: '11111111-1111-4111-8111-111111111111',
+      recoveryKey: '22222222-2222-4222-8222-222222222222',
+      confirmationPath: `${window.location.pathname}${window.location.search}`,
+      state: 'resolved',
+      response: {
+        data: {
+          appointmentId: 'appt_receipt',
+          appointment: { id: 'appt_receipt', status: 'pending', startTime: '2030-01-02T15:00:00Z', totalDurationMinutes: 75, bookingTaxSnapshot: { invoiceTotalCents: 7345, currency: 'CAD' } },
+          services: [{ service: { id: 'booked-service', name: 'Original booked service' }, priceAtBooking: 6500, durationAtBooking: 75 }],
+          addOns: [],
+          manageUrl: 'https://example.test/manage/receipt',
+        },
+      },
+    });
+
+    renderBasicConfirm({ salonId: 'salon_internal_a' });
+
+    await screen.findByText('Appointment summary');
+
+    expect(screen.getByText(/awaiting salon approval/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not let a resolved receipt hijack a deliberate new selection', () => {
+    publicRecoveryMock.read.mockReturnValue({
+      version: 1,
+      salonId: 'salon_internal_a',
+      attemptId: '11111111-1111-4111-8111-111111111111',
+      recoveryKey: '22222222-2222-4222-8222-222222222222',
+      confirmationPath: '/en/book/confirm?serviceIds=old-service&date=2026-03-20',
+      state: 'resolved',
+      response: {
+        data: { appointmentId: 'appt_old', appointment: { id: 'appt_old', status: 'confirmed' } },
+      },
+    });
+
+    renderBasicConfirm({ salonId: 'salon_internal_a' });
+
+    expect(routerReplace).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('treats a malformed 201 receipt as uncertain instead of showing success', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    publicRecoveryMock.isReceipt.mockReturnValue(false);
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: { appointment: { id: 'missing-fields' } } }), { status: 201 }));
+
+    renderBasicConfirm({ salonId: 'salon_internal_a' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await screen.findByTestId('booking-recovery-notice');
+
+    expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
+
+    consoleError.mockRestore();
+  });
+
+  it('keeps an ambiguous manual attempt read-only until its receipt resolves', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockRejectedValueOnce(new TypeError('network unavailable'));
+
+    renderBasicConfirm({ salonId: 'salon_internal_a' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await screen.findByTestId('booking-recovery-notice');
+
+    expect(publicRecoveryMock.recover).toHaveBeenCalledWith('salon_internal_a');
+    expect(screen.getByRole('button', { name: /waiting for booking result/i })).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    consoleError.mockRestore();
   });
 
   it.each([0, 2500])('labels review-mode bookings as requests with a %i-cent deposit', (amountCents) => {

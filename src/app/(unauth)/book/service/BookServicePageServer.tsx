@@ -5,7 +5,7 @@ import 'server-only';
 import { notFound, redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
-import { CustomerAssistantLauncher, CustomerBookingRecovery } from '@/components/customerAssistant/CustomerAssistantLauncher';
+import { CustomerAssistantLauncher } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { resolveCatalogDomainView } from '@/libs/bookingCatalog';
@@ -487,7 +487,6 @@ export async function renderBookServicePage({
         ? bookingContent
         : (
             <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
-              {!ownerPreviewState.isPreviewing && <CustomerBookingRecovery salonId={salon.id} locale={params?.locale === 'fr' ? 'fr' : 'en'} />}
               {bookingContent}
               {!ownerPreviewState.isPreviewing && isCustomerAssistantEnabledForSalon(salon.slug) && (
                 <CustomerAssistantLauncher salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} />

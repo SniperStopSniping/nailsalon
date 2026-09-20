@@ -40,6 +40,15 @@ import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/d
 import { formatMoney } from '@/libs/formatMoney';
 import { triggerHaptic } from '@/libs/haptics';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
+import { publicBookingReceiptPresentation } from '@/libs/publicBookingReceipt';
+import {
+  beginPublicBookingAttempt,
+  clearPublicBookingAttempt,
+  isPublicBookingReceipt,
+  readPublicBookingAttempt,
+  recoverPublicBookingAttempt,
+  resolvePublicBookingAttempt,
+} from '@/libs/publicBookingRecovery.client';
 import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
 import { resolveSectionDecisionPlan, shouldRenderSection } from '@/libs/sectionRegistry';
 import {
@@ -971,6 +980,39 @@ const SlotTakenState = ({
   </div>
 );
 
+const BookingRecoveryNotice = ({
+  onCheckAgain,
+  isChecking,
+  findBookingUrl,
+}: {
+  onCheckAgain: () => void;
+  isChecking: boolean;
+  findBookingUrl: string;
+}) => (
+  <div className="mx-auto max-w-lg px-5 pt-3" role="status" data-testid="booking-recovery-notice">
+    <StateCard
+      tone="warning"
+      icon={<RefreshCw className="mx-auto size-8 text-[var(--n5-warning)]" />}
+      title="We’re checking your booking"
+      description="Your last confirmation may still be processing. To avoid a duplicate, we won’t submit it again."
+      contentClassName="py-5"
+    />
+    <div className="mt-3 flex gap-3">
+      <button
+        type="button"
+        onClick={onCheckAgain}
+        disabled={isChecking}
+        className="min-h-11 flex-1 rounded-xl border border-[var(--n5-border)] px-3 py-2 text-sm font-semibold disabled:opacity-60"
+      >
+        {isChecking ? 'Checking…' : 'Check again'}
+      </button>
+      <a className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-[var(--n5-border)] px-3 py-2 text-sm font-semibold" href={findBookingUrl}>
+        Find my booking
+      </a>
+    </div>
+  </div>
+);
+
 /**
  * Stale Smart Fit state (P7.3): the server rejected the expected discounted
  * price with 409 SMART_FIT_CHANGED. No booking was created. Selections stay
@@ -1082,6 +1124,7 @@ const ConfirmContent = ({
   onEditSelection,
   isSubmitting,
   isRecoveringBooking,
+  recoveryUnresolved = false,
   location,
   subtotalBeforeDiscount,
   discountAmount,
@@ -1126,6 +1169,7 @@ const ConfirmContent = ({
   onEditSelection: () => void;
   isSubmitting: boolean;
   isRecoveringBooking: boolean;
+  recoveryUnresolved?: boolean;
   location: LocationSummary;
   subtotalBeforeDiscount: number;
   discountAmount: number;
@@ -1273,7 +1317,7 @@ const ConfirmContent = ({
           </p>
         </motion.div>
 
-        {isSubmitting && (
+        {isSubmitting && !recoveryUnresolved && (
           <div
             data-testid="booking-submit-pending"
             role="status"
@@ -1494,7 +1538,7 @@ const ConfirmContent = ({
             >
               {bookingError}
               {' '}
-              Your details below are saved — you can try again.
+              {isSubmitting ? 'Your details are saved while we check the original booking.' : 'Your details below are saved — you can try again.'}
             </div>
           )}
 
@@ -1634,8 +1678,8 @@ const ConfirmContent = ({
             {isSubmitting
               ? (
                   <>
-                    <RefreshCw className="size-5 animate-spin" />
-                    <span>{createsRequest ? 'Sending request...' : 'Confirming appointment...'}</span>
+                    <RefreshCw className={`size-5 ${recoveryUnresolved ? '' : 'animate-spin'}`} />
+                    <span>{recoveryUnresolved ? 'Waiting for booking result' : createsRequest ? 'Sending request...' : 'Confirming your appointment…'}</span>
                   </>
                 )
               : (
@@ -1710,6 +1754,9 @@ const SuccessContent = ({
   totalPriceDisplay,
   confirmationMessage,
   policy,
+  onManage,
+  onStartAnother,
+  recoveryError,
 }: {
   bookingStatus: BookingResultStatus;
   services: ServiceSummary[];
@@ -1733,6 +1780,9 @@ const SuccessContent = ({
   clientChangeCutoffHours: number;
   confirmationMessage: string | null;
   policy: ConfirmationPolicy;
+  onManage?: () => void;
+  onStartAnother?: () => void;
+  recoveryError?: string | null;
 }) => {
   const t = useTranslations('BookingConfirmation');
   const isPending = bookingStatus === 'pending';
@@ -1750,6 +1800,7 @@ const SuccessContent = ({
 
   return (
     <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
+      {recoveryError && <p role="alert" className="p-4">{recoveryError}</p>}
       {/* Navbar */}
       <nav
         data-public-surface="bookingProgressHeader"
@@ -1866,24 +1917,31 @@ const SuccessContent = ({
                   <span>{isPending ? 'Manage this request' : 'Manage this appointment'}</span>
                 </a>
               )
-            : (
-                <div
-                  role="status"
-                  className="rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-sm leading-relaxed text-[var(--n5-ink-muted)]"
-                >
-                  <p>
-                    {isPending
-                      ? 'Your request was received, but its private management link is not available on this screen.'
-                      : 'Your appointment is confirmed, but its private management link is not available on this screen.'}
-                  </p>
-                  <a
-                    href={findBookingUrl}
-                    className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--n5-accent)] underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            : onManage
+              ? (
+                  <button type="button" onClick={onManage} className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)]" style={{ borderRadius: n5.radiusMd }}>
+                    <RefreshCw className="size-5" />
+                    <span>{isPending ? 'Manage this request' : 'Manage this appointment'}</span>
+                  </button>
+                )
+              : (
+                  <div
+                    role="status"
+                    className="rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-sm leading-relaxed text-[var(--n5-ink-muted)]"
                   >
-                    Find my booking to receive a secure management link
-                  </a>
-                </div>
-              )}
+                    <p>
+                      {isPending
+                        ? 'Your request was received, but its private management link is not available on this screen.'
+                        : 'Your appointment is confirmed, but its private management link is not available on this screen.'}
+                    </p>
+                    <a
+                      href={findBookingUrl}
+                      className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--n5-accent)] underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                    >
+                      Find my booking to receive a secure management link
+                    </a>
+                  </div>
+                )}
 
           {!isPending && (googleCalendarUrl || manageUrl) && (
             <div className="grid grid-cols-2 gap-2">
@@ -1932,6 +1990,11 @@ const SuccessContent = ({
               <Home className="size-4" />
               <span>Back to booking</span>
             </button>
+            {onStartAnother && (
+              <button type="button" onClick={onStartAnother} className="font-body inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl p-2 text-xs font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]">
+                <span>Start another booking</span>
+              </button>
+            )}
           </div>
         </motion.div>
 
@@ -2093,11 +2156,14 @@ export function BookConfirmClient({
   const [recoveringHandoff, setRecoveringHandoff] = useState(false);
   const [isBooking, setIsBooking] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
+  const [recoveredReceipt, setRecoveredReceipt] = useState<any>(null);
   const [bookingResultStatus, setBookingResultStatus]
     = useState<BookingResultStatus>('confirmed');
   const [smsReminderStatus, setSmsReminderStatus] = useState<SmsReminderStatus | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [slotTaken, setSlotTaken] = useState(false);
+  const [publicRecoveryPending, setPublicRecoveryPending] = useState(false);
+  const [checkingPublicRecovery, setCheckingPublicRecovery] = useState(false);
   useEffect(() => {
     if (!isAssistantHandoff) {
       return;
@@ -2202,6 +2268,124 @@ export function BookConfirmClient({
   // a required policy acknowledgment and bound by the server to the exact
   // canonical booking request.
   const acknowledgmentAttemptIdRef = useRef<string>(crypto.randomUUID());
+
+  const completeManualBooking = useCallback((data: any, fromRecovery = false) => {
+    if (fromRecovery) {
+      setRecoveredReceipt(data);
+    }
+    // A deposit hold is NOT a completed booking. This callback is also used for
+    // a recovered 201 receipt, so recovery preserves the original checkout
+    // handoff exactly rather than turning an unpaid hold into a success state.
+    const depositCheckoutUrl = data?.data?.deposit?.required === true
+      ? data.data.deposit.checkoutUrl
+      : null;
+    if (typeof depositCheckoutUrl === 'string' && depositCheckoutUrl) {
+      const holdExpiresAt = typeof data.data.deposit.holdExpiresAt === 'string'
+        ? data.data.deposit.holdExpiresAt
+        : null;
+      // A recovered receipt proves the original 201, not that an old Checkout
+      // session is still payable. Never send a returning customer to a known
+      // expired hold; the existing recovery options provide current lookup.
+      if (fromRecovery && (!holdExpiresAt || !Number.isFinite(Date.parse(holdExpiresAt))
+        || Date.parse(holdExpiresAt) <= Date.now()
+        || !customerBookingRecoveryUrl(depositCheckoutUrl, 'resume'))) {
+        setDepositHold({ expiresAt: holdExpiresAt, resumeUrl: null });
+        setHasExistingAppointment(true);
+        setPublicRecoveryPending(false);
+        return;
+      }
+      try {
+        sessionStorage.setItem(DEPOSIT_RESUME_STORAGE_KEY, JSON.stringify({
+          checkoutUrl: depositCheckoutUrl,
+          holdExpiresAt,
+          salonSlug,
+        } satisfies StoredDepositResume));
+      } catch {
+        // Storage unavailable — resume simply won't be offered.
+      }
+      navigateToCheckout(depositCheckoutUrl);
+      return;
+    }
+
+    const resultStatus: BookingResultStatus
+      = data?.data?.appointment?.status === 'pending' ? 'pending' : 'confirmed';
+    const returnedSmsReminderStatus = data?.data?.smsReminderStatus;
+    setSmsReminderStatus(
+      returnedSmsReminderStatus === 'enabled'
+      || returnedSmsReminderStatus === 'customer_disabled'
+      || returnedSmsReminderStatus === 'opted_out'
+      || returnedSmsReminderStatus === 'salon_disabled'
+        ? returnedSmsReminderStatus
+        : null,
+    );
+    const receiptManageUrl = typeof data?.data?.manageUrl === 'string' ? data.data.manageUrl : null;
+    setManageUrl(fromRecovery && receiptManageUrl ? customerBookingRecoveryUrl(receiptManageUrl, 'manage') : receiptManageUrl);
+    setBookingResultStatus(resultStatus);
+    setBookingComplete(true);
+    setPublicRecoveryPending(false);
+    try {
+      sessionStorage.removeItem(GUEST_CONTACT_STORAGE_KEY);
+    } catch {
+      // Storage unavailable — nothing to clear.
+    }
+
+    if (resultStatus === 'confirmed') {
+      setTimeout(() => {
+        triggerHaptic('success');
+        triggerLuxuryConfetti();
+      }, 300);
+    }
+  }, [navigateToCheckout, salonSlug]);
+
+  const checkPublicRecovery = useCallback(async () => {
+    if (!salonId) {
+      return;
+    }
+    setCheckingPublicRecovery(true);
+    try {
+      const recovered = await recoverPublicBookingAttempt(salonId);
+      if (isPublicBookingReceipt(recovered)) {
+        completeManualBooking(recovered, true);
+      }
+    } catch {
+      // A receipt lookup is intentionally best-effort. Its failure leaves the
+      // persisted attempt pending and never authorizes another create.
+    } finally {
+      setCheckingPublicRecovery(false);
+    }
+  }, [completeManualBooking, salonId]);
+
+  useEffect(() => {
+    if (!salonId) {
+      return;
+    }
+    try {
+      const attempt = readPublicBookingAttempt(salonId);
+      if (!attempt) {
+        return;
+      }
+      const currentConfirmationPath = `${window.location.pathname}${window.location.search}`;
+      if (attempt.confirmationPath !== currentConfirmationPath) {
+        // A completed earlier booking must not hijack a deliberate new flow.
+        // An unresolved attempt remains unsafe, so return to its exact review
+        // URL before allowing any further confirmation.
+        if (attempt.state === 'pending') {
+          setPublicRecoveryPending(true);
+          router.replace(attempt.confirmationPath);
+        }
+        return;
+      }
+      setPublicRecoveryPending(attempt.state === 'pending');
+      if (attempt.state === 'resolved' && isPublicBookingReceipt(attempt.response)) {
+        completeManualBooking(attempt.response, true);
+        return;
+      }
+      void checkPublicRecovery();
+    } catch {
+      // A malformed browser record is never a reason to create another booking.
+      setPublicRecoveryPending(true);
+    }
+  }, [checkPublicRecovery, completeManualBooking, isAssistantHandoff, router, salonId]);
 
   // Smart Fit precedence stays winner-take-all: any higher-priority discount
   // (campaign, first visit) means no Smart Fit presentation and no
@@ -2412,8 +2596,20 @@ export function BookConfirmClient({
   }, [smartFitSuggestionContextKey]);
 
   const createBooking = useCallback(async () => {
-    if (bookingInitiatedRef.current || recoveringHandoff) {
+    if (bookingInitiatedRef.current || recoveringHandoff || publicRecoveryPending) {
       return;
+    }
+    if (salonId) {
+      try {
+        if (readPublicBookingAttempt(salonId)?.state === 'pending') {
+          setPublicRecoveryPending(true);
+          void checkPublicRecovery();
+          return;
+        }
+      } catch {
+        setPublicRecoveryPending(true);
+        return;
+      }
     }
     if (acknowledgmentRequired && !policyAcknowledged) {
       setBookingError('Check the box to confirm your appointment.');
@@ -2527,11 +2723,28 @@ export function BookConfirmClient({
         return;
       }
 
+      let publicAttempt: ReturnType<typeof beginPublicBookingAttempt> | null = null;
+      if (salonId) {
+        try {
+          publicAttempt = beginPublicBookingAttempt({
+            salonId,
+            attemptId: idempotencyKeyRef.current,
+            confirmationPath: `${window.location.pathname}${window.location.search}`,
+          });
+        } catch {
+          setPublicRecoveryPending(true);
+          throw new CustomerSafeBookingError(
+            'We’re checking your earlier booking before we can submit another one.',
+          );
+        }
+      }
+
       const response = await fetch('/api/appointments', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Idempotency-Key': idempotencyKeyRef.current,
+          ...(publicAttempt ? { 'X-Booking-Recovery-Key': publicAttempt.recoveryKey } : {}),
         },
         body: JSON.stringify(requestBody),
       });
@@ -2545,11 +2758,6 @@ export function BookConfirmClient({
           body: responseText.slice(0, 2000),
         });
 
-        // A failed attempt may be retried with edited details or a new time;
-        // a fresh idempotency key keeps the retry from being rejected as a
-        // key reuse with a different payload.
-        idempotencyKeyRef.current = crypto.randomUUID();
-
         // Try to parse as JSON for error message
         let errorData;
         try {
@@ -2562,7 +2770,34 @@ export function BookConfirmClient({
         const errorCode = typeof errorData?.error === 'string'
           ? errorData.error
           : errorData?.error?.code;
+        // These server codes prove creation stopped before a booking receipt
+        // could exist, except the checkout failure code whose server contract
+        // proves its hold was released. Unknown failures, 5xx, and in-progress
+        // responses retain identity and are reconciled read-only.
+        const releasePublicAttempt = () => {
+          if (salonId) {
+            clearPublicBookingAttempt(salonId);
+          }
+          setPublicRecoveryPending(false);
+          idempotencyKeyRef.current = crypto.randomUUID();
+        };
+        const definitiveValidationMessages: Record<string, string> = {
+          VALIDATION_ERROR: 'Check your booking and contact details before confirming again.',
+          INVALID_PHONE: 'Check your phone number before confirming again.',
+          GUEST_CONTACT_REQUIRED: 'Enter your name, phone number and email before confirming.',
+          SMS_CONSENT_INVALID: 'Review your reminder preference before confirming again.',
+          INVALID_START_TIME: 'Choose a valid appointment time before confirming again.',
+          INVALID_SELECTION: 'Review your selected services before confirming again.',
+          RATE_LIMIT_EXCEEDED: 'Please wait a few minutes before trying to confirm again.',
+        };
+        if (response.status < 500 && typeof errorCode === 'string' && definitiveValidationMessages[errorCode]) {
+          releasePublicAttempt();
+          setBookingError(definitiveValidationMessages[errorCode]!);
+          bookingInitiatedRef.current = false;
+          return;
+        }
         if (errorCode === 'CATALOG_SELECTION_CHANGED') {
+          releasePublicAttempt();
           const serviceUrl = appendSalonSlug('/book/service', salonSlug, { routeSalonSlug, locale });
           router.push(`${serviceUrl}${serviceUrl.includes('?') ? '&' : '?'}catalogChanged=1`);
           bookingInitiatedRef.current = false;
@@ -2572,6 +2807,7 @@ export function BookConfirmClient({
           errorCode === 'BOOKING_POLICY_CHANGED'
           || errorCode === 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED'
         ) {
+          releasePublicAttempt();
           const latestPolicy = readLatestRequiredBookingPolicy(
             errorData.bookingPolicy,
             displayedPolicy,
@@ -2602,6 +2838,7 @@ export function BookConfirmClient({
         // DELIBERATELY NO AUTO-RESUBMIT: the next POST must require a further
         // user click, and it carries the fingerprint adopted below.
         if (errorCode === 'DEPOSIT_CHANGED') {
+          releasePublicAttempt();
           // `details` lives on the ERROR envelope — `error.details.deposit` —
           // exactly as the SMART_FIT_CHANGED branch below reads it. Reading
           // `errorData.details` finds nothing, so the authoritative amount never
@@ -2646,6 +2883,7 @@ export function BookConfirmClient({
         }
 
         if (errorCode === 'ACKNOWLEDGMENT_ATTEMPT_REUSED') {
+          releasePublicAttempt();
           setPolicyAcknowledged(false);
           acknowledgmentAttemptIdRef.current = crypto.randomUUID();
           idempotencyKeyRef.current = crypto.randomUUID();
@@ -2655,6 +2893,7 @@ export function BookConfirmClient({
         }
 
         if (errorCode === 'EXISTING_APPOINTMENT') {
+          releasePublicAttempt();
           setHasExistingAppointment(true);
           setBookingError('You already have an upcoming appointment.');
           bookingInitiatedRef.current = false;
@@ -2668,6 +2907,7 @@ export function BookConfirmClient({
         // no checkout URL and no manage URL here: this API authenticates by
         // phone possession alone.
         if (errorCode === 'DEPOSIT_HOLD_ACTIVE') {
+          releasePublicAttempt();
           const holdExpiresAt = typeof errorData.error?.details?.holdExpiresAt === 'string'
             ? errorData.error.details.holdExpiresAt
             : null;
@@ -2692,10 +2932,9 @@ export function BookConfirmClient({
         // Without these three, every deposit-path failure falls into the
         // generic throw at the bottom of this block and reads as a mystery.
         if (
-          errorCode === 'DEPOSITS_TEMPORARILY_UNAVAILABLE'
-          || errorCode === 'DEPOSIT_CHECKOUT_UNAVAILABLE'
-          || errorCode === 'DEPOSIT_CHECKOUT_FAILED'
+          errorCode === 'DEPOSIT_CHECKOUT_FAILED'
         ) {
+          releasePublicAttempt();
           setBookingError(
             errorCode === 'DEPOSIT_CHECKOUT_FAILED'
               ? 'We could not start the deposit payment, so your slot was released. Please try booking again.'
@@ -2705,13 +2944,24 @@ export function BookConfirmClient({
           return;
         }
 
+        if (
+          errorCode === 'DEPOSITS_TEMPORARILY_UNAVAILABLE'
+          || errorCode === 'DEPOSIT_CHECKOUT_UNAVAILABLE'
+        ) {
+          throw new CustomerSafeBookingError(
+            'We could not reach the payment provider just now. We’re checking your booking before another attempt.',
+          );
+        }
+
         if (errorCode === 'TIME_CONFLICT' || errorCode === 'NO_AVAILABLE_TECHNICIAN') {
+          releasePublicAttempt();
           setSlotTaken(true);
           bookingInitiatedRef.current = false;
           return;
         }
 
         if (errorCode === 'SMART_FIT_CHANGED') {
+          releasePublicAttempt();
           // The expected discounted price is no longer valid. No booking was
           // created; the client re-picks from refreshed availability instead
           // of this stale expectation ever being resubmitted.
@@ -2740,62 +2990,18 @@ export function BookConfirmClient({
       }
 
       const data = await response.json();
-
-      // A deposit hold is NOT a completed booking. Redirect BEFORE
-      // setBookingComplete / confetti / clearing the stored contact details:
-      // showing a success screen for an unpaid hold would be a lie, and
-      // clearing guest storage would cost the client their details if they came
-      // back from Checkout unpaid.
-      const depositCheckoutUrl = data?.data?.deposit?.required === true
-        ? data.data.deposit.checkoutUrl
-        : null;
-      if (typeof depositCheckoutUrl === 'string' && depositCheckoutUrl) {
-        // Remember OUR OWN checkout before leaving, so an abandoned session can
-        // be resumed from this tab (and only this tab — see the storage-key
-        // contract above) with a live countdown instead of a dead end.
-        try {
-          sessionStorage.setItem(DEPOSIT_RESUME_STORAGE_KEY, JSON.stringify({
-            checkoutUrl: depositCheckoutUrl,
-            holdExpiresAt: typeof data.data.deposit.holdExpiresAt === 'string'
-              ? data.data.deposit.holdExpiresAt
-              : null,
-            salonSlug,
-          } satisfies StoredDepositResume));
-        } catch {
-          // Storage unavailable — resume simply won't be offered.
-        }
-        navigateToCheckout(depositCheckoutUrl);
-        return;
+      if (!isPublicBookingReceipt(data)) {
+        throw new CustomerSafeBookingError(BOOKING_CONFIRM_FALLBACK_MESSAGE);
       }
-
-      const resultStatus: BookingResultStatus
-        = data?.data?.appointment?.status === 'pending' ? 'pending' : 'confirmed';
-      const returnedSmsReminderStatus = data?.data?.smsReminderStatus;
-      setSmsReminderStatus(
-        returnedSmsReminderStatus === 'enabled'
-        || returnedSmsReminderStatus === 'customer_disabled'
-        || returnedSmsReminderStatus === 'opted_out'
-        || returnedSmsReminderStatus === 'salon_disabled'
-          ? returnedSmsReminderStatus
-          : null,
-      );
-      setManageUrl(data.data.manageUrl || null);
-      setBookingResultStatus(resultStatus);
-      setBookingComplete(true);
       try {
-        sessionStorage.removeItem(GUEST_CONTACT_STORAGE_KEY);
+        if (salonId) {
+          resolvePublicBookingAttempt(salonId, data);
+        }
       } catch {
-        // Storage unavailable — nothing to clear.
+        // The original 201 is still authoritative; a later page load simply
+        // cannot restore it from browser storage.
       }
-
-      // A request awaiting salon approval is deliberately not given the
-      // confirmed-success check/confetti treatment.
-      if (resultStatus === 'confirmed') {
-        setTimeout(() => {
-          triggerHaptic('success');
-          triggerLuxuryConfetti();
-        }, 300);
-      }
+      completeManualBooking(data);
     } catch (error) {
       if (error instanceof NormalBookingRecoveryError) {
         setBookingError(normalBookingErrorMessage(error.reason));
@@ -2808,6 +3014,13 @@ export function BookConfirmClient({
         bookingInitiatedRef.current = false;
         return;
       }
+      if (!isAssistantHandoff && salonId) {
+        // The request may have reached the server even when this browser has
+        // no usable response. Keep the persisted identity and reconcile only
+        // through the status receipt; never turn this into an automatic POST.
+        setPublicRecoveryPending(true);
+        void checkPublicRecovery();
+      }
       console.error('Booking error:', error);
       setBookingError(
         error instanceof CustomerSafeBookingError
@@ -2818,7 +3031,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [addOns, salonName, salonTimeZone, technician, salonConfirmsManually, isAssistantHandoff, salonId, recoveringHandoff, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, canonicalStartTime, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, navigateToCheckout, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
+  }, [addOns, salonName, salonTimeZone, technician, salonConfirmsManually, isAssistantHandoff, salonId, recoveringHandoff, publicRecoveryPending, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, canonicalStartTime, checkPublicRecovery, completeManualBooking, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);
@@ -2840,7 +3053,68 @@ export function BookConfirmClient({
       setBookingError(normalBookingErrorMessage('recovery_unavailable'));
     }
   };
-  if (isAssistantHandoff && durableStatus) {
+  if (isAssistantHandoff && durableStatus && !publicRecoveryPending && !bookingComplete) {
+    if (
+      (durableStatus.status === 'confirmed' || durableStatus.status === 'awaiting_approval')
+      && Array.isArray(durableStatus.review.services)
+      && Array.isArray(durableStatus.review.addOns)
+      && durableStatus.review.financial
+    ) {
+      const review = durableStatus.review;
+      const reminderState = durableStatus.appointment?.reminderState;
+      return (
+        <SuccessContent
+          bookingStatus={durableStatus.status === 'awaiting_approval' ? 'pending' : 'confirmed'}
+          services={review.services.map(service => ({
+            id: service.id,
+            name: service.name,
+            price: service.priceCents / 100,
+            duration: 0,
+          }))}
+          addOns={review.addOns.map(addOn => ({
+            id: addOn.id,
+            name: addOn.name,
+            quantity: addOn.quantity,
+            price: addOn.priceCents / 100,
+            duration: 0,
+          }))}
+          technician={review.technician.kind === 'specific'
+            ? { id: review.technician.id, name: review.technician.name, imageUrl: null }
+            : durableStatus.appointment?.technicianName
+              ? { id: 'assigned-technician', name: durableStatus.appointment.technicianName, imageUrl: null }
+              : null}
+          totalPrice={review.financial.totalDueCents / 100}
+          totalDuration={durableStatus.appointment?.durationMinutes ?? review.durationMinutes}
+          dateStr={review.date}
+          timeStr={review.time}
+          pointsEarned={0}
+          onOpenDirections={() => openGoogleMapsDirections(review.location)}
+          onGoHome={() => router.push(appendSalonSlug('/book', salonSlug, { routeSalonSlug, locale }))}
+          location={review.location ? { id: 'booked-location', ...review.location } : null}
+          rewardsEnabled={false}
+          smsConsentGranted={reminderState === 'enabled'}
+          smsReminderStatus={reminderState && reminderState !== 'unrecorded' ? reminderState : null}
+          manageUrl={null}
+          findBookingUrl={appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug, locale })}
+          canonicalStartTime={durableStatus.appointment?.startTime ?? null}
+          clientChangeCutoffHours={clientChangeCutoffHours}
+          totalPriceDisplay={formatMoney(review.financial.totalDueCents, review.financial.currency)}
+          confirmationMessage={null}
+          policy={review.bookingPolicy.required ? { enabled: true, title: review.bookingPolicy.title, text: review.bookingPolicy.text, showBeforeConfirmation: true, showAfterConfirmation: true } : { ...displayedPolicy, enabled: false }}
+          recoveryError={bookingError}
+          onManage={() => void recoverBookingAction('manage')}
+          onStartAnother={() => {
+            try {
+              startAnotherBooking(salonId!, salonSlug, durableStatus.status);
+              clearBookingState();
+              router.push(buildBookingUrl(`/${locale}/book/service`, { salonSlug }, { routeSalonSlug, locale }));
+            } catch {
+              setBookingError(normalBookingErrorMessage('recovery_unavailable'));
+            }
+          }}
+        />
+      );
+    }
     return (
       <div className="mx-auto max-w-xl p-4">
         <BookingStatusCard status={durableStatus} locale={locale === 'fr' ? 'fr' : 'en'} onManage={() => void recoverBookingAction('manage')} onResume={() => void recoverBookingAction('resume')} />
@@ -2940,24 +3214,34 @@ export function BookConfirmClient({
 
   // Success state
   if (bookingComplete) {
+    const recovered = recoveredReceipt ? publicBookingReceiptPresentation(recoveredReceipt, salonTimeZone) : null;
+    if (recoveredReceipt && !recovered) {
+      return (
+        <div className="mx-auto max-w-lg p-5">
+          <h1 className="text-xl font-semibold">Booking received</h1>
+          <p className="mt-3">Your booking was received. Open its details for the current appointment and payment status.</p>
+          <a className="mt-4 flex min-h-11 items-center underline" href={manageUrl || appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug, locale })}>View booking details</a>
+        </div>
+      );
+    }
     return (
       <SuccessContent
         bookingStatus={bookingResultStatus}
-        services={services}
-        addOns={addOns}
-        technician={technician}
-        totalPrice={resolvedTotalPrice}
-        totalDuration={resolvedTotalDuration}
-        dateStr={dateStr}
-        timeStr={timeStr}
-        pointsEarned={pointsEarned}
+        services={recovered?.services ?? services}
+        addOns={recovered?.addOns ?? addOns}
+        technician={recovered ? recovered.technician : technician}
+        totalPrice={recovered?.totalPrice ?? resolvedTotalPrice}
+        totalDuration={recovered?.totalDuration ?? resolvedTotalDuration}
+        dateStr={recovered?.dateStr ?? dateStr}
+        timeStr={recovered?.timeStr ?? timeStr}
+        pointsEarned={recovered ? 0 : pointsEarned}
         onOpenDirections={handleOpenDirections}
         onGoHome={() => router.push(appendSalonSlug('/book', salonSlug, {
           routeSalonSlug,
           locale,
         }))}
-        location={location}
-        rewardsEnabled={rewardsEnabled}
+        location={recovered ? null : location}
+        rewardsEnabled={!recovered && rewardsEnabled}
         smsConsentGranted={smsConsent}
         smsReminderStatus={smsReminderStatus}
         manageUrl={manageUrl}
@@ -2965,11 +3249,11 @@ export function BookConfirmClient({
           routeSalonSlug,
           locale,
         })}
-        canonicalStartTime={canonicalStartTime}
+        canonicalStartTime={recovered?.canonicalStartTime ?? canonicalStartTime}
         clientChangeCutoffHours={clientChangeCutoffHours}
-        totalPriceDisplay={totalPriceDisplay}
-        confirmationMessage={bookingExperience.confirmationMessage}
-        policy={displayedPolicy}
+        totalPriceDisplay={recovered ? formatMoney(recovered.totalCents, recovered.currency) : totalPriceDisplay}
+        confirmationMessage={recovered ? null : bookingExperience.confirmationMessage}
+        policy={recovered ? { ...displayedPolicy, enabled: false } : displayedPolicy}
       />
     );
   }
@@ -2984,50 +3268,60 @@ export function BookConfirmClient({
   }
 
   return (
-    <ConfirmContent
-      services={services}
-      addOns={addOns}
-      technician={technician}
-      totalPrice={resolvedTotalPrice}
-      totalDuration={resolvedTotalDuration}
-      dateStr={dateStr}
-      timeStr={timeStr}
-      pointsEarned={pointsEarned}
-      subtotalBeforeDiscount={resolvedSubtotalBeforeDiscount}
-      discountAmount={discountAmount}
-      firstVisitDiscountPreview={firstVisitDiscountPreview}
-      campaignPromotionPreview={campaignPromotionPreview}
-      campaignMessage={campaignMessage}
-      onConfirm={createBooking}
-      onEditSelection={() => router.back()}
-      isSubmitting={isBooking}
-      isRecoveringBooking={recoveringHandoff}
-      location={location}
-      rewardsEnabled={rewardsEnabled}
-      isReschedule={Boolean(originalAppointmentId)}
-      guestName={guestName}
-      guestEmail={guestEmail}
-      guestPhone={guestPhone}
-      smsConsent={smsConsent}
-      smsBookingDefault={smsBookingDefault}
-      bookingError={bookingError}
-      onGuestNameChange={setGuestName}
-      onGuestEmailChange={setGuestEmail}
-      onGuestPhoneChange={setGuestPhone}
-      onSmsConsentChange={handleSmsConsentChange}
-      smartFitOffer={smartFitOffer}
-      totalPriceDisplay={totalPriceDisplay}
-      smartFitSuggestion={smartFitSuggestion}
-      onAcceptSmartFitSuggestion={handleAcceptSmartFitSuggestion}
-      onDismissSmartFitSuggestion={handleDismissSmartFitSuggestion}
-      policy={displayedPolicy}
-      quickFacts={bookingExperience.quickFacts}
-      depositDisclosure={displayedDeposit ?? null}
-      bookingFinancialEstimate={bookingFinancialEstimate}
-      depositNoticeSuppressed={depositNoticeSuppressed}
-      policyAcknowledged={policyAcknowledged}
-      onPolicyAcknowledgmentChange={setPolicyAcknowledged}
-      salonConfirmsManually={salonConfirmsManually}
-    />
+    <>
+      {publicRecoveryPending && !checkingPublicRecovery && (
+        <BookingRecoveryNotice
+          onCheckAgain={() => void checkPublicRecovery()}
+          isChecking={checkingPublicRecovery}
+          findBookingUrl={appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug, locale })}
+        />
+      )}
+      <ConfirmContent
+        services={services}
+        addOns={addOns}
+        technician={technician}
+        totalPrice={resolvedTotalPrice}
+        totalDuration={resolvedTotalDuration}
+        dateStr={dateStr}
+        timeStr={timeStr}
+        pointsEarned={pointsEarned}
+        subtotalBeforeDiscount={resolvedSubtotalBeforeDiscount}
+        discountAmount={discountAmount}
+        firstVisitDiscountPreview={firstVisitDiscountPreview}
+        campaignPromotionPreview={campaignPromotionPreview}
+        campaignMessage={campaignMessage}
+        onConfirm={createBooking}
+        onEditSelection={() => router.back()}
+        isSubmitting={isBooking || publicRecoveryPending}
+        isRecoveringBooking={recoveringHandoff || checkingPublicRecovery}
+        recoveryUnresolved={publicRecoveryPending && !checkingPublicRecovery}
+        location={location}
+        rewardsEnabled={rewardsEnabled}
+        isReschedule={Boolean(originalAppointmentId)}
+        guestName={guestName}
+        guestEmail={guestEmail}
+        guestPhone={guestPhone}
+        smsConsent={smsConsent}
+        smsBookingDefault={smsBookingDefault}
+        bookingError={checkingPublicRecovery ? null : bookingError}
+        onGuestNameChange={setGuestName}
+        onGuestEmailChange={setGuestEmail}
+        onGuestPhoneChange={setGuestPhone}
+        onSmsConsentChange={handleSmsConsentChange}
+        smartFitOffer={smartFitOffer}
+        totalPriceDisplay={totalPriceDisplay}
+        smartFitSuggestion={smartFitSuggestion}
+        onAcceptSmartFitSuggestion={handleAcceptSmartFitSuggestion}
+        onDismissSmartFitSuggestion={handleDismissSmartFitSuggestion}
+        policy={displayedPolicy}
+        quickFacts={bookingExperience.quickFacts}
+        depositDisclosure={displayedDeposit ?? null}
+        bookingFinancialEstimate={bookingFinancialEstimate}
+        depositNoticeSuppressed={depositNoticeSuppressed}
+        policyAcknowledged={policyAcknowledged}
+        onPolicyAcknowledgmentChange={setPolicyAcknowledged}
+        salonConfirmsManually={salonConfirmsManually}
+      />
+    </>
   );
 }

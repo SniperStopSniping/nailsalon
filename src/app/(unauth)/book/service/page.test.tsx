@@ -223,6 +223,26 @@ describe('BookServicePage first-visit offer visibility', () => {
     vi.useRealTimers();
   });
 
+  it('does not mount global recovery for stale legacy booking state on service selection', async () => {
+    const legacyKey = 'luster.customer-booking.operation.salon_1';
+    localStorage.setItem(legacyKey, JSON.stringify({ version: 1, salonId: 'salon_1', capability: 'legacy', revision: 1, fingerprint: 'old', expiresAt: '2020-01-01T00:00:00Z' }));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    getClientSession.mockResolvedValue(null);
+    const element = await BookServicePage({
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
+    });
+    render(element);
+
+    expect(screen.getByText('Book service client')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Booking status' })).not.toBeInTheDocument();
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes('/customer-booking/'))).toBe(false);
+    expect(localStorage.getItem(legacyKey)).not.toBeNull();
+
+    localStorage.removeItem(legacyKey);
+    fetchSpy.mockRestore();
+  });
+
   it('shows the offer for unknown visitors when the salon offer is enabled', async () => {
     getClientSession.mockResolvedValue(null);
 

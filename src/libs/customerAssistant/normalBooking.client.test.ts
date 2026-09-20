@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { confirmNormalHandoffBooking, recoverNormalBooking } from './normalBooking.client';
 
-const mocks = vi.hoisted(() => ({ handoff: vi.fn() }));
-vi.mock('./normalConfirmHandoff.client', () => ({ readNormalConfirmHandoff: mocks.handoff }));
+const mocks = vi.hoisted(() => ({ handoff: vi.fn(), writeHandoff: vi.fn() }));
+vi.mock('./normalConfirmHandoff.client', () => ({ readNormalConfirmHandoff: mocks.handoff, writeNormalConfirmHandoff: mocks.writeHandoff }));
 
 const salonId = 'salon-a';
 const flowToken = 'v1.123e4567-e89b-12d3-a456-426614174000.1.mac';
@@ -20,6 +20,8 @@ function response(value: unknown, ok = true) {
 beforeEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
+  vi.useRealTimers();
+  mocks.writeHandoff.mockReset();
   mocks.handoff.mockReturnValue({ flowToken, expiresAt: '2030-01-01T02:00:00.000Z' });
   vi.spyOn(Date, 'now').mockReturnValue(new Date('2030-01-01T00:00:00.000Z').getTime());
 });
@@ -82,5 +84,89 @@ describe('normal booking coordinator', () => {
     localStorage.setItem(key, '{}');
 
     await expect(recoverNormalBooking(salonId)).rejects.toMatchObject({ reason: 'recovery_unavailable' });
+  });
+
+  it('polls an in-flight confirmation after refresh without a creation POST', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem(key, JSON.stringify(operation));
+    localStorage.setItem(`${key}.confirming`, '1');
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(response({ ...status, status: 'not_created' }))
+      .mockResolvedValueOnce(response(status)));
+    const recovered = recoverNormalBooking(salonId);
+    await vi.runAllTimersAsync();
+
+    await expect(recovered).resolves.toEqual(status);
+    expect(localStorage.getItem(`${key}.confirming`)).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).endsWith('/status'))).toBe(true);
+  });
+
+  it('adopts a legacy capability into the same server-verified flow without creation', async () => {
+    mocks.handoff.mockReturnValue(null);
+    const legacyKey = `luster.customer-booking.operation.${salonId}`;
+    localStorage.setItem(legacyKey, JSON.stringify({ ...operation, version: 1, salonId }));
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(response({ handoff: { flowToken, expiresAt: operation.expiresAt }, status }))
+      .mockResolvedValueOnce(response(status)));
+
+    await expect(recoverNormalBooking(salonId)).resolves.toEqual(status);
+    expect(JSON.parse(localStorage.getItem(key)!)).toEqual(operation);
+    expect(mocks.writeHandoff).toHaveBeenCalledWith(salonId, { flowToken, expiresAt: operation.expiresAt });
+    expect(localStorage.getItem(legacyKey)).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url).split('/').at(-1))).toEqual(['handoff', 'status']);
+  });
+
+  it('preserves legacy evidence when adoption storage fails', async () => {
+    mocks.handoff.mockReturnValue(null);
+    const legacyKey = `luster.customer-booking.operation.${salonId}`;
+    localStorage.setItem(legacyKey, JSON.stringify({ ...operation, version: 1, salonId }));
+    mocks.writeHandoff.mockImplementation(() => {
+      throw new Error('storage failed');
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ handoff: { flowToken, expiresAt: operation.expiresAt }, status })));
+
+    await expect(recoverNormalBooking(salonId)).rejects.toThrow('storage failed');
+    expect(localStorage.getItem(legacyKey)).not.toBeNull();
+  });
+
+  it('does not overwrite a conflicting normal operation with a legacy operation', async () => {
+    localStorage.setItem(key, JSON.stringify(operation));
+    const legacyKey = `luster.customer-booking.operation.${salonId}`;
+    localStorage.setItem(legacyKey, JSON.stringify({ ...operation, capability: 'different', version: 1, salonId }));
+    vi.stubGlobal('fetch', vi.fn());
+
+    await expect(recoverNormalBooking(salonId)).rejects.toMatchObject({ reason: 'recovery_unavailable' });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(localStorage.getItem(legacyKey)).not.toBeNull();
+  });
+
+  it('keeps unresolved confirmation contextual on refresh and retries only the same operation after a deliberate click', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem(key, JSON.stringify(operation));
+    localStorage.setItem(`${key}.confirming`, '1');
+    const unresolved = { ...status, status: 'not_created', lastFailure: null };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(unresolved)));
+    const recovery = expect(recoverNormalBooking(salonId)).rejects.toMatchObject({ reason: 'recovery_unavailable' });
+    await vi.runAllTimersAsync();
+    await recovery;
+
+    expect(localStorage.getItem(`${key}.confirming`)).toBe('1');
+    expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).endsWith('/status'))).toBe(true);
+
+    vi.mocked(fetch).mockImplementation(async (url) => {
+      if (String(url).endsWith('/prepare')) {
+        return response({ operation }) as unknown as Response;
+      }
+      return response(String(url).endsWith('/confirm') ? status : unresolved) as unknown as Response;
+    });
+    const retry = confirmNormalHandoffBooking(args);
+    await vi.runAllTimersAsync();
+
+    await expect(retry).resolves.toEqual(status);
+
+    const create = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/confirm'));
+
+    expect(create).toHaveLength(1);
+    expect(JSON.parse(create[0]![1]!.body as string).capability).toBe(operation.capability);
   });
 });

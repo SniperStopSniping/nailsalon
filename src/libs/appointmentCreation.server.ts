@@ -145,6 +145,7 @@ import {
   checkPublicBookingRateLimit,
   getPublicBookingClientIp,
 } from '@/libs/publicBookingRateLimit.server';
+import { getPublicBookingRecoveryKeyHash } from '@/libs/publicBookingRecovery.server';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import {
   getAppointmentById,
@@ -5122,6 +5123,7 @@ export async function createAppointmentFromRequest(
     // =========================================================================
     if (idempotencyEnabled && ownsLock && idempotencyCacheKey && redis && requestBodyHash) {
       try {
+        const recoveryKeyHash = getPublicBookingRecoveryKeyHash(request);
         await redis.set(
           idempotencyCacheKey,
           JSON.stringify({
@@ -5129,6 +5131,7 @@ export async function createAppointmentFromRequest(
             createdAt: new Date().toISOString(),
             statusCode: 201,
             responseBody: response, // Same object returned to client
+            ...(recoveryKeyHash ? { recoveryKeyHash } : {}),
           }),
           'PX',
           TTL.BOOKING_IDEMPOTENCY * 1000,

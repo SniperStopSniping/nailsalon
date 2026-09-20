@@ -1,10 +1,18 @@
 import type { CustomerBookingOperationReference, CustomerBookingStatus } from './bookingOperationContracts';
 import type { NormalBookingPrepare } from './normalBookingContracts';
-import { readNormalConfirmHandoff } from './normalConfirmHandoff.client';
+import { readNormalConfirmHandoff, writeNormalConfirmHandoff } from './normalConfirmHandoff.client';
 
 export class NormalBookingRecoveryError extends Error {
   constructor(readonly reason: string) {
     super(reason);
+  }
+}
+
+function parseStored<T>(raw: string): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new NormalBookingRecoveryError('recovery_unavailable');
   }
 }
 
@@ -14,7 +22,7 @@ function readOperation(salonId: string, flowToken: string): CustomerBookingOpera
   if (!raw) {
     return null;
   }
-  const operation = JSON.parse(raw) as CustomerBookingOperationReference;
+  const operation = parseStored<CustomerBookingOperationReference>(raw);
   if (typeof operation.capability !== 'string' || !Number.isInteger(operation.revision) || typeof operation.fingerprint !== 'string') {
     throw new NormalBookingRecoveryError('recovery_unavailable');
   }
@@ -30,8 +38,8 @@ function saveOperation(salonId: string, flowToken: string, operation: CustomerBo
 export function adoptNormalBookingOperation(salonId: string, flowToken: string, operation: CustomerBookingOperationReference): void {
   saveOperation(salonId, flowToken, operation);
 }
-async function post<T>(salonId: string, action: string, body: unknown): Promise<T> {
-  const response = await fetch(`/api/public/customer-booking/${encodeURIComponent(salonId)}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+async function post<T>(salonId: string, action: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`/api/public/customer-booking/${encodeURIComponent(salonId)}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     throw new NormalBookingRecoveryError(typeof data?.reason === 'string' ? data.reason : 'recovery_unavailable');
@@ -39,14 +47,73 @@ async function post<T>(salonId: string, action: string, body: unknown): Promise<
   return data as T;
 }
 
+const pendingKey = (salonId: string, flowToken: string) => `${operationKey(salonId, flowToken.split('.')[1]!)}.confirming`;
+
+async function reconcileOperation(salonId: string, flowToken: string, operation: CustomerBookingOperationReference, allowUnresolved = false): Promise<CustomerBookingStatus> {
+  const pending = localStorage.getItem(pendingKey(salonId, flowToken)) !== null;
+  let latest: CustomerBookingStatus | null = null;
+  for (const delay of pending ? [0, 500, 1500, 3000] : [0]) {
+    if (delay) {
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      latest = await post<CustomerBookingStatus>(salonId, 'status', { capability: operation.capability }, controller.signal);
+      if (latest.status !== 'not_created' || latest.lastFailure) {
+        localStorage.removeItem(pendingKey(salonId, flowToken));
+        return latest;
+      }
+    } catch (error) {
+      if (!pending) {
+        throw error;
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  if (!latest || (pending && !allowUnresolved)) {
+    throw new NormalBookingRecoveryError('recovery_unavailable');
+  }
+  return latest;
+}
+
 /** Read status before any preparation/create after reload or an ambiguous response. */
-export async function recoverNormalBooking(salonId: string): Promise<CustomerBookingStatus | null> {
-  const flow = readNormalConfirmHandoff(salonId);
+export async function recoverNormalBooking(salonId: string, allowUnresolved = false): Promise<CustomerBookingStatus | null> {
+  let flow = readNormalConfirmHandoff(salonId);
+  if (!flow) {
+    const raw = localStorage.getItem(`luster.customer-booking.operation.${salonId}`);
+    if (raw) {
+      const legacy = parseStored<CustomerBookingOperationReference & { version: number; salonId: string }>(raw);
+      if (legacy.version !== 1 || legacy.salonId !== salonId || typeof legacy.capability !== 'string') {
+        throw new NormalBookingRecoveryError('recovery_unavailable');
+      }
+      const restored = await post<{ handoff: { flowToken: string; expiresAt: string }; status: CustomerBookingStatus }>(salonId, 'handoff', { capability: legacy.capability });
+      saveOperation(salonId, restored.handoff.flowToken, restored.status.operation);
+      writeNormalConfirmHandoff(salonId, restored.handoff);
+      // Legacy records did not distinguish preparation from submission. Retain
+      // identity and conservatively reconcile rather than inventing an outcome.
+      if (restored.status.status === 'not_created' && !restored.status.lastFailure) {
+        localStorage.setItem(pendingKey(salonId, restored.handoff.flowToken), '1');
+      }
+      localStorage.removeItem(`luster.customer-booking.operation.${salonId}`);
+      flow = restored.handoff;
+    }
+  }
   if (!flow) {
     throw new NormalBookingRecoveryError('handoff_missing');
   }
   const operation = readOperation(salonId, flow.flowToken);
-  return operation ? post<CustomerBookingStatus>(salonId, 'status', { capability: operation.capability }) : null;
+  const remainingLegacy = localStorage.getItem(`luster.customer-booking.operation.${salonId}`);
+  if (remainingLegacy) {
+    const legacy = parseStored<CustomerBookingOperationReference & { version: number; salonId: string }>(remainingLegacy);
+    if (legacy.version !== 1 || legacy.salonId !== salonId || !operation || legacy.capability !== operation.capability) {
+      throw new NormalBookingRecoveryError('recovery_unavailable');
+    }
+    // Both pointers refer to the same durable operation; keep the verified new one.
+    localStorage.removeItem(`luster.customer-booking.operation.${salonId}`);
+  }
+  return operation ? reconcileOperation(salonId, flow.flowToken, operation, allowUnresolved) : null;
 }
 
 /** Invoked only by the existing normal Confirm button. No model is involved. */
@@ -59,7 +126,7 @@ export async function confirmNormalHandoffBooking(args: {
   if (!flow) {
     throw new NormalBookingRecoveryError('handoff_missing');
   }
-  const existing = await recoverNormalBooking(args.salonId);
+  const existing = await recoverNormalBooking(args.salonId, true);
   if (existing && existing.status !== 'not_created') {
     return existing;
   }
@@ -78,6 +145,11 @@ export async function confirmNormalHandoffBooking(args: {
   }
   // Losing this storage write must block the create; otherwise refresh could duplicate it.
   saveOperation(args.salonId, flow.flowToken, prepared.operation);
+  const marker = pendingKey(args.salonId, flow.flowToken);
+  localStorage.setItem(marker, '1');
+  if (localStorage.getItem(marker) !== '1') {
+    throw new NormalBookingRecoveryError('storage_unavailable');
+  }
   try {
     const status = await post<CustomerBookingStatus>(args.salonId, 'confirm', {
       ...prepared.operation,
@@ -87,9 +159,12 @@ export async function confirmNormalHandoffBooking(args: {
       policyAccepted: args.booking.bookingPolicyAcknowledgment?.accepted ?? false,
     });
     saveOperation(args.salonId, flow.flowToken, status.operation);
+    if (status.status !== 'not_created' || status.lastFailure) {
+      localStorage.removeItem(marker);
+    }
     return status;
   } catch {
-    const status = await post<CustomerBookingStatus>(args.salonId, 'status', { capability: prepared.operation.capability });
+    const status = await reconcileOperation(args.salonId, flow.flowToken, prepared.operation);
     saveOperation(args.salonId, flow.flowToken, status.operation);
     return status;
   }
