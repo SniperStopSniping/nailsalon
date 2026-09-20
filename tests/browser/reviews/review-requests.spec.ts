@@ -19,7 +19,7 @@ const settings = {
   googleReviewUrl: reviewUrl,
   automaticEnabled: false,
   delayMinutes: 60,
-  messageTemplate: 'Hi {{firstName}}! Thanks for visiting {{businessName}}. Please leave a Google review: {{reviewLink}}',
+  messageTemplate: 'Thanks for visiting! We\'d love your Google review: {{reviewLink}}',
   businessName: 'Avery Lee Nail Studio',
 };
 
@@ -29,7 +29,7 @@ function action(state: ReviewState['status'], overrides: Partial<ReviewState> = 
     reason: null,
     scheduledFor: state === 'scheduled' ? '2026-09-12T20:30:00.000Z' : null,
     sentAt: state === 'sent' ? '2026-09-12T20:31:00.000Z' : null,
-    message: 'Avery Lee Nail Studio via Luster: Hi Avery! Thanks for visiting Avery Lee Nail Studio. Please leave a Google review: https://www.google.com/maps/place/Avery+Lee+Nail+Studio/review?utm_source=luster-mobile-preview Reply STOP to opt out.',
+    message: 'Avery Lee Nail Studio via Luster: Thanks for visiting! We\'d love your Google review: https://www.google.com/maps/place/Avery+Lee+Nail+Studio/review?utm_source=luster-mobile-preview',
     phone: '(416) 555-0199',
     clientId: 'review-client',
     source: 'automatic',
@@ -107,7 +107,7 @@ test('mobile owner can edit settings, queue Send now once, then see sent and sup
 
   await expect(page.getByTestId('review-request-settings')).toBeVisible();
   await expect(page.getByLabel('Google review link')).toHaveValue(reviewUrl);
-  await expect(page.getByText(/Avery Lee Nail Studio via Luster: Hi Avery! Thanks for visiting Avery Lee Nail Studio/)).toBeVisible();
+  await expect(page.getByText(/Avery Lee Nail Studio via Luster: Thanks for visiting! We'd love your Google review/)).toBeVisible();
   await expect(page.getByRole('link', { name: 'Test link' })).toHaveAttribute('href', reviewUrl);
 
   await expect(page.getByRole('radio', { name: /manual only/i })).toBeChecked();
@@ -135,12 +135,15 @@ test('mobile owner can edit settings, queue Send now once, then see sent and sup
 
   await scheduled.tap();
 
-  await expect(page.getByRole('dialog', { name: 'Send review request' })).toBeVisible();
-  await expect(page.getByText('(416) 555-0199')).toBeVisible();
-  await expect(page.getByText('Message preview')).toBeVisible();
-  await expect(page.getByRole('dialog', { name: 'Send review request' }).getByRole('button', { name: 'Send now' })).toHaveCount(1);
+  const confirmation = page.getByRole('dialog', { name: 'Send review request' });
 
-  await expect(page.getByRole('dialog', { name: 'Send review request' }).getByText('Reply STOP to opt out.', { exact: false })).toBeVisible();
+  await expect(confirmation).toBeVisible();
+  await expect(page.getByText('(416) 555-0199')).toBeVisible();
+  await expect(confirmation.getByText('Customer message', { exact: true })).toBeVisible();
+  await expect(confirmation.getByRole('button', { name: 'Send now' })).toHaveCount(1);
+
+  await expect(confirmation.getByTestId('sms-segment-summary')).toHaveText('2 SMS segments · 2 credits');
+  await expect(confirmation.getByTestId('sms-message-preview')).not.toContainText('Reply STOP to opt out.');
 
   await page.screenshot({ path: test.info().outputPath('review-request-confirmation.png'), fullPage: true });
 
