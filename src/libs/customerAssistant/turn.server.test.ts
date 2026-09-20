@@ -53,7 +53,7 @@ describe('customer assistant bounded turn', () => {
 
     expect(result.result).toMatchObject({ kind: 'proposal', proposal: { subtotalCents: 6000, durationMinutes: 60 } });
     expect(model.createResponse).toHaveBeenCalledTimes(1);
-    expect(model.createResponse).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.6-luna', reasoningEffort: 'low', tools: [], toolChoice: 'none', maxOutputTokens: 1200 }));
+    expect(model.createResponse).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.6-terra', reasoningEffort: 'low', tools: [], toolChoice: 'none', maxOutputTokens: 1200 }));
     expect(mocks.record.mock.invocationCallOrder[0]).toBeLessThan(model.createResponse.mock.invocationCallOrder[0]!);
     expect(verifyCustomerConversation(result.conversation, 'salon-a', secret).messages).toEqual(['Gel-X with French']);
   });
@@ -257,6 +257,62 @@ describe('customer assistant bounded turn', () => {
     expect(payload.bookingState.offeredSlots).toHaveLength(8);
     expect(response.result).toEqual({ kind: 'clarification', question: 'finish', options: [target.name] });
     expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).context?.selection).toEqual(selection);
+  });
+
+  it('turns an empty optional finish clarification into a Gel Manicure proposal, then reads availability without a booking write', async () => {
+    const gelManicure = SEMANTIC_L1_MENU.services.find(item => item.name === 'Gel Manicure')!.id;
+    const selection = { baseServiceId: gelManicure, selectedAddOns: [] };
+    const proposal = {
+      selection,
+      fingerprint: acceptedFingerprint,
+      service: { id: gelManicure, name: 'Gel Manicure', priceCents: 4000 },
+      addOns: [],
+      subtotalCents: 4000,
+      durationMinutes: 60,
+      currency: 'CAD',
+      expiresAt: '2026-09-18T00:00:00Z',
+    };
+    mocks.menu.mockResolvedValue(SEMANTIC_L1_MENU);
+    mocks.proposal.mockResolvedValue(proposal);
+    mocks.lookup.mockResolvedValue({
+      proposal,
+      today: '2026-09-18',
+      timeZone: 'America/Toronto',
+      slots: [{ time: '15:00', startTime: '2026-09-20T19:00:00.000Z' }],
+      selected: null,
+      quoteChanged: false,
+    });
+    const first = await runCustomerAssistantTurn({ ...input(), message: 'A Gel Manicure please.' }, provider({
+      ...interpretation,
+      action: 'clarify',
+      serviceId: gelManicure,
+      addOns: [],
+      question: 'finish',
+      optionIds: [],
+      factUpdates: { ...noFactUpdates, treatment: 'gel_polish', desiredApplication: 'natural_nails', existingProduct: 'none', removal: 'no' },
+    }));
+
+    expect(first.result).toEqual({ kind: 'proposal', proposal });
+    expect(mocks.proposal).toHaveBeenCalledWith('salon-a', null, selection);
+
+    const firstState = verifyCustomerConversation(first.conversation, 'salon-a', secret);
+
+    expect(firstState.context?.selection).toEqual(selection);
+    expect(firstState.booking).toBeUndefined();
+
+    const availability = await runCustomerAssistantTurn({ ...input(), conversation: first.conversation, message: 'Saturday afternoon?' }, provider({
+      ...interpretation,
+      action: 'availability',
+      serviceId: null,
+      addOns: [],
+      datePreference: { date: '2026-09-20', earliest: '12:00', latest: '17:00' },
+      availabilityScope: 'specific_window',
+      dateExplicitThisTurn: true,
+    }));
+
+    expect(availability.result).toMatchObject({ kind: 'slots', proposal, slots: [{ time: '15:00' }] });
+    expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({ selection, preference: { date: '2026-09-20', earliest: '12:00', latest: '17:00' } }));
+    expect(mocks.proposal).toHaveBeenCalledTimes(1);
   });
 
   it('stores the same safe transient fallback shown to the customer after a provider interruption and preserves recovery state', async () => {
@@ -884,6 +940,7 @@ describe('natural receptionist orchestration', () => {
     expect(restored.requestedSelection).toBeUndefined();
     expect(restored.dialogue).toEqual([{ role: 'user', content: 'How much is Gel-X?' }, { role: 'assistant', content: result.result.message }]);
     expect(model.createResponse).toHaveBeenCalledTimes(2);
+    expect(model.createResponse.mock.calls.map(call => call[0].model)).toEqual(['gpt-5.6-terra', 'gpt-5.6-luna']);
     expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ usage: { inputTokens: 200, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 100 } }));
     expect(mocks.proposal).not.toHaveBeenCalled();
   });
@@ -931,6 +988,12 @@ describe('natural receptionist orchestration', () => {
     const result = await runCustomerAssistantTurn(input(), model);
 
     expect(result.result.message).toContain('$60.00');
-    expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ usage: null }));
+    expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({
+      usage: null,
+      stageUsages: [
+        expect.objectContaining({ stage: 'interpreter', model: 'gpt-5.6-terra', usage }),
+        expect.objectContaining({ stage: 'composer', model: 'gpt-5.6-luna', usage: null }),
+      ],
+    }));
   });
 });

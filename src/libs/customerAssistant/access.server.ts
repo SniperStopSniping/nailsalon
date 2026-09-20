@@ -3,7 +3,7 @@ import 'server-only';
 /** The public pilot is deliberately a single, exact salon slug. */
 const ISLA_PILOT_SLUG = 'isla-nail-studio';
 
-export const CUSTOMER_ASSISTANT_MODEL = 'gpt-5.6-luna';
+export { CUSTOMER_ASSISTANT_INTERPRETATION_MODEL, CUSTOMER_ASSISTANT_MODEL } from './contracts';
 export const CUSTOMER_ASSISTANT_REASONING_EFFORT = 'low' as const;
 
 export type CustomerAssistantConfig = {

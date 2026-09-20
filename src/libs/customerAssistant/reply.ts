@@ -241,8 +241,23 @@ export function parseReceptionistReply(raw: string, facts: Record<string, string
   if (referenced.has('limitation') && prose.toLocaleLowerCase().includes(facts.limitation?.toLocaleLowerCase() ?? '')) {
     throw new Error('CUSTOMER_REPLY_LIMITATION_PROSE');
   }
-  if (facts.required_question && (/[?？]/u.test(prose) || prose.toLocaleLowerCase().includes(facts.required_question.replace(/[?？]/gu, '').toLocaleLowerCase()))) {
-    throw new Error('CUSTOMER_REPLY_DUPLICATE_QUESTION');
+  if (facts.required_question) {
+    const question = facts.required_question.replace(/[?？]/gu, '').toLocaleLowerCase();
+    // Keep useful explanation when one sentence redundantly restates the
+    // canonical question. The required fact remains exactly once. All value
+    // and business-claim guards below still inspect the original prose.
+    reply.segments = reply.segments.flatMap<(typeof reply.segments)[number]>((segment) => {
+      if (segment.kind !== 'text') {
+        return [segment];
+      }
+      const text = segment.text.split(/(?<=[.!?。！？])\s+/u)
+        .filter(sentence => !sentence.toLocaleLowerCase().includes(question)).join(' ').trim();
+      return text ? [{ ...segment, text }] : [];
+    });
+    const remainingProse = reply.segments.flatMap(segment => segment.kind === 'text' ? [segment.text] : []).join(' ');
+    if (/[?？]/u.test(remainingProse)) {
+      throw new Error('CUSTOMER_REPLY_DUPLICATE_QUESTION');
+    }
   }
   const customerQuoteValues = [...referenced]
     .filter(key => key.startsWith('customer_quote_'))

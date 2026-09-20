@@ -144,7 +144,9 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     category: 'desired natural-nail service does not erase stated existing gel polish',
     turns: [
       { message: 'I want BIAB on my own natural nails, I already have gel polish on them and two are broken', expect: { resultKinds: ['clarification'], facts: { treatment: 'builder_gel', desiredApplication: 'natural_nails', existingProduct: 'gel_polish', repairCount: 2 } } },
-      { message: 'the polish was done here', expect: { resultKinds: ['proposal', 'clarification'], facts: { existingProduct: 'gel_polish', origin: 'this_salon', repairCount: 2 }, proposal: { serviceId: ids.biab, addOnIds: [ids.repair] } } },
+      // This synthetic menu does not sell gel-polish removal. Preserve the
+      // stated product and repairs; never fabricate a supported transition.
+      { message: 'the polish was done here', expect: { resultKinds: ['unavailable', 'clarification'], facts: { existingProduct: 'gel_polish', origin: 'this_salon', repairCount: 2 }, reply: { nonEmpty: true } } },
     ],
   },
   {
@@ -303,7 +305,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     category: 'explicit same-length instruction is not mistaken for stale state',
     turns: [
       { message: 'long Gel-X on bare nails', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', desiredApplication: 'extensions', length: 'long', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.long] } } },
-      { message: 'Actually I want BIAB, but keep them long', expect: { resultKinds: ['clarification', 'unavailable', 'proposal'], facts: { treatment: 'builder_gel', desiredApplication: 'natural_nails', length: 'long' } } },
+      { message: 'Actually I want BIAB, but keep them long', expect: { resultKinds: ['clarification', 'unavailable', 'proposal'], facts: { treatment: 'builder_gel', length: 'long' }, reply: { nonEmpty: true, excludes: ['We could not find a matching service'] } } },
     ],
   },
   {

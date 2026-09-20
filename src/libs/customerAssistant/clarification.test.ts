@@ -178,3 +178,52 @@ describe('authoritative customer clarification applicability', () => {
     expect(plan({ candidate: { baseServiceId: biab, selectedAddOns: [{ addOnId: 'other-tenant', quantity: 1 }] } })).toEqual({ kind: 'no_match' });
   });
 });
+
+describe('optional finish advisory boundaries', () => {
+  it('does not turn a complete bare Gel Manicure into an optional finish question', () => {
+    expect(plan({
+      action: 'clarify',
+      facts: manicureFacts,
+      candidate: { baseServiceId: manicure, selectedAddOns: [] },
+      question: 'finish',
+      optionIds: [],
+    })).toEqual({ kind: 'selection', selection: { baseServiceId: manicure, selectedAddOns: [] } });
+  });
+
+  it('keeps explicitly requested supported finish alternatives visible', () => {
+    const chrome = addon('Chrome Finish');
+
+    expect(plan({
+      action: 'clarify',
+      facts: manicureFacts,
+      candidate: { baseServiceId: manicure, selectedAddOns: [] },
+      question: 'finish',
+      optionIds: [french, chrome],
+    })).toEqual({ kind: 'clarification', question: 'finish', optionIds: [chrome, french].sort() });
+  });
+
+  it('does not bypass a required finish group when no optional finish was explicitly requested', () => {
+    const requiredFinishGroup = {
+      ...SEMANTIC_L1_SNAPSHOT.addOnGroups[0]!,
+      id: 'required-finish',
+      name: 'Finish',
+      slug: 'finish',
+      minSelections: 1,
+      maxSelections: 1,
+    };
+    const snapshot: PublicCatalogSnapshot = {
+      ...SEMANTIC_L1_SNAPSHOT,
+      addOns: SEMANTIC_L1_SNAPSHOT.addOns.map(item => item.id === french ? { ...item, groupId: requiredFinishGroup.id } : item),
+      addOnGroups: [...SEMANTIC_L1_SNAPSHOT.addOnGroups, requiredFinishGroup],
+    };
+
+    expect(plan({
+      snapshot,
+      action: 'clarify',
+      facts: manicureFacts,
+      candidate: { baseServiceId: manicure, selectedAddOns: [] },
+      question: 'finish',
+      optionIds: [],
+    })).toEqual({ kind: 'clarification', question: 'details', optionIds: [french] });
+  });
+});

@@ -293,7 +293,10 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       }
     }
     if (resolved.kind === 'no_match') {
-      result = { kind: 'unavailable', reason: 'no_match' };
+      // A known public service with an unresolved combination is not an
+      // unknown service. Preserve explicit facts without inventing a rule.
+      const knownService = candidate && menu.services.some(service => service.id === candidate.baseServiceId);
+      result = { kind: 'unavailable', reason: knownService ? 'unsupported_combination' : 'no_match' };
     } else if (resolved.kind === 'clarification') {
       const labels = resolved.optionIds.map(id => [...menu.services, ...menu.addOns].find(item => item.id === id)?.name);
       if (labels.includes(undefined)) {

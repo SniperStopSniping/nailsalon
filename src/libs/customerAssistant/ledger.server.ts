@@ -5,18 +5,11 @@ import { db } from '@/libs/DB';
 import { writeSalonAuditRow } from '@/libs/salonAuditLog.server';
 
 import { CUSTOMER_ASSISTANT_MODEL } from './contracts';
+import { CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD, customerAssistantModelUsageCostMicros, type CustomerAssistantStageUsage, customerAssistantStageUsageCostMicros } from './modelPricing';
 
+/** Backward-compatible Luna-only helper for existing isolated callers. */
 export function customerUsageCostMicros(usage: ModelProviderUsage | null): number | null {
-  if (!usage) {
-    return null;
-  }
-  const written = usage.cacheWriteInputTokens ?? 0;
-  const uncached = usage.inputTokens - usage.cachedInputTokens - written;
-  if (uncached < 0 || Object.values(usage).some(value => !Number.isSafeInteger(value) || value < 0)) {
-    return null;
-  }
-  // USD per million: input .20, cached .02, output 1.20; writes 1.25x.
-  return Math.ceil(uncached * 0.2 + usage.cachedInputTokens * 0.02 + written * 0.25 + usage.outputTokens * 1.2);
+  return customerAssistantModelUsageCostMicros(CUSTOMER_ASSISTANT_MODEL, usage);
 }
 
 /** Separate action namespace; no prompts, contact, tokens or model prose. */
@@ -25,9 +18,20 @@ export async function recordCustomerAssistantUsage(args: {
   attemptId: string;
   outcome: 'answer' | 'reserved' | 'proposal' | 'clarification' | 'availability' | 'slot_selected' | 'review_prepared' | 'no_match' | 'failed';
   usage: ModelProviderUsage | null;
+  /** Each invoked model stage is recorded with its actual model and usage. */
+  stageUsages?: readonly CustomerAssistantStageUsage[];
   latencyMs: number;
   deterministic?: boolean;
 }): Promise<void> {
+  const stages = args.deterministic
+    ? []
+    : args.stageUsages ?? (args.usage ? [{ stage: 'composer' as const, model: CUSTOMER_ASSISTANT_MODEL, usage: args.usage }] : []);
+  const stageEvidenceKnown = args.deterministic || args.stageUsages !== undefined || args.usage !== null;
+  const costMicros = args.deterministic
+    ? 0
+    : stageEvidenceKnown
+      ? customerAssistantStageUsageCostMicros(stages)
+      : null;
   await writeSalonAuditRow(db, {
     salonId: args.salonId,
     action: 'customer_assistant_turn',
@@ -39,14 +43,24 @@ export async function recordCustomerAssistantUsage(args: {
       newValue: {
         attemptId: args.attemptId,
         outcome: args.outcome,
-        model: args.deterministic ? null : CUSTOMER_ASSISTANT_MODEL,
-        providerCall: !args.deterministic,
+        // A two-stage turn has no single truthful model attribution.
+        model: stages.length === 1 ? stages[0]!.model : null,
+        providerCall: args.deterministic ? false : stageEvidenceKnown ? stages.length > 0 : null,
         inputCount: args.usage?.inputTokens ?? null,
         cachedInputCount: args.usage?.cachedInputTokens ?? null,
         cacheWriteInputCount: args.usage?.cacheWriteInputTokens ?? null,
         outputCount: args.usage?.outputTokens ?? null,
-        costMicros: args.deterministic ? 0 : customerUsageCostMicros(args.usage),
-        reservedCostMicros: args.outcome === 'reserved' ? 20_000 : 0,
+        costMicros,
+        stages: stages.map(stage => ({
+          stage: stage.stage,
+          model: stage.model,
+          inputCount: stage.usage?.inputTokens ?? null,
+          cachedInputCount: stage.usage?.cachedInputTokens ?? null,
+          cacheWriteInputCount: stage.usage?.cacheWriteInputTokens ?? null,
+          outputCount: stage.usage?.outputTokens ?? null,
+          costMicros: customerAssistantModelUsageCostMicros(stage.model, stage.usage),
+        })),
+        reservedCostMicros: args.outcome === 'reserved' ? CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD : 0,
         latencyMs: Math.round(args.latencyMs),
       },
     },

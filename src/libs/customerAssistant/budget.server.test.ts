@@ -9,7 +9,7 @@ vi.mock('@/core/redis/redisClient', () => ({
   },
 }));
 
-const { CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD, buildCustomerAssistantBudgetKeys, reserveCustomerAssistantTurn } = await import('./budget.server');
+const { CUSTOMER_ASSISTANT_INTERPRETATION_SCHEMA_BYTES, CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD, CUSTOMER_ASSISTANT_TURN_COST_UPPER_BOUND_MICRO_USD, buildCustomerAssistantBudgetKeys, reserveCustomerAssistantTurn } = await import('./budget.server');
 
 const evalMock = vi.fn();
 const input = { salonId: 'salon_a', sessionId: 'd0ec6a39-7d12-47d8-b80d-41d56d10fbe5', turnIndex: 0, clientIp: '203.0.113.44', now: new Date('2026-09-18T12:34:00.000Z') };
@@ -61,6 +61,12 @@ describe('customer assistant budget reservation', () => {
     await expect(pending).resolves.toEqual({ ok: false, reason: 'unavailable' });
 
     vi.useRealTimers();
+  });
+
+  it('reserves a schema-aware two-stage maximum with fixed conservative headroom', () => {
+    expect(CUSTOMER_ASSISTANT_INTERPRETATION_SCHEMA_BYTES).toBeGreaterThan(0);
+    expect(CUSTOMER_ASSISTANT_TURN_COST_UPPER_BOUND_MICRO_USD).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD);
+    expect(CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD).toBe(150_000);
   });
 
   it('uses one atomic script with same cluster hash tag and no raw IP key', async () => {
