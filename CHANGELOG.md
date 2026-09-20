@@ -1,3 +1,10 @@
+## [1.123.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.123.1...v1.123.2) (2026-09-20)
+
+
+### Bug Fixes
+
+* **customer-ai:** compact history before bounded model calls ([72ade7f](https://github.com/SniperStopSniping/nailsalon/commit/72ade7f2bf816d2d8d54ae5f4693ccae42744e66))
+
 ## [1.123.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.123.0...v1.123.1) (2026-09-20)
 
 
