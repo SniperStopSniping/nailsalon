@@ -16,6 +16,7 @@ type BoundedModelContext = Record<string, unknown> & {
 export function compactCustomerModelContext(args: {
   context: BoundedModelContext;
   prompt: string;
+  additionalInput?: string;
   schema?: unknown;
   maxBytes: number;
   legacyMessages?: readonly string[];
@@ -30,7 +31,7 @@ export function compactCustomerModelContext(args: {
   const { customerMessages: _legacyMessages, ...withoutLegacyMessages } = args.context;
   const context: BoundedModelContext = { ...withoutLegacyMessages, dialogue };
   const serialized = () => JSON.stringify(context);
-  const size = (data: string) => Buffer.byteLength(args.prompt + data + (args.schema ? JSON.stringify(args.schema) : ''), 'utf8');
+  const size = (data: string) => Buffer.byteLength(args.prompt + data + (args.additionalInput ?? '') + (args.schema ? JSON.stringify(args.schema) : ''), 'utf8');
   let data = serialized();
   let compacted = false;
   // Conversation entries are normally user/assistant pairs. Preserve the

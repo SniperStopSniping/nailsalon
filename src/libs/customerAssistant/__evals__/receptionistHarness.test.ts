@@ -406,4 +406,6 @@ it('clears an inherited extension length when an explicit treatment switch moves
   }), explicitLength.next, { message: 'Actually BIAB, but keep them long', kinds: ['proposal', 'clarification', 'unavailable'] });
 
   expect(explicitlyRetained.next.facts?.length).toBe('long');
+  expect(explicitlyRetained.result).toEqual({ kind: 'unavailable', reason: 'unsupported_combination' });
+  expect(explicitlyRetained.next.facts?.treatment).toBe('builder_gel');
 });

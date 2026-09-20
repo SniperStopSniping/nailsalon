@@ -35,7 +35,7 @@ export type ConversationExpectation = {
     recallsLastUserQuestion?: boolean;
     explainsUnsupported?: boolean;
   };
-  availability?: { requested?: { date: string; earliest: string; latest: string }; fallback?: boolean; clarificationDirection?: 'earlier' | 'later' };
+  availability?: { whenSlotsOnly?: boolean; requested?: { date: string; earliest: string; latest: string }; fallback?: boolean; clarificationDirection?: 'earlier' | 'later' };
   noRepeatedQuestion?: 'service' | 'product' | 'origin' | 'length' | 'finish' | 'quantity';
   handoffReady?: boolean;
 };
@@ -126,9 +126,29 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     turns: [
       { message: 'gel manicure on bare nails', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
       { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: true } } },
-      { message, priorFailure: { message: 'anything earlier?' }, expect: { resultKinds: ['slots', 'clarification'], preservesSelection: { serviceId: ids.gelManicure }, reply: { nonEmpty: true, excludes: ['matching service', 'not available to book'] } } },
+      { message, priorFailure: { message: 'anything earlier?' }, expect: { resultKinds: ['slots', 'clarification'], availability: { whenSlotsOnly: true, requested: { date: '2026-09-19', earliest: '00:00', latest: '16:59' }, fallback: false }, preservesSelection: { serviceId: ids.gelManicure }, reply: { nonEmpty: true, excludes: ['matching service', 'not available to book'] } } },
     ],
   })),
+  ...(['earlier on Saturday, before noon please', 'the original day, before noon please'] as const).map((message, index) => ({
+    id: `explicit-clock-window-${index}`,
+    category: 'an explicit clock limit wins over earlier fallback boundaries',
+    availabilityFixture: 'working_hours' as const,
+    turns: [
+      { message: 'gel manicure on bare nails', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure } } },
+      { message: 'anything Saturday after 5?', expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '17:00', latest: '23:59' }, fallback: true } } },
+      { message, expect: { resultKinds: ['slots'], availability: { requested: { date: '2026-09-19', earliest: '00:00', latest: '11:59' }, fallback: false } } },
+    ],
+  })),
+  {
+    id: 'repair-quantity-existing-polish',
+    category: 'desired natural-nail service does not erase stated existing gel polish',
+    turns: [
+      { message: 'I want BIAB on my own natural nails, I already have gel polish on them and two are broken', expect: { resultKinds: ['clarification'], facts: { treatment: 'builder_gel', desiredApplication: 'natural_nails', existingProduct: 'gel_polish', repairCount: 2 } } },
+      // This synthetic menu does not sell gel-polish removal. Preserve the
+      // stated product and repairs; never fabricate a supported transition.
+      { message: 'the polish was done here', expect: { resultKinds: ['unavailable', 'clarification'], facts: { existingProduct: 'gel_polish', origin: 'this_salon', repairCount: 2 }, reply: { nonEmpty: true } } },
+    ],
+  },
   {
     id: 'price-recall-repair-direct',
     category: 'price, recall, and conversational repair',
@@ -285,7 +305,7 @@ export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
     category: 'explicit same-length instruction is not mistaken for stale state',
     turns: [
       { message: 'long Gel-X on bare nails', expect: { resultKinds: ['proposal'], facts: { treatment: 'gel_x', desiredApplication: 'extensions', length: 'long', existingProduct: 'none' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.long] } } },
-      { message: 'Actually I want BIAB, but keep them long', expect: { resultKinds: ['clarification', 'unavailable', 'proposal'], facts: { treatment: 'builder_gel', desiredApplication: 'natural_nails', length: 'long' } } },
+      { message: 'Actually I want BIAB, but keep them long', expect: { resultKinds: ['clarification', 'unavailable', 'proposal'], facts: { treatment: 'builder_gel', length: 'long' }, reply: { nonEmpty: true, excludes: ['We could not find a matching service'] } } },
     ],
   },
   {

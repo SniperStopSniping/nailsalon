@@ -81,7 +81,7 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
   const effectiveTimingFeedback = anchorContinuation
     ? (requestedTimingFeedback !== 'none' ? requestedTimingFeedback : fallbackSearch.pendingTimingFeedback ?? 'none')
     : requestedTimingFeedback;
-  const relativeFeedback = intent.action === 'availability' && effectiveTimingFeedback !== 'none' && !intent.dateExplicitThisTurn;
+  const relativeFeedback = (intent.action === 'availability' || (intent.action === 'clarify' && intent.question === 'date')) && effectiveTimingFeedback !== 'none' && !intent.dateExplicitThisTurn;
   const displayedPreference = conversation.availabilitySearch?.displayedPreference ?? conversation.booking?.datePreference ?? null;
   let timingSlots: readonly Pick<import('./contracts').CustomerAvailableSlot, 'time'>[] = conversation.booking?.offeredSlots ?? [];
   const explicitOriginalReference = intent.action === 'availability'
@@ -98,11 +98,18 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       const boundary = effectiveTimingFeedback === 'too_late' ? preference.earliest : preference.latest;
       timingSlots = [{ time: boundary }];
     }
-    intent = { ...intent, datePreference: preference, timingFeedback: effectiveTimingFeedback };
+    intent = { ...intent, datePreference: intent.timeWindowExplicitThisTurn && intent.datePreference
+      ? { ...intent.datePreference, date: preference.date }
+      : preference, timingFeedback: effectiveTimingFeedback };
   } else if (explicitOriginalReference) {
     const preference = fallbackSearch.requestedPreference;
     const boundary = effectiveTimingFeedback === 'too_late' ? preference.earliest : preference.latest;
     timingSlots = [{ time: boundary }];
+  } else if (intent.dateExplicitThisTurn
+    && intent.datePreference?.date !== displayedPreference?.date
+    && (intent.datePreference?.earliest !== '00:00' || intent.datePreference?.latest !== '23:59')) {
+    // A new date's explicit time window is not bounded by another day's slots.
+    timingSlots = [];
   } else if (relativeFeedback && displayedPreference) {
     // A relative request has no authority to introduce a new date. Bind it to
     // the actual displayed availability window before applying its time bound.
@@ -112,7 +119,7 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       timingFeedback: effectiveTimingFeedback,
     };
   }
-  if (intent.datePreference) {
+  if (intent.datePreference && !intent.timeWindowExplicitThisTurn) {
     intent = { ...intent, datePreference: applyTimingFeedback(intent.datePreference, effectiveTimingFeedback, timingSlots) };
   }
   if (intent.informationServiceIds.some(id => !menu.services.some(service => service.id === id)) || (intent.action === 'answer' && intent.serviceId && !menu.services.some(service => service.id === intent.serviceId))) {
@@ -286,7 +293,10 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       }
     }
     if (resolved.kind === 'no_match') {
-      result = { kind: 'unavailable', reason: 'no_match' };
+      // A known public service with an unresolved combination is not an
+      // unknown service. Preserve explicit facts without inventing a rule.
+      const knownService = candidate && menu.services.some(service => service.id === candidate.baseServiceId);
+      result = { kind: 'unavailable', reason: knownService ? 'unsupported_combination' : 'no_match' };
     } else if (resolved.kind === 'clarification') {
       const labels = resolved.optionIds.map(id => [...menu.services, ...menu.addOns].find(item => item.id === id)?.name);
       if (labels.includes(undefined)) {

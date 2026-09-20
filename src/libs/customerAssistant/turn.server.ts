@@ -11,10 +11,12 @@ import { getCustomerAssistantConfig } from './access.server';
 import { compactCustomerModelContext } from './boundedModelContext';
 import { reserveCustomerAssistantTurn } from './budget.server';
 import { buildCustomerProposal, loadCustomerClarificationSnapshot, loadCustomerMenu, validateCustomerMenuSelection } from './catalogue.server';
-import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL, type CustomerAssistantLocale, type CustomerAssistantResponse, type CustomerAssistantResult } from './contracts';
+import { CUSTOMER_ASSISTANT_INTERPRETATION_MODEL, CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL, type CustomerAssistantLocale, type CustomerAssistantResponse, type CustomerAssistantResult } from './contracts';
 import { advanceCustomerConversation, conversationInvalidReason, signCustomerConversation, verifyCustomerConversation } from './conversation.server';
 import { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } from './interpretation';
+import { projectCustomerInterpreterMenu } from './interpreterMenu';
 import { recordCustomerAssistantUsage } from './ledger.server';
+import { aggregateCustomerAssistantStageUsage, type CustomerAssistantStageUsage } from './modelPricing';
 import { loadCustomerPublicFacts } from './publicFacts.server';
 import { buildReplyInput, createReplySchema, fallbackReceptionistReply, parseReceptionistReply, RECEPTIONIST_REPLY_PROMPT } from './reply';
 import { applyCustomerTurnResult, resolveCustomerTurn } from './resolveTurn';
@@ -74,7 +76,10 @@ export async function runCustomerAssistantTurn(args: {
     return unavailable('conversation_used');
   }
   const attemptId = randomUUID();
-  let usage: ModelProviderUsage | null = null;
+  let interpreterUsage: ModelProviderUsage | null = null;
+  let composerUsage: ModelProviderUsage | null = null;
+  let interpreterInvoked = false;
+  let composerInvoked = false;
   let providerCallStarted = false;
   let result: CustomerAssistantResult = { kind: 'unavailable', reason: 'unavailable' };
   const started = performance.now();
@@ -97,6 +102,7 @@ export async function runCustomerAssistantTurn(args: {
     const availabilityContext = await getCustomerAvailabilityContext(args.salonId);
     const interpreterContext = compactCustomerModelContext({
       prompt: CUSTOMER_INTERPRETATION_PROMPT,
+      additionalInput: args.message,
       maxBytes: CUSTOMER_ASSISTANT_MAX_INPUT_BYTES,
       legacyMessages: conversation.dialogue?.length ? undefined : conversation.messages,
       context: {
@@ -104,8 +110,7 @@ export async function runCustomerAssistantTurn(args: {
         bookingSalon: { name: args.salonName ?? args.salonSlug, slug: args.salonSlug },
         previousFacts: conversation.facts ?? emptyFacts(),
         requestedSelection: conversation.requestedSelection ?? null,
-        menu,
-        latestCustomerMessage: args.message,
+        menu: projectCustomerInterpreterMenu(menu),
         ...(conversation.dialogue?.length ? { dialogue: conversation.dialogue } : {}),
         conversationalSubjects: conversation.subjects ?? [],
         priorConversationalSubjects: conversation.priorSubjects ?? [],
@@ -122,10 +127,11 @@ export async function runCustomerAssistantTurn(args: {
     // Durable reservation BEFORE network: a failed outcome write still leaves
     // conservative unknown-spend evidence, and a failed reservation makes no call.
     await recordCustomerAssistantUsage({ salonId: args.salonId, attemptId, outcome: 'reserved', usage: null, latencyMs: 0 });
+    interpreterInvoked = true;
     providerCallStarted = true;
     const response = await model.createResponse({
-      model: CUSTOMER_ASSISTANT_MODEL,
-      input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: data }],
+      model: CUSTOMER_ASSISTANT_INTERPRETATION_MODEL,
+      input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: data }, { role: 'user', content: args.message }],
       tools: [],
       toolChoice: 'none',
       reasoningEffort: 'low',
@@ -134,7 +140,7 @@ export async function runCustomerAssistantTurn(args: {
       maxOutputTokens: CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS,
       timeoutMs: 12_000,
     });
-    usage = response.usage;
+    interpreterUsage = response.usage;
     if (response.status !== 'completed' || response.items.some(item => item.type === 'function_call' || item.type === 'refusal')) {
       throw new Error('CUSTOMER_MODEL_INVALID');
     }
@@ -175,9 +181,10 @@ export async function runCustomerAssistantTurn(args: {
       });
       const remaining = 25_000 - (performance.now() - started);
       // Combined worst-case input bytes + both output caps stay below the
-      // existing conservative $0.02 turn reservation (including schema overhead).
+      // existing derived 150,000-micro-USD turn reservation (including schema overhead).
       if (remaining >= 1500 && replyContext.fits) {
-        let replyUsage: ModelProviderUsage | null = null;
+        composerInvoked = true;
+        providerCallStarted = true;
         try {
           const composed = await model.createResponse({
             model: CUSTOMER_ASSISTANT_MODEL,
@@ -190,7 +197,7 @@ export async function runCustomerAssistantTurn(args: {
             maxOutputTokens: 800,
             timeoutMs: Math.min(10_000, Math.floor(remaining)),
           });
-          replyUsage = composed.usage;
+          composerUsage = composed.usage;
           if (composed.status !== 'completed' || composed.items.some(item => item.type === 'function_call' || item.type === 'refusal')) {
             throw new Error('CUSTOMER_REPLY_INVALID');
           }
@@ -201,33 +208,34 @@ export async function runCustomerAssistantTurn(args: {
           result = { ...result, message: rendered.message, ...(result.kind === 'answer' || guidanceOptions ? { options: rendered.options } : {}) };
         } catch (error) {
           if (error instanceof ModelProviderError) {
-            replyUsage = error.usage;
+            composerUsage = error.usage;
           }
           // Preserve the authoritative result and useful fallback on a prose failure.
         }
-        usage = usage && replyUsage
-          ? {
-              inputTokens: usage.inputTokens + replyUsage.inputTokens,
-              cachedInputTokens: usage.cachedInputTokens + replyUsage.cachedInputTokens,
-              cacheWriteInputTokens: (usage.cacheWriteInputTokens ?? 0) + (replyUsage.cacheWriteInputTokens ?? 0),
-              outputTokens: usage.outputTokens + replyUsage.outputTokens,
-            }
-          : null; // Unknown usage is never reported as zero.
       }
     }
   } catch (error) {
-    if (error instanceof ModelProviderError) {
-      usage = error.usage;
+    if (error instanceof ModelProviderError && interpreterInvoked && !composerInvoked) {
+      interpreterUsage = error.usage;
     }
     // Provider and catalogue exceptions may carry untrusted text. Never log
     // them or forward their messages, stack-attached rows or responses.
     result = { kind: 'unavailable', reason: 'unavailable' };
   }
+  const stageUsages: CustomerAssistantStageUsage[] = [];
+  if (interpreterInvoked) {
+    stageUsages.push({ stage: 'interpreter', model: CUSTOMER_ASSISTANT_INTERPRETATION_MODEL, usage: interpreterUsage });
+  }
+  if (composerInvoked) {
+    stageUsages.push({ stage: 'composer', model: CUSTOMER_ASSISTANT_MODEL, usage: composerUsage });
+  }
+  const usage = aggregateCustomerAssistantStageUsage(stageUsages);
   try {
     await recordCustomerAssistantUsage({
       salonId: args.salonId,
       attemptId,
       usage,
+      stageUsages,
       latencyMs: performance.now() - started,
       deterministic: !providerCallStarted,
       outcome: result.kind === 'unavailable'

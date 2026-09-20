@@ -46,8 +46,19 @@ describe('grounded receptionist reply boundary', () => {
   it('requires one canonical clarification rather than repeating it in natural prose', () => {
     const facts = { required_question: 'What product is currently on your nails?' };
 
-    expect(() => parseReceptionistReply(output('What product is currently on your nails? [[required_question]]'), facts, menu)).toThrow('CUSTOMER_REPLY_DUPLICATE_QUESTION');
+    expect(parseReceptionistReply(output('What product is currently on your nails? [[required_question]]'), facts, menu).message).toBe(facts.required_question);
+    expect(parseReceptionistReply(output('BIAB supports your natural nails. Before proceeding, we need to know what product is currently on your nails. [[required_question]]'), facts, menu).message).toBe('BIAB supports your natural nails. What product is currently on your nails?');
+    expect(() => parseReceptionistReply(output('Do you want French? [[required_question]]'), facts, menu)).toThrow('CUSTOMER_REPLY_DUPLICATE_QUESTION');
+    expect(() => parseReceptionistReply(output('What product is currently on your nails?'), facts, menu)).toThrow('CUSTOMER_REPLY_MISSING_REQUIREMENT');
+    expect(() => parseReceptionistReply(output('Your appointment is confirmed, what product is currently on your nails? [[required_question]]'), facts, menu)).toThrow('CUSTOMER_REPLY_UNGROUNDED_CLAIM');
+    expect(() => parseReceptionistReply(output('It costs $5, what product is currently on your nails? [[required_question]]'), facts, menu)).toThrow('CUSTOMER_REPLY_UNGROUNDED_VALUE');
     expect(parseReceptionistReply(output('I have noted your preferred length. [[required_question]]'), facts, menu).message).toBe('I have noted your preferred length. What product is currently on your nails?');
+  });
+
+  it('retains French explanation while rendering the localized required question once', () => {
+    const facts = { required_question: 'Quel produit avez-vous sur les ongles ?' };
+
+    expect(parseReceptionistReply(output('Le BIAB renforce les ongles naturels. Quel produit avez-vous sur les ongles ? [[required_question]]'), facts, menu).message).toBe('Le BIAB renforce les ongles naturels. Quel produit avez-vous sur les ongles ?');
   });
 
   it('renders recall as one complete, server-authored quote statement', () => {

@@ -18,8 +18,9 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url);
 const { customerAssistantCopy } = require('../src/components/customerAssistant/copy') as typeof import('../src/components/customerAssistant/copy');
 const { createOpenAiResponsesProvider } = require('../src/libs/ai/openaiResponses.server') as typeof import('../src/libs/ai/openaiResponses.server');
+const { projectCustomerInterpreterMenu } = require('../src/libs/customerAssistant/interpreterMenu') as typeof import('../src/libs/customerAssistant/interpreterMenu');
 const { compactCustomerModelContext } = require('../src/libs/customerAssistant/boundedModelContext') as typeof import('../src/libs/customerAssistant/boundedModelContext');
-const { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL } = require('../src/libs/customerAssistant/contracts') as typeof import('../src/libs/customerAssistant/contracts');
+const { CUSTOMER_ASSISTANT_INTERPRETATION_MODEL, CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL } = require('../src/libs/customerAssistant/contracts') as typeof import('../src/libs/customerAssistant/contracts');
 const { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } = require('../src/libs/customerAssistant/interpretation') as typeof import('../src/libs/customerAssistant/interpretation');
 const { RECEPTIONIST_REPLY_PROMPT, buildReplyInput, createReplySchema, fallbackReceptionistReply, parseReceptionistReply } = require('../src/libs/customerAssistant/reply') as typeof import('../src/libs/customerAssistant/reply');
 const { createCustomerConversation, signCustomerConversation, verifyCustomerConversation } = require('../src/libs/customerAssistant/conversation.server') as typeof import('../src/libs/customerAssistant/conversation.server');
@@ -37,7 +38,8 @@ const maxReplyTokens = 800;
 const timeoutMs = 12_000;
 const maxOutputTokens = CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS;
 
-// This is a transparent estimate for the existing Luna evaluator budget guard,
+// Luna rates below; Terra interpretation uses 10x each rate per current official pricing.
+// This is a transparent estimate for the evaluator budget guard,
 // not a claim of a provider invoice. Provider usage is also retained per call.
 const inputMicrosPerMillion = 200_000;
 const cachedInputMicrosPerMillion = 20_000;
@@ -52,6 +54,7 @@ type Options = {
   repeat: number;
   maxBudgetMicros: number;
   historyHeadroomBytes: number | null;
+  interpretationModel: 'gpt-5.6-luna' | 'gpt-5.6-terra';
   help: boolean;
 };
 
@@ -65,21 +68,27 @@ type SafeCall = {
 };
 
 function usage(): string {
-  return `Usage: node --conditions=react-server --import tsx scripts/customer-conversation-eval.mts --run --key-file <absolute path> --key-name <UPPERCASE_NAME> [--max-budget-usd <0.01-2>] [--filter <case id text>] [--repeat <1-5>] [--out <directory>] [--history-headroom-bytes <600-4000>]`;
+  return `Usage: node --conditions=react-server --import tsx scripts/customer-conversation-eval.mts --run --key-file <absolute path> --key-name <UPPERCASE_NAME> [--max-budget-usd <0.01-10>] [--filter <case id text>] [--repeat <1-5>] [--out <directory>] [--history-headroom-bytes <600-4000>] [--interpretation-model <gpt-5.6-luna|gpt-5.6-terra>]`;
 }
 
 function parseOptions(argv: string[]): Options | null {
-  const parsed: Options = { run: false, keyFile: null, keyName: null, output: null, filter: null, repeat: 1, maxBudgetMicros: 500_000, historyHeadroomBytes: null, help: false };
+  const parsed: Options = { run: false, keyFile: null, keyName: null, output: null, filter: null, repeat: 1, maxBudgetMicros: 500_000, historyHeadroomBytes: null, interpretationModel: CUSTOMER_ASSISTANT_INTERPRETATION_MODEL, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--run') {
       parsed.run = true;
     } else if (argument === '--help' || argument === '-h') {
       parsed.help = true;
-    } else if (argument === '--key-file' || argument === '--key-name' || argument === '--out' || argument === '--filter' || argument === '--repeat' || argument === '--max-budget-usd' || argument === '--history-headroom-bytes') {
+    } else if (argument === '--key-file' || argument === '--key-name' || argument === '--out' || argument === '--filter' || argument === '--repeat' || argument === '--max-budget-usd' || argument === '--history-headroom-bytes' || argument === '--interpretation-model') {
       const value = argv[++index];
       if (!value || value.startsWith('--')) {
         return null;
+      }
+      if (argument === '--interpretation-model') {
+        if (value !== 'gpt-5.6-luna' && value !== 'gpt-5.6-terra') {
+          return null;
+        }
+        parsed.interpretationModel = value;
       }
       if (argument === '--key-file') {
         parsed.keyFile = value;
@@ -109,7 +118,7 @@ function parseOptions(argv: string[]): Options | null {
       }
       if (argument === '--max-budget-usd') {
         const dollars = Number(value);
-        if (!Number.isFinite(dollars) || dollars < 0.01 || dollars > 2) {
+        if (!Number.isFinite(dollars) || dollars < 0.01 || dollars > 10) {
           return null;
         }
         parsed.maxBudgetMicros = Math.round(dollars * 1_000_000);
@@ -124,7 +133,7 @@ function parseOptions(argv: string[]): Options | null {
 // Evaluation-only pressure reduces available history room without inventing
 // catalogue facts or raising Production caps. Default uses the exact live cap.
 function compactEvaluationContext(args: Parameters<typeof compactCustomerModelContext>[0], headroom: number | null) {
-  const fixedBytes = Buffer.byteLength(args.prompt + JSON.stringify({ ...args.context, dialogue: [] }) + (args.schema ? JSON.stringify(args.schema) : ''), 'utf8');
+  const fixedBytes = Buffer.byteLength(args.prompt + (args.additionalInput ?? '') + JSON.stringify({ ...args.context, dialogue: [] }) + (args.schema ? JSON.stringify(args.schema) : ''), 'utf8');
   return compactCustomerModelContext({ ...args, maxBytes: headroom === null ? args.maxBytes : Math.min(args.maxBytes, fixedBytes + headroom) });
 }
 
@@ -138,7 +147,7 @@ function readNamedEnv(contents: string, name: string): string | null {
   return (value.startsWith('"') && value.endsWith('"')) || (value.startsWith('\'') && value.endsWith('\'')) ? value.slice(1, -1) : value;
 }
 
-function estimatedCostMicros(usageValue: import('../src/libs/ai/provider').ModelProviderUsage | null): number | null {
+function estimatedCostMicros(usageValue: import('../src/libs/ai/provider').ModelProviderUsage | null, rateMultiplier = 1): number | null {
   if (!usageValue) {
     return null;
   }
@@ -148,11 +157,11 @@ function estimatedCostMicros(usageValue: import('../src/libs/ai/provider').Model
   if (regular < 0) {
     return null;
   }
-  return Math.ceil((regular * inputMicrosPerMillion + cached * cachedInputMicrosPerMillion + cacheWrite * 250_000 + usageValue.outputTokens * outputMicrosPerMillion) / 1_000_000);
+  return Math.ceil(rateMultiplier * (regular * inputMicrosPerMillion + cached * cachedInputMicrosPerMillion + cacheWrite * 250_000 + usageValue.outputTokens * outputMicrosPerMillion) / 1_000_000);
 }
 
-function conservativeReservationMicros(input: string, outputTokens: number): number {
-  return Math.ceil(((Buffer.byteLength(input, 'utf8') + 4_096) * 250_000 + outputTokens * outputMicrosPerMillion) / 1_000_000);
+function conservativeReservationMicros(input: string, outputTokens: number, rateMultiplier = 1): number {
+  return Math.ceil(rateMultiplier * ((Buffer.byteLength(input, 'utf8') + 4_096) * 250_000 + outputTokens * outputMicrosPerMillion) / 1_000_000);
 }
 
 function modelText(response: Awaited<ReturnType<import('../src/libs/ai/provider').OwnerAssistantModelProvider['createResponse']>>): string {
@@ -247,7 +256,8 @@ function evaluateTurn(args: {
   if (!expect.resultKinds.includes(args.result.kind)) {
     failures.push(`result:${args.result.kind}`);
   }
-  if (expect.availability?.requested) {
+  const checkAvailability = !expect.availability?.whenSlotsOnly || args.result.kind === 'slots';
+  if (checkAvailability && expect.availability?.requested) {
     const actual = args.result.kind === 'slots' ? args.result.search?.requestedPreference : undefined;
     for (const [key, value] of Object.entries(expect.availability.requested)) {
       if (actual?.[key as keyof NonNullable<typeof actual>] !== value) {
@@ -255,7 +265,7 @@ function evaluateTurn(args: {
       }
     }
   }
-  if (expect.availability?.fallback !== undefined && (args.result.kind !== 'slots' || args.result.search?.fallback !== expect.availability.fallback)) {
+  if (checkAvailability && expect.availability?.fallback !== undefined && (args.result.kind !== 'slots' || args.result.search?.fallback !== expect.availability.fallback)) {
     failures.push('availability_fallback');
   }
   if (expect.availability?.clarificationDirection && !folded(args.reply).includes(expect.availability.clarificationDirection)) {
@@ -453,13 +463,12 @@ async function main(): Promise<void> {
         const priorDialogue: NonNullable<import('../src/libs/customerAssistant/conversation.server').CustomerConversation['dialogue']> = conversation.dialogue
           ? [...conversation.dialogue]
           : conversation.messages.map(content => ({ role: 'user' as const, content }));
-        const interpretationContext = compactEvaluationContext({ prompt: CUSTOMER_INTERPRETATION_PROMPT, maxBytes: CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, context: {
+        const interpretationContext = compactEvaluationContext({ prompt: CUSTOMER_INTERPRETATION_PROMPT, additionalInput: turn.message, maxBytes: CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, context: {
           locale: 'en',
           bookingSalon: { name: publicFacts.salon.name, slug: 'synthetic-isla' },
-          menu: SEMANTIC_L1_MENU,
+          menu: projectCustomerInterpreterMenu(SEMANTIC_L1_MENU),
           previousFacts: conversation.facts ?? emptyFacts(),
           requestedSelection: conversation.requestedSelection ?? null,
-          latestCustomerMessage: turn.message,
           dialogue: priorDialogue,
           conversationalSubjects: conversation.subjects ?? [],
           priorConversationalSubjects: conversation.priorSubjects ?? [],
@@ -473,7 +482,7 @@ async function main(): Promise<void> {
           throw new Error('SYNTHETIC_INTERPRETATION_CONTEXT_TOO_LARGE');
         }
         const interpretationInput = interpretationContext.data;
-        const interpretationReservation = conservativeReservationMicros(CUSTOMER_INTERPRETATION_PROMPT + interpretationInput, maxOutputTokens);
+        const interpretationReservation = conservativeReservationMicros(CUSTOMER_INTERPRETATION_PROMPT + interpretationInput + turn.message, maxOutputTokens, options.interpretationModel === 'gpt-5.6-terra' ? 10 : 1);
         // The reply facts include every permitted public fact. Reserve against
         // the full synthetic projection rather than the smaller interpreter
         // input so --max-budget-usd remains a hard ceiling.
@@ -495,8 +504,8 @@ async function main(): Promise<void> {
         const failures: string[] = [];
         try {
           const started = performance.now();
-          const modelResponse = await provider.createResponse({ model: CUSTOMER_ASSISTANT_MODEL, input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: interpretationInput }], tools: [], toolChoice: 'none', reasoningEffort: 'low', jsonMode: 'schema', jsonSchema: CUSTOMER_INTERPRETATION_JSON_SCHEMA, maxOutputTokens, timeoutMs });
-          const interpretationCall: SafeCall = { stage: 'interpretation', latencyMs: Math.round(performance.now() - started), usage: modelResponse.usage, estimatedCostMicros: estimatedCostMicros(modelResponse.usage), status: 'completed', error: null };
+          const modelResponse = await provider.createResponse({ model: options.interpretationModel, input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: interpretationInput }, { role: 'user', content: turn.message }], tools: [], toolChoice: 'none', reasoningEffort: 'low', jsonMode: 'schema', jsonSchema: CUSTOMER_INTERPRETATION_JSON_SCHEMA, maxOutputTokens, timeoutMs });
+          const interpretationCall: SafeCall = { stage: 'interpretation', latencyMs: Math.round(performance.now() - started), usage: modelResponse.usage, estimatedCostMicros: estimatedCostMicros(modelResponse.usage, options.interpretationModel === 'gpt-5.6-terra' ? 10 : 1), status: 'completed', error: null };
           calls.push(interpretationCall);
           rawInterpretation = modelText(modelResponse);
           const parsedIntent = customerInterpretationSchema.parse(JSON.parse(rawInterpretation));
@@ -565,7 +574,8 @@ async function main(): Promise<void> {
   const latencies = completedCalls.flatMap(call => call.latencyMs === null ? [] : [call.latencyMs]);
   const report = {
     generatedAt: new Date().toISOString(),
-    model: CUSTOMER_ASSISTANT_MODEL,
+    model: options.interpretationModel,
+    replyModel: CUSTOMER_ASSISTANT_MODEL,
     store: false,
     scope: 'synthetic public salon/catalogue and synthetic customer text only; no database, real salon, booking, payment, availability hold, or message',
     promptSha256: { interpretation: createHash('sha256').update(CUSTOMER_INTERPRETATION_PROMPT).digest('hex'), receptionist: createHash('sha256').update(RECEPTIONIST_REPLY_PROMPT).digest('hex') },

@@ -5,6 +5,9 @@ import { createHash } from 'node:crypto';
 import { redis } from '@/core/redis/redisClient';
 
 import { CUSTOMER_CONVERSATION_MAX_TURNS } from './conversation.server';
+import { CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD } from './modelPricing';
+
+export { CUSTOMER_ASSISTANT_INTERPRETATION_SCHEMA_BYTES, CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD, CUSTOMER_ASSISTANT_TURN_COST_UPPER_BOUND_MICRO_USD } from './modelPricing';
 
 const KEY_PREFIX = 'luster:customer-booking-assistant:v1';
 const CLUSTER_HASH_TAG = '{customer-booking-assistant}';
@@ -14,8 +17,6 @@ const MINUTE_TTL_SECONDS = 2 * 60;
 const DAY_TTL_SECONDS = 2 * 24 * 60 * 60;
 const MONTH_TTL_SECONDS = 35 * 24 * 60 * 60;
 const EVAL_TIMEOUT_MS = 1_000;
-export const CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD = 20_000;
-
 export type CustomerAssistantReservation =
   | { ok: true }
   | { ok: false; reason: 'rate_limited' | 'conversation_used' | 'stale_conversation' | 'session_limit' | 'unavailable' };

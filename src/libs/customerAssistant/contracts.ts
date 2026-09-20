@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
+/** Natural-language composition remains on Luna; interpretation is separately bounded. */
 export const CUSTOMER_ASSISTANT_MODEL = 'gpt-5.6-luna';
+export const CUSTOMER_ASSISTANT_INTERPRETATION_MODEL = 'gpt-5.6-terra';
+export type CustomerAssistantModelStage = 'interpreter' | 'composer';
 export const CUSTOMER_ASSISTANT_MAX_INPUT_BYTES = 30_000;
 export const CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS = 1_200;
 
@@ -93,6 +96,6 @@ export type CustomerAssistantResult = (
   | { kind: 'slots'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slots: CustomerAvailableSlot[]; checkedAt: string; slotDisappeared?: boolean; search?: CustomerAvailabilitySearch }
   | { kind: 'slot_selected'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slot: CustomerAvailableSlot }
   | { kind: 'clarification'; question: 'service' | 'removal' | 'product' | 'origin' | 'length' | 'finish' | 'quantity' | 'details' | 'date'; options: string[] }
-  | { kind: 'unavailable'; reason: 'no_match' | 'unavailable' | 'rate_limited' | 'conversation_used' | 'selection_changed' | 'invalid_conversation' | 'conversation_expired' | 'session_limit' | 'stale_conversation' | 'unsupported_service' | 'unsupported_removal' | 'transition_needs_confirmation' | 'incompatible_selection' | 'unknown_product' | 'no_availability' | 'handoff_expired' | 'invalid_handoff' }) & { message?: string; availabilitySearch?: CustomerAvailabilitySearch };
+  | { kind: 'unavailable'; reason: 'no_match' | 'unsupported_combination' | 'unavailable' | 'rate_limited' | 'conversation_used' | 'selection_changed' | 'invalid_conversation' | 'conversation_expired' | 'session_limit' | 'stale_conversation' | 'unsupported_service' | 'unsupported_removal' | 'transition_needs_confirmation' | 'incompatible_selection' | 'unknown_product' | 'no_availability' | 'handoff_expired' | 'invalid_handoff' }) & { message?: string; availabilitySearch?: CustomerAvailabilitySearch };
 
 export type CustomerAssistantResponse = { conversation: string; result: CustomerAssistantResult };

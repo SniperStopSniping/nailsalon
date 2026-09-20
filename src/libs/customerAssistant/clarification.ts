@@ -239,6 +239,9 @@ export function planCustomerClarification(args: {
   // Optional model questions are advisory. Only compatible values for an
   // unanswered dimension can survive; unrelated-service values are discarded.
   if (args.action !== 'propose' && !hasKnownClarificationAnswer(question, facts) && question !== 'service'
+    // A bare completed service is not an unfinished optional design choice.
+    // Explicit finish options still receive the compatible advisory below.
+    && !(question === 'finish' && optionIds.length === 0)
     && !(['removal', 'origin', 'product'].includes(question) && facts.existingProduct === 'none')
     && !(question === 'removal' && facts.maintenance === 'refill')) {
     const ids = menu.addOns.filter(item => (dimension(item, question) || (question === 'details' && optionIds.includes(item.id)))
