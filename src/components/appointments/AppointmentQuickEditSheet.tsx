@@ -119,6 +119,9 @@ export function AppointmentQuickEditSheet({
   const [cancelReason, setCancelReason] = useState('client_request');
   const [internalNote, setInternalNote] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<'cancel' | 'no_show' | 'decline' | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [communicationsOpen, setCommunicationsOpen] = useState(false);
   const editSectionRef = useRef<HTMLDivElement>(null);
 
   const resetEditFieldsFromDetail = useCallback(() => {
@@ -136,10 +139,24 @@ export function AppointmentQuickEditSheet({
     }
 
     resetEditFieldsFromDetail();
+    setIsEditing(false);
+    setDetailsOpen(false);
+    setCommunicationsOpen(false);
     if (initialPendingAction === 'cancel' && detail.permissions.canCancel) {
       setPendingConfirm('cancel');
     }
   }, [detail, initialPendingAction, resetEditFieldsFromDetail]);
+
+  useEffect(() => {
+    if (!isEditing) {
+      return;
+    }
+
+    editSectionRef.current?.scrollIntoView?.({ block: 'start', behavior: 'auto' });
+    editSectionRef.current?.querySelector<HTMLElement>(
+      'select:not(:disabled), input:not(:disabled)',
+    )?.focus({ preventScroll: true });
+  }, [isEditing]);
 
   // A refusal has to be seen where the owner acted. The notice lives in the
   // sticky footer next to "Save changes"; InlineFeedback (the shared primitive)
@@ -230,6 +247,11 @@ export function AppointmentQuickEditSheet({
     ),
   );
 
+  const openEditor = useCallback(() => {
+    setDetailsOpen(true);
+    setIsEditing(true);
+  }, []);
+
   return (
     <DialogShell
       isOpen={isOpen}
@@ -246,7 +268,7 @@ export function AppointmentQuickEditSheet({
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
           <div className="min-w-0">
             <div className="text-lg font-semibold text-neutral-900">Appointment</div>
-            <div className="text-sm text-neutral-500">Quick edit</div>
+            <div className="text-sm text-neutral-500">Manage appointment</div>
           </div>
           {/* A full 44px target that stays inside the sheet at 320px: the ring
               is drawn on the button's own box (no negative margin), so it can
@@ -394,43 +416,35 @@ export function AppointmentQuickEditSheet({
                                   )}
                           </div>
                         </div>
+                        <div className="mt-3 border-t border-neutral-200 pt-3 text-sm text-neutral-700">
+                          <div className="font-medium text-neutral-900">
+                            {detail.services.map(service => service.name).join(' · ') || detail.appointment.baseServiceName}
+                          </div>
+                          <div className="mt-1 text-neutral-500">
+                            {detail.appointment.totalDurationMinutes}
+                            {' '}
+                            min
+                          </div>
+                        </div>
+                        {(detail.permissions.canMove || detail.permissions.canChangeService || detail.permissions.canReassignTechnician) && (
+                          <button
+                            type="button"
+                            data-testid="appointment-sheet-edit-reschedule"
+                            onClick={openEditor}
+                            className="mt-3 min-h-11 w-full rounded-xl border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-900"
+                          >
+                            Edit / reschedule
+                          </button>
+                        )}
                       </div>
-
-                      {['pending', 'confirmed'].includes(detail.appointment.status) && (
-                        <UpcomingAppointmentActions
-                          detail={detail}
-                          saving={saving}
-                          onChangeAppointment={() => {
-                            editSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            window.setTimeout(() => {
-                              const firstEnabledControl = editSectionRef.current?.querySelector<HTMLElement>(
-                                'select:not(:disabled), input:not(:disabled)',
-                              );
-                              firstEnabledControl?.focus({ preventScroll: true });
-                            }, 250);
-                          }}
-                          onCancelAppointment={() => setPendingConfirm('cancel')}
-                          onReminderSent={onReminderSent}
-                        />
-                      )}
-
-                      {detail.appointment.salonSlug && (
-                        <ReviewRequestAction
-                          appointmentId={detail.appointment.id}
-                          salonSlug={detail.appointment.salonSlug}
-                          timeZone={detail.appointment.timeZone}
-                          appointmentStatus={detail.appointment.status}
-                          className="mt-4"
-                        />
-                      )}
 
                       {(detail.client?.sensitivities
                         || detail.client?.notes
                         || Object.values(detail.client?.nailPreferences ?? {}).some(Boolean)
                         || detail.appointment.notes
                         || detail.appointment.techNotes) && (
-                        <div className="rounded-2xl border border-neutral-200 p-4" data-testid="appointment-client-prep-notes">
-                          <div className="text-sm font-semibold text-neutral-900">Client prep notes</div>
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4" data-testid="appointment-client-prep-notes">
+                          <div className="text-sm font-semibold text-amber-950">Care & prep notes</div>
                           {detail.client?.sensitivities && (
                             <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
                               <div className="text-xs font-semibold uppercase tracking-[0.08em] text-amber-800">Sensitivities</div>
@@ -473,347 +487,350 @@ export function AppointmentQuickEditSheet({
                         </div>
                       )}
 
-                      <div className="rounded-2xl border border-neutral-200 p-4">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="text-sm font-semibold text-neutral-900">{detail.appointment.status === 'pending' ? 'Client request email' : 'Client confirmation email'}</div>
-                            <div className="mt-1 text-sm text-neutral-500">
-                              {detail.confirmationDelivery?.status === 'sent'
-                                ? 'Sent to the email on this appointment.'
-                                : detail.confirmationDelivery?.status === 'failed'
-                                  ? 'Delivery failed. Verify the address and resend.'
-                                  : detail.confirmationDelivery
-                                    ? 'Delivery is being processed.'
-                                    : 'No tracked confirmation has been sent yet.'}
+                      {['pending', 'confirmed'].includes(detail.appointment.status) && (
+                        <UpcomingAppointmentActions
+                          detail={detail}
+                          saving={saving}
+                          onChangeAppointment={openEditor}
+                          onCancelAppointment={() => setPendingConfirm('cancel')}
+                          onReminderSent={onReminderSent}
+                        />
+                      )}
+
+                      {detail.appointment.salonSlug && (
+                        <ReviewRequestAction
+                          appointmentId={detail.appointment.id}
+                          salonSlug={detail.appointment.salonSlug}
+                          timeZone={detail.appointment.timeZone}
+                          appointmentStatus={detail.appointment.status}
+                          className="mt-4"
+                        />
+                      )}
+
+                      <button
+                        type="button"
+                        aria-expanded={detailsOpen}
+                        onClick={() => setDetailsOpen(open => !open)}
+                        className="flex min-h-11 w-full items-center justify-between rounded-2xl border border-neutral-200 px-4 text-left text-sm font-semibold text-neutral-900"
+                      >
+                        Details
+                        <span className="text-neutral-500">{detailsOpen ? 'Hide' : 'Show'}</span>
+                      </button>
+
+                      {detailsOpen && (
+                        <>
+                          <div className="rounded-2xl border border-neutral-200 p-4">
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <div className="text-sm font-semibold text-neutral-900">{detail.appointment.status === 'pending' ? 'Client request email' : 'Client confirmation email'}</div>
+                                <div className="mt-1 text-sm text-neutral-500">
+                                  {detail.confirmationDelivery?.status === 'sent'
+                                    ? 'Sent to the email on this appointment.'
+                                    : detail.confirmationDelivery?.status === 'failed'
+                                      ? 'Delivery failed. Verify the address and resend.'
+                                      : detail.confirmationDelivery
+                                        ? 'Delivery is being processed.'
+                                        : 'No tracked confirmation has been sent yet.'}
+                                </div>
+                              </div>
+                              <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${detail.confirmationDelivery?.status === 'sent' ? 'bg-emerald-50 text-emerald-700' : detail.confirmationDelivery?.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
+                                {detail.confirmationDelivery?.status || 'not sent'}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void onResendConfirmation?.()}
+                              disabled={saving || !detail.appointment.clientEmail || !onResendConfirmation}
+                              className="mt-3 w-full rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {detail.appointment.status === 'pending' ? 'Resend request & management link' : 'Resend confirmation & management link'}
+                            </button>
+                          </div>
+
+                          {(detail.communications?.length ?? 0) > 0 && (
+                            <div className="rounded-2xl border border-neutral-200 p-4">
+                              <button
+                                type="button"
+                                aria-expanded={communicationsOpen}
+                                onClick={() => setCommunicationsOpen(open => !open)}
+                                className="flex min-h-11 w-full items-center justify-between text-left text-sm font-semibold text-neutral-900"
+                              >
+                                Communication history
+                                <span className="text-neutral-500">{communicationsOpen ? 'Hide' : 'Show'}</span>
+                              </button>
+                              {communicationsOpen && (
+                                <div className="mt-3 divide-y divide-neutral-100">
+                                  {detail.communications?.map(delivery => (
+                                    <div key={`${delivery.channel}-${delivery.purpose}-${delivery.status}-${delivery.updatedAt}`} className="flex items-center justify-between gap-3 py-2 text-sm">
+                                      <div>
+                                        <p className="font-medium capitalize text-neutral-800">{delivery.purpose === 'booking_confirmation' ? 'Booking receipt' : delivery.purpose.replaceAll('_', ' ')}</p>
+                                        <p className="text-xs text-neutral-500">
+                                          {delivery.channel.toUpperCase()}
+                                          {' '}
+                                          ·
+                                          {' '}
+                                          {new Date(delivery.updatedAt).toLocaleString()}
+                                        </p>
+                                      </div>
+                                      <span className={`rounded-full px-2 py-1 text-xs font-medium ${delivery.status === 'sent' || delivery.status === 'delivered' ? 'bg-emerald-50 text-emerald-700' : delivery.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-stone-100 text-stone-600'}`}>{delivery.status}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {warnings.length > 0 && (
+                            <div
+                              data-testid="appointment-sheet-warning"
+                              className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
+                            >
+                              {warnings.map(warning => (
+                                <div key={warning}>{warningMessage(warning)}</div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="rounded-2xl border border-neutral-200 p-4">
+                            <div className="mb-3 text-sm font-semibold text-neutral-900">Booked services</div>
+                            <div className="space-y-3">
+                              <div className="rounded-xl bg-neutral-50 p-3">
+                                <div className="text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">Base service</div>
+                                <div className="mt-1 text-sm font-semibold text-neutral-900">{detail.appointment.baseServiceName}</div>
+                              </div>
+                              {detail.addOns.length > 0 && (
+                                <div data-testid="appointment-sheet-addons" className="rounded-xl bg-neutral-50 p-3">
+                                  <div className="text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">Add-ons</div>
+                                  <div className="mt-2 space-y-2">
+                                    {detail.addOns.map(addOn => (
+                                      <div
+                                        key={addOn.id}
+                                        data-testid={`appointment-sheet-addon-${addOn.id}`}
+                                        className="flex items-center justify-between gap-3 text-sm text-neutral-700"
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <div className="truncate font-medium text-neutral-900">{addOn.name}</div>
+                                          <div className="text-xs text-neutral-500">
+                                            Qty
+                                            {' '}
+                                            {addOn.quantity}
+                                            {' '}
+                                            ·
+                                            {' '}
+                                            {addOn.lineDurationMinutes}
+                                            min
+                                          </div>
+                                        </div>
+                                        {financialCurrency && (
+                                          <div className="shrink-0 text-sm font-medium text-neutral-900">
+                                            {formatMoney(addOn.lineTotalCents, financialCurrency)}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${detail.confirmationDelivery?.status === 'sent' ? 'bg-emerald-50 text-emerald-700' : detail.confirmationDelivery?.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
-                            {detail.confirmationDelivery?.status || 'not sent'}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void onResendConfirmation?.()}
-                          disabled={saving || !detail.appointment.clientEmail || !onResendConfirmation}
-                          className="mt-3 w-full rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {detail.appointment.status === 'pending' ? 'Resend request & management link' : 'Resend confirmation & management link'}
-                        </button>
-                      </div>
 
-                      {(detail.communications?.length ?? 0) > 0 && (
-                        <div className="rounded-2xl border border-neutral-200 p-4">
-                          <div className="text-sm font-semibold text-neutral-900">Communication history</div>
-                          <div className="mt-3 divide-y divide-neutral-100">
-                            {detail.communications?.map(delivery => (
-                              <div key={`${delivery.channel}-${delivery.purpose}-${delivery.status}-${delivery.updatedAt}`} className="flex items-center justify-between gap-3 py-2 text-sm">
-                                <div>
-                                  <p className="font-medium capitalize text-neutral-800">{delivery.purpose === 'booking_confirmation' ? 'Booking receipt' : delivery.purpose.replaceAll('_', ' ')}</p>
-                                  <p className="text-xs text-neutral-500">
-                                    {delivery.channel.toUpperCase()}
-                                    {' '}
-                                    ·
-                                    {' '}
-                                    {new Date(delivery.updatedAt).toLocaleString()}
-                                  </p>
-                                </div>
-                                <span className={`rounded-full px-2 py-1 text-xs font-medium ${delivery.status === 'sent' || delivery.status === 'delivered' ? 'bg-emerald-50 text-emerald-700' : delivery.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-stone-100 text-stone-600'}`}>{delivery.status}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {warnings.length > 0 && (
-                        <div
-                          data-testid="appointment-sheet-warning"
-                          className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
-                        >
-                          {warnings.map(warning => (
-                            <div key={warning}>{warningMessage(warning)}</div>
-                          ))}
-                        </div>
-                      )}
-
-                      <div className="rounded-2xl border border-neutral-200 p-4">
-                        <div className="mb-3 text-sm font-semibold text-neutral-900">Booked services</div>
-                        <div className="space-y-3">
-                          <div className="rounded-xl bg-neutral-50 p-3">
-                            <div className="text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">Base service</div>
-                            <div className="mt-1 text-sm font-semibold text-neutral-900">{detail.appointment.baseServiceName}</div>
-                          </div>
-                          {detail.addOns.length > 0 && (
-                            <div data-testid="appointment-sheet-addons" className="rounded-xl bg-neutral-50 p-3">
-                              <div className="text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">Add-ons</div>
-                              <div className="mt-2 space-y-2">
-                                {detail.addOns.map(addOn => (
-                                  <div
-                                    key={addOn.id}
-                                    data-testid={`appointment-sheet-addon-${addOn.id}`}
-                                    className="flex items-center justify-between gap-3 text-sm text-neutral-700"
+                          {isEditing && (
+                            <div ref={editSectionRef} className="scroll-mt-4 rounded-2xl border border-neutral-200 p-4">
+                              <div className="mb-3 text-sm font-semibold text-neutral-900">Edit booking details</div>
+                              <div className="space-y-3">
+                                <label className="block" htmlFor="appointment-service-select">
+                                  <span className="mb-1 block text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">
+                                    Service
+                                  </span>
+                                  <select
+                                    id="appointment-service-select"
+                                    data-testid="appointment-sheet-service-select"
+                                    value={baseServiceId}
+                                    onChange={event => setBaseServiceId(event.target.value)}
+                                    className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
+                                    disabled={saving || !detail.permissions.canChangeService}
                                   >
-                                    <div className="min-w-0 flex-1">
-                                      <div className="truncate font-medium text-neutral-900">{addOn.name}</div>
-                                      <div className="text-xs text-neutral-500">
-                                        Qty
-                                        {' '}
-                                        {addOn.quantity}
+                                    {detail.serviceOptions.map(service => (
+                                      <option key={service.id} value={service.id}>
+                                        {service.name}
+                                        {financialCurrency
+                                          ? ` · ${formatMoney(service.priceCents, financialCurrency)}`
+                                          : ''}
                                         {' '}
                                         ·
                                         {' '}
-                                        {addOn.lineDurationMinutes}
+                                        {service.durationMinutes}
                                         min
-                                      </div>
-                                    </div>
-                                    {financialCurrency && (
-                                      <div className="shrink-0 text-sm font-medium text-neutral-900">
-                                        {formatMoney(addOn.lineTotalCents, financialCurrency)}
-                                      </div>
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+
+                                <label className="block" htmlFor="appointment-technician-select">
+                                  <span className="mb-1 block text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">
+                                    Technician
+                                  </span>
+                                  <select
+                                    id="appointment-technician-select"
+                                    data-testid="appointment-sheet-technician-select"
+                                    value={technicianId ?? ''}
+                                    onChange={event => setTechnicianId(event.target.value || null)}
+                                    className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
+                                    disabled={saving || !detail.permissions.canReassignTechnician}
+                                  >
+                                    {!detail.permissions.canReassignTechnician && detail.appointment.technicianId && (
+                                      <option value={detail.appointment.technicianId}>
+                                        {selectedTechnicianName}
+                                      </option>
                                     )}
+                                    {detail.permissions.canReassignTechnician && (
+                                      <>
+                                        <option value="">Unassigned</option>
+                                        {detail.technicianOptions.map(technician => (
+                                          <option key={technician.id} value={technician.id}>
+                                            {technician.name}
+                                          </option>
+                                        ))}
+                                      </>
+                                    )}
+                                  </select>
+                                </label>
+
+                                <label className="block" htmlFor="appointment-start-time">
+                                  <span className="mb-1 block text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">
+                                    Reschedule
+                                  </span>
+                                  <input
+                                    id="appointment-start-time"
+                                    data-testid="appointment-sheet-start-time"
+                                    type="datetime-local"
+                                    value={startTime}
+                                    step={(detail.appointment.slotIntervalMinutes ?? 15) * 60}
+                                    onChange={event => setStartTime(event.target.value)}
+                                    className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
+                                    disabled={saving || !detail.permissions.canMove}
+                                  />
+                                </label>
+                              </div>
+
+                              <div className="mt-4 rounded-xl bg-neutral-50 p-3 text-sm text-neutral-600">
+                                <div className="flex items-center justify-between">
+                                  <span>Projected duration</span>
+                                  <span data-testid="appointment-sheet-projected-duration" className="font-medium text-neutral-900">
+                                    {projectedDuration}
+                                    {' '}
+                                    min
+                                  </span>
+                                </div>
+                                <div className="mt-2 flex items-center justify-between">
+                                  <span>Projected service subtotal</span>
+                                  <span data-testid="appointment-sheet-projected-price" className="font-medium text-neutral-900">
+                                    {financialCurrency
+                                      ? formatMoney(projectedPrice, financialCurrency)
+                                      : 'Under review'}
+                                  </span>
+                                </div>
+                                {detail.addOns.length > 0 && (
+                                  <div className="mt-2 text-xs text-neutral-500">
+                                    Existing add-ons are preserved when possible and removed automatically if the new service does not allow them.
                                   </div>
-                                ))}
+                                )}
                               </div>
                             </div>
                           )}
-                        </div>
-                      </div>
 
-                      <div ref={editSectionRef} className="scroll-mt-4 rounded-2xl border border-neutral-200 p-4">
-                        <div className="mb-3 text-sm font-semibold text-neutral-900">Edit booking details</div>
-                        <div className="space-y-3">
-                          <label className="block" htmlFor="appointment-service-select">
-                            <span className="mb-1 block text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">
-                              Service
-                            </span>
-                            <select
-                              id="appointment-service-select"
-                              data-testid="appointment-sheet-service-select"
-                              value={baseServiceId}
-                              onChange={event => setBaseServiceId(event.target.value)}
-                              className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
-                              disabled={saving || !detail.permissions.canChangeService}
-                            >
-                              {detail.serviceOptions.map(service => (
-                                <option key={service.id} value={service.id}>
-                                  {service.name}
-                                  {financialCurrency
-                                    ? ` · ${formatMoney(service.priceCents, financialCurrency)}`
-                                    : ''}
-                                  {' '}
-                                  ·
-                                  {' '}
-                                  {service.durationMinutes}
-                                  min
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-
-                          <label className="block" htmlFor="appointment-technician-select">
-                            <span className="mb-1 block text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">
-                              Technician
-                            </span>
-                            <select
-                              id="appointment-technician-select"
-                              data-testid="appointment-sheet-technician-select"
-                              value={technicianId ?? ''}
-                              onChange={event => setTechnicianId(event.target.value || null)}
-                              className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
-                              disabled={saving || !detail.permissions.canReassignTechnician}
-                            >
-                              {!detail.permissions.canReassignTechnician && detail.appointment.technicianId && (
-                                <option value={detail.appointment.technicianId}>
-                                  {selectedTechnicianName}
-                                </option>
-                              )}
-                              {detail.permissions.canReassignTechnician && (
-                                <>
-                                  <option value="">Unassigned</option>
-                                  {detail.technicianOptions.map(technician => (
-                                    <option key={technician.id} value={technician.id}>
-                                      {technician.name}
-                                    </option>
-                                  ))}
-                                </>
-                              )}
-                            </select>
-                          </label>
-
-                          <label className="block" htmlFor="appointment-start-time">
-                            <span className="mb-1 block text-xs font-medium uppercase tracking-[0.08em] text-neutral-400">
-                              Reschedule
-                            </span>
-                            <input
-                              id="appointment-start-time"
-                              data-testid="appointment-sheet-start-time"
-                              type="datetime-local"
-                              value={startTime}
-                              step={(detail.appointment.slotIntervalMinutes ?? 15) * 60}
-                              onChange={event => setStartTime(event.target.value)}
-                              className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
-                              disabled={saving || !detail.permissions.canMove}
-                            />
-                          </label>
-                        </div>
-
-                        <div className="mt-4 rounded-xl bg-neutral-50 p-3 text-sm text-neutral-600">
-                          <div className="flex items-center justify-between">
-                            <span>Projected duration</span>
-                            <span data-testid="appointment-sheet-projected-duration" className="font-medium text-neutral-900">
-                              {projectedDuration}
-                              {' '}
-                              min
-                            </span>
-                          </div>
-                          <div className="mt-2 flex items-center justify-between">
-                            <span>Projected service subtotal</span>
-                            <span data-testid="appointment-sheet-projected-price" className="font-medium text-neutral-900">
-                              {financialCurrency
-                                ? formatMoney(projectedPrice, financialCurrency)
-                                : 'Under review'}
-                            </span>
-                          </div>
-                          {detail.addOns.length > 0 && (
-                            <div className="mt-2 text-xs text-neutral-500">
-                              Existing add-ons are preserved when possible and removed automatically if the new service does not allow them.
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Photos render whenever an uploader is wired — the first
+                          {/* Photos render whenever an uploader is wired — the first
                           photo must be addable from here, not only once one
                           already exists. */}
-                      {(photos.length > 0 || onUploadPhoto) && (
-                        <div className="rounded-2xl border border-neutral-200 p-4" data-testid="appointment-sheet-photos">
-                          <div className="mb-3 text-sm font-semibold text-neutral-900">Photos</div>
-                          {photos.length > 0 && (
-                            <div className="mb-3 flex gap-2 overflow-x-auto">
-                              {photos.map(photo => (
-                                <div key={photo.id} className="relative size-20 shrink-0 overflow-hidden rounded-xl">
-                                  <Image
-                                    src={photo.thumbnailUrl || photo.imageUrl}
-                                    alt={photo.photoType}
-                                    fill
-                                    className="object-cover"
-                                  />
+                          {(photos.length > 0 || onUploadPhoto) && (
+                            <div className="rounded-2xl border border-neutral-200 p-4" data-testid="appointment-sheet-photos">
+                              <div className="mb-3 text-sm font-semibold text-neutral-900">Photos</div>
+                              {photos.length > 0 && (
+                                <div className="mb-3 flex gap-2 overflow-x-auto">
+                                  {photos.map(photo => (
+                                    <div key={photo.id} className="relative size-20 shrink-0 overflow-hidden rounded-xl">
+                                      <Image
+                                        src={photo.thumbnailUrl || photo.imageUrl}
+                                        alt={photo.photoType}
+                                        fill
+                                        className="object-cover"
+                                      />
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
+                              )}
+                              {onUploadPhoto && (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button
+                                    type="button"
+                                    data-testid="appointment-sheet-upload-before"
+                                    onClick={() => onUploadPhoto('before')}
+                                    disabled={uploadingPhoto}
+                                    className="rounded-xl border border-dashed border-neutral-300 p-3 text-sm font-medium text-neutral-700"
+                                  >
+                                    Upload before
+                                  </button>
+                                  <button
+                                    type="button"
+                                    data-testid="appointment-sheet-upload-after"
+                                    onClick={() => onUploadPhoto('after')}
+                                    disabled={uploadingPhoto}
+                                    className="rounded-xl border border-dashed border-neutral-300 p-3 text-sm font-medium text-neutral-700"
+                                  >
+                                    Upload after
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
-                          {onUploadPhoto && (
+
+                          {adminDepositPanelSlot}
+
+                          <div className="rounded-2xl border border-neutral-200 p-4">
+                            <div className="mb-3 text-sm font-semibold text-neutral-900">Other actions</div>
                             <div className="grid grid-cols-2 gap-2">
-                              <button
-                                type="button"
-                                data-testid="appointment-sheet-upload-before"
-                                onClick={() => onUploadPhoto('before')}
-                                disabled={uploadingPhoto}
-                                className="rounded-xl border border-dashed border-neutral-300 p-3 text-sm font-medium text-neutral-700"
-                              >
-                                Upload before
-                              </button>
-                              <button
-                                type="button"
-                                data-testid="appointment-sheet-upload-after"
-                                onClick={() => onUploadPhoto('after')}
-                                disabled={uploadingPhoto}
-                                className="rounded-xl border border-dashed border-neutral-300 p-3 text-sm font-medium text-neutral-700"
-                              >
-                                Upload after
-                              </button>
+                              {detail.permissions.canMove && (
+                                <button
+                                  type="button"
+                                  data-testid="appointment-sheet-next-available"
+                                  onClick={() => void onMoveToNextAvailable()}
+                                  disabled={saving}
+                                  className="rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900"
+                                >
+                                  Next available
+                                </button>
+                              )}
+                              {onRebook && detail.appointment.status !== 'completed' && (
+                                <button
+                                  type="button"
+                                  onClick={onRebook}
+                                  disabled={saving}
+                                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900"
+                                >
+                                  <CalendarPlus className="size-4" />
+                                  Rebook client
+                                </button>
+                              )}
+                              {detail.permissions.canCancel && (
+                                <button type="button" data-testid="appointment-sheet-cancel" onClick={() => setPendingConfirm('cancel')} disabled={saving} className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800">
+                                  Cancel appointment
+                                </button>
+                              )}
+                              {detail.permissions.canMarkNoShow && onMarkNoShow && (
+                                <button
+                                  type="button"
+                                  data-testid="appointment-sheet-no-show"
+                                  onClick={() => setPendingConfirm('no_show')}
+                                  disabled={saving}
+                                  className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900"
+                                >
+                                  Mark no-show
+                                </button>
+                              )}
                             </div>
-                          )}
-                        </div>
+                          </div>
+                        </>
                       )}
-
-                      {adminDepositPanelSlot}
-
-                      <div className="rounded-2xl border border-neutral-200 p-4">
-                        <div className="mb-3 text-sm font-semibold text-neutral-900">Quick actions</div>
-                        <div className="grid grid-cols-2 gap-2">
-                          {onRebook && (
-                            <button
-                              type="button"
-                              onClick={onRebook}
-                              disabled={saving}
-                              className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900"
-                            >
-                              <CalendarPlus className="size-4" />
-                              Rebook client
-                            </button>
-                          )}
-                          {detail.permissions.canMove && (
-                            <button
-                              type="button"
-                              data-testid="appointment-sheet-next-available"
-                              onClick={() => void onMoveToNextAvailable()}
-                              disabled={saving}
-                              className="rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900"
-                            >
-                              Next available
-                            </button>
-                          )}
-                          {detail.permissions.canStart && (
-                            <button
-                              type="button"
-                              onClick={() => void onStartAppointment()}
-                              disabled={saving}
-                              className="rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900"
-                            >
-                              Start appointment
-                            </button>
-                          )}
-                          {detail.permissions.canConfirm && onConfirmAppointment && (
-                            <button type="button" onClick={() => void onConfirmAppointment()} disabled={saving} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
-                              Confirm appointment
-                            </button>
-                          )}
-                          {detail.permissions.canDecline && onDeclineAppointment && (
-                            <button
-                              type="button"
-                              data-testid="appointment-sheet-decline"
-                              onClick={() => setPendingConfirm('decline')}
-                              disabled={saving}
-                              className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900"
-                            >
-                              Decline request
-                            </button>
-                          )}
-                          {detail.permissions.canMarkCompleted && (
-                            <button
-                              type="button"
-                              data-testid="appointment-sheet-mark-completed"
-                              onClick={() => void onMarkCompleted()}
-                              disabled={saving}
-                              className="rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900"
-                            >
-                              Mark completed
-                            </button>
-                          )}
-                          {detail.appointment.status === 'completed' && onViewReceipt && (
-                            <button
-                              type="button"
-                              data-testid="appointment-sheet-view-receipt"
-                              onClick={onViewReceipt}
-                              disabled={saving}
-                              className="rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900"
-                            >
-                              View receipt
-                            </button>
-                          )}
-                          {detail.permissions.canMarkNoShow && onMarkNoShow && (
-                            <button
-                              type="button"
-                              data-testid="appointment-sheet-no-show"
-                              onClick={() => setPendingConfirm('no_show')}
-                              disabled={saving}
-                              className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900"
-                            >
-                              Mark no-show
-                            </button>
-                          )}
-                        </div>
-                      </div>
                     </div>
                   )}
         </div>
@@ -833,30 +850,76 @@ export function AppointmentQuickEditSheet({
               />
             )}
 
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={onClose}
                 data-testid="appointment-sheet-close"
                 className={cn(
                   buttonVariants({ variant: 'ownerSecondary' }),
-                  'h-auto flex-1 rounded-2xl px-4 py-3 text-sm font-medium',
+                  'min-h-11 flex-1 rounded-2xl px-4 py-3 text-sm font-medium',
                 )}
               >
                 Close
               </button>
-              <button
-                type="button"
-                data-testid="appointment-sheet-save"
-                onClick={() => void handleSaveEdits()}
-                disabled={saving || !isDirty}
-                className={cn(
-                  buttonVariants({ variant: 'ownerPrimary' }),
-                  'h-auto flex-[1.4] rounded-2xl px-4 py-3 text-sm font-semibold shadow-none disabled:opacity-50',
-                )}
-              >
-                {saving ? 'Saving…' : 'Save changes'}
-              </button>
+              {isEditing && (
+                <button
+                  type="button"
+                  data-testid="appointment-sheet-cancel-editing"
+                  onClick={() => {
+                    resetEditFieldsFromDetail();
+                    setIsEditing(false);
+                  }}
+                  disabled={saving}
+                  className="min-h-11 flex-1 rounded-2xl border border-neutral-300 bg-white px-4 py-3 text-sm font-semibold text-neutral-900 disabled:opacity-50"
+                >
+                  Cancel editing
+                </button>
+              )}
+              {isEditing && (
+                <button
+                  type="button"
+                  data-testid="appointment-sheet-save"
+                  onClick={() => void handleSaveEdits()}
+                  disabled={saving || !isDirty}
+                  className={cn(
+                    buttonVariants({ variant: 'ownerPrimary' }),
+                    'min-h-11 flex-[1.4] rounded-2xl px-4 py-3 text-sm font-semibold shadow-none disabled:opacity-50',
+                  )}
+                >
+                  {saving ? 'Saving…' : 'Save changes'}
+                </button>
+              )}
+              {!isEditing && detail.appointment.status === 'pending' && detail.permissions.canConfirm && onConfirmAppointment && (
+                <button type="button" onClick={() => void onConfirmAppointment()} disabled={saving} className={cn(buttonVariants({ variant: 'ownerPrimary' }), 'min-h-11 flex-[1.4] rounded-2xl px-4 py-3 text-sm font-semibold shadow-none')}>
+                  Confirm appointment
+                </button>
+              )}
+              {!isEditing && detail.appointment.status === 'pending' && detail.permissions.canDecline && onDeclineAppointment && (
+                <button type="button" data-testid="appointment-sheet-decline" onClick={() => setPendingConfirm('decline')} disabled={saving} className="min-h-11 flex-1 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+                  Decline request
+                </button>
+              )}
+              {!isEditing && detail.appointment.status === 'confirmed' && detail.permissions.canStart && (
+                <button type="button" onClick={() => void onStartAppointment()} disabled={saving} className={cn(buttonVariants({ variant: 'ownerPrimary' }), 'min-h-11 flex-[1.4] rounded-2xl px-4 py-3 text-sm font-semibold shadow-none')}>
+                  Start appointment
+                </button>
+              )}
+              {!isEditing && ['confirmed', 'in_progress'].includes(detail.appointment.status) && detail.permissions.canMarkCompleted && (
+                <button type="button" data-testid="appointment-sheet-mark-completed" onClick={() => void onMarkCompleted()} disabled={saving} className="min-h-11 flex-1 rounded-2xl border border-neutral-300 bg-white px-4 py-3 text-sm font-semibold text-neutral-900">
+                  {detail.appointment.status === 'in_progress' ? 'Complete appointment' : 'Mark completed'}
+                </button>
+              )}
+              {!isEditing && detail.appointment.status === 'completed' && onViewReceipt && (
+                <button type="button" data-testid="appointment-sheet-view-receipt" onClick={onViewReceipt} disabled={saving} className={cn(buttonVariants({ variant: 'ownerPrimary' }), 'min-h-11 flex-[1.4] rounded-2xl px-4 py-3 text-sm font-semibold shadow-none')}>
+                  View receipt
+                </button>
+              )}
+              {!isEditing && detail.appointment.status === 'completed' && onRebook && (
+                <button type="button" onClick={onRebook} disabled={saving} className="min-h-11 flex-1 rounded-2xl border border-neutral-300 bg-white px-4 py-3 text-sm font-semibold text-neutral-900">
+                  Rebook client
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -892,7 +955,7 @@ export function AppointmentQuickEditSheet({
                 type="button"
                 data-testid={`cancel-reason-${value}`}
                 onClick={() => setCancelReason(value)}
-                className={`min-h-9 rounded-full px-3 py-1.5 text-xs font-medium ${cancelReason === value ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600'}`}
+                className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium ${cancelReason === value ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-600'}`}
               >
                 {label}
               </button>

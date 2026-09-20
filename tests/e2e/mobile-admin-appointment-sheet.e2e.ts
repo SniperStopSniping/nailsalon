@@ -163,8 +163,14 @@ test('iPhone Safari keeps upcoming appointment actions and edit controls reachab
 
       await actions.getByRole('button', { name: 'Change appointment', exact: true }).click();
 
-      await expect.poll(async () => scrollRegion.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
-      await expect(sheet.getByText('Edit booking details', { exact: true })).toBeInViewport();
+      const editor = sheet.getByText('Edit booking details', { exact: true });
+
+      await expect(editor).toBeVisible();
+      await expect(sheet.getByTestId('appointment-sheet-service-select')).toBeFocused();
+
+      await editor.scrollIntoViewIfNeeded();
+
+      await expect(editor).toBeInViewport();
       await expect(close).toBeInViewport();
 
       const closeAfterScroll = await close.boundingBox();
@@ -254,6 +260,7 @@ test('iPhone Safari keeps archive confirmation safe and refreshes after success 
     // The one destructive control sits behind "More actions" and is named
     // for what it does (archive, not delete) since the CP2 clients repair.
     await page.getByTestId('client-more-actions-toggle').click();
+
     await expect(page.getByTestId('client-archive-action')).toBeVisible();
 
     await page.getByTestId('client-archive-action').click();

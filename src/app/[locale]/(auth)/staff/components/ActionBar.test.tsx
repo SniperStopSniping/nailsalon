@@ -137,7 +137,7 @@ describe('ActionBar', () => {
     await screen.findByTestId('checkout-sheet');
     await screen.findByTestId('checkout-items-section');
 
-    expect(screen.getByText('BIAB Short')).toBeInTheDocument();
+    expect(screen.getByTestId('checkout-visit-summary')).toHaveTextContent('BIAB Short');
     expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$65.00');
 
     fireEvent.click(screen.getByTestId('checkout-method-cash'));

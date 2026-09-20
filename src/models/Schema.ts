@@ -2740,8 +2740,7 @@ export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
 export const PAYMENT_STATUSES = ['pending', 'partially_paid', 'paid', 'comp'] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
-export const PAYMENT_METHODS = ['cash', 'debit', 'credit', 'e_transfer', 'online', 'gift_card', 'other'] as const;
-export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+export { PAYMENT_METHODS, type PaymentMethod } from '@/libs/paymentMethods';
 
 export const PHOTO_TYPES = ['before', 'after'] as const;
 export type PhotoType = (typeof PHOTO_TYPES)[number];

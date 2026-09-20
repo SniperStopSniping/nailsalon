@@ -74,6 +74,7 @@ export function LusterClientSms({
   onSent,
   onClose,
   showHistory = true,
+  historyInitiallyOpen = true,
 }: {
   salonSlug: string;
   salonName: string;
@@ -90,6 +91,7 @@ export function LusterClientSms({
   onSent?: (message: string) => void;
   onClose: () => void;
   showHistory?: boolean;
+  historyInitiallyOpen?: boolean;
 }) {
   const [history, setHistory] = useState<Message[]>([]);
   const [reminderPreference, setReminderPreference] = useState<string | null>(null);
@@ -244,8 +246,8 @@ export function LusterClientSms({
   }
 
   const historyPanel = showHistory && (
-    <details className="rounded-2xl border border-stone-200 bg-stone-50 p-3" open>
-      <summary className="min-h-8 cursor-pointer text-sm font-semibold text-stone-800">SMS history</summary>
+    <details className="rounded-2xl border border-stone-200 bg-stone-50 p-3" open={historyInitiallyOpen}>
+      <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-stone-800">SMS history</summary>
       <Button type="button" variant="ghost" className="min-h-11" onClick={() => void load()}>Refresh delivery status</Button>
       {loading && <p className="text-xs text-stone-500" role="status">Loading messages…</p>}
       {loadError && <p className="text-sm text-red-800" role="alert">{loadError}</p>}

@@ -85,6 +85,7 @@ vi.mock('@/libs/fraudDetection', () => ({
 
 const SALON_ID = 'salon_checkout';
 const TAX_SALON_ID = 'salon_checkout_tax';
+const OTHER_SALON_ID = 'salon_checkout_other';
 const TECH_ID = 'tech_checkout';
 
 let client: PGlite;
@@ -152,6 +153,20 @@ async function loadAppointment(id: string) {
   return row!;
 }
 
+async function expectNoCompletionMutation(appointmentId: string) {
+  const [appointment, payments, finalItems] = await Promise.all([
+    loadAppointment(appointmentId),
+    db.select().from(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.appointmentId, appointmentId)),
+    db.select().from(schema.appointmentFinalItemSchema)
+      .where(eq(schema.appointmentFinalItemSchema.appointmentId, appointmentId)),
+  ]);
+
+  expect(appointment).toMatchObject({ status: 'confirmed', completedAt: null, paymentStatus: 'pending' });
+  expect(payments).toHaveLength(0);
+  expect(finalItems).toHaveLength(0);
+}
+
 async function addPaidDeposit(
   appointmentId: string,
   overrides: Partial<typeof schema.appointmentDepositSchema.$inferInsert> = {},
@@ -186,6 +201,7 @@ beforeAll(async () => {
         payments: { tax: { enabled: true, name: 'HST', rateBps: 1300 } },
       },
     },
+    { id: OTHER_SALON_ID, name: 'Other Checkout Salon', slug: 'other-checkout-salon' },
   ]);
   await db.insert(schema.technicianSchema).values({
     id: TECH_ID,
@@ -209,16 +225,35 @@ beforeAll(async () => {
       price: 6000,
       durationMinutes: 75,
     },
+    {
+      id: 'svc_checkout_tax_biab',
+      salonId: TAX_SALON_ID,
+      name: 'BIAB Short',
+      category: 'builder_gel',
+      price: 4500,
+      durationMinutes: 60,
+    },
   ]);
-  await db.insert(schema.addOnSchema).values({
-    id: 'addon_checkout_chrome',
-    salonId: SALON_ID,
-    slug: 'chrome-finish',
-    name: 'Chrome Finish',
-    category: 'nail_art',
-    priceCents: 1500,
-    durationMinutes: 15,
-  });
+  await db.insert(schema.addOnSchema).values([
+    {
+      id: 'addon_checkout_chrome',
+      salonId: SALON_ID,
+      slug: 'chrome-finish',
+      name: 'Chrome Finish',
+      category: 'nail_art',
+      priceCents: 1500,
+      durationMinutes: 15,
+    },
+    {
+      id: 'addon_checkout_tax_chrome',
+      salonId: TAX_SALON_ID,
+      slug: 'tax-chrome-finish',
+      name: 'Chrome Finish',
+      category: 'nail_art',
+      priceCents: 1500,
+      durationMinutes: 15,
+    },
+  ]);
 }, 60_000);
 
 beforeEach(async () => {
@@ -338,6 +373,159 @@ describe('PATCH /complete — checkout integration', () => {
     expect(response.status).toBe(409);
     expect((await response.json()).error.code).toBe('DEPOSIT_CURRENCY_MISMATCH');
     expect((await loadAppointment(id)).status).toBe('confirmed');
+  });
+
+  it('completes a normal $35 visit with a 72-character catalog ID and no optional fields', async () => {
+    const serviceId = `svc_${'x'.repeat(68)}`;
+    await db.insert(schema.serviceSchema).values({
+      id: serviceId,
+      salonId: SALON_ID,
+      name: 'Russian Manicure',
+      category: 'manicure',
+      price: 3500,
+      durationMinutes: 35,
+    }).onConflictDoNothing();
+    const id = await seedAppointment({ totalPrice: 3500, totalDurationMinutes: 35 });
+    await db.update(schema.appointmentServicesSchema).set({
+      serviceId,
+      nameSnapshot: 'Russian Manicure',
+      priceAtBooking: 3500,
+      priceCentsSnapshot: 3500,
+      durationAtBooking: 35,
+      durationMinutesSnapshot: 35,
+    }).where(eq(schema.appointmentServicesSchema.appointmentId, id));
+    const payload = {
+      finalItems: [{ kind: 'service', catalogServiceId: serviceId, catalogAddOnId: null, name: 'Russian Manicure', quantity: 1, unitPriceCents: 3500, durationMinutes: 35, taxable: true }],
+      discountCents: 0,
+      tipCents: 0,
+      payments: [{ amountCents: 3500 }],
+      expectedTotalDueCents: 3500,
+      skipPhotoValidation: true,
+    };
+    const response = await completePatch(patchRequest(payload), { params: Promise.resolve({ id }) });
+    const body = await response.json();
+
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    expect(await loadAppointment(id)).toMatchObject({ status: 'completed', amountPaidCents: 3500, paymentMethod: null, actualStartAt: null, actualEndAt: null });
+
+    const replay = await completePatch(patchRequest(payload), { params: Promise.resolve({ id }) });
+
+    expect(replay.status).toBe(200);
+    expect(await db.select().from(schema.appointmentPaymentSchema).where(eq(schema.appointmentPaymentSchema.appointmentId, id))).toHaveLength(1);
+    expect(await db.select().from(schema.appointmentFinalItemSchema).where(eq(schema.appointmentFinalItemSchema.appointmentId, id))).toHaveLength(1);
+  });
+
+  it('accepts a same-salon long add-on catalog reference', async () => {
+    const addOnId = `addon_${'y'.repeat(68)}`;
+    await db.insert(schema.addOnSchema).values({
+      id: addOnId,
+      salonId: SALON_ID,
+      slug: 'long-id-addon',
+      name: 'Long ID chrome',
+      category: 'nail_art',
+      priceCents: 1500,
+      durationMinutes: 15,
+    }).onConflictDoNothing();
+    const id = await seedAppointment();
+    const response = await completePatch(patchRequest({
+      skipPhotoValidation: true,
+      finalItems: [{ kind: 'addon', catalogAddOnId: addOnId, name: 'Long ID chrome', quantity: 1, unitPriceCents: 1500, durationMinutes: 15 }],
+      payments: [{ amountCents: 1500, method: 'cash' }],
+      expectedTotalDueCents: 1500,
+    }), { params: Promise.resolve({ id }) });
+
+    expect(response.status, await response.text()).toBe(200);
+    expect(await loadAppointment(id)).toMatchObject({ status: 'completed', amountPaidCents: 1500 });
+    await expect(db.select().from(schema.appointmentFinalItemSchema)
+      .where(eq(schema.appointmentFinalItemSchema.appointmentId, id))).resolves.toEqual([
+      expect.objectContaining({ kind: 'addon', catalogAddOnId: addOnId }),
+    ]);
+  });
+
+  it('accepts archived same-salon catalog references in a final checkout snapshot', async () => {
+    const serviceId = 'svc_checkout_archived';
+    const addOnId = 'addon_checkout_archived';
+    await db.insert(schema.serviceSchema).values({
+      id: serviceId,
+      salonId: SALON_ID,
+      name: 'Archived service',
+      category: 'manicure',
+      price: 4000,
+      durationMinutes: 45,
+      isActive: false,
+    }).onConflictDoNothing();
+    await db.insert(schema.addOnSchema).values({
+      id: addOnId,
+      salonId: SALON_ID,
+      slug: 'archived-addon',
+      name: 'Archived add-on',
+      category: 'nail_art',
+      priceCents: 1000,
+      durationMinutes: 10,
+      isActive: false,
+    }).onConflictDoNothing();
+    const id = await seedAppointment();
+    const response = await completePatch(patchRequest({
+      skipPhotoValidation: true,
+      finalItems: [
+        { kind: 'service', catalogServiceId: serviceId, name: 'Archived service', quantity: 1, unitPriceCents: 4000, durationMinutes: 45 },
+        { kind: 'addon', catalogAddOnId: addOnId, name: 'Archived add-on', quantity: 1, unitPriceCents: 1000, durationMinutes: 10 },
+      ],
+      payments: [{ amountCents: 5000, method: 'cash' }],
+      expectedTotalDueCents: 5000,
+    }), { params: Promise.resolve({ id }) });
+
+    expect(response.status, await response.text()).toBe(200);
+    await expect(db.select().from(schema.appointmentFinalItemSchema)
+      .where(eq(schema.appointmentFinalItemSchema.appointmentId, id))).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ catalogServiceId: serviceId }),
+      expect.objectContaining({ catalogAddOnId: addOnId }),
+    ]));
+  });
+
+  it.each([
+    ['service', 'svc_checkout_other_tenant'],
+    ['addon', 'addon_checkout_other_tenant'],
+    ['service', 'svc_checkout_unknown'],
+    ['addon', 'addon_checkout_unknown'],
+  ] as const)('rejects a %s catalog reference outside the appointment salon or unknown to the catalog without mutation', async (kind, referenceId) => {
+    if (referenceId === 'svc_checkout_other_tenant') {
+      await db.insert(schema.serviceSchema).values({
+        id: referenceId,
+        salonId: OTHER_SALON_ID,
+        name: 'Other salon service',
+        category: 'manicure',
+        price: 5000,
+        durationMinutes: 50,
+      }).onConflictDoNothing();
+    }
+    if (referenceId === 'addon_checkout_other_tenant') {
+      await db.insert(schema.addOnSchema).values({
+        id: referenceId,
+        salonId: OTHER_SALON_ID,
+        slug: 'other-salon-addon',
+        name: 'Other salon add-on',
+        category: 'nail_art',
+        priceCents: 1000,
+        durationMinutes: 10,
+      }).onConflictDoNothing();
+    }
+    const id = await seedAppointment();
+    const finalItem = kind === 'service'
+      ? { kind, catalogServiceId: referenceId, name: 'Untrusted service', quantity: 1, unitPriceCents: 5000 }
+      : { kind, catalogAddOnId: referenceId, name: 'Untrusted add-on', quantity: 1, unitPriceCents: 1000 };
+    const response = await completePatch(patchRequest({
+      skipPhotoValidation: true,
+      finalItems: [finalItem],
+      payments: [{ amountCents: 5000, method: 'cash' }],
+    }), { params: Promise.resolve({ id }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    expect(JSON.stringify(body)).not.toContain(referenceId);
+
+    await expectNoCompletionMutation(id);
   });
 
   it('legacy empty-ish body completes exactly as before this phase', async () => {
@@ -510,8 +698,8 @@ describe('PATCH /complete — checkout integration', () => {
     const response = await completePatch(patchRequest({
       skipPhotoValidation: true,
       finalItems: [
-        { kind: 'service', catalogServiceId: 'svc_checkout_biab', name: 'BIAB Short', quantity: 1, unitPriceCents: 4500 },
-        { kind: 'addon', catalogAddOnId: 'addon_checkout_chrome', name: 'Chrome Finish', quantity: 1, unitPriceCents: 1500 },
+        { kind: 'service', catalogServiceId: 'svc_checkout_tax_biab', name: 'BIAB Short', quantity: 1, unitPriceCents: 4500 },
+        { kind: 'addon', catalogAddOnId: 'addon_checkout_tax_chrome', name: 'Chrome Finish', quantity: 1, unitPriceCents: 1500 },
         { kind: 'custom', name: 'Nail repair', quantity: 2, unitPriceCents: 500 },
       ],
       discountCents: 1000,

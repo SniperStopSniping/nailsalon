@@ -27,6 +27,19 @@ beforeEach(() => {
 });
 
 describe('Luster SMS composer', () => {
+  it('can keep appointment SMS evidence collapsed without removing it', async () => {
+    renderComposer({ composerOpen: false, historyInitiallyOpen: false });
+    const summary = await screen.findByText('SMS history');
+
+    expect(summary.closest('details')).not.toHaveAttribute('open');
+
+    await waitFor(() => expect(screen.getByText('No Luster texts for this client yet.')).not.toBeVisible());
+    fireEvent.click(summary);
+
+    // Native details toggling is exercised in the mobile browser harness.
+    expect(screen.getByText('No Luster texts for this client yet.')).toBeInTheDocument();
+  });
+
   it.each([
     ['customer_disabled', 'Reminders disabled by customer'],
     ['opted_out', 'STOP / opted out. A new booking cannot restart appointment texts.'],

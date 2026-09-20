@@ -62,6 +62,16 @@ describe('ReviewRequestAction', () => {
     expect(await screen.findByRole('button', { name: 'Review request sending' })).toBeDisabled();
   });
 
+  it('keeps the review explanation above a full-width status action', async () => {
+    fetchMock.mockResolvedValue(response(reviewRequest('sent', { sentAt: '2026-09-12T17:52:00.000Z', canSendManually: false })));
+    render(<ReviewRequestAction appointmentId="appt_1" salonSlug="salon-a" timeZone="America/Toronto" appointmentStatus="completed" />);
+
+    const action = await screen.findByRole('button', { name: 'Review request sent' });
+
+    expect(action).toHaveClass('w-full');
+    expect(action.parentElement).toHaveTextContent('Sent to the SMS provider');
+  });
+
   it('offers a new manual action for a proven cancelled request with the current preview', async () => {
     fetchMock.mockResolvedValue(response(reviewRequest('cancelled', { canSendManually: true, phone: '4165559999', message: 'Current review message', reason: 'The pending request was stopped before sending.' })));
     render(<ReviewRequestAction appointmentId="appt_1" salonSlug="salon-a" timeZone="America/Toronto" appointmentStatus="completed" />);
