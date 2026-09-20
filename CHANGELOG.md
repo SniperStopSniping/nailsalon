@@ -1,3 +1,10 @@
+## [1.123.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.123.2...v1.123.3) (2026-09-20)
+
+
+### Bug Fixes
+
+* preserve receptionist recovery after interrupted turns ([6f4ca8f](https://github.com/SniperStopSniping/nailsalon/commit/6f4ca8ff244d3b826dd4f0f5c956300014742115))
+
 ## [1.123.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.123.1...v1.123.2) (2026-09-20)
 
 
