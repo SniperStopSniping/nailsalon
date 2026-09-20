@@ -7,6 +7,7 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { computeCheckoutTotals } from '@/libs/checkoutTotals';
+import { getClientProfileNextVisitOffer } from '@/libs/clientProfileOffer.server';
 import { buildFinalTaxSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
@@ -303,6 +304,21 @@ describe('next visit offer durable lifecycle', () => {
       sourceAppointmentId: fixture.sourceId,
       now: fixture.completedAt,
     })).resolves.toMatchObject({ sourceAppointmentId: fixture.sourceId });
+
+    const beforeProfileRead = await db.execute(sql`SELECT (SELECT count(*) FROM next_visit_offer) AS offers, (SELECT count(*) FROM retention_campaign) AS campaigns`);
+
+    await expect(getClientProfileNextVisitOffer(db as never, fixture.salonId, fixture.clientId, fixture.completedAt)).resolves.toMatchObject({
+      state: 'available',
+      discountType: 'percent',
+      discountValue: 5,
+      currency: 'CAD',
+      sourceAppointmentId: fixture.sourceId,
+    });
+
+    const afterProfileRead = await db.execute(sql`SELECT (SELECT count(*) FROM next_visit_offer) AS offers, (SELECT count(*) FROM retention_campaign) AS campaigns`);
+
+    expect(afterProfileRead.rows).toEqual(beforeProfileRead.rows);
+    await expect(getClientProfileNextVisitOffer(db as never, 'other-tenant', fixture.clientId, fixture.completedAt)).resolves.toEqual({ state: 'unavailable' });
 
     await expect(getAvailableNextVisitOfferForSourceAppointment(db as never, {
       salonId: 'other-tenant',

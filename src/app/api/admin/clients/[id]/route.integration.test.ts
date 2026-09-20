@@ -617,3 +617,65 @@ describe('PATCH /api/admin/clients/[id] snapshot-safe contact updates', () => {
     }
   });
 });
+
+describe('client profile operational appointment visibility', () => {
+  it('keeps current work, payment holds and unresolved visits visible without inferring completion or writing offers', async () => {
+    const rows = [
+      { id: 'profile_current', status: 'in_progress', startTime: new Date('2026-07-23T15:00:00Z'), endTime: new Date('2026-07-23T17:00:00Z') },
+      { id: 'profile_hold', status: 'awaiting_payment', startTime: new Date('2026-07-24T15:00:00Z'), endTime: new Date('2026-07-24T16:00:00Z') },
+      { id: 'profile_pending', status: 'pending', startTime: new Date('2026-07-25T15:00:00Z'), endTime: new Date('2026-07-25T16:00:00Z') },
+      { id: 'profile_unresolved', status: 'confirmed', startTime: new Date('2026-07-21T15:00:00Z'), endTime: new Date('2026-07-21T16:00:00Z') },
+      { id: 'profile_cancelled_future', status: 'cancelled', startTime: new Date('2026-07-26T15:00:00Z'), endTime: new Date('2026-07-26T16:00:00Z') },
+    ] as const;
+    await testDb.insert(schema.appointmentSchema).values(rows.map(row => ({ ...row, salonId: SALON_ID, clientPhone: PHONE, clientName: 'Synthetic profile client', totalPrice: 4000, totalDurationMinutes: 60 })));
+    const before = await testDb.execute(sql`SELECT (SELECT count(*) FROM next_visit_offer) AS offers, (SELECT count(*) FROM next_visit_offer_event) AS events, (SELECT count(*) FROM retention_campaign) AS campaigns`);
+    try {
+      const response = await GET(new Request(`http://localhost/api/admin/clients/${CLIENT_ID}?salonSlug=client-profile-financial`), { params: Promise.resolve({ id: CLIENT_ID }) });
+
+      expect(response.status).toBe(200);
+
+      const { data } = await response.json();
+
+      expect(data.upcomingAppointments.map((row: { id: string }) => row.id)).toEqual(expect.arrayContaining(['profile_current', 'profile_hold', 'profile_pending']));
+      expect(data.recentIssues.map((row: { id: string }) => row.id)).toEqual(expect.arrayContaining(['profile_unresolved', 'profile_cancelled_future']));
+      expect(data.pastAppointments.map((row: { id: string }) => row.id)).not.toContain('profile_unresolved');
+      expect(data.summary.nextVisitOffer).toEqual({ state: 'none' });
+
+      const after = await testDb.execute(sql`SELECT (SELECT count(*) FROM next_visit_offer) AS offers, (SELECT count(*) FROM next_visit_offer_event) AS events, (SELECT count(*) FROM retention_campaign) AS campaigns`);
+
+      expect(after.rows).toEqual(before.rows);
+    } finally {
+      for (const row of rows) {
+        await testDb.delete(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, row.id));
+      }
+    }
+  });
+
+  it('does not report a client unbooked when current work fills the capped preview', async () => {
+    const rows = Array.from({ length: 5 }, (_, index) => ({
+      id: `profile_cap_current_${index}`,
+      salonId: SALON_ID,
+      clientPhone: PHONE,
+      clientName: 'Synthetic capped profile',
+      status: 'in_progress' as const,
+      startTime: new Date(NOW.getTime() - (index + 1) * 86_400_000),
+      endTime: new Date(NOW.getTime() - index * 86_400_000),
+      totalPrice: 4000,
+      totalDurationMinutes: 60,
+    }));
+    await testDb.insert(schema.appointmentSchema).values(rows);
+    try {
+      const response = await GET(new Request(`http://localhost/api/admin/clients/${CLIENT_ID}?salonSlug=client-profile-financial`), { params: Promise.resolve({ id: CLIENT_ID }) });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.data.upcomingAppointments).toHaveLength(5);
+      expect(payload.data.upcomingAppointments.every((appointment: { status: string }) => appointment.status === 'in_progress')).toBe(true);
+      expect(payload.data.summary.rebooking.status).toBe('booked');
+    } finally {
+      for (const row of rows) {
+        await testDb.delete(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, row.id));
+      }
+    }
+  });
+});

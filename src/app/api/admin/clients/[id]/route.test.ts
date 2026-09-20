@@ -3,6 +3,8 @@ import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/libs/clientProfileOffer.server', () => ({ getClientProfileNextVisitOffer: vi.fn(async () => ({ state: 'none' })) }));
+
 const {
   getAdminSession,
   requireAdminSalon,
