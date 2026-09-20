@@ -201,15 +201,28 @@ test('component-browser fixture shows a bounded customer/assistant transcript wi
   expect(unexpected).toEqual([]);
 });
 
-test('component-browser fixture preserves the manual escape at 320px and 200% text zoom', async ({ page }, testInfo) => {
+test('component-browser fixture preserves the manual escape above the booking footer at 320px and 200% text zoom', async ({ page }, testInfo) => {
   const unexpected = await installSyntheticAssistantRoutes(page);
   await page.goto('/');
   await setMobileViewportAndTextZoom(page, 320);
   await page.getByRole('button', { name: 'Help me choose & book' }).tap();
 
+  // Match the public service page's fixed z-60 footer, which is outside the
+  // assistant's portal. Visibility/viewport assertions alone miss occlusion.
+  await page.evaluate(() => {
+    const footer = document.createElement('div');
+    footer.dataset.testid = 'public-booking-footer';
+    footer.textContent = 'Appointment subtotal · Continue';
+    footer.style.cssText = 'position:fixed;bottom:0;left:0;right:0;height:90px;z-index:60;background:white';
+    document.body.append(footer);
+  });
   const manual = page.getByRole('button', { name: 'Continue manually' });
 
   await expect(manual).toBeVisible();
+  expect(await manual.evaluate((button) => {
+    const rect = button.getBoundingClientRect();
+    return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+  })).toBe(true);
 
   const manualBox = await manual.boundingBox();
 
