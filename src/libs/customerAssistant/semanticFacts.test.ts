@@ -24,6 +24,21 @@ describe('customer assistant semantic facts', () => {
     expect(cleared).toMatchObject({ existingProduct: 'none', origin: 'unknown', removal: 'unknown', repairCount: 'unknown' });
   });
 
+  it('does not mistake service uncertainty for explicit uncertainty about the current product', () => {
+    const serviceUncertainty = mergeFacts(emptyFacts(), { ...absentPatch(), currentProductUncertain: true });
+    const explicitProductUncertainty = mergeFacts(emptyFacts(), { ...absentPatch(), existingProduct: 'unknown', currentProductUncertain: true });
+
+    expect(serviceUncertainty.currentProductUncertain).toBeUndefined();
+    expect(explicitProductUncertainty.currentProductUncertain).toBe(true);
+  });
+
+  it('clears explicit current-product uncertainty without inventing a product', () => {
+    const uncertain = mergeFacts(emptyFacts(), { ...absentPatch(), existingProduct: 'unknown', currentProductUncertain: true });
+    const corrected = mergeFacts(uncertain, { ...absentPatch(), currentProductUncertain: false });
+
+    expect(corrected).toMatchObject({ existingProduct: 'unknown', currentProductUncertain: false });
+  });
+
   it('keeps exact repair quantities and rejects out-of-range values in state and patches', () => {
     expect(mergeFacts(emptyFacts(), { ...absentPatch(), repairCount: 2 }).repairCount).toBe(2);
     expect(() => patchSchema.parse({ ...absentPatch(), repairCount: 21 })).toThrow();

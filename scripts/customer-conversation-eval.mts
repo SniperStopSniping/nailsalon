@@ -24,6 +24,7 @@ const { createCustomerConversation, signCustomerConversation, verifyCustomerConv
 const { emptyFacts } = require('../src/libs/customerAssistant/semanticFacts') as typeof import('../src/libs/customerAssistant/semanticFacts');
 const { selectionConflictsWithExplicitFacts } = require('../src/libs/customerAssistant/semanticSelection') as typeof import('../src/libs/customerAssistant/semanticSelection');
 const { evaluateReceptionistTurn } = require('../src/libs/customerAssistant/__evals__/receptionistHarness') as typeof import('../src/libs/customerAssistant/__evals__/receptionistHarness');
+const { applyCustomerTurnResult } = require('../src/libs/customerAssistant/resolveTurn') as typeof import('../src/libs/customerAssistant/resolveTurn');
 const { SEMANTIC_L1_MENU, SEMANTIC_L1_SNAPSHOT } = require('../src/libs/customerAssistant/__evals__/semanticCases') as typeof import('../src/libs/customerAssistant/__evals__/semanticCases');
 const { CUSTOMER_CONVERSATION_EVAL_CASES } = require('../src/libs/customerAssistant/__evals__/conversationCases') as typeof import('../src/libs/customerAssistant/__evals__/conversationCases');
 const { resolveCatalogSelection } = require('../src/libs/catalogResolverCore') as typeof import('../src/libs/catalogResolverCore');
@@ -229,6 +230,20 @@ function evaluateTurn(args: {
   if (!expect.resultKinds.includes(args.result.kind)) {
     failures.push(`result:${args.result.kind}`);
   }
+  if (expect.availability?.requested) {
+    const actual = args.result.kind === 'slots' ? args.result.search?.requestedPreference : undefined;
+    for (const [key, value] of Object.entries(expect.availability.requested)) {
+      if (actual?.[key as keyof NonNullable<typeof actual>] !== value) {
+        failures.push(`availability_requested_${key}`);
+      }
+    }
+  }
+  if (expect.availability?.fallback !== undefined && (args.result.kind !== 'slots' || args.result.search?.fallback !== expect.availability.fallback)) {
+    failures.push('availability_fallback');
+  }
+  if (expect.availability?.clarificationDirection && !folded(args.reply).includes(expect.availability.clarificationDirection)) {
+    failures.push('availability_clarification_direction');
+  }
   const expectedTopics = expect.permittedAnswerTopics ?? (expect.answerTopic ? [expect.answerTopic] : []);
   if (expectedTopics.length && (args.result.kind !== 'answer' || !expectedTopics.includes(args.result.topic as typeof expectedTopics[number]))) {
     failures.push(`topic:${args.result.kind === 'answer' ? args.result.topic ?? 'none' : args.result.kind}`);
@@ -241,7 +256,7 @@ function evaluateTurn(args: {
   if (expect.subjects && JSON.stringify(args.next.subjects ?? []) !== JSON.stringify(expect.subjects)) {
     failures.push('subjects');
   }
-  if (expect.proposal) {
+  if (expect.proposal && !(args.result.kind === 'clarification' && expect.resultKinds.includes('clarification'))) {
     if (args.result.kind !== 'proposal') {
       failures.push('proposal_missing');
     } else {
@@ -420,10 +435,13 @@ async function main(): Promise<void> {
           previousFacts: conversation.facts ?? emptyFacts(),
           requestedSelection: conversation.requestedSelection ?? null,
           customerMessages: messages,
+          latestCustomerMessage: turn.message,
           dialogue: priorDialogue,
           conversationalSubjects: conversation.subjects ?? [],
+          priorConversationalSubjects: conversation.priorSubjects ?? [],
           lastShown: conversation.context ?? null,
           bookingState: conversation.booking ?? null,
+          availabilitySearch: conversation.availabilitySearch ?? null,
           today: '2026-09-18',
           timeZone: 'America/Toronto',
         });
@@ -441,6 +459,7 @@ async function main(): Promise<void> {
         const previous = conversation;
         let intent: import('zod').z.infer<typeof customerInterpretationSchema> | null = null;
         let rawReply: string | null = null;
+        let rawInterpretation: string | null = null;
         let replyFallback = false;
         let replyParseFailure: string | null = null;
         let result: import('../src/libs/customerAssistant/contracts').CustomerAssistantResult | null = null;
@@ -451,9 +470,10 @@ async function main(): Promise<void> {
           const modelResponse = await provider.createResponse({ model: CUSTOMER_ASSISTANT_MODEL, input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: interpretationInput }], tools: [], toolChoice: 'none', reasoningEffort: 'low', jsonMode: 'schema', jsonSchema: CUSTOMER_INTERPRETATION_JSON_SCHEMA, maxOutputTokens, timeoutMs });
           const interpretationCall: SafeCall = { stage: 'interpretation', latencyMs: Math.round(performance.now() - started), usage: modelResponse.usage, estimatedCostMicros: estimatedCostMicros(modelResponse.usage), status: 'completed', error: null };
           calls.push(interpretationCall);
-          const parsedIntent = customerInterpretationSchema.parse(JSON.parse(modelText(modelResponse)));
+          rawInterpretation = modelText(modelResponse);
+          const parsedIntent = customerInterpretationSchema.parse(JSON.parse(rawInterpretation));
           intent = parsedIntent;
-          const resolved = await evaluateReceptionistTurn(parsedIntent, conversation, { message: turn.message, kinds: ['answer', 'proposal', 'clarification', 'unavailable', 'slots', 'date_prompt', 'slot_selected'] });
+          const resolved = await evaluateReceptionistTurn(parsedIntent, conversation, { message: turn.message, kinds: ['answer', 'proposal', 'clarification', 'unavailable', 'slots', 'date_prompt', 'slot_selected'], availabilityFixture: testCase.availabilityFixture });
           result = resolved.result;
           next = { ...resolved.next, dialogue: priorDialogue };
           let currentProposal: import('../src/libs/customerAssistant/contracts').CustomerProposal | undefined;
@@ -475,9 +495,13 @@ async function main(): Promise<void> {
           const replyResponse = await provider.createResponse({ model: CUSTOMER_ASSISTANT_MODEL, input: [{ role: 'system', content: RECEPTIONIST_REPLY_PROMPT }, { role: 'user', content: replyInput.data }], tools: [], toolChoice: 'none', reasoningEffort: 'low', jsonMode: 'schema', jsonSchema: createReplySchema(replyInput.facts), maxOutputTokens: maxReplyTokens, timeoutMs });
           calls.push({ stage: 'reply', latencyMs: Math.round(performance.now() - replyStarted), usage: replyResponse.usage, estimatedCostMicros: estimatedCostMicros(replyResponse.usage), status: 'completed', error: null });
           rawReply = modelText(replyResponse);
+          const guidanceOptions = result.kind === 'clarification' && result.question === 'service' ? result.options : null;
           let parsedReply: { message: string; options: string[] };
           try {
             parsedReply = parseReceptionistReply(rawReply, replyInput.facts, SEMANTIC_L1_MENU, replyInput.requiredFactKeys);
+            if (guidanceOptions && parsedReply.options.some(option => !guidanceOptions.includes(option))) {
+              throw new Error('CUSTOMER_REPLY_INCOMPATIBLE_GUIDANCE_OPTION');
+            }
           } catch (error) {
             // The customer-visible path has a deterministic, fact-grounded
             // fallback. Keep raw-model contract reliability separate from the
@@ -485,14 +509,16 @@ async function main(): Promise<void> {
             // shown to a visitor.
             replyFallback = true;
             replyParseFailure = error instanceof Error && /^CUSTOMER_REPLY_[A-Z_]+$/.test(error.message) ? error.message : 'CUSTOMER_REPLY_INVALID';
-            parsedReply = { message: fallbackReceptionistReply({ menu: SEMANTIC_L1_MENU, publicFacts, result, conversation, nextState: next, message: turn.message, locale: 'en' }, replyInput.facts), options: [] };
+            parsedReply = { message: fallbackReceptionistReply({ menu: SEMANTIC_L1_MENU, publicFacts, result, conversation, nextState: next, message: turn.message, locale: 'en', currentProposal }, replyInput.facts), options: [] };
           }
-          result = { ...result, message: parsedReply.message };
+          result = { ...result, message: parsedReply.message, ...(result.kind === 'answer' || guidanceOptions ? { options: parsedReply.options } : {}) };
+          // Match the live turn: sign the choices actually rendered after composition.
+          applyCustomerTurnResult(next, result);
           const nextDialogue: NonNullable<import('../src/libs/customerAssistant/conversation.server').CustomerConversation['dialogue']> = [...priorDialogue, { role: 'user' as const, content: turn.message }, { role: 'assistant' as const, content: parsedReply.message }].slice(-24);
           next.dialogue = nextDialogue;
           failures.push(...evaluateTurn({ turn, result, next, reply: parsedReply.message, publicFacts, previous, currentProposal }));
           conversation = next;
-          results.push({ caseId: testCase.id, category: testCase.category, repeat: repeatIndex, turn: turnIndex + 1, customer: turn.message, status: failures.length ? 'review' : 'passed', failures, modelReplyFallback: replyFallback, replyParseFailure, intent, result, rawModelReply: rawReply, reply: parsedReply.message, nextFacts: next.facts, subjects: next.subjects ?? [], calls: calls.slice(-2) });
+          results.push({ caseId: testCase.id, category: testCase.category, repeat: repeatIndex, turn: turnIndex + 1, customer: turn.message, status: failures.length ? 'review' : 'passed', failures, modelReplyFallback: replyFallback, replyParseFailure, intent, rawModelInterpretation: rawInterpretation, result, rawModelReply: rawReply, reply: parsedReply.message, nextFacts: next.facts, subjects: next.subjects ?? [], calls: calls.slice(-2) });
         } catch (error) {
           const stage = result ? 'reply' : 'interpretation';
           calls.push({ stage, latencyMs: null, usage: null, estimatedCostMicros: null, status: 'failed', error: error instanceof Error ? error.name : 'unknown' });

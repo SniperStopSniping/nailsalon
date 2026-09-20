@@ -39,6 +39,16 @@ export const customerDatePreferenceSchema = z.object({
 }).strict();
 export type CustomerDatePreference = z.infer<typeof customerDatePreferenceSchema>;
 
+/** Public, signed presentation context for a checked availability result. */
+export const customerAvailabilitySearchSchema = z.object({
+  requestedPreference: customerDatePreferenceSchema,
+  displayedPreference: customerDatePreferenceSchema,
+  fallback: z.boolean(),
+  // Set only while a focused requested-vs-displayed follow-up is pending.
+  pendingTimingFeedback: z.enum(['too_late', 'too_early']).optional(),
+}).strict();
+export type CustomerAvailabilitySearch = z.infer<typeof customerAvailabilitySearchSchema>;
+
 export const customerAvailableSlotSchema = z.object({
   time: z.string().min(1).max(80),
   startTime: z.string().datetime(),
@@ -80,9 +90,9 @@ export type CustomerAssistantResult = (
   | { kind: 'answer'; message: string; options: string[]; topic?: 'compare_treatments' | 'length_options' | 'service_options' | 'unknown_product' | 'service_information' | 'price' | 'duration' | 'recall' | 'salon_information' | 'recommendation' | 'conversation' }
   | { kind: 'proposal'; proposal: CustomerProposal }
   | { kind: 'date_prompt'; proposal: CustomerProposal; today: string; timeZone: string }
-  | { kind: 'slots'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slots: CustomerAvailableSlot[]; checkedAt: string; slotDisappeared?: boolean }
+  | { kind: 'slots'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slots: CustomerAvailableSlot[]; checkedAt: string; slotDisappeared?: boolean; search?: CustomerAvailabilitySearch }
   | { kind: 'slot_selected'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slot: CustomerAvailableSlot }
   | { kind: 'clarification'; question: 'service' | 'removal' | 'product' | 'origin' | 'length' | 'finish' | 'quantity' | 'details' | 'date'; options: string[] }
-  | { kind: 'unavailable'; reason: 'no_match' | 'unavailable' | 'rate_limited' | 'conversation_used' | 'selection_changed' | 'invalid_conversation' | 'conversation_expired' | 'session_limit' | 'stale_conversation' | 'unsupported_service' | 'unsupported_removal' | 'incompatible_selection' | 'unknown_product' | 'no_availability' | 'handoff_expired' | 'invalid_handoff' }) & { message?: string };
+  | { kind: 'unavailable'; reason: 'no_match' | 'unavailable' | 'rate_limited' | 'conversation_used' | 'selection_changed' | 'invalid_conversation' | 'conversation_expired' | 'session_limit' | 'stale_conversation' | 'unsupported_service' | 'unsupported_removal' | 'incompatible_selection' | 'unknown_product' | 'no_availability' | 'handoff_expired' | 'invalid_handoff' }) & { message?: string; availabilitySearch?: CustomerAvailabilitySearch };
 
 export type CustomerAssistantResponse = { conversation: string; result: CustomerAssistantResult };

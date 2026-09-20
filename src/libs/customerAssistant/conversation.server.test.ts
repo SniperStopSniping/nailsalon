@@ -74,6 +74,19 @@ describe('customer conversation token', () => {
     }, SECRET)).toThrow(CustomerConversationInvalidError);
   });
 
+  it('preserves bounded public availability search provenance without changing legacy tokens', () => {
+    const conversation = {
+      ...createCustomerConversation('salon_a', SECRET, NOW),
+      availabilitySearch: {
+        requestedPreference: { date: '2026-09-26', earliest: '17:00', latest: '23:59' },
+        displayedPreference: { date: '2026-09-28', earliest: '00:00', latest: '23:59' },
+        fallback: true,
+      },
+    };
+
+    expect(verifyCustomerConversation(signCustomerConversation(conversation, SECRET), 'salon_a', SECRET, NOW).availabilitySearch).toEqual(conversation.availabilitySearch);
+  });
+
   it('bounds encoded Unicode history by trimming old turns rather than expiring the conversation', () => {
     const oversizedUnicode = {
       ...createCustomerConversation('salon_a', SECRET, NOW),

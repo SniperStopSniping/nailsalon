@@ -4,7 +4,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
 
-import { customerAvailableSlotSchema, customerDatePreferenceSchema, customerSelectionSchema } from './contracts';
+import { customerAvailabilitySearchSchema, customerAvailableSlotSchema, customerDatePreferenceSchema, customerSelectionSchema } from './contracts';
 import { factsSchema } from './semanticFacts';
 
 export const CONVERSATION_TTL_MS = 30 * 60 * 1000;
@@ -47,6 +47,9 @@ const conversationSchema = z.object({
   facts: factsSchema.optional(),
   requestedSelection: customerSelectionSchema.optional(),
   availabilityPreference: customerDatePreferenceSchema.optional(),
+  // Preserve the original checked window separately from any later fallback.
+  // This is public presentation context only; it is never booking authority.
+  availabilitySearch: customerAvailabilitySearchSchema.optional(),
   context: customerConversationContextSchema.optional(),
   booking: customerConversationBookingSchema.optional(),
 }).strict().superRefine((value, context) => {

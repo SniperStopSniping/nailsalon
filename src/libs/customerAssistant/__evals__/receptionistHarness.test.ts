@@ -60,6 +60,35 @@ it('preserves desired design edits during answers and invalidates the old propos
   expect(followup.failures).toEqual([]);
 });
 
+it('applies an explicit add-on update through L1 despite consumed invalid clarification options', async () => {
+  const french = SEMANTIC_L1_MENU.addOns.find(item => item.name === 'French Tips')!.id;
+  const first = await evaluateReceptionistTurn(intent({
+    factUpdates: { ...patch, treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', length: 'medium' },
+  }), createCustomerConversation('synthetic-isla', 'synthetic-only'), {
+    message: 'medium Gel-X on bare nails',
+    kinds: ['proposal'],
+    price: 8000,
+    duration: 105,
+  });
+
+  const changed = await evaluateReceptionistTurn(intent({
+    action: 'clarify',
+    question: 'product',
+    optionIds: ['not-a-public-option'],
+    addOns: [{ addOnId: french, quantity: 1 }],
+    addOnUpdates: { add: [{ addOnId: french, quantity: 1 }], remove: [] },
+    factUpdates: { ...patch, french: 'yes' },
+  }), first.next, {
+    message: 'add French',
+    kinds: ['proposal'],
+    price: 9000,
+    duration: 120,
+  });
+
+  expect(changed.failures).toEqual([]);
+  expect(changed.next.requestedSelection?.selectedAddOns).toContainEqual({ addOnId: french, quantity: 1 });
+});
+
 it('keeps an interpreted service while L1 asks only for its unresolved option', async () => {
   const state = createCustomerConversation('synthetic-isla', 'synthetic-only');
   state.facts = { schemaVersion: 1, treatment: 'gel_x', desiredApplication: 'extensions', maintenance: 'unknown', length: 'unknown', french: 'unknown', existingProduct: 'unknown', origin: 'unknown', removal: 'unknown', repairCount: 'unknown' };

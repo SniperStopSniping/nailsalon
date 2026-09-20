@@ -28,7 +28,7 @@ const secret = 'x'.repeat(32);
 const acceptedFingerprint = 'a'.repeat(64);
 const input = () => ({ salonId: 'salon-a', salonSlug: 'isla-nail-studio', features: null, clientIp: '192.0.2.1', locale: 'en' as const, message: 'Gel-X with French', conversation: signCustomerConversation(createCustomerConversation('salon-a', secret), secret) });
 const usage = { inputTokens: 100, cachedInputTokens: 0, outputTokens: 50 };
-const noFactUpdates = { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null };
+const noFactUpdates = { schemaVersion: 1 as const, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, currentProductUncertain: null, origin: null, removal: null, repairCount: null };
 const interpretation = { factUpdates: noFactUpdates, action: 'propose', serviceId: 'gelx', addOns: [{ addOnId: 'french', quantity: 1 }], question: 'details', optionIds: [] };
 const provider = (output: unknown = interpretation) => ({ createResponse: vi.fn().mockResolvedValue({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(output) }] }) });
 
@@ -231,6 +231,320 @@ describe('customer assistant bounded turn', () => {
     expect(mocks.lookup).toHaveBeenCalledTimes(1);
   });
 
+  it('asks for a date rather than silently using next available when a named window was not resolved', async () => {
+    const accepted = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint, datePreference: null, offeredSlots: [], selectedSlot: null },
+    }, secret);
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'Saturday after 5' }, provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: null,
+      availabilityScope: 'specific_window',
+    }));
+
+    expect(response.result).toEqual({ kind: 'clarification', question: 'date', options: [] });
+    expect(mocks.lookup).not.toHaveBeenCalled();
+    expect(mocks.nextSlots).not.toHaveBeenCalled();
+  });
+
+  it('keeps a direct relative follow-up on the displayed date instead of trusting a model-inferred future date', async () => {
+    const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
+    const accepted = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint, datePreference: displayed, offeredSlots: [{ time: '10:00', startTime: '2026-09-28T14:00:00.000Z' }], selectedSlot: null },
+      availabilitySearch: { requestedPreference: displayed, displayedPreference: displayed, fallback: false },
+    }, secret);
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'anything earlier?' }, provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: { date: '2026-09-29', earliest: '00:00', latest: '23:59' },
+      timingFeedback: 'too_late',
+      dateExplicitThisTurn: false,
+    }));
+
+    expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({
+      preference: { date: '2026-09-28', earliest: '00:00', latest: '09:59' },
+    }));
+    expect(response.result).toMatchObject({
+      kind: 'slots',
+      search: { requestedPreference: { date: '2026-09-28', earliest: '00:00', latest: '09:59' }, displayedPreference: { date: '2026-09-28', earliest: '00:00', latest: '09:59' }, fallback: false },
+    });
+  });
+
+  it('preserves requested and displayed availability windows when a specific search falls back', async () => {
+    const requested = { date: '2026-09-26', earliest: '17:00', latest: '23:59' };
+    const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
+    const accepted = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint, datePreference: null, offeredSlots: [], selectedSlot: null },
+    }, secret);
+    mocks.lookup.mockResolvedValueOnce({
+      proposal: await mocks.proposal('salon-a', null, { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] }),
+      today: '2026-09-18',
+      timeZone: 'America/Toronto',
+      slots: [],
+      selected: null,
+      quoteChanged: false,
+    });
+    mocks.nextSlots.mockResolvedValueOnce({
+      proposal: await mocks.proposal('salon-a', null, { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] }),
+      today: '2026-09-18',
+      timeZone: 'America/Toronto',
+      preference: displayed,
+      slots: [{ time: '10:00', startTime: '2026-09-28T14:00:00.000Z' }],
+      selected: null,
+      quoteChanged: false,
+    });
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'anything Saturday after 5?' }, provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: requested,
+    }));
+
+    expect(response.result).toMatchObject({
+      kind: 'slots',
+      search: { requestedPreference: requested, displayedPreference: displayed, fallback: true },
+    });
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).availabilitySearch).toEqual({
+      requestedPreference: requested,
+      displayedPreference: displayed,
+      fallback: true,
+    });
+  });
+
+  it('asks one focused question for an ambiguous relative follow-up after a fallback instead of moving to another day', async () => {
+    const requested = { date: '2026-09-26', earliest: '17:00', latest: '23:59' };
+    const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
+    const accepted = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint, datePreference: displayed, offeredSlots: [{ time: '10:00', startTime: '2026-09-28T14:00:00.000Z' }], selectedSlot: null },
+      availabilitySearch: { requestedPreference: requested, displayedPreference: displayed, fallback: true },
+    }, secret);
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'anything earlier?' }, provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: { date: '2026-09-29', earliest: '00:00', latest: '23:59' },
+      timingFeedback: 'too_late',
+      dateExplicitThisTurn: false,
+    }));
+
+    expect(response.result).toMatchObject({
+      kind: 'clarification',
+      question: 'date',
+      message: expect.stringContaining('earlier on'),
+      availabilitySearch: { requestedPreference: requested, displayedPreference: displayed, fallback: true },
+    });
+    expect(mocks.lookup).not.toHaveBeenCalled();
+    expect(mocks.nextSlots).not.toHaveBeenCalled();
+  });
+
+  it('resolves requested and displayed anchors from signed fallback context with the pending direction', async () => {
+    const requested = { date: '2026-09-26', earliest: '17:00', latest: '23:59' };
+    const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
+    const fallback = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint, datePreference: displayed, offeredSlots: [{ time: '10:00', startTime: '2026-09-28T14:00:00.000Z' }], selectedSlot: null },
+      availabilitySearch: { requestedPreference: requested, displayedPreference: displayed, fallback: true },
+    }, secret);
+    const asked = await runCustomerAssistantTurn({ ...input(), conversation: fallback, message: 'anything earlier?' }, provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: { date: '2099-01-01', earliest: '00:00', latest: '23:59' },
+      timingFeedback: 'too_late',
+      dateExplicitThisTurn: false,
+    }));
+    const requestedAnchor = await runCustomerAssistantTurn({ ...input(), conversation: asked.conversation, message: 'the original day' }, provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: null,
+      timingFeedback: 'none',
+      dateExplicitThisTurn: false,
+      availabilityAnchor: 'requested',
+    }));
+
+    expect(mocks.lookup).toHaveBeenLastCalledWith(expect.objectContaining({
+      preference: { date: '2026-09-26', earliest: '00:00', latest: '16:59' },
+    }));
+    expect(requestedAnchor.result).toMatchObject({ kind: 'slots' });
+
+    const laterFallback = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint, datePreference: displayed, offeredSlots: [{ time: '10:00', startTime: '2026-09-28T14:00:00.000Z' }], selectedSlot: null },
+      availabilitySearch: { requestedPreference: requested, displayedPreference: displayed, fallback: true },
+    }, secret);
+    const askedLater = await runCustomerAssistantTurn({ ...input(), conversation: laterFallback, message: 'anything later?' }, provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: null,
+      timingFeedback: 'too_early',
+      dateExplicitThisTurn: false,
+    }));
+    const shownModel = provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: null,
+      timingFeedback: 'none',
+      dateExplicitThisTurn: false,
+      availabilityAnchor: 'displayed',
+    });
+    await runCustomerAssistantTurn({ ...input(), conversation: askedLater.conversation, message: 'the shown times' }, shownModel);
+
+    expect(askedLater.result).toMatchObject({ message: expect.stringContaining('later on') });
+    expect(JSON.parse(shownModel.createResponse.mock.calls[0]![0].input[1].content).availabilitySearch).toMatchObject({
+      requestedPreference: requested,
+      displayedPreference: displayed,
+      fallback: true,
+      pendingTimingFeedback: 'too_early',
+    });
+    expect(mocks.lookup).toHaveBeenLastCalledWith(expect.objectContaining({
+      preference: { date: '2026-09-28', earliest: '10:01', latest: '23:59' },
+    }));
+
+    const correctionModel = provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: null,
+      timingFeedback: 'too_early',
+      dateExplicitThisTurn: false,
+      availabilityAnchor: 'displayed',
+    });
+    await runCustomerAssistantTurn({ ...input(), conversation: asked.conversation, message: 'the shown day, actually later' }, correctionModel);
+
+    expect(mocks.lookup).toHaveBeenLastCalledWith(expect.objectContaining({
+      preference: { date: '2026-09-28', earliest: '10:01', latest: '23:59' },
+    }));
+  });
+
+  it('uses the original requested boundary for an explicitly named original fallback day', async () => {
+    const requested = { date: '2026-09-26', earliest: '17:00', latest: '23:59' };
+    const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
+    const accepted = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint, datePreference: displayed, offeredSlots: [{ time: '09:00', startTime: '2026-09-28T13:00:00.000Z' }], selectedSlot: null },
+      availabilitySearch: { requestedPreference: requested, displayedPreference: displayed, fallback: true },
+    }, secret);
+    await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'earlier on Saturday please' }, provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: { date: '2026-09-26', earliest: '00:00', latest: '23:59' },
+      timingFeedback: 'too_early',
+      timeDirection: 'earlier',
+      dateExplicitThisTurn: true,
+    }));
+
+    expect(mocks.lookup).toHaveBeenLastCalledWith(expect.objectContaining({
+      preference: { date: '2026-09-26', earliest: '00:00', latest: '16:59' },
+    }));
+  });
+
+  it('clears stale fallback provenance after an explicit date search finds no matching times', async () => {
+    const requested = { date: '2026-09-26', earliest: '17:00', latest: '23:59' };
+    const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
+    const accepted = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint, datePreference: displayed, offeredSlots: [{ time: '10:00', startTime: '2026-09-28T14:00:00.000Z' }], selectedSlot: null },
+      availabilitySearch: { requestedPreference: requested, displayedPreference: displayed, fallback: true },
+    }, secret);
+    mocks.lookup.mockResolvedValueOnce({
+      proposal: await mocks.proposal('salon-a', null, { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] }),
+      today: '2026-09-18',
+      timeZone: 'America/Toronto',
+      slots: [],
+      selected: null,
+      quoteChanged: false,
+    });
+    mocks.nextSlots.mockResolvedValueOnce(null);
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'Tuesday instead' }, provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: { date: '2026-09-29', earliest: '00:00', latest: '23:59' },
+      dateExplicitThisTurn: true,
+    }));
+    const state = verifyCustomerConversation(response.conversation, 'salon-a', secret);
+
+    expect(response.result).toMatchObject({ kind: 'unavailable', reason: 'no_availability' });
+    expect(state.availabilitySearch).toBeUndefined();
+    expect(state.booking).toBeUndefined();
+  });
+
+  it('honours an explicitly named date when a customer rejects a displayed time', async () => {
+    const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
+    const accepted = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint, datePreference: displayed, offeredSlots: [{ time: '10:00', startTime: '2026-09-28T14:00:00.000Z' }], selectedSlot: null },
+      availabilitySearch: { requestedPreference: displayed, displayedPreference: displayed, fallback: false },
+    }, secret);
+    await runCustomerAssistantTurn({ ...input(), conversation: accepted, message: 'What about Tuesday instead, earlier?' }, provider({
+      ...interpretation,
+      action: 'availability',
+      datePreference: { date: '2026-09-29', earliest: '00:00', latest: '23:59' },
+      timingFeedback: 'too_late',
+      dateExplicitThisTurn: true,
+    }));
+
+    expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({
+      preference: { date: '2026-09-29', earliest: '00:00', latest: '09:59' },
+    }));
+  });
+
+  it('does not quote an existing outside set before removal or maintenance is clarified', async () => {
+    const response = await runCustomerAssistantTurn({ ...input(), message: 'I have Gel-X from another salon and want medium Gel-X with French' }, provider({
+      ...interpretation,
+      action: 'clarify',
+      serviceId: null,
+      addOns: [],
+      question: 'service',
+      optionIds: ['gelx'],
+      factUpdates: { ...noFactUpdates, treatment: 'gel_x', desiredApplication: 'extensions', length: 'medium', french: 'yes', existingProduct: 'gel_x', origin: 'other_salon' },
+    }));
+
+    expect(response.result).toEqual({ kind: 'clarification', question: 'removal', options: [] });
+    expect(mocks.proposal).not.toHaveBeenCalled();
+  });
+
+  it('resolves an explicit add-on update through the normal proposal path even when the model also asks an invalid product question', async () => {
+    const prior = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      requestedSelection: { baseServiceId: 'gelx', selectedAddOns: [] },
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [] } },
+    }, secret);
+    mocks.proposal.mockResolvedValueOnce({
+      selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] },
+      fingerprint: acceptedFingerprint,
+      service: { id: 'gelx', name: 'Gel-X', priceCents: 6000 },
+      addOns: [{ id: 'french', name: 'French', quantity: 1, priceCents: 1000 }],
+      subtotalCents: 7000,
+      durationMinutes: 75,
+      currency: 'CAD',
+      expiresAt: '2026-09-18T00:00:00Z',
+    });
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: prior, message: 'add French' }, provider({
+      ...interpretation,
+      action: 'clarify',
+      serviceId: 'gelx',
+      addOns: [{ addOnId: 'french', quantity: 1 }],
+      addOnUpdates: { add: [{ addOnId: 'french', quantity: 1 }], remove: [] },
+      question: 'product',
+      optionIds: ['not-public'],
+      factUpdates: { ...noFactUpdates, french: 'yes', existingProduct: 'unknown' },
+    }));
+
+    expect(response.result).toMatchObject({
+      kind: 'proposal',
+      proposal: { selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+    });
+  });
+
   it('does not let the model ask for a date before a customer accepts a proposal', async () => {
     const response = await runCustomerAssistantTurn(input(), provider({
       ...interpretation,
@@ -277,6 +591,27 @@ describe('natural receptionist orchestration', () => {
   const enablePublicFacts = () => mocks.publicFacts.mockResolvedValue({ salon: { name: 'Synthetic salon' }, catalogue: { currency: 'CAD', services: [{ id: 'gelx', name: 'Gel-X', category: 'manicure', description: null, durationMinutes: 60, price: { baseCents: 6000, baseDisplay: '$60.00', displayLabel: null, range: null } }], addOns: [] } });
   const information = { ...interpretation, action: 'answer', answerTopic: 'price', informationServiceIds: ['gelx'], addOnUpdates: { add: [], remove: [] }, addOns: [] };
   const answer = (message: string) => ({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify({ segments: message.startsWith('[[') ? [{ kind: 'fact', key: message.slice(2, -2) }] : [{ kind: 'text', text: message }], serviceOptions: ['gelx'] }) }] });
+
+  it.each(['gelx', 'pedicure'])('keeps service guidance optional, viable and identical to signed displayed choices: %s', async (option) => {
+    const services = [{ id: 'biab', name: 'BIAB' }, { id: 'gelx', name: 'Gel-X' }, { id: 'pedicure', name: 'Pedicure' }];
+    mocks.menu.mockResolvedValue({ services, addOns: [], bindings: [] });
+    mocks.publicFacts.mockResolvedValue({ salon: { name: 'Synthetic salon' }, catalogue: { currency: 'CAD', services: services.map(service => ({ ...service, description: `${service.name} from the public menu.`, durationMinutes: 60, price: { baseCents: 6000, baseDisplay: '$60.00', displayLabel: null, range: null } })), addOns: [] } });
+    const unresolved = { ...interpretation, action: 'clarify', question: 'service', serviceId: null, addOns: [], optionIds: ['biab', 'gelx'] };
+    const model = provider(unresolved);
+    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(unresolved) }] }).mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify({ segments: [{ kind: 'text', text: 'For added length, consider extensions.' }], serviceOptions: [option] }) }] });
+    const response = await runCustomerAssistantTurn({ ...input(), message: 'I am not sure which service suits me.' }, model);
+    const expectedOptions = option === 'gelx' ? ['Gel-X'] : [];
+
+    expect(response.result).toMatchObject({ kind: 'clarification', question: 'service', options: expectedOptions });
+
+    const restored = verifyCustomerConversation(response.conversation, 'salon-a', secret);
+
+    expect(restored.context?.options).toEqual(expectedOptions);
+    expect(restored.requestedSelection).toBeUndefined();
+    expect(restored.booking).toBeUndefined();
+    expect(mocks.proposal).not.toHaveBeenCalled();
+    expect(mocks.lookup).not.toHaveBeenCalled();
+  });
 
   it('answers price through fresh facts, stores actual dialogue and does not select a booking', async () => {
     enablePublicFacts();

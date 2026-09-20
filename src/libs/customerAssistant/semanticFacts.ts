@@ -86,6 +86,12 @@ export const emptyFacts = (): Facts => ({
 export function mergeFacts(previous: Facts, patch: Patch): Facts {
   const current = factsSchema.parse(previous);
   const next = patchSchema.parse(patch);
+  // A model may be uncertain which service to recommend. That must not be
+  // reclassified as uncertainty about the product currently on the nails.
+  // Only an explicit unknown current-product patch can set this blocker.
+  const currentProductUncertain = next.currentProductUncertain === true && next.existingProduct === 'unknown';
+  const currentProductUncertaintyCleared = next.currentProductUncertain === false
+    || (next.existingProduct !== null && next.existingProduct !== 'unknown');
   return factsSchema.parse({
     schemaVersion: 1,
     treatment: next.treatment ?? current.treatment,
@@ -94,7 +100,7 @@ export function mergeFacts(previous: Facts, patch: Patch): Facts {
     length: next.length ?? current.length,
     french: next.french ?? current.french,
     existingProduct: next.existingProduct ?? current.existingProduct,
-    ...(next.currentProductUncertain !== null ? { currentProductUncertain: next.currentProductUncertain } : next.existingProduct !== null && next.existingProduct !== 'unknown' ? { currentProductUncertain: false } : current.currentProductUncertain !== undefined ? { currentProductUncertain: current.currentProductUncertain } : {}),
+    ...(currentProductUncertain ? { currentProductUncertain: true } : currentProductUncertaintyCleared ? { currentProductUncertain: false } : current.currentProductUncertain !== undefined ? { currentProductUncertain: current.currentProductUncertain } : {}),
     origin: next.origin ?? current.origin,
     removal: next.removal ?? current.removal,
     repairCount: next.repairCount ?? current.repairCount,
