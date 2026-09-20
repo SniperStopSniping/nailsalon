@@ -109,7 +109,9 @@ it('clears an inherited extension length when an explicit treatment switch moves
 
   const switched = await evaluateReceptionistTurn(intent({
     serviceId: biab,
-    factUpdates: { ...patch, treatment: 'builder_gel', desiredApplication: 'natural_nails' },
+    // Structured model output may echo the old long value while removing the
+    // corresponding catalogue add-on; that echo is not a new design choice.
+    factUpdates: { ...patch, treatment: 'builder_gel', desiredApplication: 'natural_nails', length: 'long' },
   }), first.next, { message: 'Actually forget Gel-X, I want BIAB', kinds: ['proposal'] });
 
   expect(switched.failures).toEqual([]);
@@ -125,4 +127,12 @@ it('clears an inherited extension length when an explicit treatment switch moves
   }), explicitLength.next, { message: 'Actually BIAB, but short', kinds: ['proposal'] });
 
   expect(switchedWithLength.next.facts?.length).toBe('short');
+
+  const explicitlyRetained = await evaluateReceptionistTurn(intent({
+    serviceId: biab,
+    lengthExplicitThisTurn: true,
+    factUpdates: { ...patch, treatment: 'builder_gel', desiredApplication: 'natural_nails', length: 'long' },
+  }), explicitLength.next, { message: 'Actually BIAB, but keep them long', kinds: ['proposal', 'clarification', 'unavailable'] });
+
+  expect(explicitlyRetained.next.facts?.length).toBe('long');
 });

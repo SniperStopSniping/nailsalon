@@ -36,6 +36,13 @@ describe('grounded receptionist reply boundary', () => {
     expect(() => parseReceptionistReply(output(value.message, value.serviceOptions), buildReplyInput(args).facts, menu)).toThrow();
   });
 
+  it('allows conversational references and honest uncertainty without mistaking nouns for financial claims', () => {
+    const facts = buildReplyInput(args).facts;
+    for (const text of ['You asked about the cost.', 'I do not have the salon’s deposit policy.', 'I do not have its opening hours.', 'Please check with the salon about refunds.']) {
+      expect(parseReceptionistReply(output(text), facts, menu).message).toBe(text);
+    }
+  });
+
   it('requires one canonical clarification rather than repeating it in natural prose', () => {
     const facts = { required_question: 'What product is currently on your nails?' };
 

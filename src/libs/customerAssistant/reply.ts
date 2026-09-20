@@ -172,7 +172,10 @@ export function parseReceptionistReply(raw: string, facts: Record<string, string
   // Reject common value/policy claims even when numbers are spelled out.
   // General prose is evaluated for groundedness; this is an extra rejection
   // guard, not a semantic proof of arbitrary natural text.
-  if (/\b(?:dollars?|cents?|euros?|percent|pour\s+cent|minutes?|hours?|heures?|costs?|priced|gratuit|free|refunds?|deposits?|cancellation\s+(?:fee|policy)|cancel\s+(?:anytime|any\s+time))\b/iu.test(prose)
+  const spelledAmount = '(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|half|quarter|un|une|deux|trois|quatre|cinq|dix|vingt|trente|quarante|cinquante)';
+  const spelledValueClaim = new RegExp(`\\b${spelledAmount}(?:[ -]+${spelledAmount})*\\s+(?:dollars?|cents?|euros?|percent|pour\\s+cent|minutes?|hours?|heures?)\\b|\\b(?:costs?|priced(?: at)?|takes?|lasts?)\\s+(?:(?:about|around|roughly)\\s+)?${spelledAmount}\\b`, 'iu');
+  if (spelledValueClaim.test(prose)
+    || /\b(?:(?:is|are|it’s|it's|for)\s+(?:free|gratuit)|(?:full|partial|automatic)\s+refunds?|(?:no|without)\s+(?:deposit|cancellation fee)|cancel\s+(?:anytime|any\s+time))\b/iu.test(prose)
     || /\b(?:appointment|booking)\s+(?:is|has\s+been)\s+(?:booked|confirmed|reserved)\b/iu.test(prose)) {
     throw new Error('CUSTOMER_REPLY_UNGROUNDED_CLAIM');
   }

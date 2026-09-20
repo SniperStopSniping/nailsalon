@@ -25,17 +25,19 @@ type Authorities = {
  * from extensions to a natural-nail service, do not make the new service ask
  * for the old extension length. A changed supplied length still wins. Model
  * patches repeat prior values in some valid structured outputs, so merely
- * echoing the old value cannot keep an extension-only fact alive.
+ * echoing the old value cannot keep an extension-only fact alive. Explicitly
+ * retaining the same length is preserved using latest-turn provenance.
  */
 function clearInheritedExtensionLength(args: {
   previous: import('./semanticFacts').Facts;
   facts: import('./semanticFacts').Facts;
   patch: z.infer<typeof customerInterpretationSchema>['factUpdates'];
+  lengthExplicitThisTurn: boolean;
 }): import('./semanticFacts').Facts {
   const changedTreatment = args.patch.treatment !== null && args.patch.treatment !== args.previous.treatment;
   const switchedApplication = args.previous.desiredApplication === 'extensions' && args.patch.desiredApplication === 'natural_nails';
   const changedLength = args.patch.length !== null && args.patch.length !== args.previous.length;
-  return changedTreatment && switchedApplication && !changedLength
+  return changedTreatment && switchedApplication && !changedLength && !args.lengthExplicitThisTurn
     ? { ...args.facts, length: 'unknown' }
     : args.facts;
 }
@@ -62,6 +64,7 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
     previous: previousFacts,
     facts: mergeFacts(previousFacts, intent.factUpdates),
     patch: intent.factUpdates,
+    lengthExplicitThisTurn: intent.lengthExplicitThisTurn,
   });
   nextState.facts = facts;
   if (JSON.stringify(facts) !== JSON.stringify(previousFacts)) {
