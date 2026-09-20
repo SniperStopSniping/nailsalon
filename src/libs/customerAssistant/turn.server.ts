@@ -7,6 +7,7 @@ import { ModelProviderError, type ModelProviderUsage, type OwnerAssistantModelPr
 import type { SalonFeatures } from '@/types/salonPolicy';
 
 import { getCustomerAssistantConfig } from './access.server';
+import { compactCustomerModelContext } from './boundedModelContext';
 import { reserveCustomerAssistantTurn } from './budget.server';
 import { buildCustomerProposal, loadCustomerClarificationSnapshot, loadCustomerMenu, validateCustomerMenuSelection } from './catalogue.server';
 import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL, type CustomerAssistantLocale, type CustomerAssistantResponse, type CustomerAssistantResult } from './contracts';
@@ -92,25 +93,30 @@ export async function runCustomerAssistantTurn(args: {
       }
     }
     const availabilityContext = await getCustomerAvailabilityContext(args.salonId);
-    const data = JSON.stringify({
-      locale: args.locale,
-      bookingSalon: { name: args.salonName ?? args.salonSlug, slug: args.salonSlug },
-      previousFacts: conversation.facts ?? emptyFacts(),
-      requestedSelection: conversation.requestedSelection ?? null,
-      menu,
-      customerMessages: messages,
-      latestCustomerMessage: args.message,
-      dialogue: conversation.dialogue ?? conversation.messages.map(content => ({ role: 'user', content })),
-      conversationalSubjects: conversation.subjects ?? [],
-      priorConversationalSubjects: conversation.priorSubjects ?? [],
-      lastShown: conversation.context ?? null,
-      bookingState: conversation.booking ?? null,
-      availabilitySearch: conversation.availabilitySearch ?? null,
-      ...availabilityContext,
+    const interpreterContext = compactCustomerModelContext({
+      prompt: CUSTOMER_INTERPRETATION_PROMPT,
+      maxBytes: CUSTOMER_ASSISTANT_MAX_INPUT_BYTES,
+      legacyMessages: conversation.dialogue?.length ? undefined : conversation.messages,
+      context: {
+        locale: args.locale,
+        bookingSalon: { name: args.salonName ?? args.salonSlug, slug: args.salonSlug },
+        previousFacts: conversation.facts ?? emptyFacts(),
+        requestedSelection: conversation.requestedSelection ?? null,
+        menu,
+        latestCustomerMessage: args.message,
+        ...(conversation.dialogue?.length ? { dialogue: conversation.dialogue } : {}),
+        conversationalSubjects: conversation.subjects ?? [],
+        priorConversationalSubjects: conversation.priorSubjects ?? [],
+        lastShown: conversation.context ?? null,
+        bookingState: conversation.booking ?? null,
+        availabilitySearch: conversation.availabilitySearch ?? null,
+        ...availabilityContext,
+      },
     });
-    if (Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + data, 'utf8') > CUSTOMER_ASSISTANT_MAX_INPUT_BYTES) {
+    if (!interpreterContext.fits) {
       return { conversation: signCustomerConversation(nextState, config.signingSecret), result };
     }
+    const data = interpreterContext.data;
     // Durable reservation BEFORE network: a failed outcome write still leaves
     // conservative unknown-spend evidence, and a failed reservation makes no call.
     await recordCustomerAssistantUsage({ salonId: args.salonId, attemptId, outcome: 'reserved', usage: null, latencyMs: 0 });
@@ -158,15 +164,21 @@ export async function runCustomerAssistantTurn(args: {
       // Service-choice chips are optional guidance. Do not show an unrelated
       // menu dump when composition falls back; typed replies remain available.
       result = { ...result, message: fallback, ...(guidanceOptions ? { options: [] } : {}) };
+      const replyContext = compactCustomerModelContext({
+        prompt: RECEPTIONIST_REPLY_PROMPT,
+        schema: replySchema,
+        maxBytes: 24_000,
+        context: JSON.parse(reply.data) as Record<string, unknown>,
+      });
       const remaining = 25_000 - (performance.now() - started);
       // Combined worst-case input bytes + both output caps stay below the
       // existing conservative $0.02 turn reservation (including schema overhead).
-      if (remaining >= 1500 && Buffer.byteLength(RECEPTIONIST_REPLY_PROMPT + reply.data + JSON.stringify(replySchema), 'utf8') <= 24_000) {
+      if (remaining >= 1500 && replyContext.fits) {
         let replyUsage: ModelProviderUsage | null = null;
         try {
           const composed = await model.createResponse({
             model: CUSTOMER_ASSISTANT_MODEL,
-            input: [{ role: 'system', content: RECEPTIONIST_REPLY_PROMPT }, { role: 'user', content: reply.data }],
+            input: [{ role: 'system', content: RECEPTIONIST_REPLY_PROMPT }, { role: 'user', content: replyContext.data }],
             tools: [],
             toolChoice: 'none',
             reasoningEffort: 'low',

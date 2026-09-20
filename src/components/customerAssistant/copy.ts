@@ -64,7 +64,7 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     },
     unavailable: {
       no_match: 'We could not find a matching service. Try describing what you would like another way.',
-      unavailable: 'That selection is not available right now. Try another option.',
+      unavailable: 'I couldn’t check that right now. Please try again or continue with the regular booking menu.',
       rate_limited: 'Please wait a moment before trying again.',
       conversation_used: 'This conversation is no longer available. Start over to continue.',
       selection_changed: 'The salon menu changed. Please choose again so we can show current details.',
@@ -118,7 +118,7 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     },
     unavailable: {
       no_match: 'Nous n’avons pas trouvé de service correspondant. Essayez de décrire ce que vous souhaitez autrement.',
-      unavailable: 'Cette sélection n’est pas offerte présentement. Essayez une autre option.',
+      unavailable: 'Je n’ai pas pu vérifier cela pour le moment. Réessayez ou continuez avec le menu de réservation habituel.',
       rate_limited: 'Veuillez attendre un instant avant de réessayer.',
       conversation_used: 'Cette conversation n’est plus disponible. Recommencez pour continuer.',
       selection_changed: 'Le menu du salon a changé. Choisissez de nouveau pour afficher les détails actuels.',

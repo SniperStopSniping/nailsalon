@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SEMANTIC_L1_MENU, SEMANTIC_L1_SNAPSHOT } from './__evals__/semanticCases';
+import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES } from './contracts';
+import { CUSTOMER_INTERPRETATION_PROMPT } from './interpretation';
 
 const mocks = vi.hoisted(() => ({ reserve: vi.fn(), menu: vi.fn(), snapshot: vi.fn(), proposal: vi.fn(), record: vi.fn(), validate: vi.fn(), lookup: vi.fn(), nextSlots: vi.fn(), publicFacts: vi.fn() }));
 vi.mock('server-only', () => ({}));
@@ -495,6 +497,61 @@ describe('customer assistant bounded turn', () => {
     expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({
       preference: { date: '2026-09-29', earliest: '00:00', latest: '09:59' },
     }));
+  });
+
+  it('compacts a production-sized role history without losing the original fallback day', async () => {
+    const requested = { date: '2026-09-26', earliest: '17:00', latest: '23:59' };
+    const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
+    const selection = { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] };
+    const longHistory = Array.from({ length: 11 }, (_, index) => [
+      { role: 'user' as const, content: `Earlier visit ${index}: ${'💅é'.repeat(150)}` },
+      { role: 'assistant' as const, content: `Earlier answer ${index}: ${'💅é'.repeat(150)}` },
+    ]).flat();
+    const state = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      dialogue: [...longHistory, { role: 'user', content: 'Saturday after five please.' }, { role: 'assistant', content: 'No matching Saturday time; I showed Monday times instead.' }],
+      context: { question: 'date', options: [], selection },
+      requestedSelection: selection,
+      booking: {
+        acceptedFingerprint: null,
+        datePreference: displayed,
+        offeredSlots: Array.from({ length: 8 }, (_, index) => ({ time: `${String(9 + index).padStart(2, '0')}:00`, startTime: `2026-09-28T${String(13 + index).padStart(2, '0')}:00:00.000Z` })),
+        selectedSlot: null,
+      },
+      availabilitySearch: { requestedPreference: requested, displayedPreference: displayed, fallback: true },
+    }, secret);
+    const bulkyServices = Array.from({ length: 8 }, (_, index) => ({ id: index === 0 ? 'gelx' : `public-${index}`, name: index === 0 ? 'Gel-X' : `Public service ${index}`, description: `Public description ${index}: ${'nail'.repeat(170)}` }));
+    mocks.menu.mockResolvedValue({ services: bulkyServices, addOns: [{ id: 'french', name: 'French' }], bindings: [{ serviceId: 'gelx', addOnId: 'french' }] });
+    const model = provider({
+      ...interpretation,
+      action: 'availability',
+      serviceId: null,
+      addOns: [{ addOnId: 'french', quantity: 1 }],
+      datePreference: null,
+      timeDirection: 'earlier',
+      availabilityScope: 'next_available',
+      dateExplicitThisTurn: false,
+      availabilityAnchor: 'requested',
+    });
+
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: state, message: 'Anything earlier on the original Saturday?' }, model);
+    const payload = JSON.parse(model.createResponse.mock.calls[0]![0].input[1].content);
+
+    expect(model.createResponse).toHaveBeenCalledTimes(1);
+    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(payload), 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
+    expect(payload).not.toHaveProperty('customerMessages');
+    expect(payload.dialogue.length).toBeLessThan(verifyCustomerConversation(state, 'salon-a', secret).dialogue!.length);
+    expect(payload.dialogue.slice(-2)).toEqual([
+      { role: 'user', content: 'Saturday after five please.' },
+      { role: 'assistant', content: 'No matching Saturday time; I showed Monday times instead.' },
+    ]);
+    expect(payload.latestCustomerMessage).toBe('Anything earlier on the original Saturday?');
+    expect(payload.menu.services).toHaveLength(8);
+    expect(payload.lastShown.question).toBe('date');
+    expect(payload.bookingState.offeredSlots).toHaveLength(8);
+    expect(payload.availabilitySearch).toEqual({ requestedPreference: requested, displayedPreference: displayed, fallback: true });
+    expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({ preference: { date: '2026-09-26', earliest: '00:00', latest: '16:59' } }));
+    expect(response.result.kind).not.toBe('unavailable');
   });
 
   it('does not quote an existing outside set before removal or maintenance is clarified', async () => {
