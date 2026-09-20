@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { customerAssistantCopy } from '@/components/customerAssistant/copy';
 import { createOpenAiResponsesProvider } from '@/libs/ai/openaiResponses.server';
 import { ModelProviderError, type ModelProviderUsage, type OwnerAssistantModelProvider } from '@/libs/ai/provider';
+import { getNextVisitOfferAssistantFacts, type NextVisitOfferAssistantFacts } from '@/libs/nextVisitOffer.server';
 import type { SalonFeatures } from '@/types/salonPolicy';
 
 import { getCustomerAssistantConfig } from './access.server';
@@ -24,6 +25,57 @@ import { emptyFacts } from './semanticFacts';
 import { selectionConflictsWithExplicitFacts } from './semanticSelection';
 import { getCustomerAvailabilityContext, lookupCustomerSlots, lookupNextCustomerSlots } from './slots.server';
 import { readCompletedCustomerTurn, storeCompletedCustomerTurn } from './turnReplay.server';
+
+function nextVisitOfferFact(args: {
+  offer: NextVisitOfferAssistantFacts;
+  menu: Awaited<ReturnType<typeof loadCustomerMenu>>;
+  locale: CustomerAssistantLocale;
+  hasSelectedService: boolean;
+}): string {
+  const { offer, menu, locale } = args;
+  const fr = locale === 'fr';
+  const discount = offer.promotion.discountType === 'percent'
+    ? `${offer.promotion.value}%`
+    : new Intl.NumberFormat(fr ? 'fr-CA' : 'en-CA', { style: 'currency', currency: offer.currency }).format(offer.promotion.value / 100);
+  const eligibleNames = offer.promotion.eligibleServiceIds.length === 0
+    ? (fr ? 'tous les services admissibles' : 'all eligible services')
+    : menu.services.filter(service => offer.promotion.eligibleServiceIds.includes(service.id)).slice(0, 8).map(service => service.name).join(', ') || (fr ? 'les services configurés pour cette offre' : 'the services configured for this offer');
+  const common = fr
+    ? ' Une seule promotion s’applique. Luster compare cette offre avec la réduction automatique disponible pour cette réservation et affiche la réduction utilisée avant la confirmation.'
+    : ' One promotional discount applies. Luster compares this offer with the automatic discount available for this booking and shows the discount used before confirmation.';
+  if (offer.kind === 'program') {
+    return fr
+      ? `Programme prochaine visite : après un rendez-vous admissible terminé, économisez ${discount} lorsque le prochain rendez-vous admissible a lieu dans les ${offer.promotion.expiryDays} jours. Il s’applique à ${eligibleNames}.${common}`
+      : `Next Visit Offer program: after an eligible completed appointment, save ${discount} when the next eligible appointment takes place within ${offer.promotion.expiryDays} days. It applies to ${eligibleNames}.${common}`;
+  }
+  if (offer.status === 'eligible') {
+    return fr
+      ? `Offre prochaine visite : économisez ${discount} lorsque votre prochain rendez-vous admissible a lieu au plus tard le ${offer.deadlineDate}. Elle s’applique à ${eligibleNames}.${common}`
+      : `Next Visit Offer: save ${discount} when your next eligible appointment takes place by ${offer.deadlineDate}. It applies to ${eligibleNames}.${common}`;
+  }
+  if (offer.status === 'no_eligible_service' && args.hasSelectedService) {
+    return fr
+      ? `Offre prochaine visite : le service sélectionné n’est pas admissible à cette offre.${common}`
+      : `Next Visit Offer: the selected service is not eligible for this offer.${common}`;
+  }
+  if (offer.status === 'no_eligible_service') {
+    return fr
+      ? `Offre prochaine visite : économisez ${discount} lorsque votre prochain rendez-vous admissible a lieu au plus tard le ${offer.deadlineDate}. Elle s’applique à ${eligibleNames}.${common}`
+      : `Next Visit Offer: save ${discount} when your next eligible appointment takes place by ${offer.deadlineDate}. It applies to ${eligibleNames}.${common}`;
+  }
+  if (offer.status === 'outside_window') {
+    return fr
+      ? 'Offre prochaine visite : la date sélectionnée ne se trouve pas dans la période admissible, donc cette offre ne s’applique pas.'
+      : 'Next Visit Offer: the selected date is not within the eligible window, so this offer does not apply.';
+  }
+  if (offer.status === 'already_attached_or_used') {
+    return fr ? 'Offre prochaine visite : cette offre est déjà liée à un autre rendez-vous ou a été utilisée.' : 'Next Visit Offer: this offer is already attached to another appointment or has been used.';
+  }
+  if (offer.status === 'expired') {
+    return fr ? 'Offre prochaine visite : cette offre a expiré.' : 'Next Visit Offer: this offer has expired.';
+  }
+  return fr ? 'Offre prochaine visite : cette offre n’est plus disponible.' : 'Next Visit Offer: this offer is no longer available.';
+}
 
 /** Bounded interpretation + grounded conversation, no owner dispatcher or writable model tool. */
 export async function runCustomerAssistantTurn(args: {
@@ -165,7 +217,22 @@ export async function runCustomerAssistantTurn(args: {
           // An incomplete draft has no configured total; base menu facts remain useful.
         }
       }
-      const replyArgs = { menu, publicFacts, result, conversation, nextState, message: args.message, locale: args.locale, currentProposal };
+      let nextVisitOfferMessage: string | undefined;
+      try {
+        const offer = await getNextVisitOfferAssistantFacts({
+          salonId: args.salonId,
+          ...(conversation.nextVisitOffer ? { reference: conversation.nextVisitOffer } : {}),
+          services: currentProposal ? [{ id: currentProposal.service.id, priceCents: currentProposal.service.priceCents }] : [],
+          ...(nextState.booking?.selectedSlot ? { startTime: nextState.booking.selectedSlot.startTime } : {}),
+        });
+        if (offer) {
+          nextVisitOfferMessage = nextVisitOfferFact({ offer, menu, locale: args.locale, hasSelectedService: Boolean(currentProposal) });
+        }
+      } catch {
+        // Offers are optional public context. A read failure cannot weaken or
+        // change the assistant's normal conversation and booking behavior.
+      }
+      const replyArgs = { menu, publicFacts, result, conversation, nextState, message: args.message, locale: args.locale, currentProposal, ...(nextVisitOfferMessage ? { nextVisitOfferFact: nextVisitOfferMessage } : {}) };
       const reply = buildReplyInput(replyArgs);
       const replySchema = createReplySchema(reply.facts);
       const fallback = fallbackReceptionistReply(replyArgs, reply.facts);

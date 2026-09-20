@@ -257,8 +257,12 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  await db.delete(schema.nextVisitOfferEventSchema);
+  await db.delete(schema.nextVisitOfferSchema);
   await db.delete(schema.appointmentDepositSchema);
   await db.delete(schema.appointmentSchema);
+  await db.delete(schema.salonClientSchema);
+  await db.delete(schema.salonRetentionSettingsSchema);
   evaluateAndFlagIfNeeded.mockClear();
   holder.access = { actorRole: 'admin', salonId: SALON_ID };
   vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -269,6 +273,132 @@ afterAll(async () => {
 });
 
 describe('PATCH /complete — checkout integration', () => {
+  async function enableNextVisitOffer() {
+    await db.insert(schema.salonRetentionSettingsSchema).values({
+      salonId: SALON_ID,
+      nextVisitOffer: {
+        enabled: true,
+        windowDays: 30,
+        discountType: 'percent',
+        value: 10,
+        eligibleServiceIds: [],
+        messageTemplate: 'Next visit offer',
+      },
+      nextVisitOfferEnabledAt: new Date('2020-01-01T00:00:00.000Z'),
+    });
+    await db.insert(schema.salonClientSchema).values({
+      id: 'client_checkout_next_visit',
+      salonId: SALON_ID,
+      phone: '4165550111',
+      fullName: 'Checkout Client',
+    });
+  }
+
+  async function completeCatalogVisit(id: string) {
+    return completePatch(patchRequest({
+      finalItems: [{ kind: 'service', catalogServiceId: 'svc_checkout_biab', name: 'BIAB Short', quantity: 1, unitPriceCents: 4500, durationMinutes: 60 }],
+      payments: [],
+      skipPhotoValidation: true,
+    }), { params: Promise.resolve({ id }) });
+  }
+
+  it('issues one Next Visit Offer only for an enabled positive-value catalog completion', async () => {
+    await enableNextVisitOffer();
+    const id = await seedAppointment({ salonClientId: 'client_checkout_next_visit', invoiceCurrency: 'CAD' });
+
+    const first = await completeCatalogVisit(id);
+
+    expect(first.status).toBe(200);
+
+    const replay = await completeCatalogVisit(id);
+
+    expect(replay.status).toBe(200);
+
+    const offers = await db.select().from(schema.nextVisitOfferSchema)
+      .where(eq(schema.nextVisitOfferSchema.sourceAppointmentId, id));
+
+    expect(offers).toHaveLength(1);
+    expect(offers[0]).toMatchObject({ salonId: SALON_ID, salonClientId: 'client_checkout_next_visit', state: 'available' });
+  });
+
+  it.each([
+    ['disabled', undefined, { salonClientId: 'client_checkout_next_visit', invoiceCurrency: 'CAD' }, [{ kind: 'service', catalogServiceId: 'svc_checkout_biab', name: 'BIAB Short', quantity: 1, unitPriceCents: 4500, durationMinutes: 60 }]],
+    ['custom-only', 'enabled', { salonClientId: 'client_checkout_next_visit', invoiceCurrency: 'CAD' }, [{ kind: 'custom', name: 'Custom', quantity: 1, unitPriceCents: 4500 }]],
+    ['zero-value', 'enabled', { salonClientId: 'client_checkout_next_visit', invoiceCurrency: 'CAD', totalPrice: 0 }, [{ kind: 'service', catalogServiceId: 'svc_checkout_biab', name: 'BIAB Short', quantity: 1, unitPriceCents: 0, durationMinutes: 60 }]],
+  ] as const)('does not issue a Next Visit Offer for %s completion', async (_label, enabled, overrides, finalItems) => {
+    await db.insert(schema.salonClientSchema).values({ id: 'client_checkout_next_visit', salonId: SALON_ID, phone: '4165550111' });
+    if (enabled) {
+      await db.insert(schema.salonRetentionSettingsSchema).values({
+        salonId: SALON_ID,
+        nextVisitOffer: { enabled: true, windowDays: 30, discountType: 'percent', value: 10, eligibleServiceIds: [], messageTemplate: 'Next visit offer' },
+        nextVisitOfferEnabledAt: new Date('2020-01-01T00:00:00.000Z'),
+      });
+    }
+    const id = await seedAppointment(overrides);
+    const response = await completePatch(patchRequest({ finalItems, payments: [], skipPhotoValidation: true }), { params: Promise.resolve({ id }) });
+
+    expect(response.status).toBe(200);
+    expect(await db.select().from(schema.nextVisitOfferSchema).where(eq(schema.nextVisitOfferSchema.sourceAppointmentId, id))).toHaveLength(0);
+  });
+
+  async function seedReservedNextVisitCompletion() {
+    await db.insert(schema.salonClientSchema).values({ id: 'client_checkout_next_visit', salonId: SALON_ID, phone: '4165550111' });
+    const sourceId = 'appt_next_visit_source';
+    const qualifiedAt = new Date('2026-06-01T14:00:00.000Z');
+    await db.insert(schema.appointmentSchema).values({
+      id: sourceId,
+      salonId: SALON_ID,
+      technicianId: TECH_ID,
+      salonClientId: 'client_checkout_next_visit',
+      clientPhone: '4165550111',
+      startTime: new Date('2026-06-01T13:00:00.000Z'),
+      endTime: qualifiedAt,
+      status: 'completed',
+      completedAt: qualifiedAt,
+      totalPrice: 4500,
+      totalDurationMinutes: 60,
+      finalPriceCents: 4500,
+      invoiceCurrency: 'CAD',
+    });
+    const targetId = await seedAppointment({
+      salonClientId: 'client_checkout_next_visit',
+      invoiceCurrency: 'CAD',
+      discountType: 'next_visit',
+      discountLabel: 'Next Visit Offer',
+      discountAmountCents: 450,
+    });
+    await db.insert(schema.nextVisitOfferSchema).values({
+      id: 'offer_checkout_reserved',
+      salonId: SALON_ID,
+      salonClientId: 'client_checkout_next_visit',
+      sourceAppointmentId: sourceId,
+      qualifiedAt,
+      timeZone: 'America/Toronto',
+      deadlineDate: '2026-07-01',
+      expiresAt: new Date('2026-07-02T04:00:00.000Z'),
+      currency: 'CAD',
+      settingsSnapshot: { enabled: true, windowDays: 30, discountType: 'percent', value: 10, eligibleServiceIds: ['svc_checkout_biab'], messageTemplate: 'Next visit offer' },
+      state: 'reserved',
+      reservedAppointmentId: targetId,
+    });
+    return targetId;
+  }
+
+  it('rejects a stale reserved Next Visit discount when final items no longer qualify, but permits an explicit manual replacement', async () => {
+    const id = await seedReservedNextVisitCompletion();
+    const changedItems = [{ kind: 'service', catalogServiceId: 'svc_checkout_french', name: 'French Tips', quantity: 1, unitPriceCents: 6000, durationMinutes: 75 }];
+    const stale = await completePatch(patchRequest({ finalItems: changedItems, discountCents: 450, discountReason: 'Next Visit Offer', payments: [], skipPhotoValidation: true }), { params: Promise.resolve({ id }) });
+
+    expect(stale.status).toBe(409);
+    expect((await stale.json()).error).toMatchObject({ code: 'NEXT_VISIT_DISCOUNT_CHANGED', details: { discountCents: 0 } });
+    expect((await loadAppointment(id)).status).toBe('confirmed');
+
+    const manual = await completePatch(patchRequest({ finalItems: changedItems, discountCents: 300, discountReason: 'Owner approved adjustment', payments: [], skipPhotoValidation: true }), { params: Promise.resolve({ id }) });
+
+    expect(manual.status).toBe(200);
+    expect(await loadAppointment(id)).toMatchObject({ status: 'completed', finalDiscountCents: 300, finalDiscountReason: 'Owner approved adjustment' });
+  });
+
   it('applies deposit plus tender exactly once with tip separately due', async () => {
     const id = await seedAppointment({ invoiceCurrency: 'CAD' });
     await addPaidDeposit(id);

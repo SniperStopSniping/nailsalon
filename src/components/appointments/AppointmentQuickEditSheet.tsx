@@ -11,6 +11,7 @@ import { buttonVariants } from '@/components/ui/buttonVariants';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { InlineFeedback } from '@/components/ui/inline-feedback';
+import type { NextVisitPriceReview } from '@/hooks/useAppointmentActions';
 import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
 import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { formatMoney } from '@/libs/formatMoney';
@@ -25,6 +26,8 @@ type AppointmentQuickEditSheetProps = {
   actionError: string | null;
   attemptedTimeLabel?: string | null;
   warnings?: ManageWarning[];
+  nextVisitPriceReview?: NextVisitPriceReview | null;
+  onClearNextVisitPriceReview?: () => void;
   photos?: Array<{
     id: string;
     imageUrl: string;
@@ -37,6 +40,7 @@ type AppointmentQuickEditSheetProps = {
     baseServiceId: string;
     technicianId: string | null;
     startTime: string;
+    acceptedNextVisitTotalCents?: number;
   }) => Promise<void>;
   onMoveToNextAvailable: () => Promise<void>;
   onCancelAppointment: (args: { reason: string; internalNote?: string }) => Promise<void>;
@@ -94,6 +98,8 @@ export function AppointmentQuickEditSheet({
   actionError,
   attemptedTimeLabel,
   warnings = EMPTY_WARNINGS,
+  nextVisitPriceReview = null,
+  onClearNextVisitPriceReview,
   photos = EMPTY_PHOTOS,
   uploadingPhoto = false,
   onUploadPhoto,
@@ -178,17 +184,18 @@ export function AppointmentQuickEditSheet({
     </>
   ), [actionError, attemptedTimeLabel, detail?.appointment.salonSlug]);
 
-  const handleSaveEdits = useCallback(async () => {
+  const handleSaveEdits = useCallback(async (acceptedNextVisitTotalCents?: number) => {
     try {
-      await onSaveEdits({ baseServiceId, technicianId, startTime });
+      await onSaveEdits({ baseServiceId, technicianId, startTime, acceptedNextVisitTotalCents });
     } catch {
-      // The refusal is reported through `actionError`. The rejected value must
-      // NOT stay in the form: left there it reads as the appointment's stored
-      // time, which is exactly how an owner ends up telling a client the wrong
-      // time for a move that never happened.
+      // A Next Visit Offer amount must be explicitly accepted. Keep the edit
+      // values in place so the owner can review that same change and retry.
+      if (nextVisitPriceReview) {
+        return;
+      }
       resetEditFieldsFromDetail();
     }
-  }, [baseServiceId, onSaveEdits, resetEditFieldsFromDetail, startTime, technicianId]);
+  }, [baseServiceId, nextVisitPriceReview, onSaveEdits, resetEditFieldsFromDetail, startTime, technicianId]);
 
   const currentBaseService = useMemo(
     () => detail?.serviceOptions.find(service => service.id === baseServiceId) ?? null,
@@ -646,7 +653,10 @@ export function AppointmentQuickEditSheet({
                                     id="appointment-service-select"
                                     data-testid="appointment-sheet-service-select"
                                     value={baseServiceId}
-                                    onChange={event => setBaseServiceId(event.target.value)}
+                                    onChange={(event) => {
+                                      onClearNextVisitPriceReview?.();
+                                      setBaseServiceId(event.target.value);
+                                    }}
                                     className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
                                     disabled={saving || !detail.permissions.canChangeService}
                                   >
@@ -674,7 +684,10 @@ export function AppointmentQuickEditSheet({
                                     id="appointment-technician-select"
                                     data-testid="appointment-sheet-technician-select"
                                     value={technicianId ?? ''}
-                                    onChange={event => setTechnicianId(event.target.value || null)}
+                                    onChange={(event) => {
+                                      onClearNextVisitPriceReview?.();
+                                      setTechnicianId(event.target.value || null);
+                                    }}
                                     className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
                                     disabled={saving || !detail.permissions.canReassignTechnician}
                                   >
@@ -706,7 +719,10 @@ export function AppointmentQuickEditSheet({
                                     type="datetime-local"
                                     value={startTime}
                                     step={(detail.appointment.slotIntervalMinutes ?? 15) * 60}
-                                    onChange={event => setStartTime(event.target.value)}
+                                    onChange={(event) => {
+                                      onClearNextVisitPriceReview?.();
+                                      setStartTime(event.target.value);
+                                    }}
                                     className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
                                     disabled={saving || !detail.permissions.canMove}
                                   />
@@ -840,6 +856,34 @@ export function AppointmentQuickEditSheet({
             className="shrink-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
           >
+            {nextVisitPriceReview && (
+              <div data-testid="appointment-sheet-next-visit-price-review" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="alert">
+                <div className="font-semibold">Review updated Next Visit Offer total</div>
+                <p className="mt-1">
+                  Service total:
+                  {' '}
+                  {formatMoney(nextVisitPriceReview.totalPriceCents, nextVisitPriceReview.currency)}
+                  . Discount:
+                  {' '}
+                  {formatMoney(nextVisitPriceReview.discountAmountCents, nextVisitPriceReview.currency)}
+                  . Book by
+                  {' '}
+                  {nextVisitPriceReview.deadlineDate}
+                  .
+                </p>
+                <p className="mt-1 text-xs text-amber-900">Taxes, deposits and payment history are not changed here.</p>
+                <button
+                  type="button"
+                  data-testid="appointment-sheet-accept-next-visit-total"
+                  onClick={() => void handleSaveEdits(nextVisitPriceReview.totalPriceCents)}
+                  disabled={saving}
+                  className="mt-3 min-h-11 w-full rounded-xl bg-amber-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Accept updated total and save
+                </button>
+              </div>
+            )}
+
             {actionError && (
               <InlineFeedback
                 tone="error"

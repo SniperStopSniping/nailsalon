@@ -489,7 +489,7 @@ export async function renderBookServicePage({
             <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
               {bookingContent}
               {!ownerPreviewState.isPreviewing && isCustomerAssistantEnabledForSalon(salon.slug) && (
-                <CustomerAssistantLauncher salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} />
+                <CustomerAssistantLauncher salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} campaignToken={searchParams.campaign ?? null} />
               )}
             </Suspense>
           )}

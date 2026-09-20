@@ -21,7 +21,15 @@ export type CancelArgs = {
   internalNote?: string;
 };
 
+export type NextVisitPriceReview = {
+  totalPriceCents: number;
+  discountAmountCents: number;
+  currency: string;
+  deadlineDate: string;
+};
+
 export type RebookPrefill = {
+  nextVisitOffer?: { campaignToken: string; deadlineDate: string; discountType: 'percent' | 'fixed'; value: number };
   name: string | null;
   phone: string;
   email: string | null;
@@ -134,6 +142,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
   const [detailError, setDetailError] = useState<string | null>(null);
   const [attemptedTimeLabel, setAttemptedTimeLabel] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<ManageWarning[]>([]);
+  const [nextVisitPriceReview, setNextVisitPriceReview] = useState<NextVisitPriceReview | null>(null);
   // "Mark completed" opens the dedicated checkout flow instead of finalizing.
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutInitialView, setCheckoutInitialView] = useState<'edit' | 'receipt'>('edit');
@@ -212,6 +221,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
   const applyMutationResult = useCallback((result: AppointmentMutationResult) => {
     setDetail(result.detail);
     setWarnings(result.warnings ?? []);
+    setNextVisitPriceReview(null);
     setDetailError(null);
     setAttemptedTimeLabel(null);
     onMutationApplied?.(result);
@@ -239,6 +249,25 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
 
       applyMutationResult(result.data);
     } catch (mutationError) {
+      const priceReviewDetails = errorCode(mutationError) === 'NEXT_VISIT_PRICE_CHANGED'
+        ? (mutationError as { details?: Partial<NextVisitPriceReview> }).details
+        : null;
+      if (
+        priceReviewDetails
+        && Number.isInteger(priceReviewDetails.totalPriceCents)
+        && Number.isInteger(priceReviewDetails.discountAmountCents)
+        && typeof priceReviewDetails.currency === 'string'
+        && typeof priceReviewDetails.deadlineDate === 'string'
+      ) {
+        setNextVisitPriceReview({
+          totalPriceCents: priceReviewDetails.totalPriceCents as number,
+          discountAmountCents: priceReviewDetails.discountAmountCents as number,
+          currency: priceReviewDetails.currency,
+          deadlineDate: priceReviewDetails.deadlineDate,
+        });
+      } else {
+        setNextVisitPriceReview(null);
+      }
       setDetailError(describeMutationError(mutationError, 'Unable to update appointment'));
       const attemptedStartTime = typeof mutationError === 'object'
         && mutationError !== null
@@ -257,6 +286,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     baseServiceId: string;
     technicianId: string | null;
     startTime: string;
+    acceptedNextVisitTotalCents?: number;
   }) => {
     if (!detail || !selectedAppointmentId) {
       return;
@@ -271,6 +301,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
         baseServiceId: args.baseServiceId,
         startTime: nextStartTime,
         technicianId: args.technicianId,
+        acceptedNextVisitTotalCents: args.acceptedNextVisitTotalCents,
       });
       return;
     }
@@ -279,6 +310,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       await runManageMutation(selectedAppointmentId, {
         operation: 'reassignTechnician',
         technicianId: args.technicianId,
+        acceptedNextVisitTotalCents: args.acceptedNextVisitTotalCents,
       });
       return;
     }
@@ -288,6 +320,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
         operation: 'move',
         startTime: nextStartTime,
         technicianId: args.technicianId,
+        acceptedNextVisitTotalCents: args.acceptedNextVisitTotalCents,
       });
     }
   }, [detail, runManageMutation, selectedAppointmentId]);
@@ -484,6 +517,47 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     };
   }, [detail]);
 
+  const buildRebookPrefillWithNextVisitOffer = useCallback(async (): Promise<RebookPrefill | null> => {
+    const prefill = buildRebookPrefill();
+    if (!prefill || !selectedAppointmentId || !salonSlug) {
+      return prefill;
+    }
+    try {
+      const response = await fetch('/api/admin/next-visit-offer/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonSlug, appointmentId: selectedAppointmentId }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.data?.offer) {
+        return prefill;
+      }
+      const url = new URL(payload.data.offer.bookingUrl, window.location.origin);
+      const campaignToken = url.searchParams.get('campaign');
+      const settings = payload.data.offer.settings;
+      if (
+        !campaignToken
+        || !settings
+        || (settings.discountType !== 'percent' && settings.discountType !== 'fixed')
+        || !Number.isInteger(settings.value)
+        || typeof payload.data.offer.deadlineDate !== 'string'
+      ) {
+        return prefill;
+      }
+      return {
+        ...prefill,
+        nextVisitOffer: {
+          campaignToken,
+          deadlineDate: payload.data.offer.deadlineDate,
+          discountType: settings.discountType,
+          value: settings.value,
+        },
+      };
+    } catch {
+      return prefill;
+    }
+  }, [buildRebookPrefill, salonSlug, selectedAppointmentId]);
+
   return {
     selectedAppointmentId,
     openAppointment,
@@ -494,6 +568,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     detailError,
     attemptedTimeLabel,
     warnings,
+    nextVisitPriceReview,
     checkoutOpen,
     checkoutInitialView,
     openCheckout,
@@ -511,6 +586,8 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     declineAppointment,
     resendConfirmation,
     buildRebookPrefill,
+    buildRebookPrefillWithNextVisitOffer,
+    clearNextVisitPriceReview: () => setNextVisitPriceReview(null),
     setAttemptedTimeLabel,
     setDetailError,
   };

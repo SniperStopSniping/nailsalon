@@ -32,6 +32,13 @@ const customerConversationBookingSchema = z.object({
   selectedSlot: customerAvailableSlotSchema.nullable(),
 }).strict();
 
+// This is an opaque, signed reference to a server-owned offer. It is never a
+// bearer campaign token, customer identity, or booking authority.
+const customerConversationNextVisitOfferSchema = z.object({
+  campaignId: z.string().min(1).max(200),
+  entitlementId: z.string().min(1).max(200),
+}).strict();
+
 const conversationSchema = z.object({
   version: z.union([z.literal(1), z.literal(2)]),
   lastActivityAtMs: z.number().int().nonnegative().optional(),
@@ -52,6 +59,7 @@ const conversationSchema = z.object({
   availabilitySearch: customerAvailabilitySearchSchema.optional(),
   context: customerConversationContextSchema.optional(),
   booking: customerConversationBookingSchema.optional(),
+  nextVisitOffer: customerConversationNextVisitOfferSchema.optional(),
 }).strict().superRefine((value, context) => {
   const activity = value.lastActivityAtMs ?? value.issuedAtMs;
   const expectedExpiry = value.version === 1 ? value.issuedAtMs + CONVERSATION_TTL_MS : Math.min(activity + CONVERSATION_TTL_MS, value.issuedAtMs + CONVERSATION_ABSOLUTE_TTL_MS);
@@ -62,6 +70,7 @@ const conversationSchema = z.object({
 
 export type CustomerConversationMessage = z.infer<typeof customerMessageSchema>;
 export type CustomerConversationContext = z.infer<typeof customerConversationContextSchema>;
+export type CustomerConversationNextVisitOffer = z.infer<typeof customerConversationNextVisitOfferSchema>;
 export type CustomerConversation = z.infer<typeof conversationSchema>;
 
 export class CustomerConversationInvalidError extends Error {
@@ -75,6 +84,7 @@ export function createCustomerConversation(
   salonId: string,
   _secret: string,
   now = Date.now(),
+  nextVisitOffer?: CustomerConversationNextVisitOffer,
 ): CustomerConversation {
   return {
     version: 2,
@@ -85,6 +95,7 @@ export function createCustomerConversation(
     expiresAtMs: now + CONVERSATION_TTL_MS,
     turnIndex: 0,
     messages: [],
+    ...(nextVisitOffer ? { nextVisitOffer } : {}),
   };
 }
 

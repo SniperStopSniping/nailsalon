@@ -19,8 +19,8 @@ import { useState } from 'react';
  * salon, matching the contact-less variants the repo already ships elsewhere
  * in this same view.
  */
-export function ManageAppointmentActions({ token, rescheduleUrl, isActive, canChange, cutoffHours, salonPhone }: { token: string; rescheduleUrl: string; isActive: boolean; canChange: boolean; cutoffHours: number; salonPhone?: string | null }) {
-  const [status, setStatus] = useState<'idle' | 'working' | 'cancelled' | 'error'>(isActive ? 'idle' : 'cancelled');
+export function ManageAppointmentActions({ token, rescheduleUrl, appointmentStatus, isActive, canChange, cutoffHours, salonPhone }: { token: string; rescheduleUrl: string; appointmentStatus?: string; isActive: boolean; canChange: boolean; cutoffHours: number; salonPhone?: string | null }) {
+  const [status, setStatus] = useState<'idle' | 'working' | 'cancelled' | 'error'>(appointmentStatus ? appointmentStatus === 'cancelled' ? 'cancelled' : 'idle' : isActive ? 'idle' : 'cancelled');
   async function cancel() {
     if (!window.confirm('Cancel this appointment?')) {
       return;
@@ -35,6 +35,10 @@ export function ManageAppointmentActions({ token, rescheduleUrl, isActive, canCh
   }
   if (status === 'cancelled') {
     return <div className="rounded-2xl bg-stone-100 p-4 text-center text-sm font-medium text-stone-700">This appointment is cancelled.</div>;
+  }
+  if (!isActive && appointmentStatus) {
+    const label = appointmentStatus === 'completed' ? 'This appointment is completed.' : appointmentStatus === 'in_progress' ? 'Your appointment is in progress.' : appointmentStatus === 'no_show' ? 'This appointment was marked as a no-show.' : 'This appointment is awaiting payment.';
+    return <p className="rounded-2xl bg-stone-100 p-4 text-sm text-stone-700">{label}</p>;
   }
   if (!canChange) {
     return (

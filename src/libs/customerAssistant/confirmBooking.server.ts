@@ -70,6 +70,7 @@ export async function confirmCustomerBooking(args: {
       salon: args.salon,
       contact: args.contact,
       operation: { capability: args.capability, revision: args.revision, fingerprint: args.fingerprint, secret: args.secret },
+      ...(material.nextVisitOffer ? { nextVisitOffer: material.nextVisitOffer } : {}),
     });
   } catch (error) {
     failure = error;

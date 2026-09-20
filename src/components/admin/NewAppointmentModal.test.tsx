@@ -462,4 +462,34 @@ describe('NewAppointmentModal time picker range', () => {
     // The default 10:00 is inside the schedule and stays offered.
     expect(screen.getByRole('button', { name: '10:00' })).toBeInTheDocument();
   });
+
+  it('passes an explicit rebook offer token through the existing appointment request', async () => {
+    installDefaultFetch();
+    const onSuccess = vi.fn();
+    render(
+      <NewAppointmentModal {...modalProps({
+        googleEventPrefill: null,
+        onSuccess,
+        clientPrefill: {
+          name: 'Avery',
+          phone: '4165550198',
+          email: null,
+          serviceId: 'service_1',
+          technicianId: 'tech_1',
+          nextVisitOffer: { campaignToken: 'opaque-token', deadlineDate: '2026-10-20', discountType: 'percent', value: 10 },
+        },
+      })}
+      />,
+    );
+    await waitForForm();
+
+    expect(screen.getByTestId('next-visit-offer-rebook-summary')).toHaveTextContent('next appointment must take place by 2026-10-20');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+
+    const body = JSON.parse(String((postCalls()[0]?.[1] as RequestInit).body));
+
+    expect(body.campaignToken).toBe('opaque-token');
+  });
 });

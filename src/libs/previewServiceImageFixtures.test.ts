@@ -502,7 +502,7 @@ describe('Preview service-image fixture behavior', () => {
         has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'TRIGGER') AS can_trigger`);
 
       expect(privileges.rows[0]).toEqual({ can_select: true, can_insert: false, can_update: false, can_delete: false, can_truncate: false, can_reference: false, can_trigger: false });
-      expect((await client.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id')).rows).toHaveLength(85);
+      expect((await client.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id')).rows).toHaveLength(86);
 
       for (const statement of [
         'INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (\'denied\', 0)',
@@ -644,6 +644,7 @@ describe('Preview service-image fixture behavior', () => {
       expect(lockSql).toContain('"public"."salon"');
       expect(lockSql).toContain('"public"."audit_log"');
       expect(lockSql).toContain('"public"."service_add_on"');
+      expect(lockSql).toContain('"public"."next_visit_offer"');
       expect(database.lockChecks).toBe(1);
 
       await client.query('INSERT INTO salon (id, name, slug, internal_notes) VALUES ($1, $2, $3, $4)', ['81a156f0-18df-402b-857f-08cf7fd75698', 'Synthetic Discovery Survivor', 'synthetic-discovery-survivor', 'unrelated-test']);
@@ -656,6 +657,8 @@ describe('Preview service-image fixture behavior', () => {
         expect(await countRows(client, 'SELECT count(*) FROM salon WHERE slug = $1', ['synthetic-discovery-survivor'])).toBe(1);
       };
 
+      database.foreignKeyRowsTransform = rows => rows.filter(row => row.constraint_name !== 'next_visit_offer_salon_id_salon_id_fk');
+      await assertRefusalPreservedState();
       database.foreignKeyRowsTransform = rows => rows.slice(1);
       await assertRefusalPreservedState();
       database.foreignKeyRowsTransform = rows => rows.map((row, index) => index === 0 ? { ...row, constraint_name: 'same_count_unexpected_fkey' } : row);

@@ -342,7 +342,7 @@ export default async function BookTimePage(
           closedWeekdays={closedWeekdays}
         />
         {!ownerPreviewState.isPreviewing && isCustomerAssistantEnabledForSalon(salon.slug) && (
-          <CustomerAssistantLauncher salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} />
+          <CustomerAssistantLauncher salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} campaignToken={searchParams.campaign ?? null} />
         )}
       </Suspense>
     </PublicSalonPageShell>

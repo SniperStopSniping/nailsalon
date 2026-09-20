@@ -63,6 +63,16 @@ describe('explicit customer booking adapter', () => {
     expect(body).not.toHaveProperty('bookingSubject');
   });
 
+  it('forwards only the server-stored next-visit reference through access, never through public JSON', async () => {
+    const withOffer = { ...operation, material: { ...material, nextVisitOffer: { campaignId: 'campaign', entitlementId: 'offer' } } };
+    mocks.read.mockResolvedValueOnce(withOffer).mockResolvedValueOnce({ ...withOffer, appointmentId: 'one' });
+    await confirmCustomerBooking(input());
+    const [request, access] = mocks.create.mock.calls[0]!;
+
+    expect(access).toMatchObject({ nextVisitOffer: { campaignId: 'campaign', entitlementId: 'offer' } });
+    expect(await request.json()).not.toHaveProperty('nextVisitOffer');
+  });
+
   it('recovers a committed appointment after a thrown/lost successful response', async () => {
     mocks.create.mockRejectedValue(new Error('timeout after commit'));
     mocks.read.mockResolvedValueOnce(operation).mockResolvedValueOnce({ ...operation, appointmentId: 'original' });

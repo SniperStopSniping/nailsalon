@@ -1482,6 +1482,8 @@ export const salonRetentionSettingsSchema = pgTable(
     salonId: text('salon_id')
       .primaryKey()
       .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    nextVisitOffer: jsonb('next_visit_offer').$type<import('@/libs/nextVisitOffer').NextVisitOfferSettings>(),
+    nextVisitOfferEnabledAt: timestamp('next_visit_offer_enabled_at', { mode: 'date', withTimezone: true }),
     defaultRebookDays: integer('default_rebook_days').notNull().default(21),
     reminderLeadHours: integer('reminder_lead_hours').notNull().default(24),
     automaticReviewRequests: boolean('automatic_review_requests').notNull().default(false),
@@ -1599,6 +1601,51 @@ export const clientCommunicationSchema = pgTable(
   }),
 );
 
+// One immutable next-visit incentive per explicitly completed appointment.
+export const nextVisitOfferSchema = pgTable('next_visit_offer', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  salonClientId: text('salon_client_id').notNull(),
+  sourceAppointmentId: text('source_appointment_id').notNull(),
+  qualifiedAt: timestamp('qualified_at', { mode: 'date', withTimezone: true }).notNull(),
+  timeZone: text('time_zone').notNull(),
+  deadlineDate: text('deadline_date').notNull(),
+  expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+  currency: text('currency').notNull(),
+  settingsSnapshot: jsonb('settings_snapshot').$type<import('@/libs/nextVisitOffer').NextVisitOfferSettings>().notNull(),
+  reservedAppointmentId: text('reserved_appointment_id'),
+  state: text('state').$type<'available' | 'reserved' | 'consumed' | 'revoked'>().notNull().default('available'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({
+  salonIdId: uniqueIndex('next_visit_offer_salon_id_id').on(table.salonId, table.id),
+  sourceOnce: uniqueIndex('next_visit_offer_source_once').on(table.salonId, table.sourceAppointmentId),
+  reservedOnce: uniqueIndex('next_visit_offer_reserved_once').on(table.salonId, table.reservedAppointmentId),
+  clientIdx: index('next_visit_offer_client_idx').on(table.salonId, table.salonClientId, table.qualifiedAt),
+  clientFk: foreignKey({ name: 'next_visit_offer_client_fk', columns: [table.salonId, table.salonClientId], foreignColumns: [salonClientSchema.salonId, salonClientSchema.id] }),
+  sourceFk: foreignKey({ name: 'next_visit_offer_source_fk', columns: [table.salonId, table.sourceAppointmentId], foreignColumns: [appointmentSchema.salonId, appointmentSchema.id] }),
+  reservedFk: foreignKey({ name: 'next_visit_offer_reserved_fk', columns: [table.salonId, table.reservedAppointmentId], foreignColumns: [appointmentSchema.salonId, appointmentSchema.id] }),
+  stateValid: check('next_visit_offer_state_valid', sql`${table.state} IN ('available', 'reserved', 'consumed', 'revoked')`),
+  reservationValid: check('next_visit_offer_reservation_valid', sql`(${table.state} IN ('available', 'revoked') AND ${table.reservedAppointmentId} IS NULL) OR (${table.state} IN ('reserved', 'consumed') AND ${table.reservedAppointmentId} IS NOT NULL)`),
+  sourceDistinct: check('next_visit_offer_source_distinct', sql`${table.sourceAppointmentId} IS DISTINCT FROM ${table.reservedAppointmentId}`),
+  deadlineValid: check('next_visit_offer_deadline_valid', sql`${table.expiresAt} > ${table.qualifiedAt}`),
+}));
+
+export const nextVisitOfferEventSchema = pgTable('next_visit_offer_event', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  offerId: text('offer_id').notNull(),
+  appointmentId: text('appointment_id'),
+  kind: text('kind').notNull(),
+  amountCents: integer('amount_cents'),
+  reason: text('reason'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({
+  offerFk: foreignKey({ name: 'next_visit_offer_event_offer_fk', columns: [table.salonId, table.offerId], foreignColumns: [nextVisitOfferSchema.salonId, nextVisitOfferSchema.id] }),
+  appointmentFk: foreignKey({ name: 'next_visit_offer_event_appointment_fk', columns: [table.salonId, table.appointmentId], foreignColumns: [appointmentSchema.salonId, appointmentSchema.id] }),
+  offerHistory: index('next_visit_offer_event_history').on(table.salonId, table.offerId, table.createdAt),
+}));
+
 // -----------------------------------------------------------------------------
 // Retention campaign - stores only a hash of the client-facing opaque token
 // -----------------------------------------------------------------------------
@@ -1615,6 +1662,7 @@ export const retentionCampaignSchema = pgTable(
     communicationId: text('communication_id').references(() => clientCommunicationSchema.id, { onDelete: 'set null' }),
     tokenHash: text('token_hash').notNull(),
     stage: text('stage').notNull(),
+    nextVisitOfferId: text('next_visit_offer_id'),
     promotionSnapshot: jsonb('promotion_snapshot')
       .$type<import('@/types/retention').RetentionPromotionSettings>()
       .notNull(),
@@ -1629,6 +1677,9 @@ export const retentionCampaignSchema = pgTable(
       .notNull(),
   },
   table => ({
+    nextVisitOfferFk: foreignKey({ name: 'retention_campaign_next_visit_offer_fk', columns: [table.salonId, table.nextVisitOfferId], foreignColumns: [nextVisitOfferSchema.salonId, nextVisitOfferSchema.id] }),
+    stageValid: check('retention_campaign_stage_valid', sql`${table.stage} IN ('promo_6w', 'promo_8w', 'next_visit')`),
+    nextVisitStageValid: check('retention_campaign_next_visit_stage_valid', sql`(${table.stage} = 'next_visit') = (${table.nextVisitOfferId} IS NOT NULL)`),
     tokenHashIdx: uniqueIndex('retention_campaign_token_hash_idx').on(table.tokenHash),
     salonClientIdx: index('retention_campaign_salon_client_idx').on(
       table.salonId,

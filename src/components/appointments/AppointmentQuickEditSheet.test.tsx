@@ -945,6 +945,42 @@ describe('AppointmentQuickEditSheet', () => {
     expect(screen.getByRole('button', { name: 'Rebook client' })).toBeInTheDocument();
   });
 
+  it('requires explicit acceptance before retrying an updated Next Visit Offer total', async () => {
+    const onSaveEdits = vi.fn(async () => {});
+    const onClearNextVisitPriceReview = vi.fn();
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError="The new date or service changes the Next Visit Offer. Review and accept the updated service total."
+        nextVisitPriceReview={{ totalPriceCents: 3600, discountAmountCents: 400, currency: 'CAD', deadlineDate: '2026-10-20' }}
+        onClearNextVisitPriceReview={onClearNextVisitPriceReview}
+        onSaveEdits={onSaveEdits}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    showDetails();
+    showEditor();
+    fireEvent.change(screen.getByTestId('appointment-sheet-service-select'), { target: { value: 'svc_2' } });
+
+    expect(onClearNextVisitPriceReview).toHaveBeenCalledTimes(1);
+
+    onSaveEdits.mockClear();
+
+    fireEvent.click(screen.getByTestId('appointment-sheet-accept-next-visit-total'));
+    await waitFor(() => expect(onSaveEdits).toHaveBeenCalledWith(expect.objectContaining({
+      baseServiceId: 'svc_2',
+      acceptedNextVisitTotalCents: 3600,
+    })));
+  });
+
   it('shows the failure reason and a Try again action when detail cannot load', () => {
     const onRetryLoad = vi.fn();
 

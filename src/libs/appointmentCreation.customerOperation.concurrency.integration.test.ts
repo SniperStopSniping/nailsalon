@@ -184,7 +184,7 @@ async function create(prepared: Awaited<ReturnType<typeof prepare>>) {
     expectedDepositFingerprint: value.expectedDepositFingerprint,
     catalogAcknowledgment: value.catalogAcknowledgment,
   }) });
-  return createAppointmentFromRequest(request, { kind: 'anonymous_customer', salon: { id: SALON, slug: SALON }, contact: prepared.person, operation: { ...prepared.reference, secret: SECRET } });
+  return createAppointmentFromRequest(request, { kind: 'anonymous_customer', salon: { id: SALON, slug: SALON }, contact: prepared.person, operation: { ...prepared.reference, secret: SECRET }, ...(value.nextVisitOffer ? { nextVisitOffer: value.nextVisitOffer } : {}) });
 }
 
 function specificTechnicianMaterial(technicianId = TECH, technicianName = 'Synthetic Technician') {
@@ -293,6 +293,9 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     await database.delete(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON));
     await database.delete(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON));
     await database.delete(schema.appointmentDepositSchema).where(eq(schema.appointmentDepositSchema.salonId, SALON));
+    await database.delete(schema.nextVisitOfferEventSchema).where(eq(schema.nextVisitOfferEventSchema.salonId, SALON));
+    await database.delete(schema.retentionCampaignSchema).where(eq(schema.retentionCampaignSchema.salonId, SALON));
+    await database.delete(schema.nextVisitOfferSchema).where(eq(schema.nextVisitOfferSchema.salonId, SALON));
     await database.delete(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
     await database.delete(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON));
     executed += 1;
@@ -301,9 +304,94 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
   afterAll(async () => {
     await pool?.end();
 
-    expect(executed).toBe(30);
+    expect(executed).toBe(34);
 
     process.stdout.write(`CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=${executed} CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0\n`);
+  });
+
+  async function nextVisitMaterial() {
+    await database.insert(schema.salonClientSchema).values({ id: 'next-visit-creator-client', salonId: SALON, phone: contact().phone, fullName: contact().name });
+    await database.insert(schema.appointmentSchema).values({ id: 'next-visit-creator-source', salonId: SALON, salonClientId: 'next-visit-creator-client', clientPhone: contact().phone, clientName: contact().name, status: 'completed', completedAt: new Date('2099-08-15T18:00:00Z'), startTime: new Date('2099-08-15T17:00:00Z'), endTime: new Date('2099-08-15T18:00:00Z'), totalPrice: 6500, totalDurationMinutes: 60 });
+    const settings = { enabled: true, windowDays: 30, discountType: 'percent' as const, value: 5, eligibleServiceIds: [SERVICE], messageTemplate: '' };
+    await database.insert(schema.nextVisitOfferSchema).values({ id: 'next-visit-creator-offer', salonId: SALON, salonClientId: 'next-visit-creator-client', sourceAppointmentId: 'next-visit-creator-source', qualifiedAt: new Date('2099-08-15T18:00:00Z'), timeZone: 'America/Toronto', deadlineDate: '2099-09-14', expiresAt: new Date('2099-09-15T04:00:00Z'), currency: 'CAD', settingsSnapshot: settings });
+    await database.insert(schema.retentionCampaignSchema).values({ id: 'next-visit-creator-campaign', salonId: SALON, salonClientId: 'next-visit-creator-client', stage: 'next_visit', nextVisitOfferId: 'next-visit-creator-offer', tokenHash: 'synthetic-next-visit-hash', promotionSnapshot: { ...settings, name: 'Next Visit Offer', expiryDays: 30, singleUse: true, code: null }, expiresAt: new Date('2099-09-15T04:00:00Z') });
+    const value = material();
+    value.nextVisitOffer = { campaignId: 'next-visit-creator-campaign', entitlementId: 'next-visit-creator-offer' };
+    value.expectedTotalCents = 6175;
+    value.expectedDiscountType = 'next_visit';
+    value.expectedBookingFinancialQuote.totalDueCents = 6175;
+    value.review.financial.discountAmountCents = 325;
+    value.review.financial.discountLabel = 'Next Visit Offer';
+    value.review.financial.totalDueCents = 6175;
+    return value;
+  }
+
+  it('reserves Next Visit through actual durable booking and replay returns the same booking', async () => {
+    const prepared = await prepare(contact(), await nextVisitMaterial());
+    const first = await create(prepared);
+
+    expect(first.status).toBe(201);
+    expect((await create(prepared)).status).toBe(200);
+
+    const [offer] = await database.select().from(schema.nextVisitOfferSchema).where(eq(schema.nextVisitOfferSchema.salonId, SALON));
+
+    expect(offer?.state).toBe('reserved');
+
+    const [appointment] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, offer!.reservedAppointmentId!));
+
+    expect(appointment).toMatchObject({ totalPrice: 6175, discountAmountCents: 325, discountType: 'next_visit' });
+    expect(provider.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects another client presenting the same Next Visit reference without creating a visit', async () => {
+    const prepared = await prepare(contact('2'), await nextVisitMaterial());
+
+    expect((await create(prepared)).status).toBe(409);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+    expect((await database.select().from(schema.nextVisitOfferSchema))[0]?.state).toBe('available');
+  });
+
+  it('rejects an owner offer when currency changes before the locked financial configuration', async () => {
+    await nextVisitMaterial();
+    const { mintNextVisitOfferLink } = await import('./nextVisitOffer.server');
+    const link = await mintNextVisitOfferLink(database as never, { salonId: SALON, sourceAppointmentId: 'next-visit-creator-source' });
+    requireStaffSession.mockResolvedValue({ ok: false });
+    requireAdmin.mockResolvedValue({ ok: true });
+    const originalTransaction = database.transaction.bind(database);
+    const interception = vi.spyOn(database, 'transaction').mockImplementationOnce(async (callback, config) => {
+      await database.update(schema.salonSchema).set({ settings: { ...SETTINGS, booking: { ...SETTINGS.booking, currency: 'USD' } } }).where(eq(schema.salonSchema.id, SALON));
+      return originalTransaction(callback, config);
+    });
+    try {
+      const response = await createAppointmentFromRequest(new Request('https://app.luster.test/api/appointments', { method: 'POST', headers: { 'content-type': 'application/json', 'Idempotency-Key': randomUUID() }, body: JSON.stringify({ salonSlug: SALON, serviceIds: [SERVICE], technicianId: TECH, startTime: START, clientName: contact().name, clientPhone: contact().phone, clientEmail: contact().email, campaignToken: link!.token }) }));
+
+      expect(interception).toHaveBeenCalled();
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe('NEXT_VISIT_OFFER_CHANGED');
+      expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+      expect((await database.select().from(schema.nextVisitOfferSchema).where(eq(schema.nextVisitOfferSchema.salonId, SALON)))[0]?.state).toBe('available');
+    } finally {
+      interception.mockRestore();
+    }
+  });
+
+  it('two concurrent durable operations cannot consume the same qualifying visit', async () => {
+    const firstValue = await nextVisitMaterial();
+    const secondValue = structuredClone(firstValue);
+    secondValue.startTime = '2099-09-02T15:00:00.000Z';
+    secondValue.preference.date = '2099-09-02';
+    secondValue.review.date = '2099-09-02';
+    const first = await prepare(contact(), firstValue);
+    const second = await prepare(contact(), secondValue);
+    const responses = await Promise.all([create(first), create(second)]);
+
+    expect(responses.filter(response => response.status === 201)).toHaveLength(1);
+
+    const [offer] = await database.select().from(schema.nextVisitOfferSchema).where(eq(schema.nextVisitOfferSchema.salonId, SALON));
+
+    expect(offer?.state).toBe('reserved');
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(2);
+    expect(provider.create).not.toHaveBeenCalled();
   });
 
   it('accepts an L1 review whose canonical add-on order differs from raw database insertion order', async () => {

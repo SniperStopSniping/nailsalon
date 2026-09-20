@@ -142,6 +142,15 @@ import {
 import { L1SelectionChangedError, projectL1ConflictPayload, reconcileAuthoritativeL1Selection as reconcileCatalogSelection } from '@/libs/l1BookingReconciliation.server';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import {
+  getNextVisitOfferForAppointment,
+  lockNextVisitOfferForBooking,
+  NEXT_VISIT_DISCOUNT_LABEL,
+  NEXT_VISIT_DISCOUNT_TYPE,
+  NextVisitOfferError,
+  type NextVisitOfferReference,
+  reserveNextVisitOffer,
+} from '@/libs/nextVisitOffer.server';
+import {
   checkPublicBookingRateLimit,
   getPublicBookingClientIp,
 } from '@/libs/publicBookingRateLimit.server';
@@ -1002,6 +1011,7 @@ export type AppointmentCreationAccess
   = | { kind: 'ambient' }
   | {
     kind: 'anonymous_customer';
+    nextVisitOffer?: NextVisitOfferReference;
     salon: { id: string; slug: string };
     contact: { name: string; email: string; phone: string };
     operation: { capability: string; revision: number; fingerprint: string; secret: string };
@@ -1099,6 +1109,8 @@ export async function createAppointmentFromRequest(
     const normalizedLegacyServiceIds = data.serviceIds ?? [];
     const normalizedNotes = data.notes?.trim() || null;
     const normalizedCampaignToken = data.campaignToken?.trim() || null;
+    let nextVisitReference: NextVisitOfferReference | null = access.kind === 'anonymous_customer' ? access.nextVisitOffer ?? null : null;
+    let selectedNextVisit: NextVisitOfferReference | null = null;
     let trustedContact: { name: string; email: string; phone: string } | null = null;
 
     if (access.kind === 'anonymous_customer') {
@@ -1901,19 +1913,23 @@ export async function createAppointmentFromRequest(
         } satisfies ErrorResponse, { status: 404 });
       }
 
-      const validation = validateRetentionCampaign({
-        promotion: campaign.promotionSnapshot,
-        expiresAt: campaign.expiresAt,
-        redeemedAt: campaign.redeemedAt,
-        singleUse: campaign.singleUse,
-        campaignClientId: campaign.salonClientId,
-        bookingClientId: campaign.salonClientId,
-        serviceIds: services.map(service => service.id),
-      });
-      if (!validation.valid) {
-        return campaignFailureResponse(validation.code);
+      if (campaign.stage === 'next_visit' && campaign.nextVisitOfferId) {
+        nextVisitReference = { campaignId: campaign.id, entitlementId: campaign.nextVisitOfferId };
+      } else {
+        const validation = validateRetentionCampaign({
+          promotion: campaign.promotionSnapshot,
+          expiresAt: campaign.expiresAt,
+          redeemedAt: campaign.redeemedAt,
+          singleUse: campaign.singleUse,
+          campaignClientId: campaign.salonClientId,
+          bookingClientId: campaign.salonClientId,
+          serviceIds: services.map(service => service.id),
+        });
+        if (!validation.valid) {
+          return campaignFailureResponse(validation.code);
+        }
+        retentionCampaign = campaign;
       }
-      retentionCampaign = campaign;
     }
 
     // 4. Validate technician (if provided) belongs to salon
@@ -2171,6 +2187,22 @@ export async function createAppointmentFromRequest(
       }
     }
 
+    // A reschedule carries its existing immutable offer allocation; a URL
+    // cannot attach a different incentive to this private management action.
+    if (originalAppointment) {
+      const heldOffer = await getNextVisitOfferForAppointment(db, salon.id, originalAppointment.id);
+      if (heldOffer?.state === 'reserved') {
+        const [link] = await db.select({ id: retentionCampaignSchema.id }).from(retentionCampaignSchema).where(and(
+          eq(retentionCampaignSchema.salonId, salon.id),
+          eq(retentionCampaignSchema.nextVisitOfferId, heldOffer.id),
+        )).limit(1);
+        if (!link) {
+          throw new NextVisitOfferError();
+        }
+        nextVisitReference = { campaignId: link.id, entitlementId: heldOffer.id };
+      }
+    }
+
     // 4d. Look up existing client by phone to get their name
     // Use normalizedClientName (already trimmed/empty→null above)
     let clientName = normalizedClientName;
@@ -2418,7 +2450,7 @@ export async function createAppointmentFromRequest(
     // Google-event conversions bypass all availability logic, and the whole
     // service basket must be in the configured scope.
     const smartFitScopeAllowed = smartFitConfig.enabled
-      && !normalizedCampaignToken
+      && (!normalizedCampaignToken || Boolean(nextVisitReference))
       && !bypassAvailabilityGate
       && subtotalBeforeDiscountCents > 0
       && smartFitServiceScopeAllows(smartFitConfig, services.map(service => service.id));
@@ -3183,6 +3215,7 @@ export async function createAppointmentFromRequest(
     const finalizeBookingPricingInTx = async (
       tx: BookingTx,
       salonClient: Pick<OperationalSalonClientContact, 'id' | 'phone'>,
+      lockedInvoiceCurrency: string,
     ): Promise<void> => {
       const lockedTechnician = technician;
       smartFitGrantEvaluation = null;
@@ -3296,6 +3329,31 @@ export async function createAppointmentFromRequest(
         }
       }
 
+      if (nextVisitReference) {
+        const nextVisit = await lockNextVisitOfferForBooking(tx, {
+          salonId: salon.id,
+          reference: nextVisitReference,
+          clientId: salonClient.id,
+          startTime,
+          services: services.map(service => ({ id: service.id, priceCents: service.price })),
+          currency: lockedInvoiceCurrency,
+          reservedAppointmentId: originalAppointment?.id,
+        });
+        if (originalAppointment || (nextVisit.status === 'eligible' && nextVisit.discountAmountCents > discountAmountCents)) {
+          selectedNextVisit = nextVisit.reference;
+          appliedReward = null;
+          smartFitGrantEvaluation = null;
+          discountAmountCents = nextVisit.discountAmountCents;
+          totalPrice = Math.max(0, subtotalBeforeDiscountCents - discountAmountCents);
+          appointmentDiscountType = NEXT_VISIT_DISCOUNT_TYPE;
+          appointmentDiscountLabel = NEXT_VISIT_DISCOUNT_LABEL;
+          appointmentDiscountPercent = nextVisit.promotion.discountType === 'percent' ? nextVisit.promotion.value : null;
+          discountAppliedAt = new Date();
+        } else if (access.kind === 'anonymous_customer') {
+          throw new CustomerBookingOperationError('review_changed');
+        }
+      }
+
       if (smartFitExpectationProvided) {
         const totalMismatch = data.expectedTotalCents !== undefined
           && data.expectedTotalCents !== totalPrice;
@@ -3363,6 +3421,7 @@ export async function createAppointmentFromRequest(
       discountAppliedAt = pricingBeforeTransaction.discountAppliedAt;
       totalPrice = pricingBeforeTransaction.totalPrice;
       smartFitGrantEvaluation = null;
+      selectedNextVisit = null;
     };
 
     const resolveBookingSalonClientInTx = async (
@@ -3607,6 +3666,9 @@ export async function createAppointmentFromRequest(
                   throw new CustomerBookingOperationReplay(locked.operation.appointmentId!);
                 }
                 lockedCustomerBookingOperation = locked.operation;
+                if (!isDeepStrictEqual(access.nextVisitOffer ?? null, locked.operation.material.nextVisitOffer ?? null)) {
+                  throw new CustomerBookingOperationError('review_changed');
+                }
               }
               const salonClient = await resolveBookingSalonClientInTx(tx, expectedTerminalClientId);
               if (catalogOutcome.status === 'ok' && catalogSelectionInput) {
@@ -4007,7 +4069,7 @@ export async function createAppointmentFromRequest(
               googleCalendarEventId: cancelledOriginal.googleCalendarEventId,
             });
 
-            await finalizeBookingPricingInTx(tx, lockedSalonClient);
+            await finalizeBookingPricingInTx(tx, lockedSalonClient, lockedBookingConfiguration.invoiceCurrency);
             const bookingTaxSnapshot
               = assertCurrentBookingFinancialQuote(lockedBookingConfiguration);
 
@@ -4071,6 +4133,9 @@ export async function createAppointmentFromRequest(
               ));
 
             await insertSmartFitAuditRowInTx(tx, createdAppointment.id);
+            if (selectedNextVisit) {
+              await reserveNextVisitOffer(tx, { salonId: salon.id, reference: selectedNextVisit, appointmentId: createdAppointment.id, amountCents: discountAmountCents });
+            }
 
             const insertedServices: AppointmentService[] = [];
             for (const service of services) {
@@ -4280,7 +4345,7 @@ export async function createAppointmentFromRequest(
               throw new BookingActiveAppointmentError();
             }
 
-            await finalizeBookingPricingInTx(tx, lockedSalonClient);
+            await finalizeBookingPricingInTx(tx, lockedSalonClient, lockedBookingConfiguration.invoiceCurrency);
             assertAnonymousDepositDisclosureInTx(lockedBookingConfiguration);
             const bookingTaxSnapshot
               = assertCurrentBookingFinancialQuote(lockedBookingConfiguration);
@@ -4575,6 +4640,9 @@ export async function createAppointmentFromRequest(
             });
 
             await insertSmartFitAuditRowInTx(tx, createdAppointment.id);
+            if (selectedNextVisit) {
+              await reserveNextVisitOffer(tx, { salonId: salon.id, reference: selectedNextVisit, appointmentId: createdAppointment.id, amountCents: discountAmountCents });
+            }
 
             const insertedServices: AppointmentService[] = [];
             for (const service of services) {
@@ -5161,6 +5229,10 @@ export async function createAppointmentFromRequest(
     bookingSucceeded = true;
     return Response.json(response, { status: 201 });
   } catch (error) {
+    if (error instanceof NextVisitOfferError) {
+      return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
+    }
+
     if (error instanceof Error && isCampaignFailureCode(error.message)) {
       return campaignFailureResponse(error.message);
     }

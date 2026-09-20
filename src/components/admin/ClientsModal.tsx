@@ -1586,6 +1586,48 @@ function ClientDetail({
     setShowBookingModal(true);
   }, [profile?.preferredTechnician?.id, statsSource.email, statsSource.fullName, statsSource.phone]);
 
+  const openClientRebook = useCallback(async () => {
+    const previousAppointment = pastAppointments[0];
+    const prefill: RebookPrefill = {
+      name: statsSource.fullName ?? null,
+      phone: statsSource.phone,
+      email: statsSource.email ?? null,
+      serviceId: previousAppointment?.services[0]?.id ?? null,
+      technicianId: previousAppointment?.technician?.id ?? profile?.preferredTechnician?.id ?? null,
+    };
+
+    try {
+      const response = await fetch('/api/admin/next-visit-offer/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonSlug, clientId: statsSource.id }),
+      });
+      const payload = await response.json();
+      const offer = response.ok ? payload?.data?.offer : null;
+      const campaignToken = offer
+        ? new URL(offer.bookingUrl, window.location.origin).searchParams.get('campaign')
+        : null;
+      if (
+        campaignToken
+        && typeof offer.deadlineDate === 'string'
+        && (offer.settings?.discountType === 'percent' || offer.settings?.discountType === 'fixed')
+        && Number.isInteger(offer.settings?.value)
+      ) {
+        prefill.nextVisitOffer = {
+          campaignToken,
+          deadlineDate: offer.deadlineDate,
+          discountType: offer.settings.discountType,
+          value: offer.settings.value,
+        };
+      }
+    } catch {
+      // Rebooking stays available if the optional existing-offer lookup cannot
+      // complete. The server still authoritatively validates any token passed.
+    }
+
+    openBookingModal(prefill);
+  }, [openBookingModal, pastAppointments, profile?.preferredTechnician?.id, salonSlug, statsSource.email, statsSource.fullName, statsSource.id, statsSource.phone]);
+
   /**
    * Switching section used to leave the profile scrolled wherever the previous
    * section ended, so "Details" could open halfway down a page whose top the
@@ -1834,19 +1876,7 @@ function ClientDetail({
           onOpenPromotionSettings={onOpenPromotionSettings}
           profileLayout
           showHistory={activeSection === 'activity'}
-          onBookAppointment={() => {
-            const previousAppointment = pastAppointments[0];
-            openBookingModal({
-              name: statsSource.fullName ?? null,
-              phone: statsSource.phone,
-              email: statsSource.email ?? null,
-              serviceId: previousAppointment?.services[0]?.id ?? null,
-              technicianId:
-                previousAppointment?.technician?.id
-                ?? profile?.preferredTechnician?.id
-                ?? null,
-            });
-          }}
+          onBookAppointment={() => void openClientRebook()}
         />
 
         {profile && <ReviewRequestSuppression salonSlug={salonSlug} clientId={profile.id} />}
@@ -2564,6 +2594,8 @@ function ClientDetail({
         actionError={appointmentActions.detailError}
         attemptedTimeLabel={appointmentActions.attemptedTimeLabel}
         warnings={appointmentActions.warnings}
+        nextVisitPriceReview={appointmentActions.nextVisitPriceReview}
+        onClearNextVisitPriceReview={appointmentActions.clearNextVisitPriceReview}
         onSaveEdits={appointmentActions.saveEdits}
         onMoveToNextAvailable={appointmentActions.moveToNextAvailable}
         onCancelAppointment={args => appointmentActions.cancelAppointment(args as CancelArgs)}
@@ -2580,14 +2612,14 @@ function ClientDetail({
           ? <DepositPanel appointmentId={appointmentActions.selectedAppointmentId} salonSlug={salonSlug} />
           : null}
         initialPendingAction={cancelIntent ? 'cancel' : null}
-        onRebook={() => {
-          const prefill = appointmentActions.buildRebookPrefill();
+        onRebook={() => void (async () => {
+          const prefill = await appointmentActions.buildRebookPrefillWithNextVisitOffer();
           if (!prefill) {
             return;
           }
           appointmentActions.closeAppointment();
           openBookingModal(prefill);
-        }}
+        })()}
       />
 
       <CheckoutSheet
@@ -2600,15 +2632,15 @@ function ClientDetail({
           appointmentActions.handleCheckoutCompleted();
           void fetchClientDetail(true);
         }}
-        onRebook={() => {
-          const prefill = appointmentActions.buildRebookPrefill();
+        onRebook={() => void (async () => {
+          const prefill = await appointmentActions.buildRebookPrefillWithNextVisitOffer();
           if (!prefill) {
             return;
           }
           appointmentActions.closeCheckout();
           appointmentActions.closeAppointment();
           openBookingModal(prefill);
-        }}
+        })()}
       />
 
       <NewAppointmentModal

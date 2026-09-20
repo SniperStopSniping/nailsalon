@@ -3,6 +3,7 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
+import { resolveNextVisitOfferPreview } from '@/libs/nextVisitOffer.server';
 import {
   calculateRetentionDiscount,
   hashRetentionCampaignToken,
@@ -14,7 +15,8 @@ const CAMPAIGN_TOKEN_PATTERN = /^[\w-]{32,200}$/;
 
 export type PublicRetentionCampaignPreview = {
   id: string;
-  stage: 'promo_6w' | 'promo_8w';
+  stage: 'promo_6w' | 'promo_8w' | 'next_visit';
+  deadlineDate?: string;
   name: string;
   displayOffer: string;
   code: string | null;
@@ -41,6 +43,7 @@ export async function resolvePublicRetentionCampaignPreview(args: {
   salonId: string;
   services: Array<{ id: string; priceCents: number }>;
   now?: Date;
+  startTime?: string | null;
 }): Promise<PublicRetentionCampaignResolution> {
   if (!args.token) {
     return { status: 'none', preview: null, message: null };
@@ -68,6 +71,25 @@ export async function resolvePublicRetentionCampaignPreview(args: {
       preview: null,
       message: 'This promotion link was not found for this salon.',
     };
+  }
+
+  if (campaign.stage === 'next_visit') {
+    const offer = await resolveNextVisitOfferPreview({ ...args, startTime: args.startTime ?? undefined });
+    if (!offer || offer.status !== 'eligible' || !args.startTime) {
+      return { status: 'invalid', preview: null, message: offer?.deadlineDate
+        ? `Next Visit Offer: your eligible appointment must take place by ${offer.deadlineDate}. This date or service does not qualify, or the offer is already in use.`
+        : 'This Next Visit Offer is not available. You can continue at the regular price.' };
+    }
+    return { status: 'valid', message: null, preview: {
+      id: campaign.id,
+      stage: 'next_visit',
+      name: offer.label,
+      code: null,
+      displayOffer: `${formatRetentionCampaignOffer(offer.promotion.discountType, offer.promotion.value)} · Next visit by ${offer.deadlineDate}`,
+      deadlineDate: offer.deadlineDate,
+      expiresAt: campaign.expiresAt.toISOString(),
+      discountAmountCents: offer.discountAmountCents,
+    } };
   }
 
   const serviceIds = args.services.map(service => service.id);

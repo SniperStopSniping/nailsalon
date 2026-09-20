@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   guard: vi.fn(),
   online: vi.fn(),
   verify: vi.fn(),
+  nextVisitOffer: vi.fn(),
 }));
 vi.mock('@/libs/customerAssistant/access.server', () => ({ getCustomerBookingRecoverySecret: mocks.secret }));
 vi.mock('@/libs/customerAssistant/prepareQuote.server', () => ({ prepareCustomerBookingQuote: mocks.quote }));
@@ -32,6 +33,7 @@ vi.mock('@/libs/publicBookingRateLimit.server', () => ({ checkPublicBookingRateL
 vi.mock('@/libs/queries', () => ({ getSalonById: mocks.salon }));
 vi.mock('@/libs/salonStatus', () => ({ guardSalonApiRoute: mocks.guard, isOnlineBookingEnabled: mocks.online }));
 vi.mock('@/libs/customerAssistant/normalConfirmHandoff.server', () => ({ verifyNormalConfirmHandoff: mocks.verify }));
+vi.mock('@/libs/nextVisitOffer.server', () => ({ resolveNextVisitOfferPreview: mocks.nextVisitOffer }));
 
 const id = 's1';
 const flowId = '123e4567-e89b-12d3-a456-426614174000';
@@ -101,6 +103,7 @@ function seed() {
   mocks.salon.mockResolvedValue({ id, slug: 'salon', publicationStatus: 'published', features: null });
   mocks.guard.mockResolvedValue(false);
   mocks.online.mockResolvedValue(true);
+  mocks.nextVisitOffer.mockResolvedValue(null);
   mocks.quote.mockResolvedValue(material);
   mocks.prepare.mockResolvedValue({ material, appointmentId: null });
   mocks.reference.mockReturnValue({ capability: 'cap', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: '2030-01-01T00:00:00Z' });
@@ -155,15 +158,30 @@ describe('normal booking prepare route', () => {
     expect(mocks.prepare).not.toHaveBeenCalled();
   });
 
-  it('refuses campaign/reschedule modes and writes one matching operation reference', async () => {
+  it('refuses legacy campaign/reschedule modes but admits only a verified next-visit capability', async () => {
     seed();
 
     expect((await POST(request({ flowToken, expectedRevision: 0, booking: { ...booking, campaignToken: 'x' }, displayed }), context())).status).toBe(409);
+
+    mocks.nextVisitOffer.mockResolvedValueOnce({ status: 'eligible' });
+
+    expect((await POST(request({ flowToken, expectedRevision: 0, booking: { ...booking, campaignToken: 'a'.repeat(32) }, displayed }), context())).status).toBe(200);
 
     const response = await POST(request({ flowToken, expectedRevision: 0, booking, displayed }), context());
 
     expect(response.status).toBe(200);
     expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({ salonId: id, sessionId: flowId }));
+  });
+
+  it('fails closed if next-visit capability verification is unavailable', async () => {
+    seed();
+    mocks.nextVisitOffer.mockRejectedValueOnce(new Error('database unavailable'));
+
+    const response = await POST(request({ flowToken, expectedRevision: 0, booking: { ...booking, campaignToken: 'a'.repeat(32) }, displayed }), context());
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ reason: 'review_unavailable' });
+    expect(mocks.prepare).not.toHaveBeenCalled();
   });
 
   it('accepts the same authoritative single-digit hour in canonical normal-booking format', async () => {

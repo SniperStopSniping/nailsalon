@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0085_calendar_intraday_blocks';
-const MIGRATION_COUNT = 85;
+const FINAL_MIGRATION = '0086_next_visit_offer';
+const MIGRATION_COUNT = 86;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -387,6 +387,9 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'technician_blocked_slot', 'technician_blocked_slot_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   // 0085 serializes booking and intraday-block writes per technician.
   ['public', 'technician_schedule_guard', 'technician_schedule_guard_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  // 0086 Next Visit Offers are salon-owned. Include this direct CASCADE edge in
+  // the attested mutation graph so an unexpected schema drift fails closed.
+  ['public', 'next_visit_offer', 'next_visit_offer_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'technician_schedule_override', 'technician_schedule_override_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'technician_time_off', 'technician_time_off_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'time_off_request', 'time_off_request_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],

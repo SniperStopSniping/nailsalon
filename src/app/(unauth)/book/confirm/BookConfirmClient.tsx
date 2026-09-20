@@ -129,7 +129,9 @@ type BookConfirmClientProps = {
     percent: number;
     amountCents: number;
   } | null;
+  nextVisitQuoteExpectation?: { totalCents: number; discountType: string | null; discountLabel: string | null } | null;
   campaignPromotionPreview?: {
+    stage?: 'promo_6w' | 'promo_8w' | 'next_visit';
     name: string;
     displayOffer: string;
     code: string | null;
@@ -1464,7 +1466,7 @@ const ConfirmContent = ({
               {campaignPromotionPreview && discountAmount > 0 && (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm sm:col-span-2">
                   <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                    Welcome-back offer
+                    {campaignPromotionPreview.stage === 'next_visit' ? 'Next Visit Offer' : 'Welcome-back offer'}
                   </span>
                   <p className="font-body mt-1 font-semibold text-emerald-950">
                     {campaignPromotionPreview.name}
@@ -2057,6 +2059,7 @@ export function BookConfirmClient({
   discountAmount = 0,
   firstVisitDiscountPreview = null,
   campaignPromotionPreview = null,
+  nextVisitQuoteExpectation = null,
   campaignMessage = null,
   totalPrice,
   taxConfig,
@@ -2668,6 +2671,7 @@ export function BookConfirmClient({
         // stale expectation with 409 SMART_FIT_CHANGED instead of booking at
         // a different price than shown.
         ...(smartFitOffer && buildSmartFitExpectationFields(smartFitOffer)),
+        ...(nextVisitQuoteExpectation && { expectedTotalCents: nextVisitQuoteExpectation.totalCents, expectedDiscountType: nextVisitQuoteExpectation.discountType }),
         ...(bookingTotals && taxConfigurationIdentity
           ? {
               expectedBookingFinancialQuote: {
@@ -3036,7 +3040,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [addOns, salonName, salonTimeZone, technician, salonConfirmsManually, isAssistantHandoff, salonId, recoveringHandoff, publicRecoveryPending, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, canonicalStartTime, checkPublicRecovery, completeManualBooking, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
+  }, [addOns, salonName, salonTimeZone, technician, salonConfirmsManually, isAssistantHandoff, salonId, recoveringHandoff, publicRecoveryPending, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, nextVisitQuoteExpectation, canonicalStartTime, checkPublicRecovery, completeManualBooking, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);

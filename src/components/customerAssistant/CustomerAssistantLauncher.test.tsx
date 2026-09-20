@@ -75,6 +75,223 @@ describe('CustomerAssistantLauncher', () => {
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Help me choose' })).not.toBeInTheDocument());
   });
 
+  it('binds a campaign session without persisting its raw token and preserves it through assistant handoff', async () => {
+    const token = 'campaign-token-12345678901234567890';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse('campaign-session'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'proposal-token', result: { kind: 'proposal', proposal: proposal() } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        conversation: 'handoff-token',
+        result: { kind: 'handoff', handoff: { selection: proposal().selection, flow: { flowToken: 'v1.123e4567-e89b-12d3-a456-426614174000.1.signed', expiresAt: '2030-01-01T00:00:00.000Z' } } },
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    sessionStorage.setItem('luster.customer-assistant.conversation.isla-nail-studio', JSON.stringify({ version: 2, conversation: 'old-session', messages: [], result: { kind: 'proposal', proposal: proposal() } }));
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" campaignToken={token} />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Gel-X');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(await screen.findByRole('button', { name: 'Choose these services' }));
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/public/customer-assistant/isla-nail-studio/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ campaignToken: token }),
+    });
+
+    await waitFor(() => expect(navigation.push).toHaveBeenCalledTimes(1));
+
+    expect(navigation.push.mock.calls[0]?.[0]).toContain(`campaign=${token}`);
+    expect(sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio')).not.toContain(token);
+  });
+
+  it('keeps the same campaign conversation on close and reopen without storing its bearer token', async () => {
+    const token = 'campaign-token-12345678901234567890';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse('campaign-session'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'campaign-answer', result: { kind: 'answer', message: 'Your offer is ready to review.', options: [] } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" campaignToken={token} />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'What is my offer?');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await screen.findByText('Your offer is ready to review.')).toBeVisible();
+
+    await user.click(screen.getByLabelText('Close assistant'));
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+
+    expect(await screen.findByText('Your offer is ready to review.')).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const stored = sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio');
+
+    expect(stored).not.toContain(token);
+    expect(JSON.parse(stored ?? '{}').campaignBinding).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('does not restore a campaign-bound conversation on an ordinary visit or a different campaign link', async () => {
+    const firstToken = 'campaign-token-12345678901234567890';
+    const secondToken = 'campaign-token-abcdefghijklmnopqrst';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse('first-session'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'first-answer', result: { kind: 'answer', message: 'First campaign answer.', options: [] } }), { status: 200 }))
+      .mockResolvedValueOnce(sessionResponse('ordinary-session'))
+      .mockResolvedValueOnce(sessionResponse('second-session'));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const view = render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" campaignToken={firstToken} />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'First offer');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(await screen.findByText('First campaign answer.')).toBeVisible();
+
+    view.rerender(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    expect(screen.queryByText('First campaign answer.')).not.toBeInTheDocument();
+
+    view.rerender(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" campaignToken={secondToken} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ campaignToken: secondToken }),
+    });
+  });
+
+  it('does not let a delayed campaign chat replace a newer campaign session', async () => {
+    const firstToken = 'campaign-token-12345678901234567890';
+    const secondToken = 'campaign-token-abcdefghijklmnopqrst';
+    let resolveDelayedChat!: (response: Response) => void;
+    const delayedChat = new Promise<Response>((resolve) => {
+      resolveDelayedChat = resolve;
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse('first-session'))
+      .mockReturnValueOnce(delayedChat)
+      .mockResolvedValueOnce(sessionResponse('second-session'));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const view = render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" campaignToken={firstToken} />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'First offer');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    view.rerender(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" campaignToken={secondToken} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    resolveDelayedChat(new Response(JSON.stringify({ conversation: 'stale-first-answer', result: { kind: 'answer', message: 'Stale first offer.', options: [] } }), { status: 200 }));
+
+    await waitFor(() => expect(sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio')).toContain('second-session'));
+
+    expect(screen.queryByText('Stale first offer.')).not.toBeInTheDocument();
+    expect(sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio')).not.toContain('stale-first-answer');
+  });
+
+  it('does not let a delayed campaign handoff navigate after the booking scope changes', async () => {
+    const firstToken = 'campaign-token-12345678901234567890';
+    const secondToken = 'campaign-token-abcdefghijklmnopqrst';
+    let resolveDelayedHandoff!: (response: Response) => void;
+    const delayedHandoff = new Promise<Response>((resolve) => {
+      resolveDelayedHandoff = resolve;
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse('first-session'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'proposal-token', result: { kind: 'proposal', proposal: proposal() } }), { status: 200 }))
+      .mockReturnValueOnce(delayedHandoff)
+      .mockResolvedValueOnce(sessionResponse('second-session'));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const view = render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" campaignToken={firstToken} />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Gel-X');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(await screen.findByRole('button', { name: 'Choose these services' }));
+
+    view.rerender(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" campaignToken={secondToken} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    resolveDelayedHandoff(new Response(JSON.stringify({
+      conversation: 'stale-handoff',
+      result: { kind: 'handoff', handoff: { selection: proposal().selection, flow: { flowToken: 'v1.123e4567-e89b-12d3-a456-426614174000.1.signed', expiresAt: '2030-01-01T00:00:00.000Z' } } },
+    }), { status: 200 }));
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('luster.normal-confirm-handoff.v1.salon-id')).toBeNull();
+  });
+
+  it('does not let a delayed handoff navigate after the assistant closes', async () => {
+    let resolveDelayedHandoff!: (response: Response) => void;
+    const delayedHandoff = new Promise<Response>((resolve) => {
+      resolveDelayedHandoff = resolve;
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse('session'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'proposal-token', result: { kind: 'proposal', proposal: proposal() } }), { status: 200 }))
+      .mockReturnValueOnce(delayedHandoff);
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Gel-X');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(await screen.findByRole('button', { name: 'Choose these services' }));
+    await user.click(screen.getByLabelText('Close assistant'));
+    resolveDelayedHandoff(new Response(JSON.stringify({
+      conversation: 'stale-handoff',
+      result: { kind: 'handoff', handoff: { selection: proposal().selection, flow: { flowToken: 'v1.123e4567-e89b-12d3-a456-426614174000.1.signed', expiresAt: '2030-01-01T00:00:00.000Z' } } },
+    }), { status: 200 }));
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('luster.normal-confirm-handoff.v1.salon-id')).toBeNull();
+  });
+
+  it('invalidates a restarted session before a later pending handoff closes', async () => {
+    let resolveDelayedHandoff!: (response: Response) => void;
+    const delayedHandoff = new Promise<Response>((resolve) => {
+      resolveDelayedHandoff = resolve;
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse('initial-session'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'expired-session', result: { kind: 'unavailable', reason: 'conversation_used' } }), { status: 200 }))
+      .mockResolvedValueOnce(sessionResponse('restarted-session'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'proposal-token', result: { kind: 'proposal', proposal: proposal() } }), { status: 200 }))
+      .mockReturnValueOnce(delayedHandoff);
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Hello');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(await screen.findByRole('button', { name: 'Start over' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Gel-X');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(await screen.findByRole('button', { name: 'Choose these services' }));
+    await user.click(screen.getByLabelText('Close assistant'));
+    resolveDelayedHandoff(new Response(JSON.stringify({
+      conversation: 'stale-handoff',
+      result: { kind: 'handoff', handoff: { selection: proposal().selection, flow: { flowToken: 'v1.123e4567-e89b-12d3-a456-426614174000.1.signed', expiresAt: '2030-01-01T00:00:00.000Z' } } },
+    }), { status: 200 }));
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('luster.normal-confirm-handoff.v1.salon-id')).toBeNull();
+  });
+
   it('keeps the optional conversation usable in memory when site storage cannot be read', async () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error('storage blocked');

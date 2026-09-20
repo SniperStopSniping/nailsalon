@@ -21,16 +21,26 @@ import { formatDuration } from '@/utils/Helpers';
 import { customerAssistantCopy } from './copy';
 import { AcceptSelection } from './ScheduleCards';
 
-type CustomerAssistantLauncherProps = { salonSlug: string; salonId?: string; locale: CustomerAssistantLocale };
+type CustomerAssistantLauncherProps = { salonSlug: string; salonId?: string; locale: CustomerAssistantLocale; campaignToken?: string | null };
 type CustomerAssistantPanelProps = CustomerAssistantLauncherProps & { onClose: () => void; visibleHeight?: number };
 type DisplayMessage = { id: number; role: 'assistant' | 'user'; message: string; kind?: 'quick_reply' };
-type StoredConversation = { version: 2; conversation: string; messages: DisplayMessage[]; result: CustomerAssistantResult | null };
+type StoredConversation = { version: 2; conversation: string; messages: DisplayMessage[]; result: CustomerAssistantResult | null; campaignBinding?: string };
 type StoredOperation = CustomerBookingOperationReference & { version: 1; salonId: string };
+type StorageScope = { binding: string | null; persist: boolean };
 
 const MAX_DISPLAY_MESSAGES = 12;
 const storageKey = (salonSlug: string) => `luster.customer-assistant.conversation.${salonSlug}`;
 const operationStorageKey = (salonId: string) => `luster.customer-booking.operation.${salonId}`;
 const endpoint = (salonSlug: string) => `/api/public/customer-assistant/${encodeURIComponent(salonSlug)}`;
+
+async function campaignStorageBinding(token: string): Promise<string | null> {
+  try {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+    return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return null;
+  }
+}
 
 function readStoredOperation(salonId: string): StoredOperation | null {
   try {
@@ -149,7 +159,10 @@ export function CustomerBookingRecovery({ salonId, locale }: { salonId: string; 
       );
 }
 
-function readStoredConversation(salonSlug: string): StoredConversation | null {
+function readStoredConversation(salonSlug: string, scope: StorageScope): StoredConversation | null {
+  if (!scope.persist) {
+    return null;
+  }
   let raw: string | null;
   try {
     raw = sessionStorage.getItem(storageKey(salonSlug));
@@ -162,32 +175,45 @@ function readStoredConversation(salonSlug: string): StoredConversation | null {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed === 'string') {
+      if (scope.binding !== null) {
+        return null;
+      }
       return { version: 2, conversation: parsed, messages: [], result: null };
     }
     if (!parsed || typeof parsed !== 'object') {
       return null;
     }
     const value = parsed as Partial<StoredConversation>;
-    if (value.version !== 2 || typeof value.conversation !== 'string' || !Array.isArray(value.messages)) {
+    if (value.version !== 2 || typeof value.conversation !== 'string' || !Array.isArray(value.messages)
+      || (scope.binding === null ? Boolean(value.campaignBinding) : value.campaignBinding !== scope.binding)) {
       return null;
     }
     const messages = value.messages.filter((message): message is DisplayMessage => typeof message === 'object' && message !== null && typeof (message as DisplayMessage).id === 'number' && ((message as DisplayMessage).role === 'assistant' || (message as DisplayMessage).role === 'user') && typeof (message as DisplayMessage).message === 'string').slice(-MAX_DISPLAY_MESSAGES);
     return { version: 2, conversation: value.conversation, messages, result: value.result ?? null };
   } catch {
     const legacy = raw.trim();
-    return legacy && !legacy.startsWith('{') && legacy.length <= 24_576
+    return scope.binding === null && legacy && !legacy.startsWith('{') && legacy.length <= 24_576
       ? { version: 2, conversation: legacy, messages: [], result: null }
       : null;
   }
 }
-function storeConversation(salonSlug: string, stored: StoredConversation): void {
+function storeConversation(salonSlug: string, stored: StoredConversation, scope: StorageScope): void {
+  if (!scope.persist) {
+    return;
+  }
   try {
-    sessionStorage.setItem(storageKey(salonSlug), JSON.stringify({ ...stored, messages: stored.messages.slice(-MAX_DISPLAY_MESSAGES) }));
+    sessionStorage.setItem(storageKey(salonSlug), JSON.stringify({ ...stored, messages: stored.messages.slice(-MAX_DISPLAY_MESSAGES), ...(scope.binding ? { campaignBinding: scope.binding } : {}) }));
   } catch { /* Session remains in memory. */ }
 }
-function clearStoredConversation(salonSlug: string): void {
+function clearStoredConversation(salonSlug: string, scope: StorageScope): void {
+  if (!scope.persist) {
+    return;
+  }
   try {
-    sessionStorage.removeItem(storageKey(salonSlug));
+    const stored = readStoredConversation(salonSlug, scope);
+    if (stored) {
+      sessionStorage.removeItem(storageKey(salonSlug));
+    }
   } catch { /* State is cleared by caller. */ }
 }
 function isConversationError(result: CustomerAssistantResult): boolean {
@@ -323,7 +349,7 @@ function AssistantResult({ result, locale, loading, onOption, onHandoff }: { res
   return null;
 }
 
-export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, visibleHeight }: CustomerAssistantPanelProps) {
+export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignToken, onClose, visibleHeight }: CustomerAssistantPanelProps) {
   const router = useRouter();
   const params = useParams();
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
@@ -335,40 +361,80 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<'network' | 'token' | 'stale' | null>(null);
+  const [storageScope, setStorageScope] = useState<StorageScope | null>(null);
   const retryMessage = useRef<string | null>(null);
   const [legacyStatus, setLegacyStatus] = useState<CustomerBookingStatus | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const inFlight = useRef(false);
   const restoreComposerFocus = useRef(false);
-  const createSession = async () => {
+  const storageScopeRef = useRef<StorageScope | null>(null);
+  const scopeGenerationRef = useRef(0);
+  const createSession = async (generation = scopeGenerationRef.current) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${endpoint(salonSlug)}/session`, { method: 'POST' });
+      const response = await fetch(`${endpoint(salonSlug)}/session`, campaignToken
+        ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ campaignToken }) }
+        : { method: 'POST' });
       const data = await response.json() as { conversation?: unknown };
       if (!response.ok || typeof data.conversation !== 'string' || data.conversation.length === 0) {
         throw new Error('invalid session response');
       }
+      if (generation !== scopeGenerationRef.current) {
+        return;
+      }
       setConversation(data.conversation);
     } catch {
-      setError('network');
+      if (generation === scopeGenerationRef.current) {
+        setError('network');
+      }
     } finally {
-      setLoading(false);
+      if (generation === scopeGenerationRef.current) {
+        setLoading(false);
+      }
     }
   };
   useEffect(() => {
-    const stored = readStoredConversation(salonSlug);
-    if (stored) {
-      setConversation(stored.conversation);
-      setMessages(stored.messages);
-      setResult(stored.result);
-    } else {
-      void createSession();
-    }
-  // Session initialization is intentionally scoped to a salon, not function identity.
+    let cancelled = false;
+    const generation = scopeGenerationRef.current + 1;
+    scopeGenerationRef.current = generation;
+    storageScopeRef.current = null;
+    inFlight.current = false;
+    setStorageScope(null);
+    setConversation(null);
+    setMessages([]);
+    setResult(null);
+    setError(null);
+    setLoading(false);
+    void (async () => {
+      const binding = campaignToken ? await campaignStorageBinding(campaignToken) : null;
+      const scope: StorageScope = campaignToken
+        ? binding ? { binding, persist: true } : { binding: null, persist: false }
+        : { binding: null, persist: true };
+      if (cancelled) {
+        return;
+      }
+      storageScopeRef.current = scope;
+      setStorageScope(scope);
+      const stored = readStoredConversation(salonSlug, scope);
+      if (stored) {
+        setConversation(stored.conversation);
+        setMessages(stored.messages);
+        setResult(stored.result);
+      } else {
+        void createSession(generation);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      scopeGenerationRef.current += 1;
+      inFlight.current = false;
+    };
+  // A campaign session is persisted only against its non-bearer digest. The
+  // raw token never reaches browser storage, signed state, or the model.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [salonSlug]);
+  }, [campaignToken, salonSlug]);
   useEffect(() => {
     const transcript = transcriptRef.current;
     if (transcript) {
@@ -376,10 +442,10 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
     }
   }, [messages, result, loading, error]);
   useEffect(() => {
-    if (conversation) {
-      storeConversation(salonSlug, { version: 2, conversation, messages, result });
+    if (conversation && storageScope && storageScopeRef.current === storageScope) {
+      storeConversation(salonSlug, { version: 2, conversation, messages, result }, storageScope);
     }
-  }, [conversation, messages, result, salonSlug]);
+  }, [conversation, messages, result, salonSlug, storageScope]);
   useEffect(() => {
     if (!loading && restoreComposerFocus.current) {
       restoreComposerFocus.current = false;
@@ -392,12 +458,17 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
     }
   }, [loading, error]);
   const restart = () => {
+    const generation = scopeGenerationRef.current + 1;
+    scopeGenerationRef.current = generation;
+    inFlight.current = false;
     retryMessage.current = null;
-    clearStoredConversation(salonSlug);
+    if (storageScope) {
+      clearStoredConversation(salonSlug, storageScope);
+    }
     setConversation(null);
     setMessages([]);
     setResult(null);
-    void createSession();
+    void createSession(generation);
   };
   const send = async (message: string, kind?: 'quick_reply') => {
     const trimmed = message.trim();
@@ -405,6 +476,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
       return;
     }
     const wasTyping = document.activeElement === inputRef.current;
+    const generation = scopeGenerationRef.current;
     inFlight.current = true;
     setLoading(true);
     setError(null);
@@ -416,6 +488,9 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
       const data = await response.json() as CustomerAssistantResponse;
       if (!response.ok || !data.conversation || !data.result) {
         throw new Error('invalid chat response');
+      }
+      if (generation !== scopeGenerationRef.current) {
+        return;
       }
       setConversation(data.conversation);
       setResult(data.result);
@@ -431,18 +506,23 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
         setError('stale');
       }
     } catch {
-      setInput(trimmed);
-      setError('network');
+      if (generation === scopeGenerationRef.current) {
+        setInput(trimmed);
+        setError('network');
+      }
     } finally {
-      inFlight.current = false;
-      setLoading(false);
-      restoreComposerFocus.current = wasTyping;
+      if (generation === scopeGenerationRef.current) {
+        inFlight.current = false;
+        setLoading(false);
+        restoreComposerFocus.current = wasTyping;
+      }
     }
   };
   const handoffToNormalBooking = async (fingerprint: string) => {
     if (loading || inFlight.current || !conversation || !salonId) {
       return;
     }
+    const generation = scopeGenerationRef.current;
     inFlight.current = true;
     setLoading(true);
     setError(null);
@@ -457,6 +537,9 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
           throw new Error('legacy operation unavailable');
         }
         const status = await recovered.json() as CustomerBookingStatus;
+        if (generation !== scopeGenerationRef.current) {
+          return;
+        }
         if (status.status !== 'not_created') {
           setLegacyStatus(status);
           return;
@@ -467,6 +550,9 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
         if (!response.ok || !data.conversation || data.result.kind !== 'handoff' || !data.result.handoff.operation) {
           throw new Error('invalid legacy handoff response');
         }
+        if (generation !== scopeGenerationRef.current) {
+          return;
+        }
         setConversation(data.conversation);
         writeNormalConfirmHandoff(salonId, data.result.handoff.flow);
         adoptNormalBookingOperation(salonId, data.result.handoff.flow.flowToken, data.result.handoff.operation);
@@ -474,7 +560,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
           throw new Error('booking state storage unavailable');
         }
         onClose();
-        router.push(buildBookingUrl(`/${locale}/book/time`, { salonSlug, baseServiceId: data.result.handoff.selection.baseServiceId, selectedAddOns: data.result.handoff.selection.selectedAddOns, techId: null, date: data.result.handoff.datePreference?.date ?? null, bookingFlow: 'assistant' }, { routeSalonSlug, locale }));
+        router.push(buildBookingUrl(`/${locale}/book/time`, { salonSlug, baseServiceId: data.result.handoff.selection.baseServiceId, selectedAddOns: data.result.handoff.selection.selectedAddOns, techId: null, date: data.result.handoff.datePreference?.date ?? null, campaignToken, bookingFlow: 'assistant' }, { routeSalonSlug, locale }));
         return;
       }
       const existingFlow = readNormalConfirmHandoff(salonId);
@@ -482,6 +568,9 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
       const data = await response.json() as CustomerAssistantHandoffResponse;
       if (!response.ok || !data.conversation || !data.result) {
         throw new Error('invalid handoff response');
+      }
+      if (generation !== scopeGenerationRef.current) {
+        return;
       }
       setConversation(data.conversation);
       if (data.result.kind !== 'handoff') {
@@ -496,12 +585,16 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
         throw new Error('booking state storage unavailable');
       }
       onClose();
-      router.push(buildBookingUrl(`/${locale}/book/time`, { salonSlug, baseServiceId: data.result.handoff.selection.baseServiceId, selectedAddOns: data.result.handoff.selection.selectedAddOns, techId: null, date: data.result.handoff.datePreference?.date ?? null, bookingFlow: 'assistant' }, { routeSalonSlug, locale }));
+      router.push(buildBookingUrl(`/${locale}/book/time`, { salonSlug, baseServiceId: data.result.handoff.selection.baseServiceId, selectedAddOns: data.result.handoff.selection.selectedAddOns, techId: null, date: data.result.handoff.datePreference?.date ?? null, campaignToken, bookingFlow: 'assistant' }, { routeSalonSlug, locale }));
     } catch {
-      setError('network');
+      if (generation === scopeGenerationRef.current) {
+        setError('network');
+      }
     } finally {
-      inFlight.current = false;
-      setLoading(false);
+      if (generation === scopeGenerationRef.current) {
+        inFlight.current = false;
+        setLoading(false);
+      }
     }
   };
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -581,7 +674,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, onClose, vi
   );
 }
 
-export function CustomerAssistantLauncher({ salonSlug, salonId, locale }: CustomerAssistantLauncherProps) {
+export function CustomerAssistantLauncher({ salonSlug, salonId, locale, campaignToken }: CustomerAssistantLauncherProps) {
   const [isOpen, setIsOpen] = useState(false);
   const copy = customerAssistantCopy[locale];
   const viewport = useCustomerViewport();
@@ -590,7 +683,7 @@ export function CustomerAssistantLauncher({ salonSlug, salonId, locale }: Custom
     <>
       <div aria-hidden="true" data-testid="customer-assistant-launcher-clearance" style={{ height: 'calc(var(--service-sticky-footer-clearance, env(safe-area-inset-bottom, 0px)) + 6rem + 24px)' }} />
       {!viewport.keyboardOpen && <button type="button" aria-label={locale === 'fr' ? 'M’aider à choisir et réserver' : 'Help me choose & book'} onClick={() => setIsOpen(true)} style={{ bottom: 'calc(var(--service-sticky-footer-clearance, env(safe-area-inset-bottom, 0px)) + 12px)' }} className="fixed right-4 z-40 min-h-11 max-w-[calc(100vw-2rem)] rounded-xl border border-neutral-900 bg-white px-4 py-2 text-sm font-semibold text-neutral-950 shadow-lg transition hover:bg-neutral-50">{copy.launcher}</button>}
-      <DialogShell isOpen={isOpen} onClose={() => setIsOpen(false)} maxWidthClassName="max-w-xl" alignClassName="items-end p-0 sm:items-center sm:p-4" contentClassName="max-h-[calc(100dvh-0.5rem)] touch-pan-y overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-3xl" overlayStyle={viewportStyle}><CustomerAssistantPanel salonId={salonId} salonSlug={salonSlug} locale={locale} onClose={() => setIsOpen(false)} visibleHeight={viewport.height || undefined} /></DialogShell>
+      <DialogShell isOpen={isOpen} onClose={() => setIsOpen(false)} maxWidthClassName="max-w-xl" alignClassName="items-end p-0 sm:items-center sm:p-4" contentClassName="max-h-[calc(100dvh-0.5rem)] touch-pan-y overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-3xl" overlayStyle={viewportStyle}>{isOpen && <CustomerAssistantPanel salonId={salonId} salonSlug={salonSlug} locale={locale} campaignToken={campaignToken} onClose={() => setIsOpen(false)} visibleHeight={viewport.height || undefined} />}</DialogShell>
     </>
   );
 }

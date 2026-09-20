@@ -824,6 +824,9 @@ jobs:
       - name: Verify Settings and Plan destinations in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerSettingsPlan/playwright.config.ts --output=test-results/owner-settings-plan-components
 
+      - name: Verify Next Visit settings and guest rebooking in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/nextVisitOffer/playwright.config.ts --output=test-results/next-visit-components
+
       - name: Verify appointment management and checkout in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/appointmentWorkflow/playwright.config.ts --output=test-results/appointment-workflow-components
 

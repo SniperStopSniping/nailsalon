@@ -8,6 +8,7 @@ import { normalBookingPrepareSchema } from '@/libs/customerAssistant/normalBooki
 import { verifyNormalConfirmHandoff } from '@/libs/customerAssistant/normalConfirmHandoff.server';
 import { CustomerBookingOperationError, customerBookingOperationReference, prepareCustomerBookingOperation } from '@/libs/customerAssistant/operationStore.server';
 import { prepareCustomerBookingQuote } from '@/libs/customerAssistant/prepareQuote.server';
+import { resolveNextVisitOfferPreview } from '@/libs/nextVisitOffer.server';
 import { checkPublicBookingRateLimit, getPublicBookingClientIp } from '@/libs/publicBookingRateLimit.server';
 import { getSalonById } from '@/libs/queries';
 import { guardSalonApiRoute, isOnlineBookingEnabled } from '@/libs/salonStatus';
@@ -42,7 +43,7 @@ export async function POST(request: Request, context: { params: Promise<{ salonI
   } catch {
     return fail('handoff_expired');
   }
-  if (booking.campaignToken || booking.manageToken || booking.originalAppointmentId) {
+  if (booking.manageToken || booking.originalAppointmentId) {
     return fail('unsupported_booking_mode');
   }
   const limit = await checkPublicBookingRateLimit({ salonId, clientIp: getPublicBookingClientIp(request), normalizedPhone: contact.phone });
@@ -52,6 +53,25 @@ export async function POST(request: Request, context: { params: Promise<{ salonI
   const salon = await getSalonById(salonId);
   if (!salon || salon.slug !== booking.salonSlug || salon.publicationStatus !== 'published' || await guardSalonApiRoute(salonId) || !await isOnlineBookingEnabled(salonId)) {
     return fail('unavailable', 404);
+  }
+  // Only an opaque next-visit capability is admitted to the normal flow.
+  // Legacy win-back campaign tokens still take their dedicated public route.
+  if (booking.campaignToken) {
+    let campaign;
+    try {
+      campaign = await resolveNextVisitOfferPreview({
+        salonId,
+        token: booking.campaignToken,
+        clientPhone: contact.phone,
+        startTime: booking.startTime,
+        services: [],
+      });
+    } catch {
+      return fail('review_unavailable', 503);
+    }
+    if (!campaign) {
+      return fail('unsupported_booking_mode');
+    }
   }
   try {
     const material = await prepareCustomerBookingQuote({
@@ -64,6 +84,7 @@ export async function POST(request: Request, context: { params: Promise<{ salonI
       locationId: booking.locationId,
       contact,
       smsConsent: booking.smsConsent,
+      campaignToken: booking.campaignToken,
     });
     if (!material) {
       return fail('slot_unavailable');

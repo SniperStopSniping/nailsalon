@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { useAppointmentActions } from './useAppointmentActions';
+import { type RebookPrefill, useAppointmentActions } from './useAppointmentActions';
 
 const fetchMock = vi.fn();
 
@@ -420,4 +420,79 @@ describe('useAppointmentActions', () => {
       technicianId: 'tech_1',
     });
   });
+});
+
+it('requires explicit review before saving a Next Visit Offer price change', async () => {
+  const { result } = await renderOpenHook();
+  fetchMock.mockResolvedValueOnce(jsonResponse({
+    error: {
+      code: 'NEXT_VISIT_PRICE_CHANGED',
+      message: 'The new date or service changes the Next Visit Offer. Review and accept the updated service total.',
+      details: {
+        totalPriceCents: 3600,
+        discountAmountCents: 400,
+        currency: 'CAD',
+        deadlineDate: '2026-10-20',
+      },
+    },
+  }, 409));
+
+  await act(async () => {
+    await result.current.saveEdits({
+      baseServiceId: 'srv_2',
+      technicianId: 'tech_1',
+      startTime: '2099-07-01T18:00:00.000Z',
+    }).catch(() => {});
+  });
+
+  expect(result.current.nextVisitPriceReview).toEqual({
+    totalPriceCents: 3600,
+    discountAmountCents: 400,
+    currency: 'CAD',
+    deadlineDate: '2026-10-20',
+  });
+
+  fetchMock.mockResolvedValueOnce(jsonResponse({ data: { detail: DETAIL, calendarEvent: { id: 'appt_1' } } }));
+  await act(async () => result.current.saveEdits({
+    baseServiceId: 'srv_2',
+    technicianId: 'tech_1',
+    startTime: '2099-07-01T18:00:00.000Z',
+    acceptedNextVisitTotalCents: 3600,
+  }));
+
+  const [, init] = fetchMock.mock.calls.at(-1)!;
+
+  expect(JSON.parse(init.body)).toMatchObject({
+    operation: 'changeService',
+    acceptedNextVisitTotalCents: 3600,
+  });
+});
+
+it('mints an existing appointment offer only when Rebook is chosen and carries its opaque token', async () => {
+  const { result } = await renderOpenHook({ salonSlug: 'salon-a' });
+  fetchMock.mockResolvedValueOnce(jsonResponse({ data: {
+    offer: {
+      bookingUrl: '/book?campaign=opaque-campaign-token',
+      deadlineDate: '2026-10-20',
+      settings: { discountType: 'percent', value: 10 },
+    },
+  } }));
+
+  let prefill: RebookPrefill | null = null;
+  await act(async () => {
+    prefill = await result.current.buildRebookPrefillWithNextVisitOffer();
+  });
+
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/admin/next-visit-offer/link', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ salonSlug: 'salon-a', appointmentId: 'appt_1' }),
+  }));
+  expect(prefill).toEqual(expect.objectContaining({
+    nextVisitOffer: {
+      campaignToken: 'opaque-campaign-token',
+      deadlineDate: '2026-10-20',
+      discountType: 'percent',
+      value: 10,
+    },
+  }));
 });

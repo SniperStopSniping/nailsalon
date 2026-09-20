@@ -8,6 +8,7 @@ import {
   runAppointmentManageMutation,
 } from '@/libs/appointmentManage';
 import { db } from '@/libs/DB';
+import { nextVisitMutationFailure } from '@/libs/nextVisitOffer';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import { type AppointmentAuditAction, type AuditPerformerRole, salonSchema } from '@/models/Schema';
 
@@ -24,6 +25,7 @@ type ErrorResponse = {
 const patchSchema = z.discriminatedUnion('operation', [
   z.object({
     operation: z.literal('move'),
+    acceptedNextVisitTotalCents: z.number().int().nonnegative().optional(),
     startTime: z.string().datetime(),
     durationMinutes: z.number().int().min(15).max(480).optional(),
     technicianId: z.string().nullable().optional(),
@@ -33,6 +35,7 @@ const patchSchema = z.discriminatedUnion('operation', [
   }).strict(),
   z.object({
     operation: z.literal('changeService'),
+    acceptedNextVisitTotalCents: z.number().int().nonnegative().optional(),
     baseServiceId: z.string().min(1),
     startTime: z.string().datetime().optional(),
     technicianId: z.string().nullable().optional(),
@@ -100,6 +103,10 @@ async function getSalonSlug(salonId: string) {
 }
 
 function toErrorResponse(error: unknown): Response {
+  const nextVisitFailure = nextVisitMutationFailure(error);
+  if (nextVisitFailure) {
+    return Response.json({ error: nextVisitFailure }, { status: 409 });
+  }
   if (error instanceof AppointmentManageError) {
     return Response.json(
       {
@@ -204,6 +211,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       appointmentId: params.id,
       salonId: access.appointment.salonId,
       operation: parsed.data.operation,
+      acceptedNextVisitTotalCents: 'acceptedNextVisitTotalCents' in parsed.data ? parsed.data.acceptedNextVisitTotalCents : undefined,
       startTime: 'startTime' in parsed.data && parsed.data.startTime
         ? new Date(parsed.data.startTime)
         : undefined,
@@ -237,6 +245,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
         },
         newValue: {
           operation: parsed.data.operation,
+          acceptedNextVisitTotalCents: 'acceptedNextVisitTotalCents' in parsed.data ? parsed.data.acceptedNextVisitTotalCents : undefined,
           startTime: result.detail.appointment.startTime ?? null,
           endTime: result.detail.appointment.endTime ?? null,
           technicianId: result.detail.appointment.technicianId ?? null,

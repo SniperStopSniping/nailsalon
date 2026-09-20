@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { CalendarDays, Clock, Download, ExternalLink, MapPin, Scissors, Sparkles, User } from 'lucide-react';
 
+import { NextVisitOfferRebook } from '@/components/appointments/NextVisitOfferRebook';
 import { describeAppointmentAccessFailure, verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
@@ -521,7 +522,9 @@ export async function ManageAppointmentView({
           </div>
 
           <div className="mt-8">
+            {appointment.status === 'completed' && <NextVisitOfferRebook token={token} />}
             <ManageAppointmentActions
+              appointmentStatus={appointment.status}
               token={token}
               rescheduleUrl={rescheduleUrl}
               isActive={isActive}
