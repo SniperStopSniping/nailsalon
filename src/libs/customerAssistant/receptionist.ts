@@ -125,7 +125,7 @@ export function clarificationChoices(question: string, labels: string[], locale:
 }
 
 /** Interpret a rejected offered time separately from a date-only correction. */
-export function applyTimingFeedback(preference: import('./contracts').CustomerDatePreference, feedback: 'none' | 'too_late' | 'too_early', offered: readonly import('./contracts').CustomerAvailableSlot[]): import('./contracts').CustomerDatePreference {
+export function applyTimingFeedback(preference: import('./contracts').CustomerDatePreference, feedback: 'none' | 'too_late' | 'too_early', offered: readonly Pick<import('./contracts').CustomerAvailableSlot, 'time'>[]): import('./contracts').CustomerDatePreference {
   if (feedback === 'none' || !offered.length) {
     return preference;
   }

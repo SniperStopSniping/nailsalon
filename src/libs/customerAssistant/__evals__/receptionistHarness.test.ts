@@ -60,6 +60,35 @@ it('preserves desired design edits during answers and invalidates the old propos
   expect(followup.failures).toEqual([]);
 });
 
+it('applies an explicit add-on update through L1 despite consumed invalid clarification options', async () => {
+  const french = SEMANTIC_L1_MENU.addOns.find(item => item.name === 'French Tips')!.id;
+  const first = await evaluateReceptionistTurn(intent({
+    factUpdates: { ...patch, treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', length: 'medium' },
+  }), createCustomerConversation('synthetic-isla', 'synthetic-only'), {
+    message: 'medium Gel-X on bare nails',
+    kinds: ['proposal'],
+    price: 8000,
+    duration: 105,
+  });
+
+  const changed = await evaluateReceptionistTurn(intent({
+    action: 'clarify',
+    question: 'product',
+    optionIds: ['not-a-public-option'],
+    addOns: [{ addOnId: french, quantity: 1 }],
+    addOnUpdates: { add: [{ addOnId: french, quantity: 1 }], remove: [] },
+    factUpdates: { ...patch, french: 'yes' },
+  }), first.next, {
+    message: 'add French',
+    kinds: ['proposal'],
+    price: 9000,
+    duration: 120,
+  });
+
+  expect(changed.failures).toEqual([]);
+  expect(changed.next.requestedSelection?.selectedAddOns).toContainEqual({ addOnId: french, quantity: 1 });
+});
+
 it('keeps an interpreted service while L1 asks only for its unresolved option', async () => {
   const state = createCustomerConversation('synthetic-isla', 'synthetic-only');
   state.facts = { schemaVersion: 1, treatment: 'gel_x', desiredApplication: 'extensions', maintenance: 'unknown', length: 'unknown', french: 'unknown', existingProduct: 'unknown', origin: 'unknown', removal: 'unknown', repairCount: 'unknown' };
@@ -78,6 +107,248 @@ it('asks about the starting condition instead of requiring a removal SKU when pr
 
   expect(bare.failures).toEqual([]);
   expect(bare.next.facts?.existingProduct).toBe('none');
+});
+
+it('does not inherit a refill into a changed service while retaining the existing product', async () => {
+  const state = createCustomerConversation('synthetic-isla', 'synthetic-only');
+  state.facts = {
+    schemaVersion: 1,
+    treatment: 'acrylic',
+    desiredApplication: 'unknown',
+    maintenance: 'refill',
+    length: 'unknown',
+    french: 'unknown',
+    existingProduct: 'acrylic',
+    origin: 'unknown',
+    removal: 'unknown',
+    repairCount: 'unknown',
+  };
+  const result = await evaluateReceptionistTurn(intent({
+    action: 'clarify',
+    question: 'removal',
+    factUpdates: { ...patch, treatment: 'builder_gel' },
+  }), state, {
+    message: 'What about BIAB instead?',
+    kinds: ['clarification'],
+  });
+
+  expect(result.failures).toEqual([]);
+  expect(result.next.facts).toMatchObject({
+    treatment: 'builder_gel',
+    maintenance: 'unknown',
+    existingProduct: 'acrylic',
+    origin: 'unknown',
+  });
+  expect(result.result).toEqual({ kind: 'clarification', question: 'origin', options: [] });
+});
+
+it('does not inherit an extension application into a changed natural-nail service', async () => {
+  const state = createCustomerConversation('synthetic-isla', 'synthetic-only');
+  state.facts = {
+    schemaVersion: 1,
+    treatment: 'acrylic',
+    desiredApplication: 'extensions',
+    maintenance: 'refill',
+    length: 'medium',
+    french: 'unknown',
+    existingProduct: 'acrylic',
+    origin: 'unknown',
+    removal: 'unknown',
+    repairCount: 'unknown',
+  };
+  const result = await evaluateReceptionistTurn(intent({
+    action: 'clarify',
+    question: 'removal',
+    factUpdates: { ...patch, treatment: 'builder_gel' },
+  }), state, {
+    message: 'What about BIAB instead?',
+    kinds: ['clarification'],
+  });
+
+  expect(result.failures).toEqual([]);
+  expect(result.next.facts).toMatchObject({
+    treatment: 'builder_gel',
+    desiredApplication: 'unknown',
+    maintenance: 'unknown',
+    existingProduct: 'acrylic',
+  });
+  expect(result.result).toEqual({ kind: 'clarification', question: 'origin', options: [] });
+});
+
+it('does not reuse a prior no-removal answer after a changed service', async () => {
+  const state = createCustomerConversation('synthetic-isla', 'synthetic-only');
+  state.facts = {
+    schemaVersion: 1,
+    treatment: 'acrylic',
+    desiredApplication: 'extensions',
+    maintenance: 'refill',
+    length: 'medium',
+    french: 'unknown',
+    existingProduct: 'acrylic',
+    origin: 'unknown',
+    removal: 'no',
+    repairCount: 'unknown',
+  };
+  const changed = await evaluateReceptionistTurn(intent({
+    action: 'clarify',
+    question: 'removal',
+    factUpdates: { ...patch, treatment: 'builder_gel' },
+  }), state, {
+    message: 'What about BIAB instead?',
+    kinds: ['clarification'],
+  });
+
+  expect(changed.failures).toEqual([]);
+  expect(changed.next.facts).toMatchObject({
+    treatment: 'builder_gel',
+    desiredApplication: 'unknown',
+    maintenance: 'unknown',
+    existingProduct: 'acrylic',
+    origin: 'unknown',
+    removal: 'unknown',
+  });
+  expect(changed.result).toEqual({ kind: 'clarification', question: 'origin', options: [] });
+
+  const continued = await evaluateReceptionistTurn(intent({
+    action: 'clarify',
+    question: 'origin',
+    factUpdates: { ...patch, origin: 'other_salon' },
+  }), changed.next, {
+    message: 'From another salon',
+    kinds: ['clarification'],
+  });
+
+  expect(continued.failures).toEqual([]);
+  expect(continued.result).toEqual({ kind: 'clarification', question: 'removal', options: [] });
+});
+
+it('does not treat an echoed refill as authority for a cross-product switch', async () => {
+  const state = createCustomerConversation('synthetic-isla', 'synthetic-only');
+  state.facts = {
+    schemaVersion: 1,
+    treatment: 'acrylic',
+    desiredApplication: 'extensions',
+    maintenance: 'refill',
+    length: 'medium',
+    french: 'unknown',
+    existingProduct: 'acrylic',
+    origin: 'unknown',
+    removal: 'yes',
+    repairCount: 'unknown',
+  };
+  const result = await evaluateReceptionistTurn(intent({
+    action: 'clarify',
+    question: 'removal',
+    // This reproduces a provider echo from an earlier acrylic refill while the
+    // latest customer message changes only the desired treatment to BIAB.
+    factUpdates: { ...patch, treatment: 'builder_gel', desiredApplication: 'extensions', maintenance: 'refill', removal: 'yes' },
+  }), state, {
+    message: 'What about BIAB instead?',
+    kinds: ['unavailable'],
+    reason: 'transition_needs_confirmation',
+  });
+
+  expect(result.failures).toEqual([]);
+  expect(result.next.facts).toMatchObject({
+    treatment: 'builder_gel',
+    desiredApplication: 'extensions',
+    maintenance: 'refill',
+    existingProduct: 'acrylic',
+    removal: 'yes',
+  });
+});
+
+it('does not quote a cross-product request as bare nails after an explicit no-removal answer', async () => {
+  const state = createCustomerConversation('synthetic-isla', 'synthetic-only');
+  state.facts = {
+    schemaVersion: 1,
+    treatment: 'acrylic',
+    desiredApplication: 'extensions',
+    maintenance: 'refill',
+    length: 'medium',
+    french: 'unknown',
+    existingProduct: 'acrylic',
+    origin: 'unknown',
+    removal: 'unknown',
+    repairCount: 'unknown',
+  };
+  const result = await evaluateReceptionistTurn(intent({
+    action: 'clarify',
+    question: 'removal',
+    factUpdates: { ...patch, treatment: 'builder_gel', removal: 'no' },
+  }), state, {
+    message: 'What about BIAB instead, with no removal?',
+    kinds: ['unavailable'],
+    reason: 'transition_needs_confirmation',
+  });
+
+  expect(result.failures).toEqual([]);
+  expect(result.next.facts).toMatchObject({
+    treatment: 'builder_gel',
+    existingProduct: 'acrylic',
+    removal: 'no',
+  });
+  expect(result.result).toEqual({ kind: 'unavailable', reason: 'transition_needs_confirmation' });
+});
+
+it('keeps an explicit removal choice when the customer changes service', async () => {
+  const state = createCustomerConversation('synthetic-isla', 'synthetic-only');
+  state.facts = {
+    schemaVersion: 1,
+    treatment: 'acrylic',
+    desiredApplication: 'extensions',
+    maintenance: 'refill',
+    length: 'medium',
+    french: 'unknown',
+    existingProduct: 'acrylic',
+    origin: 'other_salon',
+    removal: 'yes',
+    repairCount: 'unknown',
+  };
+  const result = await evaluateReceptionistTurn(intent({
+    action: 'clarify',
+    question: 'removal',
+    factUpdates: { ...patch, treatment: 'builder_gel' },
+  }), state, {
+    message: 'What about BIAB instead?',
+    kinds: ['proposal', 'unavailable'],
+  });
+
+  expect(result.failures).toEqual([]);
+  expect(result.next.facts).toMatchObject({
+    treatment: 'builder_gel',
+    desiredApplication: 'unknown',
+    maintenance: 'unknown',
+    existingProduct: 'acrylic',
+    origin: 'other_salon',
+    removal: 'yes',
+  });
+  expect(result.result).not.toEqual({ kind: 'clarification', question: 'removal', options: [] });
+});
+
+it('leaves informational turns and same-product refills outside the cross-product guard', async () => {
+  const informational = await evaluateReceptionistTurn(intent({
+    action: 'answer',
+    answerTopic: 'service_information',
+    factUpdates: { ...patch, treatment: 'builder_gel', existingProduct: 'acrylic', removal: 'no' },
+  }), createCustomerConversation('synthetic-isla', 'synthetic-only'), {
+    message: 'What is BIAB?',
+    kinds: ['answer'],
+  });
+
+  expect(informational.failures).toEqual([]);
+
+  const refill = await evaluateReceptionistTurn(intent({
+    serviceId: 'svc_semantic_gelx_fill',
+    factUpdates: { ...patch, treatment: 'gel_x', desiredApplication: 'extensions', maintenance: 'refill', existingProduct: 'gel_x', origin: 'this_salon', removal: 'no' },
+  }), createCustomerConversation('synthetic-isla', 'synthetic-only'), {
+    message: 'Gel-X refill, no removal',
+    kinds: ['proposal'],
+    price: 6000,
+    duration: 90,
+  });
+
+  expect(refill.failures).toEqual([]);
 });
 
 it('never offers a different product removal when a transition fact is known but removal is unanswered', async () => {

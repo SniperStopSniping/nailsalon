@@ -14,6 +14,9 @@ const gelFrench = {
 describe('customer interpretation wire contract', () => {
   it('excludes the reproduced empty-time output at the provider boundary and still rejects it locally', () => {
     const failedDatePreference = { date: '2026-09-19', earliest: '', latest: '' };
+
+    expect(CUSTOMER_INTERPRETATION_JSON_SCHEMA.required).toContain('dateExplicitThisTurn');
+
     const properties = CUSTOMER_INTERPRETATION_JSON_SCHEMA.properties.datePreference.properties;
 
     expect(new RegExp(properties.date.pattern).test(failedDatePreference.date)).toBe(true);
@@ -23,7 +26,15 @@ describe('customer interpretation wire contract', () => {
   });
 
   it('accepts a service proposal without premature availability and preserves a complete later preference', () => {
-    expect(customerInterpretationSchema.parse({ ...gelFrench, datePreference: null }).datePreference).toBeNull();
+    const parsed = customerInterpretationSchema.parse({ ...gelFrench, datePreference: null });
+
+    expect(parsed.datePreference).toBeNull();
+    expect(parsed.dateExplicitThisTurn).toBe(false);
+    expect(parsed.availabilityAnchor).toBeNull();
+    expect(parsed.availabilityScope).toBe('next_available');
+    expect(CUSTOMER_INTERPRETATION_JSON_SCHEMA.required).toEqual(expect.arrayContaining(['availabilityAnchor', 'availabilityScope', 'timeDirection']));
+    expect(CUSTOMER_INTERPRETATION_JSON_SCHEMA.required).not.toContain('timingFeedback');
+    expect(CUSTOMER_INTERPRETATION_JSON_SCHEMA.properties).not.toHaveProperty('timingFeedback');
 
     const datePreference = { date: '2026-09-19', earliest: '12:00', latest: '17:00' };
     const properties = CUSTOMER_INTERPRETATION_JSON_SCHEMA.properties.datePreference.properties;

@@ -1,7 +1,7 @@
 import type { CustomerAssistantResult } from '../contracts';
 import type { Facts } from '../semanticFacts';
 
-export type ReceptionistEvalTurn = { message: string; facts?: Partial<Facts>; kinds: CustomerAssistantResult['kind'][]; reason?: string; price?: number; duration?: number; forbiddenQuestion?: string; date?: string; latestBefore?: string };
+export type ReceptionistEvalTurn = { message: string; facts?: Partial<Facts>; kinds: CustomerAssistantResult['kind'][]; reason?: string; price?: number; duration?: number; forbiddenQuestion?: string; date?: string; latestBefore?: string; availabilityFixture?: 'working_hours' };
 export const RECEPTIONIST_CASES: Array<{ id: string; turns: ReceptionistEvalTurn[] }> = [
   { id: 'outcome-to-selection-and-corrections', turns: [
     { message: 'I was thinking making my nails longer', facts: { desiredApplication: 'extensions' }, kinds: ['answer', 'clarification'] },

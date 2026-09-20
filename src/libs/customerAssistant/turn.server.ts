@@ -99,11 +99,13 @@ export async function runCustomerAssistantTurn(args: {
       requestedSelection: conversation.requestedSelection ?? null,
       menu,
       customerMessages: messages,
+      latestCustomerMessage: args.message,
       dialogue: conversation.dialogue ?? conversation.messages.map(content => ({ role: 'user', content })),
       conversationalSubjects: conversation.subjects ?? [],
       priorConversationalSubjects: conversation.priorSubjects ?? [],
       lastShown: conversation.context ?? null,
       bookingState: conversation.booking ?? null,
+      availabilitySearch: conversation.availabilitySearch ?? null,
       ...availabilityContext,
     });
     if (Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + data, 'utf8') > CUSTOMER_ASSISTANT_MAX_INPUT_BYTES) {
@@ -138,9 +140,9 @@ export async function runCustomerAssistantTurn(args: {
     }
     if (publicFacts) {
       let currentProposal;
-      if (result.kind === 'answer' && nextState.requestedSelection) {
+      if (result.kind === 'answer' && nextState.context?.selection) {
         try {
-          const checked = await buildCustomerProposal(args.salonId, args.features, nextState.requestedSelection);
+          const checked = await buildCustomerProposal(args.salonId, args.features, nextState.context.selection);
           if (!selectionConflictsWithExplicitFacts(menu, nextState.facts ?? emptyFacts(), { baseServiceId: checked.service.id, selectedAddOns: checked.addOns.map(item => ({ addOnId: item.id, quantity: item.quantity })) })) {
             currentProposal = checked;
           }
@@ -152,7 +154,10 @@ export async function runCustomerAssistantTurn(args: {
       const reply = buildReplyInput(replyArgs);
       const replySchema = createReplySchema(reply.facts);
       const fallback = fallbackReceptionistReply(replyArgs, reply.facts);
-      result = { ...result, message: fallback };
+      const guidanceOptions = result.kind === 'clarification' && result.question === 'service' ? result.options : null;
+      // Service-choice chips are optional guidance. Do not show an unrelated
+      // menu dump when composition falls back; typed replies remain available.
+      result = { ...result, message: fallback, ...(guidanceOptions ? { options: [] } : {}) };
       const remaining = 25_000 - (performance.now() - started);
       // Combined worst-case input bytes + both output caps stay below the
       // existing conservative $0.02 turn reservation (including schema overhead).
@@ -175,7 +180,10 @@ export async function runCustomerAssistantTurn(args: {
             throw new Error('CUSTOMER_REPLY_INVALID');
           }
           const rendered = parseReceptionistReply(composed.items.filter(item => item.type === 'message').map(item => item.text).join(''), reply.facts, menu, reply.requiredFactKeys);
-          result = { ...result, message: rendered.message, ...(result.kind === 'answer' ? { options: rendered.options } : {}) };
+          if (guidanceOptions && rendered.options.some(option => !guidanceOptions.includes(option))) {
+            throw new Error('CUSTOMER_REPLY_INCOMPATIBLE_GUIDANCE_OPTION');
+          }
+          result = { ...result, message: rendered.message, ...(result.kind === 'answer' || guidanceOptions ? { options: rendered.options } : {}) };
         } catch (error) {
           if (error instanceof ModelProviderError) {
             replyUsage = error.usage;
