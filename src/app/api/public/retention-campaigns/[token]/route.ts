@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { db } from '@/libs/DB';
+import { resolveNextVisitOfferPreview } from '@/libs/nextVisitOffer.server';
 import { getSalonBySlug } from '@/libs/queries';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
 import { hashRetentionCampaignToken } from '@/libs/retentionCampaigns';
@@ -60,6 +61,52 @@ export async function GET(
     .limit(1);
   if (!campaign) {
     return Response.json({ error: { code: 'CAMPAIGN_NOT_FOUND', message: 'Campaign not found.' } }, { status: 404 });
+  }
+
+  if (campaign.stage === 'next_visit') {
+    // Service selection has no authenticated contact, chosen service, or
+    // appointment date yet. The offer resolver still verifies the opaque
+    // capability, tenant, entitlement state and deadline. A no-service result
+    // is the expected available discovery state; final service/date/client
+    // eligibility is revalidated by the normal booking path.
+    const offer = await resolveNextVisitOfferPreview({
+      salonId: salon.id,
+      token: parsedParams.data.token,
+      services: [],
+    });
+    if (!offer) {
+      return Response.json({ error: { code: 'CAMPAIGN_NOT_FOUND', message: 'Campaign not found.' } }, { status: 404 });
+    }
+    if (offer.reason === 'ALREADY_USED') {
+      return Response.json({ error: { code: 'CAMPAIGN_REDEEMED', message: 'This Next Visit Offer has already been used.' } }, { status: 409 });
+    }
+    if (offer.reason === 'EXPIRED') {
+      return Response.json({ error: { code: 'CAMPAIGN_EXPIRED', message: 'This Next Visit Offer has expired.' } }, { status: 410 });
+    }
+    if (offer.status !== 'eligible' && offer.reason !== 'NO_ELIGIBLE_SERVICE') {
+      return Response.json({ error: { code: 'CAMPAIGN_EXPIRED', message: 'This Next Visit Offer is no longer available.' } }, { status: 410 });
+    }
+
+    return Response.json({
+      data: {
+        campaign: {
+          id: campaign.id,
+          stage: 'next_visit',
+          salonSlug: salon.slug,
+          expiresAt: campaign.expiresAt.toISOString(),
+          deadlineDate: offer.deadlineDate,
+          displayOffer: formatOffer(offer.promotion.discountType, offer.promotion.value),
+          promotion: {
+            name: offer.label,
+            discountType: offer.promotion.discountType,
+            value: offer.promotion.value,
+            eligibleServiceIds: offer.promotion.eligibleServiceIds,
+            code: null,
+            singleUse: true,
+          },
+        },
+      },
+    });
   }
 
   if (!campaign.promotionSnapshot.enabled || campaign.expiresAt <= new Date()) {

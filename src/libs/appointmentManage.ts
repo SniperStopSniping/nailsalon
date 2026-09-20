@@ -21,8 +21,10 @@ import {
   resolveTechnicianCapabilityMode,
 } from '@/libs/bookingPolicy';
 import { db } from '@/libs/DB';
+import { resolveDepositCredit } from '@/libs/depositCredit';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
+import { recordNextVisitEvent, resolveReservedNextVisitDiscount } from '@/libs/nextVisitOffer.server';
 import { getLocationById, getTechnicianById, getTechniciansBySalonId } from '@/libs/queries';
 import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import {
@@ -287,6 +289,7 @@ export type AppointmentManageSourceEventFence = {
 };
 
 type MoveArgs = {
+  acceptedNextVisitTotalCents?: number;
   loaded: LoadedManagedAppointment;
   startTime: Date;
   durationMinutes?: number;
@@ -297,6 +300,7 @@ type MoveArgs = {
 };
 
 type ChangeServiceArgs = {
+  acceptedNextVisitTotalCents?: number;
   loaded: LoadedManagedAppointment;
   baseServiceId: string;
   startTime?: Date;
@@ -1352,6 +1356,41 @@ export async function getAppointmentManageDetail(args: {
   };
 }
 
+async function nextVisitManagedPricing(tx: ManageTransaction, args: {
+  loaded: LoadedManagedAppointment;
+  startTime: Date;
+  services: Array<{ id: string; priceCents: number }>;
+  subtotalCents: number;
+  acceptedNextVisitTotalCents?: number;
+}) {
+  const held = await resolveReservedNextVisitDiscount(tx, { appointment: args.loaded.appointment, startTime: args.startTime, services: args.services });
+  if (!held) {
+    return null;
+  }
+  const totalPrice = Math.max(0, args.subtotalCents - held.discountAmountCents);
+  if (totalPrice !== args.loaded.appointment.totalPrice) {
+    // Never silently alter money already attached to an invoice. Existing
+    // payment/deposit workflows must resolve it before a lower price is accepted.
+    const deposits = await loadAppointmentDepositCreditRows({ database: tx, salonId: args.loaded.appointment.salonId, appointmentId: args.loaded.appointment.id });
+    const payments = await listPayments(tx, args.loaded.appointment.id);
+    const depositCredit = resolveDepositCredit({ deposits, invoiceCurrency: args.loaded.appointment.invoiceCurrency ?? '' });
+    const paymentLedger = resolveAppointmentPaymentLedger({ cachedAmountPaidCents: args.loaded.appointment.amountPaidCents, paymentRows: payments, expectedSalonId: args.loaded.appointment.salonId, appointmentStatus: args.loaded.appointment.status, paymentStatus: args.loaded.appointment.paymentStatus });
+    if (!depositCredit.ok || depositCredit.eligibleCreditCents > 0 || !paymentLedger.ok || paymentLedger.appointmentPaymentsCents === null || paymentLedger.appointmentPaymentsCents > 0) {
+      throw new AppointmentManageError('NEXT_VISIT_PAYMENT_REVIEW', 'This offer changes the price of a visit with an active payment or deposit balance. Reconcile or refund that balance before changing the offer.', 409);
+    }
+    if (args.acceptedNextVisitTotalCents !== totalPrice) {
+      throw new AppointmentManageError('NEXT_VISIT_PRICE_CHANGED', 'The new date or service changes the Next Visit Offer. Review and accept the updated service total.', 409, {
+        totalPriceCents: totalPrice,
+        discountAmountCents: held.discountAmountCents,
+        currency: args.loaded.appointment.invoiceCurrency,
+        deadlineDate: held.deadlineDate,
+      });
+    }
+    await recordNextVisitEvent(tx, { id: held.offerId, salonId: args.loaded.appointment.salonId }, args.loaded.appointment.id, 'repriced', held.discountAmountCents);
+  }
+  return { totalPrice, subtotalBeforeDiscountCents: args.subtotalCents, discountAmountCents: held.discountAmountCents, discountType: 'next_visit', discountLabel: held.discountAmountCents > 0 ? 'Next Visit Offer' : 'Next Visit Offer — not eligible for this date or service', discountPercent: args.loaded.appointment.discountPercent, discountAppliedAt: args.loaded.appointment.discountAppliedAt };
+}
+
 async function applyMove(
   args: MoveArgs,
   tx: ManageTransaction,
@@ -1377,14 +1416,23 @@ async function applyMove(
     database: tx,
   });
 
+  const nextVisitPrice = await nextVisitManagedPricing(tx, {
+    loaded: args.loaded,
+    startTime: validated.startTime,
+    services: args.loaded.appointmentServices.map(({ row }) => ({ id: row.serviceId, priceCents: row.priceCentsSnapshot ?? row.priceAtBooking })),
+    subtotalCents: getCurrentSubtotalCents(args.loaded),
+    acceptedNextVisitTotalCents: args.acceptedNextVisitTotalCents,
+  });
   const updatedAt = nextUpdatedAt(args.loaded.appointment);
   const rescheduleTaxSnapshot = buildManagedRescheduleTaxSnapshot({
     loaded: args.loaded,
     capturedAt: updatedAt,
+    ...(nextVisitPrice ? { discountCents: nextVisitPrice.discountAmountCents, totalPriceCents: nextVisitPrice.totalPrice } : {}),
   });
   const [appointment] = await tx
     .update(appointmentSchema)
     .set({
+      ...(nextVisitPrice ?? {}),
       technicianId: validated.technician?.id ?? args.loaded.appointment.technicianId,
       startTime: validated.startTime,
       endTime: validated.endTime,
@@ -1553,10 +1601,13 @@ async function applyChangeService(
   const totalDurationMinutes = newBaseDurationMinutes + preservedAddOnDurationMinutes;
   const bufferMinutes = args.loaded.appointment.bufferMinutes ?? args.loaded.bufferMinutes;
   const newSubtotalCents = newBasePriceCents + preservedAddOnPriceCents;
-  const discount = computePreservedDiscount({
+  const discount = await nextVisitManagedPricing(tx, {
     loaded: args.loaded,
-    newSubtotalCents,
-  });
+    startTime: roundDownToSlot(args.startTime ?? args.loaded.appointment.startTime, args.loaded.slotIntervalMinutes),
+    services: [{ id: newService.id, priceCents: newBasePriceCents }],
+    subtotalCents: newSubtotalCents,
+    acceptedNextVisitTotalCents: args.acceptedNextVisitTotalCents,
+  }) ?? computePreservedDiscount({ loaded: args.loaded, newSubtotalCents });
   const updatedAt = nextUpdatedAt(args.loaded.appointment);
   const rescheduleTaxSnapshot = buildManagedRescheduleTaxSnapshot({
     loaded: args.loaded,
@@ -1697,6 +1748,7 @@ function mutateChangeService(args: ChangeServiceArgs): Promise<MutationResult> {
 }
 
 export async function runAppointmentManageMutation(args: {
+  acceptedNextVisitTotalCents?: number;
   appointmentId: string;
   salonId: string;
   operation: ManageAction;
@@ -1724,6 +1776,7 @@ export async function runAppointmentManageMutation(args: {
         throw new AppointmentManageError('START_TIME_REQUIRED', 'A new start time is required.', 400);
       }
       result = await mutateMove({
+        acceptedNextVisitTotalCents: args.acceptedNextVisitTotalCents,
         loaded,
         startTime: args.startTime,
         durationMinutes: args.durationMinutes,
@@ -1745,6 +1798,7 @@ export async function runAppointmentManageMutation(args: {
         throw new AppointmentManageError('BASE_SERVICE_REQUIRED', 'A service is required.', 400);
       }
       result = await mutateChangeService({
+        acceptedNextVisitTotalCents: args.acceptedNextVisitTotalCents,
         loaded,
         baseServiceId: args.baseServiceId,
         startTime: args.startTime,

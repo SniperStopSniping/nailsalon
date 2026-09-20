@@ -248,6 +248,8 @@ export function AppointmentsModal({
         actionError={actions.detailError}
         attemptedTimeLabel={actions.attemptedTimeLabel}
         warnings={actions.warnings}
+        nextVisitPriceReview={actions.nextVisitPriceReview}
+        onClearNextVisitPriceReview={actions.clearNextVisitPriceReview}
         onSaveEdits={actions.saveEdits}
         onMoveToNextAvailable={actions.moveToNextAvailable}
         onCancelAppointment={args => actions.cancelAppointment(args as CancelArgs)}
@@ -263,15 +265,15 @@ export function AppointmentsModal({
         adminDepositPanelSlot={actions.selectedAppointmentId
           ? <DepositPanel appointmentId={actions.selectedAppointmentId} salonSlug={salonSlug} />
           : null}
-        onRebook={() => {
-          const prefill = actions.buildRebookPrefill();
+        onRebook={() => void (async () => {
+          const prefill = await actions.buildRebookPrefillWithNextVisitOffer();
           if (!prefill) {
             return;
           }
           setRebookPrefill(prefill);
           actions.closeAppointment();
           setShowNewAppointmentModal(true);
-        }}
+        })()}
       />
 
       <CheckoutSheet
@@ -281,8 +283,8 @@ export function AppointmentsModal({
         initialView={actions.checkoutInitialView}
         onClose={actions.closeCheckout}
         onCompleted={() => actions.handleCheckoutCompleted()}
-        onRebook={() => {
-          const prefill = actions.buildRebookPrefill();
+        onRebook={() => void (async () => {
+          const prefill = await actions.buildRebookPrefillWithNextVisitOffer();
           if (!prefill) {
             return;
           }
@@ -290,7 +292,7 @@ export function AppointmentsModal({
           actions.closeCheckout();
           actions.closeAppointment();
           setShowNewAppointmentModal(true);
-        }}
+        })()}
       />
 
       <NewAppointmentModal

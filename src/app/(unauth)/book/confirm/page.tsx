@@ -34,7 +34,7 @@ import { buildTaxConfigurationSnapshot, resolveTaxConfig } from '@/libs/taxConfi
 import { getPublicPageContext } from '@/libs/tenant';
 import { getDateKeyInTimeZone, getTimeKeyInTimeZone } from '@/libs/timeZone';
 import type { SalonOwnerPreviewState } from '@/providers/SalonProvider';
-import type { SalonSettings } from '@/types/salonPolicy';
+import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
@@ -354,22 +354,57 @@ export default async function BookConfirmPage(
   }));
   const campaignResolution = await resolvePublicRetentionCampaignPreview({
     token: searchParams.campaign ?? null,
+    startTime: canonicalStartTime,
     salonId: salon.id,
     services: resolvedTechnicianContext.resolvedSelection.services.map(service => ({
       id: service.id,
       priceCents: service.priceCents,
     })),
   });
-  const campaignPreview = campaignResolution.status === 'valid'
+  let campaignPreview = campaignResolution.status === 'valid'
     ? campaignResolution.preview
     : null;
+  // A next-visit capability supplies identity ONLY to server-side pricing.
+  // Contact details never reach the page or model. Confirm still checks the guest identity.
+  const nextVisitIdentity = searchParams.campaign && baseServiceId && canonicalStartTime
+    ? await (await import('@/libs/nextVisitOffer.server')).getNextVisitOfferQuoteIdentity(salon.id, searchParams.campaign)
+    : null;
+  const smsDefault = (salon.settings as SalonSettings | null)?.communications?.sms?.bookingDefault ?? 'default_on';
+  const nextVisitQuote = nextVisitIdentity && baseServiceId && canonicalStartTime
+    ? await (await import('@/libs/customerAssistant/prepareQuote.server')).prepareCustomerBookingQuote({
+      salon,
+      features: salon.features as SalonFeatures | null,
+      selection: { baseServiceId, selectedAddOns: selectedAddOns.map(item => ({ addOnId: item.addOnId, quantity: item.quantity ?? 1 })) },
+      preference: { date: dateStr, earliest: '00:00', latest: '23:59' },
+      startTime: canonicalStartTime,
+      technicianId: techId && techId !== 'any' ? techId : undefined,
+      locationId: locationId || undefined,
+      contact: { name: 'Guest', email: 'quote@example.invalid', phone: nextVisitIdentity.phone },
+      smsConsent: smsDefault === 'disabled' ? undefined : { granted: smsDefault === 'default_on', wordingVersion: 'booking-sms-reminders-v1', selection: smsDefault },
+      campaignToken: searchParams.campaign,
+    })
+    : null;
+  if (campaignPreview?.stage === 'next_visit' && !nextVisitQuote?.nextVisitOffer) {
+    campaignPreview = null;
+  }
+  const nextVisitReschedule = originalAppointmentId && searchParams.manageToken && canonicalStartTime
+    ? await (await import('@/libs/nextVisitOffer.server')).getNextVisitReschedulePreview({ salonId: salon.id, appointmentId: originalAppointmentId, manageToken: searchParams.manageToken, startTime: new Date(canonicalStartTime), services: resolvedTechnicianContext.resolvedSelection.services.map(service => ({ id: service.id, priceCents: service.priceCents })) })
+    : null;
   const subtotalBeforeDiscountCents = resolvedTechnicianContext.resolvedSelection.subtotalBeforeDiscountCents;
-  const discountAmountCents = campaignPreview
-    ? campaignPreview.discountAmountCents
-    : resolvedTechnicianContext.resolvedSelection.discountAmountCents;
-  const totalPriceCents = campaignPreview
-    ? Math.max(0, subtotalBeforeDiscountCents - campaignPreview.discountAmountCents)
-    : resolvedTechnicianContext.resolvedSelection.totalPriceCents;
+  const discountAmountCents = nextVisitReschedule
+    ? nextVisitReschedule.discountAmountCents
+    : nextVisitQuote
+      ? nextVisitQuote.review.financial.discountAmountCents
+      : campaignPreview
+        ? campaignPreview.discountAmountCents
+        : resolvedTechnicianContext.resolvedSelection.discountAmountCents;
+  const totalPriceCents = nextVisitReschedule
+    ? Math.max(0, subtotalBeforeDiscountCents - nextVisitReschedule.discountAmountCents)
+    : nextVisitQuote
+      ? nextVisitQuote.expectedTotalCents
+      : campaignPreview
+        ? Math.max(0, subtotalBeforeDiscountCents - campaignPreview.discountAmountCents)
+        : resolvedTechnicianContext.resolvedSelection.totalPriceCents;
   // Deposits (D3) — wired but DARK behind two independent gates. While either is
   // off the three props below are constants and every public page renders
   // identically to base.
@@ -439,13 +474,18 @@ export default async function BookConfirmPage(
           catalogAcknowledgment={resolvedTechnicianContext.resolvedSelection.catalogAcknowledgment}
           subtotalBeforeDiscount={subtotalBeforeDiscountCents / 100}
           discountAmount={discountAmountCents / 100}
-          firstVisitDiscountPreview={campaignPreview
+          firstVisitDiscountPreview={campaignPreview || nextVisitQuote || nextVisitReschedule
             ? null
             : resolvedTechnicianContext.resolvedSelection.firstVisitDiscountPreview}
           campaignPromotionPreview={campaignPreview}
-          campaignMessage={campaignResolution.status === 'invalid'
-            ? campaignResolution.message
-            : null}
+          nextVisitQuoteExpectation={nextVisitReschedule ? { totalCents: totalPriceCents, discountType: 'next_visit', discountLabel: 'Next Visit Offer' } : nextVisitQuote ? { totalCents: nextVisitQuote.expectedTotalCents, discountType: nextVisitQuote.expectedDiscountType, discountLabel: nextVisitQuote.review.financial.discountLabel } : null}
+          campaignMessage={nextVisitReschedule
+            ? `Next Visit Offer: your appointment must take place by ${nextVisitReschedule.deadlineDate}. ${nextVisitReschedule.discountAmountCents > 0 ? 'The offer is included in this price.' : 'This date or service is not eligible; the offer is not included in this price.'}`
+            : nextVisitQuote && !nextVisitQuote.nextVisitOffer && discountAmountCents > 0
+              ? `${nextVisitQuote.review.financial.discountLabel ?? 'Your eligible offer'} is included instead. Only one promotional discount applies; your Next Visit Offer is not used.`
+              : campaignResolution.status === 'invalid'
+                ? campaignResolution.message
+                : null}
           totalPrice={totalPriceCents / 100}
           currency={bookingConfig.currency.toUpperCase()}
           taxConfig={bookingTaxConfig}
@@ -486,7 +526,7 @@ export default async function BookConfirmPage(
           salonConfirmsManually={bookingConfig.confirmationMode === 'request_approval' || (!depositCharge.required && resolvedTechnicianContext.resolvedSelection.l1ConfirmationMode === 'request_approval')}
         />
         {!ownerPreviewState.isPreviewing && isCustomerAssistantEnabledForSalon(salon.slug) && (
-          <CustomerAssistantLauncher salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} />
+          <CustomerAssistantLauncher salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} campaignToken={searchParams.campaign ?? null} />
         )}
       </Suspense>
     </PublicSalonPageShell>

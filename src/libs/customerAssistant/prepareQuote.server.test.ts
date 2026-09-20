@@ -11,11 +11,13 @@ const mocks = vi.hoisted(() => ({
   locationById: vi.fn(),
   technician: vi.fn(),
   deposit: vi.fn(),
+  nextVisitOffer: vi.fn(),
 }));
 vi.mock('@/libs/publicBookingAvailability.server', () => ({ getAnonymousCustomerBookingAvailability: mocks.availability }));
 vi.mock('@/libs/publicBookingSelection', () => ({ resolvePublicBookingSelection: mocks.selection }));
 vi.mock('@/libs/queries', () => ({ getPrimaryLocation: mocks.location, getLocationById: mocks.locationById, getTechnicianById: mocks.technician }));
 vi.mock('@/libs/depositPolicy.server', () => ({ getDepositPolicyForSalon: mocks.deposit }));
+vi.mock('@/libs/nextVisitOffer.server', () => ({ resolveNextVisitOfferPreview: mocks.nextVisitOffer }));
 
 const startTime = '2030-01-02T15:00:00.000Z';
 const contact = { name: 'Ava', email: 'ava@example.com', phone: '4165551212' };
@@ -44,6 +46,7 @@ beforeEach(() => {
   mocks.technician.mockResolvedValue({ id: 'tech-1', name: 'Ava', isActive: true });
   mocks.location.mockResolvedValue({ name: 'Salon', address: '1 Main', city: 'Toronto', state: 'ON', zipCode: 'M1M1M1' });
   mocks.deposit.mockResolvedValue({ active: true, amountCents: 2500, currency: 'cad' });
+  mocks.nextVisitOffer.mockResolvedValue(null);
   mocks.selection.mockResolvedValue({
     services: [{ id: 'svc', name: 'Gel', priceCents: 5000 }],
     addOns: [{ id: 'addon', name: 'Art', quantity: 2, lineTotalCents: 2000 }],
@@ -225,6 +228,80 @@ describe('prepareCustomerBookingQuote', () => {
     expect(JSON.stringify(material)).not.toContain(contact.phone);
     expect(JSON.stringify(material)).not.toContain('ELIGIBLE');
     expect(JSON.stringify(material)).not.toContain('remainingGapMinutes');
+  });
+
+  it.each([{ nextAmount: 500, expected: 700, type: 'smart_fit' }, { nextAmount: 900, expected: 900, type: 'next_visit' }])('uses one discount when Smart Fit competes with Next Visit ($nextAmount)', async ({ nextAmount, expected, type }) => {
+    mocks.nextVisitOffer.mockResolvedValue({ reference: { campaignId: 'campaign', entitlementId: 'offer' }, status: 'eligible', discountAmountCents: nextAmount, label: 'Next Visit Offer' });
+    mocks.availability.mockImplementation(async (args: { onSmartFitEvaluation: (value: unknown) => void }) => {
+      args.onSmartFitEvaluation({ startTime, evaluation: { eligible: true, reason: 'ELIGIBLE', sides: {}, qualifyingSides: [], remainingGapMinutes: 0, improvementMinutes: 60, consolidatedMinutes: 60, effectiveMaxGapMinutes: 15 } });
+      return new Response(JSON.stringify({ slots: [{ availability: 'available', startTime, time: '10:00' }] }));
+    });
+    const result = await prepareCustomerBookingQuote(input({ campaignToken: 'a'.repeat(32), salon: { ...salon, settings: { ...salon.settings, smartFit: { enabled: true, discountType: 'percent', value: 10 } } } }));
+
+    expect(result?.review.financial.discountAmountCents).toBe(expected);
+    expect(result?.expectedTotalCents).toBe(7000 - expected);
+    expect(result?.expectedDiscountType).toBe(type);
+    expect(Boolean(result?.nextVisitOffer)).toBe(type === 'next_visit');
+  });
+
+  it('does not stack Next Visit over an existing larger first-visit result', async () => {
+    mocks.nextVisitOffer.mockResolvedValue({ reference: { campaignId: 'campaign', entitlementId: 'offer' }, status: 'eligible', discountAmountCents: 500, label: 'Next Visit Offer' });
+    const base = await mocks.selection();
+    mocks.selection.mockResolvedValue({ ...base, automaticDiscount: { kind: 'first_visit', subtotalBeforeDiscountCents: 7000, discountAmountCents: 700, finalTotalCents: 6300, reward: null, firstVisit: { discountType: 'first_visit', discountLabel: 'First visit', discountPercent: 10, discountAppliedAt: new Date() } } });
+    const result = await prepareCustomerBookingQuote(input({ campaignToken: 'a'.repeat(32) }));
+
+    expect(result?.expectedTotalCents).toBe(6300);
+    expect(result?.expectedDiscountType).toBe('first_visit');
+    expect(result).not.toHaveProperty('nextVisitOffer');
+  });
+
+  it('uses a larger eligible next-visit offer for tax, deposit, review, and durable material without retaining its bearer token', async () => {
+    mocks.nextVisitOffer.mockResolvedValue({
+      reference: { campaignId: 'campaign-1', entitlementId: 'offer-1' },
+      status: 'eligible',
+      discountAmountCents: 500,
+      label: 'Next Visit Offer',
+    });
+    const material = await prepareCustomerBookingQuote(input({ campaignToken: 'a'.repeat(32) }));
+
+    expect(material).toMatchObject({
+      expectedTotalCents: 6500,
+      expectedDiscountType: 'next_visit',
+      nextVisitOffer: { campaignId: 'campaign-1', entitlementId: 'offer-1' },
+      review: { financial: { discountAmountCents: 500, discountLabel: 'Next Visit Offer', taxAmountCents: 845, totalDueCents: 7345 } },
+    });
+    expect(material?.expectedDepositFingerprint).toBe('deposit-v1:cad:2500');
+    expect(JSON.stringify(material)).not.toContain('a'.repeat(32));
+  });
+
+  it('preserves an equal or larger existing automatic discount and does not retain the offer reference', async () => {
+    mocks.nextVisitOffer.mockResolvedValue({
+      reference: { campaignId: 'campaign-1', entitlementId: 'offer-1' },
+      status: 'eligible',
+      discountAmountCents: 700,
+      label: 'Next Visit Offer',
+    });
+    mocks.selection.mockResolvedValue({
+      services: [{ id: 'svc', name: 'Gel', priceCents: 5000 }],
+      addOns: [{ id: 'addon', name: 'Art', quantity: 2, lineTotalCents: 2000 }],
+      subtotalBeforeDiscountCents: 7000,
+      visibleDurationMinutes: 75,
+      automaticDiscount: {
+        kind: 'reward',
+        subtotalBeforeDiscountCents: 7000,
+        discountAmountCents: 700,
+        finalTotalCents: 6300,
+        reward: { id: 'reward-1', discountAmountCents: 700, discountedServiceId: 'svc' },
+        firstVisit: null,
+      },
+    });
+    const material = await prepareCustomerBookingQuote(input({
+      campaignToken: 'a'.repeat(32),
+    }));
+
+    expect(material).toMatchObject({ expectedTotalCents: 6300 });
+    expect(material).not.toHaveProperty('nextVisitOffer');
+    expect(material?.expectedDiscountType).toBe('reward');
   });
 
   it('redacts a private primary location and the salon-address fallback identically', async () => {

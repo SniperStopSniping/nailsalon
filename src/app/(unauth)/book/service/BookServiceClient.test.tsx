@@ -1582,6 +1582,29 @@ describe('BookServiceClient', () => {
     expect(screen.queryByText('25% off for new clients — until April 30')).not.toBeInTheDocument();
   });
 
+  it('uses the Next Visit Offer label returned by the authoritative campaign surface', async () => {
+    const token = 'next_visit_token_123456789012345678901234';
+    navigationMock.searchParams = new URLSearchParams(`salonSlug=salon-a&campaign=${token}`);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: {
+        campaign: {
+          stage: 'next_visit',
+          deadlineDate: '2031-03-31',
+          displayOffer: '5% off',
+          promotion: { name: 'Next Visit Offer', code: null },
+        },
+      },
+    }), { status: 200 }));
+
+    render(<BookServiceClient services={[services[0]!]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('booking-step-header-announcement')).toHaveTextContent('Next Visit Offer · 5% off');
+    });
+
+    expect(screen.queryByText('Welcome back')).not.toBeInTheDocument();
+  });
+
   it('waits for booking-state hydration before accepting a service selection', () => {
     bookingStateMock.values.isHydrated = false;
 

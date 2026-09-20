@@ -30,6 +30,7 @@ import {
   enqueueGoogleCalendarAppointmentMutation,
   enqueueGoogleCalendarDeleteInTx,
 } from '@/libs/integrationOutbox';
+import { nextVisitMutationFailure } from '@/libs/nextVisitOffer';
 import {
   getAppointmentServiceNames,
   getSalonById,
@@ -1319,6 +1320,10 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       meta: { timestamp: new Date().toISOString() },
     });
   } catch (error) {
+    const nextVisitFailure = nextVisitMutationFailure(error);
+    if (nextVisitFailure) {
+      return Response.json({ error: nextVisitFailure }, { status: 409 });
+    }
     if (error instanceof DepositForfeitureBlockedError) {
       return depositForfeitureBlockedResponse(error);
     }

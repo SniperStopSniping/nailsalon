@@ -41,6 +41,7 @@ import {
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
+import { issueNextVisitOfferOnCompletion, NextVisitOfferError, resolveReservedNextVisitDiscount } from '@/libs/nextVisitOffer.server';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
 import {
   getAppointmentById,
@@ -741,6 +742,23 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
         .toUpperCase();
       const taxConfig = resolveTaxConfig(salonSettings, now);
       const finalItems = await resolveFinalItems(tx, lockedAppointment, payload, taxConfig);
+      const nextVisitPricing = await resolveReservedNextVisitDiscount(tx, {
+        appointment: lockedAppointment,
+        startTime: lockedAppointment.startTime,
+        services: (finalItems ?? []).filter(item => item.kind === 'service' && item.catalogServiceId)
+          .map(item => ({ id: item.catalogServiceId!, priceCents: item.lineTotalCents })),
+      });
+      if (nextVisitPricing && pricedFromItems && (payload.discountCents ?? 0) !== nextVisitPricing.discountAmountCents && (!payload.discountReason?.trim() || payload.discountReason.trim() === lockedAppointment.discountLabel || payload.discountReason.trim() === 'Next Visit Offer')) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json({ error: {
+            code: 'NEXT_VISIT_DISCOUNT_CHANGED',
+            message: `The Next Visit Offer for these services is ${(nextVisitPricing.discountAmountCents / 100).toFixed(2)}. Use that discount, or enter a reason to replace it with a manual discount. Discounts are not added together.`,
+            details: { discountCents: nextVisitPricing.discountAmountCents },
+          } }, { status: 409 }),
+        };
+      }
       const legacyFinalPrice = payload.finalPriceCents ?? lockedAppointment.totalPrice;
       let totals: ReturnType<typeof computeCheckoutTotals>;
       try {
@@ -1128,6 +1146,10 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       }
 
       const completedAppointment = updateResult[0]!;
+      // Only a real catalog service visit qualifies; custom/add-on-only invoices do not.
+      if (finalItems?.some(item => item.kind === 'service' && item.catalogServiceId && item.lineTotalCents > 0)) {
+        await issueNextVisitOfferOnCompletion(tx, completedAppointment);
+      }
 
       // Final items: replace wholesale (re-completion after reopen). The
       // booked appointment_services/appointment_add_on rows are never touched.
@@ -1337,6 +1359,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       result.depositCredit,
     );
   } catch (error) {
+    if (error instanceof NextVisitOfferError || postgresErrorCode(error) === '55P03') {
+      return Response.json({ error: { code: 'APPOINTMENT_CHANGED', message: 'This appointment or client is being updated. Refresh the appointment and review the totals before trying again.' } }, { status: 409 });
+    }
     if (error instanceof CompletionCatalogReferenceError) {
       return Response.json({ error: { code: 'VALIDATION_ERROR', message: error.message, details: { issues: error.issues } } }, { status: 400 });
     }

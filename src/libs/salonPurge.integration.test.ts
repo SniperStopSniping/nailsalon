@@ -131,6 +131,20 @@ async function seedSalon(salonId: string, suffix: string, dayOffset: number): Pr
     totalPrice: 60,
     totalDurationMinutes: 60,
   });
+  await db.insert(schema.nextVisitOfferSchema).values({
+    id: id('next_offer'),
+    salonId,
+    salonClientId: id('sclient'),
+    sourceAppointmentId: id('appt'),
+    qualifiedAt: end,
+    timeZone: 'America/Toronto',
+    deadlineDate: '2026-08-31',
+    expiresAt: new Date('2026-09-01T04:00:00Z'),
+    currency: 'CAD',
+    settingsSnapshot: { enabled: true, windowDays: 30, discountType: 'percent', value: 5, eligibleServiceIds: [], messageTemplate: '' },
+  });
+  await db.insert(schema.nextVisitOfferEventSchema).values({ id: id('next_event'), salonId, offerId: id('next_offer'), appointmentId: id('appt'), kind: 'issued' });
+  await db.insert(schema.retentionCampaignSchema).values({ id: id('next_campaign'), salonId, salonClientId: id('sclient'), tokenHash: id('next_hash'), stage: 'next_visit', nextVisitOfferId: id('next_offer'), promotionSnapshot: { enabled: true, name: 'Next Visit Offer', discountType: 'percent', value: 5, eligibleServiceIds: [], code: null, messageTemplate: '', expiryDays: 30, singleUse: true }, expiresAt: new Date('2026-09-01T04:00:00Z') });
   // Every plan table must be populated, but the default fixture must remain
   // safely purgeable. Individual tests promote this expired row into the
   // money-bearing states covered by the D6 preflight.
@@ -611,6 +625,33 @@ describe('purgeSalonData', () => {
     expect(isUnsettledForPurge).not.toBe(isUnsettledForReschedule);
     expect(purgeMatch?.id).toBe('deposit_target');
     expect(rescheduleMatch).toBeUndefined();
+  });
+});
+
+describe('Next Visit purge dependencies', () => {
+  it('resets appointments without deleting unrelated win-back links or another salon offers', async () => {
+    await db.insert(schema.retentionCampaignSchema).values({ id: 'winback-preserved', salonId: SALON, salonClientId: 'sclient_target', tokenHash: 'winback-preserved-hash', stage: 'promo_6w', promotionSnapshot: { enabled: true, name: 'Welcome back', discountType: 'percent', value: 5, eligibleServiceIds: [], code: null, messageTemplate: '', expiryDays: 30, singleUse: true }, expiresAt: new Date('2026-09-01T04:00:00Z') });
+    const otherBefore = await snapshot(OTHER_SALON);
+    const result = await db.transaction(tx => purgeSalonGroups(tx as unknown as PurgeTx, SALON, ['appointments']));
+
+    expect(result.counts.next_visit_offer).toBe(1);
+    expect(result.counts.next_visit_offer_event).toBe(1);
+    expect(result.counts.retention_campaign).toBe(1);
+    expect(await db.select().from(schema.retentionCampaignSchema).where(eq(schema.retentionCampaignSchema.id, 'winback-preserved'))).toHaveLength(1);
+    expect(await snapshot(OTHER_SALON)).toEqual(otherBefore);
+  });
+
+  it('clears offer dependencies for client-record-only reset while retaining appointments', async () => {
+    // This API already requires unrelated review dependencies to be resolved.
+    await db.delete(schema.reviewSchema).where(eq(schema.reviewSchema.salonId, SALON));
+    await db.delete(schema.fraudSignalSchema).where(eq(schema.fraudSignalSchema.salonId, SALON));
+    await db.delete(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, SALON));
+    await db.delete(schema.reviewRequestTriggerSchema).where(eq(schema.reviewRequestTriggerSchema.salonId, SALON));
+    await db.transaction(tx => purgeSalonGroups(tx as unknown as PurgeTx, SALON, ['client_records']));
+
+    expect(await db.select().from(schema.nextVisitOfferSchema).where(eq(schema.nextVisitOfferSchema.salonId, SALON))).toHaveLength(0);
+    expect(await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+    expect(await db.select().from(schema.nextVisitOfferSchema).where(eq(schema.nextVisitOfferSchema.salonId, OTHER_SALON))).toHaveLength(1);
   });
 });
 

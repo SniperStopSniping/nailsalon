@@ -338,6 +338,8 @@ beforeEach(async () => {
   vi.clearAllMocks();
   await db.delete(schema.googleCalendarEventSchema);
   await db.delete(schema.appointmentDepositSchema);
+  await db.delete(schema.nextVisitOfferEventSchema);
+  await db.delete(schema.nextVisitOfferSchema);
   await db.delete(schema.appointmentSchema);
   await db.update(schema.salonSchema)
     .set({ settings: DEFAULT_SALON_SETTINGS })
@@ -1195,5 +1197,55 @@ describe('§5.8 — a deposit hold is not manageable', () => {
 
     expect(detail.permissions.canMove).toBe(true);
     expect(detail.permissions.canCancel).toBe(true);
+  });
+});
+
+describe('Next Visit managed repricing', () => {
+  async function heldOffer() {
+    await db.insert(schema.salonClientSchema).values({ id: 'manage-offer-client', salonId: SALON_ID, fullName: 'Synthetic', phone: '4165550177' }).onConflictDoNothing();
+    const qualifiedAt = new Date('2026-12-20T18:00:00Z');
+    await db.insert(schema.appointmentSchema).values({ id: 'manage-offer-source', salonId: SALON_ID, salonClientId: 'manage-offer-client', clientName: 'Synthetic', clientPhone: '4165550177', startTime: new Date('2026-12-20T17:00:00Z'), endTime: qualifiedAt, completedAt: qualifiedAt, status: 'completed', totalPrice: 4500, totalDurationMinutes: 60 });
+    await db.update(schema.appointmentSchema).set({ totalPrice: 5275, discountAmountCents: 225, discountType: 'next_visit', discountLabel: 'Next Visit Offer', invoiceCurrency: 'CAD', paymentStatus: 'pending', amountPaidCents: 0, bookingTaxSnapshot: addedTaxBookingSnapshot() }).where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    await db.insert(schema.nextVisitOfferSchema).values({ id: 'manage-offer', salonId: SALON_ID, salonClientId: 'manage-offer-client', sourceAppointmentId: 'manage-offer-source', qualifiedAt, timeZone: 'America/Toronto', deadlineDate: '2027-01-19', expiresAt: new Date('2027-01-20T05:00:00Z'), currency: 'CAD', settingsSnapshot: { enabled: true, windowDays: 30, discountType: 'percent', value: 5, eligibleServiceIds: [SERVICE_ID], messageTemplate: '' }, state: 'reserved', reservedAppointmentId: APPOINTMENT_ID });
+  }
+
+  it('requires explicit new price outside the deadline, then restores the same offer on moving back', async () => {
+    await heldOffer();
+    const outside = new Date('2027-01-21T14:00:00Z');
+    await expectManageError(mutate({ startTime: outside }), 'NEXT_VISIT_PRICE_CHANGED');
+
+    expect((await appointment()).totalPrice).toBe(5275);
+
+    await mutate({ startTime: outside, acceptedNextVisitTotalCents: 5500 });
+
+    expect((await appointment()).discountAmountCents).toBe(0);
+
+    await expectManageError(mutate({ startTime: INITIAL_START }), 'NEXT_VISIT_PRICE_CHANGED');
+    await mutate({ startTime: INITIAL_START, acceptedNextVisitTotalCents: 5275 });
+
+    expect((await appointment()).discountAmountCents).toBe(225);
+
+    const [offer] = await db.select().from(schema.nextVisitOfferSchema);
+
+    expect(offer).toMatchObject({ state: 'reserved', reservedAppointmentId: APPOINTMENT_ID });
+  });
+
+  it('does not let stale price acknowledgement accept a different service total', async () => {
+    await heldOffer();
+    await expectManageError(mutate({ operation: 'changeService', baseServiceId: REPLACEMENT_SERVICE_ID, acceptedNextVisitTotalCents: 5275 }), 'NEXT_VISIT_PRICE_CHANGED');
+
+    expect((await appointment()).totalPrice).toBe(5275);
+  });
+
+  it('allows settled uncollected deposit history but blocks active monetary credit', async () => {
+    await heldOffer();
+    await db.insert(schema.appointmentDepositSchema).values({ id: 'manage-next-deposit', appointmentId: APPOINTMENT_ID, salonId: SALON_ID, amountCents: 1000, currency: 'cad', status: 'expired', stripeAccountId: 'acct_synthetic' });
+    const outside = new Date('2027-01-21T14:00:00Z');
+    await mutate({ startTime: outside, acceptedNextVisitTotalCents: 5500 });
+
+    expect((await appointment()).totalPrice).toBe(5500);
+
+    await db.update(schema.appointmentDepositSchema).set({ status: 'paid', stripePaymentIntentId: 'pi_synthetic', collectedAt: new Date() }).where(eq(schema.appointmentDepositSchema.id, 'manage-next-deposit'));
+    await expectManageError(mutate({ startTime: INITIAL_START, acceptedNextVisitTotalCents: 5275 }), 'NEXT_VISIT_PAYMENT_REVIEW');
   });
 });

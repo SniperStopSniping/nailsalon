@@ -45,11 +45,14 @@ import {
   clientPreferencesSchema,
   fraudSignalSchema,
   googleCalendarDraftSchema,
+  nextVisitOfferEventSchema,
+  nextVisitOfferSchema,
   onboardingDraftClaimSchema,
   onboardingSiteMediaSchema,
   onboardingSiteRevisionSchema,
   onboardingSiteSchema,
   referralSchema,
+  retentionCampaignSchema,
   reviewRequestSchema,
   reviewRequestTriggerSchema,
   reviewSchema,
@@ -445,6 +448,27 @@ export const SALON_PURGE_PLAN: PurgeStep[] = [
     reason:
       'The tenant-ordered appointment foreign key is ON DELETE RESTRICT. The common purge preflight proves every deposit is settled before these rows are deleted ahead of appointment.',
     where: (_tx, salonId) => eq(appointmentDepositSchema.salonId, salonId),
+  }),
+  deleteStep({
+    table: 'next_visit_offer_event',
+    group: 'appointments',
+    target: nextVisitOfferEventSchema,
+    reason: 'Offer history references both the offer and appointment; delete before either parent.',
+    where: (_tx, salonId) => eq(nextVisitOfferEventSchema.salonId, salonId),
+  }),
+  deleteStep({
+    table: 'retention_campaign',
+    group: 'appointments',
+    target: retentionCampaignSchema,
+    reason: 'Only Next Visit links reference these offers. Preserve unrelated win-back campaigns on appointment reset.',
+    where: (_tx, salonId) => and(eq(retentionCampaignSchema.salonId, salonId), isNotNull(retentionCampaignSchema.nextVisitOfferId)),
+  }),
+  deleteStep({
+    table: 'next_visit_offer',
+    group: 'appointments',
+    target: nextVisitOfferSchema,
+    reason: 'Source/reserved appointment and client references are tenant-scoped NO ACTION dependencies.',
+    where: (_tx, salonId) => eq(nextVisitOfferSchema.salonId, salonId),
   }),
   deleteStep({
     table: 'appointment',
@@ -870,6 +894,18 @@ export async function purgeSalonGroups(
   let totalRows = 0;
 
   for (const step of SALON_PURGE_PLAN) {
+    // Client-only reset must release the new offer references before clients.
+    // Keep the existing group selection unchanged for every other table.
+    if (groups.includes('client_records') && !groups.includes('appointments')
+      && ['next_visit_offer_event', 'retention_campaign', 'next_visit_offer'].includes(step.table)) {
+      const affected = await step.count(tx, salonId);
+      await step.apply(tx, salonId);
+      if (affected > 0) {
+        counts[step.table] = affected;
+        totalRows += affected;
+      }
+      continue;
+    }
     if (step.group === 'salon' || !groups.includes(step.group)) {
       continue;
     }

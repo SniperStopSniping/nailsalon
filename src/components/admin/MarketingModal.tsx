@@ -21,6 +21,7 @@ import {
 
 import { LusterClientSms } from '@/components/admin/LusterClientSms';
 import { MarketingMessageComposer } from '@/components/admin/MarketingMessageComposer';
+import { NextVisitOfferSettings } from '@/components/admin/NextVisitOfferSettings';
 import { ReviewRequestSettings } from '@/components/admin/ReviewRequestSettings';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { buildClientSmsMessage } from '@/libs/clientSmsComposer';
@@ -469,9 +470,9 @@ function PromotionEditor({
 // shared resolver as the Integrations app; Results show only measurable facts.
 // =============================================================================
 
-type MarketingView = 'home' | 'compose' | 'followups' | 'messages' | 'offers' | 'smart-fit' | 'campaigns' | 'results' | 'reviews';
+type MarketingView = 'home' | 'compose' | 'followups' | 'messages' | 'offers' | 'next-visit' | 'smart-fit' | 'campaigns' | 'results' | 'reviews';
 
-const MARKETING_VIEWS: MarketingView[] = ['home', 'compose', 'followups', 'messages', 'offers', 'smart-fit', 'campaigns', 'results', 'reviews'];
+const MARKETING_VIEWS: MarketingView[] = ['home', 'compose', 'followups', 'messages', 'offers', 'next-visit', 'smart-fit', 'campaigns', 'results', 'reviews'];
 
 function isMarketingView(value: string | null): value is MarketingView {
   return value !== null && (MARKETING_VIEWS as string[]).includes(value);
@@ -483,6 +484,7 @@ const VIEW_TITLES: Record<MarketingView, string> = {
   'followups': 'Client follow-ups',
   'messages': 'Appointment Messages & Reminders',
   'offers': 'Offers',
+  'next-visit': 'Next Visit Offer',
   'smart-fit': 'Smart Fit',
   'campaigns': 'Win-back Offers',
   'results': 'Results',
@@ -994,6 +996,16 @@ export function MarketingModal({
     </button>
   );
 
+  if (view === 'next-visit') {
+    return (
+      <NextVisitOfferSettings
+        key={`${salonSlug}:${view}`}
+        salonSlug={salonSlug ?? ''}
+        onClose={() => backTo('offers')}
+      />
+    );
+  }
+
   if (view === 'smart-fit') {
     return (
       <SettingsModal
@@ -1162,6 +1174,13 @@ export function MarketingModal({
 
                     {view === 'offers' && (
                       <div className="space-y-3" data-testid="marketing-offers">
+                        {homeRow({
+                          testId: 'marketing-offers-next-visit',
+                          title: 'Next Visit Offer',
+                          detail: 'Reward a client who books their next visit soon.',
+                          status: 'Manage',
+                          onClick: () => openView('next-visit'),
+                        })}
                         {homeRow({
                           testId: 'marketing-offers-smart-fit',
                           title: 'Smart Fit',

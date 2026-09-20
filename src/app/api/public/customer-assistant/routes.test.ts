@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ salon: vi.fn(), guard: vi.fn(), online: vi.fn(), turn: vi.fn(), action: vi.fn(), handoff: vi.fn() }));
+const mocks = vi.hoisted(() => ({ salon: vi.fn(), guard: vi.fn(), online: vi.fn(), turn: vi.fn(), action: vi.fn(), handoff: vi.fn(), nextVisitOffer: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/queries', () => ({ getSalonBySlug: mocks.salon }));
 vi.mock('@/libs/salonStatus', () => ({ guardSalonApiRoute: mocks.guard, isOnlineBookingEnabled: mocks.online }));
 vi.mock('@/libs/customerAssistant/turn.server', () => ({ runCustomerAssistantTurn: mocks.turn }));
 vi.mock('@/libs/customerAssistant/action.server', () => ({ runCustomerAssistantAction: mocks.action }));
 vi.mock('@/libs/customerAssistant/handoff.server', () => ({ runCustomerHandoff: mocks.handoff }));
+vi.mock('@/libs/nextVisitOffer.server', () => ({ resolveNextVisitOfferPreview: mocks.nextVisitOffer }));
 vi.mock('@/libs/publicBookingRateLimit.server', () => ({ getPublicBookingClientIp: () => '192.0.2.5' }));
 
 const { POST: session } = await import('./[salonSlug]/session/route');
@@ -34,6 +35,7 @@ beforeEach(() => {
   mocks.turn.mockResolvedValue({ conversation: 'next', result: { kind: 'unavailable', reason: 'no_match' } });
   mocks.action.mockResolvedValue({ conversation: 'next', result: { kind: 'unavailable', reason: 'no_match' } });
   mocks.handoff.mockResolvedValue({ conversation: 'next', result: { kind: 'unavailable', reason: 'no_match' } });
+  mocks.nextVisitOffer.mockResolvedValue(null);
 });
 
 describe('customer assistant public routes', () => {
@@ -45,6 +47,43 @@ describe('customer assistant public routes', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(verifyCustomerConversation(body.conversation, 'salon-a', 'x'.repeat(32)).turnIndex).toBe(0);
     expect(() => verifyCustomerConversation(body.conversation, 'salon-b', 'x'.repeat(32))).toThrow();
+  });
+
+  it('keeps the legacy empty session POST working', async () => {
+    const response = await session(new Request('https://app.test/api/public/customer-assistant/isla-nail-studio/session', {
+      method: 'POST',
+      headers: { origin: 'https://app.test' },
+    }), context());
+
+    expect(response.status).toBe(200);
+  });
+
+  it('converts a valid next-visit bearer link to an opaque signed reference only', async () => {
+    const token = 'x'.repeat(32);
+    mocks.nextVisitOffer.mockResolvedValue({
+      status: 'ineligible',
+      reason: 'NO_ELIGIBLE_SERVICE',
+      reference: { campaignId: 'campaign-internal', entitlementId: 'offer-internal' },
+    });
+    const response = await session(request({ campaignToken: token }), context());
+    const body = await response.json();
+    const conversation = verifyCustomerConversation(body.conversation, 'salon-a', 'x'.repeat(32));
+
+    expect(response.status).toBe(200);
+    expect(mocks.nextVisitOffer).toHaveBeenCalledWith({ salonId: 'salon-a', token, services: [] });
+    expect(conversation.nextVisitOffer).toEqual({ campaignId: 'campaign-internal', entitlementId: 'offer-internal' });
+    expect(body.conversation).not.toContain(token);
+  });
+
+  it('binds a resolved expired campaign only as an opaque explanation reference', async () => {
+    mocks.nextVisitOffer.mockResolvedValue({
+      status: 'ineligible',
+      reason: 'EXPIRED',
+      reference: { campaignId: 'campaign-internal', entitlementId: 'offer-internal' },
+    });
+    const response = await session(request({ campaignToken: 'x'.repeat(32) }), context());
+
+    expect(verifyCustomerConversation((await response.json()).conversation, 'salon-a', 'x'.repeat(32)).nextVisitOffer).toEqual({ campaignId: 'campaign-internal', entitlementId: 'offer-internal' });
   });
 
   it('returns indistinguishable 404 for the dark feature and other salons', async () => {
@@ -66,6 +105,7 @@ describe('customer assistant public routes', () => {
     expect((await action(request({}, 'https://attacker.test'), context())).status).toBe(403);
     expect((await handoff(request({}, 'https://attacker.test'), context())).status).toBe(403);
     expect((await session(request({}, 'https://attacker.test'), context())).status).toBe(403);
+    expect((await session(request({ campaignToken: 'invalid' }), context())).status).toBe(400);
     expect((await chat(request({ conversation: 'signed', message: 'hello', locale: 'en', salonId: 'salon-b' }), context())).status).toBe(400);
     expect((await chat(request({ message: 'x'.repeat(31_000) }), context())).status).toBe(400);
     expect(mocks.turn).not.toHaveBeenCalled();

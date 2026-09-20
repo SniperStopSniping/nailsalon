@@ -49,6 +49,8 @@ export async function prepareCustomerBookingQuote(args: {
   startTime: string;
   contact: CustomerContact;
   smsConsent?: { granted: boolean; wordingVersion: string; selection: 'default_on' | 'default_off' | 'explicit_on' | 'explicit_off' };
+  /** Opaque guest capability. It is resolved server-side and never stored in material. */
+  campaignToken?: string;
   now?: Date;
 }): Promise<CustomerBookingMaterial | null> {
   const now = args.now ?? new Date();
@@ -92,6 +94,29 @@ export async function prepareCustomerBookingQuote(args: {
     evaluation: selectedEvaluations.get(args.startTime) ?? null,
     appliedAt: now,
   });
+  let nextVisitOffer: { campaignId: string; entitlementId: string } | undefined;
+  let nextVisitDiscountAmountCents = 0;
+  let nextVisitDiscountLabel: string | null = null;
+  if (args.campaignToken) {
+    const { resolveNextVisitOfferPreview } = await import('@/libs/nextVisitOffer.server');
+    const preview = await resolveNextVisitOfferPreview({
+      salonId: args.salon.id,
+      token: args.campaignToken,
+      clientPhone: args.contact.phone,
+      startTime: args.startTime,
+      // Base services only. Luster's shared promotion calculator intentionally
+      // excludes add-ons from this offer's eligible subtotal.
+      services: selection.services.map(service => ({ id: service.id, priceCents: service.priceCents })),
+      now,
+    });
+    if (preview?.status === 'eligible' && preview.discountAmountCents > smartFit.discountAmountCents) {
+      nextVisitOffer = preview.reference;
+      nextVisitDiscountAmountCents = preview.discountAmountCents;
+      nextVisitDiscountLabel = preview.label;
+    }
+  }
+  const discountAmountCents = nextVisitOffer ? nextVisitDiscountAmountCents : smartFit.discountAmountCents;
+  const finalPreTaxTotalCents = Math.max(0, selection.subtotalBeforeDiscountCents - discountAmountCents);
   const taxConfig = resolveTaxConfig(settings, now);
   const totals = computeCheckoutTotals({
     items: [
@@ -99,7 +124,7 @@ export async function prepareCustomerBookingQuote(args: {
       ...selection.addOns.map(addOn => ({ lineTotalCents: addOn.lineTotalCents, taxable: taxConfig.taxAddOnsByDefault })),
     ],
     taxConfig,
-    discountCents: smartFit.discountAmountCents,
+    discountCents: discountAmountCents,
   });
   const [location, depositPolicy] = await Promise.all([
     args.locationId ? getLocationById(args.locationId, args.salon.id) : getPrimaryLocation(args.salon.id),
@@ -112,7 +137,7 @@ export async function prepareCustomerBookingQuote(args: {
   if (args.technicianId && (!technician || !technician.isActive)) {
     return null;
   }
-  const charge = resolveDepositChargeForTotal(depositPolicy, smartFit.finalTotalCents, { mode: 'disclosure' });
+  const charge = resolveDepositChargeForTotal(depositPolicy, finalPreTaxTotalCents, { mode: 'disclosure' });
   if (!charge.required && charge.reason === 'undetermined') {
     return null;
   }
@@ -130,7 +155,9 @@ export async function prepareCustomerBookingQuote(args: {
     return null;
   }
   const policy = resolveRequiredBookingPolicy({ storedPlan: args.salon.plan ?? null, features: args.features, settings });
-  const discount = smartFit.kind === 'smart_fit' ? smartFit.smartFit : smartFit.kind === 'first_visit' ? smartFit.firstVisit : null;
+  const discount = nextVisitOffer
+    ? { discountLabel: nextVisitDiscountLabel }
+    : smartFit.kind === 'smart_fit' ? smartFit.smartFit : smartFit.kind === 'first_visit' ? smartFit.firstVisit : null;
   const review: CustomerReadyReviewSnapshot = {
     status: 'READY',
     fingerprint: 'pending',
@@ -144,11 +171,11 @@ export async function prepareCustomerBookingQuote(args: {
     time: selected.time,
     timeZone: bookingConfig.timezone,
     durationMinutes: selection.visibleDurationMinutes,
-    financial: { subtotalCents: selection.subtotalBeforeDiscountCents, discountAmountCents: smartFit.discountAmountCents, discountLabel: discount?.discountLabel ?? null, taxAmountCents: totals.taxAmountCents, totalDueCents: totals.totalDueCents, currency: bookingConfig.currency },
+    financial: { subtotalCents: selection.subtotalBeforeDiscountCents, discountAmountCents, discountLabel: discount?.discountLabel ?? null, taxAmountCents: totals.taxAmountCents, totalDueCents: totals.totalDueCents, currency: bookingConfig.currency },
     deposit: charge.required ? { status: 'required', amountCents: charge.amountCents, currency: charge.currency.toUpperCase(), label: disclosure!.label } : { status: 'not_required', reason: charge.reason },
     confirmationMode: !charge.required && selection.l1ConfirmationMode === 'request_approval' ? 'request_approval' : bookingConfig.confirmationMode,
     bookingPolicy: policy ? { required: true, title: policy.title, text: policy.text, acknowledgmentText: policy.acknowledgment.text, version: policy.version } : { required: false },
     reminders: { mode, selection: args.smsConsent?.selection ?? null, requestedEnabled: smsDecision?.status === 'granted' },
   };
-  return { catalogAcknowledgment: selection.catalogAcknowledgment, selection: args.selection, preference: args.preference, startTime: args.startTime, technicianSelection: technician ? 'specific' : 'any', ...(technician ? { technicianId: technician.id } : {}), ...(args.locationId ? { locationId: args.locationId } : {}), review, smsConsent: args.smsConsent, expectedTotalCents: smartFit.finalTotalCents, expectedDiscountType: smartFit.kind === 'smart_fit' ? smartFit.smartFit.discountType : smartFit.kind === 'first_visit' ? smartFit.firstVisit.discountType : smartFit.kind === 'reward' ? 'reward' : null, expectedBookingFinancialQuote: { currency: bookingConfig.currency, totalDueCents: totals.totalDueCents, taxConfigurationIdentity: buildTaxConfigurationSnapshot(taxConfig).configurationIdentity }, expectedDepositFingerprint: buildDepositDisclosureFingerprint(charge) };
+  return { catalogAcknowledgment: selection.catalogAcknowledgment, selection: args.selection, preference: args.preference, startTime: args.startTime, technicianSelection: technician ? 'specific' : 'any', ...(technician ? { technicianId: technician.id } : {}), ...(args.locationId ? { locationId: args.locationId } : {}), review, smsConsent: args.smsConsent, expectedTotalCents: finalPreTaxTotalCents, expectedDiscountType: nextVisitOffer ? 'next_visit' : smartFit.kind === 'smart_fit' ? smartFit.smartFit.discountType : smartFit.kind === 'first_visit' ? smartFit.firstVisit.discountType : smartFit.kind === 'reward' ? 'reward' : null, expectedBookingFinancialQuote: { currency: bookingConfig.currency, totalDueCents: totals.totalDueCents, taxConfigurationIdentity: buildTaxConfigurationSnapshot(taxConfig).configurationIdentity }, expectedDepositFingerprint: buildDepositDisclosureFingerprint(charge), ...(nextVisitOffer ? { nextVisitOffer } : {}) };
 }

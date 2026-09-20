@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GET } from './route';
 
-const { getSalonBySlug, selectRows, db, checkEndpointRateLimit } = vi.hoisted(() => {
+const { getSalonBySlug, selectRows, db, checkEndpointRateLimit, nextVisitOffer } = vi.hoisted(() => {
   const selectRows: unknown[] = [];
   const query = (result: unknown) => {
     const chain = {
@@ -17,11 +17,13 @@ const { getSalonBySlug, selectRows, db, checkEndpointRateLimit } = vi.hoisted(()
     selectRows,
     db: { select: vi.fn(() => query(selectRows.shift() ?? [])) },
     checkEndpointRateLimit: vi.fn(),
+    nextVisitOffer: vi.fn(),
   };
 });
 
 vi.mock('@/libs/queries', () => ({ getSalonBySlug }));
 vi.mock('@/libs/DB', () => ({ db }));
+vi.mock('@/libs/nextVisitOffer.server', () => ({ resolveNextVisitOfferPreview: nextVisitOffer }));
 vi.mock('@/libs/rateLimit', () => ({
   checkEndpointRateLimit,
   getClientIp: () => '203.0.113.7',
@@ -39,6 +41,7 @@ describe('GET /api/public/retention-campaigns/[token]', () => {
     selectRows.length = 0;
     getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a' });
     checkEndpointRateLimit.mockReturnValue({ allowed: true, retryAfterMs: 0 });
+    nextVisitOffer.mockResolvedValue(null);
   });
 
   it('rate-limits by IP before doing any database work', async () => {
@@ -151,5 +154,64 @@ describe('GET /api/public/retention-campaigns/[token]', () => {
     );
 
     expect(redeemed.status).toBe(409);
+  });
+
+  it('discovers an available next-visit offer without exposing its client, source visit, or entitlement internals', async () => {
+    selectRows.push([{
+      id: 'campaign_next_visit',
+      salonId: 'salon_1',
+      salonClientId: 'secret_client_id',
+      tokenHash: 'secret_hash',
+      stage: 'next_visit',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      promotionSnapshot: { enabled: true },
+    }]);
+    nextVisitOffer.mockResolvedValue({
+      status: 'ineligible',
+      reason: 'NO_ELIGIBLE_SERVICE',
+      deadlineDate: '2031-03-31',
+      label: 'Next Visit Offer',
+      promotion: { discountType: 'percent', value: 5, eligibleServiceIds: ['service_1'] },
+    });
+
+    const response = await GET(
+      new Request(`http://localhost/api/public/retention-campaigns/${token}?salonSlug=salon-a`),
+      { params: Promise.resolve({ token }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.campaign).toMatchObject({
+      stage: 'next_visit',
+      deadlineDate: '2031-03-31',
+      displayOffer: '5% off',
+      promotion: { name: 'Next Visit Offer', eligibleServiceIds: ['service_1'], code: null },
+    });
+    expect(nextVisitOffer).toHaveBeenCalledWith({ salonId: 'salon_1', token, services: [] });
+    expect(JSON.stringify(body)).not.toContain('secret_client_id');
+    expect(JSON.stringify(body)).not.toContain('secret_hash');
+  });
+
+  it.each([
+    ['ALREADY_USED', 409, 'CAMPAIGN_REDEEMED'],
+    ['EXPIRED', 410, 'CAMPAIGN_EXPIRED'],
+    ['SOURCE_INVALID', 410, 'CAMPAIGN_EXPIRED'],
+  ])('maps next-visit %s to a safe public availability response', async (reason, status, code) => {
+    selectRows.push([{
+      id: 'campaign_next_visit',
+      salonId: 'salon_1',
+      stage: 'next_visit',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      promotionSnapshot: { enabled: true },
+    }]);
+    nextVisitOffer.mockResolvedValue({ status: 'ineligible', reason, deadlineDate: '2031-03-31' });
+
+    const response = await GET(
+      new Request(`http://localhost/api/public/retention-campaigns/${token}?salonSlug=salon-a`),
+      { params: Promise.resolve({ token }) },
+    );
+
+    expect(response.status).toBe(status);
+    expect(await response.json()).toMatchObject({ error: { code } });
   });
 });

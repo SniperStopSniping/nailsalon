@@ -22,6 +22,8 @@ export type CustomerBookingMaterial = {
     taxConfigurationIdentity: string;
   };
   expectedDepositFingerprint: string;
+  /** Server-resolved opaque offer reference; the public bearer token is never durable material. */
+  nextVisitOffer?: { campaignId: string; entitlementId: string };
 };
 
 export type CustomerBookingOperationReference = {

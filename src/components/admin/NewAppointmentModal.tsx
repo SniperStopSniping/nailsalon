@@ -83,6 +83,7 @@ type NewAppointmentModalProps = {
     email: string | null;
     serviceId?: string | null;
     technicianId?: string | null;
+    nextVisitOffer?: { campaignToken: string; deadlineDate: string; discountType: 'percent' | 'fixed'; value: number };
   } | null;
 };
 
@@ -520,6 +521,7 @@ export function NewAppointmentModal({
           priceCentsOverride: googleEventPrefill && priceOverride !== ''
             ? Math.round(Number(priceOverride) * 100)
             : undefined,
+          campaignToken: clientPrefill?.nextVisitOffer?.campaignToken,
         }),
       });
 
@@ -655,6 +657,24 @@ export function NewAppointmentModal({
                   {error && (
                     <div className="rounded-lg border border-red-200 bg-red-50 p-3" role="alert" data-testid="new-appointment-error">
                       <p className="text-sm text-red-700">{error}</p>
+                    </div>
+                  )}
+
+                  {clientPrefill?.nextVisitOffer && (
+                    <div data-testid="next-visit-offer-rebook-summary" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+                      <div className="font-semibold">Next Visit Offer</div>
+                      <p className="mt-1">
+                        Your next appointment must take place by
+                        {' '}
+                        {clientPrefill.nextVisitOffer.deadlineDate}
+                        {' '}
+                        to save
+                        {' '}
+                        {clientPrefill.nextVisitOffer.discountType === 'percent'
+                          ? `${clientPrefill.nextVisitOffer.value}%`
+                          : formatCurrency(clientPrefill.nextVisitOffer.value)}
+                        . The final total is confirmed when the appointment is saved.
+                      </p>
                     </div>
                   )}
 
@@ -1003,8 +1023,11 @@ export function NewAppointmentModal({
                 ·
                 {formatDuration(googleEventPrefill && Number(durationOverride) > 0 ? Number(durationOverride) : totalDuration)}
               </div>
-              <div className="text-lg font-semibold text-gray-900">
-                {formatCurrency(totalPrice)}
+              <div className="text-right">
+                {clientPrefill?.nextVisitOffer && <div className="text-xs text-gray-500">Before offers</div>}
+                <div className="text-lg font-semibold text-gray-900">
+                  {formatCurrency(totalPrice)}
+                </div>
               </div>
             </div>
           )}

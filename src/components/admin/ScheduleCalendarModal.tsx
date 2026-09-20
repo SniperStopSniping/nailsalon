@@ -1630,6 +1630,8 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
         actionError={actions.detailError}
         attemptedTimeLabel={actions.attemptedTimeLabel}
         warnings={actions.warnings}
+        nextVisitPriceReview={actions.nextVisitPriceReview}
+        onClearNextVisitPriceReview={actions.clearNextVisitPriceReview}
         onSaveEdits={actions.saveEdits}
         onMoveToNextAvailable={actions.moveToNextAvailable}
         onCancelAppointment={args => actions.cancelAppointment(args as CancelArgs)}
@@ -1645,15 +1647,15 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
         adminDepositPanelSlot={actions.selectedAppointmentId
           ? <DepositPanel appointmentId={actions.selectedAppointmentId} salonSlug={salonSlug} />
           : null}
-        onRebook={() => {
-          const prefill = actions.buildRebookPrefill();
+        onRebook={() => void (async () => {
+          const prefill = await actions.buildRebookPrefillWithNextVisitOffer();
           if (!prefill) {
             return;
           }
           setRebookPrefill(prefill);
           actions.closeAppointment();
           setShowNewAppointmentModal(true);
-        }}
+        })()}
       />
 
       <CheckoutSheet
@@ -1663,8 +1665,8 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
         initialView={actions.checkoutInitialView}
         onClose={actions.closeCheckout}
         onCompleted={() => actions.handleCheckoutCompleted()}
-        onRebook={() => {
-          const prefill = actions.buildRebookPrefill();
+        onRebook={() => void (async () => {
+          const prefill = await actions.buildRebookPrefillWithNextVisitOffer();
           if (!prefill) {
             return;
           }
@@ -1672,7 +1674,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
           actions.closeCheckout();
           actions.closeAppointment();
           setShowNewAppointmentModal(true);
-        }}
+        })()}
       />
 
       {/* New Appointment Modal */}

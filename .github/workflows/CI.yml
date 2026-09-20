@@ -398,6 +398,8 @@ jobs:
               # Review-automation trigger contract: purge review_request before
               # its NO ACTION trigger reference, then remove the trigger row.
               27fd38cdd3e1ae7dbb0b5ec5f4180febb6a50584) ;;
+              # Next Visit: tenant-scoped child-before-parent offer cleanup.
+              857caed5cee8ee8eabebc820b33ca5d322c6faa5) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -446,12 +448,14 @@ jobs:
               migrations/0084_review_request_repeat_cooldown.sql) ;;
               # Reviewed intraday calendar blocks and per-technician write guard.
               migrations/0085_calendar_intraday_blocks.sql) ;;
+              migrations/0086_next_visit_offer.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
               migrations/meta/0083_snapshot.json) ;;
               migrations/meta/0084_snapshot.json) ;;
               migrations/meta/0085_snapshot.json) ;;
+              migrations/meta/0086_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -552,6 +556,42 @@ jobs:
             exit 1
           fi
 
+          # 0086 is a reviewed two-artifact migration packet. It may be
+          # introduced once, with these exact SQL and snapshot postimages; once
+          # main contains either artifact, both are immutable.
+          if ! git diff --quiet "$base" -- migrations/0086_next_visit_offer.sql migrations/meta/0086_snapshot.json; then
+            if git cat-file -e "$base:migrations/0086_next_visit_offer.sql" 2>/dev/null \
+              || git cat-file -e "$base:migrations/meta/0086_snapshot.json" 2>/dev/null; then
+              echo "::error::Migration 0086 and its snapshot are already shipped and immutable."
+              exit 1
+            fi
+            migration_0086_sql_status="$(git diff --name-status "$base" -- migrations/0086_next_visit_offer.sql)"
+            migration_0086_snapshot_status="$(git diff --name-status "$base" -- migrations/meta/0086_snapshot.json)"
+            if [ "$migration_0086_sql_status" != $'A\tmigrations/0086_next_visit_offer.sql' ] \
+              || [ "$migration_0086_snapshot_status" != $'A\tmigrations/meta/0086_snapshot.json' ]; then
+              echo "::error::Migration 0086 must introduce exactly one SQL file and one snapshot."
+              printf 'SQL status: %s\nSnapshot status: %s\n' "$migration_0086_sql_status" "$migration_0086_snapshot_status"
+              exit 1
+            fi
+            migration_0086_sql_sha256="$(sha256sum migrations/0086_next_visit_offer.sql | awk '{print $1}')"
+            migration_0086_snapshot_sha256="$(sha256sum migrations/meta/0086_snapshot.json | awk '{print $1}')"
+            if [ "$migration_0086_sql_sha256" != "fdc655d8f9a407affa9f495e08b30943c75a314c6d192d060f9efef3dbd9bf6c" ] \
+              || [ "$migration_0086_snapshot_sha256" != "b5aed9f6726ca363f43fe8a3ebc80bbcbed0252e6b3af2538b73324eedc352b0" ]; then
+              echo "::error::Migration 0086 artifacts do not match the reviewed Next Visit Offer postimage."
+              printf 'SQL SHA256: %s\nSnapshot SHA256: %s\n' "$migration_0086_sql_sha256" "$migration_0086_snapshot_sha256"
+              exit 1
+            fi
+          fi
+
+          # Check even on journal-only changes: missing or duplicate 0086 entries
+          # must never pass the general append-only tag allowlist.
+          expected_0086_journal='{"breakpoints":true,"idx":85,"tag":"0086_next_visit_offer","version":"7","when":1789907905597}'
+          actual_0086_journal="$(jq -cS '.entries[] | select(.tag == "0086_next_visit_offer")' migrations/meta/_journal.json)"
+          if [ "$actual_0086_journal" != "$expected_0086_journal" ]; then
+            echo "::error::Migration 0086 journal entry does not match the reviewed postimage."
+            exit 1
+          fi
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -605,6 +645,7 @@ jobs:
               0083_review_request_manual_contract) ;;
               0084_review_request_repeat_cooldown) ;;
               0085_calendar_intraday_blocks) ;;
+              0086_next_visit_offer) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -823,6 +864,9 @@ jobs:
 
       - name: Verify Settings and Plan destinations in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerSettingsPlan/playwright.config.ts --output=test-results/owner-settings-plan-components
+
+      - name: Verify Next Visit settings and guest rebooking in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/nextVisitOffer/playwright.config.ts --output=test-results/next-visit-components
 
       - name: Verify appointment management and checkout in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/appointmentWorkflow/playwright.config.ts --output=test-results/appointment-workflow-components
@@ -1305,7 +1349,7 @@ jobs:
             src/libs/appointmentCreation.customerOperation.concurrency.integration.test.ts \
             | tee customer-booking-postgres.log
           grep -Fqx 'CUSTOMER_OPERATION_POSTGRES_TESTS_EXECUTED=12 CUSTOMER_OPERATION_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
-          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=30 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
+          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=34 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
 
       - name: Verify calendar block and booking fence races on real PostgreSQL with zero skips
         shell: bash

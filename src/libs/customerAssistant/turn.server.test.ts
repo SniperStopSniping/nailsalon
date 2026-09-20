@@ -4,12 +4,13 @@ import { SEMANTIC_L1_MENU, SEMANTIC_L1_SNAPSHOT } from './__evals__/semanticCase
 import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES } from './contracts';
 import { CUSTOMER_INTERPRETATION_PROMPT } from './interpretation';
 
-const mocks = vi.hoisted(() => ({ reserve: vi.fn(), menu: vi.fn(), snapshot: vi.fn(), proposal: vi.fn(), record: vi.fn(), validate: vi.fn(), lookup: vi.fn(), nextSlots: vi.fn(), publicFacts: vi.fn() }));
+const mocks = vi.hoisted(() => ({ reserve: vi.fn(), menu: vi.fn(), snapshot: vi.fn(), proposal: vi.fn(), record: vi.fn(), validate: vi.fn(), lookup: vi.fn(), nextSlots: vi.fn(), publicFacts: vi.fn(), nextVisitOfferFacts: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('./access.server', () => ({ getCustomerAssistantConfig: () => ({ apiKey: 'customer-only', signingSecret: 'x'.repeat(32) }) }));
 vi.mock('./budget.server', () => ({ reserveCustomerAssistantTurn: mocks.reserve }));
 vi.mock('./catalogue.server', () => ({ loadCustomerMenu: mocks.menu, loadCustomerClarificationSnapshot: mocks.snapshot, buildCustomerProposal: mocks.proposal, validateCustomerMenuSelection: mocks.validate }));
 vi.mock('./publicFacts.server', () => ({ loadCustomerPublicFacts: mocks.publicFacts }));
+vi.mock('@/libs/nextVisitOffer.server', () => ({ getNextVisitOfferAssistantFacts: mocks.nextVisitOfferFacts }));
 vi.mock('./ledger.server', () => ({ recordCustomerAssistantUsage: mocks.record }));
 vi.mock('./turnReplay.server', () => ({
   readCompletedCustomerTurn: vi.fn().mockResolvedValue(null),
@@ -37,6 +38,7 @@ const provider = (output: unknown = interpretation) => ({ createResponse: vi.fn(
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.publicFacts.mockRejectedValue(new Error('PUBLIC_FACTS_UNAVAILABLE'));
+  mocks.nextVisitOfferFacts.mockResolvedValue(null);
   mocks.reserve.mockResolvedValue({ ok: true });
   mocks.nextSlots.mockResolvedValue(null);
   mocks.snapshot.mockResolvedValue(SEMANTIC_L1_SNAPSHOT);
@@ -943,6 +945,56 @@ describe('natural receptionist orchestration', () => {
     expect(model.createResponse.mock.calls.map(call => call[0].model)).toEqual(['gpt-5.6-terra', 'gpt-5.6-luna']);
     expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ usage: { inputTokens: 200, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 100 } }));
     expect(mocks.proposal).not.toHaveBeenCalled();
+  });
+
+  it('supplies a fresh, opaque next-visit offer fact to the receptionist without exposing the campaign token', async () => {
+    enablePublicFacts();
+    mocks.nextVisitOfferFacts.mockResolvedValue({
+      kind: 'bound',
+      status: 'no_eligible_service',
+      deadlineDate: '2026-10-18',
+      currency: 'CAD',
+      promotion: { discountType: 'percent', value: 5, eligibleServiceIds: [], enabled: true },
+    });
+    const state = createCustomerConversation('salon-a', secret, Date.now(), { campaignId: 'campaign-internal', entitlementId: 'offer-internal' });
+    const offerQuestion = { ...interpretation, action: 'answer', answerTopic: 'salon_information', informationServiceIds: [], addOnUpdates: { add: [], remove: [] }, addOns: [] };
+    const model = provider(offerQuestion);
+    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(offerQuestion) }] }).mockResolvedValueOnce(answer('[[next_visit_offer]]'));
+
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: signCustomerConversation(state, secret), message: 'Do I get a discount if I book again?' }, model);
+
+    expect(response.result).toMatchObject({ kind: 'answer', message: expect.stringContaining('save 5%') });
+    expect(mocks.nextVisitOfferFacts).toHaveBeenCalledWith({
+      salonId: 'salon-a',
+      reference: { campaignId: 'campaign-internal', entitlementId: 'offer-internal' },
+      services: [],
+    });
+
+    const composerInput = model.createResponse.mock.calls[1]?.[0].input[1].content as string;
+
+    expect(composerInput).toContain('next_visit_offer');
+    expect(composerInput).not.toContain('campaign-internal');
+    expect(composerInput).not.toContain('offer-internal');
+  });
+
+  it('supplies only public active-program terms when a visitor has no offer capability', async () => {
+    enablePublicFacts();
+    mocks.nextVisitOfferFacts.mockResolvedValue({
+      kind: 'program',
+      status: 'active',
+      deadlineDate: null,
+      currency: 'CAD',
+      promotion: { discountType: 'percent', value: 5, eligibleServiceIds: [], expiryDays: 30, enabled: true },
+    });
+    const offerQuestion = { ...interpretation, action: 'answer', answerTopic: 'salon_information', informationServiceIds: [], addOnUpdates: { add: [], remove: [] }, addOns: [] };
+    const model = provider(offerQuestion);
+    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(offerQuestion) }] }).mockResolvedValueOnce(answer('[[next_visit_offer]]'));
+
+    const response = await runCustomerAssistantTurn({ ...input(), message: 'Do you have a discount if I book again?' }, model);
+
+    expect(response.result).toMatchObject({ kind: 'answer', message: expect.stringContaining('within 30 days') });
+    expect(mocks.nextVisitOfferFacts).toHaveBeenCalledWith({ salonId: 'salon-a', services: [] });
+    expect(model.createResponse.mock.calls[1]?.[0].input[1].content).not.toContain('campaign');
   });
 
   it.each([false, true])('only refreshes a configured quote from resolved selection authority: %s', async (resolved) => {
