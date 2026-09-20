@@ -174,6 +174,21 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
     // been updated.
     return resolveCustomerTurn(args, menu, { ...intent, action: 'propose', serviceId: candidate.baseServiceId, addOns: candidate.selectedAddOns, question: 'details', optionIds: [] }, conversation, nextState, authority);
   }
+  const resolveServiceIntent = intent.action === 'propose'
+    || (intent.action === 'clarify' && intent.question !== 'date' && (menu.l1 || hasKnownClarificationAnswer(intent.question, facts)));
+  const crossProductRefillNeedsConfirmation = resolveServiceIntent
+    && facts.maintenance === 'refill'
+    && facts.existingProduct !== 'unknown'
+    && facts.existingProduct !== 'none'
+    && facts.treatment !== 'unknown'
+    && facts.treatment !== facts.existingProduct;
+  // A different requested product plus a current product cannot be treated as
+  // a refill merely because the interpreter echoed a prior maintenance fact.
+  // This is deliberately not an unsupported-service claim or an inferred
+  // removal: Luster must confirm the transition before it can quote it.
+  if (crossProductRefillNeedsConfirmation) {
+    return { kind: 'unavailable', reason: 'transition_needs_confirmation' };
+  }
   const transition = transitionFailure(menu, facts);
   // A fallback answer contains two honest reference points: the original
   // requested window and the later window we could display. “Earlier?” alone
@@ -193,8 +208,6 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       availabilitySearch: { ...fallbackSearch, pendingTimingFeedback: effectiveTimingFeedback },
     };
   }
-  const resolveServiceIntent = intent.action === 'propose'
-    || (intent.action === 'clarify' && intent.question !== 'date' && (menu.l1 || hasKnownClarificationAnswer(intent.question, facts)));
   // A model can label a request as a service clarification while its facts
   // plainly describe a new application. Treat that as a service-resolution
   // attempt for the starting-condition guard, but never apply the guard to an

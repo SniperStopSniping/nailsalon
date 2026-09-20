@@ -222,6 +222,42 @@ it('does not reuse a prior no-removal answer after a changed service', async () 
   expect(continued.result).toEqual({ kind: 'clarification', question: 'removal', options: [] });
 });
 
+it('does not treat an echoed refill as authority for a cross-product switch', async () => {
+  const state = createCustomerConversation('synthetic-isla', 'synthetic-only');
+  state.facts = {
+    schemaVersion: 1,
+    treatment: 'acrylic',
+    desiredApplication: 'extensions',
+    maintenance: 'refill',
+    length: 'medium',
+    french: 'unknown',
+    existingProduct: 'acrylic',
+    origin: 'unknown',
+    removal: 'yes',
+    repairCount: 'unknown',
+  };
+  const result = await evaluateReceptionistTurn(intent({
+    action: 'clarify',
+    question: 'removal',
+    // This reproduces a provider echo from an earlier acrylic refill while the
+    // latest customer message changes only the desired treatment to BIAB.
+    factUpdates: { ...patch, treatment: 'builder_gel', desiredApplication: 'extensions', maintenance: 'refill', removal: 'yes' },
+  }), state, {
+    message: 'What about BIAB instead?',
+    kinds: ['unavailable'],
+    reason: 'transition_needs_confirmation',
+  });
+
+  expect(result.failures).toEqual([]);
+  expect(result.next.facts).toMatchObject({
+    treatment: 'builder_gel',
+    desiredApplication: 'extensions',
+    maintenance: 'refill',
+    existingProduct: 'acrylic',
+    removal: 'yes',
+  });
+});
+
 it('does not quote a cross-product request as bare nails after an explicit no-removal answer', async () => {
   const state = createCustomerConversation('synthetic-isla', 'synthetic-only');
   state.facts = {
