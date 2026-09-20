@@ -30,7 +30,7 @@ async function installSyntheticHandoffRoutes(page: Page): Promise<{ handoffs: un
       return;
     }
     if (url.pathname.endsWith('/session') && request.method() === 'POST') {
-      await route.fulfill({ json: { conversation: 'synthetic-conversation' } });
+      await route.fulfill({ json: { conversation: 'synthetic-conversation', salon: { name: 'Synthetic Booking Test Salon' } } });
       return;
     }
     if (url.pathname.endsWith('/chat') && request.method() === 'POST') {
@@ -84,7 +84,7 @@ for (const viewport of [{ width: 390, zoom: 100 }, { width: 320, zoom: 200 }]) {
     await page.getByLabel('Tell me what you would like').fill('Gel-X with French tips');
     await page.getByRole('button', { name: 'Send' }).tap();
 
-    await expect(page.getByRole('region', { name: 'Suggested services' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Your appointment package' })).toBeVisible();
     await expect(page.getByRole('button', { name: /confirm booking/i })).toHaveCount(0);
     await expect(page.getByLabel('Phone number')).toHaveCount(0);
 
@@ -92,7 +92,7 @@ for (const viewport of [{ width: 390, zoom: 100 }, { width: 320, zoom: 200 }]) {
     await accept.tap();
 
     await expect.poll(() => handoffs.length).toBe(1);
-    expect(handoffs[0]).toEqual({ conversation: 'synthetic-proposal', fingerprint });
+    expect(handoffs[0]).toEqual({ conversation: 'synthetic-proposal', fingerprint, locale: 'en' });
     await expect(page.getByRole('dialog')).toHaveCount(0);
 
     const handoffUrl = new URL(page.url());
@@ -112,7 +112,7 @@ for (const viewport of [{ width: 390, zoom: 100 }, { width: 320, zoom: 200 }]) {
     await page.goForward();
     await page.getByRole('button', { name: 'Help me choose & book' }).tap();
 
-    await expect(page.getByRole('heading', { name: 'Help me choose' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'AI booking assistant' })).toBeVisible();
     await expect(page.getByLabel('Tell me what you would like')).toBeVisible();
 
     await page.getByRole('button', { name: 'Continue manually' }).tap();

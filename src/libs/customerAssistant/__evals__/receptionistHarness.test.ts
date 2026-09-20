@@ -47,7 +47,7 @@ it('preserves desired design edits during answers and invalidates the old propos
 
   expect(first.failures).toEqual([]);
 
-  const answer = await evaluateReceptionistTurn(intent({ action: 'answer', answerTopic: 'compare_treatments', addOnUpdates: { add: [], remove: [chrome] } }), first.next, { message: 'Remove chrome, and what is BIAB?', kinds: ['proposal'], price: 8000, duration: 105 });
+  const answer = await evaluateReceptionistTurn(intent({ action: 'answer', selectionChangeExplicitThisTurn: true, answerTopic: 'compare_treatments', addOnUpdates: { add: [], remove: [chrome] } }), first.next, { message: 'Remove chrome, and what is BIAB?', kinds: ['proposal'], price: 8000, duration: 105 });
 
   expect(answer.next.requestedSelection?.selectedAddOns.some(item => item.addOnId === chrome)).toBe(false);
   expect(answer.failures).toEqual([]);
@@ -103,10 +103,15 @@ it('asks about the starting condition instead of requiring a removal SKU when pr
 
   expect(first.result).toMatchObject({ kind: 'clarification', question: 'product', options: expect.arrayContaining(['Nothing']) });
 
-  const bare = await evaluateReceptionistTurn(intent({ factUpdates: { ...patch, existingProduct: 'none', removal: 'no' } }), first.next, { message: 'Nothing', kinds: ['proposal'], price: 8000, duration: 105 });
+  const bare = await evaluateReceptionistTurn(intent({ factUpdates: { ...patch, existingProduct: 'none', removal: 'no' } }), first.next, { message: 'Nothing', kinds: ['clarification'] });
 
   expect(bare.failures).toEqual([]);
   expect(bare.next.facts?.existingProduct).toBe('none');
+  expect(bare.result).toMatchObject({ kind: 'clarification', question: 'finish' });
+
+  const skipped = await evaluateReceptionistTurn(intent({ factUpdates: { ...patch, designPreference: 'skip' } }), bare.next, { message: 'Skip for now', kinds: ['proposal'], price: 8000, duration: 105 });
+
+  expect(skipped.failures).toEqual([]);
 });
 
 it('does not inherit a refill into a changed service while retaining the existing product', async () => {
@@ -340,7 +345,7 @@ it('leaves informational turns and same-product refills outside the cross-produc
 
   const refill = await evaluateReceptionistTurn(intent({
     serviceId: 'svc_semantic_gelx_fill',
-    factUpdates: { ...patch, treatment: 'gel_x', desiredApplication: 'extensions', maintenance: 'refill', existingProduct: 'gel_x', origin: 'this_salon', removal: 'no' },
+    factUpdates: { ...patch, treatment: 'gel_x', desiredApplication: 'extensions', maintenance: 'refill', existingProduct: 'gel_x', origin: 'this_salon', removal: 'no', designPreference: 'plain' },
   }), createCustomerConversation('synthetic-isla', 'synthetic-only'), {
     message: 'Gel-X refill, no removal',
     kinds: ['proposal'],
@@ -359,9 +364,9 @@ it('never offers a different product removal when a transition fact is known but
 });
 
 it('re-resolves a length correction inside a price question before exposing the new total', async () => {
-  const first = await evaluateReceptionistTurn(intent({ factUpdates: { ...patch, treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', length: 'medium' } }), createCustomerConversation('synthetic-isla', 'synthetic-only'), { message: 'medium Gel-X on bare nails', kinds: ['proposal'], price: 8000, duration: 105 });
+  const first = await evaluateReceptionistTurn(intent({ factUpdates: { ...patch, treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', length: 'medium', designPreference: 'plain' } }), createCustomerConversation('synthetic-isla', 'synthetic-only'), { message: 'medium Gel-X on bare nails', kinds: ['proposal'], price: 8000, duration: 105 });
   first.next.booking = { acceptedFingerprint: 'a'.repeat(64), datePreference: { date: '2026-09-19', earliest: '09:00', latest: '17:00' }, offeredSlots: [{ time: '09:00', startTime: '2026-09-19T13:00:00.000Z' }], selectedSlot: null };
-  const corrected = await evaluateReceptionistTurn(intent({ action: 'answer', answerTopic: 'price', factUpdates: { ...patch, length: 'short' } }), first.next, { message: 'actually short, how much now?', kinds: ['proposal'], price: 7000, duration: 90 });
+  const corrected = await evaluateReceptionistTurn(intent({ action: 'answer', selectionChangeExplicitThisTurn: true, answerTopic: 'price', factUpdates: { ...patch, length: 'short' } }), first.next, { message: 'actually short, how much now?', kinds: ['proposal'], price: 7000, duration: 90 });
 
   expect(corrected.failures).toEqual([]);
   expect(corrected.next.facts?.existingProduct).toBe('none');
@@ -408,4 +413,56 @@ it('clears an inherited extension length when an explicit treatment switch moves
   expect(explicitlyRetained.next.facts?.length).toBe('long');
   expect(explicitlyRetained.result).toEqual({ kind: 'unavailable', reason: 'unsupported_combination' });
   expect(explicitlyRetained.next.facts?.treatment).toBe('builder_gel');
+});
+
+it('quotes without French as a hypothetical full selection while preserving every draft fact and choice', async () => {
+  const first = await evaluateReceptionistTurn(intent({ factUpdates: { ...patch, treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', length: 'medium', french: 'yes' } }), createCustomerConversation('synthetic-isla', 'synthetic-only'), { message: 'medium Gel-X with French on bare nails', kinds: ['proposal'], price: 9000, duration: 120 });
+  const answer = await evaluateReceptionistTurn(intent({ action: 'answer', answerTopic: 'price', priceComparison: 'without_french', factUpdates: { ...patch, french: 'no' }, addOnUpdates: { add: [], remove: ['addon_semantic_french'] } }), first.next, { message: 'How much without French?', kinds: ['answer'] });
+
+  expect(answer.failures).toEqual([]);
+  expect(answer.next.facts).toEqual(first.next.facts);
+  expect(answer.next.requestedSelection).toEqual(first.next.requestedSelection);
+  expect(answer.next.context?.selection).toEqual(first.next.context?.selection);
+  expect(answer.result).toMatchObject({ kind: 'answer', alternatives: [{ label: 'Without French', subtotalCents: 8000, durationMinutes: 105, deltaCents: -1000, currency: 'CAD' }] });
+});
+
+it('updates a per-nail repair quantity through the full quote and preserves other choices', async () => {
+  const first = await evaluateReceptionistTurn(intent({ factUpdates: { ...patch, treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', length: 'medium', french: 'yes', repairCount: 2 } }), createCustomerConversation('synthetic-isla', 'synthetic-only'), { message: 'medium French Gel-X, bare nails, two repairs', kinds: ['proposal'], price: 9600, duration: 130 });
+  const corrected = await evaluateReceptionistTurn(intent({ factUpdates: { ...patch, repairCount: 3 } }), first.next, { message: 'Actually three nails need repair', kinds: ['proposal'], price: 9900, duration: 135 });
+
+  expect(first.failures).toEqual([]);
+  expect(corrected.failures).toEqual([]);
+  expect(corrected.next.facts).toMatchObject({ repairCount: 3, length: 'medium', french: 'yes', existingProduct: 'none' });
+});
+
+it('resolves an application-only switch without inheriting the incompatible prior treatment', async () => {
+  const first = await evaluateReceptionistTurn(intent({ serviceId: 'svc_semantic_gel_manicure', factUpdates: { ...patch, treatment: 'gel_polish', desiredApplication: 'natural_nails', existingProduct: 'none' } }), createCustomerConversation('synthetic-isla', 'synthetic-only'), { message: 'gel manicure, bare nails', kinds: ['clarification'] });
+  const switched = await evaluateReceptionistTurn(intent({ action: 'clarify', serviceId: null, question: 'length', factUpdates: { ...patch, desiredApplication: 'extensions' } }), first.next, { message: 'Actually can I get an extension?', kinds: ['clarification'] });
+
+  expect(switched.failures).toEqual([]);
+  expect(switched.result).toMatchObject({ kind: 'clarification', question: 'length' });
+  expect(switched.next.facts).toMatchObject({ treatment: 'unknown', desiredApplication: 'extensions', existingProduct: 'none' });
+
+  const length = await evaluateReceptionistTurn(intent({ serviceId: 'svc_semantic_gelx', factUpdates: { ...patch, length: 'medium' } }), switched.next, { message: 'Medium', kinds: ['clarification'] });
+  const design = await evaluateReceptionistTurn(intent({ serviceId: 'svc_semantic_gelx', factUpdates: { ...patch, french: 'yes' } }), length.next, { message: 'French', kinds: ['proposal'], price: 9000, duration: 120 });
+
+  expect(length.failures).toEqual([]);
+  expect(design.failures).toEqual([]);
+});
+
+it('clears inherited extension length on an application-only switch back to natural nails', async () => {
+  const first = await evaluateReceptionistTurn(intent({ factUpdates: { ...patch, treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', length: 'medium', french: 'yes' } }), createCustomerConversation('synthetic-isla', 'synthetic-only'), { message: 'medium Gel-X French, bare nails', kinds: ['proposal'] });
+  const switched = await evaluateReceptionistTurn(intent({ action: 'clarify', serviceId: null, question: 'service', factUpdates: { ...patch, desiredApplication: 'natural_nails' } }), first.next, { message: 'Actually just my natural nails', kinds: ['clarification'] });
+
+  expect(switched.failures).toEqual([]);
+  expect(switched.result).toMatchObject({ kind: 'clarification', question: 'service' });
+  expect(switched.next.facts).toMatchObject({ treatment: 'unknown', desiredApplication: 'natural_nails', length: 'unknown', french: 'yes', existingProduct: 'none' });
+});
+
+it('retains explicit personal preferences in advice without selecting a service or authorizing handoff', async () => {
+  const answer = await evaluateReceptionistTurn(intent({ action: 'answer', answerTopic: 'recommendation', serviceId: null, selectionChangeExplicitThisTurn: true, factUpdates: { ...patch, desiredApplication: 'extensions' } }), createCustomerConversation('synthetic-isla', 'synthetic-only'), { message: 'I want longer nails but do not know what I need', kinds: ['answer'] });
+
+  expect(answer.next.facts?.desiredApplication).toBe('extensions');
+  expect(answer.next.context?.selection ?? null).toBeNull();
+  expect(answer.next.requestedSelection).toBeUndefined();
 });

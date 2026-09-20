@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn(), current: vi.fn() }));
+vi.mock('./revision.server', () => ({ isCurrentCustomerRevision: mocks.current }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/core/redis/redisClient', () => ({ redis: { get: mocks.get, set: mocks.set } }));
 
@@ -21,6 +22,7 @@ beforeEach(() => {
   vi.useRealTimers();
   mocks.get.mockReset();
   mocks.set.mockReset();
+  mocks.current.mockReset().mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -51,6 +53,13 @@ describe('completed customer-turn replay cache', () => {
 
     const completed = response();
     mocks.get.mockResolvedValueOnce(JSON.stringify({ ...completed, conversation: `${completed.conversation}tampered` }));
+
+    await expect(readCompletedCustomerTurn(request, secret)).resolves.toBeNull();
+  });
+
+  it('never replays an obsolete proposal or one superseded by an in-flight turn', async () => {
+    mocks.get.mockResolvedValue(JSON.stringify(response()));
+    mocks.current.mockResolvedValue(false);
 
     await expect(readCompletedCustomerTurn(request, secret)).resolves.toBeNull();
   });

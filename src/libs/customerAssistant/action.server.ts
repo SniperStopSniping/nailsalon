@@ -6,10 +6,12 @@ import type { SalonFeatures } from '@/types/salonPolicy';
 
 import { getCustomerAssistantConfig } from './access.server';
 import { reserveCustomerAssistantTurn } from './budget.server';
-import { buildCustomerProposal } from './catalogue.server';
+import type { buildCustomerProposal } from './catalogue.server';
 import type { CustomerAssistantAction, CustomerAssistantResponse, CustomerAssistantResult } from './contracts';
 import { advanceCustomerConversation, conversationInvalidReason, signCustomerConversation, verifyCustomerConversation } from './conversation.server';
 import { recordCustomerAssistantUsage } from './ledger.server';
+import { assessReadyCustomerProposal } from './readiness.server';
+import { completeCustomerRevision } from './revision.server';
 import { getCustomerAvailabilityContext, hasOfferedCustomerSlot, lookupCustomerSlots } from './slots.server';
 
 type BoundSalon = { id: string; slug: string };
@@ -41,6 +43,7 @@ export async function runCustomerAssistantAction(args: {
     salonId: args.salon.id,
     sessionId: prior.sessionId,
     turnIndex: prior.turnIndex,
+    conversation: args.conversation,
     clientIp: args.clientIp,
     now: args.now,
   });
@@ -48,9 +51,10 @@ export async function runCustomerAssistantAction(args: {
     return unavailable(args.conversation, reservation.reason);
   }
   const next = advanceCustomerConversation(prior, args.now?.getTime());
-  const sign = (result: CustomerAssistantResult): CustomerAssistantResponse => {
+  const sign = async (result: CustomerAssistantResult): Promise<CustomerAssistantResponse> => {
     try {
-      return { conversation: signCustomerConversation(next, config.signingSecret), result };
+      const response = { conversation: signCustomerConversation(next, config.signingSecret), result };
+      return await completeCustomerRevision(next, response.conversation) ? response : unavailable(args.conversation, 'unavailable');
     } catch {
       return unavailable(args.conversation, 'conversation_used');
     }
@@ -62,9 +66,19 @@ export async function runCustomerAssistantAction(args: {
 
   let proposal;
   try {
-    proposal = await buildCustomerProposal(args.salon.id, args.features, selected);
+    const assessment = await assessReadyCustomerProposal({ salonId: args.salon.id, features: args.features, state: prior });
+    if (assessment.clarification) {
+      next.booking = undefined;
+      next.context = { question: assessment.clarification.question, options: assessment.clarification.options, selection: selected };
+      return sign(assessment.clarification);
+    }
+    proposal = assessment.proposal;
   } catch {
     next.context = undefined;
+    next.booking = undefined;
+    return sign({ kind: 'unavailable', reason: 'selection_changed' });
+  }
+  if (!proposal) {
     next.booking = undefined;
     return sign({ kind: 'unavailable', reason: 'selection_changed' });
   }
@@ -139,7 +153,7 @@ async function slotsForPreference(args: {
   proposal: Awaited<ReturnType<typeof buildCustomerProposal>>;
   next: ReturnType<typeof verifyCustomerConversation> & { turnIndex: number };
   preference: { date: string; earliest: string; latest: string };
-  sign: (result: CustomerAssistantResult) => CustomerAssistantResponse;
+  sign: (result: CustomerAssistantResult) => Promise<CustomerAssistantResponse>;
 }): Promise<CustomerAssistantResponse> {
   let fresh;
   try {

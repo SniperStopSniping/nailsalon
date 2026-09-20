@@ -6,7 +6,7 @@ export type SemanticClarificationQuestion = 'service' | 'removal' | 'product' | 
 
 export type SemanticSelectionResult =
   | { kind: 'selection'; selection: CustomerSelection }
-  | { kind: 'clarification'; question: SemanticClarificationQuestion; optionIds: string[] }
+  | { kind: 'clarification'; question: SemanticClarificationQuestion; optionIds: string[]; selection?: CustomerSelection }
   | { kind: 'no_match' };
 
 type PublicAddOn = CustomerMenu['addOns'][number];
@@ -79,6 +79,26 @@ function isRefill(service: PublicService): boolean {
   return /\brefill\b|\bfill\b|\bmaintenance\b/.test(text);
 }
 
+function isDesign(addOn: PublicAddOn): boolean {
+  return /\b(?:french|chrome|art|design|finish|ombre|glitter)\b/.test(textFor(addOn));
+}
+
+/** Only an explicit public inclusion statement establishes an included base length. */
+function includedBaseLength(menu: CustomerMenu, service: PublicService): Facts['length'] {
+  const variant = serviceVariantLength(menu, service);
+  if (variant !== 'unknown') {
+    return variant;
+  }
+  const descriptions = service.description.split('\n');
+  for (const length of ['extra_long', 'short', 'medium', 'long'] as const) {
+    const label = length.replace('_', ' ');
+    if (descriptions.some(text => new RegExp(`^(?:includes? ${label}(?: length)?|${label} length (?:is )?included)(?:[. ,]|$)`, 'i').test(text.trim()))) {
+      return length;
+    }
+  }
+  return 'unknown';
+}
+
 function isFrench(addOn: PublicAddOn): boolean {
   return /\bfrench\b/.test(textFor(addOn));
 }
@@ -130,6 +150,8 @@ export const semanticCatalog = {
   serviceVariantLength,
   isRefill,
   isFrench,
+  isDesign,
+  includedBaseLength,
   lengthFor,
   isRepair,
   isRemoval,
@@ -222,7 +244,11 @@ export function resolveSemanticSelection(args: {
     choices.set(choice.addOnId, choice.quantity);
   }
 
-  if (facts.french === 'yes') {
+  if (facts.designPreference === 'plain') {
+    replaceSemanticChoice(choices, isDesign, null, menu);
+  }
+
+  if (facts.french === 'yes' && facts.designPreference !== 'plain') {
     const french = allowed.filter(isFrench);
     const selected = unique(french);
     if (!selected) {
@@ -233,19 +259,19 @@ export function resolveSemanticSelection(args: {
     replaceSemanticChoice(choices, isFrench, null, menu);
   }
 
-  if (facts.length !== 'unknown' && serviceVariantLength(menu, service) !== facts.length) {
+  if (facts.lengthChoice === 'base') {
+    replaceSemanticChoice(choices, addOn => lengthFor(addOn) !== 'unknown', null, menu);
+  }
+  if (facts.length !== 'unknown' && includedBaseLength(menu, service) === facts.length) {
+    replaceSemanticChoice(choices, addOn => lengthFor(addOn) !== 'unknown', null, menu);
+  }
+  if (facts.length !== 'unknown' && includedBaseLength(menu, service) !== facts.length) {
     const exactLength = allowed.filter(addOn => lengthFor(addOn) === facts.length);
-    if (facts.length === 'short' && exactLength.length === 0) {
-      // Short is a real customer request, not permission to select a paid
-      // upgrade. Leave L1 required-group enforcement to the quote authority.
-      replaceSemanticChoice(choices, addOn => lengthFor(addOn) !== 'unknown', null, menu);
-    } else {
-      const selected = unique(exactLength);
-      if (!selected) {
-        return clarification('length', exactLength.length ? exactLength : allowed.filter(addOn => lengthFor(addOn) !== 'unknown'));
-      }
-      replaceSemanticChoice(choices, addOn => lengthFor(addOn) !== 'unknown', selected, menu);
+    const selected = unique(exactLength);
+    if (!selected) {
+      return clarification('length', exactLength.length ? exactLength : allowed.filter(addOn => lengthFor(addOn) !== 'unknown'));
     }
+    replaceSemanticChoice(choices, addOn => lengthFor(addOn) !== 'unknown', selected, menu);
   }
 
   if (facts.repairCount !== 'unknown') {
@@ -270,7 +296,7 @@ export function resolveSemanticSelection(args: {
     }
   }
 
-  if (facts.removal === 'no') {
+  if (facts.removal === 'no' || (facts.existingProduct === 'none' && facts.removal !== 'yes')) {
     replaceSemanticChoice(choices, isRemoval, null, menu);
   } else if (facts.removal === 'yes') {
     if (facts.existingProduct === 'unknown' || facts.existingProduct === 'none') {
@@ -326,10 +352,16 @@ export function selectionConflictsWithExplicitFacts(
   }
   const choices = authoritativeAddOns ?? selection.selectedAddOns.map(choice => ({ id: choice.addOnId, quantity: choice.quantity }));
   const selected = choices.map(choice => ({ addOn: menu.addOns.find(item => item.id === choice.id), quantity: choice.quantity })).filter((item): item is { addOn: PublicAddOn; quantity: number } => Boolean(item.addOn));
+  if (facts.designPreference === 'plain' && selected.some(item => isDesign(item.addOn))) {
+    return true;
+  }
   if (facts.french === 'no' && selected.some(item => isFrench(item.addOn))) {
     return true;
   }
-  if (facts.french === 'yes' && !selected.some(item => isFrench(item.addOn))) {
+  if (facts.french === 'yes' && facts.designPreference !== 'plain' && !selected.some(item => isFrench(item.addOn))) {
+    return true;
+  }
+  if (facts.lengthChoice === 'base' && selected.some(item => lengthFor(item.addOn) !== 'unknown')) {
     return true;
   }
   if (facts.length !== 'unknown' && selected.some(item => lengthFor(item.addOn) !== 'unknown' && lengthFor(item.addOn) !== facts.length)) {
@@ -341,7 +373,7 @@ export function selectionConflictsWithExplicitFacts(
       return true;
     }
   }
-  if (facts.removal === 'no' && selected.some(item => isRemoval(item.addOn))) {
+  if ((facts.removal === 'no' || facts.existingProduct === 'none') && selected.some(item => isRemoval(item.addOn))) {
     return true;
   }
   if (facts.origin === 'this_salon' && selected.some(item => isForeignRemoval(item.addOn))) {

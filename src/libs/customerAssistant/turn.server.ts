@@ -12,6 +12,7 @@ import { getCustomerAssistantConfig } from './access.server';
 import { compactCustomerModelContext } from './boundedModelContext';
 import { reserveCustomerAssistantTurn } from './budget.server';
 import { buildCustomerProposal, loadCustomerClarificationSnapshot, loadCustomerMenu, validateCustomerMenuSelection } from './catalogue.server';
+import { customerPartialQuoteSelection } from './consultation';
 import { CUSTOMER_ASSISTANT_INTERPRETATION_MODEL, CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL, type CustomerAssistantLocale, type CustomerAssistantResponse, type CustomerAssistantResult } from './contracts';
 import { advanceCustomerConversation, conversationInvalidReason, signCustomerConversation, verifyCustomerConversation } from './conversation.server';
 import { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } from './interpretation';
@@ -21,6 +22,7 @@ import { aggregateCustomerAssistantStageUsage, type CustomerAssistantStageUsage 
 import { loadCustomerPublicFacts } from './publicFacts.server';
 import { buildReplyInput, createReplySchema, fallbackReceptionistReply, parseReceptionistReply, RECEPTIONIST_REPLY_PROMPT } from './reply';
 import { applyCustomerTurnResult, resolveCustomerTurn } from './resolveTurn';
+import { completeCustomerRevision } from './revision.server';
 import { emptyFacts } from './semanticFacts';
 import { selectionConflictsWithExplicitFacts } from './semanticSelection';
 import { getCustomerAvailabilityContext, lookupCustomerSlots, lookupNextCustomerSlots } from './slots.server';
@@ -111,6 +113,7 @@ export async function runCustomerAssistantTurn(args: {
     salonId: args.salonId,
     sessionId: conversation.sessionId,
     turnIndex: conversation.turnIndex,
+    conversation: args.conversation,
     clientIp: args.clientIp,
   });
   if (!reservation.ok) {
@@ -207,9 +210,18 @@ export async function runCustomerAssistantTurn(args: {
     }
     if (publicFacts) {
       let currentProposal;
-      if (result.kind === 'answer' && nextState.context?.selection) {
+      let quoteIsDraft = false;
+      if (result.kind === 'answer') {
         try {
-          const checked = await buildCustomerProposal(args.salonId, args.features, nextState.context.selection);
+          let quoteSelection = nextState.context?.selection;
+          if (!quoteSelection && nextState.requestedSelection && menu.l1) {
+            quoteSelection = customerPartialQuoteSelection({ menu, snapshot: await loadCustomerClarificationSnapshot(args.salonId), facts: nextState.facts ?? emptyFacts(), candidate: nextState.requestedSelection }) ?? undefined;
+            quoteIsDraft = Boolean(quoteSelection);
+          }
+          if (!quoteSelection) {
+            throw new Error('CUSTOMER_CONFIGURED_QUOTE_UNAVAILABLE');
+          }
+          const checked = await buildCustomerProposal(args.salonId, args.features, quoteSelection);
           if (!selectionConflictsWithExplicitFacts(menu, nextState.facts ?? emptyFacts(), { baseServiceId: checked.service.id, selectedAddOns: checked.addOns.map(item => ({ addOnId: item.id, quantity: item.quantity })) })) {
             currentProposal = checked;
           }
@@ -222,11 +234,11 @@ export async function runCustomerAssistantTurn(args: {
         const offer = await getNextVisitOfferAssistantFacts({
           salonId: args.salonId,
           ...(conversation.nextVisitOffer ? { reference: conversation.nextVisitOffer } : {}),
-          services: currentProposal ? [{ id: currentProposal.service.id, priceCents: currentProposal.service.priceCents }] : [],
+          services: currentProposal && !quoteIsDraft ? [{ id: currentProposal.service.id, priceCents: currentProposal.service.priceCents }] : [],
           ...(nextState.booking?.selectedSlot ? { startTime: nextState.booking.selectedSlot.startTime } : {}),
         });
         if (offer) {
-          nextVisitOfferMessage = nextVisitOfferFact({ offer, menu, locale: args.locale, hasSelectedService: Boolean(currentProposal) });
+          nextVisitOfferMessage = nextVisitOfferFact({ offer, menu, locale: args.locale, hasSelectedService: Boolean(currentProposal) && !quoteIsDraft });
         } else {
           nextVisitOfferMessage = args.locale === 'fr'
             ? 'Aucune offre prochaine visite vérifiée n’est liée à cette session de réservation. Réserver à nouveau n’ajoute pas automatiquement une réduction.'
@@ -236,7 +248,7 @@ export async function runCustomerAssistantTurn(args: {
         // Offers are optional public context. A read failure cannot weaken or
         // change the assistant's normal conversation and booking behavior.
       }
-      const replyArgs = { menu, publicFacts, result, conversation, nextState, message: args.message, locale: args.locale, currentProposal, ...(nextVisitOfferMessage ? { nextVisitOfferFact: nextVisitOfferMessage } : {}) };
+      const replyArgs = { menu, publicFacts, result, conversation, nextState, message: args.message, locale: args.locale, currentProposal, quoteIsDraft, ...(nextVisitOfferMessage ? { nextVisitOfferFact: nextVisitOfferMessage } : {}) };
       const reply = buildReplyInput(replyArgs);
       const replySchema = createReplySchema(reply.facts);
       const fallback = fallbackReceptionistReply(replyArgs, reply.facts);
@@ -328,6 +340,9 @@ export async function runCustomerAssistantTurn(args: {
   nextState.dialogue = [...(conversation.dialogue ?? conversation.messages.map(content => ({ role: 'user' as const, content }))), { role: 'user' as const, content: args.message }, ...(spoken ? [{ role: 'assistant' as const, content: spoken.slice(0, 2400) }] : [])].slice(-24);
   try {
     const response = { conversation: signCustomerConversation(nextState, config.signingSecret), result };
+    if (!await completeCustomerRevision(nextState, response.conversation)) {
+      return unavailable('unavailable');
+    }
     await storeCompletedCustomerTurn(args, response);
     return response;
   } catch {

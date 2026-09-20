@@ -77,10 +77,10 @@ describe('customer assistant semantic selection', () => {
     expect(resolveSemanticSelection({ menu, facts: emptyFacts(), candidate: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'art', quantity: 1 }, { addOnId: 'art', quantity: 1 }] } })).toEqual({ kind: 'clarification', question: 'details', optionIds: [] });
   });
 
-  it('leaves a short request unpriced when a menu has no explicit short option', () => {
+  it('asks about real lengths instead of inventing a short base option', () => {
     const withoutShort: CustomerMenu = { ...menu, addOns: menu.addOns.filter(item => item.id !== 'short'), bindings: menu.bindings.filter(item => item.addOnId !== 'short') };
 
-    expect(resolveSemanticSelection({ menu: withoutShort, facts: facts({ treatment: 'gel_x', maintenance: 'new_set', length: 'short' }), candidate: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'medium', quantity: 1 }] } })).toEqual({ kind: 'selection', selection: { baseServiceId: 'gelx', selectedAddOns: [] } });
+    expect(resolveSemanticSelection({ menu: withoutShort, facts: facts({ treatment: 'gel_x', maintenance: 'new_set', length: 'short' }), candidate: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'medium', quantity: 1 }] } })).toEqual({ kind: 'clarification', question: 'length', optionIds: ['medium'] });
   });
 
   it('does not treat descriptions, generic extensions, or a manicure-pedicure combo as product identities', () => {

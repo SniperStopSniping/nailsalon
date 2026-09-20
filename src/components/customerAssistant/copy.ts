@@ -5,7 +5,8 @@ type CustomerAssistantCopy = {
   title: string;
   close: string;
   continueManually: string;
-  introduction: string;
+  welcome: (salonName: string) => string;
+  welcomeQuickReplies: readonly string[];
   placeholder: string;
   changePlaceholder: string;
   answerPlaceholder: string;
@@ -20,6 +21,7 @@ type CustomerAssistantCopy = {
   proposal: string;
   services: string;
   addOns: string;
+  configuration: string;
   duration: string;
   subtotal: string;
   subtotalNote: string;
@@ -29,11 +31,12 @@ type CustomerAssistantCopy = {
 
 export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssistantCopy> = {
   en: {
-    launcher: 'Help me choose',
-    title: 'Help me choose',
+    launcher: 'Help me choose & book',
+    title: 'AI booking assistant',
     close: 'Close assistant',
     continueManually: 'Continue manually',
-    introduction: 'Ask me about services, prices or the salon—or tell me what you have in mind.',
+    welcome: salonName => `Hey! Welcome to ${salonName} 💅 I’m your AI booking assistant. Are you looking to book, check prices, or get help choosing your next nail look?`,
+    welcomeQuickReplies: ['Book an appointment', 'See prices', 'Help me choose'],
     placeholder: 'Tell me what you would like',
     changePlaceholder: 'Add or change anything…',
     answerPlaceholder: 'Type an answer or choose below',
@@ -45,9 +48,10 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     networkError: 'We could not reach the assistant. Your previous conversation was kept. Please try again.',
     tokenError: 'This conversation is no longer available. Start over to continue.',
     availability: 'Available times to consider',
-    proposal: 'Suggested services',
+    proposal: 'Your appointment package',
     services: 'Service',
     addOns: 'Add-ons',
+    configuration: 'Details',
     duration: 'Duration',
     subtotal: 'Subtotal',
     subtotalNote: 'Before tax and any conditional discounts.',
@@ -55,10 +59,10 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
       date: 'What day works for you?',
       service: 'Which service are you looking for?',
       removal: 'Do you need a removal?',
-      product: 'What product is currently on your nails?',
+      product: 'Anything on your nails right now?',
       origin: 'Was your existing set done here or at another salon?',
-      length: 'What length would you like?',
-      finish: 'Which finish would you like?',
+      length: 'What length are you thinking?',
+      finish: 'Would you like a design or a plain colour?',
       quantity: 'How many would you like?',
       details: 'Could you share one more detail?',
     },
@@ -84,11 +88,12 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     },
   },
   fr: {
-    launcher: 'M’aider à choisir',
-    title: 'M’aider à choisir',
+    launcher: 'M’aider à choisir et réserver',
+    title: 'Assistante de réservation IA',
     close: 'Fermer l’assistant',
     continueManually: 'Continuer manuellement',
-    introduction: 'Posez-moi vos questions sur les services, les prix ou le salon, ou décrivez ce que vous souhaitez.',
+    welcome: salonName => `Bonjour! Bienvenue chez ${salonName} 💅 Je suis votre assistante IA pour les réservations. Souhaitez-vous réserver, voir les prix ou choisir votre prochain look?`,
+    welcomeQuickReplies: ['Réserver un rendez-vous', 'Voir les prix', 'M’aider à choisir'],
     placeholder: 'Dites-moi ce que vous voulez',
     changePlaceholder: 'Ajoutez ou modifiez quelque chose…',
     answerPlaceholder: 'Répondez ou choisissez ci-dessous',
@@ -100,20 +105,21 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     networkError: 'Nous ne pouvons pas joindre l’assistant. Votre conversation précédente a été conservée. Réessayez.',
     tokenError: 'Cette conversation n’est plus disponible. Recommencez pour continuer.',
     availability: 'Heures disponibles à considérer',
-    proposal: 'Services suggérés',
+    proposal: 'Votre forfait rendez-vous',
     services: 'Service',
     addOns: 'Ajouts',
+    configuration: 'Détails',
     duration: 'Durée',
     subtotal: 'Sous-total',
     subtotalNote: 'Avant les taxes et les rabais conditionnels.',
     questions: {
-      product: 'Quel produit avez-vous actuellement sur les ongles ?',
+      product: 'Avez-vous quelque chose sur vos ongles en ce moment?',
       origin: 'Votre pose actuelle a-t-elle été faite ici ou dans un autre salon ?',
       date: 'Quel jour vous convient ?',
       service: 'Quel service recherchez-vous?',
       removal: 'Avez-vous besoin d’un retrait?',
-      length: 'Quelle longueur souhaitez-vous?',
-      finish: 'Quelle finition souhaitez-vous?',
+      length: 'Quelle longueur avez-vous en tête?',
+      finish: 'Préférez-vous un design ou une couleur unie?',
       quantity: 'Combien en souhaitez-vous?',
       details: 'Pouvez-vous partager un détail de plus?',
     },

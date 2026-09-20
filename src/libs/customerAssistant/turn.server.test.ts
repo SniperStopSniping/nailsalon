@@ -7,6 +7,7 @@ import { CUSTOMER_INTERPRETATION_PROMPT } from './interpretation';
 const mocks = vi.hoisted(() => ({ reserve: vi.fn(), menu: vi.fn(), snapshot: vi.fn(), proposal: vi.fn(), record: vi.fn(), validate: vi.fn(), lookup: vi.fn(), nextSlots: vi.fn(), publicFacts: vi.fn(), nextVisitOfferFacts: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('./access.server', () => ({ getCustomerAssistantConfig: () => ({ apiKey: 'customer-only', signingSecret: 'x'.repeat(32) }) }));
+vi.mock('./revision.server', () => ({ completeCustomerRevision: vi.fn().mockResolvedValue(true) }));
 vi.mock('./budget.server', () => ({ reserveCustomerAssistantTurn: mocks.reserve }));
 vi.mock('./catalogue.server', () => ({ loadCustomerMenu: mocks.menu, loadCustomerClarificationSnapshot: mocks.snapshot, buildCustomerProposal: mocks.proposal, validateCustomerMenuSelection: mocks.validate }));
 vi.mock('./publicFacts.server', () => ({ loadCustomerPublicFacts: mocks.publicFacts }));
@@ -89,8 +90,8 @@ describe('customer assistant bounded turn', () => {
     const lengths = SEMANTIC_L1_MENU.addOns.filter(item => item.name.includes('Length')).map(item => item.id);
     const selection = { baseServiceId: biab, selectedAddOns: [] };
     mocks.proposal.mockResolvedValue({ selection, fingerprint: acceptedFingerprint, service: { id: biab, name: 'BIAB Builder Gel', priceCents: 5500 }, addOns: [], subtotalCents: 5500, durationMinutes: 90, currency: 'CAD', expiresAt: '2026-09-18T00:00:00Z' });
-    const model = provider({ ...interpretation, action: 'clarify', serviceId: biab, question: 'length', optionIds: lengths, addOns: [], factUpdates: { ...noFactUpdates, treatment: 'builder_gel', desiredApplication: 'natural_nails', existingProduct: 'none' } });
-    const result = await runCustomerAssistantTurn({ ...input(), message: 'BIAB on my natural nails' }, model);
+    const model = provider({ ...interpretation, action: 'clarify', serviceId: biab, question: 'length', optionIds: lengths, addOns: [], factUpdates: { ...noFactUpdates, treatment: 'builder_gel', desiredApplication: 'natural_nails', existingProduct: 'none', designPreference: 'plain' } });
+    const result = await runCustomerAssistantTurn({ ...input(), message: 'Plain BIAB on my natural nails' }, model);
 
     expect(result.result).toMatchObject({ kind: 'proposal', proposal: { subtotalCents: 5500, durationMinutes: 90 } });
     expect(mocks.snapshot).toHaveBeenCalledWith('salon-a');
@@ -119,8 +120,9 @@ describe('customer assistant bounded turn', () => {
         { id: 'own-removal', name: 'Gel-X Removal', description: '', category: 'removal', pricingType: 'fixed', maxQuantity: 1 },
         { id: 'foreign-removal', name: 'Removal From Another Salon', description: '', category: 'removal', pricingType: 'fixed', maxQuantity: 1 },
         { id: 'medium', name: 'Medium Length', description: '', category: 'nail_art', pricingType: 'fixed', maxQuantity: 1 },
+        { id: 'short', name: 'Short Length', description: '', category: 'nail_art', pricingType: 'fixed', maxQuantity: 1 },
       ],
-      bindings: ['french', 'own-removal', 'foreign-removal', 'medium'].map(addOnId => ({ serviceId: 'gelx', addOnId, required: false, maxQuantity: 1 })),
+      bindings: ['french', 'own-removal', 'foreign-removal', 'medium', 'short'].map(addOnId => ({ serviceId: 'gelx', addOnId, required: false, maxQuantity: 1 })),
     });
     mocks.proposal.mockImplementation(async (_salon, _features, selection) => ({ selection, fingerprint: acceptedFingerprint, service: { id: 'gelx', name: 'Gel-X Extensions', priceCents: 7000 }, addOns: selection.selectedAddOns.map((item: { addOnId: string; quantity: number }) => ({ id: item.addOnId, name: item.addOnId, quantity: item.quantity, priceCents: 1000 })), subtotalCents: 9000, durationMinutes: 125, currency: 'CAD', expiresAt: '2026-09-18T00:00:00Z' }));
     const firstModel = provider({ ...interpretation, action: 'clarify', question: 'length', optionIds: ['medium'], addOns: [{ addOnId: 'foreign-removal', quantity: 1 }], factUpdates: { ...noFactUpdates, treatment: 'gel_x', maintenance: 'new_set', length: 'short', french: 'yes', existingProduct: 'gel_x', origin: 'this_salon', removal: 'yes' } });
@@ -200,7 +202,7 @@ describe('customer assistant bounded turn', () => {
       description: 'public'.repeat(3),
       category: 'm',
     }));
-    const addOns = Array.from({ length: 80 }, (_, index) => ({
+    const addOns = Array.from({ length: 65 }, (_, index) => ({
       id: index === 0 ? 'french' : `a${index}${'a'.repeat(10)}`,
       name: index === 0 ? 'French' : `A${index}`,
       description: '',
@@ -208,7 +210,7 @@ describe('customer assistant bounded turn', () => {
       pricingType: 'per_unit',
       maxQuantity: 10,
     }));
-    const bindings = Array.from({ length: 160 }, (_, index) => index === 0
+    const bindings = Array.from({ length: 140 }, (_, index) => index === 0
       ? { serviceId: 'gelx', addOnId: 'french', required: false, defaultQuantity: 1, maxQuantity: 1 }
       : {
           serviceId: 'gelx',
@@ -261,7 +263,7 @@ describe('customer assistant bounded turn', () => {
     expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).context?.selection).toEqual(selection);
   });
 
-  it('turns an empty optional finish clarification into a Gel Manicure proposal, then reads availability without a booking write', async () => {
+  it('offers optional finish once, accepts plain, then reads availability without a booking write', async () => {
     const gelManicure = SEMANTIC_L1_MENU.services.find(item => item.name === 'Gel Manicure')!.id;
     const selection = { baseServiceId: gelManicure, selectedAddOns: [] };
     const proposal = {
@@ -294,15 +296,25 @@ describe('customer assistant bounded turn', () => {
       factUpdates: { ...noFactUpdates, treatment: 'gel_polish', desiredApplication: 'natural_nails', existingProduct: 'none', removal: 'no' },
     }));
 
-    expect(first.result).toEqual({ kind: 'proposal', proposal });
+    expect(first.result).toMatchObject({ kind: 'clarification', question: 'finish', options: expect.arrayContaining(['Plain / no extras', 'Skip for now']) });
+    expect(mocks.proposal).not.toHaveBeenCalled();
+
+    const ready = await runCustomerAssistantTurn({ ...input(), conversation: first.conversation, message: 'Plain / no extras' }, provider({
+      ...interpretation,
+      serviceId: gelManicure,
+      addOns: [],
+      factUpdates: { ...noFactUpdates, designPreference: 'plain', french: 'no' },
+    }));
+
+    expect(ready.result).toEqual({ kind: 'proposal', proposal: { ...proposal, configuration: ['Plain colour / no nail art'] } });
     expect(mocks.proposal).toHaveBeenCalledWith('salon-a', null, selection);
 
-    const firstState = verifyCustomerConversation(first.conversation, 'salon-a', secret);
+    const firstState = verifyCustomerConversation(ready.conversation, 'salon-a', secret);
 
     expect(firstState.context?.selection).toEqual(selection);
     expect(firstState.booking).toBeUndefined();
 
-    const availability = await runCustomerAssistantTurn({ ...input(), conversation: first.conversation, message: 'Saturday afternoon?' }, provider({
+    const availability = await runCustomerAssistantTurn({ ...input(), conversation: ready.conversation, message: 'Saturday afternoon?' }, provider({
       ...interpretation,
       action: 'availability',
       serviceId: null,

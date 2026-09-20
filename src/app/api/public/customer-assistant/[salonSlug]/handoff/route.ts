@@ -25,6 +25,7 @@ export async function POST(request: Request, context: { params: Promise<{ salonS
     features: salon.features as SalonFeatures | null,
     conversation: body.data.conversation,
     fingerprint: body.data.fingerprint,
+    locale: body.data.locale,
     flowToken: body.data.flowToken,
     operationCapability: body.data.operationCapability,
   });

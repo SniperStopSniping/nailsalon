@@ -13,7 +13,9 @@ import { signCustomerConversation, verifyCustomerConversation } from './conversa
 import { recordCustomerAssistantUsage } from './ledger.server';
 import { customerBookingOperationReference, prepareCustomerBookingOperation } from './operationStore.server';
 import { prepareCustomerBookingQuote } from './prepareQuote.server';
+import { assessReadyCustomerProposal } from './readiness.server';
 import type { CustomerReviewResponse } from './reviewContracts';
+import { completeCustomerRevision } from './revision.server';
 import { lookupCustomerSlots } from './slots.server';
 
 type ReviewSalon = {
@@ -58,6 +60,7 @@ export async function prepareCustomerAssistantReview(args: {
     salonId: args.salon.id,
     sessionId: prior.sessionId,
     turnIndex: prior.turnIndex,
+    conversation: args.conversation,
     clientIp: args.clientIp,
     now: args.now,
   });
@@ -65,9 +68,13 @@ export async function prepareCustomerAssistantReview(args: {
     return unavailable(args.conversation, reservation.reason);
   }
   const next = { ...prior, turnIndex: prior.turnIndex + 1 };
-  const sign = (result: CustomerReviewResponse['result']): CustomerReviewResponse => {
+  const sign = async (result: CustomerReviewResponse['result']): Promise<CustomerReviewResponse> => {
     try {
-      return { conversation: signCustomerConversation(next, config.signingSecret), result };
+      const conversation = signCustomerConversation(next, config.signingSecret);
+      if (!await completeCustomerRevision(next, conversation)) {
+        return unavailable(args.conversation, 'stale_conversation');
+      }
+      return { conversation, result };
     } catch {
       return unavailable(args.conversation, 'conversation_used');
     }
@@ -78,6 +85,20 @@ export async function prepareCustomerAssistantReview(args: {
   const acceptedFingerprint = prior.booking?.acceptedFingerprint;
   if (!selection || !preference || !selectedSlot || !acceptedFingerprint) {
     return sign({ kind: 'unavailable', reason: 'selection_changed' });
+  }
+
+  try {
+    const assessment = await assessReadyCustomerProposal({ salonId: args.salon.id, features: args.features, state: prior });
+    if (assessment.clarification) {
+      next.booking = undefined;
+      next.context = { question: assessment.clarification.question, options: assessment.clarification.options, selection };
+      return sign(assessment.clarification);
+    }
+    if (!assessment.proposal) {
+      return sign({ kind: 'unavailable', reason: 'selection_changed' });
+    }
+  } catch {
+    return sign({ kind: 'unavailable', reason: 'unavailable' });
   }
 
   let fresh;

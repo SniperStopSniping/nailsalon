@@ -4,6 +4,7 @@ const treatmentSchema = z.enum(['gel_polish', 'builder_gel', 'gel_x', 'acrylic',
 const desiredApplicationSchema = z.enum(['natural_nails', 'extensions', 'unknown']);
 const maintenanceSchema = z.enum(['new_set', 'refill', 'unknown']);
 const lengthSchema = z.enum(['short', 'medium', 'long', 'extra_long', 'unknown']);
+const designPreferenceSchema = z.enum(['unknown', 'selected', 'plain', 'skip']);
 const frenchSchema = z.enum(['yes', 'no', 'unknown']);
 const existingProductSchema = z.enum(['none', 'gel_polish', 'builder_gel', 'gel_x', 'acrylic', 'unknown']);
 const originSchema = z.enum(['this_salon', 'other_salon', 'unknown']);
@@ -17,7 +18,10 @@ export const factsSchema = z.object({
   desiredApplication: desiredApplicationSchema,
   maintenance: maintenanceSchema,
   length: lengthSchema,
+  lengthChoice: z.literal('base').optional(),
   french: frenchSchema,
+  designPreference: designPreferenceSchema.optional(),
+  designChoiceIds: z.array(z.string().min(1).max(100)).max(20).optional(),
   existingProduct: existingProductSchema,
   currentProductUncertain: z.boolean().optional(),
   origin: originSchema,
@@ -36,7 +40,9 @@ export const patchSchema = z.object({
   desiredApplication: desiredApplicationSchema.nullable(),
   maintenance: maintenanceSchema.nullable(),
   length: lengthSchema.nullable(),
+  lengthChoice: z.literal('base').nullable().default(null),
   french: frenchSchema.nullable(),
+  designPreference: designPreferenceSchema.nullable().default(null),
   existingProduct: existingProductSchema.nullable(),
   currentProductUncertain: z.boolean().nullable().default(null),
   origin: originSchema.nullable(),
@@ -47,7 +53,7 @@ export const patchSchema = z.object({
 export const patchJSONSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['schemaVersion', 'treatment', 'desiredApplication', 'maintenance', 'length', 'french', 'existingProduct', 'currentProductUncertain', 'origin', 'removal', 'repairCount'],
+  required: ['schemaVersion', 'treatment', 'desiredApplication', 'maintenance', 'length', 'lengthChoice', 'french', 'designPreference', 'existingProduct', 'currentProductUncertain', 'origin', 'removal', 'repairCount'],
   properties: {
     schemaVersion: { type: 'integer', const: 1 },
     treatment: { type: ['string', 'null'], enum: ['gel_polish', 'builder_gel', 'gel_x', 'acrylic', 'unknown', null] },
@@ -58,7 +64,9 @@ export const patchJSONSchema = {
     },
     maintenance: { type: ['string', 'null'], enum: ['new_set', 'refill', 'unknown', null] },
     length: { type: ['string', 'null'], enum: ['short', 'medium', 'long', 'extra_long', 'unknown', null] },
+    lengthChoice: { type: ['string', 'null'], enum: ['base', null], description: 'base only when the customer explicitly chooses the base service / no length upgrade option. Never infer Short from this. Null when unmentioned.' },
     french: { type: ['string', 'null'], enum: ['yes', 'no', 'unknown', null] },
+    designPreference: { type: ['string', 'null'], enum: ['unknown', 'selected', 'plain', 'skip', null], description: 'selected for an explicit requested design; plain for no designs/no extras/plain nails; skip only for explicitly skipping the optional design question. No French alone is not plain or skip. Null when unmentioned.' },
     currentProductUncertain: { type: ['boolean', 'null'], description: 'True only when the customer explicitly says they do not know what is currently on their nails. Null when unmentioned. Missing information is not explicit uncertainty.' },
     existingProduct: { type: ['string', 'null'], enum: ['none', 'gel_polish', 'builder_gel', 'gel_x', 'acrylic', 'unknown', null] },
     origin: { type: ['string', 'null'], enum: ['this_salon', 'other_salon', 'unknown', null] },
@@ -97,8 +105,11 @@ export function mergeFacts(previous: Facts, patch: Patch): Facts {
     treatment: next.treatment ?? current.treatment,
     desiredApplication: next.desiredApplication ?? current.desiredApplication,
     maintenance: next.maintenance ?? current.maintenance,
-    length: next.length ?? current.length,
+    length: next.lengthChoice === 'base' ? 'unknown' : next.length ?? current.length,
+    ...(next.lengthChoice === 'base' ? { lengthChoice: 'base' } : next.length === null && current.lengthChoice ? { lengthChoice: current.lengthChoice } : {}),
     french: next.french ?? current.french,
+    ...(current.designChoiceIds ? { designChoiceIds: current.designChoiceIds } : {}),
+    ...(next.designPreference !== null ? { designPreference: next.designPreference } : current.designPreference !== undefined ? { designPreference: current.designPreference } : {}),
     existingProduct: next.existingProduct ?? current.existingProduct,
     ...(currentProductUncertain ? { currentProductUncertain: true } : currentProductUncertaintyCleared ? { currentProductUncertain: false } : current.currentProductUncertain !== undefined ? { currentProductUncertain: current.currentProductUncertain } : {}),
     origin: next.origin ?? current.origin,

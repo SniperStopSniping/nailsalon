@@ -19,7 +19,7 @@ async function installSyntheticAssistantRoutes(page: Page, responseKind: 'answer
       return;
     }
     if (url.pathname === '/api/public/customer-assistant/isla-nail-studio/session' && request.method() === 'POST') {
-      await route.fulfill({ json: { conversation: 'synthetic-conversation' } });
+      await route.fulfill({ json: { conversation: 'synthetic-conversation', salon: { name: 'Isla Nail Studio' } } });
       return;
     }
     if (url.pathname === '/api/public/customer-assistant/isla-nail-studio/chat' && request.method() === 'POST') {
@@ -94,7 +94,7 @@ async function installNaturalConversationRoutes(page: Page) {
       return;
     }
     if (url.pathname.endsWith('/session') && request.method() === 'POST') {
-      await route.fulfill({ json: { conversation: 'natural-session' } });
+      await route.fulfill({ json: { conversation: 'natural-session', salon: { name: 'Isla Nail Studio' } } });
       return;
     }
     if (url.pathname.endsWith('/chat') && request.method() === 'POST') {
@@ -134,12 +134,12 @@ test('component-browser fixture shows an authoritative proposal at 200% text zoo
   await setMobileViewportAndTextZoom(page, 390);
   await page.getByRole('button', { name: 'Help me choose & book' }).tap();
 
-  await expect(page.getByRole('heading', { name: 'Help me choose' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'AI booking assistant' })).toBeVisible();
 
   await page.getByLabel('Tell me what you would like').fill('Long Gel-X with French and old extensions from another salon');
   await page.getByRole('button', { name: 'Send' }).tap();
 
-  const proposal = page.getByRole('region', { name: 'Suggested services' });
+  const proposal = page.getByRole('region', { name: 'Your appointment package' });
 
   await expect(proposal).toBeVisible();
   await expect(page.getByText('Gel-X Extensions')).toBeVisible();
@@ -184,7 +184,7 @@ test('component-browser fixture shows a bounded customer/assistant transcript wi
   await page.getByRole('button', { name: 'Send' }).tap();
 
   await expect(page.getByLabel('You', { exact: true })).toHaveText('I would like a gel manicure with French tips');
-  await expect(page.getByLabel('Assistant', { exact: true })).toContainText('French tips would look lovely.');
+  await expect(page.getByLabel('Assistant', { exact: true }).last()).toContainText('French tips would look lovely.');
   await expect(page.getByRole('button', { name: 'Classic French' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Detailed design' })).toBeVisible();
 
@@ -221,7 +221,101 @@ test('component-browser fixture preserves the manual escape at 320px and 200% te
 
   await manual.tap();
 
-  await expect(page.getByRole('heading', { name: 'Help me choose' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'AI booking assistant' })).toHaveCount(0);
+  expect(unexpected).toEqual([]);
+});
+
+test('branded welcome, resume, start over, priced length choice, and keyboard stay usable at 320px/200%', async ({ page }, testInfo) => {
+  let sessions = 0;
+  const messages: string[] = [];
+  const unexpected: string[] = [];
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.origin !== 'http://127.0.0.1:3130') {
+      unexpected.push(`${request.method()} ${url.origin}${url.pathname}`);
+      await route.abort();
+      return;
+    }
+    if (!url.pathname.startsWith('/api/')) {
+      await route.continue();
+      return;
+    }
+    if (url.pathname.endsWith('/session') && request.method() === 'POST') {
+      sessions += 1;
+      await route.fulfill({ json: { conversation: `welcome-${sessions}`, salon: { name: 'A Very Long Synthetic Nail Studio Name' } } });
+      return;
+    }
+    if (url.pathname.endsWith('/chat') && request.method() === 'POST') {
+      const body = request.postDataJSON() as { message: string };
+      messages.push(body.message);
+      const result = body.message === 'Extensions'
+        ? { kind: 'clarification', question: 'length', options: ['Medium'], choices: [{ label: 'Medium', message: 'Medium', deltaCents: 1000, durationMinutes: 100, currency: 'CAD' }] }
+        : { kind: 'answer', message: 'Perfect — medium it is 💅', options: [] };
+      await route.fulfill({ json: { conversation: `turn-${messages.length}`, result } });
+      return;
+    }
+    unexpected.push(`${request.method()} ${url.pathname}`);
+    await route.fulfill({ status: 404 });
+  });
+
+  await page.goto('/');
+  await setMobileViewportAndTextZoom(page, 320);
+  await page.getByRole('button', { name: 'Help me choose & book' }).tap();
+
+  await expect(page.getByText(/Welcome to A Very Long Synthetic Nail Studio Name/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Book an appointment' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'See prices' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Help me choose', exact: true })).toBeVisible();
+  expect(sessions).toBe(1);
+
+  await page.screenshot({ path: path.join(artifactDirectory, `${testInfo.project.name}-branded-welcome-320px-200zoom.png`), fullPage: true });
+
+  const input = page.getByLabel('Tell me what you would like');
+  await input.focus();
+
+  await expect(input).toBeFocused();
+
+  await input.fill('Extensions');
+
+  await expect(input).toHaveValue('Extensions');
+
+  // iOS Safari's virtual keyboard does not expose sequential Tab traversal;
+  // retain the Chromium focus-order assertion while proving WebKit accepts
+  // keyboard text before the customer taps the visible action.
+  if (testInfo.project.name === 'mobile-chromium') {
+    await page.keyboard.press('Tab');
+
+    await expect(page.getByRole('button', { name: 'Send' })).toBeFocused();
+  }
+
+  await page.getByLabel('Close assistant').tap();
+  await page.getByRole('button', { name: 'Help me choose & book' }).tap();
+
+  await expect(page.getByText(/Welcome to A Very Long Synthetic Nail Studio Name/)).toBeVisible();
+  expect(sessions).toBe(1);
+
+  // Unsent composer text is not a committed conversation selection.
+  await input.fill('Extensions');
+  await page.getByRole('button', { name: 'Send' }).tap();
+  const medium = page.getByRole('button', { name: /Medium.*\+\$10\.00.*1h 40m/i });
+
+  await expect(medium).toBeVisible();
+
+  await page.screenshot({ path: path.join(artifactDirectory, `${testInfo.project.name}-priced-choice-320px-200zoom.png`), fullPage: true });
+
+  await medium.tap();
+
+  await expect.poll(() => messages.at(-1)).toBe('Medium');
+
+  await page.screenshot({ path: path.join(artifactDirectory, `${testInfo.project.name}-branded-welcome-priced-choice-320px-200zoom.png`), fullPage: true });
+
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.getByRole('button', { name: 'Start a new conversation' }).tap();
+
+  await expect.poll(() => sessions).toBe(2);
+  await expect(page.getByText(/Welcome to A Very Long Synthetic Nail Studio Name/)).toBeVisible();
   expect(unexpected).toEqual([]);
 });
 
@@ -271,7 +365,7 @@ test('natural text remains primary through price recall, informational detours, 
   await input.fill('I want medium Gel-X');
   await page.getByRole('button', { name: 'Send' }).tap();
 
-  await expect(page.getByRole('region', { name: 'Suggested services' })).toContainText('Gel-X Extensions');
+  await expect(page.getByRole('region', { name: 'Your appointment package' })).toContainText('Gel-X Extensions');
 
   await input.fill('How long does that take?');
   await page.getByRole('button', { name: 'Send' }).tap();
@@ -281,7 +375,7 @@ test('natural text remains primary through price recall, informational detours, 
   await input.fill('Add French');
   await page.getByRole('button', { name: 'Send' }).tap();
 
-  await expect(page.getByRole('region', { name: 'Suggested services' })).toContainText('French tips');
+  await expect(page.getByRole('region', { name: 'Your appointment package' })).toContainText('French tips');
 
   const subtotal = page.getByText('$100.00');
   const proposalCard = page.getByTestId('customer-assistant-proposal');

@@ -6,6 +6,7 @@ import { redis } from '@/core/redis/redisClient';
 
 import { CUSTOMER_CONVERSATION_MAX_TURNS } from './conversation.server';
 import { CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD } from './modelPricing';
+import { customerConversationDigest, customerRevisionKey } from './revision.server';
 
 export { CUSTOMER_ASSISTANT_INTERPRETATION_SCHEMA_BYTES, CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD, CUSTOMER_ASSISTANT_TURN_COST_UPPER_BOUND_MICRO_USD } from './modelPricing';
 
@@ -25,6 +26,7 @@ export type CustomerAssistantTurnInput = {
   salonId: string;
   sessionId: string;
   turnIndex: number;
+  conversation?: string;
   clientIp: string;
   now?: Date;
 };
@@ -62,12 +64,18 @@ export function buildCustomerAssistantBudgetKeys(input: CustomerAssistantTurnInp
     `${prefix}:salon:${input.salonId}:month:${month(now)}`,
     `${prefix}:global:day:${currentDay}`,
     `${prefix}:spend:global:day:${currentDay}`,
+    customerRevisionKey(input),
   ];
 }
 
 // Lua return codes: 0 success, 1 replay/session; 2 any shared traffic budget.
 const RESERVE_SCRIPT = `
 if redis.call('EXISTS', KEYS[1]) == 1 then return 1 end
+if redis.call('HEXISTS', KEYS[9], 'inflight') == 1 then return 1 end
+if tonumber(ARGV[12]) > 0 then
+  if redis.call('HGET', KEYS[9], 'completed') ~= ARGV[12] then return 1 end
+  if redis.call('HGET', KEYS[9], 'digest') ~= ARGV[13] then return 1 end
+elseif redis.call('EXISTS', KEYS[9]) == 1 then return 1 end
 local sessionCount = tonumber(redis.call('GET', KEYS[2]) or '0')
 local ipMinuteCount = tonumber(redis.call('GET', KEYS[3]) or '0')
 local ipDayCount = tonumber(redis.call('GET', KEYS[4]) or '0')
@@ -81,6 +89,8 @@ if salonDayCount >= tonumber(ARGV[4]) then return 2 end
 if salonMonthCount >= tonumber(ARGV[5]) then return 2 end
 if globalDayCount >= tonumber(ARGV[6]) then return 2 end
 if not redis.call('SET', KEYS[1], '1', 'EX', ARGV[7], 'NX') then return 1 end
+redis.call('HSET', KEYS[9], 'inflight', ARGV[12])
+redis.call('EXPIRE', KEYS[9], ARGV[7])
 if redis.call('INCR', KEYS[2]) == 1 then redis.call('EXPIRE', KEYS[2], ARGV[7]) end
 if redis.call('INCR', KEYS[3]) == 1 then redis.call('EXPIRE', KEYS[3], ARGV[8]) end
 if redis.call('INCR', KEYS[4]) == 1 then redis.call('EXPIRE', KEYS[4], ARGV[9]) end
@@ -135,6 +145,8 @@ export async function reserveCustomerAssistantTurn(
       String(DAY_TTL_SECONDS),
       String(MONTH_TTL_SECONDS),
       String(CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD),
+      String(input.turnIndex),
+      customerConversationDigest(input.conversation ?? ''),
     ) as Promise<unknown>);
     const code = typeof result === 'number'
       ? result

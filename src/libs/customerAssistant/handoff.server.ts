@@ -4,10 +4,11 @@ import type { SalonFeatures } from '@/types/salonPolicy';
 
 import { getCustomerAssistantConfig } from './access.server';
 import type { CustomerBookingOperationReference } from './bookingOperationContracts';
-import { buildCustomerProposal } from './catalogue.server';
 import type { CustomerAssistantHandoffResponse } from './contracts';
 import { verifyCustomerConversation } from './conversation.server';
 import { issueNormalConfirmHandoff, verifyNormalConfirmHandoff } from './normalConfirmHandoff.server';
+import { assessReadyCustomerProposal } from './readiness.server';
+import { isCurrentCustomerRevision } from './revision.server';
 
 type BoundSalon = { id: string; slug: string };
 
@@ -27,6 +28,7 @@ export async function runCustomerHandoff(args: {
   flowToken?: string;
   operationCapability?: string;
   now?: Date;
+  locale?: 'en' | 'fr';
 }): Promise<CustomerAssistantHandoffResponse> {
   const config = getCustomerAssistantConfig();
   if (!config) {
@@ -44,11 +46,24 @@ export async function runCustomerHandoff(args: {
   }
   let proposal;
   try {
-    proposal = await buildCustomerProposal(args.salon.id, args.features, selection);
+    const assessment = await assessReadyCustomerProposal({ salonId: args.salon.id, features: args.features, state, locale: args.locale });
+    if (assessment.clarification) {
+      if (!await isCurrentCustomerRevision(state, args.conversation)) {
+        return unavailable(args.conversation, 'selection_changed');
+      }
+      return { conversation: args.conversation, result: assessment.clarification };
+    }
+    proposal = assessment.proposal;
   } catch {
     return unavailable(args.conversation, 'selection_changed');
   }
+  if (!proposal) {
+    return unavailable(args.conversation, 'selection_changed');
+  }
   if (proposal.fingerprint !== args.fingerprint) {
+    if (!await isCurrentCustomerRevision(state, args.conversation)) {
+      return unavailable(args.conversation, 'selection_changed');
+    }
     return { conversation: args.conversation, result: { kind: 'proposal', proposal } };
   }
   let flowId = state.sessionId;
@@ -76,6 +91,10 @@ export async function runCustomerHandoff(args: {
     } catch (error) {
       return unavailable(args.conversation, error instanceof Error && error.message === 'NORMAL_CONFIRM_HANDOFF_EXPIRED' ? 'handoff_expired' : 'invalid_handoff');
     }
+  }
+  // All asynchronous catalogue and recovery reads precede this atomic check.
+  if (!await isCurrentCustomerRevision(state, args.conversation)) {
+    return unavailable(args.conversation, 'selection_changed');
   }
   const flow = issueNormalConfirmHandoff({
     salonId: args.salon.id,

@@ -29,7 +29,7 @@ beforeEach(() => {
   vi.stubEnv('CUSTOMER_ASSISTANT_ENABLED', 'true');
   vi.stubEnv('OPENAI_API_KEY_CUSTOMER', 'synthetic-customer');
   vi.stubEnv('CUSTOMER_ASSISTANT_SIGNING_SECRET', 'x'.repeat(32));
-  mocks.salon.mockResolvedValue({ id: 'salon-a', slug: 'isla-nail-studio', publicationStatus: 'published', features: null });
+  mocks.salon.mockResolvedValue({ id: 'salon-a', slug: 'isla-nail-studio', name: 'Isla Nail Studio', publicationStatus: 'published', features: null });
   mocks.guard.mockResolvedValue(null);
   mocks.online.mockResolvedValue(true);
   mocks.turn.mockResolvedValue({ conversation: 'next', result: { kind: 'unavailable', reason: 'no_match' } });
@@ -45,6 +45,7 @@ describe('customer assistant public routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(body.salon).toEqual({ name: 'Isla Nail Studio' });
     expect(verifyCustomerConversation(body.conversation, 'salon-a', 'x'.repeat(32)).turnIndex).toBe(0);
     expect(() => verifyCustomerConversation(body.conversation, 'salon-b', 'x'.repeat(32))).toThrow();
   });
@@ -115,7 +116,7 @@ describe('customer assistant public routes', () => {
     const response = await chat(request({ conversation: 'signed', message: 'French', locale: 'en' }), context());
 
     expect(response.status).toBe(200);
-    expect(mocks.turn).toHaveBeenCalledWith({ salonId: 'salon-a', salonSlug: 'isla-nail-studio', features: null, conversation: 'signed', message: 'French', locale: 'en', clientIp: '192.0.2.5' });
+    expect(mocks.turn).toHaveBeenCalledWith({ salonId: 'salon-a', salonSlug: 'isla-nail-studio', salonName: 'Isla Nail Studio', features: null, conversation: 'signed', message: 'French', locale: 'en', clientIp: '192.0.2.5' });
   });
 
   it('passes a signed action and only the route-resolved salon to deterministic availability', async () => {

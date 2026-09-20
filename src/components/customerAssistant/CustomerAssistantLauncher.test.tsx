@@ -18,7 +18,7 @@ vi.mock('@/hooks/useBookingState', () => ({
   useBookingState: () => bookingState,
 }));
 
-const sessionResponse = (conversation = 'signed-conversation') => new Response(JSON.stringify({ conversation }), { status: 200 });
+const sessionResponse = (conversation = 'signed-conversation', salonName = 'Isla Nail Studio') => new Response(JSON.stringify({ conversation, salon: { name: salonName } }), { status: 200 });
 const proposal = (fingerprint = 'f'.repeat(64)) => ({
   selection: { baseServiceId: 'gel-x', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] },
   fingerprint,
@@ -68,11 +68,65 @@ describe('CustomerAssistantLauncher', () => {
 
     await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
 
-    expect(await screen.findByRole('heading', { name: 'Help me choose' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'AI booking assistant' })).toBeVisible();
+    expect(await screen.findByText('Hey! Welcome to Isla Nail Studio 💅 I’m your AI booking assistant. Are you looking to book, check prices, or get help choosing your next nail look?')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Book an appointment' })).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith('/api/public/customer-assistant/isla-nail-studio/session', { method: 'POST' });
 
     await user.click(screen.getByRole('button', { name: 'Continue manually' }));
-    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Help me choose' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'AI booking assistant' })).not.toBeInTheDocument());
+  });
+
+  it('resumes the same branded welcome without issuing another session and restarts with a fresh welcome', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse('first-session', 'First Salon'))
+      .mockResolvedValueOnce(sessionResponse('second-session', 'First Salon'));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+
+    expect(await screen.findByText(/Welcome to First Salon/)).toBeVisible();
+
+    await user.click(screen.getByLabelText('Close assistant'));
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+
+    expect(await screen.findByText(/Welcome to First Salon/)).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: 'Start a new conversation' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    expect(await screen.findByText(/Welcome to First Salon/)).toBeVisible();
+  });
+
+  it('renders server-priced consultation choices and sends their authoritative message', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        conversation: 'length-token',
+        result: {
+          kind: 'clarification',
+          question: 'length',
+          options: ['Medium'],
+          choices: [
+            { label: 'Medium', message: 'Medium', deltaCents: 1000, durationMinutes: 100, currency: 'CAD' },
+          ],
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'next-token', result: { kind: 'answer', message: 'Perfect!', options: [] } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Extensions');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    const medium = await screen.findByRole('button', { name: /Medium.*\+\$10\.00.*1h 40m/i });
+    await user.click(medium);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/chat', expect.objectContaining({ body: JSON.stringify({ conversation: 'length-token', message: 'Medium', locale: 'en' }) })));
   });
 
   it('binds a campaign session without persisting its raw token and preserves it through assistant handoff', async () => {
@@ -335,7 +389,7 @@ describe('CustomerAssistantLauncher', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/handoff', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ conversation: 'proposal-token', fingerprint }),
+      body: JSON.stringify({ conversation: 'proposal-token', fingerprint, locale: 'en' }),
     }));
 
     completeHandoff(new Response(JSON.stringify({
@@ -371,13 +425,13 @@ describe('CustomerAssistantLauncher', () => {
 
     expect(await screen.findByText('Would you like French tips?')).toBeVisible();
     expect(screen.getByLabelText('You')).toHaveTextContent('Gel manicure');
-    expect(screen.getByLabelText('Assistant')).toHaveTextContent('Would you like French tips?');
+    expect(screen.getAllByLabelText('Assistant').at(-1)).toHaveTextContent('Would you like French tips?');
 
     await user.click(screen.getByLabelText('Close assistant'));
     await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
 
     expect(await screen.findByLabelText('You')).toHaveTextContent('Gel manicure');
-    expect(screen.getByLabelText('Assistant')).toHaveTextContent('Would you like French tips?');
+    expect(screen.getAllByLabelText('Assistant').at(-1)).toHaveTextContent('Would you like French tips?');
 
     await user.click(screen.getByRole('button', { name: 'Yes' }));
     await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/chat', expect.objectContaining({ body: JSON.stringify({ conversation: 'answer-token', message: 'Yes', locale: 'en' }) })));
@@ -478,7 +532,11 @@ describe('CustomerAssistantLauncher', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
 
-    await waitFor(() => expect(JSON.parse(sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio') ?? 'null')).toMatchObject({ conversation: 'fresh', messages: [], result: null }));
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio') ?? 'null')).toMatchObject({
+      conversation: 'fresh',
+      messages: [{ role: 'assistant', message: expect.stringContaining('Welcome to Isla Nail Studio') }],
+      result: null,
+    }));
 
     expect(sessionStorage.getItem('luster.normal-confirm-handoff.v1.salon-id')).toContain('v1.123e4567');
   });
