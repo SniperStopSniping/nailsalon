@@ -1,9 +1,16 @@
 import { z } from 'zod';
 
-import { buildClientSmsPrefix, STOP_LANGUAGE } from '@/libs/communicationTemplates';
+import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { calculateSmsSegments } from '@/libs/smsSegments';
 
-export const DEFAULT_REVIEW_MESSAGE = 'Hi {{firstName}}! Thanks for visiting {{businessName}}. We would appreciate a Google review: {{reviewLink}}';
+export const LEGACY_DEFAULT_REVIEW_MESSAGE = 'Hi {{firstName}}! Thanks for visiting {{businessName}}. We would appreciate a Google review: {{reviewLink}}';
+export const DEFAULT_REVIEW_MESSAGE = 'Thanks for visiting! We\'d love your Google review: {{reviewLink}}';
+
+/** Adopt only the exact shipped default. Owner customizations are never rewritten. */
+export function resolveReviewMessageTemplate(template: string | null | undefined): string {
+  return !template || template === LEGACY_DEFAULT_REVIEW_MESSAGE ? DEFAULT_REVIEW_MESSAGE : template;
+}
+
 export const REVIEW_DELAY_MINUTES = [0, 30, 60, 120, 240, 1440] as const;
 
 export function isReviewUrl(value: string): boolean {
@@ -32,7 +39,7 @@ export function renderReviewMessage(input: { template: string; clientName: strin
 }
 
 export function reviewSmsBody(input: Parameters<typeof renderReviewMessage>[0]): string {
-  return `${buildClientSmsPrefix(input.businessName)}${renderReviewMessage(input)} ${STOP_LANGUAGE}`;
+  return COMMUNICATION_TEMPLATES.client_review_request!.render({ salonName: input.businessName, message: renderReviewMessage(input) });
 }
 
 export function reviewMessageFits(body: string): boolean {

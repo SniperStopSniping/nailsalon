@@ -3,6 +3,7 @@
 import { Check, LoaderCircle, Star } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { SmsMessagePreview } from '@/components/admin/SmsMessagePreview';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import type { ReviewRequestDisplay } from '@/libs/reviewRequestStatus';
 
@@ -241,12 +242,7 @@ export function ReviewRequestAction({ appointmentId, salonSlug, timeZone, appoin
           <div className="flex size-10 items-center justify-center rounded-full bg-rose-50 text-rose-700"><Star className="size-5" /></div>
           <h2 className="mt-3 text-lg font-semibold text-neutral-900">{request?.status === 'scheduled' ? 'Send review request now?' : 'Send review request?'}</h2>
           <p className="mt-1 text-sm text-neutral-600">{request?.phone ? `We'll send this to ${request.phone}.` : 'This will be sent through your Luster SMS number.'}</p>
-          {request?.message && (
-            <div className="mt-4 rounded-xl bg-neutral-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Message preview</p>
-              <p className="mt-2 whitespace-pre-wrap break-words text-sm text-neutral-800">{request.message}</p>
-            </div>
-          )}
+          {request?.message && <SmsMessagePreview body={request.message} className="mt-4" />}
           <p className="mt-3 text-xs text-neutral-500">This queues one request and prevents another automatic request for this appointment. Quiet hours and eligibility checks still apply.</p>
           <div className="mt-5 flex gap-2">
             <button type="button" disabled={sending} onClick={() => setConfirming(false)} className="min-h-11 flex-1 rounded-xl border border-neutral-200 px-3 text-sm font-semibold text-neutral-700">Cancel</button>

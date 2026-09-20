@@ -21,7 +21,8 @@ import {
   WORST_CASE_MANAGE_URL_SHORT_ORIGIN,
 } from '@/libs/communicationTemplates';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
-import { calculateSmsSegments, formatSegmentPreview } from '@/libs/smsSegments';
+import { buildShortManageUrl } from '@/libs/shortManageLink';
+import { formatSegmentPreview, prepareSmsBody } from '@/libs/smsSegments';
 
 const previewRequestSchema = z.object({
   templateKey: z.string().min(1).max(100),
@@ -29,7 +30,7 @@ const previewRequestSchema = z.object({
 
 /** Synthetic, deterministic variables — never client data, never a real link. */
 const SYNTHETIC_VARIABLES = {
-  startTime: 'Wed Aug 26, 2:30 PM',
+  startTime: 'Wed, Aug 26, 2:30 PM',
   manageUrl: WORST_CASE_MANAGE_URL_SHORT_ORIGIN,
   clientName: 'Jordan Sample',
   serviceName: 'Classic Manicure',
@@ -89,8 +90,11 @@ export async function POST(request: Request) {
   const rendered = template.render({
     ...SYNTHETIC_VARIABLES,
     salonName: salon.name,
+    // Synthetic fixed-length token only: preview must never mint a capability.
+    ...(template.key.endsWith('_shortlink') ? { manageUrl: buildShortManageUrl('AAAAAAAAAAAAAAAAAAAAAA') } : {}),
   });
-  const segmentation = calculateSmsSegments(rendered);
+  const prepared = prepareSmsBody(rendered);
+  const { segmentation } = prepared;
 
   const warnings: Array<'MULTI_SEGMENT' | 'UCS2_FALLBACK' | 'NAME_TRUNCATED'> = [];
   if (segmentation.segments > MAX_SEGMENTS_BY_AUDIENCE[template.audience]) {
@@ -109,7 +113,9 @@ export async function POST(request: Request) {
         templateKey: template.key,
         templateVersion: template.version,
         audience: template.audience,
-        body: rendered,
+        body: prepared.finalBody,
+        isSample: true,
+        predictedCredits: prepared.predictedCredits,
         segmentation,
         preview: formatSegmentPreview(segmentation),
         warnings,

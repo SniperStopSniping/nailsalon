@@ -189,6 +189,60 @@ describe('dispatcher — dark by default, live only behind every switch', () => 
     expect(delivery.rows[0]).toMatchObject({ settlement_state: 'settled', provider_message_id: 'SM_pipeline_1' });
   });
 
+  it.each([
+    ['booking_confirmation', 'client_booking_confirmation_shortlink'],
+    ['appointment_reminder', 'client_appointment_reminder_shortlink'],
+    ['appointment_rescheduled', 'client_appointment_rescheduled_shortlink'],
+    ['appointment_cancelled', 'client_appointment_cancelled_shortlink'],
+    ['manual_text', 'client_manual_text'],
+  ] as const)('sends and charges the exact final %s text without changing its footer category', async (eventType, templateKey) => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await grantCredits(salonId, 10);
+    await enableControl(true);
+    const variables = { startTime: 'Wed, Sep 23, 12:30 PM', manageUrl: 'https://lustergel.app/a/AbCdEfGhIjKlMnOpQrStUv', message: 'Your appointment details have been updated.' };
+    const overrides: Partial<Parameters<typeof import('./communicationIntent')['enqueueCommunicationIntent']>[0]> = {};
+    if (eventType === 'appointment_reminder') {
+      const { resolveCommunicationSettingsFromSettings } = await import('./communicationSettings');
+      const { computeSchedulingRevision } = await import('./communicationScheduling');
+      const [salon] = await db.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, salonId));
+      const settings = resolveCommunicationSettingsFromSettings(salon!.settings);
+      const rule = settings.reminders.rules[0]!;
+      const startTime = new Date(NOW.getTime() + 24 * 60 * 60 * 1000);
+      const [appointment] = await db.insert(schema.appointmentSchema).values({
+        id: `exact_reminder_${salonId}`,
+        salonId,
+        clientName: 'Test Client',
+        clientPhone: recipient,
+        startTime,
+        endTime: new Date(startTime.getTime() + 3600000),
+        status: 'confirmed',
+        totalPrice: 50,
+        totalDurationMinutes: 60,
+      }).returning();
+      overrides.appointmentId = appointment!.id;
+      overrides.ruleId = rule.id;
+      overrides.schedulingRevision = computeSchedulingRevision({ timeZone: salon!.settings?.booking?.timezone, quietHours: settings.quietHours, rule, appointmentStart: startTime, appointmentUpdatedAt: appointment!.updatedAt, smsEnabled: settings.sms.enabled, emailEnabled: settings.email.enabled });
+    }
+    await enqueueSmsIntent(salonId, recipient, { eventType, templateKey, variables, ...overrides });
+    const intent = await claimOne(salonId);
+    const provider = vi.fn(async (_input: { body: string }) => ({ sid: `SM_exact_${salonId}` }));
+    const { COMMUNICATION_TEMPLATES } = await import('./communicationTemplates');
+    const { prepareSmsBody } = await import('./smsSegments');
+    const prepared = prepareSmsBody(COMMUNICATION_TEMPLATES[templateKey]!.render({ ...variables, salonName: `Dispatch Salon ${salonSeq}` }));
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, provider, NOW)).toBe('sent');
+    expect(provider.mock.calls[0]![0].body).toBe(prepared.finalBody);
+    expect(prepared.finalBody.includes('Reply STOP to opt out.')).toBe(eventType === 'manual_text');
+
+    const [stored] = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.id, intent.id));
+    const [reservation] = await db.select().from(schema.smsCreditReservationSchema).where(eq(schema.smsCreditReservationSchema.id, stored!.creditReservationId!));
+
+    expect(stored).toMatchObject({ bodySnapshot: prepared.finalBody, encoding: prepared.segmentation.encoding, segmentCount: prepared.predictedCredits });
+    expect(reservation!.segments).toBe(prepared.predictedCredits);
+    expect(prepared.predictedCredits).toBe(1);
+  });
+
   it('a pre-committed global STOP is caught by the final pre-provider check: released, suppressed, provider never called', async () => {
     const { salonId, recipient } = await seedSalonWithConsent();
     await grantCredits(salonId, 10);

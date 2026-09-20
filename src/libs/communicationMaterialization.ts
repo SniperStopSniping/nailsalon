@@ -38,15 +38,15 @@ import type { CommunicationEventType } from '@/models/Schema';
 
 /** Events with a registered client SMS template (Gate A registry). */
 const TEMPLATED_SMS_EVENTS: Partial<Record<CommunicationEventType, { templateKey: string; templateVersion: string }>> = {
-  booking_confirmation: { templateKey: 'client_booking_confirmation_shortlink', templateVersion: 'v1' },
-  appointment_reminder: { templateKey: 'client_appointment_reminder_shortlink', templateVersion: 'v1' },
-  manual_reminder: { templateKey: 'client_appointment_reminder_shortlink', templateVersion: 'v1' },
-  booking_request_received: { templateKey: 'client_booking_request_received_shortlink', templateVersion: 'v1' },
-  booking_request_approved: { templateKey: 'client_booking_request_approved_shortlink', templateVersion: 'v1' },
-  appointment_rescheduled: { templateKey: 'client_appointment_rescheduled_shortlink', templateVersion: 'v1' },
-  appointment_cancelled: { templateKey: 'client_appointment_cancelled_shortlink', templateVersion: 'v1' },
-  booking_request_declined: { templateKey: 'client_booking_request_declined_shortlink', templateVersion: 'v1' },
-  booking_request_expired: { templateKey: 'client_booking_request_expired_shortlink', templateVersion: 'v1' },
+  booking_confirmation: { templateKey: 'client_booking_confirmation_shortlink', templateVersion: 'v2' },
+  appointment_reminder: { templateKey: 'client_appointment_reminder_shortlink', templateVersion: 'v2' },
+  manual_reminder: { templateKey: 'client_appointment_reminder_shortlink', templateVersion: 'v2' },
+  booking_request_received: { templateKey: 'client_booking_request_received_shortlink', templateVersion: 'v2' },
+  booking_request_approved: { templateKey: 'client_booking_request_approved_shortlink', templateVersion: 'v2' },
+  appointment_rescheduled: { templateKey: 'client_appointment_rescheduled_shortlink', templateVersion: 'v2' },
+  appointment_cancelled: { templateKey: 'client_appointment_cancelled_shortlink', templateVersion: 'v2' },
+  booking_request_declined: { templateKey: 'client_booking_request_declined_shortlink', templateVersion: 'v2' },
+  booking_request_expired: { templateKey: 'client_booking_request_expired_shortlink', templateVersion: 'v2' },
 };
 
 /** Email uses per-event template keys the email lane renders. */

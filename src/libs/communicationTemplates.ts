@@ -8,27 +8,11 @@
  * preview counter. No Env, no 'server-only', no provider imports. Nothing
  * in this module sends anything.
  *
- * Rules encoded here and enforced by tests:
- * - Every client body opens with `"{salonName} via Luster: "` (identity on
- *   a shared number) and ends with "Reply STOP to opt out." — never
- *   "Do not reply" (STOP must remain available).
- * - Salon display names are sanitized to GSM-7 FOR THE SMS PREFIX ONLY
- *   (typographic punctuation mapped, unsupported characters dropped) and
- *   capped at 24 septets with word-boundary truncation, because one
- *   non-GSM character would collapse the whole message budget from 160 to
- *   70 units.
- * - No emoji, smart quotes or decorative Unicode in any template body.
- * - Client templates target ONE segment; owner/technician templates may
- *   use two (contract owner-decision default).
- *
- * KNOWN CONTRACT FINDING (Gate A, surfaced for the owner): the canonical
- * appointment-manage link is `{origin}[/…]/manage/{43-char token}` — at
- * minimum ~76 characters. Combined with the mandatory identity prefix and
- * STOP tail, ANY client template that embeds a real manage link exceeds
- * one GSM segment. The reality-check fixture below pins this at 2 segments
- * so the overflow is mechanically tracked; resolving it (short-link route,
- * or a revised client cap for link-bearing messages) is an owner decision
- * for Gate B. Link-free client templates fit comfortably in one segment.
+ * Operational SMS keeps sender identification but omits the visible STOP
+ * footer (owner decision 2026-09-20). Arbitrary manual SMS retains it.
+ * This presentation policy does not change consent or inbound opt-out handling.
+ * Salon prefix sanitization is unchanged; custom body Unicode is preserved.
+ * Secure short management links keep the default operational copy in one segment.
  */
 
 import { calculateSmsSegments, isGsmCompatible } from './smsSegments';
@@ -192,22 +176,29 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
     render: variables => `${buildClientSmsPrefix(variables.salonName ?? '')}${variables.message ?? ''} ${STOP_LANGUAGE}`,
     worstCaseVariables: [{ salonName: WORST_CASE_SALON_NAME, message: 'Please use your appointment link to update your booking.' }],
   },
+  client_review_request: {
+    key: 'client_review_request',
+    version: 'v2',
+    audience: 'client',
+    render: variables => `${buildClientSmsPrefix(variables.salonName ?? '')}${variables.message ?? ''}`,
+    worstCaseVariables: [{ salonName: WORST_CASE_SALON_NAME, message: 'Thanks for visiting! We\'d love your Google review: https://g.page/r/Cd2cHWyZCr9bEBM/review' }],
+  },
   client_booking_confirmation_nolink: {
     key: 'client_booking_confirmation_nolink',
-    version: 'v1',
+    version: 'v2',
     audience: 'client',
     render: variables =>
-      `${buildClientSmsPrefix(variables.salonName ?? '')}Booking confirmed for ${variables.startTime ?? ''}. ${STOP_LANGUAGE}`,
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Booking confirmed for ${variables.startTime ?? ''}.`,
     worstCaseVariables: [
       { salonName: WORST_CASE_SALON_NAME, startTime: WORST_CASE_TIME },
     ],
   },
   client_appointment_reminder: {
     key: 'client_appointment_reminder',
-    version: 'v1',
+    version: 'v2',
     audience: 'client',
     render: variables =>
-      `${buildClientSmsPrefix(variables.salonName ?? '')}Reminder for ${variables.startTime ?? ''}. For changes: ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Reminder for ${variables.startTime ?? ''}. For changes: ${variables.manageUrl ?? ''}`,
     worstCaseVariables: [
       {
         salonName: WORST_CASE_SALON_NAME,
@@ -223,10 +214,10 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
   },
   client_appointment_reminder_shortlink: {
     key: 'client_appointment_reminder_shortlink',
-    version: 'v1',
+    version: 'v2',
     audience: 'client',
     render: variables =>
-      `${buildClientSmsPrefix(variables.salonName ?? '')}Reminder for ${variables.startTime ?? ''}. Manage: ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Reminder for ${variables.startTime ?? ''}. Manage: ${variables.manageUrl ?? ''}`,
     worstCaseVariables: [
       {
         salonName: WORST_CASE_SALON_NAME,
@@ -237,10 +228,10 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
   },
   client_booking_confirmation_shortlink: {
     key: 'client_booking_confirmation_shortlink',
-    version: 'v1',
+    version: 'v2',
     audience: 'client',
     render: variables =>
-      `${buildClientSmsPrefix(variables.salonName ?? '')}Confirmed for ${variables.startTime ?? ''}. Manage: ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Confirmed for ${variables.startTime ?? ''}. Manage: ${variables.manageUrl ?? ''}`,
     worstCaseVariables: [
       {
         salonName: WORST_CASE_SALON_NAME,
@@ -251,10 +242,10 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
   },
   client_booking_request_received_shortlink: {
     key: 'client_booking_request_received_shortlink',
-    version: 'v1',
+    version: 'v2',
     audience: 'client',
     render: variables =>
-      `${buildClientSmsPrefix(variables.salonName ?? '')}Request pending: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Request pending: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''}`,
     worstCaseVariables: [{
       salonName: WORST_CASE_SALON_NAME,
       startTime: WORST_CASE_TIME,
@@ -263,10 +254,10 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
   },
   client_booking_request_approved_shortlink: {
     key: 'client_booking_request_approved_shortlink',
-    version: 'v1',
+    version: 'v2',
     audience: 'client',
     render: variables =>
-      `${buildClientSmsPrefix(variables.salonName ?? '')}Confirmed for ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Confirmed for ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''}`,
     worstCaseVariables: [{
       salonName: WORST_CASE_SALON_NAME,
       startTime: WORST_CASE_TIME,
@@ -275,10 +266,10 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
   },
   client_appointment_rescheduled_shortlink: {
     key: 'client_appointment_rescheduled_shortlink',
-    version: 'v1',
+    version: 'v2',
     audience: 'client',
     render: variables =>
-      `${buildClientSmsPrefix(variables.salonName ?? '')}Rescheduled to ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Rescheduled to ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''}`,
     worstCaseVariables: [{
       salonName: WORST_CASE_SALON_NAME,
       startTime: WORST_CASE_TIME,
@@ -287,10 +278,10 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
   },
   client_appointment_cancelled_shortlink: {
     key: 'client_appointment_cancelled_shortlink',
-    version: 'v1',
+    version: 'v2',
     audience: 'client',
     render: variables =>
-      `${buildClientSmsPrefix(variables.salonName ?? '')}Cancelled: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Cancelled: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''}`,
     worstCaseVariables: [{
       salonName: WORST_CASE_SALON_NAME,
       startTime: WORST_CASE_TIME,
@@ -299,10 +290,10 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
   },
   client_booking_request_declined_shortlink: {
     key: 'client_booking_request_declined_shortlink',
-    version: 'v1',
+    version: 'v2',
     audience: 'client',
     render: variables =>
-      `${buildClientSmsPrefix(variables.salonName ?? '')}Request declined: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Request declined: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''}`,
     worstCaseVariables: [{
       salonName: WORST_CASE_SALON_NAME,
       startTime: WORST_CASE_TIME,
@@ -311,10 +302,10 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
   },
   client_booking_request_expired_shortlink: {
     key: 'client_booking_request_expired_shortlink',
-    version: 'v1',
+    version: 'v2',
     audience: 'client',
     render: variables =>
-      `${buildClientSmsPrefix(variables.salonName ?? '')}Request expired: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Request expired: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''}`,
     worstCaseVariables: [{
       salonName: WORST_CASE_SALON_NAME,
       startTime: WORST_CASE_TIME,

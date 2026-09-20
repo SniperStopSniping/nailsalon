@@ -602,6 +602,25 @@ describe('review request production', () => {
       .resolves.toMatchObject({ status: 'failed' });
   });
 
+  it('resolves a stored legacy default to compact copy without writing settings or changing custom copy', async () => {
+    const fixture = await seed();
+    const { getReviewSettings } = await import('./reviewRequests.server');
+    const { DEFAULT_REVIEW_MESSAGE, LEGACY_DEFAULT_REVIEW_MESSAGE } = await import('./reviewRequests');
+    await db.update(schema.salonRetentionSettingsSchema).set({ reviewRequestMessage: LEGACY_DEFAULT_REVIEW_MESSAGE })
+      .where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
+
+    expect((await getReviewSettings(fixture.salonId)).messageTemplate).toBe(DEFAULT_REVIEW_MESSAGE);
+
+    const [stored] = await db.select().from(schema.salonRetentionSettingsSchema).where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
+
+    expect(stored!.reviewRequestMessage).toBe(LEGACY_DEFAULT_REVIEW_MESSAGE);
+
+    const custom = 'Hi {{firstName}}, your own review copy: {{reviewLink}}';
+    await db.update(schema.salonRetentionSettingsSchema).set({ reviewRequestMessage: custom }).where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
+
+    expect((await getReviewSettings(fixture.salonId)).messageTemplate).toBe(custom);
+  });
+
   it('removing the link disables automation and cancels pending requests without a legacy fallback', async () => {
     const fixture = await seed();
     const { scheduleReviewRequest, saveReviewSettings, getReviewSettings } = await import('./reviewRequests.server');

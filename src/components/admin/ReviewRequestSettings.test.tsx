@@ -48,6 +48,18 @@ describe('ReviewRequestSettings', () => {
     expect(screen.getByText('Review request readiness has not been verified. Save settings to check setup.')).toBeVisible();
   });
 
+  it('shows the complete sample review body and its calculated credit cost', async () => {
+    fetchMock.mockResolvedValueOnce(response({ data: legacySettings }));
+    render(<ReviewRequestSettings salonSlug="isla" />);
+
+    const preview = await screen.findByTestId('sms-message-preview');
+
+    expect(preview).toHaveTextContent('Sample customer message');
+    expect(preview).toHaveTextContent('Isla Nail Studio via Luster: Hi Avery! https://g.page/salon/review');
+    expect(preview).not.toHaveTextContent('Reply STOP to opt out.');
+    expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('1 SMS segment · 1 credit');
+  });
+
   it('preserves the legacy lifetime cooldown when a salon only changes its message', async () => {
     fetchMock.mockResolvedValueOnce(response({ data: legacySettings })).mockResolvedValueOnce(response({ data: legacySettings }));
     render(<ReviewRequestSettings salonSlug="isla" />);

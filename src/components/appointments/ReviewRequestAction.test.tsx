@@ -80,6 +80,7 @@ describe('ReviewRequestAction', () => {
 
     expect(screen.getByText('We\'ll send this to 4165559999.')).toBeVisible();
     expect(screen.getByText('Current review message')).toBeVisible();
+    expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('1 SMS segment · 1 credit');
     expect(screen.getByRole('button', { name: 'Send review request' })).toBeEnabled();
   });
 
