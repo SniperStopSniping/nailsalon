@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
+const { customerAssistantCopy } = require('../src/components/customerAssistant/copy') as typeof import('../src/components/customerAssistant/copy');
 const { createOpenAiResponsesProvider } = require('../src/libs/ai/openaiResponses.server') as typeof import('../src/libs/ai/openaiResponses.server');
 const { compactCustomerModelContext } = require('../src/libs/customerAssistant/boundedModelContext') as typeof import('../src/libs/customerAssistant/boundedModelContext');
 const { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL } = require('../src/libs/customerAssistant/contracts') as typeof import('../src/libs/customerAssistant/contracts');
@@ -440,6 +441,15 @@ async function main(): Promise<void> {
         if (turn.session === 'reopen') {
           conversation = verifyCustomerConversation(signCustomerConversation(conversation, syntheticSecret), 'synthetic-isla', syntheticSecret, syntheticNow);
         }
+        if (turn.priorFailure) {
+          // The failed turn is injected, not counted as an executed model turn.
+          // Unit tests independently cover the server's failure serialization.
+          conversation = { ...conversation, messages: [...conversation.messages, turn.priorFailure.message].slice(-16), dialogue: [
+            ...(conversation.dialogue ?? conversation.messages.map(content => ({ role: 'user' as const, content }))),
+            { role: 'user' as const, content: turn.priorFailure.message },
+            { role: 'assistant' as const, content: customerAssistantCopy.en.unavailable.unavailable! },
+          ].slice(-24) };
+        }
         const priorDialogue: NonNullable<import('../src/libs/customerAssistant/conversation.server').CustomerConversation['dialogue']> = conversation.dialogue
           ? [...conversation.dialogue]
           : conversation.messages.map(content => ({ role: 'user' as const, content }));
@@ -541,7 +551,7 @@ async function main(): Promise<void> {
           next.dialogue = nextDialogue;
           failures.push(...evaluateTurn({ turn, result, next, reply: parsedReply.message, publicFacts, previous, currentProposal }));
           conversation = next;
-          results.push({ caseId: testCase.id, category: testCase.category, repeat: repeatIndex, turn: turnIndex + 1, customer: turn.message, contextCompaction: { interpretation: interpretationContext.compacted, reply: replyContext.compacted }, status: failures.length ? 'review' : 'passed', failures, modelReplyFallback: replyFallback, replyParseFailure, intent, rawModelInterpretation: rawInterpretation, result, rawModelReply: rawReply, reply: parsedReply.message, nextFacts: next.facts, subjects: next.subjects ?? [], calls: calls.slice(-2) });
+          results.push({ caseId: testCase.id, category: testCase.category, repeat: repeatIndex, turn: turnIndex + 1, customer: turn.message, injectedPriorFailure: turn.priorFailure?.message ?? null, contextCompaction: { interpretation: interpretationContext.compacted, reply: replyContext.compacted }, status: failures.length ? 'review' : 'passed', failures, modelReplyFallback: replyFallback, replyParseFailure, intent, rawModelInterpretation: rawInterpretation, result, rawModelReply: rawReply, reply: parsedReply.message, nextFacts: next.facts, subjects: next.subjects ?? [], calls: calls.slice(-2) });
         } catch (error) {
           const stage = result ? 'reply' : 'interpretation';
           calls.push({ stage, latencyMs: null, usage: null, estimatedCostMicros: null, status: 'failed', error: error instanceof Error ? error.name : 'unknown' });

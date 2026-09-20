@@ -76,7 +76,6 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       : intent.timingFeedback;
   const anchorContinuation = intent.action === 'availability'
     && !intent.dateExplicitThisTurn
-    && conversation.context?.question === 'date'
     && fallbackSearch
     && intent.availabilityAnchor !== null;
   const effectiveTimingFeedback = anchorContinuation
@@ -380,7 +379,7 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
         : { kind: 'unavailable', reason: 'no_availability' };
     }
   } else if (intent.action === 'clarify') {
-    if (intent.question === 'date' && !(conversation.context?.selection && nextState.booking?.acceptedFingerprint)) {
+    if (intent.question === 'date' && !nextState.context?.selection) {
       result = { kind: 'unavailable', reason: 'no_match' };
     } else {
       // Only current public labels can become chips. Unknown/cross-tenant IDs

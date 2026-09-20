@@ -75,7 +75,7 @@ describe('customer assistant bounded turn', () => {
   it('still fails closed before proposal authority if a provider returns the reproduced malformed times', async () => {
     const result = await runCustomerAssistantTurn(input(), provider({ ...interpretation, datePreference: { date: '2026-09-19', earliest: '', latest: '' } }));
 
-    expect(result.result).toEqual({ kind: 'unavailable', reason: 'unavailable' });
+    expect(result.result).toEqual({ kind: 'unavailable', reason: 'unavailable', message: 'I couldn’t check that right now. Please try again or continue with the regular booking menu.' });
     expect(mocks.proposal).not.toHaveBeenCalled();
     expect(mocks.lookup).not.toHaveBeenCalled();
     expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ usage, outcome: 'failed' }));
@@ -179,13 +179,104 @@ describe('customer assistant bounded turn', () => {
     expect(model.createResponse).not.toHaveBeenCalled();
   });
 
+  it('records an oversized fixed context as a no-provider failure while remembering the visible reply', async () => {
+    mocks.menu.mockResolvedValue({ services: [{ id: 'gelx', name: 'x'.repeat(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES) }], addOns: [], bindings: [] });
+    const model = provider();
+    const response = await runCustomerAssistantTurn(input(), model);
+
+    expect(model.createResponse).not.toHaveBeenCalled();
+    expect(mocks.record).toHaveBeenCalledTimes(1);
+    expect(mocks.record).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed', usage: null, deterministic: true }));
+    expect(response.result).toMatchObject({ kind: 'unavailable', reason: 'unavailable' });
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).dialogue?.at(-1)?.content).toBe(response.result.message);
+  });
+
+  it('stores the same safe transient fallback shown to the customer after a provider interruption and preserves recovery state', async () => {
+    const requested = { date: '2026-09-26', earliest: '17:00', latest: '23:59' };
+    const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
+    const prior = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] } },
+      booking: { acceptedFingerprint: null, datePreference: displayed, offeredSlots: [{ time: '10:00', startTime: '2026-09-28T14:00:00.000Z' }], selectedSlot: null },
+      availabilitySearch: { requestedPreference: requested, displayedPreference: displayed, fallback: true },
+    }, secret);
+    const interrupted = { createResponse: vi.fn().mockRejectedValue(new Error('PROVIDER_INTERRUPTED')) };
+
+    const failed = await runCustomerAssistantTurn({ ...input(), conversation: prior, message: 'anything earlier?' }, interrupted);
+
+    expect(failed.result).toEqual({
+      kind: 'unavailable',
+      reason: 'unavailable',
+      message: 'I couldn’t check that right now. Please try again or continue with the regular booking menu.',
+    });
+
+    const failedState = verifyCustomerConversation(failed.conversation, 'salon-a', secret);
+
+    expect(failedState.context?.selection).toEqual({ baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] });
+    expect(failedState.booking?.acceptedFingerprint).toBeNull();
+    expect(failedState.availabilitySearch).toEqual({ requestedPreference: requested, displayedPreference: displayed, fallback: true });
+    expect(failedState.dialogue?.slice(-2)).toEqual([
+      { role: 'user', content: 'anything earlier?' },
+      { role: 'assistant', content: 'I couldn’t check that right now. Please try again or continue with the regular booking menu.' },
+    ]);
+
+    const recovered = await runCustomerAssistantTurn({ ...input(), conversation: failed.conversation, message: 'the original day' }, provider({
+      ...interpretation,
+      action: 'availability',
+      serviceId: null,
+      addOns: [{ addOnId: 'french', quantity: 1 }],
+      datePreference: null,
+      timeDirection: 'earlier',
+      availabilityAnchor: 'requested',
+      dateExplicitThisTurn: false,
+    }));
+
+    expect(mocks.lookup).toHaveBeenLastCalledWith(expect.objectContaining({
+      preference: { date: '2026-09-26', earliest: '00:00', latest: '16:59' },
+    }));
+    expect(recovered.result).toMatchObject({ kind: 'slots' });
+  });
+
+  it('stores the safe transient fallback when durable outcome recording fails after a model reply', async () => {
+    mocks.record.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('LEDGER_INTERRUPTED'));
+    const response = await runCustomerAssistantTurn(input(), provider());
+
+    expect(response.result).toEqual({
+      kind: 'unavailable',
+      reason: 'unavailable',
+      message: 'I couldn’t check that right now. Please try again or continue with the regular booking menu.',
+    });
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).dialogue?.at(-1)).toEqual({
+      role: 'assistant',
+      content: 'I couldn’t check that right now. Please try again or continue with the regular booking menu.',
+    });
+  });
+
+  it('allows a date clarification for a resolved selection before acceptance, while a missing selection remains gated', async () => {
+    const selection = { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] };
+    const resolved = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      context: { question: null, options: [], selection },
+      booking: { acceptedFingerprint: null, datePreference: null, offeredSlots: [], selectedSlot: null },
+    }, secret);
+    const clarifyDate = { ...interpretation, action: 'clarify', serviceId: 'gelx', addOns: [{ addOnId: 'french', quantity: 1 }], question: 'date', optionIds: [] };
+
+    const allowed = await runCustomerAssistantTurn({ ...input(), conversation: resolved, message: 'Saturday?' }, provider(clarifyDate));
+
+    expect(allowed.result).toEqual({ kind: 'clarification', question: 'date', options: [] });
+
+    const missing = await runCustomerAssistantTurn(input(), provider(clarifyDate));
+
+    expect(missing.result).toEqual({ kind: 'unavailable', reason: 'no_match', message: 'We could not find a matching service. Try describing what you would like another way.' });
+  });
+
   it.each([
     { ...interpretation, price: 1, confirmation: 'booked' },
     { ...interpretation, action: 'clarify', optionIds: ['foreign-service'] },
   ])('does not render invented output or foreign clarification options', async (output) => {
     const result = await runCustomerAssistantTurn(input(), provider(output));
 
-    expect(result.result).toEqual({ kind: 'unavailable', reason: 'unavailable' });
+    expect(result.result).toEqual({ kind: 'unavailable', reason: 'unavailable', message: 'I couldn’t check that right now. Please try again or continue with the regular booking menu.' });
     expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ usage, outcome: 'failed' }));
   });
 
@@ -610,7 +701,7 @@ describe('customer assistant bounded turn', () => {
       optionIds: [],
     }));
 
-    expect(response.result).toEqual({ kind: 'unavailable', reason: 'no_match' });
+    expect(response.result).toEqual({ kind: 'unavailable', reason: 'no_match', message: 'We could not find a matching service. Try describing what you would like another way.' });
   });
 
   it('clears a same-fingerprint accepted booking when post-read context changed', async () => {
