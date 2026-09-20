@@ -393,6 +393,15 @@ it('clears an inherited extension length when an explicit treatment switch moves
   expect(switched.failures).toEqual([]);
   expect(switched.next.facts).toMatchObject({ treatment: 'builder_gel', desiredApplication: 'natural_nails', length: 'unknown', french: 'yes' });
 
+  const noApplicationPatch = await evaluateReceptionistTurn(intent({
+    serviceId: biab,
+    factUpdates: { ...patch, treatment: 'builder_gel' },
+  }), first.next, { message: 'Actually forget Gel-X, I want BIAB', kinds: ['proposal'] });
+
+  expect(noApplicationPatch.failures).toEqual([]);
+  expect(noApplicationPatch.next.facts).toMatchObject({ treatment: 'builder_gel', length: 'unknown', french: 'yes', existingProduct: 'none' });
+  expect(noApplicationPatch.next.requestedSelection?.selectedAddOns).not.toContainEqual({ addOnId: 'addon_semantic_long', quantity: 1 });
+
   const explicitLength = await evaluateReceptionistTurn(intent({
     serviceId: gelx,
     factUpdates: { ...patch, treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', length: 'long' },

@@ -21,8 +21,8 @@ type Authorities = {
 
 /**
  * A length belongs to an extension design, not permanently to a customer.
- * When a customer explicitly switches both treatment and desired application
- * from extensions to a natural-nail service, do not make the new service ask
+ * When a customer switches from extensions to a natural-nail service
+ * identified by explicit intent or the chosen public catalogue entry, do not make the new service ask
  * for the old extension length. A changed supplied length still wins. Model
  * patches repeat prior values in some valid structured outputs, so merely
  * echoing the old value cannot keep an extension-only fact alive. Explicitly
@@ -33,10 +33,13 @@ function clearInheritedServiceFacts(args: {
   facts: import('./semanticFacts').Facts;
   patch: z.infer<typeof customerInterpretationSchema>['factUpdates'];
   lengthExplicitThisTurn: boolean;
+  selectedApplication: import('./semanticFacts').Facts['desiredApplication'];
 }): import('./semanticFacts').Facts {
   const changedTreatment = args.patch.treatment !== null && args.patch.treatment !== args.previous.treatment;
   const changedApplication = args.patch.desiredApplication !== null && args.patch.desiredApplication !== args.previous.desiredApplication;
-  const switchedApplication = args.previous.desiredApplication === 'extensions' && args.patch.desiredApplication === 'natural_nails';
+  const switchedApplication = args.previous.desiredApplication === 'extensions'
+    && (args.patch.desiredApplication === 'natural_nails'
+      || (changedTreatment && args.patch.desiredApplication === null && args.selectedApplication === 'natural_nails'));
   const changedLength = args.patch.length !== null && args.patch.length !== args.previous.length;
   const treatment = changedApplication && args.patch.treatment === null ? 'unknown' : args.facts.treatment;
   const length = (changedTreatment || changedApplication) && switchedApplication && !changedLength && !args.lengthExplicitThisTurn
@@ -142,6 +145,10 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       facts: mergeFacts(previousFacts, intent.factUpdates),
       patch: intent.factUpdates,
       lengthExplicitThisTurn: intent.lengthExplicitThisTurn,
+      selectedApplication: (() => {
+        const selected = intent.action !== 'answer' && menu.services.find(service => service.id === intent.serviceId);
+        return selected ? semanticCatalog.serviceApplication(selected) : 'unknown';
+      })(),
     });
   if (!informationalOnly && intent.addOnUpdates) {
     const chosen = new Set(facts.designChoiceIds ?? []);
