@@ -173,14 +173,19 @@ describe('BookConfirmClient', () => {
     publicRecoveryMock.read.mockReturnValue(null);
     publicRecoveryMock.recover.mockResolvedValue(null);
     publicRecoveryMock.isReceipt.mockImplementation(value => value !== null && value !== undefined);
-    publicRecoveryMock.begin.mockImplementation(({ salonId, attemptId, confirmationPath }) => ({
-      version: 1,
-      salonId,
-      attemptId,
-      confirmationPath,
-      recoveryKey: '11111111-1111-4111-8111-111111111111',
-      state: 'pending',
-    }));
+    publicRecoveryMock.begin.mockImplementation(({ salonId, attemptId, confirmationPath }) => {
+      const attempt = {
+        version: 1,
+        salonId,
+        attemptId,
+        confirmationPath,
+        recoveryKey: '11111111-1111-4111-8111-111111111111',
+        state: 'pending',
+      };
+      publicRecoveryMock.read.mockReturnValue(attempt);
+      return attempt;
+    });
+    publicRecoveryMock.clear.mockImplementation(() => publicRecoveryMock.read.mockReturnValue(null));
     clearBookingState.mockReset();
     navigationMock.searchParams = new URLSearchParams('techId=tech_1');
     vi.stubGlobal('fetch', fetchMock);
@@ -346,6 +351,21 @@ describe('BookConfirmClient', () => {
     expect(publicRecoveryMock.recover).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
+
+    errorLog.mockRestore();
+  });
+
+  it('does not invent uncertainty after a definitive policy rejection already released the attempt', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'BOOKING_POLICY_CHANGED' }), { status: 409 }));
+    renderBasicConfirm({ salonId: 'salon_internal_a' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await screen.findByText(/salon updated its booking policy/);
+
+    expect(publicRecoveryMock.clear).toHaveBeenCalledWith('salon_internal_a');
+    expect(publicRecoveryMock.recover).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('booking-recovery-notice')).not.toBeInTheDocument();
 
     errorLog.mockRestore();
   });

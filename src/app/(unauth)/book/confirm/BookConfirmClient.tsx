@@ -3015,11 +3015,16 @@ export function BookConfirmClient({
         return;
       }
       if (!isAssistantHandoff && salonId) {
-        // The request may have reached the server even when this browser has
-        // no usable response. Keep the persisted identity and reconcile only
-        // through the status receipt; never turn this into an automatic POST.
-        setPublicRecoveryPending(true);
-        void checkPublicRecovery();
+        // Only an actual pending attempt is ambiguous. A recognized rejection
+        // may already have released it before asking the customer to refresh.
+        try {
+          if (readPublicBookingAttempt(salonId)?.state === 'pending') {
+            setPublicRecoveryPending(true);
+            void checkPublicRecovery();
+          }
+        } catch {
+          setPublicRecoveryPending(true);
+        }
       }
       console.error('Booking error:', error);
       setBookingError(
