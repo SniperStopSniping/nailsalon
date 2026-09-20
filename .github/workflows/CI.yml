@@ -871,6 +871,9 @@ jobs:
       - name: Verify appointment management and checkout in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/appointmentWorkflow/playwright.config.ts --output=test-results/appointment-workflow-components
 
+      - name: Verify owner client profiles in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/clientProfile/playwright.config.ts --output=test-results/client-profile-components
+
       - name: Run storybook tests
         run: npm run test-storybook:ci
 

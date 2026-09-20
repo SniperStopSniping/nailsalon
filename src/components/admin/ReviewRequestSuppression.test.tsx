@@ -84,6 +84,39 @@ describe('ReviewRequestSuppression', () => {
     expect(await screen.findByText('Future requests are skipped. A request already sending may still arrive.')).toBeVisible();
   });
 
+  it('uses compact overview presentation without a suppression editor and links to activity', async () => {
+    const onOpenActivity = vi.fn();
+    fetchMock.mockResolvedValue(response(overview()));
+    render(
+      <ReviewRequestSuppression
+        salonSlug="isla"
+        clientId="client_1"
+        presentation="compact"
+        onOpenActivity={onOpenActivity}
+      />,
+    );
+
+    expect(await screen.findByText('Sent to SMS provider · Automatic · SMS')).toBeVisible();
+    expect(screen.queryByRole('checkbox', { name: 'Do not send review requests' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View review request activity' }));
+
+    expect(onOpenActivity).toHaveBeenCalledOnce();
+  });
+
+  it('separates activity evidence from the sole controls editor', async () => {
+    fetchMock.mockResolvedValue(response(overview()));
+    const { rerender } = render(<ReviewRequestSuppression salonSlug="isla" clientId="client_1" presentation="activity" />);
+
+    expect(await screen.findByText('Review request history')).toBeVisible();
+    expect(screen.queryByRole('checkbox', { name: 'Do not send review requests' })).not.toBeInTheDocument();
+
+    rerender(<ReviewRequestSuppression salonSlug="isla" clientId="client_1" presentation="controls" />);
+
+    expect(await screen.findByRole('checkbox', { name: 'Do not send review requests' })).toBeVisible();
+    expect(screen.queryByText('Review request history')).not.toBeInTheDocument();
+  });
+
   it('does not apply a late load from a prior salon or client', async () => {
     let resolveFirst: ((value: Response) => void) | undefined;
     fetchMock
@@ -145,5 +178,20 @@ describe('ReviewRequestSuppression', () => {
     expect(screen.getByText('Skipped')).toBeVisible();
     expect(screen.getByText('Review requests are off for this client.')).toBeVisible();
     expect(screen.queryByText(/client opted out/i)).not.toBeInTheDocument();
+  });
+
+  it('invalidates sibling status only after an acknowledged suppression change', async () => {
+    const onChanged = vi.fn();
+    fetchMock.mockResolvedValueOnce(response(overview())).mockResolvedValueOnce(response(overview({ reviewRequestsSuppressed: true })));
+    render(<ReviewRequestSuppression salonSlug="isla" clientId="client_1" presentation="controls" onChanged={onChanged} />);
+    const control = await screen.findByRole('checkbox', { name: 'Do not send review requests' });
+    await waitFor(() => expect(control).toBeEnabled());
+
+    expect(onChanged).not.toHaveBeenCalled();
+
+    fireEvent.click(control);
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+
+    expect(control).toBeChecked();
   });
 });

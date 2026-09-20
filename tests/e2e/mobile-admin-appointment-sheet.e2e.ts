@@ -257,8 +257,9 @@ test('iPhone Safari keeps archive confirmation safe and refreshes after success 
 
     await firstClient.click();
 
-    // The one destructive control sits behind "More actions" and is named
-    // for what it does (archive, not delete) since the CP2 clients repair.
+    // Rare controls stay out of the daily workflow; the existing archive
+    // confirmation and duplicate-submission protections remain authoritative.
+    await page.getByRole('button', { name: 'Client controls', exact: true }).click();
     await page.getByTestId('client-more-actions-toggle').click();
 
     await expect(page.getByTestId('client-archive-action')).toBeVisible();

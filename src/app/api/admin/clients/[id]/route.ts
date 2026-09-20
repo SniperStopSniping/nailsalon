@@ -7,6 +7,7 @@ import {
   inArray,
   isNull,
   lt,
+  or,
   sql,
 } from 'drizzle-orm';
 import { z } from 'zod';
@@ -32,6 +33,7 @@ import {
   setClientContactEditTransactionTimeoutsWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
+import { getClientProfileNextVisitOffer } from '@/libs/clientProfileOffer.server';
 import { db } from '@/libs/DB';
 import type { DepositCreditRow } from '@/libs/depositCredit';
 import { buildReportingProvenance, resolveCompletedAppointmentRevenue } from '@/libs/financialReporting';
@@ -520,8 +522,9 @@ export async function GET(
     ])];
 
     const now = new Date();
+    const nextVisitOfferRead = getClientProfileNextVisitOffer(db, salon.id, client.id, now);
 
-    // Get upcoming appointments
+    // Get current work and future bookings, preserving their actual statuses.
     const upcomingAppointments = await db
       .select({
         id: appointmentSchema.id,
@@ -553,14 +556,19 @@ export async function GET(
           eq(appointmentSchema.salonId, salon.id),
           inArray(appointmentSchema.clientPhone, phoneVariants),
           isNull(appointmentSchema.deletedAt),
-          gte(appointmentSchema.startTime, now),
-          inArray(appointmentSchema.status, ['pending', 'confirmed']),
+          or(
+            eq(appointmentSchema.status, 'in_progress'),
+            and(
+              gte(appointmentSchema.startTime, now),
+              inArray(appointmentSchema.status, ['pending', 'confirmed', 'awaiting_payment']),
+            ),
+          ),
         ),
       )
       .orderBy(appointmentSchema.startTime)
       .limit(5);
 
-    // Get completed appointments (most recent 20)
+    // Explicit completed history; a scheduled end time never proves completion.
     const pastAppointments = await db
       .select({
         id: appointmentSchema.id,
@@ -592,7 +600,6 @@ export async function GET(
           eq(appointmentSchema.salonId, salon.id),
           inArray(appointmentSchema.clientPhone, phoneVariants),
           isNull(appointmentSchema.deletedAt),
-          lt(appointmentSchema.startTime, now),
           eq(appointmentSchema.status, 'completed'),
         ),
       )
@@ -631,8 +638,13 @@ export async function GET(
           eq(appointmentSchema.salonId, salon.id),
           inArray(appointmentSchema.clientPhone, phoneVariants),
           isNull(appointmentSchema.deletedAt),
-          lt(appointmentSchema.startTime, now),
-          inArray(appointmentSchema.status, ['cancelled', 'no_show']),
+          or(
+            inArray(appointmentSchema.status, ['cancelled', 'no_show']),
+            and(
+              lt(appointmentSchema.startTime, now),
+              inArray(appointmentSchema.status, ['pending', 'confirmed', 'awaiting_payment']),
+            ),
+          ),
         ),
       )
       .orderBy(desc(appointmentSchema.startTime))
@@ -867,6 +879,7 @@ export async function GET(
         id: appt.id,
         startTime: appt.startTime.toISOString(),
         endTime: appt.endTime.toISOString(),
+        completedAt: appt.completedAt?.toISOString() ?? null,
         status: appt.status,
         totalPrice: depositBlocked ? null : appt.totalPrice,
         currency: storedInvoiceCurrency ?? null,
@@ -1117,17 +1130,6 @@ export async function GET(
       submittedFavoriteTechnician = favoriteTech ?? null;
     }
 
-    const nextAppointment = upcomingAppointments[0] ?? null;
-    const rebooking = nextAppointment
-      ? { status: 'booked', dueAt: client.nextRebookDueAt?.toISOString() ?? null }
-      : !client.lastVisitAt
-          ? { status: 'new_client', dueAt: null }
-          : !client.nextRebookDueAt
-              ? { status: 'not_set', dueAt: null }
-              : client.nextRebookDueAt.getTime() <= now.getTime()
-                ? { status: 'overdue', dueAt: client.nextRebookDueAt.toISOString() }
-                : { status: 'due_later', dueAt: client.nextRebookDueAt.toISOString() };
-
     const clientPhotos = await db.select({
       id: appointmentPhotoSchema.id,
       appointmentId: appointmentPhotoSchema.appointmentId,
@@ -1143,6 +1145,28 @@ export async function GET(
         historicalPhones,
       ),
     )).orderBy(desc(appointmentPhotoSchema.createdAt)).limit(24);
+
+    const nextVisitOffer = await nextVisitOfferRead;
+    // The mixed preview is capped; holds/current work must not hide a later booking.
+    const nextAppointment = upcomingAppointments.find(appointment =>
+      appointment.status === 'confirmed' && appointment.startTime >= now)
+      ?? (await db.select({ id: appointmentSchema.id }).from(appointmentSchema).where(and(
+        eq(appointmentSchema.salonId, salon.id),
+        inArray(appointmentSchema.clientPhone, phoneVariants),
+        isNull(appointmentSchema.deletedAt),
+        eq(appointmentSchema.status, 'confirmed'),
+        gte(appointmentSchema.startTime, now),
+      )).orderBy(appointmentSchema.startTime).limit(1))[0]
+      ?? null;
+    const rebooking = nextAppointment
+      ? { status: 'booked', dueAt: client.nextRebookDueAt?.toISOString() ?? null }
+      : !client.lastVisitAt
+          ? { status: 'new_client', dueAt: null }
+          : !client.nextRebookDueAt
+              ? { status: 'not_set', dueAt: null }
+              : client.nextRebookDueAt.getTime() <= now.getTime()
+                ? { status: 'overdue', dueAt: client.nextRebookDueAt.toISOString() }
+                : { status: 'due_later', dueAt: client.nextRebookDueAt.toISOString() };
 
     return privateJson({
       data: {
@@ -1172,6 +1196,7 @@ export async function GET(
           updatedAt: client.updatedAtVersion,
         },
         summary: {
+          nextVisitOffer,
           currency: bookingConfig.currency,
           timeZone: bookingConfig.timezone,
           lifetimeSpendCents:

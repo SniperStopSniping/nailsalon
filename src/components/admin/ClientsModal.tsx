@@ -52,6 +52,7 @@ import {
   type ClientInsightAttentionItem,
   type ClientInsightSegmentId,
 } from '@/types/clientInsights';
+import type { ClientNextVisitOffer } from '@/types/clientProfile';
 import type { RetentionStage } from '@/types/retention';
 
 import { BackButton, ModalHeader } from './AppModal';
@@ -118,6 +119,7 @@ type ClientAppointment = {
   id: string;
   startTime: string;
   endTime: string;
+  completedAt?: string | null;
   status: string;
   totalPrice: number | null;
   currency?: string | null;
@@ -220,6 +222,7 @@ type ClientProfileSummary = {
     status: 'booked' | 'new_client' | 'not_set' | 'overdue' | 'due_later';
     dueAt: string | null;
   };
+  nextVisitOffer?: ClientNextVisitOffer;
   provenance: {
     lifetimeSpend: FinancialProvenance;
     spendThisMonth: FinancialProvenance;
@@ -291,6 +294,7 @@ type ClientArchiveSuccess = {
 
 type ClientPhoto = {
   id: string;
+  appointmentId?: string;
   imageUrl: string;
   thumbnailUrl: string | null;
   photoType: string;
@@ -332,6 +336,7 @@ type ProfileSection =
   | 'preferences'
   | 'payments'
   | 'notes'
+  | 'controls'
   | 'details';
 
 const SORT_OPTIONS: Array<{ value: SortOption; label: string }> = [
@@ -655,7 +660,20 @@ function formatDate(dateString: string | null, includeWeekday = false): string {
   });
 }
 
-function formatDateTimeRange(startTime: string, endTime: string): string {
+function formatDateOnly(dateString: string): string {
+  const [year, month, day] = dateString.split('-').map(Number);
+  if (!year || !month || !day) {
+    return formatDate(dateString);
+  }
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+function formatDateTimeRange(startTime: string, endTime: string, timeZone?: string): string {
   const start = new Date(startTime);
   const end = new Date(endTime);
 
@@ -663,15 +681,18 @@ function formatDateTimeRange(startTime: string, endTime: string): string {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    timeZone,
   });
 
   const startDisplay = start.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
+    timeZone,
   });
   const endDisplay = end.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
+    timeZone,
   });
 
   return `${date} · ${startDisplay} - ${endDisplay}`;
@@ -939,39 +960,26 @@ function HistoryQualityBadge({ provenance }: { provenance?: FinancialProvenance 
 
 const DESKTOP_PROFILE_SECTIONS: Array<{ id: ProfileSection; label: string }> = [
   { id: 'overview', label: 'Overview' },
-  { id: 'activity', label: 'Activity' },
   { id: 'appointments', label: 'Appointments' },
+  { id: 'activity', label: 'Messages & activity' },
   { id: 'preferences', label: 'Preferences' },
   { id: 'payments', label: 'Payments' },
   { id: 'notes', label: 'Notes & Photos' },
 ];
 
-const MOBILE_PROFILE_SECTIONS: Array<{ id: ProfileSection; label: string }> = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'activity', label: 'Activity' },
-  { id: 'details', label: 'Details' },
-];
+const MOBILE_PROFILE_SECTIONS = DESKTOP_PROFILE_SECTIONS;
 
 /**
- * The two lanes show the same content at different granularity: the mobile
- * "Activity" tab renders what desktop splits into Appointments + Payments, and
- * mobile "Details" renders desktop's Preferences + Notes. Without this mapping
- * a section chosen in one lane leaves the other lane with no tab marked
- * current — which is what an owner sees the moment they rotate a tablet or the
- * salon's iPad hits the lg breakpoint (desktop adaptation).
+ * Mobile and desktop expose the same destinations. The old broad mobile
+ * Activity/Details buckets mixed appointments, payments and editing together.
+ * Keep `details` only as a compatibility alias for an existing deep state.
  */
 function sectionForLane(
   section: ProfileSection,
   lane: 'mobile' | 'desktop',
 ): ProfileSection {
   if (lane === 'mobile') {
-    if (section === 'appointments' || section === 'payments') {
-      return 'activity';
-    }
-    if (section === 'preferences' || section === 'notes') {
-      return 'details';
-    }
-    return section;
+    return section === 'details' ? 'preferences' : section;
   }
   return section === 'details' ? 'preferences' : section;
 }
@@ -1014,10 +1022,20 @@ function ProfileNavigation({
   };
   return (
     <nav aria-label="Client profile sections" className="sticky top-[3.75rem] z-30 -mx-4 mb-4 border-y border-rose-100 bg-[#fffaf5]/95 px-4 py-2 backdrop-blur">
-      <div className="grid grid-cols-3 gap-2 lg:hidden">
-        {MOBILE_PROFILE_SECTIONS.map(section => renderButton(section, 'mobile'))}
-      </div>
-      <div className="hidden gap-2 overflow-x-auto lg:flex">
+      <label className="block lg:hidden">
+        <span className="sr-only">Client profile section</span>
+        <select
+          aria-label="Client profile section"
+          value={sectionForLane(activeSection, 'mobile')}
+          onChange={event => onChange(event.target.value as ProfileSection)}
+          className="min-h-11 w-full rounded-xl border border-rose-200 bg-white px-3 text-sm font-semibold text-stone-800"
+        >
+          {MOBILE_PROFILE_SECTIONS.map(section => (
+            <option key={section.id} value={section.id}>{section.label}</option>
+          ))}
+        </select>
+      </label>
+      <div className="hidden flex-wrap gap-2 lg:flex">
         {DESKTOP_PROFILE_SECTIONS.map(section => renderButton(section, 'desktop'))}
       </div>
     </nav>
@@ -1165,9 +1183,9 @@ function AppointmentCard({
                 event.stopPropagation();
                 onManage(appointment.id);
               }}
-              className="min-h-10 flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-[13px] font-semibold text-[var(--owner-ink,#30262a)]"
+              className="min-h-11 flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-[13px] font-semibold text-[var(--owner-ink,#30262a)]"
             >
-              Change
+              View appointment
             </button>
           )}
           {onCancel && (
@@ -1178,7 +1196,7 @@ function AppointmentCard({
                 event.stopPropagation();
                 onCancel(appointment.id);
               }}
-              className="min-h-10 flex-1 rounded-xl border border-red-200 px-3 py-2 text-[13px] font-semibold text-red-600"
+              className="min-h-11 flex-1 rounded-xl border border-red-200 px-3 py-2 text-[13px] font-semibold text-red-600"
             >
               Cancel
             </button>
@@ -1290,6 +1308,8 @@ function ClientDetail({
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [bookingPrefill, setBookingPrefill] = useState<RebookPrefill | null>(null);
   const [activeSection, setActiveSection] = useState<ProfileSection>('overview');
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const [reviewRevision, setReviewRevision] = useState(0);
   const detailScrollRef = useRef<HTMLDivElement>(null);
 
   const [flagsState, setFlagsState] = useState<ClientFlagsState | null>(initialCachedDetail?.flagsState ?? null);
@@ -1318,9 +1338,37 @@ function ClientDetail({
   const [blockedReasonDraft, setBlockedReasonDraft] = useState(initialCachedDetail?.flagsState?.blockedReason ?? '');
   const [flagsSaving, setFlagsSaving] = useState(false);
   const [flagsSaveError, setFlagsSaveError] = useState<string | null>(null);
+  const [blockConfirmationOpen, setBlockConfirmationOpen] = useState(false);
 
   const canManageFlags = moduleAvailability.clientFlags || moduleAvailability.clientBlocking;
   const statsSource = profile ?? clientSummary;
+  // The API's past history can include unresolved historical appointments.
+  // Only an explicit completed status is a completed visit or rebook source.
+  const completedAppointments = useMemo(
+    () => pastAppointments
+      .filter(appointment => appointment.status === 'completed')
+      .sort((left, right) => new Date(right.completedAt ?? right.startTime).getTime() - new Date(left.completedAt ?? left.startTime).getTime()),
+    [pastAppointments],
+  );
+  const communicationUpcoming = useMemo(
+    () => upcomingAppointments.find(appointment => (
+      ['pending', 'confirmed'].includes(appointment.status)
+      && new Date(appointment.startTime).getTime() > Date.now()
+    )) ?? null,
+    [upcomingAppointments],
+  );
+  const unresolvedAppointment = recentIssues.find(appointment =>
+    ['confirmed', 'pending', 'awaiting_payment'].includes(appointment.status)
+    && new Date(appointment.endTime).getTime() <= Date.now());
+  const currentOrNextAppointment = useMemo(() => {
+    const current = upcomingAppointments.find(appointment => appointment.status === 'in_progress');
+    if (current) {
+      return current;
+    }
+    return [...upcomingAppointments]
+      .filter(appointment => ['pending', 'confirmed', 'awaiting_payment'].includes(appointment.status))
+      .sort((left, right) => new Date(left.startTime).getTime() - new Date(right.startTime).getTime())[0] ?? null;
+  }, [upcomingAppointments]);
 
   const applyDetailPayload = useCallback((payload: {
     client: ClientProfile;
@@ -1587,7 +1635,7 @@ function ClientDetail({
   }, [profile?.preferredTechnician?.id, statsSource.email, statsSource.fullName, statsSource.phone]);
 
   const openClientRebook = useCallback(async () => {
-    const previousAppointment = pastAppointments[0];
+    const previousAppointment = completedAppointments[0];
     const prefill: RebookPrefill = {
       name: statsSource.fullName ?? null,
       phone: statsSource.phone,
@@ -1626,7 +1674,7 @@ function ClientDetail({
     }
 
     openBookingModal(prefill);
-  }, [openBookingModal, pastAppointments, profile?.preferredTechnician?.id, salonSlug, statsSource.email, statsSource.fullName, statsSource.id, statsSource.phone]);
+  }, [completedAppointments, openBookingModal, profile?.preferredTechnician?.id, salonSlug, statsSource.email, statsSource.fullName, statsSource.id, statsSource.phone]);
 
   /**
    * Switching section used to leave the profile scrolled wherever the previous
@@ -1786,61 +1834,55 @@ function ClientDetail({
       exit={{ x: '100%' }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       data-testid="client-detail-scroll"
-      className="fixed inset-0 top-12 z-50 overflow-y-auto overflow-x-hidden rounded-t-[20px] bg-[#fbf5ed]"
+      className="fixed inset-0 z-50 overflow-y-auto overflow-x-hidden bg-[#fbf5ed] pt-[env(safe-area-inset-top)]"
     >
       <ModalHeader
-        title={detailName}
+        title="Client"
         leftAction={<BackButton onClick={onBack} label="Clients" />}
+        rightAction={profile
+          ? (
+              <button type="button" aria-label="Edit client" data-testid="edit-client-action" className="flex min-h-11 min-w-11 items-center justify-center gap-1 text-sm font-semibold text-[var(--owner-accent,#8f3155)]" onClick={() => setShowEditDialog(true)}>
+                <Pencil className="size-4" />
+                <span className="hidden sm:inline">Edit client</span>
+              </button>
+            )
+          : undefined}
       />
 
       <div className="mx-auto w-full max-w-6xl p-4 pb-32 lg:pb-12">
-        <AdminDetailCard className="mb-4 overflow-hidden rounded-[24px] border border-rose-100 bg-gradient-to-br from-white via-[#fffaf5] to-rose-50/70">
-          <div className="flex min-w-0 flex-col items-center text-center lg:flex-row lg:items-center lg:text-left">
-            <div className="mb-3 flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-2xl font-bold text-white shadow-lg">
+        <AdminDetailCard className="mb-4 overflow-hidden border border-rose-100 bg-white">
+          <div className="flex min-w-0 flex-wrap items-start gap-3 text-left">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-sm font-bold text-white shadow-sm">
               {getInitials(statsSource.fullName)}
             </div>
-            <div className="min-w-0 lg:ml-5">
-              <div className="flex flex-wrap items-center justify-center gap-2 lg:justify-start">
-                <h2 className="text-[24px] font-semibold text-[#3f1727]">{detailName}</h2>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="break-words text-lg font-semibold text-[#3f1727]">{detailName}</h2>
                 {profile?.tags?.map(tag => (
                   <span key={tag} className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-800">
                     {tag}
                   </span>
                 ))}
               </div>
-              <div className="mt-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[14px] text-stone-500 lg:justify-start">
-                <span className="flex items-center gap-1">
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-stone-500">
+                <span className="flex min-w-0 items-start gap-1 break-all">
                   <Phone className="size-3.5" />
                   {formatPhone(statsSource.phone)}
                 </span>
                 {(profile?.email ?? clientSummary.email) && (
-                  <span className="flex items-center gap-1">
+                  <span className="flex min-w-0 items-start gap-1 break-all">
                     <Mail className="size-3.5" />
                     {profile?.email ?? clientSummary.email}
                   </span>
                 )}
               </div>
-              <div className="mt-2 text-[13px] text-stone-500">
+              <div className="mt-1 text-xs text-stone-500">
                 {profile?.createdAt
-                  ? `Client since ${formatDate(profile.createdAt)}${profile.lastVisitAt ? ` · Last visit ${formatDate(profile.lastVisitAt)}` : ''}`
-                  : clientSummary.lastVisitAt
-                    ? `Last visit ${formatDate(clientSummary.lastVisitAt)}`
-                    : 'Loading client history…'}
+                  ? `Client since ${formatDate(profile.createdAt)}`
+                  : 'Loading client history…'}
               </div>
             </div>
-            {profile && (
-              <Button
-                type="button"
-                variant="brandSoft"
-                size="pillSm"
-                data-testid="edit-client-action"
-                onClick={() => setShowEditDialog(true)}
-                className="mt-4 min-h-11 w-full shrink-0 lg:ml-auto lg:mt-0 lg:w-auto"
-              >
-                <Pencil className="mr-2 size-4" />
-                Edit client
-              </Button>
-            )}
+
           </div>
         </AdminDetailCard>
 
@@ -1871,17 +1913,37 @@ function ClientDetail({
             phone: statsSource.phone,
             email: profile?.email ?? clientSummary.email ?? null,
           }}
-          upcomingAppointment={upcomingAppointments[0] ?? null}
-          lastCompletedAppointment={pastAppointments[0] ?? null}
+          upcomingAppointment={communicationUpcoming}
+          lastCompletedAppointment={completedAppointments[0] ?? null}
           onOpenPromotionSettings={onOpenPromotionSettings}
-          profileLayout
-          showHistory={activeSection === 'activity'}
           onBookAppointment={() => void openClientRebook()}
+          primaryAction={currentOrNextAppointment
+            ? {
+                label: currentOrNextAppointment.status === 'in_progress'
+                  ? 'View current appointment'
+                  : 'View next appointment',
+                onClick: () => handleManageAppointment(currentOrNextAppointment.id),
+              }
+            : {
+                label: completedAppointments.length > 0 ? 'Rebook' : 'Book appointment',
+                onClick: () => void openClientRebook(),
+              }}
+          section={activeSection === 'overview'
+            ? 'overview'
+            : activeSection === 'activity'
+              ? 'activity'
+              : 'other'}
         />
 
-        {profile && <ReviewRequestSuppression salonSlug={salonSlug} clientId={profile.id} />}
-
-        {activeSection === 'overview' && (
+        {profile && activeSection === 'activity' && (
+          <ReviewRequestSuppression
+            key={`${profile.id}:${reviewRevision}`}
+            salonSlug={salonSlug}
+            clientId={profile.id}
+            presentation="activity"
+          />
+        )}
+        {activeSection === 'payments' && (
           <div className="my-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {/*
               AG-clients-10: the tile used to paint a directory-derived count
@@ -1891,7 +1953,7 @@ function ClientDetail({
               owner reads is the only number they read.
             */}
             <StatCard
-              label="Completed visits"
+              label="Completed visits in reporting currency"
               loading={visitsPending}
               testId="client-visits-tile"
               value={String(summary?.completedVisits ?? statsSource.totalVisits)}
@@ -1904,7 +1966,7 @@ function ClientDetail({
             */}
             <div>
               <StatCard
-                label="Lifetime spend"
+                label="Paid service value"
                 loading={moneyPending}
                 value={spendUnderReview(summary?.provenance.lifetimeSpend)
                   ? SPEND_UNDER_REVIEW_LABEL
@@ -1919,7 +1981,7 @@ function ClientDetail({
             </div>
             <div>
               <StatCard
-                label="Spend this month"
+                label="Paid service value this month"
                 loading={moneyPending}
                 value={spendUnderReview(summary?.provenance.spendThisMonth)
                   ? SPEND_UNDER_REVIEW_LABEL
@@ -1980,11 +2042,6 @@ function ClientDetail({
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <div>
                             <div className="text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Client details</div>
-                            <div className="mt-1 text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">
-                              Avg spend
-                              {' '}
-                              {profile ? formatCurrency(profile.averageSpend) : '...'}
-                            </div>
                           </div>
                           <div className="rounded-full bg-[var(--owner-blush,#f6e7ec)] px-3 py-1 text-[12px] font-medium text-[var(--owner-muted,#706267)]">
                             {techniciansLoading ? 'Loading artists...' : techniciansError ?? `${technicians.length} artists`}
@@ -2151,207 +2208,178 @@ function ClientDetail({
                   )}
 
                   {activeSection === 'overview' && (
-                    <div className="grid gap-4 lg:grid-cols-2">
-                      <AdminDetailCard className="mb-4">
-                        <div className="text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Appointments & rebooking</div>
-                        <div className="mt-4 space-y-3">
-                          <div className="rounded-2xl bg-rose-50 px-4 py-3">
-                            <div className="text-xs font-semibold uppercase text-rose-700">Next appointment</div>
-                            <div className="mt-1 text-sm font-semibold text-stone-900">
-                              {upcomingAppointments[0]
-                                ? formatDateTimeRange(upcomingAppointments[0].startTime, upcomingAppointments[0].endTime)
-                                : 'No future appointment booked'}
+                    <div className="space-y-4">
+                      <AdminDetailCard>
+                        <div data-testid="client-current-next-summary" className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">
+                              {currentOrNextAppointment?.status === 'in_progress' ? 'Current appointment' : 'Next appointment'}
                             </div>
+                            {currentOrNextAppointment
+                              ? (
+                                  <>
+                                    <div className="mt-1 text-base font-semibold text-stone-900">
+                                      {currentOrNextAppointment.services.map(service => service.name).join(' · ') || 'Appointment'}
+                                    </div>
+                                    <div className="mt-1 text-sm text-stone-600">
+                                      {formatDateTimeRange(currentOrNextAppointment.startTime, currentOrNextAppointment.endTime, summary?.timeZone)}
+                                      {currentOrNextAppointment.technician ? ` · ${currentOrNextAppointment.technician.name}` : ''}
+                                    </div>
+                                    <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-[11px] font-semibold ${getAppointmentStatusStyles(currentOrNextAppointment.status)}`}>
+                                      {formatAppointmentStatus(currentOrNextAppointment.status)}
+                                    </span>
+                                  </>
+                                )
+                              : <p className="mt-1 text-sm text-stone-500">No current or upcoming appointment.</p>}
                           </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="rounded-2xl bg-stone-50 p-3">
-                              <div className="text-[11px] font-semibold uppercase text-stone-400">Last appointment</div>
-                              <div className="mt-1 text-sm font-medium text-stone-800">
-                                {pastAppointments[0] ? formatDate(pastAppointments[0].startTime) : 'No completed visit'}
-                              </div>
-                            </div>
-                            <div className="rounded-2xl bg-stone-50 p-3">
-                              <div className="text-[11px] font-semibold uppercase text-stone-400">Rebooking</div>
-                              <div className="mt-1 text-sm font-medium capitalize text-stone-800">
-                                {summary?.rebooking.status.replaceAll('_', ' ') ?? 'Unavailable'}
-                              </div>
-                            </div>
-                            <div className="rounded-2xl bg-stone-50 p-3">
-                              <div className="text-[11px] font-semibold uppercase text-stone-400">Preferred artist</div>
-                              <div className="mt-1 text-sm font-medium text-stone-800">
-                                {profile?.preferredTechnician?.name ?? 'No preference'}
-                              </div>
-                            </div>
-                            <div className="rounded-2xl bg-stone-50 p-3">
-                              <div className="text-[11px] font-semibold uppercase text-stone-400">Most-booked service</div>
-                              <div className="mt-1 text-sm font-medium text-stone-800">
-                                {summary?.mostBookedService?.name ?? 'Not enough history'}
-                              </div>
-                            </div>
-                          </div>
+                          {currentOrNextAppointment && (
+                            <Button type="button" variant="brandSoft" size="pillSm" className="min-h-11" onClick={() => handleManageAppointment(currentOrNextAppointment.id)}>
+                              View
+                            </Button>
+                          )}
                         </div>
                       </AdminDetailCard>
+                      {unresolvedAppointment && (
+                        <button type="button" className="min-h-11 w-full rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-sm text-amber-950" onClick={() => handleManageAppointment(unresolvedAppointment.id)}>
+                          <span className="font-semibold">Appointment needs an update</span>
+                          <span className="block">
+                            {formatDateTimeRange(unresolvedAppointment.startTime, unresolvedAppointment.endTime, summary?.timeZone)}
+                            {' '}
+                            · Still
+                            {' '}
+                            {formatAppointmentStatus(unresolvedAppointment.status)}
+                            . Open appointment.
+                          </span>
+                        </button>
+                      )}
+                      {completedAppointments[0] && (
+                        <AdminDetailCard>
+                          <div className="text-xs font-semibold uppercase text-stone-500">Last completed visit</div>
+                          <p className="mt-1 break-words text-sm font-semibold text-stone-900">{completedAppointments[0].services.map(service => service.name).join(' · ') || 'Appointment'}</p>
+                          <p className="mt-1 text-sm text-stone-600">
+                            {formatDateTimeRange(completedAppointments[0].startTime, completedAppointments[0].endTime, summary?.timeZone)}
+                            {completedAppointments[0].technician ? ` · ${completedAppointments[0].technician.name}` : ''}
+                          </p>
+                          {completedAppointments[0].financial && (
+                            <p className="mt-1 text-xs text-stone-600">
+                              {appointmentFinancialDetailsUnderReview(completedAppointments[0].financial)
+                                ? 'Financial details under review'
+                                : completedAppointments[0].financial.completedValueCents != null && completedAppointments[0].currency
+                                  ? `Completed service value: ${formatCurrency(completedAppointments[0].financial.completedValueCents, completedAppointments[0].currency)}`
+                                  : 'Completed service value unavailable'}
+                            </p>
+                          )}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button type="button" variant="brandSoft" size="pillSm" className="min-h-11" onClick={() => handleManageAppointment(completedAppointments[0]!.id)}>View last visit</Button>
+                            <Button type="button" variant="brandSoft" size="pillSm" className="min-h-11" data-testid="client-profile-rebook" onClick={() => void openClientRebook()}>Rebook client</Button>
+                          </div>
+                        </AdminDetailCard>
+                      )}
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <AdminDetailCard className="mb-4">
+                          <div className="text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Service & rebooking</div>
+                          <div className="mt-4 space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="rounded-2xl bg-stone-50 p-3">
+                                <div className="text-[11px] font-semibold uppercase text-stone-400">Rebooking</div>
+                                <div className="mt-1 text-sm font-medium capitalize text-stone-800">
+                                  {summary?.rebooking.status.replaceAll('_', ' ') ?? 'Unavailable'}
+                                </div>
+                              </div>
+                              <div className="rounded-2xl bg-stone-50 p-3">
+                                <div className="text-[11px] font-semibold uppercase text-stone-400">Preferred artist</div>
+                                <div className="mt-1 text-sm font-medium text-stone-800">
+                                  {profile?.preferredTechnician?.name ?? 'No preference'}
+                                </div>
+                              </div>
+                              <div className="rounded-2xl bg-stone-50 p-3">
+                                <div className="text-[11px] font-semibold uppercase text-stone-400">Most-booked service</div>
+                                <div className="mt-1 text-sm font-medium text-stone-800">
+                                  {summary?.mostBookedService?.name ?? 'Not enough history'}
+                                </div>
+                              </div>
+                            </div>
+                            {summary?.nextVisitOffer?.state === 'available' && (
+                              <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-950">
+                                <div className="text-xs font-semibold uppercase text-rose-700">Next Visit Offer</div>
+                                <p className="mt-1">
+                                  {summary.nextVisitOffer.discountType === 'percent'
+                                    ? `${summary.nextVisitOffer.discountValue}% off eligible services`
+                                    : summary.nextVisitOffer.discountType === 'fixed'
+                                      ? `${formatCurrency(summary.nextVisitOffer.discountValue, summary.nextVisitOffer.currency)} off eligible services`
+                                      : 'Available'}
+                                  {summary.nextVisitOffer.expiresOn ? ` · expires ${formatDateOnly(summary.nextVisitOffer.expiresOn)}` : ''}
+                                </p>
+                              </div>
+                            )}
+                            {summary?.nextVisitOffer?.state === 'unavailable' && (
+                              <p className="text-xs text-stone-500">Offer status could not be loaded.</p>
+                            )}
+                          </div>
+                        </AdminDetailCard>
 
-                      <AdminDetailCard className="mb-4">
-                        <div className="text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Client care</div>
-                        <div className="mt-4 space-y-3">
-                          {(sensitivitiesDraft || submittedPreferences?.sensitivities?.length) && (
-                            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-                              <div className="text-xs font-semibold uppercase text-amber-800">Allergies & sensitivities</div>
-                              <p className="mt-1 text-sm text-amber-950">
-                                {[sensitivitiesDraft, submittedPreferences?.sensitivities?.join(', ')]
-                                  .filter(Boolean)
-                                  .join(' · ')}
+                        <AdminDetailCard className="mb-4">
+                          <div className="text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Client care</div>
+                          <div className="mt-4 space-y-3">
+                            {(profile?.preferredTechnician?.name || shapeDraft || lengthDraft) && (
+                              <div className="rounded-2xl bg-stone-50 px-4 py-3 text-sm text-stone-800">
+                                <div className="text-xs font-semibold uppercase text-stone-500">Usual preferences</div>
+                                <p className="mt-1">
+                                  {[profile?.preferredTechnician?.name && `Artist: ${profile.preferredTechnician.name}`, shapeDraft && `Shape: ${shapeDraft}`, lengthDraft && `Length: ${lengthDraft}`].filter(Boolean).join(' · ')}
+                                </p>
+                                <button type="button" className="mt-2 min-h-11 text-xs font-semibold text-[var(--owner-accent,#8f3155)] underline" onClick={() => handleSectionChange('preferences')}>
+                                  View preferences
+                                </button>
+                              </div>
+                            )}
+                            {(sensitivitiesDraft || submittedPreferences?.sensitivities?.length) && (
+                              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                                <div className="text-xs font-semibold uppercase text-amber-800">Allergies & sensitivities</div>
+                                <p className="mt-1 text-sm text-amber-950">
+                                  {[sensitivitiesDraft, submittedPreferences?.sensitivities?.join(', ')]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                </p>
+                              </div>
+                            )}
+                            {flagsState?.isBlocked && (
+                              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+                                <div className="text-xs font-semibold uppercase text-red-800">Online booking blocked</div>
+                                {flagsState.blockedReason && <p className="mt-1 text-sm text-red-950">{flagsState.blockedReason}</p>}
+                              </div>
+                            )}
+                            {flagsState?.adminFlags?.isProblemClient && (
+                              <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3">
+                                <div className="text-xs font-semibold uppercase text-orange-800">Important internal flag</div>
+                                {flagsState.adminFlags.flagReason && <p className="mt-1 text-sm text-orange-950">{flagsState.adminFlags.flagReason}</p>}
+                              </div>
+                            )}
+                            {notesDraft && (
+                              <div className="rounded-2xl bg-stone-50 px-4 py-3">
+                                <div className="text-xs font-semibold uppercase text-stone-500">Important note</div>
+                                <p className="mt-1 line-clamp-3 text-sm text-stone-800">{notesDraft}</p>
+                              </div>
+                            )}
+                            {(statsSource.loyaltyPoints > 0 || (flagsState?.noShowCount ?? statsSource.noShowCount) > 0) && (
+                              <p className="text-xs text-stone-500">
+                                {statsSource.loyaltyPoints > 0 ? `${statsSource.loyaltyPoints.toLocaleString()} reward points` : ''}
+                                {(flagsState?.noShowCount ?? statsSource.noShowCount) > 0 ? ` · ${flagsState?.noShowCount ?? statsSource.noShowCount} recorded no-shows` : ''}
                               </p>
-                            </div>
-                          )}
-                          {flagsState?.isBlocked && (
-                            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
-                              <div className="text-xs font-semibold uppercase text-red-800">Online booking blocked</div>
-                              {flagsState.blockedReason && <p className="mt-1 text-sm text-red-950">{flagsState.blockedReason}</p>}
-                            </div>
-                          )}
-                          {flagsState?.adminFlags?.isProblemClient && (
-                            <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3">
-                              <div className="text-xs font-semibold uppercase text-orange-800">Important internal flag</div>
-                              {flagsState.adminFlags.flagReason && <p className="mt-1 text-sm text-orange-950">{flagsState.adminFlags.flagReason}</p>}
-                            </div>
-                          )}
-                          {notesDraft && (
-                            <div className="rounded-2xl bg-stone-50 px-4 py-3">
-                              <div className="text-xs font-semibold uppercase text-stone-500">Important note</div>
-                              <p className="mt-1 line-clamp-3 text-sm text-stone-800">{notesDraft}</p>
-                            </div>
-                          )}
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="rounded-2xl bg-amber-50 p-3">
-                              <div className="text-[11px] font-semibold uppercase text-amber-700">Rewards</div>
-                              <div className="mt-1 text-lg font-bold text-amber-900">{statsSource.loyaltyPoints.toLocaleString()}</div>
-                            </div>
-                            <div className="rounded-2xl bg-stone-50 p-3">
-                              <div className="text-[11px] font-semibold uppercase text-stone-500">No-shows</div>
-                              <div className="mt-1 text-lg font-bold text-stone-800">{flagsState?.noShowCount ?? statsSource.noShowCount}</div>
-                            </div>
+                            )}
                           </div>
-                        </div>
-                      </AdminDetailCard>
+                        </AdminDetailCard>
+                      </div>
                     </div>
                   )}
 
-                  {activeSection === 'overview' && canManageFlags && (
-                    <AdminDetailCard className="mb-4">
-                      <div className="mb-3 flex items-center gap-2 text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">
-                        <ShieldAlert className="size-3.5" />
-                        Client status
-                      </div>
-
-                      {flagsLoading && !flagsState
-                        ? (
-                            <AsyncStatePanel
-                              loading
-                              title="Loading client status"
-                              description="Checking flag and booking controls."
-                            />
-                          )
-                        : flagsError && !flagsState
-                          ? (
-                              <AsyncStatePanel
-                                tone="error"
-                                title="Unable to load client status"
-                                description={flagsError}
-                                action={(
-                                  <Button type="button" variant="brandSoft" size="pillSm" onClick={() => fetchFlags(true)}>
-                                    Try again
-                                  </Button>
-                                )}
-                              />
-                            )
-                          : (
-                              <>
-                                <div className="mb-3 rounded-xl bg-[#F8FAFC] px-3 py-2 text-[13px] text-[#6B7280]">
-                                  No-shows:
-                                  {' '}
-                                  <span className="font-semibold text-[var(--owner-ink,#30262a)]">{flagsState?.noShowCount ?? statsSource.noShowCount}</span>
-                                  {' '}
-                                  · Late cancels:
-                                  {' '}
-                                  <span className="font-semibold text-[var(--owner-ink,#30262a)]">{flagsState?.lateCancelCount ?? 0}</span>
-                                </div>
-
-                                {moduleAvailability.clientFlags && (
-                                  <div className="mb-4 rounded-[14px] border border-neutral-100 bg-neutral-50 p-3">
-                                    <label className="flex items-center justify-between gap-3">
-                                      <div>
-                                        <div className="text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Problem client flag</div>
-                                        <div className="text-[13px] text-[#6B7280]">Marks the client for internal visibility.</div>
-                                      </div>
-                                      <input
-                                        aria-label="Problem client flag"
-                                        type="checkbox"
-                                        checked={problemClientDraft}
-                                        onChange={event => setProblemClientDraft(event.target.checked)}
-                                        className="size-5 accent-[#FF9500]"
-                                      />
-                                    </label>
-                                    {(problemClientDraft || problemClientReasonDraft) && (
-                                      <textarea
-                                        aria-label="Problem client reason"
-                                        value={problemClientReasonDraft}
-                                        onChange={event => setProblemClientReasonDraft(event.target.value)}
-                                        rows={3}
-                                        placeholder="Why is this client flagged?"
-                                        className="focus:ring-[var(--owner-focus,#b85075)]/40 mt-3 w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[14px] text-[var(--owner-ink,#30262a)] placeholder:text-[var(--owner-muted,#706267)] focus:outline-none focus:ring-2"
-                                      />
-                                    )}
-                                  </div>
-                                )}
-
-                                {moduleAvailability.clientBlocking && (
-                                  <div className="rounded-[14px] border border-neutral-100 bg-neutral-50 p-3">
-                                    <label className="flex items-center justify-between gap-3">
-                                      <div>
-                                        <div className="text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Block future booking</div>
-                                        <div className="text-[13px] text-[#6B7280]">Prevents the client from booking online.</div>
-                                      </div>
-                                      <input
-                                        aria-label="Block future booking"
-                                        type="checkbox"
-                                        checked={blockedDraft}
-                                        onChange={event => setBlockedDraft(event.target.checked)}
-                                        className="size-5 accent-[#FF3B30]"
-                                      />
-                                    </label>
-                                    {(blockedDraft || blockedReasonDraft) && (
-                                      <textarea
-                                        aria-label="Blocked booking reason"
-                                        value={blockedReasonDraft}
-                                        onChange={event => setBlockedReasonDraft(event.target.value)}
-                                        rows={3}
-                                        placeholder="Why is this client blocked?"
-                                        className="focus:ring-[var(--owner-focus,#b85075)]/40 mt-3 w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[14px] text-[var(--owner-ink,#30262a)] placeholder:text-[var(--owner-muted,#706267)] focus:outline-none focus:ring-2"
-                                      />
-                                    )}
-                                  </div>
-                                )}
-
-                                {flagsSaveError && (
-                                  <div className="mt-3 text-[13px] text-[#b3261e]">{flagsSaveError}</div>
-                                )}
-
-                                <div className="mt-4 flex justify-end">
-                                  <Button
-                                    type="button"
-                                    variant="brand"
-                                    size="pillSm"
-                                    disabled={!flagsDirty || flagsSaving}
-                                    onClick={saveFlags}
-                                  >
-                                    {flagsSaving ? 'Saving...' : 'Save status'}
-                                  </Button>
-                                </div>
-                              </>
-                            )}
-                    </AdminDetailCard>
+                  {profile && activeSection === 'overview' && (
+                    <ReviewRequestSuppression
+                      key={`${profile.id}:${reviewRevision}`}
+                      salonSlug={salonSlug}
+                      clientId={profile.id}
+                      presentation="compact"
+                      onOpenActivity={() => handleSectionChange('activity')}
+                    />
                   )}
 
                   {(activeSection === 'notes' || activeSection === 'details') && (
@@ -2366,7 +2394,7 @@ function ClientDetail({
                         className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-[15px] text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-rose-300"
                       />
                       <p className="mt-1 text-xs text-stone-500">
-                        This is the current salon note. Historical authorship and revisions are not recorded.
+                        Private to your salon. Update this note as preferences and care needs change.
                       </p>
                       {profileSaveError && <p className="mt-2 text-sm text-red-600">{profileSaveError}</p>}
                       <div className="mt-3 flex justify-end">
@@ -2381,38 +2409,41 @@ function ClientDetail({
                         </Button>
                       </div>
 
-                      <div className="mb-3 mt-6 text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Nail history photos</div>
+                      <div className="mb-3 mt-6 text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Recent appointment photos</div>
                       {photos.length > 0
                         ? (
                             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                               {photos.map(photo => (
-                                <a key={photo.id} href={photo.imageUrl} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-2xl bg-stone-100">
-                                  {/* eslint-disable-next-line @next/next/no-img-element -- provider URLs are tenant uploads */}
-                                  <img src={photo.thumbnailUrl || photo.imageUrl} alt={photo.caption || `${photo.photoType} appointment photo`} className="aspect-square w-full object-cover transition group-hover:scale-[1.02]" />
-                                  <div className="px-3 py-2 text-xs text-stone-600">
-                                    {photo.caption || photo.photoType.replaceAll('_', ' ')}
-                                    {' · '}
-                                    {formatDate(photo.createdAt)}
-                                  </div>
-                                </a>
+                                <div key={photo.id} className="overflow-hidden rounded-2xl bg-stone-100">
+                                  <a href={photo.imageUrl} target="_blank" rel="noreferrer" className="group block">
+                                    {/* eslint-disable-next-line @next/next/no-img-element -- provider URLs are tenant uploads */}
+                                    <img src={photo.thumbnailUrl || photo.imageUrl} alt={photo.caption || `${photo.photoType} appointment photo`} className="aspect-square w-full object-cover transition group-hover:scale-[1.02]" />
+                                    <div className="px-3 py-2 text-xs text-stone-600">
+                                      {photo.caption || photo.photoType.replaceAll('_', ' ')}
+                                      {' · '}
+                                      {formatDate(photo.createdAt)}
+                                    </div>
+                                  </a>
+                                  {photo.appointmentId && <button type="button" className="min-h-11 w-full px-3 text-left text-xs font-semibold text-[var(--owner-accent,#8f3155)]" onClick={() => handleManageAppointment(photo.appointmentId!)}>View appointment</button>}
+                                </div>
                               ))}
                             </div>
                           )
                         : (
-                            <div className="rounded-2xl border border-dashed border-stone-200 px-4 py-6 text-center text-sm text-stone-500">
+                            <div className="py-2 text-sm text-stone-500">
                               No appointment photos yet.
                             </div>
                           )}
                     </AdminDetailCard>
                   )}
 
-                  {(activeSection === 'payments' || activeSection === 'activity') && (
+                  {activeSection === 'payments' && (
                     <AdminDetailCard className="mb-4">
                       <div className="mb-1 text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Payments</div>
                       <p className="text-sm text-stone-500">
                         Completed appointment value and recorded payments are separate. Future balances are not completed outstanding.
                       </p>
-                      {pastAppointments.length === 0
+                      {completedAppointments.length === 0
                         ? (
                             <div className="mt-4 rounded-2xl border border-dashed border-stone-200 px-4 py-6 text-center text-sm text-stone-500">
                               No completed payment activity yet.
@@ -2420,7 +2451,7 @@ function ClientDetail({
                           )
                         : (
                             <div className="mt-4 space-y-3">
-                              {pastAppointments.map((appointment) => {
+                              {completedAppointments.map((appointment) => {
                                 const financial = appointment.financial;
                                 const appointmentCurrency = appointment.currency ?? null;
                                 const appointmentMoney = (cents: number | null | undefined) =>
@@ -2520,10 +2551,10 @@ function ClientDetail({
                     </AdminDetailCard>
                   )}
 
-                  {(activeSection === 'appointments' || activeSection === 'activity') && (
+                  {activeSection === 'appointments' && (
                     <>
                       <AppointmentsSection
-                        title="Upcoming appointments"
+                        title="Current & upcoming appointments"
                         appointments={upcomingAppointments}
                         emptyMessage="No upcoming appointments booked."
                         onManage={handleManageAppointment}
@@ -2532,8 +2563,8 @@ function ClientDetail({
                       />
 
                       <AppointmentsSection
-                        title="Completed appointments"
-                        appointments={pastAppointments}
+                        title="Recent completed appointments"
+                        appointments={completedAppointments}
                         emptyMessage="No completed appointments yet."
                         onManage={handleManageAppointment}
                         currency={summary?.currency}
@@ -2554,14 +2585,184 @@ function ClientDetail({
               )}
 
         {profile && (
-          <ClientArchiveControls
-            salonSlug={salonSlug}
-            requestedClientId={clientSummary.id}
-            knownTerminalClientId={profile.id}
-            expectedUpdatedAt={profile.updatedAt}
-            onSuccess={onClientLifecycleSuccess}
-          />
+          <AdminDetailCard className="mb-4" contentClassName="space-y-3">
+            <button
+              type="button"
+              aria-expanded={controlsOpen}
+              onClick={() => setControlsOpen(open => !open)}
+              className="flex min-h-11 w-full items-center justify-between text-left text-sm font-semibold text-stone-800"
+            >
+              Client controls
+              <ChevronRight className={`size-4 text-stone-400 transition-transform ${controlsOpen ? 'rotate-90' : ''}`} />
+            </button>
+            {controlsOpen && (
+              <>
+                {canManageFlags && (
+                  <AdminDetailCard className="mb-4">
+                    <div className="mb-3 flex items-center gap-2 text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">
+                      <ShieldAlert className="size-3.5" />
+                      Client status
+                    </div>
+
+                    {flagsLoading && !flagsState
+                      ? (
+                          <AsyncStatePanel
+                            loading
+                            title="Loading client status"
+                            description="Checking flag and booking controls."
+                          />
+                        )
+                      : flagsError && !flagsState
+                        ? (
+                            <AsyncStatePanel
+                              tone="error"
+                              title="Unable to load client status"
+                              description={flagsError}
+                              action={(
+                                <Button type="button" variant="brandSoft" size="pillSm" onClick={() => fetchFlags(true)}>
+                                  Try again
+                                </Button>
+                              )}
+                            />
+                          )
+                        : (
+                            <>
+                              <div className="mb-3 rounded-xl bg-[#F8FAFC] px-3 py-2 text-[13px] text-[#6B7280]">
+                                No-shows:
+                                {' '}
+                                <span className="font-semibold text-[var(--owner-ink,#30262a)]">{flagsState?.noShowCount ?? statsSource.noShowCount}</span>
+                                {' '}
+                                · Late cancels:
+                                {' '}
+                                <span className="font-semibold text-[var(--owner-ink,#30262a)]">{flagsState?.lateCancelCount ?? 0}</span>
+                              </div>
+
+                              {moduleAvailability.clientFlags && (
+                                <div className="mb-4 rounded-[14px] border border-neutral-100 bg-neutral-50 p-3">
+                                  <label className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <div className="text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Problem client flag</div>
+                                      <div className="text-[13px] text-[#6B7280]">Marks the client for internal visibility.</div>
+                                    </div>
+                                    <input
+                                      aria-label="Problem client flag"
+                                      type="checkbox"
+                                      checked={problemClientDraft}
+                                      onChange={event => setProblemClientDraft(event.target.checked)}
+                                      className="size-5 accent-[#FF9500]"
+                                    />
+                                  </label>
+                                  {(problemClientDraft || problemClientReasonDraft) && (
+                                    <textarea
+                                      aria-label="Problem client reason"
+                                      value={problemClientReasonDraft}
+                                      onChange={event => setProblemClientReasonDraft(event.target.value)}
+                                      rows={3}
+                                      placeholder="Why is this client flagged?"
+                                      className="focus:ring-[var(--owner-focus,#b85075)]/40 mt-3 w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[14px] text-[var(--owner-ink,#30262a)] placeholder:text-[var(--owner-muted,#706267)] focus:outline-none focus:ring-2"
+                                    />
+                                  )}
+                                </div>
+                              )}
+
+                              {moduleAvailability.clientBlocking && (
+                                <div className="rounded-[14px] border border-neutral-100 bg-neutral-50 p-3">
+                                  <label className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <div className="text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Block future booking</div>
+                                      <div className="text-[13px] text-[#6B7280]">Prevents the client from booking online.</div>
+                                    </div>
+                                    <input
+                                      aria-label="Block future booking"
+                                      type="checkbox"
+                                      checked={blockedDraft}
+                                      onChange={event => setBlockedDraft(event.target.checked)}
+                                      className="size-5 accent-[#FF3B30]"
+                                    />
+                                  </label>
+                                  {(blockedDraft || blockedReasonDraft) && (
+                                    <textarea
+                                      aria-label="Blocked booking reason"
+                                      value={blockedReasonDraft}
+                                      onChange={event => setBlockedReasonDraft(event.target.value)}
+                                      rows={3}
+                                      placeholder="Why is this client blocked?"
+                                      className="focus:ring-[var(--owner-focus,#b85075)]/40 mt-3 w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[14px] text-[var(--owner-ink,#30262a)] placeholder:text-[var(--owner-muted,#706267)] focus:outline-none focus:ring-2"
+                                    />
+                                  )}
+                                </div>
+                              )}
+
+                              {flagsSaveError && (
+                                <div className="mt-3 text-[13px] text-[#b3261e]">{flagsSaveError}</div>
+                              )}
+
+                              <div className="mt-4 flex justify-end">
+                                <Button
+                                  type="button"
+                                  variant="brand"
+                                  size="pillSm"
+                                  disabled={!flagsDirty || flagsSaving}
+                                  onClick={() => {
+                                    if (blockedDraft && !flagsState?.isBlocked) {
+                                      setBlockConfirmationOpen(true);
+                                      return;
+                                    }
+                                    void saveFlags();
+                                  }}
+                                >
+                                  {flagsSaving ? 'Saving...' : 'Save status'}
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                  </AdminDetailCard>
+                )}
+
+                <ReviewRequestSuppression
+                  salonSlug={salonSlug}
+                  clientId={profile.id}
+                  presentation="controls"
+                  onChanged={() => setReviewRevision(revision => revision + 1)}
+                />
+                <ClientArchiveControls
+                  salonSlug={salonSlug}
+                  requestedClientId={clientSummary.id}
+                  knownTerminalClientId={profile.id}
+                  expectedUpdatedAt={profile.updatedAt}
+                  onSuccess={onClientLifecycleSuccess}
+                />
+              </>
+            )}
+          </AdminDetailCard>
         )}
+
+        <DialogShell
+          isOpen={blockConfirmationOpen}
+          onClose={() => setBlockConfirmationOpen(false)}
+          maxWidthClassName="max-w-md"
+          contentClassName="rounded-3xl bg-white p-6 shadow-2xl"
+        >
+          <div role="dialog" aria-modal="true" aria-labelledby="confirm-block-client-title">
+            <h2 id="confirm-block-client-title" className="text-lg font-semibold text-stone-950">Block future booking?</h2>
+            <p className="mt-2 text-sm leading-6 text-stone-600">
+              This prevents this client from booking online until you remove the block.
+            </p>
+            <div className="mt-5 flex justify-end gap-3">
+              <Button type="button" variant="brandSoft" onClick={() => setBlockConfirmationOpen(false)}>Cancel</Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  setBlockConfirmationOpen(false);
+                  void saveFlags();
+                }}
+              >
+                Block booking
+              </Button>
+            </div>
+          </div>
+        </DialogShell>
       </div>
 
       {profile && (
