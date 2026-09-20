@@ -126,7 +126,6 @@ function setProposalModelResponses(serviceId: string, addOns: Array<{ addOnId: s
         text: JSON.stringify({
           segments: [
             { kind: 'text', text: 'I found a suitable choice.' },
-            { kind: 'fact', key: 'selection' },
           ],
           serviceOptions: [],
         }),
@@ -403,7 +402,10 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       addOns: expect.arrayContaining(expected.addOnIds.map(id => expect.objectContaining({ id }))),
     });
     expect(chatResult?.message).toContain('I found a suitable choice.');
-    expect(chatResult?.message).toContain(l1 ? 'Synthetic L1 Forty Five' : 'Synthetic Browser Gel Service');
+
+    // Service/price/duration belong to the deterministic package card, not
+    // a duplicate fact sentence in the conversational lead-in.
+    await browserExpect(page.getByRole('region', { name: 'Your appointment package' })).toContainText(l1 ? 'Synthetic L1 Forty Five' : 'Synthetic Browser Gel Service');
 
     await page.getByRole('button', { name: 'Choose these services' }).click();
     await browserExpect(page.locator('[data-testid^="time-slot-"]').first()).toBeVisible({ timeout: 60_000 });
