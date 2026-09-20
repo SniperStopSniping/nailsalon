@@ -178,6 +178,56 @@ describe('ClientCommunicationActions', () => {
     expect(screen.queryByRole('button', { name: 'Google review' })).not.toBeInTheDocument();
   });
 
+  it('uses the profile primary action, hides absent device contact actions, and keeps review actions under More actions', async () => {
+    const onPrimaryAction = vi.fn();
+    renderActions({
+      section: 'overview',
+      primaryAction: { label: 'View appointment', onClick: onPrimaryAction },
+      client: { id: 'client_1', fullName: 'Ava Nguyen', phone: '', email: null },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View appointment' }));
+
+    expect(onPrimaryAction).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: 'Book another appointment' })).toBeInTheDocument();
+    expect(screen.queryByText('SMS history')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Text' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('client-call-action')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('client-email-action')).not.toBeInTheDocument();
+    expect(screen.getByText('More actions')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send Google review link' })).toBeInTheDocument();
+  });
+
+  it('shows communication evidence in activity without duplicating the action panel', async () => {
+    retentionData = {
+      retention: [],
+      appointmentReminders: [],
+      history: [{
+        id: 'outreach_1',
+        kind: 'rebook',
+        status: 'marked_sent',
+        snoozedUntil: null,
+        createdAt: '2026-09-20T12:00:00.000Z',
+        updatedAt: '2026-09-20T12:00:00.000Z',
+      }],
+    };
+    renderActions({ section: 'activity' });
+
+    expect(await screen.findByText('Recorded outreach (1)')).toBeInTheDocument();
+    expect(screen.getByText('SMS history').closest('details')).not.toHaveAttribute('open');
+    expect(screen.queryByTestId('client-book-appointment')).not.toBeInTheDocument();
+    expect(screen.queryByText('More actions')).not.toBeInTheDocument();
+  });
+
+  it('keeps the composer mounted but hides presentation panels in other profile sections', async () => {
+    renderActions({ section: 'other' });
+
+    expect(await screen.findByTestId('luster-client-sms')).toBeInTheDocument();
+    expect(screen.queryByTestId('client-book-appointment')).not.toBeInTheDocument();
+    expect(screen.queryByText('SMS history')).not.toBeInTheDocument();
+    expect(screen.queryByText('Recorded outreach')).not.toBeInTheDocument();
+  });
+
   it('shows the Google review action outside More actions even without completed visits', async () => {
     renderActions({ lastCompletedAppointment: null });
     const reviewAction = screen.getByRole('button', { name: 'Send Google review link' });

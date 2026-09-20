@@ -285,6 +285,7 @@ function ActionButton({
   title,
   testId,
   shape = 'row',
+  primary = false,
 }: {
   icon: ReactNode;
   label: string;
@@ -293,6 +294,7 @@ function ActionButton({
   title?: string;
   testId?: string;
   shape?: 'row' | 'tile';
+  primary?: boolean;
 }) {
   return (
     <button
@@ -301,10 +303,12 @@ function ActionButton({
       disabled={disabled}
       title={title}
       data-testid={testId}
-      className={shape === 'tile' ? ACTION_TILE_CLASS : ACTION_ROW_CLASS}
+      className={primary
+        ? 'col-span-full flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--owner-accent,#8f3155)] p-3 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700'
+        : shape === 'tile' ? ACTION_TILE_CLASS : ACTION_ROW_CLASS}
     >
       <ActionGlyph icon={icon} />
-      <span className="min-w-0 truncate">{label}</span>
+      <span className="min-w-0 break-words">{label}</span>
     </button>
   );
 }
@@ -325,14 +329,19 @@ function ContactActionLink({
   href,
   unavailableReason,
   testId,
+  hideWhenUnavailable = false,
 }: {
   icon: ReactNode;
   label: string;
   href: string | null;
   unavailableReason: string;
   testId?: string;
+  hideWhenUnavailable?: boolean;
 }) {
   if (!href) {
+    if (hideWhenUnavailable) {
+      return null;
+    }
     return (
       <button
         type="button"
@@ -371,6 +380,8 @@ export function ClientCommunicationActions({
   onOpenNativeUrl = openNativeUrl,
   profileLayout = false,
   showHistory = true,
+  primaryAction,
+  section,
 }: {
   salonSlug: string;
   salonName: string;
@@ -387,6 +398,10 @@ export function ClientCommunicationActions({
   onOpenNativeUrl?: (href: string) => void;
   profileLayout?: boolean;
   showHistory?: boolean;
+  /** A profile-specific booking state action, such as View appointment or Rebook. */
+  primaryAction?: { label: string; onClick: () => void };
+  /** Undefined retains the existing non-profile action panel. */
+  section?: 'overview' | 'activity' | 'other';
 }) {
   const [supportData, setSupportData] = useState<SupportData>(DEFAULT_SUPPORT_DATA);
   const [supportLoading, setSupportLoading] = useState(true);
@@ -937,10 +952,15 @@ export function ClientCommunicationActions({
   const dialDigits = normalizePhone(client.phone);
   const callHref = dialDigits.length >= 7 ? `tel:${dialDigits}` : null;
   const mailtoHref = emailHref(client.email);
+  const isProfileOverview = section === 'overview';
+  const isProfileActivity = section === 'activity';
+  const isProfileOther = section === 'other';
+  const showActionPanel = !isProfileActivity && !isProfileOther;
+  const showCommunicationHistory = showHistory && (!section || isProfileActivity);
 
   return (
     <div className="mt-4 w-full" data-testid="client-communication-actions">
-      {reminderDue && (
+      {showActionPanel && reminderDue && (
         <div className="mb-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-left" data-testid="client-reminder-alert">
           <p className="text-sm font-semibold text-blue-950">Appointment reminder is due</p>
           <p className="mt-1 text-xs text-blue-800">
@@ -965,7 +985,7 @@ export function ClientCommunicationActions({
         </div>
       )}
 
-      {retentionStage && (
+      {showActionPanel && retentionStage && (
         <div
           className={`mb-3 rounded-2xl border p-3 text-left ${retentionStage === 'promo_8w'
             ? 'border-purple-200 bg-purple-50'
@@ -1005,109 +1025,131 @@ export function ClientCommunicationActions({
         </div>
       )}
 
-      <div
-        className={profileLayout
-          ? 'sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 -mx-1 rounded-2xl border border-rose-100 bg-[#fffaf5]/95 p-2 shadow-lg backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none'
-          : ''}
-      >
-        {/*
+      {showActionPanel && (
+        <div
+          className={profileLayout
+            ? 'sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 -mx-1 rounded-2xl border border-rose-100 bg-[#fffaf5]/95 p-2 shadow-lg backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none'
+            : ''}
+        >
+          {/*
           The four contact actions an owner uses every day, on one row at every
           width. Book and Text are Luster's own flows; Call and Email hand off
           to the device through real links so the target is inspectable before
           the tap (contact-actions repair).
         */}
-        <div className="grid grid-cols-4 gap-2">
-          <ActionButton
-            icon={<CalendarPlus size={15} />}
-            label="Book"
-            shape="tile"
-            onClick={onBookAppointment}
-            testId="client-book-appointment"
-          />
-          <ActionButton
-            icon={<MessageCircle size={15} />}
-            label="Text"
-            shape="tile"
-            disabled={!canText}
-            title={canText ? undefined : NO_MOBILE_REASON}
-            testId="client-text-action"
-            onClick={() => openSharedComposer('Text client')}
-          />
-          <ContactActionLink
-            icon={<Phone size={15} />}
-            label="Call"
-            href={callHref}
-            unavailableReason="No phone number on file"
-            testId="client-call-action"
-          />
-          <ContactActionLink
-            icon={<Mail size={15} />}
-            label="Email"
-            href={mailtoHref}
-            unavailableReason="No email on file — add one from Edit client"
-            testId="client-email-action"
-          />
-        </div>
-
-        <ActionButton
-          icon={<Star size={15} />}
-          label="Send Google review link"
-          disabled={supportLoading || !canText}
-          title={!canText ? NO_MOBILE_REASON : undefined}
-          testId="client-google-review-link"
-          onClick={() => openSharedComposer('Send Google review link', 'google_review')}
-        />
-
-        <details className="mt-2 rounded-2xl border border-stone-200 bg-white/90 p-2 text-left">
-          <summary className="min-h-11 cursor-pointer p-2 text-sm font-semibold text-stone-700">
-            More actions
-          </summary>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className={isProfileOverview ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-4 gap-2'}>
             <ActionButton
-              icon={<RotateCcw size={15} />}
-              label="Rebooking text"
-              onClick={() => openDraft(
-                'rebook',
-                'Rebook request',
-                toSmsAppointment(lastCompletedAppointment),
-              )}
+              icon={<CalendarPlus size={15} />}
+              label={primaryAction?.label ?? 'Book'}
+              primary={isProfileOverview}
+              shape="tile"
+              onClick={primaryAction?.onClick ?? onBookAppointment}
+              testId="client-book-appointment"
             />
-            {(retentionStage === 'promo_6w' || retentionStage === 'promo_8w') && (
+            {(!isProfileOverview || canText) && (
               <ActionButton
-                icon={preparingPromotion
-                  ? <LoaderCircle size={15} className="animate-spin" />
-                  : <Gift size={15} />}
-                label={retentionStage === 'promo_6w' ? 'Send 6-week offer' : 'Send 8-week offer'}
-                disabled={preparingPromotion !== null}
-                onClick={() => void preparePromotion(retentionStage)}
+                icon={<MessageCircle size={15} />}
+                label="Text"
+                shape="tile"
+                disabled={!canText}
+                title={canText ? undefined : NO_MOBILE_REASON}
+                testId="client-text-action"
+                onClick={() => openSharedComposer('Text client')}
               />
             )}
-            <ActionButton
-              icon={preparingKind === 'appointment_reminder'
-                ? <LoaderCircle size={15} className="animate-spin" />
-                : <Bell size={15} />}
-              label="Send reminder"
-              disabled={!upcomingAppointment || preparingKind !== null}
-              title={!upcomingAppointment ? 'No upcoming appointment' : undefined}
-              onClick={() => void openAppointmentDraft('appointment_reminder', 'Appointment reminder')}
+            <ContactActionLink
+              icon={<Phone size={15} />}
+              label="Call"
+              href={callHref}
+              unavailableReason="No phone number on file"
+              testId="client-call-action"
+              hideWhenUnavailable={isProfileOverview}
             />
-            <ActionButton
-              icon={preparingKind === 'appointment_details'
-                ? <LoaderCircle size={15} className="animate-spin" />
-                : <ClipboardList size={15} />}
-              label="Appointment details"
-              disabled={!upcomingAppointment || preparingKind !== null}
-              title={!upcomingAppointment ? 'No upcoming appointment' : undefined}
-              onClick={() => void openAppointmentDraft('appointment_details', 'Appointment details')}
-            />
-            <ActionButton
-              icon={<MapPin size={15} />}
-              label="Directions"
-              onClick={() => openDraft('directions', 'Directions', null)}
+            <ContactActionLink
+              icon={<Mail size={15} />}
+              label="Email"
+              href={mailtoHref}
+              unavailableReason="No email on file — add one from Edit client"
+              testId="client-email-action"
+              hideWhenUnavailable={isProfileOverview}
             />
           </div>
-        </details>
-      </div>
+
+          {!isProfileOverview && (
+            <ActionButton
+              icon={<Star size={15} />}
+              label="Send Google review link"
+              disabled={supportLoading || !canText}
+              title={!canText ? NO_MOBILE_REASON : undefined}
+              testId="client-google-review-link"
+              onClick={() => openSharedComposer('Send Google review link', 'google_review')}
+            />
+          )}
+
+          <details className="mt-2 rounded-2xl border border-stone-200 bg-white/90 p-2 text-left">
+            <summary className="min-h-11 cursor-pointer p-2 text-sm font-semibold text-stone-700">
+              More actions
+            </summary>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {isProfileOverview && primaryAction?.label.startsWith('View') && (
+                <ActionButton icon={<CalendarPlus size={15} />} label="Book another appointment" onClick={onBookAppointment} />
+              )}
+              {isProfileOverview && (
+                <ActionButton
+                  icon={<Star size={15} />}
+                  label="Send Google review link"
+                  disabled={supportLoading || !canText}
+                  title={!canText ? NO_MOBILE_REASON : undefined}
+                  testId="client-google-review-link"
+                  onClick={() => openSharedComposer('Send Google review link', 'google_review')}
+                />
+              )}
+              <ActionButton
+                icon={<RotateCcw size={15} />}
+                label="Rebooking text"
+                onClick={() => openDraft(
+                  'rebook',
+                  'Rebook request',
+                  toSmsAppointment(lastCompletedAppointment),
+                )}
+              />
+              {(retentionStage === 'promo_6w' || retentionStage === 'promo_8w') && (
+                <ActionButton
+                  icon={preparingPromotion
+                    ? <LoaderCircle size={15} className="animate-spin" />
+                    : <Gift size={15} />}
+                  label={retentionStage === 'promo_6w' ? 'Send 6-week offer' : 'Send 8-week offer'}
+                  disabled={preparingPromotion !== null}
+                  onClick={() => void preparePromotion(retentionStage)}
+                />
+              )}
+              <ActionButton
+                icon={preparingKind === 'appointment_reminder'
+                  ? <LoaderCircle size={15} className="animate-spin" />
+                  : <Bell size={15} />}
+                label="Send reminder"
+                disabled={!upcomingAppointment || preparingKind !== null}
+                title={!upcomingAppointment ? 'No upcoming appointment' : undefined}
+                onClick={() => void openAppointmentDraft('appointment_reminder', 'Appointment reminder')}
+              />
+              <ActionButton
+                icon={preparingKind === 'appointment_details'
+                  ? <LoaderCircle size={15} className="animate-spin" />
+                  : <ClipboardList size={15} />}
+                label="Appointment details"
+                disabled={!upcomingAppointment || preparingKind !== null}
+                title={!upcomingAppointment ? 'No upcoming appointment' : undefined}
+                onClick={() => void openAppointmentDraft('appointment_details', 'Appointment details')}
+              />
+              <ActionButton
+                icon={<MapPin size={15} />}
+                label="Directions"
+                onClick={() => openDraft('directions', 'Directions', null)}
+              />
+            </div>
+          </details>
+        </div>
+      )}
 
       {actionError && (
         <div role="alert" className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-left text-xs text-red-800">
@@ -1129,7 +1171,7 @@ export function ClientCommunicationActions({
         primary action strip, and can be dismissed. It is polite (role=status)
         because nothing the owner did failed — a background check did.
       */}
-      {supportFailure && !supportFailureDismissed && (
+      {showActionPanel && supportFailure && !supportFailureDismissed && (
         <InlineFeedback
           tone="info"
           className="mt-3"
@@ -1165,7 +1207,7 @@ export function ClientCommunicationActions({
         />
       )}
 
-      {manualReminderFallback && upcomingAppointment && (
+      {showActionPanel && manualReminderFallback && upcomingAppointment && (
         <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs text-amber-900">
           Automatic delivery was not confirmed. To avoid a duplicate, open a manual draft only if the client did not receive it.
           <button
@@ -1184,7 +1226,7 @@ export function ClientCommunicationActions({
         </div>
       )}
 
-      {pendingOutreach && (
+      {showActionPanel && pendingOutreach && (
         <div
           role="dialog"
           aria-label="Confirm text status"
@@ -1259,11 +1301,12 @@ export function ClientCommunicationActions({
           setComposerOutreach(null);
           setComposerPurpose(undefined);
         }}
-        showHistory={showHistory}
+        showHistory={showCommunicationHistory}
+        historyInitiallyOpen={!isProfileActivity}
       />
 
-      {showHistory && (
-        <details className="mt-3 rounded-2xl border border-stone-200 bg-stone-50 p-3 text-left" open={profileLayout}>
+      {showCommunicationHistory && (
+        <details className="mt-3 rounded-2xl border border-stone-200 bg-stone-50 p-3 text-left" open={isProfileActivity ? undefined : profileLayout}>
           <summary className="cursor-pointer text-sm font-semibold text-stone-800">
             Recorded outreach
             {history.length > 0 ? ` (${history.length})` : ''}

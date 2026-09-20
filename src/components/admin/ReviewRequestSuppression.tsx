@@ -73,6 +73,10 @@ function sentLabel(item: ClientReviewHistoryItem) {
 type ReviewRequestSuppressionProps = {
   salonSlug: string;
   clientId: string;
+  /** Full remains the legacy standalone editor and history surface. */
+  presentation?: 'compact' | 'full' | 'activity' | 'controls';
+  onOpenActivity?: () => void;
+  onChanged?: () => void;
 };
 
 function reviewOverview(value: unknown): ClientReviewOverview {
@@ -85,7 +89,13 @@ function reviewOverview(value: unknown): ClientReviewOverview {
   };
 }
 
-export function ReviewRequestSuppression({ salonSlug, clientId }: ReviewRequestSuppressionProps) {
+export function ReviewRequestSuppression({
+  salonSlug,
+  clientId,
+  presentation = 'full',
+  onOpenActivity,
+  onChanged,
+}: ReviewRequestSuppressionProps) {
   const identity = `${salonSlug}:${clientId}`;
   const identityRef = useRef(identity);
   identityRef.current = identity;
@@ -151,6 +161,7 @@ export function ReviewRequestSuppression({ salonSlug, clientId }: ReviewRequestS
           identity: saveIdentity,
           value: reviewOverview(payload.data),
         });
+        onChanged?.();
       }
     } catch (cause) {
       if (identityRef.current === saveIdentity) {
@@ -171,18 +182,48 @@ export function ReviewRequestSuppression({ salonSlug, clientId }: ReviewRequestS
     }
     return [...overview.history].sort((first, second) => new Date(second.occurredAt).getTime() - new Date(first.occurredAt).getTime());
   }, [overview]);
+  const showControls = presentation === 'full' || presentation === 'controls';
+  const showHistory = presentation === 'full' || presentation === 'activity';
+  const latest = history[0] ?? null;
+
+  if (presentation === 'compact') {
+    return (
+      <section className="mt-4 rounded-2xl border border-[var(--owner-line,#dfd1d4)] bg-white p-4" data-testid="review-request-suppression">
+        <h3 className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">Review requests</h3>
+        {loading && <p className="mt-2 text-xs text-[var(--owner-muted,#706267)]">Loading review request status…</p>}
+        {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
+        {!loading && !error && (
+          <p className="mt-2 text-xs text-[var(--owner-muted,#706267)]">
+            {suppressed
+              ? 'Review requests are off for this client.'
+              : latest
+                ? `${historyStatus(latest, timeZone)} · ${sourceLabel(latest)}`
+                : 'No review requests recorded yet.'}
+          </p>
+        )}
+        {onOpenActivity && (
+          <button type="button" onClick={onOpenActivity} className="mt-3 min-h-11 text-xs font-semibold text-[var(--owner-accent,#8f3155)] underline">
+            View review request activity
+          </button>
+        )}
+      </section>
+    );
+  }
+
   return (
     <div className="mt-4 rounded-2xl border border-[var(--owner-line,#dfd1d4)] bg-white p-4" data-testid="review-request-suppression">
-      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
-        <span className="min-w-0">
-          <span className="block text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Do not send review requests</span>
-          <span className="mt-1 block text-xs text-[var(--owner-muted,#706267)]">Blocks new automatic and manual review requests for this client.</span>
-        </span>
-        <input aria-label="Do not send review requests" type="checkbox" checked={suppressed} disabled={loading || saving || !overview || !!error} onChange={event => void toggle(event.target.checked)} className="size-5 shrink-0 accent-[var(--owner-accent,#8f3155)]" />
-      </label>
-      {suppressed && <p className="mt-2 text-xs font-medium text-[var(--owner-accent,#8f3155)]">Future requests are skipped. A request already sending may still arrive.</p>}
+      {showControls && (
+        <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Do not send review requests</span>
+            <span className="mt-1 block text-xs text-[var(--owner-muted,#706267)]">Blocks new automatic and manual review requests for this client.</span>
+          </span>
+          <input aria-label="Do not send review requests" type="checkbox" checked={suppressed} disabled={loading || saving || !overview || !!error} onChange={event => void toggle(event.target.checked)} className="size-5 shrink-0 accent-[var(--owner-accent,#8f3155)]" />
+        </label>
+      )}
+      {showControls && suppressed && <p className="mt-2 text-xs font-medium text-[var(--owner-accent,#8f3155)]">Future requests are skipped. A request already sending may still arrive.</p>}
       {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
-      {error && !loading && (
+      {showControls && error && !loading && (
         <button
           type="button"
           onClick={() => {
@@ -194,7 +235,7 @@ export function ReviewRequestSuppression({ salonSlug, clientId }: ReviewRequestS
           Reload review history
         </button>
       )}
-      {!loading && !error && (
+      {showHistory && !loading && !error && (
         <section className="mt-5 border-t border-[var(--owner-line,#dfd1d4)] pt-4" aria-labelledby="review-request-history-heading">
           <h3 id="review-request-history-heading" className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">Review request history</h3>
           {history.length === 0

@@ -761,8 +761,10 @@ describe('ClientsModal', () => {
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
 
-    expect(await screen.findByText('Upcoming appointments')).toBeInTheDocument();
-    expect(screen.getByText('Completed appointments')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Client profile section'), { target: { value: 'appointments' } });
+
+    expect(await screen.findByText('Current & upcoming appointments')).toBeInTheDocument();
+    expect(screen.getByText('Recent completed appointments')).toBeInTheDocument();
     expect(screen.getByText('Recent issues')).toBeInTheDocument();
     expect(screen.getByText('Gel Fill')).toBeInTheDocument();
     expect(screen.getByText('Classic Pedicure')).toBeInTheDocument();
@@ -772,7 +774,7 @@ describe('ClientsModal', () => {
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
 
-    expect(await screen.findByText('Completed appointments')).toBeInTheDocument();
+    expect(await screen.findByText('Recent completed appointments')).toBeInTheDocument();
     expect(detailFetchCount).toBe(1);
     expect(fetchMock.mock.calls.filter(([url]) => String(url) === '/api/admin/clients/client_1/flag?salonSlug=isla-nail-studio')).toHaveLength(1);
     expect(fetchMock.mock.calls.filter(([url]) => String(url) === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100')).toHaveLength(1);
@@ -944,7 +946,7 @@ describe('ClientsModal', () => {
     expect(screen.getAllByText('(416) 555-0998').length).toBeGreaterThan(0);
     expect(screen.queryByText(/could not save/i)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('client-book-appointment'));
+    fireEvent.click(screen.getByTestId('client-profile-rebook'));
 
     expect(await screen.findByTestId('new-appointment-modal'))
       .toHaveTextContent('"phone":"4165550998"');
@@ -1017,7 +1019,7 @@ describe('ClientsModal', () => {
     render(<ClientsModal onClose={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
 
-    fireEvent.click(await screen.findByTestId('client-book-appointment'));
+    fireEvent.click(await screen.findByTestId('client-profile-rebook'));
     fireEvent.click(await screen.findByTestId('complete-mocked-booking'));
     await waitFor(() => expect(detailFetchCount).toBe(2));
 
@@ -1055,7 +1057,7 @@ describe('ClientsModal', () => {
     expect(await screen.findAllByText('(416) 555-0998')).not.toHaveLength(0);
     expect(detailFetchCount).toBe(3);
 
-    fireEvent.click(screen.getByTestId('client-book-appointment'));
+    fireEvent.click(screen.getByTestId('client-profile-rebook'));
 
     expect(await screen.findByTestId('new-appointment-modal'))
       .toHaveTextContent('"phone":"4165550998"');
@@ -1087,13 +1089,13 @@ describe('ClientsModal', () => {
     render(<ClientsModal onClose={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
 
-    expect(await screen.findByText('Lifetime spend')).toBeInTheDocument();
-    expect(screen.getByText('Spend this month')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Client profile section'), { target: { value: 'payments' } });
+
+    expect(await screen.findByText('Paid service value')).toBeInTheDocument();
+    expect(screen.getByText('Paid service value this month')).toBeInTheDocument();
     expect(screen.getByText('Completed outstanding')).toBeInTheDocument();
     expect(screen.getAllByText('$100.00').length).toBeGreaterThan(0);
     expect(screen.getAllByText('$60.00').length).toBeGreaterThan(0);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Payments' }));
 
     expect(await screen.findByText(/Completed appointment value and recorded payments are separate/)).toBeInTheDocument();
     expect(screen.getByText('Deposit paid')).toBeInTheDocument();
@@ -1105,15 +1107,14 @@ describe('ClientsModal', () => {
     expect(screen.getAllByText('$40.00')).toHaveLength(2);
     expect(screen.getAllByText('$60.00').length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Notes & Photos' }));
+    fireEvent.change(screen.getByLabelText('Client profile section'), { target: { value: 'notes' } });
 
     expect(screen.getByLabelText('Private notes')).toHaveValue('Prefers shorter almond shape.');
     expect(screen.getByText('No appointment photos yet.')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    fireEvent.change(screen.getByLabelText('Client profile section'), { target: { value: 'preferences' } });
 
     expect(screen.getByLabelText('Preferred artist')).toBeInTheDocument();
-    expect(screen.getByLabelText('Private notes')).toBeInTheDocument();
   });
 
   it.each([
@@ -1413,7 +1414,9 @@ describe('ClientsModal', () => {
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
 
-    expect(await screen.findByText('Upcoming appointments')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Client profile section'), { target: { value: 'appointments' } });
+
+    expect(await screen.findByText('Current & upcoming appointments')).toBeInTheDocument();
     expect(screen.queryByLabelText('Problem client flag')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Block future booking')).not.toBeInTheDocument();
   });
@@ -1464,6 +1467,7 @@ describe('ClientsModal', () => {
     render(<ClientsModal onClose={() => {}} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Client controls' }));
 
     expect(await screen.findByLabelText('Problem client flag')).toBeInTheDocument();
 
@@ -1474,6 +1478,7 @@ describe('ClientsModal', () => {
     fireEvent.change(screen.getByLabelText('Blocked booking reason'), { target: { value: 'Repeated no-shows' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Save status' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Block booking' }));
 
     await waitFor(() => {
       expect(
@@ -1643,6 +1648,7 @@ describe('ClientsModal', () => {
       // actions", named for what the endpoint does.
       expect(screen.queryByTestId('client-archive-action')).not.toBeInTheDocument();
 
+      fireEvent.click(await screen.findByRole('button', { name: 'Client controls' }));
       fireEvent.click(await screen.findByTestId('client-more-actions-toggle'));
       fireEvent.click(await screen.findByTestId('client-archive-action'));
 
@@ -2002,6 +2008,7 @@ describe('ClientsModal', () => {
       render(<ClientsModal onClose={() => {}} />);
 
       fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      fireEvent.change(screen.getByLabelText('Client profile section'), { target: { value: 'payments' } });
       fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
       fireEvent.click(await screen.findByTestId('client-appointment-change-appt_upcoming'));
 
@@ -2037,7 +2044,7 @@ describe('ClientsModal', () => {
       expect(screen.getByTestId('client-appointment-change-appt_completed')).toBeInTheDocument();
     });
 
-    it('opens the booking modal prefilled with the client from Book appointment', async () => {
+    it('opens the current appointment from the profile primary action', async () => {
       mockProfileRoutes();
       render(<ClientsModal onClose={() => {}} />);
 
@@ -2045,6 +2052,16 @@ describe('ClientsModal', () => {
       // Appointment preferences arrive with the detail, after the directory card.
       await screen.findByTestId('edit-client-action');
       fireEvent.click(await screen.findByTestId('client-book-appointment'));
+
+      expect(await screen.findByTestId('appointment-quick-edit-sheet')).toBeInTheDocument();
+    });
+
+    it('rebooks from the last completed visit with the completed service and artist', async () => {
+      mockProfileRoutes();
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      fireEvent.click(await screen.findByTestId('client-profile-rebook'));
 
       const bookingModal = await screen.findByTestId('new-appointment-modal');
 
@@ -2102,6 +2119,7 @@ describe('ClientsModal', () => {
       render(<ClientsModal onClose={() => {}} />);
 
       fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      fireEvent.change(screen.getByLabelText('Client profile section'), { target: { value: 'payments' } });
 
       expect(
         await screen.findByTestId('client-visits-tile-loading'),
@@ -2164,16 +2182,14 @@ describe('ClientsModal', () => {
       const scrollTo = vi.fn();
       scroller.scrollTo = scrollTo as unknown as Element['scrollTo'];
 
-      fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+      fireEvent.change(screen.getByLabelText('Client profile section'), { target: { value: 'preferences' } });
 
       expect(scrollTo).toHaveBeenCalledWith(
         expect.objectContaining({ top: 0 }),
       );
     });
 
-    it('keeps a current tab in both the mobile and the desktop lane', async () => {
-      // The lanes render the same content at different granularity, so a
-      // desktop-only section must still light a mobile tab and vice versa.
+    it('uses the same explicit destinations in mobile and desktop navigation', async () => {
       mockDetailRoutes(() => new Response(
         JSON.stringify(buildDetailResponse()),
         { status: 200 },
@@ -2184,17 +2200,95 @@ describe('ClientsModal', () => {
       fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
       await screen.findByTestId('client-detail-scroll');
 
-      // "Payments" only exists in the desktop lane; mobile shows it under
-      // "Activity", which must be the tab marked current.
-      fireEvent.click(screen.getByRole('button', { name: 'Payments' }));
+      fireEvent.change(screen.getByLabelText('Client profile section'), { target: { value: 'payments' } });
 
       const nav = screen.getByRole('navigation', { name: 'Client profile sections' });
-      const current = within(nav)
-        .getAllByRole('button')
-        .filter(button => button.getAttribute('aria-current') === 'page')
-        .map(button => button.textContent);
 
-      expect(current).toEqual(['Activity', 'Payments']);
+      expect(within(nav).getByLabelText('Client profile section')).toHaveValue('payments');
+      expect(within(nav).getByRole('button', { name: 'Payments' })).toHaveAttribute('aria-current', 'page');
+    });
+
+    it('keeps an in-progress appointment in the profile hero when a future reminder target also exists', async () => {
+      mockDetailRoutes(() => new Response(
+        JSON.stringify(buildDetailResponse({
+          upcomingAppointments: [
+            {
+              id: 'appt_current',
+              startTime: '2026-04-04T14:00:00.000Z',
+              endTime: '2026-04-04T15:00:00.000Z',
+              status: 'in_progress',
+              totalPrice: 9500,
+              currency: 'CAD',
+              technician: { id: 'tech_1', name: 'Daniela', avatarUrl: null },
+              services: [{ id: 'svc_current', name: 'Current Gel Fill', price: 9500 }],
+              notes: null,
+            },
+            {
+              id: 'appt_future_confirmed',
+              startTime: '2099-04-05T14:00:00.000Z',
+              endTime: '2099-04-05T15:00:00.000Z',
+              status: 'confirmed',
+              totalPrice: 9500,
+              currency: 'CAD',
+              technician: { id: 'tech_1', name: 'Daniela', avatarUrl: null },
+              services: [{ id: 'svc_future', name: 'Future Gel Fill', price: 9500 }],
+              notes: null,
+            },
+          ],
+        })),
+        { status: 200 },
+      ));
+
+      render(<ClientsModal onClose={() => {}} />);
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+      const hero = await screen.findByTestId('client-current-next-summary');
+
+      expect(hero).toHaveTextContent('Current appointment');
+      expect(hero).toHaveTextContent('Current Gel Fill');
+      expect(screen.getByRole('button', { name: 'View current appointment' })).toBeInTheDocument();
+
+      const reminder = await screen.findByRole('button', { name: 'Send reminder' });
+
+      expect(reminder).toBeEnabled();
+
+      fireEvent.click(reminder);
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/appointments/appt_future_confirmed/send-reminder?salonSlug=isla-nail-studio')).toBe(true);
+      });
+
+      expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/appointments/appt_current/send-reminder?salonSlug=isla-nail-studio')).toBe(false);
+    });
+
+    it.each(['pending', 'confirmed', 'awaiting_payment', 'in_progress', 'cancelled', 'no_show'])('preserves %s without inferring a completed visit or discount', async (status) => {
+      const appointment = { id: 'state_visit', startTime: '2099-04-05T14:00:00.000Z', endTime: '2099-04-05T15:00:00.000Z', status, totalPrice: 9500, currency: 'CAD', technician: null, services: [{ id: 'svc_state', name: 'State test manicure', price: 9500 }], notes: null };
+      mockDetailRoutes(() => new Response(JSON.stringify(buildDetailResponse({ upcomingAppointments: [appointment], pastAppointments: [] })), { status: 200 }));
+      render(<ClientsModal onClose={() => {}} />);
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      const hero = await screen.findByTestId('client-current-next-summary');
+      if (['cancelled', 'no_show'].includes(status)) {
+        expect(hero).toHaveTextContent('No current or upcoming appointment');
+      } else {
+        expect(hero).toHaveTextContent(status.replaceAll('_', ' '));
+        expect(hero).toHaveTextContent('State test manicure');
+      }
+
+      expect(screen.queryByTestId('client-profile-rebook')).not.toBeInTheDocument();
+      expect(screen.queryByText(/off eligible services/)).not.toBeInTheDocument();
+    });
+
+    it.each([['2020-01-01T12:00:00Z', true], ['2099-01-01T12:00:00Z', false]])('only marks a still-confirmed visit needing update after its end: %s', async (endTime, needsUpdate) => {
+      mockDetailRoutes(() => new Response(JSON.stringify(buildDetailResponse({
+        upcomingAppointments: [],
+        pastAppointments: [],
+        recentIssues: [{ id: 'unresolved', startTime: '2020-01-01T11:00:00Z', endTime, status: 'confirmed', totalPrice: 4000, currency: 'CAD', technician: null, services: [], notes: null }],
+      })), { status: 200 }));
+      render(<ClientsModal onClose={() => {}} />);
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      await screen.findByTestId('client-current-next-summary');
+
+      expect(Boolean(screen.queryByText('Appointment needs an update'))).toBe(needsUpdate);
+      expect(screen.queryByTestId('client-profile-rebook')).not.toBeInTheDocument();
     });
   });
 });
