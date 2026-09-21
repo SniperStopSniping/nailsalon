@@ -14,6 +14,8 @@ import {
   forfeitAppointmentDepositInTx,
 } from '@/libs/deposits/depositForfeiture';
 import { enqueueGoogleCalendarDeleteInTx } from '@/libs/integrationOutbox';
+import { recordNetworkNoShowInTx } from '@/libs/networkNoShow.server';
+import { setNetworkNoShowAuditActorInTx } from '@/libs/networkNoShowAudit.server';
 import {
   getAppointmentServiceNames,
   getSalonById,
@@ -254,6 +256,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     if (alreadyCancelled) {
       if (resolvedStatus === 'no_show') {
         transition = await db.transaction(async (tx): Promise<CancellationTransition> => {
+          await setNetworkNoShowAuditActorInTx(tx, access.actorRole === 'admin' ? access.admin?.id : access.actorRole === 'staff' ? access.session?.technicianId : null, access.actorRole);
           const [lockedAppointment] = await tx
             .select()
             .from(appointmentSchema)
@@ -290,6 +293,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     } else {
       transition = await withClientLifecycleTransactionRetry(() =>
         db.transaction(async (tx): Promise<CancellationTransition> => {
+          await setNetworkNoShowAuditActorInTx(tx, access.actorRole === 'admin' ? access.admin?.id : access.actorRole === 'staff' ? access.session?.technicianId : null, access.actorRole);
           let operationalClient = appointment.salonClientId
             ? await lockOperationalSalonClientContactWithHandle(tx, {
               salonId: appointment.salonId,
@@ -444,6 +448,16 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           }
 
           if (resolvedStatus === 'no_show') {
+            const networkActor = resolveAuditActor(access);
+            if (networkActor) {
+              await recordNetworkNoShowInTx(tx, {
+                salonId: appointment.salonId,
+                appointmentId,
+                actorId: networkActor.performedBy,
+                actorRole: networkActor.performedByRole,
+                now,
+              });
+            }
             await forfeitAppointmentDepositInTx({
               tx,
               salonId: appointment.salonId,

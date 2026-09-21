@@ -36,6 +36,9 @@ const {
   getSalonBySlug,
   refreshAccountReadiness,
   getDepositPolicyForSalon,
+  getNetworkNoShowParticipation,
+  checkEndpointRateLimit,
+  rateLimitResponse,
   updatedRows,
   selectResults,
   billingSubscriptionRows,
@@ -69,6 +72,9 @@ const {
       readinessStale: false,
       readinessAgeMs: null,
     })),
+    getNetworkNoShowParticipation: vi.fn(async () => false),
+    checkEndpointRateLimit: vi.fn(() => ({ allowed: true })),
+    rateLimitResponse: vi.fn(),
     updatedRows,
     selectResults,
     billingSubscriptionRows,
@@ -157,6 +163,15 @@ vi.mock('@/libs/stripeConnect/readiness', () => ({
 vi.mock('@/libs/depositPolicy.server', () => ({
   getDepositPolicyForSalon,
   EXPECTED_LIVEMODE: false,
+}));
+
+vi.mock('@/libs/networkNoShow.server', () => ({
+  getNetworkNoShowParticipation,
+}));
+
+vi.mock('@/libs/rateLimit', () => ({
+  checkEndpointRateLimit,
+  rateLimitResponse,
 }));
 
 /**
@@ -3863,7 +3878,138 @@ describe('/api/admin/salon/settings deposits', () => {
       readinessStale: false,
       readinessAgeMs: null,
     });
+    getNetworkNoShowParticipation.mockResolvedValue(false);
     updatedRows.push({ ...baseSalon });
+  });
+
+  describe('network no-show protection', () => {
+    it('rejects a protection update while the network feature is dark', async () => {
+      const response = await patch({
+        payments: { deposit: { noShowProtection: 'warn_only' } },
+      });
+
+      expect(response.status).toBe(409);
+      expect((await response.json()).error).toBe('NETWORK_NO_SHOW_INACTIVE');
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('accepts warning-only protection for a participating salon', async () => {
+      getNetworkNoShowParticipation.mockResolvedValue(true);
+
+      const response = await patch({
+        payments: { deposit: { noShowProtection: 'warn_only' } },
+      });
+
+      expect(response.status).toBe(200);
+      expect(settingsSqlFor()).toContain('{payments,deposit,noShowProtection}');
+      expect(refreshAccountReadiness).not.toHaveBeenCalled();
+    });
+
+    it('accepts no hide or off setting outside the three protection consequences', async () => {
+      getNetworkNoShowParticipation.mockResolvedValue(true);
+
+      const response = await patch({
+        payments: { deposit: { noShowProtection: 'off' } },
+      });
+
+      expect(response.status).toBe(400);
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('requires an existing amount before changing to deposit enforcement', async () => {
+      getNetworkNoShowParticipation.mockResolvedValue(true);
+
+      const response = await patch({
+        payments: { deposit: { noShowProtection: 'deposit_1' } },
+      });
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toBe('DEPOSIT_AMOUNT_REQUIRED');
+      expect(refreshAccountReadiness).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('requires deposit entitlement and a charge-ready account before deposit enforcement', async () => {
+      getNetworkNoShowParticipation.mockResolvedValue(true);
+      getSalonBySlug.mockResolvedValue({
+        ...baseSalon,
+        features: { money: { deposits: false } },
+        settings: { payments: { deposit: { enabled: false, amountCents: 2500 } } },
+      });
+
+      const notEntitled = await patch({
+        payments: { deposit: { noShowProtection: 'deposit_1' } },
+      });
+
+      expect(notEntitled.status).toBe(409);
+      expect((await notEntitled.json()).error).toBe('DEPOSITS_NOT_AVAILABLE');
+      expect(refreshAccountReadiness).not.toHaveBeenCalled();
+
+      vi.clearAllMocks();
+      getNetworkNoShowParticipation.mockResolvedValue(true);
+      requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
+      getSalonBySlug.mockResolvedValue({
+        ...baseSalon,
+        settings: { payments: { deposit: { enabled: false, amountCents: 2500 } } },
+      });
+      refreshAccountReadiness.mockResolvedValue({
+        chargeReady: false,
+        status: 'restricted',
+        binding: { ...chargeReadyBinding, chargesEnabled: false },
+      });
+
+      const notReady = await patch({
+        payments: { deposit: { noShowProtection: 'deposit_1' } },
+      });
+
+      expect(notReady.status).toBe(409);
+      expect((await notReady.json()).error).toBe('STRIPE_ACCOUNT_NOT_CHARGE_READY');
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('does not turn ordinary deposits on when enabling risk-only enforcement', async () => {
+      getNetworkNoShowParticipation.mockResolvedValue(true);
+      getSalonBySlug.mockResolvedValue({
+        ...baseSalon,
+        settings: { payments: { deposit: { enabled: false, amountCents: 2500 } } },
+      });
+
+      const response = await patch({
+        payments: { deposit: { noShowProtection: 'deposit_2' } },
+      });
+
+      expect(response.status).toBe(200);
+
+      const settingsSql = settingsSqlFor();
+
+      expect(settingsSql).toContain('{payments,deposit,noShowProtection}');
+      expect(settingsSql).not.toContain('{payments,deposit,enabled}');
+    });
+
+    it('refuses a stale protection save so it cannot restore enforcement after Warn only', async () => {
+      getNetworkNoShowParticipation.mockResolvedValue(true);
+      getSalonBySlug.mockResolvedValue({
+        ...baseSalon,
+        settings: {
+          payments: {
+            deposit: {
+              enabled: false,
+              amountCents: 2500,
+              noShowProtection: 'deposit_1',
+            },
+          },
+        },
+      });
+      updatedRows.length = 0;
+      selectResults.push([{ id: 'salon_1' }]);
+
+      const response = await patch({
+        payments: { deposit: { noShowProtection: 'deposit_1' } },
+      });
+
+      expect(response.status).toBe(409);
+      expect((await response.json()).error).toBe('DEPOSIT_STATE_CHANGED');
+    });
   });
 
   // ---------------------------------------------------------------------------

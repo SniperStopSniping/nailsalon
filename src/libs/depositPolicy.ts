@@ -95,6 +95,7 @@ const FINGERPRINT_VERSION = 'deposit-v1';
  */
 export const salonDepositSettingsSchema = z.object({
   enabled: z.boolean().optional(),
+  noShowProtection: z.enum(['warn_only', 'deposit_1', 'deposit_2']).optional(),
   amountCents: z
     .number()
     .int()
@@ -110,6 +111,7 @@ export const salonDepositSettingsSchema = z.object({
  */
 export const storedDepositSettingsSchema = z.object({
   enabled: z.boolean().optional(),
+  noShowProtection: z.enum(['warn_only', 'deposit_1', 'deposit_2']).optional(),
   amountCents: z.number().int().nonnegative().optional(),
 });
 
@@ -181,6 +183,8 @@ export type ResolveDepositPolicyArgs = {
    */
   now?: Date;
   collectionLive?: boolean;
+  /** Server-derived additional requirement; never accepted from a booking payload. */
+  networkRiskRequired?: boolean;
   /**
    * Exists ONLY so the admin settings GET can ask "what would still be wrong if
    * both launch gates were on?". No other caller passes it.
@@ -266,7 +270,7 @@ export function resolveDepositPolicy(
   ) {
     return inactive('not_configured');
   }
-  if (stored.enabled !== true) {
+  if (stored.enabled !== true && args.networkRiskRequired !== true) {
     return inactive('disabled');
   }
 

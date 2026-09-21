@@ -1,9 +1,23 @@
+import { z } from 'zod';
+
+import { DEPOSIT_FINGERPRINT_NONE, MAX_DEPOSIT_CENTS_ABSURDITY, MIN_DEPOSIT_CENTS, parseDepositDisclosureFingerprint } from '@/libs/depositPolicy';
+
 import type { CustomerBookingOperationReference, CustomerBookingStatus } from './bookingOperationContracts';
 import type { NormalBookingPrepare } from './normalBookingContracts';
 import { readNormalConfirmHandoff, writeNormalConfirmHandoff } from './normalConfirmHandoff.client';
 
+const depositUpdateSchema = z.object({
+  deposit: z.discriminatedUnion('required', [
+    z.object({ required: z.literal(true), amountCents: z.number().int().min(MIN_DEPOSIT_CENTS).max(MAX_DEPOSIT_CENTS_ABSURDITY), currency: z.literal('CAD'), fingerprint: z.string() }),
+    z.object({ required: z.literal(false), fingerprint: z.literal(DEPOSIT_FINGERPRINT_NONE) }),
+  ]),
+  confirmationMode: z.enum(['instant', 'request_approval']),
+}).refine(value => !value.deposit.required || parseDepositDisclosureFingerprint(value.deposit.fingerprint) === value.deposit.amountCents);
+
+export type NormalBookingDepositUpdate = z.infer<typeof depositUpdateSchema>;
+
 export class NormalBookingRecoveryError extends Error {
-  constructor(readonly reason: string) {
+  constructor(readonly reason: string, readonly depositUpdate?: NormalBookingDepositUpdate) {
     super(reason);
   }
 }
@@ -42,6 +56,13 @@ async function post<T>(salonId: string, action: string, body: unknown, signal?: 
   const response = await fetch(`/api/public/customer-booking/${encodeURIComponent(salonId)}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
+    if (response.status === 409 && data?.reason === 'deposit_changed') {
+      const parsed = depositUpdateSchema.safeParse(data);
+      if (parsed.success) {
+        throw new NormalBookingRecoveryError('deposit_changed', parsed.data);
+      }
+      throw new NormalBookingRecoveryError('review_unavailable');
+    }
     throw new NormalBookingRecoveryError(typeof data?.reason === 'string' ? data.reason : 'recovery_unavailable');
   }
   return data as T;

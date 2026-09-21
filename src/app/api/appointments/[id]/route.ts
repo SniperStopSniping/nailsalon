@@ -30,6 +30,8 @@ import {
   enqueueGoogleCalendarAppointmentMutation,
   enqueueGoogleCalendarDeleteInTx,
 } from '@/libs/integrationOutbox';
+import { recordNetworkNoShowInTx } from '@/libs/networkNoShow.server';
+import { setNetworkNoShowAuditActorInTx } from '@/libs/networkNoShowAudit.server';
 import { nextVisitMutationFailure } from '@/libs/nextVisitOffer';
 import {
   getAppointmentServiceNames,
@@ -494,6 +496,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       } else {
         const transition = await withClientLifecycleTransactionRetry(() =>
           db.transaction(async (tx): Promise<CancellationTransition> => {
+            await setNetworkNoShowAuditActorInTx(tx, access.actorRole === 'admin' ? access.admin?.id : access.actorRole === 'staff' ? access.session?.technicianId : null, access.actorRole);
             // Global order: terminal client before the appointment and every
             // other dependent row. Legacy appointments without a stable client
             // retain the existing salon-scoped phone fallback.
@@ -735,6 +738,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     } else if (data.status === 'no_show') {
       const transition = await withClientLifecycleTransactionRetry(() =>
         db.transaction(async (tx): Promise<ReactivationTransition> => {
+          await setNetworkNoShowAuditActorInTx(tx, access.actorRole === 'admin' ? access.admin?.id : access.actorRole === 'staff' ? access.session?.technicianId : null, access.actorRole);
           const [lockedAppointment] = await tx
             .select()
             .from(appointmentSchema)
@@ -803,6 +807,16 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
             };
           }
 
+          const networkActorId = access.actorRole === 'admin' ? access.admin?.id : access.actorRole === 'staff' ? access.session?.technicianId : null;
+          if (networkActorId) {
+            await recordNetworkNoShowInTx(tx, {
+              salonId: existingAppointment.salonId,
+              appointmentId,
+              actorId: networkActorId,
+              actorRole: access.actorRole,
+              now: new Date(),
+            });
+          }
           await forfeitAppointmentDepositInTx({
             tx,
             salonId: existingAppointment.salonId,
@@ -866,6 +880,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     ) {
       const transition = await withClientLifecycleTransactionRetry(() =>
         db.transaction(async (tx): Promise<ReactivationTransition> => {
+          await setNetworkNoShowAuditActorInTx(tx, access.actorRole === 'admin' ? access.admin?.id : access.actorRole === 'staff' ? access.session?.technicianId : null, access.actorRole);
           // ONE transaction-stable instant for every time-sensitive decision
           // in this write. Re-reading the clock mid-transaction is exactly
           // what the L1 timestamp contract forbids: the request-expiry check

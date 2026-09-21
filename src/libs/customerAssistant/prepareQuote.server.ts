@@ -6,6 +6,7 @@ import { resolveBookingSmsConsentDecision, resolveBookingSmsMode } from '@/libs/
 import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { buildDepositDisclosure, buildDepositDisclosureFingerprint, resolveDepositChargeForTotal } from '@/libs/depositPolicy';
 import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
+import { resolveNetworkNoShowDepositRequirement } from '@/libs/networkNoShowDeposit.server';
 import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
 import { getLocationById, getPrimaryLocation, getTechnicianById } from '@/libs/queries';
 import type { SmartFitEvaluation } from '@/libs/smartFit';
@@ -126,9 +127,15 @@ export async function prepareCustomerBookingQuote(args: {
     taxConfig,
     discountCents: discountAmountCents,
   });
+  const networkRiskRequired = await resolveNetworkNoShowDepositRequirement({
+    salonId: args.salon.id,
+    settings,
+    phone: args.contact.phone,
+    email: args.contact.email,
+  });
   const [location, depositPolicy] = await Promise.all([
     args.locationId ? getLocationById(args.locationId, args.salon.id) : getPrimaryLocation(args.salon.id),
-    getDepositPolicyForSalon({ salonId: args.salon.id, salon: args.salon }),
+    getDepositPolicyForSalon({ salonId: args.salon.id, salon: args.salon, networkRiskRequired }),
   ]);
   if (args.locationId && !location) {
     return null;

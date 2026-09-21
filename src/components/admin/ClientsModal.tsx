@@ -25,6 +25,7 @@ import {
 
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
+import { type BookingRisk, BookingRiskCard } from '@/components/admin/BookingRiskCard';
 import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
 import { ClientInsightsPanel } from '@/components/admin/ClientHubPanel';
 import {
@@ -223,6 +224,8 @@ type ClientProfileSummary = {
     dueAt: string | null;
   };
   nextVisitOffer?: ClientNextVisitOffer;
+  /** Omitted while Network No-show Protection is dark or this salon is not participating. */
+  bookingRisk?: BookingRisk;
   provenance: {
     lifetimeSpend: FinancialProvenance;
     spendThisMonth: FinancialProvenance;
@@ -1281,7 +1284,15 @@ function ClientDetail({
   onBack: () => void;
 }) {
   const [profile, setProfile] = useState<ClientProfile | null>(initialCachedDetail?.profile ?? null);
-  const [summary, setSummary] = useState<ClientProfileSummary | null>(initialCachedDetail?.summary ?? null);
+  const [summary, setSummary] = useState<ClientProfileSummary | null>(() => {
+    const cachedSummary = initialCachedDetail?.summary ?? null;
+    // Network risk is time-sensitive: a correction, expiry, or suppression can
+    // change it while this local profile cache is closed. Keep the local cards
+    // responsive, but never paint a cached network result as current.
+    return cachedSummary?.bookingRisk
+      ? { ...cachedSummary, bookingRisk: { state: 'unavailable' } }
+      : cachedSummary;
+  });
   const [submittedPreferences, setSubmittedPreferences] = useState<SubmittedPreferences | null>(
     initialCachedDetail?.submittedPreferences ?? null,
   );
@@ -1303,6 +1314,7 @@ function ClientDetail({
   );
   const detailRequestGenerationRef = useRef(0);
   const detailAbortControllerRef = useRef<AbortController | null>(null);
+  const shouldRefreshCachedDetailRef = useRef(Boolean(initialCachedDetail?.profile));
   const [cancelIntent, setCancelIntent] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -1418,7 +1430,11 @@ function ClientDetail({
   }, []);
 
   const fetchClientDetail = useCallback(async (force = false) => {
-    if (!force && (initialCachedDetail?.profile || profile)) {
+    if (
+      !force
+      && (initialCachedDetail?.profile || profile)
+      && !shouldRefreshCachedDetailRef.current
+    ) {
       return {
         status: 'success' as const,
         requestGeneration: detailRequestGenerationRef.current,
@@ -1426,6 +1442,7 @@ function ClientDetail({
     }
 
     detailAbortControllerRef.current?.abort();
+    shouldRefreshCachedDetailRef.current = false;
     const controller = new AbortController();
     detailAbortControllerRef.current = controller;
     const requestGeneration = detailRequestGenerationRef.current + 1;
@@ -1472,6 +1489,9 @@ function ClientDetail({
       if (!profile) {
         setDetailError('Failed to load client profile');
       }
+      setSummary(previous => previous?.bookingRisk
+        ? { ...previous, bookingRisk: { state: 'unavailable' } }
+        : previous);
       return {
         status: 'failure' as const,
         requestGeneration,
@@ -2209,6 +2229,7 @@ function ClientDetail({
 
                   {activeSection === 'overview' && (
                     <div className="space-y-4">
+                      {summary?.bookingRisk && <BookingRiskCard risk={summary.bookingRisk} />}
                       <AdminDetailCard>
                         <div data-testid="client-current-next-summary" className="flex items-start justify-between gap-3">
                           <div className="min-w-0">

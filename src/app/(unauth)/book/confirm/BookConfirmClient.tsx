@@ -2119,6 +2119,14 @@ export function BookConfirmClient({
   // client has now actually been shown. Dead until that PR ships the 409.
   const [displayedDeposit, setDisplayedDeposit]
     = useState<BookConfirmClientProps['depositDisclosure']>(() => depositDisclosure);
+  const [displayedConfirmationMode, setDisplayedConfirmationMode] = useState<'instant' | 'request_approval'>(() => salonConfirmsManually ? 'request_approval' : 'instant');
+  const upstreamConfirmationModeRef = useRef(salonConfirmsManually);
+  useEffect(() => {
+    if (upstreamConfirmationModeRef.current !== salonConfirmsManually) {
+      upstreamConfirmationModeRef.current = salonConfirmsManually;
+      setDisplayedConfirmationMode(salonConfirmsManually ? 'request_approval' : 'instant');
+    }
+  }, [salonConfirmsManually]);
   const [submittedDepositFingerprint, setSubmittedDepositFingerprint]
     = useState<string>(() => depositFingerprint);
 
@@ -2707,7 +2715,7 @@ export function BookConfirmClient({
           location: location ? { name: location.name, address: location.address, city: location.city, state: location.state, zipCode: location.zipCode } : null,
           services: services.map(item => ({ id: item.id, name: item.name, priceCents: Math.round(item.price * 100) })),
           addOns: addOns.map(item => ({ id: item.id, name: item.name, quantity: item.quantity, priceCents: Math.round(item.price * 100) })),
-          confirmationMode: salonConfirmsManually ? 'request_approval' : 'instant',
+          confirmationMode: displayedConfirmationMode,
           reminderMode: smsBookingDefault,
           policyVersion: acknowledgmentRequired ? displayedPolicy.version ?? null : null,
         } });
@@ -3008,6 +3016,19 @@ export function BookConfirmClient({
       completeManualBooking(data);
     } catch (error) {
       if (error instanceof NormalBookingRecoveryError) {
+        if (error.reason === 'deposit_changed' && error.depositUpdate) {
+          const { deposit, confirmationMode } = error.depositUpdate;
+          setDisplayedDeposit(deposit.required
+            ? buildDepositDisclosure({ required: true, amountCents: deposit.amountCents, currency: DEPOSIT_CURRENCY })
+            : null);
+          setSubmittedDepositFingerprint(deposit.fingerprint);
+          setDisplayedConfirmationMode(confirmationMode);
+          setPolicyAcknowledged(false);
+          acknowledgmentAttemptIdRef.current = crypto.randomUUID();
+          setBookingError('The deposit required for this booking changed. Please review it and confirm again.');
+          bookingInitiatedRef.current = false;
+          return;
+        }
         setBookingError(normalBookingErrorMessage(error.reason));
         if (error.reason === 'slot_unavailable') {
           setSlotTaken(true);
@@ -3040,7 +3061,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [addOns, salonName, salonTimeZone, technician, salonConfirmsManually, isAssistantHandoff, salonId, recoveringHandoff, publicRecoveryPending, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, nextVisitQuoteExpectation, canonicalStartTime, checkPublicRecovery, completeManualBooking, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
+  }, [addOns, salonName, salonTimeZone, technician, displayedConfirmationMode, isAssistantHandoff, salonId, recoveringHandoff, publicRecoveryPending, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, nextVisitQuoteExpectation, canonicalStartTime, checkPublicRecovery, completeManualBooking, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);
@@ -3329,7 +3350,7 @@ export function BookConfirmClient({
         depositNoticeSuppressed={depositNoticeSuppressed}
         policyAcknowledged={policyAcknowledged}
         onPolicyAcknowledgmentChange={setPolicyAcknowledged}
-        salonConfirmsManually={salonConfirmsManually}
+        salonConfirmsManually={displayedConfirmationMode === 'request_approval'}
       />
     </>
   );

@@ -160,6 +160,7 @@ const deposits = vi.hoisted(() => ({
   /** What the IN-TRANSACTION pure resolver resolves to for this leg. */
   inTxPolicy: null as unknown,
   getDepositPolicyForSalon: vi.fn(),
+  resolveDepositPolicy: vi.fn(),
   refreshAccountReadiness: vi.fn(),
   createDepositCheckoutSession: vi.fn(),
   /** Per-leg override for the charge resolver; null = use D3's real one. */
@@ -186,13 +187,24 @@ vi.mock('@/libs/depositPolicy', async (importOriginal) => {
     // an override — two legs need a charge shape D3's resolver will never
     // produce on its own (a thrown TypeError, and a required amount below the
     // floor), and both are refusals that must be reachable.
-    resolveDepositPolicy: vi.fn(() => deposits.inTxPolicy),
+    resolveDepositPolicy: deposits.resolveDepositPolicy.mockImplementation(() => deposits.inTxPolicy),
     resolveDepositChargeForTotal: vi.fn((...args: unknown[]) =>
       (deposits.chargeOverride
         ? deposits.chargeOverride(...args)
         : (actual.resolveDepositChargeForTotal as (...a: unknown[]) => unknown)(...args))),
   };
 });
+
+const networkRisk = vi.hoisted(() => ({
+  preflight: false,
+  inTransaction: false,
+  resolveNetworkNoShowDepositRequirement: vi.fn((args: { handle?: unknown }) =>
+    Promise.resolve(args.handle ? networkRisk.inTransaction : networkRisk.preflight)),
+}));
+
+vi.mock('@/libs/networkNoShowDeposit.server', () => ({
+  resolveNetworkNoShowDepositRequirement: networkRisk.resolveNetworkNoShowDepositRequirement,
+}));
 
 const guards = vi.hoisted(() => ({ lockTechnicianAndAssertSlotFree: vi.fn() }));
 
@@ -363,6 +375,8 @@ beforeEach(async () => {
     .where(eq(schema.salonSchema.id, SALON_ID));
   seedChargeReady(false);
   deposits.chargeOverride = null;
+  networkRisk.preflight = false;
+  networkRisk.inTransaction = false;
   deposits.createDepositCheckoutSession.mockResolvedValue({
     ok: true,
     session: {
@@ -402,6 +416,99 @@ describe('28(f) — the pre-transaction undetermined refusal', () => {
     expect(await appointmentRows()).toHaveLength(0);
     expect(await depositRows()).toHaveLength(0);
     expect(deposits.refreshAccountReadiness).not.toHaveBeenCalled();
+  });
+});
+
+describe('network no-show deposit requirement at the appointment boundary', () => {
+  it('passes a preflight and locked risk requirement into the existing deposit policy path', async () => {
+    networkRisk.preflight = true;
+    networkRisk.inTransaction = true;
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(20), '11:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+
+    expect(response.status).toBe(201);
+    expect(deposits.getDepositPolicyForSalon).toHaveBeenCalledWith(expect.objectContaining({
+      networkRiskRequired: true,
+    }));
+    expect(deposits.resolveDepositPolicy).toHaveBeenCalledWith(expect.objectContaining({
+      networkRiskRequired: true,
+    }));
+    expect((await depositRows())).toHaveLength(1);
+  });
+
+  it('does not collect when risk disappears before the locked booking decision', async () => {
+    networkRisk.preflight = true;
+    networkRisk.inTransaction = false;
+    seedPolicy(ACTIVE_POLICY, { active: false, reason: 'disabled', amountCents: 2500 });
+    seedChargeReady(true);
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(21), '11:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data.deposit?.required).not.toBe(true);
+    expect(await depositRows()).toHaveLength(0);
+  });
+
+  it('fails closed before writing when risk appears after a no-risk preflight', async () => {
+    networkRisk.preflight = false;
+    networkRisk.inTransaction = true;
+    seedPolicy({ active: false, reason: 'disabled', amountCents: 2500 }, ACTIVE_POLICY);
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(22), '11:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:none',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe('DEPOSITS_TEMPORARILY_UNAVAILABLE');
+    expect(await appointmentRows()).toHaveLength(0);
+    expect(await depositRows()).toHaveLength(0);
+  });
+
+  it('keeps the existing no-risk public path unchanged when identity is unavailable', async () => {
+    seedPolicy({ active: false, reason: 'disabled', amountCents: 2500 });
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(23), '11:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:none',
+    });
+
+    expect(response.status).toBe(201);
+    expect(await depositRows()).toHaveLength(0);
+    expect(networkRisk.resolveNetworkNoShowDepositRequirement).toHaveBeenCalledTimes(2);
+  });
+
+  it('never evaluates network no-show risk for an owner or staff-created booking', async () => {
+    networkRisk.preflight = true;
+    networkRisk.inTransaction = true;
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    holder.staffSalonId = SALON_ID;
+
+    const response = await postBooking({
+      startTime: at(futureDate(24), '11:00').toISOString(),
+      clientPhone: freshPhone(),
+      clientName: 'Phone Booking',
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+
+    expect(response.status).toBe(201);
+    expect(await depositRows()).toHaveLength(0);
+    expect(networkRisk.resolveNetworkNoShowDepositRequirement).not.toHaveBeenCalled();
   });
 });
 

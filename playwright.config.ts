@@ -125,8 +125,8 @@ export default defineConfig({
     },
     {
       name: 'mobile-webkit',
-      testMatch: /(?:review-requests|booking-page-hub|booking-layout-variants|mobile-(?:booking-footer|service-layout|admin-appointment-sheet|staff-uiqi))\.e2e\.ts/,
-      grep: /@(?:mobile-safari|owner-preview-webkit)/,
+      testMatch: /(?:review-requests|booking-page-hub|booking-layout-variants|network-no-show-protection|mobile-(?:booking-footer|service-layout|admin-appointment-sheet|staff-uiqi))\.e2e\.ts/,
+      grep: /@(?:mobile-safari|owner-preview-webkit|network-no-show-protection)/,
       use: { ...devices['iPhone 13'] },
       dependencies: ['setup'],
     },

@@ -141,6 +141,8 @@ import {
 } from '@/libs/integrationOutbox';
 import { L1SelectionChangedError, projectL1ConflictPayload, reconcileAuthoritativeL1Selection as reconcileCatalogSelection } from '@/libs/l1BookingReconciliation.server';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
+import { registerNetworkBookingInTx } from '@/libs/networkNoShow.server';
+import { resolveNetworkNoShowDepositRequirement } from '@/libs/networkNoShowDeposit.server';
 import {
   getNextVisitOfferForAppointment,
   lockNextVisitOfferForBooking,
@@ -3784,6 +3786,19 @@ export async function createAppointmentFromRequest(
       accountSnapshot: DepositAccountSnapshot;
       stripeAccountId: string;
     };
+    let networkRiskRequired = false;
+    if (isNewPublicBooking) {
+      try {
+        networkRiskRequired = await resolveNetworkNoShowDepositRequirement({
+          salonId: salon.id,
+          settings: salon.settings as SalonSettings | null,
+          phone: normalizedPhone,
+          email: normalizedClientEmail,
+        });
+      } catch {
+        return depositsTemporarilyUnavailableResponse();
+      }
+    }
     let depositBranch: DepositBranchContext | null = null;
     // Set when the policy resolves ACTIVE but this request is outside the charge
     // predicate, so the 201 must still carry `deposit: { required:false }`.
@@ -3797,6 +3812,7 @@ export async function createAppointmentFromRequest(
       const depositScopeRead = await getDepositPolicyForSalon({
         salonId: salon.id,
         salon,
+        networkRiskRequired,
       });
 
       if (!isNewPublicBooking) {
@@ -3860,6 +3876,7 @@ export async function createAppointmentFromRequest(
 
     const assertAnonymousDepositDisclosureInTx = (
       configuration: LockedBookingFinancialConfiguration,
+      currentNetworkRiskRequired = false,
     ): void => {
       if (access.kind !== 'anonymous_customer' || !customerBookingOperation) {
         return;
@@ -3868,6 +3885,7 @@ export async function createAppointmentFromRequest(
       const policy = resolveDepositPolicy({
         settings: configuration.settings,
         features: configuration.features,
+        networkRiskRequired: currentNetworkRiskRequired,
         stripeAccount: depositBranch?.accountSnapshot ?? null,
         // Without the pre-transaction readiness snapshot, a newly enabled
         // deposit setting cannot be priced safely. Treat that as a changed
@@ -4346,7 +4364,20 @@ export async function createAppointmentFromRequest(
             }
 
             await finalizeBookingPricingInTx(tx, lockedSalonClient, lockedBookingConfiguration.invoiceCurrency);
-            assertAnonymousDepositDisclosureInTx(lockedBookingConfiguration);
+            const currentNetworkRiskRequired = isNewPublicBooking
+              ? await resolveNetworkNoShowDepositRequirement({
+                salonId: salon.id,
+                settings: lockedBookingConfiguration.settings,
+                phone: normalizedPhone,
+                email: normalizedClientEmail,
+                handle: tx,
+              })
+              : false;
+            // A newly applicable policy needs a fresh disclosed review and readiness snapshot.
+            if (currentNetworkRiskRequired && !depositBranch) {
+              throw new DepositsUnavailableError('network_policy_changed');
+            }
+            assertAnonymousDepositDisclosureInTx(lockedBookingConfiguration, currentNetworkRiskRequired);
             const bookingTaxSnapshot
               = assertCurrentBookingFinancialQuote(lockedBookingConfiguration);
 
@@ -4370,6 +4401,7 @@ export async function createAppointmentFromRequest(
               const depositPolicy = resolveDepositPolicy({
                 settings: lockedBookingConfiguration.settings,
                 features: lockedBookingConfiguration.features,
+                networkRiskRequired: currentNetworkRiskRequired,
                 stripeAccount: depositBranch.accountSnapshot,
                 // Imported from depositPolicy.server.ts. NEVER re-derived here:
                 // a locally recomputed livemode is exactly how a live Checkout
@@ -4558,6 +4590,14 @@ export async function createAppointmentFromRequest(
             if (!createdAppointment) {
               throw new Error('Failed to create appointment');
             }
+            await registerNetworkBookingInTx(tx, {
+              salonId: salon.id,
+              appointmentId: createdAppointment.id,
+              phone: normalizedPhone,
+              email: normalizedClientEmail,
+              actorRole,
+              now,
+            });
 
             if (depositCharge && depositBranch && holdExpiresAt) {
               // Same transaction as the appointment, so the active-uniqueness

@@ -719,7 +719,7 @@ describe('ClientsModal', () => {
     );
   });
 
-  it('loads real client detail, separates completed history from recent issues, and reuses cached detail on reopen', async () => {
+  it('loads real client detail, separates completed history from recent issues, and refreshes it on reopen', async () => {
     let detailFetchCount = 0;
 
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
@@ -775,9 +775,65 @@ describe('ClientsModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Appointments' }));
 
     expect(await screen.findByText('Recent completed appointments')).toBeInTheDocument();
-    expect(detailFetchCount).toBe(1);
+
+    await waitFor(() => expect(detailFetchCount).toBe(2));
+
     expect(fetchMock.mock.calls.filter(([url]) => String(url) === '/api/admin/clients/client_1/flag?salonSlug=isla-nail-studio')).toHaveLength(1);
     expect(fetchMock.mock.calls.filter(([url]) => String(url) === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100')).toHaveLength(1);
+  });
+
+  it('never reuses a cached network no-show result while a reopened profile refresh is pending or fails', async () => {
+    let detailFetchCount = 0;
+    const refreshFailure = new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/settings/modules?')) {
+        return new Response(JSON.stringify({
+          data: { moduleReasons: { clientFlags: 'MODULE_DISABLED', clientBlocking: 'MODULE_DISABLED' } },
+        }), { status: 200 });
+      }
+      if (url.startsWith('/api/admin/clients?')) {
+        return new Response(JSON.stringify(buildListResponse([buildListClient()])), { status: 200 });
+      }
+      if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+        detailFetchCount += 1;
+        if (detailFetchCount === 1) {
+          return new Response(JSON.stringify(buildDetailResponse({
+            summary: {
+              ...buildDetailResponse().data.summary,
+              bookingRisk: {
+                state: 'available',
+                activeNoShowCount: 1,
+                windowMonths: 12,
+                protection: 'warn_only',
+              },
+            },
+          })), { status: 200 });
+        }
+        return refreshFailure;
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 });
+    });
+
+    render(<ClientsModal onClose={() => {}} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+    expect(await screen.findByTestId('booking-risk-warning')).toHaveTextContent('1 recorded no-show');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clients' }));
+    fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+    expect(await screen.findByTestId('booking-risk-unavailable')).toHaveTextContent('Network no-show history unavailable.');
+    expect(screen.queryByTestId('booking-risk-warning')).not.toBeInTheDocument();
+
+    await waitFor(() => expect(detailFetchCount).toBe(2));
+
+    expect(consoleError).toHaveBeenCalledWith('Failed to fetch client profile:', expect.any(Error));
+
+    consoleError.mockRestore();
   });
 
   it('opens Edit only from owner client detail, preserves name parts, and refreshes after success', async () => {
@@ -1055,7 +1111,8 @@ describe('ClientsModal', () => {
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
 
     expect(await screen.findAllByText('(416) 555-0998')).not.toHaveLength(0);
-    expect(detailFetchCount).toBe(3);
+
+    await waitFor(() => expect(detailFetchCount).toBe(4));
 
     fireEvent.click(screen.getByTestId('client-profile-rebook'));
 

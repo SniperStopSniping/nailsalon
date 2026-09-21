@@ -24,6 +24,8 @@ import {
   forfeitAppointmentDepositInTx,
 } from '@/libs/deposits/depositForfeiture';
 import { enqueueGoogleCalendarDeleteInTx } from '@/libs/integrationOutbox';
+import { recordNetworkNoShowInTx } from '@/libs/networkNoShow.server';
+import { setNetworkNoShowAuditActorInTx } from '@/libs/networkNoShowAudit.server';
 import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 import {
   appointmentArtifactsSchema,
@@ -281,6 +283,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
 
     const updated = await withClientLifecycleTransactionRetry(() =>
       db.transaction(async (tx) => {
+        await setNetworkNoShowAuditActorInTx(tx, session.technicianId, 'staff');
         const handle = tx as LifecycleSqlHandle;
         // waiting -> working enters service and must serialize with booking.
         // working -> wrap_up remains the same already-active appointment, so
@@ -412,6 +415,13 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           )
           .returning();
         if (winner && legacyStatus === 'no_show') {
+          await recordNetworkNoShowInTx(tx, {
+            salonId: session.salonId,
+            appointmentId,
+            actorId: session.technicianId,
+            actorRole: 'staff',
+            now,
+          });
           await forfeitAppointmentDepositInTx({
             tx,
             salonId: session.salonId,
