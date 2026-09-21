@@ -128,30 +128,21 @@ async function impersonateConfiguredSalon(page: Page) {
 }
 
 async function mockClientProfile(page: Page, bookingRisk: NetworkRisk) {
-  await page.route('**/api/admin/clients**', async (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === '/api/admin/clients') {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
-            clients: [directoryClient],
-            pagination: { page: 1, limit: 30, total: 1, totalPages: 1 },
-            filter: { segment: null, rulesVersion: null, generatedAt: null },
-          },
-        }),
-      });
-      return;
-    }
-    if (url.pathname === `/api/admin/clients/${CLIENT_ID}`) {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify(detailPayload(bookingRisk)),
-      });
-      return;
-    }
-    await route.continue();
-  });
+  await page.route('**/api/admin/clients?*', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      data: {
+        clients: [directoryClient],
+        pagination: { page: 1, limit: 30, total: 1, totalPages: 1 },
+        filter: { segment: null, rulesVersion: null, generatedAt: null },
+      },
+    }),
+  }));
+
+  await page.route(`**/api/admin/clients/${CLIENT_ID}?*`, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify(detailPayload(bookingRisk)),
+  }));
 
   await page.route('**/api/admin/settings/modules?*', route => route.fulfill({
     contentType: 'application/json',
@@ -257,6 +248,8 @@ test.describe('network no-show protection owner mobile @network-no-show-protecti
       );
 
       const protection = page.getByTestId('no-show-protection');
+
+      await page.getByRole('button', { name: /^Deposits / }).click();
 
       await expect(protection).toBeVisible();
       await expect(protection.getByRole('radio')).toHaveCount(3);
