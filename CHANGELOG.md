@@ -1,3 +1,10 @@
+## [1.126.11](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.10...v1.126.11) (2026-09-21)
+
+
+### Bug Fixes
+
+* **customer-ai:** preserve grounded follow-up answers ([#296](https://github.com/SniperStopSniping/nailsalon/issues/296)) ([ad500c1](https://github.com/SniperStopSniping/nailsalon/commit/ad500c16676e9c669789d3b1ea2f85a709128160))
+
 ## [1.126.10](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.9...v1.126.10) (2026-09-21)
 
 
