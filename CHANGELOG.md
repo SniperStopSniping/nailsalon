@@ -1,3 +1,10 @@
+## [1.126.9](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.8...v1.126.9) (2026-09-21)
+
+
+### Bug Fixes
+
+* **customer-ai:** fit real catalogue and conversation context ([#294](https://github.com/SniperStopSniping/nailsalon/issues/294)) ([3bc8e88](https://github.com/SniperStopSniping/nailsalon/commit/3bc8e881ff5ef9325039b434e26e480c270b0cd9))
+
 ## [1.126.8](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.7...v1.126.8) (2026-09-21)
 
 
