@@ -1,3 +1,11 @@
+## [1.126.7](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.6...v1.126.7) (2026-09-21)
+
+
+### Bug Fixes
+
+* **customer-ai:** fit full welcome at text zoom ([c68440e](https://github.com/SniperStopSniping/nailsalon/commit/c68440effe2ff4c835bf482336eb0211a6c76121))
+* **customer-ai:** keep receptionist welcome visible ([96fedf4](https://github.com/SniperStopSniping/nailsalon/commit/96fedf4aa2439f253b9ddceda278643d9e03b2f2))
+
 ## [1.126.6](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.5...v1.126.6) (2026-09-21)
 
 
