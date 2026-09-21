@@ -280,6 +280,17 @@ test('branded welcome, resume, start over, priced length choice, and keyboard st
   await expect(page.getByRole('button', { name: 'Book an appointment' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'See prices' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Help me choose', exact: true })).toBeVisible();
+
+  const transcript = page.getByTestId('customer-assistant-transcript');
+  const welcome = page.getByText(/Welcome to A Very Long Synthetic Nail Studio Name/);
+
+  expect(await transcript.evaluate(element => element.scrollTop)).toBe(0);
+  expect(await welcome.evaluate(element => element.getBoundingClientRect().top)).toBeLessThan(
+    await page.getByRole('button', { name: 'Book an appointment' }).evaluate(element => element.getBoundingClientRect().top),
+  );
+  expect(await welcome.evaluate(element => element.getBoundingClientRect().bottom)).toBeLessThanOrEqual(
+    await transcript.evaluate(element => element.getBoundingClientRect().bottom),
+  );
   expect(sessions).toBe(1);
 
   await page.screenshot({ path: path.join(artifactDirectory, `${testInfo.project.name}-branded-welcome-320px-200zoom.png`), fullPage: true });

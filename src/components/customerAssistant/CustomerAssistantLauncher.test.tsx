@@ -69,7 +69,7 @@ describe('CustomerAssistantLauncher', () => {
     await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
 
     expect(await screen.findByRole('heading', { name: 'AI booking assistant' })).toBeVisible();
-    expect(await screen.findByText('Hey! Welcome to Isla Nail Studio 💅 I’m your AI booking assistant. Are you looking to book, check prices, or get help choosing your next nail look?')).toBeVisible();
+    expect(await screen.findByText('Hey! Welcome to Isla Nail Studio 💅 I’m your AI receptionist. How can I help?')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Book an appointment' })).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith('/api/public/customer-assistant/isla-nail-studio/session', { method: 'POST' });
 
