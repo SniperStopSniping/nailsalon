@@ -3,11 +3,15 @@ import { describe, expect, it } from 'vitest';
 import type { CustomerMenu } from './catalogue.server';
 import { projectCustomerInterpreterMenu } from './interpreterMenu';
 
-const bindingColumns = ['serviceId', 'addOnId', 'required', 'defaultQuantity', 'maxQuantity'] as const;
+const bindingColumns = ['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity'] as const;
 
-const restoreBindings = (projected: ReturnType<typeof projectCustomerInterpreterMenu>) => projected.bindings.rows.map(row => Object.fromEntries(
-  projected.bindings.columns.map((column, index) => [column, row[index]]),
-)) as CustomerMenu['bindings'];
+const restoreBindings = (projected: ReturnType<typeof projectCustomerInterpreterMenu>) => projected.bindings.rows.map(row => ({
+  serviceId: projected.bindings.serviceIds[row[0]],
+  addOnId: projected.bindings.addOnIds[row[1]],
+  required: row[2],
+  defaultQuantity: row[3],
+  maxQuantity: row[4],
+}));
 
 describe('customer interpreter menu projection', () => {
   it('losslessly projects every binding value in original order without mutating public menu authority', () => {
@@ -32,10 +36,12 @@ describe('customer interpreter menu projection', () => {
     const projected = projectCustomerInterpreterMenu(menu);
 
     expect(projected.bindings.columns).toEqual(bindingColumns);
+    expect(projected.bindings.serviceIds).toEqual(['service-a', 'service-b']);
+    expect(projected.bindings.addOnIds).toEqual(['addon-a', 'addon-b', 'addon-c']);
     expect(projected.bindings.rows).toEqual([
-      ['service-a', 'addon-a', false, 0, 0],
-      ['service-a', 'addon-b', true, 1, 7],
-      ['service-b', 'addon-c', false, 3, 12],
+      [0, 0, false, 0, 0],
+      [0, 1, true, 1, 7],
+      [1, 2, false, 3, 12],
     ]);
     expect(restoreBindings(projected)).toEqual(originalBindings);
     expect(menu.bindings).toEqual(originalBindings);
@@ -43,5 +49,20 @@ describe('customer interpreter menu projection', () => {
     expect(projected.addOns).toBe(menu.addOns);
     expect(projected.l1).toBe(l1);
     expect(projected.bindings).not.toBe(menu.bindings);
+  });
+
+  it('retains all bindings at the catalogue count limit with long opaque IDs', () => {
+    const menu: CustomerMenu = { services: [], addOns: [], bindings: Array.from({ length: 160 }, (_, i) => ({
+      serviceId: `service_${String(i % 60).padStart(80, '0')}`,
+      addOnId: `addon_${String(i % 80).padStart(80, '0')}`,
+      required: i % 2 === 0,
+      defaultQuantity: i % 3,
+      maxQuantity: i % 20,
+    })) };
+    const projected = projectCustomerInterpreterMenu(menu);
+
+    expect(restoreBindings(projected)).toEqual(menu.bindings);
+    expect(projected.bindings.rows).toHaveLength(160);
+    expect(Buffer.byteLength(JSON.stringify(projected.bindings))).toBeLessThan(Buffer.byteLength(JSON.stringify(menu.bindings)) / 2);
   });
 });
