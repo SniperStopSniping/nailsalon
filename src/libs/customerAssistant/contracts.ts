@@ -4,7 +4,10 @@ import { z } from 'zod';
 export const CUSTOMER_ASSISTANT_MODEL = 'gpt-5.6-terra';
 export const CUSTOMER_ASSISTANT_INTERPRETATION_MODEL = CUSTOMER_ASSISTANT_MODEL;
 export type CustomerAssistantModelStage = 'interpreter' | 'composer' | 'receptionist';
-export const CUSTOMER_ASSISTANT_MAX_INPUT_BYTES = 40_000;
+// Includes both interpretation and receptionist instructions, the lossless
+// public catalogue/facts, and bounded dialogue. The reservation is derived
+// from this cap in modelPricing; increasing it never permits unreserved spend.
+export const CUSTOMER_ASSISTANT_MAX_INPUT_BYTES = 64_000;
 export const CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS = 1_800;
 
 /** Presentation context only. It can never identify a bookable item. */

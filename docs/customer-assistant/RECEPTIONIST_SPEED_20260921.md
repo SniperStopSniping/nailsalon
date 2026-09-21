@@ -43,3 +43,11 @@ Local checks completed before PR:
 - Independent authority review approved the one-call protocol, unsupported-request persistence, fresh conditional fact reads, tenant-scoped prices route and final formatting/recommendation deltas. Network no-show, deposit, prepareQuote and fresh availability modules have no diff.
 
 Before release, require exact-head CI, preview checks and rendered live retesting. Local component-browser fixtures prove interaction and layout; they do not substitute for live catalogue/model checks. The final task report records the released SHA and any remaining verification limits.
+
+## Live catalogue follow-up
+
+The first release's rendered welcome actions passed, but the first typed turn failed before a model call. Reproducing the ordinary public Isla catalogue (11 services, 13 add-ons, 52 bindings) produced a minimum 40,864-byte combined prompt, exceeding the 40,000-byte cap even before salon profile facts. The original synthetic fixtures used shorter IDs and missed this case.
+
+The model-only binding table now uses explicit zero-based indexes into canonical service/add-on ID dictionaries. Every binding, order, duplicate, required flag and quantity is preserved; output IDs and server validation still use the original canonical catalogue. Isla's binding projection shrinks from 7,004 to 2,264 bytes. The full minimum input, including the added dictionary instructions, is 36,362 bytes.
+
+The input cap is 64,000 bytes to accommodate public profile facts and populated Unicode dialogue; the schema/output-aware spend reservation derives from that cap. This is a ceiling, not padding or extra model work on ordinary turns. Oversized inputs still fail closed without pruning catalogue authority. Regression coverage includes realistic opaque IDs, full consultation state, Unicode history, and exact binding round trips. The paired benchmark keeps the archived baseline projection and refuses to call the provider for an oversized context.

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { REALISTIC_OPAQUE_MENU, REALISTIC_OPAQUE_PUBLIC_FACTS, REALISTIC_OPAQUE_SELECTION } from './__evals__/realisticOpaqueContext';
 import { SEMANTIC_L1_MENU, SEMANTIC_L1_SNAPSHOT } from './__evals__/semanticCases';
 import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES } from './contracts';
 import { RECEPTIONIST_TURN_PROMPT } from './receptionistTurn';
@@ -207,7 +208,88 @@ describe('customer assistant bounded turn', () => {
     expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).dialogue?.at(-1)?.content).toBe(response.result.message);
   });
 
-  it('projects near-cap binding authority for interpretation while preserving the full menu for resolution', async () => {
+  it.each(['fresh', 'full Unicode history'] as const)('sends the realistic opaque %s catalogue to one receptionist call without dropping authoritative bindings', async (kind) => {
+    mocks.menu.mockResolvedValue(REALISTIC_OPAQUE_MENU);
+    mocks.publicFacts.mockResolvedValue(REALISTIC_OPAQUE_PUBLIC_FACTS);
+    mocks.proposal.mockResolvedValue({
+      selection: REALISTIC_OPAQUE_SELECTION,
+      fingerprint: acceptedFingerprint,
+      service: { id: REALISTIC_OPAQUE_SELECTION.baseServiceId, name: 'Gel-X Extensions', priceCents: 9500 },
+      addOns: [
+        { id: REALISTIC_OPAQUE_SELECTION.selectedAddOns[0]!.addOnId, name: 'French Tips', quantity: 1, priceCents: 1700 },
+        { id: REALISTIC_OPAQUE_SELECTION.selectedAddOns[1]!.addOnId, name: 'Medium Length', quantity: 1, priceCents: 1900 },
+      ],
+      subtotalCents: 13_100,
+      durationMinutes: 100,
+      currency: 'CAD',
+      expiresAt: '2026-09-18T00:00:00Z',
+    });
+    const unicodeHistory = Array.from({ length: 7 }, (_, index) => [
+      { role: 'user' as const, content: `Customer preference ${index + 1}: ${'💅é '.repeat(120)}` },
+      { role: 'assistant' as const, content: `Receptionist acknowledgement ${index + 1}: ${'✨à '.repeat(120)}` },
+    ]).flat();
+    const conversation = kind === 'fresh'
+      ? input().conversation
+      : signCustomerConversation({
+        ...createCustomerConversation('salon-a', secret),
+        dialogue: unicodeHistory,
+        facts: { ...emptyFacts(), treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', removal: 'no', length: 'medium', french: 'yes' },
+        requestedSelection: REALISTIC_OPAQUE_SELECTION,
+        context: { question: null, options: [], selection: REALISTIC_OPAQUE_SELECTION },
+        booking: { acceptedFingerprint: null, datePreference: null, offeredSlots: [], selectedSlot: null },
+      }, secret);
+    const model = provider({
+      ...interpretation,
+      serviceId: REALISTIC_OPAQUE_SELECTION.baseServiceId,
+      addOns: REALISTIC_OPAQUE_SELECTION.selectedAddOns,
+      selectionChangeExplicitThisTurn: true,
+      factUpdates: { ...noFactUpdates, treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', removal: 'no', length: 'medium', french: 'yes' },
+    });
+
+    const response = await runCustomerAssistantTurn({ ...input(), conversation, message: 'Please keep the medium length and French finish.' }, model);
+    const call = model.createResponse.mock.calls[0]![0];
+    const payload = JSON.parse(call.input[1].content);
+    const bindingProjection = payload.menu.bindings as {
+      serviceIds: string[];
+      addOnIds: string[];
+      columns: string[];
+      rows: Array<[number, number, boolean, number, number]>;
+    };
+    const reconstructedBindings = bindingProjection.rows.map(row => ({
+      serviceId: bindingProjection.serviceIds[row[0]],
+      addOnId: bindingProjection.addOnIds[row[1]],
+      required: row[2],
+      defaultQuantity: row[3],
+      maxQuantity: row[4],
+    }));
+    const oldProjectionPayload = {
+      ...payload,
+      menu: {
+        ...payload.menu,
+        bindings: {
+          columns: ['serviceId', 'addOnId', 'required', 'defaultQuantity', 'maxQuantity'],
+          rows: REALISTIC_OPAQUE_MENU.bindings.map(binding => [binding.serviceId, binding.addOnId, binding.required, binding.defaultQuantity, binding.maxQuantity]),
+        },
+      },
+    };
+    const combinedBytes = (data: unknown) => Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(data) + call.input.at(-1)!.content, 'utf8');
+
+    expect(model.createResponse).toHaveBeenCalledTimes(1);
+    expect(combinedBytes(payload)).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
+    expect(combinedBytes(oldProjectionPayload)).toBeGreaterThan(40_000);
+    expect(bindingProjection.columns).toEqual(['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity']);
+    expect(reconstructedBindings).toEqual(REALISTIC_OPAQUE_MENU.bindings);
+    expect(response.result).toMatchObject({ kind: 'proposal', proposal: { selection: REALISTIC_OPAQUE_SELECTION } });
+    expect(mocks.proposal).toHaveBeenCalledWith('salon-a', null, REALISTIC_OPAQUE_SELECTION);
+
+    if (kind === 'full Unicode history') {
+      expect(payload.dialogue).toHaveLength(unicodeHistory.length);
+      expect(payload.dialogue.slice(-2)).toEqual(unicodeHistory.slice(-2));
+      expect(Buffer.byteLength(JSON.stringify(verifyCustomerConversation(conversation, 'salon-a', secret)), 'utf8')).toBeGreaterThan(12_000);
+    }
+  });
+
+  it('projects binding authority below the current cap while retaining the prior 40 KB overflow proof', async () => {
     const services = Array.from({ length: 8 }, (_, index) => ({
       id: index === 0 ? 'gelx' : `s${index}${'s'.repeat(10)}`,
       name: index === 0 ? 'Gel-X' : `S${index}`,
@@ -264,12 +346,16 @@ describe('customer assistant bounded turn', () => {
     const fullBindingPayload = { ...payload, menu };
 
     expect(model.createResponse).toHaveBeenCalledTimes(1);
-    expect(Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(fullBindingPayload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeGreaterThan(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
+    expect(Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(fullBindingPayload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeGreaterThan(40_000);
     expect(Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(payload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
-    expect(payload.menu.bindings).toEqual({
-      columns: ['serviceId', 'addOnId', 'required', 'defaultQuantity', 'maxQuantity'],
-      rows: bindings.map(binding => [binding.serviceId, binding.addOnId, binding.required, binding.defaultQuantity, binding.maxQuantity]),
-    });
+    expect(payload.menu.bindings.columns).toEqual(['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity']);
+    expect(payload.menu.bindings.rows.map((row: [number, number, boolean, number, number]) => ({
+      serviceId: payload.menu.bindings.serviceIds[row[0]],
+      addOnId: payload.menu.bindings.addOnIds[row[1]],
+      required: row[2],
+      defaultQuantity: row[3],
+      maxQuantity: row[4],
+    }))).toEqual(bindings);
     expect(payload.bookingState.offeredSlots).toHaveLength(8);
     expect(response.result).toEqual({ kind: 'clarification', question: 'finish', options: [target.name] });
     expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).context?.selection).toEqual(selection);
