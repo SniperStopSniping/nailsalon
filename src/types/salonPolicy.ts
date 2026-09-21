@@ -483,6 +483,7 @@ export type SalonSettings = {
     deposit?: {
       enabled?: boolean;
       amountCents?: number; // integer cents
+      noShowProtection?: 'warn_only' | 'deposit_1' | 'deposit_2';
     };
   };
 

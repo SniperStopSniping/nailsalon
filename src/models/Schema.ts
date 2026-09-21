@@ -5333,3 +5333,97 @@ export const reviewRequestSchema = pgTable('review_request', {
   salonRecipientCreated: index('review_request_salon_recipient_created_idx').on(table.salonId, table.recipient, table.createdAt),
   completedOrTriggered: check('review_request_completed_or_triggered', sql`${table.completedAt} is not null or ${table.triggerId} is not null or (${table.source} = 'manual' and ${table.appointmentId} is null and ${table.completedAt} is null and ${table.triggerId} is null)`),
 }));
+
+// Network no-show protection is deliberately a narrow, platform-owned projection.
+// It never stores a source salon's private appointment content in the receiving
+// salon's read model. The only identifier used for V1 matching is an HMAC of the
+// exact normalized phone + email pair; raw contact details never enter these rows.
+export const networkNoShowPlatformControlSchema = pgTable('network_no_show_platform_control', {
+  id: integer('id').primaryKey().default(1),
+  enabledAt: timestamp('enabled_at', { mode: 'date', withTimezone: true }),
+  prospectiveAfter: timestamp('prospective_after', { mode: 'date', withTimezone: true }),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, table => ({
+  singleton: check('network_no_show_platform_control_singleton', sql`${table.id} = 1`),
+}));
+
+export const networkNoShowSubjectSchema = pgTable('network_no_show_subject', {
+  id: text('id').primaryKey(),
+  pairHmac: text('pair_hmac').notNull(),
+  resolverVersion: text('resolver_version').notNull().default('exact_contact_pair_v1'),
+  state: text('state').$type<'active' | 'unavailable' | 'suppressed' | 'erased'>().notNull().default('active'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, table => ({
+  pairResolverOnce: uniqueIndex('network_no_show_subject_pair_resolver_once').on(table.pairHmac, table.resolverVersion),
+  eligibleLookup: index('network_no_show_subject_eligible_lookup').on(table.pairHmac, table.state),
+  stateValid: check('network_no_show_subject_state_valid', sql`${table.state} IN ('active', 'unavailable', 'suppressed', 'erased')`),
+}));
+
+export const networkNoShowBookingBindingSchema = pgTable('network_no_show_booking_binding', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  appointmentId: text('appointment_id').notNull(),
+  subjectId: text('subject_id').references(() => networkNoShowSubjectSchema.id, { onDelete: 'restrict' }),
+  resolverVersion: text('resolver_version').notNull().default('exact_contact_pair_v1'),
+  state: text('state').$type<'eligible' | 'unavailable' | 'suppressed'>().notNull(),
+  bookingChannel: text('booking_channel').$type<'guest' | 'client'>().notNull(),
+  decisionSnapshot: jsonb('decision_snapshot').$type<{
+    protection: 'warn_only' | 'deposit_1' | 'deposit_2';
+    riskRequired: boolean;
+    policyVersion: 1;
+  }>(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull(),
+  invalidatedAt: timestamp('invalidated_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  appointmentOnce: uniqueIndex('network_no_show_booking_binding_appointment_once').on(table.salonId, table.appointmentId),
+  subjectActive: index('network_no_show_booking_binding_subject_active').on(table.subjectId, table.state, table.invalidatedAt),
+  appointmentFk: foreignKey({
+    columns: [table.salonId, table.appointmentId],
+    foreignColumns: [appointmentSchema.salonId, appointmentSchema.id],
+    name: 'network_no_show_booking_binding_appointment_fk',
+  }).onDelete('cascade'),
+  stateValid: check('network_no_show_booking_binding_state_valid', sql`${table.state} IN ('eligible', 'unavailable', 'suppressed')`),
+}));
+
+export const networkNoShowEventSchema = pgTable('network_no_show_event', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  appointmentId: text('appointment_id').notNull(),
+  subjectId: text('subject_id').notNull().references(() => networkNoShowSubjectSchema.id, { onDelete: 'restrict' }),
+  sourceRevision: integer('source_revision').notNull().default(1),
+  occurredAt: timestamp('occurred_at', { mode: 'date', withTimezone: true }).notNull(),
+  expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+  state: text('state').$type<'active' | 'revoked' | 'suppressed'>().notNull().default('active'),
+  markedBy: text('marked_by').notNull(),
+  markedByRole: text('marked_by_role').notNull(),
+  markedAt: timestamp('marked_at', { mode: 'date', withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
+  suppressionReason: text('suppression_reason'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, table => ({
+  sourceOnce: uniqueIndex('network_no_show_event_source_once').on(table.salonId, table.appointmentId),
+  activeSubjectExpiry: index('network_no_show_event_active_subject_expiry').on(table.subjectId, table.expiresAt).where(sql`${table.state} = 'active'`),
+  appointmentFk: foreignKey({
+    columns: [table.salonId, table.appointmentId],
+    foreignColumns: [appointmentSchema.salonId, appointmentSchema.id],
+    name: 'network_no_show_event_appointment_fk',
+  }).onDelete('cascade'),
+  expiryValid: check('network_no_show_event_expiry_valid', sql`${table.expiresAt} > ${table.occurredAt}`),
+  stateValid: check('network_no_show_event_state_valid', sql`${table.state} IN ('active', 'revoked', 'suppressed')`),
+}));
+
+export const networkNoShowAuditSchema = pgTable('network_no_show_audit', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').references(() => salonSchema.id, { onDelete: 'cascade' }),
+  eventId: text('event_id').references(() => networkNoShowEventSchema.id, { onDelete: 'cascade' }),
+  actorId: text('actor_id'),
+  actorRole: text('actor_role').notNull(),
+  action: text('action').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({
+  eventHistory: index('network_no_show_audit_event_history').on(table.eventId, table.createdAt),
+  salonReadHistory: index('network_no_show_audit_salon_history').on(table.salonId, table.createdAt),
+}));

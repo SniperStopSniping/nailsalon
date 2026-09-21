@@ -80,6 +80,7 @@ export async function getDepositPolicyForSalon(args: {
   salonId: string;
   salon?: SalonLike;
   collectionLive?: boolean;
+  networkRiskRequired?: boolean;
   entitled?: boolean;
 }): Promise<DepositPolicyForSalon> {
   try {
@@ -94,6 +95,7 @@ export async function getDepositPolicyForSalon(args: {
       features: (salon?.features as SalonFeatures | null | undefined) ?? null,
       expectedLivemode: EXPECTED_LIVEMODE,
       collectionLive: args.collectionLive,
+      networkRiskRequired: args.networkRiskRequired,
       entitled: args.entitled,
     };
 

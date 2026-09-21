@@ -64,9 +64,16 @@ type DepositPolicyPayload = {
   readinessAgeMs: number | null;
 };
 
+type NetworkNoShowPayload = {
+  active: boolean;
+  protection: 'warn_only' | 'deposit_1' | 'deposit_2';
+  canRequireDeposit: boolean;
+};
+
 function mockEndpoints(options: {
   payments?: PaymentsPayload;
   depositPolicy?: DepositPolicyPayload;
+  networkNoShow?: NetworkNoShowPayload;
 } = {}) {
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
@@ -128,6 +135,7 @@ function mockEndpoints(options: {
         merchandising: { featureLusterManicure: true },
         bookingNotifications: {},
         payments: options.payments ?? {},
+        networkNoShow: options.networkNoShow,
         depositPolicy: options.depositPolicy ?? {
           collectionLive: false,
           entitled: false,
@@ -407,6 +415,40 @@ describe('SettingsModal Deposits card', () => {
 
     expect(screen.getByTestId('deposits-status'))
       .toHaveTextContent('Deposits are not collected on Luster yet. Nothing here charges a client.');
+  });
+
+  it('shows no no-show protection controls while the platform feature is dark', async () => {
+    await openDeposits({ payments: { deposit: { amountCents: 2500 } } });
+
+    expect(screen.queryByTestId('no-show-protection')).not.toBeInTheDocument();
+  });
+
+  it('keeps the warning automatic and saves only the selected deposit consequence', async () => {
+    await openDeposits({
+      payments: { deposit: { enabled: false, amountCents: 2500 } },
+      depositPolicy: {
+        collectionLive: true,
+        entitled: true,
+        active: false,
+        reason: 'disabled',
+        readinessStale: false,
+        readinessAgeMs: null,
+      },
+      networkNoShow: { active: true, protection: 'warn_only', canRequireDeposit: true },
+    });
+
+    expect(screen.getByTestId('no-show-protection')).toHaveTextContent('Recorded no-shows on Luster in the last 12 months are always shown');
+    expect(screen.getByTestId('no-show-protection')).toHaveTextContent('Warn only');
+    expect(screen.getByTestId('no-show-protection')).toHaveTextContent('Adds no risk-based deposit requirement. Your normal deposit rules still apply.');
+    expect(screen.getByTestId('no-show-protection')).not.toHaveTextContent('Warn me only');
+    expect(screen.getByTestId('no-show-protection-warn_only')).toBeChecked();
+
+    fireEvent.click(screen.getByTestId('no-show-protection-deposit_1'));
+    fireEvent.click(screen.getByTestId('deposits-save'));
+
+    await waitFor(() => expect(lastPatchBody()).toEqual({
+      payments: { deposit: { noShowProtection: 'deposit_1' } },
+    }));
   });
 
   it('renders the entitlement gate once collection is live', async () => {

@@ -170,3 +170,24 @@ describe('normal booking coordinator', () => {
     expect(JSON.parse(create[0]![1]!.body as string).capability).toBe(operation.capability);
   });
 });
+
+describe('contact-dependent deposit review', () => {
+  it.each([
+    { required: true, amountCents: 2500, currency: 'CAD', fingerprint: 'deposit-v1:cad:2500' },
+    { required: false, fingerprint: 'deposit-v1:none' },
+  ])('requires another user action after changed deposit terms: %j', async (deposit) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 409, json: async () => ({ reason: 'deposit_changed', deposit, confirmationMode: 'instant' }) }));
+
+    await expect(confirmNormalHandoffBooking(args)).rejects.toMatchObject({ reason: 'deposit_changed', depositUpdate: { deposit, confirmationMode: 'instant' } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toContain('/prepare');
+    expect(localStorage.getItem(key)).toBeNull();
+  });
+
+  it('rejects inconsistent money disclosure rather than adopting it', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 409, json: async () => ({ reason: 'deposit_changed', deposit: { required: true, amountCents: 2500, currency: 'CAD', fingerprint: 'deposit-v1:cad:5000' }, confirmationMode: 'instant' }) }));
+
+    await expect(confirmNormalHandoffBooking(args)).rejects.toMatchObject({ reason: 'review_unavailable' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});

@@ -46,6 +46,8 @@ import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
 import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import { getSalonSmsReadiness } from '@/libs/integrationHealth';
 import { getDefaultLoyaltyPoints, resolveSalonLoyaltyPoints } from '@/libs/loyalty';
+import { readNoShowProtection } from '@/libs/networkNoShow';
+import { isNetworkNoShowPlatformActive } from '@/libs/networkNoShow.server';
 import { getSalonBySlug } from '@/libs/queries';
 import { checkEndpointRateLimit, rateLimitResponse } from '@/libs/rateLimit';
 import {
@@ -272,6 +274,10 @@ export async function GET(request: Request): Promise<Response> {
       collectionLive: true,
       entitled: true,
     });
+    const networkActive = await isNetworkNoShowPlatformActive();
+    const networkCanCollect = networkActive
+      ? await getDepositPolicyForSalon({ salonId: salon.id, salon, networkRiskRequired: true })
+      : null;
     const depositCollectionLive = DEPOSIT_COLLECTION_LIVE;
     const depositEntitled = resolveDepositEntitlement(
       salon.features as SalonFeatures | null | undefined,
@@ -290,6 +296,7 @@ export async function GET(request: Request): Promise<Response> {
       reviewsEnabled: salon.reviewsEnabled ?? true,
       rewardsEnabled: salon.rewardsEnabled ?? true,
       bookingConfig,
+      networkNoShow: { active: networkActive, protection: readNoShowProtection(salon.settings as SalonSettings), canRequireDeposit: networkCanCollect?.active === true },
       depositPolicy: {
         collectionLive: depositCollectionLive,
         entitled: depositEntitled,
@@ -701,6 +708,10 @@ export async function PATCH(request: Request): Promise<Response> {
     const currentPayments = readStoredPaymentsSettings(currentSettings);
     const storedDeposit = readStoredDepositSettings(currentSettings);
     const depositRequested = updates.payments?.deposit !== undefined;
+    const requestedProtection = updates.payments?.deposit?.noShowProtection;
+    if (requestedProtection !== undefined && !await isNetworkNoShowPlatformActive()) {
+      return Response.json({ error: 'NETWORK_NO_SHOW_INACTIVE' }, { status: 409 });
+    }
     let mergedPayments: ReturnType<typeof mergePaymentsSettings> | null = null;
     if (updates.payments) {
       mergedPayments = mergePaymentsSettings(currentPayments, updates.payments);
@@ -842,7 +853,7 @@ export async function PATCH(request: Request): Promise<Response> {
     if (
       updates.bookingConfig?.currency !== undefined
       && !depositCurrencyOk
-      && storedDeposit.enabled === true
+      && (storedDeposit.enabled === true || readNoShowProtection(currentSettings) !== 'warn_only')
     ) {
       return depositCurrencyUnsupportedResponse();
     }
@@ -853,9 +864,15 @@ export async function PATCH(request: Request): Promise<Response> {
     const depositEnableTransition = depositRequested
       && mergedPayments?.deposit?.enabled === true
       && storedDeposit.enabled !== true;
+    const protectionEnableTransition = requestedProtection !== undefined
+      && requestedProtection !== 'warn_only'
+      && requestedProtection !== readNoShowProtection(currentSettings);
     let depositGateFired = false;
 
-    if (depositEnableTransition) {
+    if (depositEnableTransition || protectionEnableTransition) {
+      if (protectionEnableTransition && (!DEPOSIT_COLLECTION_LIVE || !resolveDepositEntitlement(salon.features as SalonFeatures))) {
+        return Response.json({ error: 'DEPOSITS_NOT_AVAILABLE' }, { status: 409 });
+      }
       if (typeof mergedPayments?.deposit?.amountCents !== 'number') {
         return Response.json(
           {
@@ -1166,6 +1183,10 @@ export async function PATCH(request: Request): Promise<Response> {
             settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments,deposit,enabled}', ${depositEnabledValue})`;
           }
 
+          if (requestedProtection !== undefined) {
+            settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments,deposit,noShowProtection}', ${JSON.stringify(requestedProtection)}::jsonb)`;
+          }
+
           const mergedDepositAmount = mergedPayments?.deposit?.amountCents;
           if (
             updates.payments.deposit.amountCents !== undefined
@@ -1281,18 +1302,19 @@ export async function PATCH(request: Request): Promise<Response> {
     const [updatedSalon] = await db
       .update(salonSchema)
       .set(dbUpdates)
-      .where(depositCasComparand
-        ? and(
-          eq(salonSchema.id, salon.id),
-          sql`(${salonSchema.settings} #> '{payments,deposit,enabled}') IS NOT DISTINCT FROM ${depositCasComparand}`,
-        )
-        : eq(salonSchema.id, salon.id))
+      .where(and(
+        eq(salonSchema.id, salon.id),
+        ...(depositCasComparand ? [sql`(${salonSchema.settings} #> '{payments,deposit,enabled}') IS NOT DISTINCT FROM ${depositCasComparand}`] : []),
+        // Every consequence save is compare-and-set, including stale no-op saves.
+        // It must not restore enforcement after another tab selected Warn only.
+        ...(requestedProtection !== undefined ? [sql`(${salonSchema.settings} #> '{payments,deposit}') IS NOT DISTINCT FROM ${currentSettings.payments?.deposit === undefined ? sql`null::jsonb` : sql`${JSON.stringify(currentSettings.payments.deposit)}::jsonb`}`] : []),
+      ))
       .returning();
 
     // Zero rows means "salon deleted" on every other PATCH shape, but on the
     // gated enable edge it also means "the stored value moved under us".
     if (!updatedSalon) {
-      if (depositCasComparand) {
+      if (depositCasComparand || requestedProtection !== undefined) {
         const [existing] = await db
           .select({ id: salonSchema.id })
           .from(salonSchema)
@@ -1398,6 +1420,7 @@ export async function PATCH(request: Request): Promise<Response> {
       rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
       bookingConfig,
       ...(depositCopyWarning ? { depositCopyWarning } : {}),
+      networkNoShow: { active: await isNetworkNoShowPlatformActive(), protection: readNoShowProtection(updatedSalon.settings as SalonSettings), canRequireDeposit: process.env.NETWORK_NO_SHOW_ENABLED === 'true' && (await getDepositPolicyForSalon({ salonId: updatedSalon.id, salon: updatedSalon, networkRiskRequired: true })).active },
       bookingExperience: resolveBookingExperience(
         (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
         { includeAcknowledgmentConfiguration: true },

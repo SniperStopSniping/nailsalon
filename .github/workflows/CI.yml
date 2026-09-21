@@ -449,6 +449,8 @@ jobs:
               # Reviewed intraday calendar blocks and per-technician write guard.
               migrations/0085_calendar_intraday_blocks.sql) ;;
               migrations/0086_next_visit_offer.sql) ;;
+              migrations/0087_network_no_show_protection.sql) ;;
+              migrations/0088_network_no_show_platform_control.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -456,6 +458,8 @@ jobs:
               migrations/meta/0084_snapshot.json) ;;
               migrations/meta/0085_snapshot.json) ;;
               migrations/meta/0086_snapshot.json) ;;
+              migrations/meta/0087_snapshot.json) ;;
+              migrations/meta/0088_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -592,6 +596,78 @@ jobs:
             exit 1
           fi
 
+          # 0087 is a reviewed two-artifact migration packet. It may be
+          # introduced once, with these exact SQL and snapshot postimages; once
+          # main contains either artifact, both are immutable.
+          if ! git diff --quiet "$base" -- migrations/0087_network_no_show_protection.sql migrations/meta/0087_snapshot.json; then
+            if git cat-file -e "$base:migrations/0087_network_no_show_protection.sql" 2>/dev/null \
+              || git cat-file -e "$base:migrations/meta/0087_snapshot.json" 2>/dev/null; then
+              echo "::error::Migration 0087 and its snapshot are already shipped and immutable."
+              exit 1
+            fi
+            migration_0087_sql_status="$(git diff --name-status "$base" -- migrations/0087_network_no_show_protection.sql)"
+            migration_0087_snapshot_status="$(git diff --name-status "$base" -- migrations/meta/0087_snapshot.json)"
+            if [ "$migration_0087_sql_status" != $'A\tmigrations/0087_network_no_show_protection.sql' ] \
+              || [ "$migration_0087_snapshot_status" != $'A\tmigrations/meta/0087_snapshot.json' ]; then
+              echo "::error::Migration 0087 must introduce exactly one SQL file and one snapshot."
+              printf 'SQL status: %s\nSnapshot status: %s\n' "$migration_0087_sql_status" "$migration_0087_snapshot_status"
+              exit 1
+            fi
+            migration_0087_sql_sha256="$(sha256sum migrations/0087_network_no_show_protection.sql | awk '{print $1}')"
+            migration_0087_snapshot_sha256="$(sha256sum migrations/meta/0087_snapshot.json | awk '{print $1}')"
+            if [ "$migration_0087_sql_sha256" != "ea9b3a9b6eba8b829c5c7bc852cd7fb9e13304a17f5f9960844875a2ad281e13" ] \
+              || [ "$migration_0087_snapshot_sha256" != "f2f5fb2f822e9c29d538bceb77dcfebf17170932b0ca637f2f3d564ec706070c" ]; then
+              echo "::error::Migration 0087 artifacts do not match the reviewed network no-show protection postimage."
+              printf 'SQL SHA256: %s\nSnapshot SHA256: %s\n' "$migration_0087_sql_sha256" "$migration_0087_snapshot_sha256"
+              exit 1
+            fi
+          fi
+
+          # Check even on journal-only changes: missing or duplicate 0087 entries
+          # must never pass the general append-only tag allowlist.
+          expected_0087_journal='{"breakpoints":true,"idx":86,"tag":"0087_network_no_show_protection","version":"7","when":1789968369077}'
+          actual_0087_journal="$(jq -cS '.entries[] | select(.tag == "0087_network_no_show_protection")' migrations/meta/_journal.json)"
+          if [ "$actual_0087_journal" != "$expected_0087_journal" ]; then
+            echo "::error::Migration 0087 journal entry does not match the reviewed postimage."
+            exit 1
+          fi
+
+          # 0088 is a reviewed two-artifact migration packet. It may be
+          # introduced once, with these exact SQL and snapshot postimages; once
+          # main contains either artifact, both are immutable.
+          if ! git diff --quiet "$base" -- migrations/0088_network_no_show_platform_control.sql migrations/meta/0088_snapshot.json; then
+            if git cat-file -e "$base:migrations/0088_network_no_show_platform_control.sql" 2>/dev/null \
+              || git cat-file -e "$base:migrations/meta/0088_snapshot.json" 2>/dev/null; then
+              echo "::error::Migration 0088 and its snapshot are already shipped and immutable."
+              exit 1
+            fi
+            migration_0088_sql_status="$(git diff --name-status "$base" -- migrations/0088_network_no_show_platform_control.sql)"
+            migration_0088_snapshot_status="$(git diff --name-status "$base" -- migrations/meta/0088_snapshot.json)"
+            if [ "$migration_0088_sql_status" != $'A\tmigrations/0088_network_no_show_platform_control.sql' ] \
+              || [ "$migration_0088_snapshot_status" != $'A\tmigrations/meta/0088_snapshot.json' ]; then
+              echo "::error::Migration 0088 must introduce exactly one SQL file and one snapshot."
+              printf 'SQL status: %s\nSnapshot status: %s\n' "$migration_0088_sql_status" "$migration_0088_snapshot_status"
+              exit 1
+            fi
+            migration_0088_sql_sha256="$(sha256sum migrations/0088_network_no_show_platform_control.sql | awk '{print $1}')"
+            migration_0088_snapshot_sha256="$(sha256sum migrations/meta/0088_snapshot.json | awk '{print $1}')"
+            if [ "$migration_0088_sql_sha256" != "31f603540465fa4fa48b6a5aa925fea143b7f037ca6f0bda5031d9a5327d1f74" ] \
+              || [ "$migration_0088_snapshot_sha256" != "7e50bd50f27afa6607d1820a69ae59b923acd15355c99000e057d6f371c1e576" ]; then
+              echo "::error::Migration 0088 artifacts do not match the reviewed network no-show platform control postimage."
+              printf 'SQL SHA256: %s\nSnapshot SHA256: %s\n' "$migration_0088_sql_sha256" "$migration_0088_snapshot_sha256"
+              exit 1
+            fi
+          fi
+
+          # Check even on journal-only changes: missing or duplicate 0088 entries
+          # must never pass the general append-only tag allowlist.
+          expected_0088_journal='{"breakpoints":true,"idx":87,"tag":"0088_network_no_show_platform_control","version":"7","when":1790000634652}'
+          actual_0088_journal="$(jq -cS '.entries[] | select(.tag == "0088_network_no_show_platform_control")' migrations/meta/_journal.json)"
+          if [ "$actual_0088_journal" != "$expected_0088_journal" ]; then
+            echo "::error::Migration 0088 journal entry does not match the reviewed postimage."
+            exit 1
+          fi
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -646,6 +722,8 @@ jobs:
               0084_review_request_repeat_cooldown) ;;
               0085_calendar_intraday_blocks) ;;
               0086_next_visit_offer) ;;
+              0087_network_no_show_protection) ;;
+              0088_network_no_show_platform_control) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -755,7 +833,7 @@ jobs:
         env:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
-        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
+        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts
 
       - name: Verify authoritative L1 public booking in mobile Chromium and WebKit
         env:
@@ -774,9 +852,9 @@ jobs:
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
         run: |
           if [ -n "$PERCY_TOKEN" ]; then
-            npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
+            npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts
           else
-            npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
+            npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts
           fi
 
       - uses: actions/upload-artifact@v4
@@ -1666,3 +1744,42 @@ jobs:
       # handled outside this narrowly scoped database-isolation PR.
       - name: Confirm PR localization sync exclusion
         run: echo "Crowdin synchronization is intentionally excluded from PR-head execution."
+
+  network-no-show-postgres:
+    name: Network no-show PostgreSQL isolation
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: network_no_show_disposable
+          POSTGRES_USER: network_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - '127.0.0.1:55439:5432'
+        options: >-
+          --health-cmd "pg_isready -U network_test -d network_no_show_disposable"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://network_test@127.0.0.1:55439/network_no_show_disposable
+      NETWORK_NO_SHOW_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: npm ci
+      - name: Prove concurrent correction and erasure isolation
+        run: |
+          set -o pipefail
+          npx vitest run src/libs/networkNoShow.concurrency.integration.test.ts --no-file-parallelism 2>&1 | tee network-no-show-postgres.log
+          grep -Eq 'NETWORK_NO_SHOW_POSTGRES_TESTS_EXECUTED=[1-9][0-9]* NETWORK_NO_SHOW_POSTGRES_TESTS_SKIPPED=0' network-no-show-postgres.log

@@ -61,7 +61,7 @@ const publicRecoveryMock = vi.hoisted(() => ({
 }));
 const normalBookingMock = vi.hoisted(() => {
   class MockNormalBookingRecoveryError extends Error {
-    constructor(readonly reason: string) {
+    constructor(readonly reason: string, readonly depositUpdate?: unknown) {
       super(reason);
     }
   }
@@ -728,6 +728,122 @@ describe('BookConfirmClient', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent('normal booking: handoff_missing');
       expect(normalBookingMock.confirm).toHaveBeenCalledTimes(1);
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('adopts a changed required deposit, then waits for a second explicit confirmation', async () => {
+      normalBookingMock.confirm
+        .mockRejectedValueOnce(new normalBookingMock.NormalBookingRecoveryError('deposit_changed', {
+          deposit: {
+            required: true,
+            amountCents: 2500,
+            currency: 'CAD',
+            fingerprint: 'deposit-v1:cad:2500',
+          },
+          confirmationMode: 'request_approval',
+        }))
+        .mockResolvedValueOnce(confirmedHandoff);
+
+      renderBasicConfirm({ salonId: 'salon-id', baseServiceId: 'srv_1', selectedAddOns: [] });
+      await waitFor(() => expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled());
+
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('The deposit required for this booking changed. Please review it and confirm again.');
+      expect(screen.getByTestId('booking-deposit-disclosure')).toHaveTextContent('$25.00');
+      expect(screen.getByRole('button', { name: /request this time/i })).toBeEnabled();
+      expect(normalBookingMock.confirm).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole('button', { name: /request this time/i }));
+
+      await waitFor(() => expect(normalBookingMock.confirm).toHaveBeenCalledTimes(2));
+
+      expect(normalBookingMock.confirm.mock.calls[1]?.[0]).toMatchObject({
+        booking: {
+          expectedDepositFingerprint: 'deposit-v1:cad:2500',
+        },
+        displayed: { confirmationMode: 'request_approval' },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('adopts a changed no-deposit result and still requires a second explicit confirmation', async () => {
+      normalBookingMock.confirm
+        .mockRejectedValueOnce(new normalBookingMock.NormalBookingRecoveryError('deposit_changed', {
+          deposit: {
+            required: false,
+            fingerprint: 'deposit-v1:none',
+          },
+          confirmationMode: 'instant',
+        }))
+        .mockResolvedValueOnce(confirmedHandoff);
+
+      renderBasicConfirm({
+        salonId: 'salon-id',
+        baseServiceId: 'srv_1',
+        selectedAddOns: [],
+        depositDisclosure: {
+          label: '$25.00 deposit required to book — applied to your service total.',
+          amountCents: 2500,
+        },
+        depositFingerprint: 'deposit-v1:cad:2500',
+      });
+      await waitFor(() => expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled());
+
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('The deposit required for this booking changed. Please review it and confirm again.');
+      expect(screen.queryByTestId('booking-deposit-disclosure')).not.toBeInTheDocument();
+      expect(normalBookingMock.confirm).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      await waitFor(() => expect(normalBookingMock.confirm).toHaveBeenCalledTimes(2));
+
+      expect(normalBookingMock.confirm.mock.calls[1]?.[0]).toMatchObject({
+        booking: {
+          expectedDepositFingerprint: 'deposit-v1:none',
+        },
+        displayed: { confirmationMode: 'instant' },
+      });
+    });
+
+    it('refreshes the confirmation mode when the upstream salon setting changes', async () => {
+      const view = renderBasicConfirm({
+        salonId: 'salon-id',
+        baseServiceId: 'srv_1',
+        selectedAddOns: [],
+        salonConfirmsManually: false,
+      });
+      await waitFor(() => expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled());
+
+      view.rerender(
+        <BookConfirmClient
+          services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+          subtotalBeforeDiscount={65}
+          discountAmount={0}
+          totalPrice={65}
+          totalDuration={75}
+          technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+          salonSlug="salon-a"
+          salonId="salon-id"
+          dateStr="2026-03-20"
+          timeStr="10:00"
+          bookingFlow={[]}
+          location={null}
+          baseServiceId="srv_1"
+          selectedAddOns={[]}
+          salonConfirmsManually
+        />,
+      );
+
+      const requestButton = await screen.findByRole('button', { name: /request this time/i });
+      fireEvent.click(requestButton);
+
+      await waitFor(() => expect(normalBookingMock.confirm).toHaveBeenCalledTimes(1));
+
+      expect(normalBookingMock.confirm.mock.calls[0]?.[0]).toMatchObject({
+        displayed: { confirmationMode: 'request_approval' },
+      });
     });
 
     it('starts another booking only after confirmed recovery and clears this tenant flow', async () => {

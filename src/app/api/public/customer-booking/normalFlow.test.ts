@@ -228,3 +228,34 @@ describe('normal booking prepare route', () => {
     expect(mocks.status).not.toHaveBeenCalled();
   });
 });
+
+describe('deposit term changes do not create a booking operation', () => {
+  it('returns only revised payment terms and accepts the reviewed second attempt', async () => {
+    seed();
+    const updated = {
+      ...material,
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+      review: { ...material.review, deposit: { status: 'required', amountCents: 2500, currency: 'CAD', label: 'Deposit required' } },
+    };
+    mocks.quote.mockResolvedValue(updated);
+    const first = await POST(request({ flowToken, expectedRevision: 0, booking, displayed }), context());
+
+    expect(first.status).toBe(409);
+    expect(await first.json()).toEqual({ reason: 'deposit_changed', deposit: { required: true, amountCents: 2500, currency: 'CAD', fingerprint: 'deposit-v1:cad:2500' }, confirmationMode: 'instant' });
+    expect(mocks.prepare).not.toHaveBeenCalled();
+
+    const second = await POST(request({ flowToken, expectedRevision: 0, booking: { ...booking, expectedDepositFingerprint: 'deposit-v1:cad:2500' }, displayed }), context());
+
+    expect(second.status).toBe(200);
+    expect(mocks.prepare).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not allow revised deposit terms to bypass unrelated price review', async () => {
+    seed();
+    mocks.quote.mockResolvedValue({ ...material, expectedDepositFingerprint: 'deposit-v1:cad:2500' });
+    const result = await POST(request({ flowToken, expectedRevision: 0, booking, displayed: { ...displayed, totalCents: 1 } }), context());
+
+    expect(await result.json()).toEqual({ reason: 'review_changed' });
+    expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+});

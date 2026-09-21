@@ -334,7 +334,9 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(86);
+    expect(journal.entries).toHaveLength(88);
+    expect(journal.entries[86]).toMatchObject({ idx: 86, tag: '0087_network_no_show_protection' });
+    expect(journal.entries[87]).toMatchObject({ idx: 87, tag: '0088_network_no_show_platform_control' });
     // The Stripe prerequisite keeps its own identity assertion as the tail
     // grows: 0078 appends, it does not displace what 0076 pinned.
     expect(journal.entries[76]).toMatchObject({
@@ -368,7 +370,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     [76, '0075'],
     [77, 'Stripe 0076'],
     [78, 'Review 0077'],
-  ])('upgrades a %s ledger through review requests, intraday blocks and Next Visit Offers through 0086', async (existingCount) => {
+  ])('upgrades a %s ledger through review requests, intraday blocks and network platform control through 0088', async (existingCount) => {
     const upgradeClient = new PGlite();
     const upgradeDb = drizzle(upgradeClient);
     const migrationsFolder = path.join(process.cwd(), 'migrations');
@@ -386,7 +388,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
         'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',
       );
 
-      expect(rows.rows).toHaveLength(86);
+      expect(rows.rows).toHaveLength(88);
       expect(Number(rows.rows[76]?.created_at)).toBe(1787476392670);
       expect(Number(rows.rows[77]?.created_at)).toBe(1787562792670);
       expect(Number(rows.rows[78]?.created_at)).toBe(1787649192670);
@@ -394,6 +396,8 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       expect(Number(rows.rows[83]?.created_at)).toBe(1789816376999);
       expect(Number(rows.rows[84]?.created_at)).toBe(1789847765426);
       expect(Number(rows.rows[85]?.created_at)).toBe(1789907905597);
+      expect(Number(rows.rows[86]?.created_at)).toBe(migrations[86]?.folderMillis);
+      expect(Number(rows.rows[87]?.created_at)).toBe(migrations[87]?.folderMillis);
     } finally {
       await upgradeClient.close();
     }

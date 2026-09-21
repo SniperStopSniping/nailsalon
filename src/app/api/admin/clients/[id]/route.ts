@@ -33,6 +33,7 @@ import {
   setClientContactEditTransactionTimeoutsWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
+import { getClientProfileBookingRisk } from '@/libs/clientProfileBookingRisk.server';
 import { getClientProfileNextVisitOffer } from '@/libs/clientProfileOffer.server';
 import { db } from '@/libs/DB';
 import type { DepositCreditRow } from '@/libs/depositCredit';
@@ -523,6 +524,7 @@ export async function GET(
 
     const now = new Date();
     const nextVisitOfferRead = getClientProfileNextVisitOffer(db, salon.id, client.id, now);
+    const bookingRiskRead = getClientProfileBookingRisk({ salonId: salon.id, clientId: client.id, phone: client.phone, email: client.email, settings: salon.settings as import('@/types/salonPolicy').SalonSettings | null });
 
     // Get current work and future bookings, preserving their actual statuses.
     const upcomingAppointments = await db
@@ -1197,6 +1199,7 @@ export async function GET(
         },
         summary: {
           nextVisitOffer,
+          bookingRisk: await bookingRiskRead,
           currency: bookingConfig.currency,
           timeZone: bookingConfig.timezone,
           lifetimeSpendCents:

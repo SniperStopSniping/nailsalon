@@ -603,6 +603,20 @@
       "when": 1789907905597,
       "tag": "0086_next_visit_offer",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1789968369077,
+      "tag": "0087_network_no_show_protection",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1790000634652,
+      "tag": "0088_network_no_show_platform_control",
+      "breakpoints": true
     }
   ]
 }

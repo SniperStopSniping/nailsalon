@@ -1868,6 +1868,18 @@ type DepositPolicyStatus = {
   readinessAgeMs: number | null;
 };
 
+type NoShowProtection = 'warn_only' | 'deposit_1' | 'deposit_2';
+
+type NetworkNoShowSettings = {
+  active: boolean;
+  protection: NoShowProtection;
+  canRequireDeposit: boolean;
+};
+
+function noShowProtection(value: unknown): NoShowProtection {
+  return value === 'deposit_1' || value === 'deposit_2' ? value : 'warn_only';
+}
+
 /**
  * The diagnostic reason in plain language. `collection_not_live` and
  * `not_entitled` are deliberately absent: by construction the diagnostic reason
@@ -2088,6 +2100,8 @@ export function SettingsModal({
   const [depositError, setDepositError] = useState<string | null>(null);
   const [depositCopyWarning, setDepositCopyWarning] = useState<string | null>(null);
   const [depositPolicy, setDepositPolicy] = useState<DepositPolicyStatus | null>(null);
+  const [networkNoShow, setNetworkNoShow] = useState<NetworkNoShowSettings | null>(null);
+  const [noShowProtectionDirty, setNoShowProtectionDirty] = useState(false);
 
   // Booking flow state
   const [bookingFlowEnabled, setBookingFlowEnabled] = useState(false);
@@ -2549,6 +2563,14 @@ export function SettingsModal({
         setDepositEnabledDirty(false);
         setDepositAmountDirty(false);
         setDepositPolicy(data.depositPolicy ?? null);
+        setNetworkNoShow(data.networkNoShow?.active === true
+          ? {
+              active: true,
+              protection: noShowProtection(data.networkNoShow.protection),
+              canRequireDeposit: data.networkNoShow.canRequireDeposit === true,
+            }
+          : null);
+        setNoShowProtectionDirty(false);
       } else {
         setBookingExperienceHydrated(false);
         const body = await response.json().catch(() => null);
@@ -2773,6 +2795,10 @@ export function SettingsModal({
   const depositAmountExceedsRecommended
     = depositAmountCentsPreview !== null
     && depositAmountCentsPreview > DEPOSIT_RECOMMENDED_MAX_CENTS;
+  const hasConfiguredDepositAmount = depositAmountCentsPreview !== null
+    && depositAmountCentsPreview > 0;
+  const canRequireNoShowDeposit = hasConfiguredDepositAmount
+    && networkNoShow?.canRequireDeposit === true;
 
   /**
    * Its OWN save action: the payments handler above sends tax and e-Transfer
@@ -2783,7 +2809,11 @@ export function SettingsModal({
       return;
     }
 
-    const deposit: { enabled?: boolean; amountCents?: number } = {};
+    const deposit: {
+      enabled?: boolean;
+      amountCents?: number;
+      noShowProtection?: NoShowProtection;
+    } = {};
     if (depositEnabledDirty) {
       deposit.enabled = depositEnabled;
     }
@@ -2794,6 +2824,9 @@ export function SettingsModal({
         return;
       }
       deposit.amountCents = cents;
+    }
+    if (noShowProtectionDirty && networkNoShow) {
+      deposit.noShowProtection = networkNoShow.protection;
     }
 
     try {
@@ -2834,6 +2867,19 @@ export function SettingsModal({
       }
       setDepositEnabledDirty(false);
       setDepositAmountDirty(false);
+      if (networkNoShow) {
+        setNetworkNoShow({
+          active: true,
+          protection: noShowProtection(
+            body?.payments?.deposit?.noShowProtection
+            ?? body?.networkNoShow?.protection
+            ?? networkNoShow.protection,
+          ),
+          canRequireDeposit: body?.networkNoShow?.canRequireDeposit
+            ?? networkNoShow.canRequireDeposit,
+        });
+      }
+      setNoShowProtectionDirty(false);
       setDepositSaved(true);
       router.refresh();
     } catch (error) {
@@ -2848,6 +2894,8 @@ export function SettingsModal({
     depositEnabled,
     depositEnabledDirty,
     depositSaving,
+    networkNoShow,
+    noShowProtectionDirty,
     router,
     salonSlug,
   ]);
@@ -4884,6 +4932,62 @@ export function SettingsModal({
                           />
                         </label>
 
+                        {networkNoShow && (
+                          <fieldset
+                            data-testid="no-show-protection"
+                            className="space-y-3 rounded-[10px] border border-[var(--owner-line)] p-3"
+                          >
+                            <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                              No-show protection
+                            </legend>
+                            <p className="text-sm text-[var(--owner-muted)]">
+                              Recorded no-shows on Luster in the last 12 months are always shown in the client profile. Choose when to require your existing deposit amount.
+                            </p>
+                            <div className="space-y-2">
+                              {([
+                                ['warn_only', 'Warn only', 'Adds no risk-based deposit requirement. Your normal deposit rules still apply.'],
+                                ['deposit_1', 'Require deposit at 1+ recorded no-show', 'Uses your existing deposit amount for eligible public bookings.'],
+                                ['deposit_2', 'Require deposit at 2+ recorded no-shows', 'Uses your existing deposit amount for eligible public bookings.'],
+                              ] as const).map(([value, label, description]) => {
+                                const requiresDeposit = value !== 'warn_only';
+                                const disabled = requiresDeposit && !canRequireNoShowDeposit;
+                                return (
+                                  <label
+                                    key={value}
+                                    className="flex min-h-11 items-start gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 has-[:checked]:border-[var(--owner-accent)] has-[:disabled]:opacity-60"
+                                  >
+                                    <input
+                                      type="radio"
+                                      name="no-show-protection"
+                                      data-testid={`no-show-protection-${value}`}
+                                      checked={networkNoShow.protection === value}
+                                      disabled={disabled}
+                                      onChange={() => {
+                                        setNetworkNoShow({
+                                          ...networkNoShow,
+                                          protection: value,
+                                        });
+                                        setNoShowProtectionDirty(true);
+                                        setDepositSaved(false);
+                                      }}
+                                      className="mt-1 size-4 border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                                    />
+                                    <span>
+                                      <span className="block text-sm font-semibold text-[var(--owner-ink)]">{label}</span>
+                                      <span className="mt-0.5 block text-xs text-[var(--owner-muted)]">{description}</span>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            {!canRequireNoShowDeposit && (
+                              <p data-testid="no-show-protection-prerequisite" className="text-xs text-[var(--owner-muted)]">
+                                Set a deposit amount and finish payment account setup before requiring deposits for no-show protection.
+                              </p>
+                            )}
+                          </fieldset>
+                        )}
+
                         {depositAmountInput.trim() !== '' && (
                           <p data-testid="deposits-clamp-notice" className="text-xs text-[var(--owner-muted)]">
                             {depositCardNotices.clampNotice}
@@ -4915,7 +5019,7 @@ export function SettingsModal({
                             onClick={() => void saveDeposit()}
                             disabled={
                               depositSaving
-                              || (!depositEnabledDirty && !depositAmountDirty)
+                              || (!depositEnabledDirty && !depositAmountDirty && !noShowProtectionDirty)
                             }
                             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                           >

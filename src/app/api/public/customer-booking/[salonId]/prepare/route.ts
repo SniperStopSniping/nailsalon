@@ -94,17 +94,29 @@ export async function POST(request: Request, context: { params: Promise<{ salonI
     const shownTechnician = review.technician.kind === 'specific' ? { id: review.technician.id, name: review.technician.name } : null;
     if (review.salon.name !== displayed.salonName || review.timeZone !== displayed.timeZone || review.time.padStart(5, '0') !== booking.appointmentTime
       || review.financial.currency.toUpperCase() !== displayed.currency.toUpperCase()
-      || review.confirmationMode !== displayed.confirmationMode || review.reminders.mode !== displayed.reminderMode
+      || review.reminders.mode !== displayed.reminderMode
       || (review.bookingPolicy.required ? review.bookingPolicy.version : null) !== displayed.policyVersion
       || !isDeepStrictEqual(shownTechnician, displayed.technician) || !isDeepStrictEqual(review.location, displayed.location)
       || !isDeepStrictEqual(review.services, displayed.services) || !isDeepStrictEqual(review.addOns, displayed.addOns)
       || material.review.financial.totalDueCents !== displayed.totalCents || material.review.durationMinutes !== displayed.durationMinutes
-      || material.expectedDepositFingerprint !== booking.expectedDepositFingerprint
+
       || !isDeepStrictEqual(material.catalogAcknowledgment ?? null, booking.catalogAcknowledgment ?? null)
       || (booking.expectedBookingFinancialQuote && !isDeepStrictEqual(material.expectedBookingFinancialQuote, booking.expectedBookingFinancialQuote))
       || (booking.expectedTotalCents !== undefined && material.expectedTotalCents !== booking.expectedTotalCents)
       || (booking.expectedDiscountType !== undefined && material.expectedDiscountType !== booking.expectedDiscountType)
       || (material.review.bookingPolicy.required && material.review.bookingPolicy.version !== booking.bookingPolicyAcknowledgment?.version)) {
+      return fail('review_changed');
+    }
+    if (material.expectedDepositFingerprint !== booking.expectedDepositFingerprint) {
+      return Response.json({
+        reason: 'deposit_changed',
+        deposit: review.deposit.status === 'required'
+          ? { required: true, amountCents: review.deposit.amountCents, currency: 'CAD', fingerprint: material.expectedDepositFingerprint }
+          : { required: false, fingerprint: material.expectedDepositFingerprint },
+        confirmationMode: review.confirmationMode,
+      }, { status: 409, headers: CUSTOMER_NO_STORE });
+    }
+    if (review.confirmationMode !== displayed.confirmationMode) {
       return fail('review_changed');
     }
     const operation = await prepareCustomerBookingOperation({ salonId, sessionId: flow.flowId, secret, contact, material, expectedRevision });
