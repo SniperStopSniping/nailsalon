@@ -1,3 +1,10 @@
+## [1.126.10](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.9...v1.126.10) (2026-09-21)
+
+
+### Bug Fixes
+
+* **customer-ai:** keep helpful design advice before service choice ([#295](https://github.com/SniperStopSniping/nailsalon/issues/295)) ([7c78175](https://github.com/SniperStopSniping/nailsalon/commit/7c781757df1edb9959f803a78255f188079aaddb))
+
 ## [1.126.9](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.8...v1.126.9) (2026-09-21)
 
 
