@@ -2,7 +2,7 @@ import type { ModelProviderUsage } from '@/libs/ai/provider';
 
 import type { CustomerAssistantModelStage } from './contracts';
 import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS } from './contracts';
-import { CUSTOMER_INTERPRETATION_JSON_SCHEMA } from './interpretation';
+import { createReceptionistTurnSchema } from './receptionistTurn';
 
 export type CustomerAssistantModel = 'gpt-5.6-terra' | 'gpt-5.6-luna';
 export type CustomerAssistantStageUsage = {
@@ -22,19 +22,15 @@ const MODEL_RATES: Record<CustomerAssistantModel, ModelRate> = {
 };
 
 const INTERPRETATION_FRAMING_BYTES = 4_096;
-const COMPOSER_MAX_INPUT_BYTES = 24_000;
-const COMPOSER_FRAMING_BYTES = 4_096;
-const COMPOSER_MAX_OUTPUT_TOKENS = 800;
-/** Actual strict-schema serialization used in the conservative reservation. */
-export const CUSTOMER_ASSISTANT_INTERPRETATION_SCHEMA_BYTES = Buffer.byteLength(JSON.stringify(CUSTOMER_INTERPRETATION_JSON_SCHEMA), 'utf8');
+/** The bounded public projection can produce at most these fact keys. */
+const MAX_REPLY_FACT_KEYS = Array.from({ length: 400 }, (_, index) => `customer_public_fact_${index}`);
+export const CUSTOMER_ASSISTANT_INTERPRETATION_SCHEMA_BYTES = Buffer.byteLength(JSON.stringify(createReceptionistTurnSchema(MAX_REPLY_FACT_KEYS)), 'utf8');
 export const CUSTOMER_ASSISTANT_TURN_COST_UPPER_BOUND_MICRO_USD = Math.ceil(
   (CUSTOMER_ASSISTANT_MAX_INPUT_BYTES + CUSTOMER_ASSISTANT_INTERPRETATION_SCHEMA_BYTES + INTERPRETATION_FRAMING_BYTES) * MODEL_RATES['gpt-5.6-terra'].cacheWriteInput
-  + CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS * MODEL_RATES['gpt-5.6-terra'].output
-  + (COMPOSER_MAX_INPUT_BYTES + COMPOSER_FRAMING_BYTES) * MODEL_RATES['gpt-5.6-luna'].cacheWriteInput
-  + COMPOSER_MAX_OUTPUT_TOKENS * MODEL_RATES['gpt-5.6-luna'].output,
+  + CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS * MODEL_RATES['gpt-5.6-terra'].output,
 );
-/** Rounded headroom above the derived two-stage maximum. */
-export const CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD = 150_000;
+/** Reservation covers one call including its bounded schema and output. */
+export const CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD = Math.max(150_000, CUSTOMER_ASSISTANT_TURN_COST_UPPER_BOUND_MICRO_USD);
 
 export function customerAssistantModelUsageCostMicros(model: CustomerAssistantModel, usage: ModelProviderUsage | null): number | null {
   if (!usage) {

@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SEMANTIC_L1_MENU, SEMANTIC_L1_SNAPSHOT } from './__evals__/semanticCases';
 import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES } from './contracts';
-import { CUSTOMER_INTERPRETATION_PROMPT } from './interpretation';
+import { RECEPTIONIST_TURN_PROMPT } from './receptionistTurn';
+import { emptyFacts } from './semanticFacts';
 
 const mocks = vi.hoisted(() => ({ reserve: vi.fn(), menu: vi.fn(), snapshot: vi.fn(), proposal: vi.fn(), record: vi.fn(), validate: vi.fn(), lookup: vi.fn(), nextSlots: vi.fn(), publicFacts: vi.fn(), nextVisitOfferFacts: vi.fn() }));
 vi.mock('server-only', () => ({}));
@@ -33,7 +34,18 @@ const acceptedFingerprint = 'a'.repeat(64);
 const input = () => ({ salonId: 'salon-a', salonSlug: 'isla-nail-studio', features: null, clientIp: '192.0.2.1', locale: 'en' as const, message: 'Gel-X with French', conversation: signCustomerConversation(createCustomerConversation('salon-a', secret), secret) });
 const usage = { inputTokens: 100, cachedInputTokens: 0, outputTokens: 50 };
 const noFactUpdates = { schemaVersion: 1 as const, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, currentProductUncertain: null, origin: null, removal: null, repairCount: null };
-const interpretation = { factUpdates: noFactUpdates, action: 'propose', serviceId: 'gelx', addOns: [{ addOnId: 'french', quantity: 1 }], question: 'details', optionIds: [] };
+const interpretation = {
+  factUpdates: noFactUpdates,
+  action: 'propose',
+  serviceId: 'gelx',
+  addOns: [{ addOnId: 'french', quantity: 1 }],
+  question: 'details',
+  optionIds: [],
+  reply: { segments: [{ kind: 'text', text: 'I can help with that.' }], serviceOptions: [] },
+  unsupportedRequest: null,
+  unsupportedResolution: 'none',
+  suggestedAddOnIds: [],
+};
 const provider = (output: unknown = interpretation) => ({ createResponse: vi.fn().mockResolvedValue({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(output) }] }) });
 
 beforeEach(() => {
@@ -50,13 +62,13 @@ beforeEach(() => {
 });
 
 describe('customer assistant bounded turn', () => {
-  it('uses one Luna low call without tools and only the authoritative proposal', async () => {
+  it('uses one Terra receptionist call without tools and only the authoritative proposal', async () => {
     const model = provider();
     const result = await runCustomerAssistantTurn(input(), model);
 
     expect(result.result).toMatchObject({ kind: 'proposal', proposal: { subtotalCents: 6000, durationMinutes: 60 } });
     expect(model.createResponse).toHaveBeenCalledTimes(1);
-    expect(model.createResponse).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.6-terra', reasoningEffort: 'low', tools: [], toolChoice: 'none', maxOutputTokens: 1200 }));
+    expect(model.createResponse).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.6-terra', reasoningEffort: 'low', tools: [], toolChoice: 'none', maxOutputTokens: 1800, timeoutMs: 15_000 }));
     expect(mocks.record.mock.invocationCallOrder[0]).toBeLessThan(model.createResponse.mock.invocationCallOrder[0]!);
     expect(verifyCustomerConversation(result.conversation, 'salon-a', secret).messages).toEqual(['Gel-X with French']);
   });
@@ -252,8 +264,8 @@ describe('customer assistant bounded turn', () => {
     const fullBindingPayload = { ...payload, menu };
 
     expect(model.createResponse).toHaveBeenCalledTimes(1);
-    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(fullBindingPayload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeGreaterThan(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
-    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(payload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
+    expect(Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(fullBindingPayload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeGreaterThan(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
+    expect(Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(payload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
     expect(payload.menu.bindings).toEqual({
       columns: ['serviceId', 'addOnId', 'required', 'defaultQuantity', 'maxQuantity'],
       rows: bindings.map(binding => [binding.serviceId, binding.addOnId, binding.required, binding.defaultQuantity, binding.maxQuantity]),
@@ -790,7 +802,7 @@ describe('customer assistant bounded turn', () => {
       },
       availabilitySearch: { requestedPreference: requested, displayedPreference: displayed, fallback: true },
     }, secret);
-    const bulkyServices = Array.from({ length: 8 }, (_, index) => ({ id: index === 0 ? 'gelx' : `public-${index}`, name: index === 0 ? 'Gel-X' : `Public service ${index}`, description: `Public description ${index}: ${'nail'.repeat(170)}` }));
+    const bulkyServices = Array.from({ length: 8 }, (_, index) => ({ id: index === 0 ? 'gelx' : `public-${index}`, name: index === 0 ? 'Gel-X' : `Public service ${index}`, description: `Public description ${index}: ${'nail'.repeat(350)}` }));
     mocks.menu.mockResolvedValue({ services: bulkyServices, addOns: [{ id: 'french', name: 'French' }], bindings: [{ serviceId: 'gelx', addOnId: 'french' }] });
     const model = provider({
       ...interpretation,
@@ -808,9 +820,9 @@ describe('customer assistant bounded turn', () => {
     const payload = JSON.parse(model.createResponse.mock.calls[0]![0].input[1].content);
 
     expect(model.createResponse).toHaveBeenCalledTimes(1);
-    expect(Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + JSON.stringify(payload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
+    expect(Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(payload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
     expect(payload).not.toHaveProperty('customerMessages');
-    expect(payload.dialogue.length).toBeLessThan(verifyCustomerConversation(state, 'salon-a', secret).dialogue!.length);
+    expect(payload.dialogue.length).toBeLessThan([...longHistory, { role: 'user', content: 'Saturday after five please.' }, { role: 'assistant', content: 'No matching Saturday time; I showed Monday times instead.' }].length);
     expect(payload.dialogue.slice(-2)).toEqual([
       { role: 'user', content: 'Saturday after five please.' },
       { role: 'assistant', content: 'No matching Saturday time; I showed Monday times instead.' },
@@ -913,20 +925,135 @@ describe('customer assistant bounded turn', () => {
     expect(response.result).toMatchObject({ kind: 'proposal' });
     expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).booking).toBeUndefined();
   });
+
+  it('keeps a selected Gel-X draft when an educational hard-gel question is not a booking change', async () => {
+    const selection = { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] };
+    const prior = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      requestedSelection: selection,
+      context: { question: null, options: [], selection },
+    }, secret);
+
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: prior, message: 'What is hard gel compared with Gel-X?' }, provider({
+      ...interpretation,
+      action: 'answer',
+      serviceId: 'gelx',
+      addOns: [],
+      informationServiceIds: ['gelx'],
+      answerTopic: 'compare_treatments',
+      selectionChangeExplicitThisTurn: false,
+      unsupportedRequest: null,
+    }));
+
+    const restored = verifyCustomerConversation(response.conversation, 'salon-a', secret);
+
+    expect(response.result.kind).toBe('answer');
+    expect(restored.context?.selection).toEqual(selection);
+    expect(restored.requestedSelection).toEqual(selection);
+    expect(restored.unsupportedRequest).toBeUndefined();
+  });
+
+  it('retains an unsupported design blocker when the customer only chooses medium length', async () => {
+    const selection = { baseServiceId: 'gelx', selectedAddOns: [] };
+    const prior = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      facts: { ...emptyFacts(), treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', removal: 'no', length: 'unknown' },
+      requestedSelection: selection,
+      context: { question: null, options: [], selection },
+      unsupportedRequest: { kind: 'design', label: '3D charms' },
+    }, secret);
+
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: prior, message: 'Medium length please.' }, provider({
+      ...interpretation,
+      serviceId: 'gelx',
+      addOns: [],
+      selectionChangeExplicitThisTurn: true,
+      factUpdates: { ...noFactUpdates, length: 'medium' },
+      unsupportedResolution: 'none',
+    }));
+
+    const restored = verifyCustomerConversation(response.conversation, 'salon-a', secret);
+
+    expect(response.result.kind).toBe('unavailable');
+    expect(restored.unsupportedRequest).toEqual({ kind: 'design', label: '3D charms' });
+    expect(restored.facts?.length).toBe('medium');
+    expect(restored.booking).toBeUndefined();
+  });
+
+  it('does not clear unsupported art when an invalid add-on is presented as a replacement', async () => {
+    const prior = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      unsupportedRequest: { kind: 'design', label: 'Sculpted flowers' },
+    }, secret);
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: prior, message: 'Use that option instead.' }, provider({
+      ...interpretation,
+      serviceId: 'gelx',
+      selectionChangeExplicitThisTurn: true,
+      unsupportedResolution: 'accept_alternative',
+      addOnUpdates: { add: [{ addOnId: 'not-a-public-design', quantity: 1 }], remove: [] },
+    }));
+    const restored = verifyCustomerConversation(response.conversation, 'salon-a', secret);
+
+    expect(restored.unsupportedRequest).toEqual({ kind: 'design', label: 'Sculpted flowers' });
+    expect(restored.booking).toBeUndefined();
+  });
+
+  it('retains an unsupported removal blocker when the customer accepts Gel-X', async () => {
+    const prior = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      unsupportedRequest: { kind: 'removal', label: 'acrylic removal' },
+    }, secret);
+
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: prior, message: 'Okay, let’s do Gel-X.' }, provider({
+      ...interpretation,
+      serviceId: 'gelx',
+      addOns: [],
+      selectionChangeExplicitThisTurn: true,
+      unsupportedResolution: 'accept_alternative',
+      factUpdates: { ...noFactUpdates, treatment: 'gel_x', desiredApplication: 'extensions' },
+    }));
+
+    const restored = verifyCustomerConversation(response.conversation, 'salon-a', secret);
+
+    expect(response.result).toMatchObject({ kind: 'unavailable', reason: 'unsupported_removal' });
+    expect(restored.unsupportedRequest).toEqual({ kind: 'removal', label: 'acrylic removal' });
+    expect(restored.booking).toBeUndefined();
+  });
+
+  it('clears only an accepted unsupported treatment while preserving the customer’s other facts', async () => {
+    const prior = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      facts: { ...emptyFacts(), length: 'medium', french: 'yes', existingProduct: 'none', removal: 'no' },
+      unsupportedRequest: { kind: 'treatment', label: 'Hard Gel Extensions' },
+    }, secret);
+
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: prior, message: 'Gel-X sounds good instead.' }, provider({
+      ...interpretation,
+      serviceId: 'gelx',
+      addOns: [{ addOnId: 'french', quantity: 1 }],
+      selectionChangeExplicitThisTurn: true,
+      unsupportedResolution: 'accept_alternative',
+      factUpdates: { ...noFactUpdates, treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', removal: 'no' },
+    }));
+
+    const restored = verifyCustomerConversation(response.conversation, 'salon-a', secret);
+
+    expect(restored.unsupportedRequest).toBeUndefined();
+    expect(restored.facts).toMatchObject({ treatment: 'gel_x', length: 'medium', french: 'yes' });
+  });
 });
 
 describe('natural receptionist orchestration', () => {
   const enablePublicFacts = () => mocks.publicFacts.mockResolvedValue({ salon: { name: 'Synthetic salon' }, catalogue: { currency: 'CAD', services: [{ id: 'gelx', name: 'Gel-X', category: 'manicure', description: null, durationMinutes: 60, price: { baseCents: 6000, baseDisplay: '$60.00', displayLabel: null, range: null } }], addOns: [] } });
-  const information = { ...interpretation, action: 'answer', answerTopic: 'price', informationServiceIds: ['gelx'], addOnUpdates: { add: [], remove: [] }, addOns: [] };
-  const answer = (message: string) => ({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify({ segments: message.startsWith('[[') ? [{ kind: 'fact', key: message.slice(2, -2) }] : [{ kind: 'text', text: message }], serviceOptions: ['gelx'] }) }] });
+  const reply = (segments: Array<{ kind: 'text'; text: string } | { kind: 'fact'; key: string }>, serviceOptions: string[] = []) => ({ segments, serviceOptions });
+  const information = { ...interpretation, action: 'answer', answerTopic: 'price', informationServiceIds: ['gelx'], addOnUpdates: { add: [], remove: [] }, addOns: [], reply: reply([{ kind: 'fact', key: 'service_0_price' }]) };
 
   it.each(['gelx', 'pedicure'])('keeps service guidance optional, viable and identical to signed displayed choices: %s', async (option) => {
     const services = [{ id: 'biab', name: 'BIAB' }, { id: 'gelx', name: 'Gel-X' }, { id: 'pedicure', name: 'Pedicure' }];
     mocks.menu.mockResolvedValue({ services, addOns: [], bindings: [] });
     mocks.publicFacts.mockResolvedValue({ salon: { name: 'Synthetic salon' }, catalogue: { currency: 'CAD', services: services.map(service => ({ ...service, description: `${service.name} from the public menu.`, durationMinutes: 60, price: { baseCents: 6000, baseDisplay: '$60.00', displayLabel: null, range: null } })), addOns: [] } });
     const unresolved = { ...interpretation, action: 'clarify', question: 'service', serviceId: null, addOns: [], optionIds: ['biab', 'gelx'] };
-    const model = provider(unresolved);
-    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(unresolved) }] }).mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify({ segments: [{ kind: 'text', text: 'For added length, consider extensions.' }], serviceOptions: [option] }) }] });
+    const model = provider({ ...unresolved, reply: reply([{ kind: 'text', text: 'For added length, consider extensions.' }], [option]) });
     const response = await runCustomerAssistantTurn({ ...input(), message: 'I am not sure which service suits me.' }, model);
     const expectedOptions = option === 'gelx' ? ['Gel-X'] : [];
 
@@ -944,19 +1071,17 @@ describe('natural receptionist orchestration', () => {
   it('stores the concise server question instead of a model process preamble for a preference clarification', async () => {
     enablePublicFacts();
     const unresolved = { ...interpretation, action: 'clarify', question: 'product', addOns: [], optionIds: [], factUpdates: noFactUpdates };
-    const model = provider(unresolved);
-    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(unresolved) }] }).mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify({ segments: [{ kind: 'text', text: 'Before finalizing, I need to check the starting condition.' }, { kind: 'fact', key: 'required_question' }], serviceOptions: [] }) }] });
+    const model = provider({ ...unresolved, reply: reply([{ kind: 'text', text: 'Before finalizing, I need to check the starting condition.' }, { kind: 'fact', key: 'required_question' }]) });
     const response = await runCustomerAssistantTurn({ ...input(), message: 'I want Gel-X.' }, model);
 
     expect(response.result).toMatchObject({ kind: 'clarification', question: 'product', message: 'Anything on your nails right now?' });
     expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).dialogue?.at(-1)).toEqual({ role: 'assistant', content: 'Anything on your nails right now?' });
-    expect(model.createResponse).toHaveBeenCalledTimes(2);
+    expect(model.createResponse).toHaveBeenCalledTimes(1);
   });
 
   it('answers price through fresh facts, stores actual dialogue and does not select a booking', async () => {
     enablePublicFacts();
     const model = provider(information);
-    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(information) }] }).mockResolvedValueOnce(answer('[[service_0_price]]'));
     const result = await runCustomerAssistantTurn({ ...input(), message: 'How much is Gel-X?' }, model);
 
     expect(result.result).toMatchObject({ kind: 'answer', message: expect.stringContaining('$60.00') });
@@ -965,10 +1090,24 @@ describe('natural receptionist orchestration', () => {
 
     expect(restored.requestedSelection).toBeUndefined();
     expect(restored.dialogue).toEqual([{ role: 'user', content: 'How much is Gel-X?' }, { role: 'assistant', content: result.result.message }]);
-    expect(model.createResponse).toHaveBeenCalledTimes(2);
-    expect(model.createResponse.mock.calls.map(call => call[0].model)).toEqual(['gpt-5.6-terra', 'gpt-5.6-luna']);
-    expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ usage: { inputTokens: 200, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 100 } }));
+    expect(model.createResponse).toHaveBeenCalledTimes(1);
+    expect(model.createResponse.mock.calls.map(call => call[0].model)).toEqual(['gpt-5.6-terra']);
+    expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ usage }));
     expect(mocks.proposal).not.toHaveBeenCalled();
+  });
+
+  it('does not load offer eligibility or configured pricing for an ordinary conversation', async () => {
+    enablePublicFacts();
+    const selection = { baseServiceId: 'gelx', selectedAddOns: [] };
+    const state = { ...createCustomerConversation('salon-a', secret), requestedSelection: selection, context: { question: null, options: [], selection } };
+    const model = provider({ ...interpretation, action: 'answer', answerTopic: 'conversation', serviceId: null, factUpdates: noFactUpdates, addOns: [], reply: reply([{ kind: 'text', text: 'Of course! We can keep the look simple and polished.' }]) });
+    const response = await runCustomerAssistantTurn({ ...input(), conversation: signCustomerConversation(state, secret), message: 'Thanks for explaining.' }, model);
+
+    expect(response.result.message).toContain('simple and polished');
+    expect(model.createResponse).toHaveBeenCalledTimes(1);
+    expect(mocks.proposal).not.toHaveBeenCalled();
+    expect(mocks.nextVisitOfferFacts).not.toHaveBeenCalled();
+    expect(mocks.lookup).not.toHaveBeenCalled();
   });
 
   it('supplies a fresh, opaque next-visit offer fact to the receptionist without exposing the campaign token', async () => {
@@ -982,8 +1121,7 @@ describe('natural receptionist orchestration', () => {
     });
     const state = createCustomerConversation('salon-a', secret, Date.now(), { campaignId: 'campaign-internal', entitlementId: 'offer-internal' });
     const offerQuestion = { ...interpretation, action: 'answer', answerTopic: 'salon_information', informationServiceIds: [], addOnUpdates: { add: [], remove: [] }, addOns: [] };
-    const model = provider(offerQuestion);
-    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(offerQuestion) }] }).mockResolvedValueOnce(answer('[[next_visit_offer]]'));
+    const model = provider({ ...offerQuestion, reply: reply([{ kind: 'fact', key: 'next_visit_offer' }]) });
 
     const response = await runCustomerAssistantTurn({ ...input(), conversation: signCustomerConversation(state, secret), message: 'Do I get a discount if I book again?' }, model);
 
@@ -994,11 +1132,11 @@ describe('natural receptionist orchestration', () => {
       services: [],
     });
 
-    const composerInput = model.createResponse.mock.calls[1]?.[0].input[1].content as string;
+    const receptionistInput = model.createResponse.mock.calls[0]?.[0].input[1].content as string;
 
-    expect(composerInput).toContain('next_visit_offer');
-    expect(composerInput).not.toContain('campaign-internal');
-    expect(composerInput).not.toContain('offer-internal');
+    expect(receptionistInput).toContain('next_visit_offer');
+    expect(receptionistInput).not.toContain('campaign-internal');
+    expect(receptionistInput).not.toContain('offer-internal');
   });
 
   it.each([false, true])('distinguishes verified absence from an offer read failure: %s', async (failed) => {
@@ -1009,14 +1147,13 @@ describe('natural receptionist orchestration', () => {
       mocks.nextVisitOfferFacts.mockResolvedValueOnce(null);
     }
     const question = { ...interpretation, action: 'answer', answerTopic: 'salon_information', informationServiceIds: [], addOnUpdates: { add: [], remove: [] }, addOns: [] };
-    const model = provider(question);
-    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(question) }] })
-      .mockResolvedValueOnce(answer(failed ? 'I cannot verify an offer right now.' : '[[next_visit_offer]]'));
+    const model = provider({ ...question, reply: reply([{ kind: 'fact', key: 'next_visit_offer' }]) });
     const response = await runCustomerAssistantTurn({ ...input(), message: 'Do I get a discount if I rebook?' }, model);
-    const composerInput = model.createResponse.mock.calls[1]?.[0].input[1].content as string;
+    const receptionistInput = model.createResponse.mock.calls[0]?.[0].input[1].content as string;
 
     if (failed) {
-      expect(composerInput).not.toContain('Rebooking itself does not add a discount');
+      expect(receptionistInput).not.toContain('Rebooking itself does not add a discount');
+      expect(response.result.message).toContain('I can’t verify that detail');
     } else {
       expect(response.result.message).toContain('no verified Next Visit Offer attached to this booking session');
       expect(response.result.message).toContain('Rebooking itself does not add a discount');
@@ -1033,14 +1170,13 @@ describe('natural receptionist orchestration', () => {
       promotion: { discountType: 'percent', value: 5, eligibleServiceIds: [], expiryDays: 30, enabled: true },
     });
     const offerQuestion = { ...interpretation, action: 'answer', answerTopic: 'salon_information', informationServiceIds: [], addOnUpdates: { add: [], remove: [] }, addOns: [] };
-    const model = provider(offerQuestion);
-    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(offerQuestion) }] }).mockResolvedValueOnce(answer('[[next_visit_offer]]'));
+    const model = provider({ ...offerQuestion, reply: reply([{ kind: 'fact', key: 'next_visit_offer' }]) });
 
     const response = await runCustomerAssistantTurn({ ...input(), message: 'Do you have a discount if I book again?' }, model);
 
     expect(response.result).toMatchObject({ kind: 'answer', message: expect.stringContaining('within 30 days') });
     expect(mocks.nextVisitOfferFacts).toHaveBeenCalledWith({ salonId: 'salon-a', services: [] });
-    expect(model.createResponse.mock.calls[1]?.[0].input[1].content).not.toContain('campaign');
+    expect(model.createResponse.mock.calls[0]?.[0].input[1].content).not.toContain('campaign');
   });
 
   it.each([false, true])('only refreshes a configured quote from resolved selection authority: %s', async (resolved) => {
@@ -1048,7 +1184,6 @@ describe('natural receptionist orchestration', () => {
     const selection = { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] };
     const state = { ...createCustomerConversation('salon-a', secret), requestedSelection: selection, ...(resolved ? { context: { question: null, options: [], selection } } : {}) };
     const model = provider(information);
-    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(information) }] }).mockResolvedValueOnce(answer('[[service_0_price]]'));
     const result = await runCustomerAssistantTurn({ ...input(), conversation: signCustomerConversation(state, secret), message: 'What is the normal Gel-X price?' }, model);
 
     expect(result.result.kind).toBe('answer');
@@ -1063,10 +1198,9 @@ describe('natural receptionist orchestration', () => {
     }
   });
 
-  it('keeps an authoritative useful price fallback when composer output invents a value', async () => {
+  it('keeps an authoritative useful price fallback when the combined reply invents a value', async () => {
     enablePublicFacts();
-    const model = provider(information);
-    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(information) }] }).mockResolvedValueOnce(answer('It costs $1.'));
+    const model = provider({ ...information, reply: reply([{ kind: 'text', text: 'It costs $1.' }]) });
     const result = await runCustomerAssistantTurn({ ...input(), message: 'How much?' }, model);
 
     expect(result.result.message).toContain('$60.00');
@@ -1079,18 +1213,16 @@ describe('natural receptionist orchestration', () => {
     expect(result.result).toMatchObject({ kind: 'answer', message: expect.stringContaining('can’t verify') });
   });
 
-  it('marks aggregate usage unknown when the second call fails without usage', async () => {
+  it('records the single receptionist usage without an obsolete composition stage', async () => {
     enablePublicFacts();
     const model = provider(information);
-    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(information) }] }).mockRejectedValueOnce(new Error('synthetic transport failure'));
     const result = await runCustomerAssistantTurn(input(), model);
 
     expect(result.result.message).toContain('$60.00');
     expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({
-      usage: null,
+      usage,
       stageUsages: [
-        expect.objectContaining({ stage: 'interpreter', model: 'gpt-5.6-terra', usage }),
-        expect.objectContaining({ stage: 'composer', model: 'gpt-5.6-luna', usage: null }),
+        expect.objectContaining({ stage: 'receptionist', model: 'gpt-5.6-terra', usage }),
       ],
     }));
   });

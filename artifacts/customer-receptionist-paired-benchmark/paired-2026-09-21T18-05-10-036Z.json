@@ -1,0 +1,460 @@
+{
+  "generatedAt": "2026-09-21T18:05:10.035Z",
+  "baselineRevision": "952dadc23bace8ff0f43e7158e1eef02efec39c8",
+  "candidateRevision": "current worktree",
+  "samplesPerCategory": 5,
+  "categories": [
+    "greeting"
+  ],
+  "providerBounds": {
+    "baseline": {
+      "contextBytes": 30000,
+      "interpreter": {
+        "maxOutputTokens": 1200,
+        "timeoutMs": 12000
+      },
+      "composer": {
+        "maxOutputTokens": 900,
+        "timeoutMs": 10000
+      }
+    },
+    "candidate": {
+      "contextBytes": 40000,
+      "receptionist": {
+        "maxOutputTokens": 1800,
+        "timeoutMs": 15000
+      }
+    }
+  },
+  "scope": "Real Responses API calls: Terra interpreter/receptionist and archived Luna composer. Synthetic L1 catalogue, resolver, and schedule only; synthetic_resolution excludes real database, availability, booking, SMS/email, payments, and production data.",
+  "notes": [
+    "Baseline is sequential Terra interpreter plus Luna composer; candidate is one Terra receptionist call.",
+    "Provider stages include actual provider latency and reported token-based cost. Synthetic resolution/render timing is local only.",
+    "Quality failures are recorded per observation; numeric business facts are accepted only through server rendering/parser guards."
+  ],
+  "summary": {
+    "baseline": {
+      "n": 5,
+      "totalMs": {
+        "p50": 5864.792708999999,
+        "p95": 6108.626625,
+        "max": 6108.626625
+      },
+      "stages": {
+        "interpreter": {
+          "p50": 3168.067624999996,
+          "p95": 3528.1739159999997,
+          "max": 3528.1739159999997
+        },
+        "synthetic_resolution": {
+          "p50": 0.12566700000024866,
+          "p95": 1.4197500000000218,
+          "max": 1.4197500000000218
+        },
+        "composer": {
+          "p50": 2591.851875,
+          "p95": 3156.4561659999963,
+          "max": 3156.4561659999963
+        }
+      },
+      "reportedCostMicros": 20208,
+      "unknownCostStages": 0,
+      "fallbacks": 0,
+      "qualityFailures": 0
+    },
+    "candidate": {
+      "n": 5,
+      "totalMs": {
+        "p50": 4408.432165999999,
+        "p95": 5266.0062499999985,
+        "max": 5266.0062499999985
+      },
+      "stages": {
+        "receptionist": {
+          "p50": 4403.810208000003,
+          "p95": 5261.297749999998,
+          "max": 5261.297749999998
+        },
+        "synthetic_resolution": {
+          "p50": 1.2777080000014394,
+          "p95": 5.2931250000001455,
+          "max": 5.2931250000001455
+        },
+        "render": {
+          "p50": 0.5673750000023574,
+          "p95": 4.407374999998865,
+          "max": 4.407374999998865
+        }
+      },
+      "reportedCostMicros": 42352,
+      "unknownCostStages": 0,
+      "fallbacks": 0,
+      "qualityFailures": 5
+    }
+  },
+  "observations": [
+    {
+      "category": "greeting",
+      "sample": 1,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 3504.073917,
+            "costMicros": 3419,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 1.4197500000000218,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2591.851875,
+            "costMicros": 269,
+            "status": "completed"
+          }
+        },
+        "totalMs": 6108.626625,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely! Are you looking for a simple gel manicure on your natural nails, extra strength with builder gel, or added length with extensions? ✨",
+        "options": [
+          "Gel Manicure",
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 4055.966375000001,
+            "costMicros": 20556,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 5.2931250000001455,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 4.407374999998865,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 4068.502292,
+        "resultKind": "clarification",
+        "reason": null,
+        "message": "Absolutely. For a simple polished look on your natural nails, a Gel Manicure is a lovely choice; BIAB Builder Gel is better if you’d like a stronger structured overlay on natural nails; and Gel-X Extensions are for added length. Are you hoping to keep your natural length, add strength, or have extensions?",
+        "options": [],
+        "quality": [
+          "expected_answer_got_clarification"
+        ],
+        "fallback": false,
+        "modelServiceOptions": [],
+        "modelReplyFactKeys": [],
+        "resultQuestion": "service",
+        "resultOptions": [
+          "BIAB Builder Gel",
+          "Gel Manicure",
+          "Gel-X Extensions",
+          "Gel-X Fill"
+        ]
+      }
+    },
+    {
+      "category": "greeting",
+      "sample": 2,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 3528.1739159999997,
+            "costMicros": 4031,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.32591600000159815,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2331.445334,
+            "costMicros": 228,
+            "status": "completed"
+          }
+        },
+        "totalMs": 5864.792708999999,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely! Are you looking for a simple manicure on your natural nails, extra strength for your natural nails, or added length?",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 3987.8807920000017,
+            "costMicros": 5017,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 2.24933400000009,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0.32449999999880674,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 3992.7028329999994,
+        "resultKind": "clarification",
+        "reason": null,
+        "message": "Of course. Are you hoping to enhance your natural nails with colour, add extra strength to your natural nails, or have extensions with added length? I can help narrow it down from there.",
+        "options": [],
+        "quality": [
+          "expected_answer_got_clarification"
+        ],
+        "fallback": false,
+        "modelServiceOptions": [],
+        "modelReplyFactKeys": [],
+        "resultQuestion": "service",
+        "resultOptions": [
+          "BIAB Builder Gel",
+          "Gel Manicure",
+          "Gel-X Extensions",
+          "Gel-X Fill"
+        ]
+      }
+    },
+    {
+      "category": "greeting",
+      "sample": 3,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 3166.267250000001,
+            "costMicros": 3731,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.12566700000024866,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2623.128542000002,
+            "costMicros": 227,
+            "status": "completed"
+          }
+        },
+        "totalMs": 5791.115000000002,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely! Are you looking for a simple gel manicure on your natural nails, added strength with BIAB, or added length with Gel-X?",
+        "options": [
+          "Gel Manicure",
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 5261.297749999998,
+            "costMicros": 5617,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 1.2777080000014394,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0.5673750000023574,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 5266.0062499999985,
+        "resultKind": "clarification",
+        "reason": null,
+        "message": "Of course. For natural nails, a Gel Manicure is a classic colour option, while BIAB Builder Gel is a thicker overlay often chosen for added structure. Gel-X Extensions are for adding length, and a Gel-X Fill is for maintaining existing Gel-X. Are you hoping to keep your natural length, add extensions, or maintain a current set?",
+        "options": [
+          "Gel Manicure",
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ],
+        "quality": [
+          "expected_answer_got_clarification"
+        ],
+        "fallback": false,
+        "modelServiceOptions": [
+          "svc_semantic_gel_manicure",
+          "svc_semantic_biab",
+          "svc_semantic_gelx"
+        ],
+        "modelReplyFactKeys": [],
+        "resultQuestion": "service",
+        "resultOptions": [
+          "BIAB Builder Gel",
+          "Gel Manicure",
+          "Gel-X Extensions",
+          "Gel-X Fill"
+        ]
+      }
+    },
+    {
+      "category": "greeting",
+      "sample": 4,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 3168.067624999996,
+            "costMicros": 4031,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.0708329999979469,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2458.506290999998,
+            "costMicros": 289,
+            "status": "completed"
+          }
+        },
+        "totalMs": 5628.099833,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely! Are you looking for a simple gel manicure on your natural nails, extra strength with builder gel, added length, or a fill for existing Gel-X?",
+        "options": [
+          "Gel Manicure",
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 4403.810208000003,
+            "costMicros": 5605,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.7520839999997406,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 2.6604169999991427,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 4408.432165999999,
+        "resultKind": "clarification",
+        "reason": null,
+        "message": "Of course. For a simple, polished colour on your natural nails, a Gel Manicure is lovely; BIAB Builder Gel is better if you’d like a more structured overlay on natural nails; and Gel-X Extensions are for added length. Are you hoping to keep your natural length, add strength, or have extensions?",
+        "options": [
+          "Gel Manicure",
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ],
+        "quality": [
+          "expected_answer_got_clarification"
+        ],
+        "fallback": false,
+        "modelServiceOptions": [
+          "svc_semantic_gel_manicure",
+          "svc_semantic_biab",
+          "svc_semantic_gelx"
+        ],
+        "modelReplyFactKeys": [],
+        "resultQuestion": "service",
+        "resultOptions": [
+          "BIAB Builder Gel",
+          "Gel Manicure",
+          "Gel-X Extensions",
+          "Gel-X Fill"
+        ]
+      }
+    },
+    {
+      "category": "greeting",
+      "sample": 5,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 2837.5959159999984,
+            "costMicros": 3731,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.07366600000386825,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 3156.4561659999963,
+            "costMicros": 252,
+            "status": "completed"
+          }
+        },
+        "totalMs": 5995.913957999997,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely! Are you looking to strengthen your natural nails, keep a classic polished look, or add length? I can point you toward BIAB Builder Gel, a Gel Manicure, or Gel-X Extensions based on the result you want.",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 4547.120750000002,
+            "costMicros": 5557,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 1.0405420000024606,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0.303542000001471,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 4551.625749999999,
+        "resultKind": "clarification",
+        "reason": null,
+        "message": "Of course. For a simple polished look on your natural nails, a Gel Manicure is the lightest option; BIAB Builder Gel adds a structured overlay for extra support. Gel-X is for added length with extensions, while a Gel-X Fill is maintenance for existing Gel-X. Are you hoping to keep your natural nails, add length, or maintain existing Gel-X?",
+        "options": [],
+        "quality": [
+          "expected_answer_got_clarification"
+        ],
+        "fallback": false,
+        "modelServiceOptions": [],
+        "modelReplyFactKeys": [],
+        "resultQuestion": "service",
+        "resultOptions": [
+          "BIAB Builder Gel",
+          "Gel Manicure",
+          "Gel-X Extensions",
+          "Gel-X Fill"
+        ]
+      }
+    }
+  ]
+}

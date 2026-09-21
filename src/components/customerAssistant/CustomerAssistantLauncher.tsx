@@ -1,7 +1,7 @@
 'use client';
 
 import { Send, X } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -18,13 +18,15 @@ import { customerBookingRecoveryUrl } from '@/libs/customerAssistant/recoveryUrl
 import { formatMoney } from '@/libs/formatMoney';
 import { formatDuration } from '@/utils/Helpers';
 
-import { customerAssistantCopy } from './copy';
+import { customerAssistantCopy, type WelcomeAction } from './copy';
 import { AcceptSelection } from './ScheduleCards';
 
 type CustomerAssistantLauncherProps = { salonSlug: string; salonId?: string; locale: CustomerAssistantLocale; campaignToken?: string | null };
 type CustomerAssistantPanelProps = CustomerAssistantLauncherProps & { onClose: () => void; visibleHeight?: number };
 type DisplayMessage = { id: number; role: 'assistant' | 'user'; message: string; kind?: 'quick_reply' };
-type StoredConversation = { version: 2; conversation: string; messages: DisplayMessage[]; result: CustomerAssistantResult | null; welcomeQuickReplies?: string[]; campaignBinding?: string };
+type PriceService = { id: string; name: string; description?: string | null; durationMinutes?: number; price: { baseDisplay: string; displayLabel?: string | null; range?: { display: string } | null } };
+type PriceCatalogue = { salon: { name: string }; catalogue: { currency: string; services: PriceService[] } };
+type StoredConversation = { version: 2; conversation: string; messages: DisplayMessage[]; result: CustomerAssistantResult | null; welcomeQuickReplies?: string[]; priceCatalogue?: PriceCatalogue; campaignBinding?: string };
 type StoredOperation = CustomerBookingOperationReference & { version: 1; salonId: string };
 type StorageScope = { binding: string | null; persist: boolean };
 
@@ -32,6 +34,38 @@ const MAX_DISPLAY_MESSAGES = 12;
 const storageKey = (salonSlug: string) => `luster.customer-assistant.conversation.${salonSlug}`;
 const operationStorageKey = (salonId: string) => `luster.customer-booking.operation.${salonId}`;
 const endpoint = (salonSlug: string) => `/api/public/customer-assistant/${encodeURIComponent(salonSlug)}`;
+
+function welcomeActionsFromStored(replies: unknown): WelcomeAction[] | undefined {
+  if (!Array.isArray(replies)) {
+    return undefined;
+  }
+  const labels = Object.values(customerAssistantCopy).flatMap(copy => Object.entries(copy.welcomeActions).map(([action, label]) => [label, action] as const));
+  const actions = replies.flatMap((reply): WelcomeAction[] => {
+    if (reply === 'book' || reply === 'prices' || reply === 'consultation') {
+      return [reply];
+    }
+    if (typeof reply !== 'string') {
+      return [];
+    }
+    const matched = labels.find(([label]) => label === reply)?.[1];
+    return matched === 'book' || matched === 'prices' || matched === 'consultation' ? [matched] : [];
+  });
+  return actions.length > 0 ? [...new Set(actions)].slice(0, 3) : undefined;
+}
+
+function isPriceCatalogue(value: unknown): value is PriceCatalogue {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const catalogue = (value as { catalogue?: unknown }).catalogue;
+  const salon = (value as { salon?: unknown }).salon;
+  return !!salon && typeof salon === 'object' && typeof (salon as { name?: unknown }).name === 'string'
+    && !!catalogue && typeof catalogue === 'object' && Array.isArray((catalogue as { services?: unknown }).services)
+    && (catalogue as { services: unknown[] }).services.every(service => !!service && typeof service === 'object'
+      && typeof (service as { id?: unknown }).id === 'string'
+      && typeof (service as { name?: unknown }).name === 'string'
+      && !!(service as { price?: unknown }).price && typeof (service as { price: { baseDisplay?: unknown } }).price.baseDisplay === 'string');
+}
 
 async function campaignStorageBinding(token: string): Promise<string | null> {
   try {
@@ -189,10 +223,9 @@ function readStoredConversation(salonSlug: string, scope: StorageScope): StoredC
       return null;
     }
     const messages = value.messages.filter((message): message is DisplayMessage => typeof message === 'object' && message !== null && typeof (message as DisplayMessage).id === 'number' && ((message as DisplayMessage).role === 'assistant' || (message as DisplayMessage).role === 'user') && typeof (message as DisplayMessage).message === 'string').slice(-MAX_DISPLAY_MESSAGES);
-    const welcomeQuickReplies = Array.isArray(value.welcomeQuickReplies)
-      ? value.welcomeQuickReplies.filter((reply): reply is string => typeof reply === 'string' && reply.length > 0 && reply.length <= 160).slice(0, 3)
-      : undefined;
-    return { version: 2, conversation: value.conversation, messages, result: value.result ?? null, ...(welcomeQuickReplies?.length ? { welcomeQuickReplies } : {}) };
+    const welcomeQuickReplies = welcomeActionsFromStored(value.welcomeQuickReplies);
+    const priceCatalogue = isPriceCatalogue(value.priceCatalogue) ? value.priceCatalogue : undefined;
+    return { version: 2, conversation: value.conversation, messages, result: value.result ?? null, ...(welcomeQuickReplies?.length ? { welcomeQuickReplies } : {}), ...(priceCatalogue ? { priceCatalogue } : {}) };
   } catch {
     const legacy = raw.trim();
     return scope.binding === null && legacy && !legacy.startsWith('{') && legacy.length <= 24_576
@@ -347,6 +380,29 @@ function ConsultationChoiceButton({ choice, locale, disabled, onChoose }: {
   );
 }
 
+function PriceCatalogueCard({ catalogue, locale }: { catalogue: PriceCatalogue; locale: CustomerAssistantLocale }) {
+  const copy = customerAssistantCopy[locale];
+  return (
+    <section aria-live="polite" aria-label={copy.pricesTitle} className="rounded-2xl border border-black/10 bg-white p-4">
+      <h3 className="font-semibold text-neutral-950">{copy.pricesTitle}</h3>
+      <ul className="mt-3 space-y-3 text-sm text-neutral-700">
+        {catalogue.catalogue.services.map((service) => {
+          const displayedPrice = service.price.displayLabel ?? service.price.range?.display ?? service.price.baseDisplay;
+          return (
+            <li key={service.id} className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="font-medium text-neutral-950">{service.name}</p>
+                {service.description && <p className="mt-0.5 text-xs leading-5 text-neutral-600">{service.description}</p>}
+              </div>
+              <p className="shrink-0 font-medium text-neutral-950">{displayedPrice}</p>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function AssistantResult({ result, locale, loading, onOption, onHandoff }: { result: CustomerAssistantResult; locale: CustomerAssistantLocale; loading: boolean; onOption: (option: string) => void; onHandoff: (fingerprint: string) => void }) {
   const copy = customerAssistantCopy[locale];
   if (result.kind === 'proposal') {
@@ -395,7 +451,9 @@ function AssistantResult({ result, locale, loading, onOption, onHandoff }: { res
     );
   }
   if (result.kind === 'unavailable') {
-    return null;
+    return result.options && result.options.length > 0
+      ? <section aria-live="polite" className="flex flex-wrap gap-2">{result.options.map(option => <button key={option} type="button" disabled={loading} onClick={() => onOption(option)} className="min-h-11 rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 disabled:opacity-50">{option}</button>)}</section>
+      : null;
   }
   return null;
 }
@@ -403,12 +461,16 @@ function AssistantResult({ result, locale, loading, onOption, onHandoff }: { res
 export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignToken, onClose, visibleHeight }: CustomerAssistantPanelProps) {
   const router = useRouter();
   const params = useParams();
+  const pathname = usePathname();
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   const { applyAssistantHandoff, clearBookingState } = useBookingState(salonSlug);
   const copy = customerAssistantCopy[locale];
   const [conversation, setConversation] = useState<string | null>(null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [welcomeQuickReplies, setWelcomeQuickReplies] = useState<string[]>([]);
+  const [welcomeQuickReplies, setWelcomeQuickReplies] = useState<WelcomeAction[]>([]);
+  const [priceCatalogue, setPriceCatalogue] = useState<PriceCatalogue | null>(null);
+  const [priceLoading, setPriceLoading] = useState(false);
+  const [priceError, setPriceError] = useState(false);
   const [result, setResult] = useState<CustomerAssistantResult | null>(null);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -439,7 +501,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
       setConversation(data.conversation);
       if (typeof data.salon?.name === 'string' && data.salon.name.trim()) {
         setMessages([{ id: Date.now(), role: 'assistant', message: copy.welcome(data.salon.name.trim()) }]);
-        setWelcomeQuickReplies([...copy.welcomeQuickReplies]);
+        setWelcomeQuickReplies(['book', 'prices', 'consultation']);
       }
     } catch {
       if (generation === scopeGenerationRef.current) {
@@ -461,6 +523,9 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
     setConversation(null);
     setMessages([]);
     setWelcomeQuickReplies([]);
+    setPriceCatalogue(null);
+    setPriceLoading(false);
+    setPriceError(false);
     setResult(null);
     setError(null);
     setLoading(false);
@@ -479,7 +544,8 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
         setConversation(stored.conversation);
         setMessages(stored.messages);
         setResult(stored.result);
-        setWelcomeQuickReplies(stored.welcomeQuickReplies ?? []);
+        setWelcomeQuickReplies((stored.welcomeQuickReplies ?? []) as WelcomeAction[]);
+        setPriceCatalogue(stored.priceCatalogue ?? null);
       } else {
         void createSession(generation);
       }
@@ -504,9 +570,9 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
   }, [messages, result, loading, error, welcomeQuickReplies]);
   useEffect(() => {
     if (conversation && storageScope && storageScopeRef.current === storageScope) {
-      storeConversation(salonSlug, { version: 2, conversation, messages, result, ...(welcomeQuickReplies.length ? { welcomeQuickReplies } : {}) }, storageScope);
+      storeConversation(salonSlug, { version: 2, conversation, messages, result, ...(welcomeQuickReplies.length ? { welcomeQuickReplies } : {}), ...(priceCatalogue ? { priceCatalogue } : {}) }, storageScope);
     }
-  }, [conversation, messages, result, salonSlug, storageScope, welcomeQuickReplies]);
+  }, [conversation, messages, priceCatalogue, result, salonSlug, storageScope, welcomeQuickReplies]);
   useEffect(() => {
     if (!loading && restoreComposerFocus.current) {
       restoreComposerFocus.current = false;
@@ -529,8 +595,72 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
     setConversation(null);
     setMessages([]);
     setWelcomeQuickReplies([]);
+    setPriceCatalogue(null);
+    setPriceLoading(false);
+    setPriceError(false);
     setResult(null);
     void createSession(generation);
+  };
+  const focusComposer = () => {
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const openNormalBooking = () => {
+    const bookingPath = routeSalonSlug ? `/${locale}/${routeSalonSlug}/book/service` : `/${locale}/book/service`;
+    onClose();
+    if (pathname !== bookingPath) {
+      router.push(buildBookingUrl(`/${locale}/book/service`, { salonSlug, campaignToken }, { routeSalonSlug, locale }));
+    }
+  };
+  const showPrices = async () => {
+    if (priceLoading) {
+      return;
+    }
+    const generation = scopeGenerationRef.current;
+    setPriceLoading(true);
+    setPriceError(false);
+    try {
+      const response = await fetch(`${endpoint(salonSlug)}/prices${locale === 'fr' ? '?locale=fr' : ''}`);
+      const data: unknown = await response.json();
+      if (!response.ok || !isPriceCatalogue(data)) {
+        throw new Error('invalid prices response');
+      }
+      if (generation !== scopeGenerationRef.current) {
+        return;
+      }
+      setPriceCatalogue(data);
+      setWelcomeQuickReplies([]);
+      setResult(null);
+    } catch {
+      if (generation === scopeGenerationRef.current) {
+        setPriceError(true);
+      }
+    } finally {
+      if (generation === scopeGenerationRef.current) {
+        setPriceLoading(false);
+      }
+    }
+  };
+  const startConsultation = () => {
+    if (loading) {
+      return;
+    }
+    setWelcomeQuickReplies([]);
+    setPriceCatalogue(null);
+    setPriceError(false);
+    setResult(null);
+    setMessages(current => [...current, { id: Date.now(), role: 'assistant' as const, message: copy.welcomeConsultationPrompt }].slice(-MAX_DISPLAY_MESSAGES));
+    focusComposer();
+  };
+  const handleWelcomeAction = (action: WelcomeAction) => {
+    if (action === 'book') {
+      openNormalBooking();
+      return;
+    }
+    if (action === 'prices') {
+      void showPrices();
+      return;
+    }
+    startConsultation();
   };
   const send = async (message: string, kind?: 'quick_reply') => {
     const trimmed = message.trim();
@@ -546,6 +676,8 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
     retryMessage.current = trimmed;
     setMessages(current => [...current, { id: Date.now(), role: 'user' as const, message: trimmed, ...(kind ? { kind } : {}) }].slice(-MAX_DISPLAY_MESSAGES));
     setWelcomeQuickReplies([]);
+    setPriceCatalogue(null);
+    setPriceError(false);
     try {
       const response = await fetch(`${endpoint(salonSlug)}/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation, message: trimmed, locale }) });
       const data = await response.json() as CustomerAssistantResponse;
@@ -691,9 +823,17 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
           : <p key={message.id} aria-label={message.role === 'assistant' ? 'Assistant' : 'You'} className={message.role === 'user' ? 'ml-auto max-w-[85%] rounded-2xl bg-neutral-950 px-4 py-3 text-sm leading-6 text-white' : 'max-w-full rounded-2xl bg-neutral-100 px-4 py-2 text-sm leading-5 text-neutral-800 sm:max-w-[85%] sm:py-3 sm:leading-6'}>{message.message}</p>)}
         {welcomeQuickReplies.length > 0 && messages.length === 1 && messages[0]?.role === 'assistant' && (
           <div aria-label={locale === 'fr' ? 'Réponses rapides' : 'Quick replies'} className="flex flex-wrap gap-2">
-            {welcomeQuickReplies.map(reply => <button key={reply} type="button" disabled={loading} onClick={() => void send(reply, 'quick_reply')} className="min-h-11 rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 disabled:opacity-50">{reply}</button>)}
+            {welcomeQuickReplies.map(action => <button key={action} type="button" disabled={loading || priceLoading} onClick={() => handleWelcomeAction(action)} className="min-h-11 rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 disabled:opacity-50">{copy.welcomeActions[action]}</button>)}
           </div>
         )}
+        {priceLoading && <p role="status" className="text-sm text-neutral-600">{copy.pricesLoading}</p>}
+        {priceError && (
+          <div role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-950">
+            <p>{copy.pricesUnavailable}</p>
+            <button type="button" onClick={() => void showPrices()} className="mt-2 min-h-11 font-medium underline underline-offset-4">{copy.retry}</button>
+          </div>
+        )}
+        {priceCatalogue && <PriceCatalogueCard catalogue={priceCatalogue} locale={locale} />}
         {loading && <p role="status" className="text-sm text-neutral-600">{copy.loading}</p>}
         {error === 'network' && (
           <div role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-950">

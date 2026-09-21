@@ -6,11 +6,12 @@ import type { CustomerReadyReviewSnapshot } from '@/libs/customerAssistant/revie
 
 import { BookingStatusCard, CustomerAssistantLauncher, CustomerBookingRecovery } from './CustomerAssistantLauncher';
 
-const navigation = vi.hoisted(() => ({ push: vi.fn(), params: {} }));
+const navigation = vi.hoisted(() => ({ push: vi.fn(), params: {}, pathname: '/en/isla-nail-studio/book/service' }));
 const bookingState = vi.hoisted(() => ({ applyAssistantHandoff: vi.fn() }));
 
 vi.mock('next/navigation', () => ({
   useParams: () => navigation.params,
+  usePathname: () => navigation.pathname,
   useRouter: () => ({ push: navigation.push }),
 }));
 
@@ -55,6 +56,7 @@ describe('CustomerAssistantLauncher', () => {
     sessionStorage.clear();
     localStorage.clear();
     navigation.push.mockReset();
+    navigation.pathname = '/en/isla-nail-studio/book/service';
     bookingState.applyAssistantHandoff.mockReset();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -75,6 +77,56 @@ describe('CustomerAssistantLauncher', () => {
 
     await user.click(screen.getByRole('button', { name: 'Continue manually' }));
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'AI booking assistant' })).not.toBeInTheDocument());
+  });
+
+  it('opens the normal service selector from the welcome action without a chat request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sessionResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    navigation.pathname = '/en/isla-nail-studio';
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" campaignToken="campaign-token" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.click(await screen.findByRole('button', { name: 'Book an appointment' }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(navigation.push).toHaveBeenCalledWith('/en/isla-nail-studio/book/service?campaign=campaign-token');
+    expect(screen.queryByRole('heading', { name: 'AI booking assistant' })).not.toBeInTheDocument();
+  });
+
+  it('starts a local consultation prompt without a chat request and focuses the composer', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sessionResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.click(await screen.findByRole('button', { name: 'Help me choose' }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/What are you hoping for today/)).toBeVisible();
+
+    await waitFor(() => expect(screen.getByLabelText('Tell me what you would like')).toHaveFocus());
+  });
+
+  it('shows authoritative public prices without a chat request', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ salon: { name: 'Isla Nail Studio' }, catalogue: { currency: 'CAD', services: [{ id: 'gel-x', name: 'Gel-X Extensions', description: 'Extensions with flexible length options.', price: { baseDisplay: '$85.00', displayLabel: null, range: null } }] } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.click(await screen.findByRole('button', { name: 'See prices' }));
+
+    const prices = await screen.findByRole('region', { name: 'Current service prices' });
+
+    expect(prices).toHaveTextContent('Gel-X Extensions');
+    expect(prices).toHaveTextContent('$85.00');
+
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/prices');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('resumes the same branded welcome without issuing another session and restarts with a fresh welcome', async () => {
@@ -99,6 +151,27 @@ describe('CustomerAssistantLauncher', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
     expect(await screen.findByText(/Welcome to First Salon/)).toBeVisible();
+  });
+
+  it('restores legacy stored welcome labels as deterministic actions', async () => {
+    sessionStorage.setItem('luster.customer-assistant.conversation.isla-nail-studio', JSON.stringify({
+      version: 2,
+      conversation: 'legacy-welcome',
+      messages: [{ id: 1, role: 'assistant', message: 'Hey! Welcome to Isla Nail Studio 💅 I’m your AI receptionist. How can I help?' }],
+      result: null,
+      welcomeQuickReplies: ['Book an appointment', 'See prices', 'Help me choose'],
+    }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+
+    expect(await screen.findByRole('button', { name: 'Book an appointment' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'See prices' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Help me choose' })).toBeVisible();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('renders server-priced consultation choices and sends their authoritative message', async () => {

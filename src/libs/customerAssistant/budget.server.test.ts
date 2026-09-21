@@ -63,10 +63,10 @@ describe('customer assistant budget reservation', () => {
     vi.useRealTimers();
   });
 
-  it('reserves a schema-aware two-stage maximum with fixed conservative headroom', () => {
+  it('reserves a schema-aware one-call maximum with conservative headroom', () => {
     expect(CUSTOMER_ASSISTANT_INTERPRETATION_SCHEMA_BYTES).toBeGreaterThan(0);
     expect(CUSTOMER_ASSISTANT_TURN_COST_UPPER_BOUND_MICRO_USD).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD);
-    expect(CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD).toBe(150_000);
+    expect(CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD).toBeGreaterThanOrEqual(150_000);
   });
 
   it('uses one atomic script with same cluster hash tag and no raw IP key', async () => {

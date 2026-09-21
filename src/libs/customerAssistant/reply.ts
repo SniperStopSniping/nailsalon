@@ -21,7 +21,7 @@ export function createReplySchema(facts: Record<string, string>) {
     required: ['segments', 'serviceOptions'],
     properties: {
       segments: { type: 'array', minItems: 1, maxItems: 12, items: { anyOf: [
-        { type: 'object', additionalProperties: false, required: ['kind', 'text'], properties: { kind: { type: 'string', enum: ['text'] }, text: { type: 'string', description: 'Your complete conversational sentence, without authoritative fact values.' } } },
+        { type: 'object', additionalProperties: false, required: ['kind', 'text'], properties: { kind: { type: 'string', enum: ['text'] }, text: { type: 'string', minLength: 1, maxLength: 1000, description: 'Your nonempty complete conversational sentence, without authoritative fact values.' } } },
         { type: 'object', additionalProperties: false, required: ['kind', 'key'], properties: { kind: { type: 'string', enum: ['fact'] }, key: { type: 'string', enum: Object.keys(facts) } } },
       ] } },
       serviceOptions: { type: 'array', maxItems: 3, items: { type: 'string' } },

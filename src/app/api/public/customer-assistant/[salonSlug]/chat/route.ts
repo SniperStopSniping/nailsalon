@@ -1,14 +1,18 @@
 import { customerChatRequestSchema } from '@/libs/customerAssistant/contracts';
 import { CUSTOMER_NO_STORE, isCustomerSameOrigin, readCustomerJson, resolveCustomerAssistantSalon } from '@/libs/customerAssistant/http.server';
+import { CustomerTurnTiming } from '@/libs/customerAssistant/timing';
 import { runCustomerAssistantTurn } from '@/libs/customerAssistant/turn.server';
 import { getPublicBookingClientIp } from '@/libs/publicBookingRateLimit.server';
 import type { SalonFeatures } from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-export const maxDuration = 30;
+// One model call plus bounded availability search and durable completion.
+export const maxDuration = 60;
 
 export async function POST(request: Request, context: { params: Promise<{ salonSlug: string }> }): Promise<Response> {
+  const started = performance.now();
+  const timing = new CustomerTurnTiming();
   const { salonSlug } = await context.params;
   const salon = await resolveCustomerAssistantSalon(salonSlug);
   if (!salon) {
@@ -21,7 +25,9 @@ export async function POST(request: Request, context: { params: Promise<{ salonS
   if (!body.success) {
     return new Response(null, { status: 400, headers: CUSTOMER_NO_STORE });
   }
+  timing.add('setup', performance.now() - started);
   const response = await runCustomerAssistantTurn({
+    timing,
     ...body.data,
     salonId: salon.id,
     salonSlug: salon.slug,
@@ -29,5 +35,6 @@ export async function POST(request: Request, context: { params: Promise<{ salonS
     features: salon.features as SalonFeatures | null,
     clientIp: getPublicBookingClientIp(request),
   });
-  return Response.json(response, { headers: CUSTOMER_NO_STORE });
+  timing.add('total', performance.now() - started);
+  return Response.json(response, { headers: { ...CUSTOMER_NO_STORE, 'Server-Timing': timing.header() } });
 }

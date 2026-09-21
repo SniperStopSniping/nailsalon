@@ -1,0 +1,221 @@
+{
+  "revision": "952dadc23bace8ff0f43e7158e1eef02efec39c8",
+  "generatedAt": "2026-09-21T17:29:10.554Z",
+  "scope": "real Terra interpreter only, exact baseline prompt/schema, synthetic menu; no database, catalogue query, quote, availability, booking, payment, messaging, or production salon data",
+  "limitations": [
+    "This measures the interpreter provider stage, not the sequential Luna reply-composition stage.",
+    "Synthetic resolver/availability timings must be measured separately.",
+    "Provider token usage is reported when returned; null is unknown, not zero."
+  ],
+  "summary": {
+    "samples": 20,
+    "completed": 20,
+    "p50Ms": 3602.894624999999,
+    "p95Ms": 9847.143041,
+    "maxMs": 11113.182166999999,
+    "reportedCostMicros": 97318,
+    "unknownUsage": 0
+  },
+  "observations": [
+    {
+      "id": "gelx-french-foreign-removal",
+      "latencyMs": 4027.418583,
+      "status": "completed",
+      "inputTokens": 4128,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 547,
+      "outputTokens": 261,
+      "costMicros": 5222
+    },
+    {
+      "id": "builder-gel-foreign-removal",
+      "latencyMs": 2917.288125,
+      "status": "completed",
+      "inputTokens": 4127,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 546,
+      "outputTokens": 211,
+      "costMicros": 4619
+    },
+    {
+      "id": "short-correction-replaces-long",
+      "latencyMs": 3277.2895000000008,
+      "status": "completed",
+      "inputTokens": 4117,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 536,
+      "outputTokens": 204,
+      "costMicros": 4510
+    },
+    {
+      "id": "french-follow-up",
+      "latencyMs": 3602.894624999999,
+      "status": "completed",
+      "inputTokens": 4118,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 537,
+      "outputTokens": 203,
+      "costMicros": 4501
+    },
+    {
+      "id": "current-selection-price-question",
+      "latencyMs": 9847.143041,
+      "status": "completed",
+      "inputTokens": 4117,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 536,
+      "outputTokens": 215,
+      "costMicros": 4642
+    },
+    {
+      "id": "current-selection-duration-question",
+      "latencyMs": 2897.765625,
+      "status": "completed",
+      "inputTokens": 4118,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 537,
+      "outputTokens": 202,
+      "costMicros": 4489
+    },
+    {
+      "id": "date-time-is-not-available",
+      "latencyMs": 5136.677333,
+      "status": "completed",
+      "inputTokens": 4117,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 536,
+      "outputTokens": 328,
+      "costMicros": 5998
+    },
+    {
+      "id": "later-time-is-not-available",
+      "latencyMs": 11113.182166999999,
+      "status": "completed",
+      "inputTokens": 4119,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 538,
+      "outputTokens": 220,
+      "costMicros": 4707
+    },
+    {
+      "id": "unsupported-acrylic",
+      "latencyMs": 2749.664875000002,
+      "status": "completed",
+      "inputTokens": 4117,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 536,
+      "outputTokens": 201,
+      "costMicros": 4474
+    },
+    {
+      "id": "unsupported-pedicure",
+      "latencyMs": 2660.1165000000037,
+      "status": "completed",
+      "inputTokens": 4119,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 538,
+      "outputTokens": 177,
+      "costMicros": 4191
+    },
+    {
+      "id": "invented-price-and-confirmation",
+      "latencyMs": 3527.6890829999975,
+      "status": "completed",
+      "inputTokens": 4128,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 547,
+      "outputTokens": 266,
+      "costMicros": 5282
+    },
+    {
+      "id": "other-tenant-injection",
+      "latencyMs": 2291.5925410000054,
+      "status": "completed",
+      "inputTokens": 4126,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 545,
+      "outputTokens": 177,
+      "costMicros": 4209
+    },
+    {
+      "id": "owner-calendar-injection",
+      "latencyMs": 2178.1630000000005,
+      "status": "completed",
+      "inputTokens": 4125,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 544,
+      "outputTokens": 177,
+      "costMicros": 4206
+    },
+    {
+      "id": "hidden-tool-injection-with-request",
+      "latencyMs": 4257.328750000001,
+      "status": "completed",
+      "inputTokens": 4129,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 548,
+      "outputTokens": 303,
+      "costMicros": 5728
+    },
+    {
+      "id": "second-length-option-follow-up",
+      "latencyMs": 3845.260792000001,
+      "status": "completed",
+      "inputTokens": 4116,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 535,
+      "outputTokens": 241,
+      "costMicros": 4952
+    },
+    {
+      "id": "ambiguous-manicure-service",
+      "latencyMs": 2766.856000000007,
+      "status": "completed",
+      "inputTokens": 4117,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 536,
+      "outputTokens": 191,
+      "costMicros": 4354
+    },
+    {
+      "id": "foreign-removal-without-service",
+      "latencyMs": 4854.2698339999915,
+      "status": "completed",
+      "inputTokens": 4120,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 539,
+      "outputTokens": 333,
+      "costMicros": 6066
+    },
+    {
+      "id": "accepted-saturday-afternoon",
+      "latencyMs": 4204.070083999992,
+      "status": "completed",
+      "inputTokens": 4117,
+      "cachedInputTokens": 4114,
+      "cacheWriteInputTokens": 0,
+      "outputTokens": 270,
+      "costMicros": 4069
+    },
+    {
+      "id": "friday-to-saturday-correction",
+      "latencyMs": 4796.464582999994,
+      "status": "completed",
+      "inputTokens": 4116,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 535,
+      "outputTokens": 320,
+      "costMicros": 5900
+    },
+    {
+      "id": "accepted-after-five",
+      "latencyMs": 3917.964000000007,
+      "status": "completed",
+      "inputTokens": 4119,
+      "cachedInputTokens": 3578,
+      "cacheWriteInputTokens": 538,
+      "outputTokens": 261,
+      "costMicros": 5199
+    }
+  ]
+}

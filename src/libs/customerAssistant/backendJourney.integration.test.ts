@@ -102,32 +102,34 @@ const model = vi.hoisted(() => ({ createResponse: vi.fn() }));
 function setProposalModelResponses(serviceId: string, addOns: Array<{ addOnId: string; quantity: number }> = []) {
   const usage = { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0 };
   model.createResponse.mockReset()
-    .mockResolvedValueOnce({
-      status: 'completed',
-      usage,
-      items: [{
-        type: 'message',
-        text: JSON.stringify({
-          factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: addOns.some(item => item.addOnId === L1_OPTIONAL) ? 'yes' : 'no', existingProduct: 'none', currentProductUncertain: false, origin: null, removal: 'no', repairCount: null, designPreference: addOns.some(item => item.addOnId === L1_OPTIONAL) ? 'selected' : 'plain' },
-          action: 'propose',
-          serviceId,
-          addOns,
-          question: 'details',
-          optionIds: [],
-          datePreference: null,
-        }),
-      }],
-    })
     .mockResolvedValue({
       status: 'completed',
       usage,
       items: [{
         type: 'message',
         text: JSON.stringify({
-          segments: [
-            { kind: 'text', text: 'I found a suitable choice.' },
-          ],
-          serviceOptions: [],
+          factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: addOns.some(item => item.addOnId === L1_OPTIONAL) ? 'yes' : 'no', existingProduct: 'none', currentProductUncertain: false, origin: null, removal: 'no', repairCount: null, designPreference: addOns.some(item => item.addOnId === L1_OPTIONAL) ? 'selected' : 'plain' },
+          lengthExplicitThisTurn: false,
+          selectionChangeExplicitThisTurn: true,
+          priceComparison: null,
+          action: 'propose',
+          timeDirection: 'none',
+          availabilityScope: 'next_available',
+          dateExplicitThisTurn: false,
+          timeWindowExplicitThisTurn: false,
+          availabilityAnchor: null,
+          answerTopic: null,
+          addOnUpdates: { add: [], remove: [] },
+          informationServiceIds: [],
+          serviceId,
+          addOns,
+          question: 'details',
+          optionIds: [],
+          datePreference: null,
+          reply: { segments: [{ kind: 'text', text: 'I found a suitable choice.' }], serviceOptions: [] },
+          unsupportedRequest: null,
+          unsupportedResolution: 'none',
+          suggestedAddOnIds: [],
         }),
       }],
     });
@@ -401,7 +403,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       durationMinutes: expected.durationMinutes,
       addOns: expect.arrayContaining(expected.addOnIds.map(id => expect.objectContaining({ id }))),
     });
-    expect(chatResult?.message).toContain('I found a suitable choice.');
+    expect(chatResult?.message).toBe('Here’s your appointment package at Synthetic Isla Browser Salon 💅');
 
     // Service/price/duration belong to the deterministic package card, not
     // a duplicate fact sentence in the conversational lead-in.
@@ -485,7 +487,14 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     expect(requests[0]?.intentId).toBe(reviewIntents.find(intent => intent.eventType === 'review_request')?.id);
     expect((await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, appointment.id)))[0]).toMatchObject({ status: 'confirmed', completedAt: null });
     expect(browserErrors).toEqual([]);
-    expect(model.createResponse).toHaveBeenCalledTimes(2);
+    expect(model.createResponse).toHaveBeenCalledTimes(1);
+    expect(model.createResponse).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gpt-5.6-terra',
+      tools: [],
+      toolChoice: 'none',
+      maxOutputTokens: 1800,
+      timeoutMs: 15_000,
+    }));
     expect(unexpected).toEqual([]);
 
     await page.close();

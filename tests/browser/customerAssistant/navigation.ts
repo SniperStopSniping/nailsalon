@@ -10,6 +10,10 @@ export function useParams(): { locale?: string; slug?: string } {
   return { locale: segments[0], slug: segments[1] };
 }
 
+export function usePathname(): string {
+  return useSyncExternalStore(subscribe, () => window.location.pathname, () => '/');
+}
+
 export function useSearchParams(): URLSearchParams {
   const search = useSyncExternalStore(subscribe, () => window.location.search, () => '');
   return new URLSearchParams(search);

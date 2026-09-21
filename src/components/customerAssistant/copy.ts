@@ -1,12 +1,18 @@
 import type { CustomerAssistantLocale } from '@/libs/customerAssistant/contracts';
 
+export type WelcomeAction = 'book' | 'prices' | 'consultation';
+
 type CustomerAssistantCopy = {
   launcher: string;
   title: string;
   close: string;
   continueManually: string;
   welcome: (salonName: string) => string;
-  welcomeQuickReplies: readonly string[];
+  welcomeActions: Record<WelcomeAction, string>;
+  welcomeConsultationPrompt: string;
+  pricesTitle: string;
+  pricesLoading: string;
+  pricesUnavailable: string;
   placeholder: string;
   changePlaceholder: string;
   answerPlaceholder: string;
@@ -40,7 +46,11 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     close: 'Close assistant',
     continueManually: 'Continue manually',
     welcome: salonName => `Hey! Welcome to ${salonName} 💅 I’m your AI receptionist. How can I help?`,
-    welcomeQuickReplies: ['Book an appointment', 'See prices', 'Help me choose'],
+    welcomeActions: { book: 'Book an appointment', prices: 'See prices', consultation: 'Help me choose' },
+    welcomeConsultationPrompt: 'What are you hoping for today — length, a fresh set, colour, or a design? I can help you narrow it down. 💅',
+    pricesTitle: 'Current service prices',
+    pricesLoading: 'Loading current prices…',
+    pricesUnavailable: 'I could not load the current prices just now. Please try again or use the booking menu.',
     placeholder: 'Tell me what you would like',
     changePlaceholder: 'Add or change anything…',
     answerPlaceholder: 'Type an answer or choose below',
@@ -101,7 +111,11 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     close: 'Fermer l’assistant',
     continueManually: 'Continuer manuellement',
     welcome: salonName => `Bonjour! Bienvenue chez ${salonName} 💅 Je suis votre réceptionniste IA. Comment puis-je vous aider?`,
-    welcomeQuickReplies: ['Réserver un rendez-vous', 'Voir les prix', 'M’aider à choisir'],
+    welcomeActions: { book: 'Réserver un rendez-vous', prices: 'Voir les prix', consultation: 'M’aider à choisir' },
+    welcomeConsultationPrompt: 'Que souhaitez-vous aujourd’hui — de la longueur, une nouvelle pose, une couleur ou un design? Je peux vous aider à choisir. 💅',
+    pricesTitle: 'Prix des services actuels',
+    pricesLoading: 'Chargement des prix actuels…',
+    pricesUnavailable: 'Je ne peux pas charger les prix actuels pour le moment. Réessayez ou utilisez le menu de réservation.',
     placeholder: 'Dites-moi ce que vous voulez',
     changePlaceholder: 'Ajoutez ou modifiez quelque chose…',
     answerPlaceholder: 'Répondez ou choisissez ci-dessous',

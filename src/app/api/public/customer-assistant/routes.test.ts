@@ -116,7 +116,17 @@ describe('customer assistant public routes', () => {
     const response = await chat(request({ conversation: 'signed', message: 'French', locale: 'en' }), context());
 
     expect(response.status).toBe(200);
-    expect(mocks.turn).toHaveBeenCalledWith({ salonId: 'salon-a', salonSlug: 'isla-nail-studio', salonName: 'Isla Nail Studio', features: null, conversation: 'signed', message: 'French', locale: 'en', clientIp: '192.0.2.5' });
+    expect(mocks.turn).toHaveBeenCalledWith({
+      timing: expect.any(Object),
+      salonId: 'salon-a',
+      salonSlug: 'isla-nail-studio',
+      salonName: 'Isla Nail Studio',
+      features: null,
+      conversation: 'signed',
+      message: 'French',
+      locale: 'en',
+      clientIp: '192.0.2.5',
+    });
   });
 
   it('passes a signed action and only the route-resolved salon to deterministic availability', async () => {
