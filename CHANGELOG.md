@@ -1,3 +1,11 @@
+## [1.126.6](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.5...v1.126.6) (2026-09-21)
+
+
+### Bug Fixes
+
+* **customer-ai:** give honest recovery for unverified business details ([6ee330d](https://github.com/SniperStopSniping/nailsalon/commit/6ee330df4210c3d9d279893aefef55521e76da93))
+* **customer-ai:** keep preference questions direct and natural ([e9e5006](https://github.com/SniperStopSniping/nailsalon/commit/e9e5006236d9fce714480cca891997eae174c89a))
+
 ## [1.126.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.4...v1.126.5) (2026-09-21)
 
 
