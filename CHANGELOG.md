@@ -1,3 +1,11 @@
+## [1.126.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.4...v1.126.5) (2026-09-21)
+
+
+### Bug Fixes
+
+* **customer-ai:** keep recovery guidance within catalogue input bound ([7f11eab](https://github.com/SniperStopSniping/nailsalon/commit/7f11eab3dd159a2c19ab786edb6561206a90c774))
+* **customer-ai:** resolve explicit pre-visit removal corrections ([36c6355](https://github.com/SniperStopSniping/nailsalon/commit/36c6355b5f49f1993aa9cf8375f61cc8ec7ed1de))
+
 ## [1.126.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.3...v1.126.4) (2026-09-20)
 
 
