@@ -1134,6 +1134,48 @@ describe('natural receptionist orchestration', () => {
   const reply = (segments: Array<{ kind: 'text'; text: string } | { kind: 'fact'; key: string }>, serviceOptions: string[] = []) => ({ segments, serviceOptions });
   const information = { ...interpretation, action: 'answer', answerTopic: 'price', informationServiceIds: ['gelx'], addOnUpdates: { add: [], remove: [] }, addOns: [], reply: reply([{ kind: 'fact', key: 'service_0_price' }]) };
 
+  it('continues an unsupported-treatment recommendation through price and explicit acceptance', async () => {
+    enablePublicFacts();
+    const unsupportedRequest = { kind: 'treatment' as const, label: 'Hard Gel Extensions' };
+    const prior = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret),
+      unsupportedRequest,
+      subjects: ['gelx'],
+      dialogue: [{ role: 'user', content: 'I want hard gel extensions' }, { role: 'assistant', content: 'We do not offer Hard Gel Extensions, but Gel-X can add length.' }],
+    }, secret);
+    const recommendation = provider({
+      ...interpretation,
+      action: 'no_match',
+      serviceId: null,
+      addOns: [],
+      answerTopic: 'recommendation',
+      informationServiceIds: ['gelx'],
+      unsupportedRequest,
+      selectionChangeExplicitThisTurn: false,
+      reply: reply([{ kind: 'fact', key: 'limitation' }, { kind: 'text', text: 'Gel-X can give you added length using soft gel tips. Would you like to explore that option?' }], ['gelx']),
+    });
+    const first = await runCustomerAssistantTurn({ ...input(), conversation: prior, message: 'What do you recommend?' }, recommendation);
+
+    expect(first.result).toMatchObject({ kind: 'answer', topic: 'recommendation', options: ['Gel-X'] });
+    expect(first.result.message).toContain('We don’t offer Hard Gel Extensions at Synthetic salon.');
+    expect(first.result.message).toContain('soft gel tips');
+    expect(recommendation.createResponse).toHaveBeenCalledTimes(1);
+    expect(verifyCustomerConversation(first.conversation, 'salon-a', secret).unsupportedRequest).toEqual(unsupportedRequest);
+    expect(mocks.proposal).not.toHaveBeenCalled();
+
+    const price = await runCustomerAssistantTurn({ ...input(), conversation: first.conversation, message: 'How much is Gel-X?' }, provider(information));
+
+    expect(price.result.message).toContain('$60.00');
+    expect(price.result.message).not.toContain('Hard Gel Extensions');
+    expect(verifyCustomerConversation(price.conversation, 'salon-a', secret).unsupportedRequest).toEqual(unsupportedRequest);
+
+    const accepted = await runCustomerAssistantTurn({ ...input(), conversation: price.conversation, message: 'Yes, Gel-X with French please.' }, provider({ ...interpretation, selectionChangeExplicitThisTurn: true, unsupportedResolution: 'accept_alternative' }));
+
+    expect(accepted.result.kind).toBe('proposal');
+    expect(verifyCustomerConversation(accepted.conversation, 'salon-a', secret).unsupportedRequest).toBeUndefined();
+    expect(mocks.lookup).not.toHaveBeenCalled();
+  });
+
   it.each(['gelx', 'pedicure'])('keeps service guidance optional, viable and identical to signed displayed choices: %s', async (option) => {
     const services = [{ id: 'biab', name: 'BIAB' }, { id: 'gelx', name: 'Gel-X' }, { id: 'pedicure', name: 'Pedicure' }];
     mocks.menu.mockResolvedValue({ services, addOns: [], bindings: [] });
