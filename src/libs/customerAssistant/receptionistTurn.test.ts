@@ -156,6 +156,22 @@ describe('one-call receptionist', () => {
     expect(result.usedModelReply).toBe(false);
   });
 
+  it.each(['recommendation', 'unsupported'] as const)('keeps authoritative service guidance when an optional upgrade is invalid: %s', (kind) => {
+    const nextState = { ...state, unsupportedRequest: { kind: 'treatment' as const, label: 'Hard gel' } };
+    const result = renderReceptionistTurn({ ...args, nextState, result: kind === 'recommendation' ? { kind: 'answer', topic: 'recommendation', message: '', options: [] } : args.result }, intent({ segments: [{ kind: 'text', text: 'This invented upgrade is included!' }], serviceOptions: ['foreign-service', 'fill', 'gelx'] }, { suggestedAddOnIds: ['foreign-addon'] }));
+
+    expect(result.usedModelReply).toBe(false);
+    expect(result.rejectionReason).toBe('CUSTOMER_REPLY_INCOMPATIBLE_UPSELL');
+    expect(result.message).toContain('Soft gel tips for added length.');
+    expect(result.message).not.toContain('invented upgrade');
+    expect(result.options).toEqual(['Gel-X Extensions']);
+    expect(nextState).not.toHaveProperty('requestedSelection');
+
+    if (kind === 'unsupported') {
+      expect(result.message).toContain('We don’t offer Hard gel at Synthetic Nail Studio.');
+    }
+  });
+
   it('uses the actual server clarification instead of a predicted question or success', () => {
     const result = renderReceptionistTurn({ ...args, result: { kind: 'clarification', question: 'product', options: [] } }, intent({ segments: [{ kind: 'text', text: 'All set! Which day?' }], serviceOptions: [] }));
 

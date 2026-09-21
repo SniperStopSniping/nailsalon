@@ -141,6 +141,23 @@ export function renderReceptionistTurn(args: ReplyInput, intent: ReceptionistTur
     const rejectionReason = error instanceof Error && /^CUSTOMER_REPLY_[A-Z_]+$/u.test(error.message)
       ? error.message
       : 'CUSTOMER_REPLY_INVALID';
+    // An invalid optional upgrade does not erase an otherwise valid service
+    // recommendation. Discard all candidate prose, and use only the current
+    // public description of a model-suggested, compatible service instead.
+    if (rejectionReason === 'CUSTOMER_REPLY_INCOMPATIBLE_UPSELL'
+      && (recovery || (args.result.kind === 'answer' && args.result.topic === 'recommendation'))) {
+      const service = intent.reply.serviceOptions
+        .map(id => args.menu.services.find(item => item.id === id))
+        .find(item => item && (!semanticCatalog.isRefill(item) || args.nextState.facts?.existingProduct === semanticCatalog.serviceFamily(item)));
+      const publicService = service && args.publicFacts.catalogue.services.find(item => item.id === service.id);
+      if (publicService) {
+        const description = publicService.description
+          ? `${publicService.name}: ${publicService.description}`
+          : args.locale === 'fr' ? `${publicService.name} figure au menu de ${args.publicFacts.salon.name}.` : `${publicService.name} is on ${args.publicFacts.salon.name}’s menu.`;
+        const question = args.locale === 'fr' ? 'Souhaitez-vous explorer cette option ?' : 'Would you like to explore that option?';
+        return { message: [recovery ? facts.limitation : '', description, question].filter(Boolean).join(' '), options: [publicService.name], usedModelReply: false, rejectionReason };
+      }
+    }
     return { ...fallback(), rejectionReason };
   }
 }
