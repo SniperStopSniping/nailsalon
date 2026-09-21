@@ -60,7 +60,7 @@ export const patchJSONSchema = {
     desiredApplication: {
       type: ['string', 'null'],
       enum: ['natural_nails', 'extensions', 'unknown', null],
-      description: 'The requested result: natural-nail overlay or added extensions. It is distinct from existingProduct, which records only what is currently on the customer’s nails.',
+      description: 'The requested result: natural-nail overlay or added extensions. It is distinct from existingProduct, which records the appointment starting condition, including an explicitly confirmed pre-visit removal.',
     },
     maintenance: { type: ['string', 'null'], enum: ['new_set', 'refill', 'unknown', null] },
     length: { type: ['string', 'null'], enum: ['short', 'medium', 'long', 'extra_long', 'unknown', null] },
