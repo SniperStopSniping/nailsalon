@@ -4,7 +4,8 @@ import { getClientProfileBookingRisk } from './clientProfileBookingRisk.server';
 
 const {
   getAdminSession,
-  getNetworkNoShowParticipation,
+  isNetworkNoShowPlatformActive,
+  isNetworkNoShowPlatformActiveInTx,
   readNetworkNoShowRisk,
   db,
   selectResults,
@@ -31,7 +32,8 @@ const {
   };
   return {
     getAdminSession: vi.fn(),
-    getNetworkNoShowParticipation: vi.fn(),
+    isNetworkNoShowPlatformActive: vi.fn(),
+    isNetworkNoShowPlatformActiveInTx: vi.fn(),
     readNetworkNoShowRisk: vi.fn(),
     db: { transaction: vi.fn(async (callback: (handle: typeof tx) => unknown) => callback(tx)) },
     selectResults,
@@ -42,7 +44,8 @@ const {
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/adminAuth', () => ({ getAdminSession }));
 vi.mock('@/libs/networkNoShow.server', () => ({
-  getNetworkNoShowParticipation,
+  isNetworkNoShowPlatformActive,
+  isNetworkNoShowPlatformActiveInTx,
   readNetworkNoShowRisk,
 }));
 vi.mock('@/libs/DB', () => ({ db }));
@@ -60,7 +63,8 @@ describe('getClientProfileBookingRisk', () => {
     vi.clearAllMocks();
     selectResults.length = 0;
     vi.stubEnv('NETWORK_NO_SHOW_ENABLED', 'true');
-    getNetworkNoShowParticipation.mockResolvedValue(true);
+    isNetworkNoShowPlatformActive.mockResolvedValue(true);
+    isNetworkNoShowPlatformActiveInTx.mockResolvedValue(true);
     getAdminSession.mockResolvedValue({ id: 'admin_a' });
     readNetworkNoShowRisk.mockResolvedValue({
       state: 'available',
@@ -69,14 +73,45 @@ describe('getClientProfileBookingRisk', () => {
     });
   });
 
-  it('stays dark without reading participation, identity evidence, or risk data', async () => {
+  it('stays dark without reading identity evidence or risk data', async () => {
     vi.stubEnv('NETWORK_NO_SHOW_ENABLED', 'false');
 
     await expect(getClientProfileBookingRisk(args)).resolves.toBeUndefined();
 
-    expect(getNetworkNoShowParticipation).not.toHaveBeenCalled();
     expect(getAdminSession).not.toHaveBeenCalled();
     expect(db.transaction).not.toHaveBeenCalled();
+    expect(readNetworkNoShowRisk).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['before authentication', false, true],
+    ['at transaction entry', true, false],
+  ])('returns dark while the platform is disabled %s', async (_stage, beforeAuth, inTx) => {
+    isNetworkNoShowPlatformActive.mockResolvedValue(beforeAuth);
+    isNetworkNoShowPlatformActiveInTx.mockResolvedValue(inTx);
+
+    await expect(getClientProfileBookingRisk(args)).resolves.toBeUndefined();
+
+    expect(readNetworkNoShowRisk).not.toHaveBeenCalled();
+    expect(tx.insert).not.toHaveBeenCalled();
+
+    if (!beforeAuth) {
+      expect(getAdminSession).not.toHaveBeenCalled();
+      expect(db.transaction).not.toHaveBeenCalled();
+    }
+  });
+
+  it('keeps a disabled platform dark before unbound-client and exhausted-budget branches', async () => {
+    isNetworkNoShowPlatformActive.mockResolvedValue(false);
+    selectResults.push(
+      [{ tenant: 120, actor: 60 }],
+      [],
+    );
+
+    await expect(getClientProfileBookingRisk(args)).resolves.toBeUndefined();
+
+    expect(tx.select).not.toHaveBeenCalled();
+    expect(tx.insert).not.toHaveBeenCalled();
     expect(readNetworkNoShowRisk).not.toHaveBeenCalled();
   });
 

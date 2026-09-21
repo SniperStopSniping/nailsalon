@@ -450,6 +450,7 @@ jobs:
               migrations/0085_calendar_intraday_blocks.sql) ;;
               migrations/0086_next_visit_offer.sql) ;;
               migrations/0087_network_no_show_protection.sql) ;;
+              migrations/0088_network_no_show_platform_control.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -458,6 +459,7 @@ jobs:
               migrations/meta/0085_snapshot.json) ;;
               migrations/meta/0086_snapshot.json) ;;
               migrations/meta/0087_snapshot.json) ;;
+              migrations/meta/0088_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -630,6 +632,42 @@ jobs:
             exit 1
           fi
 
+          # 0088 is a reviewed two-artifact migration packet. It may be
+          # introduced once, with these exact SQL and snapshot postimages; once
+          # main contains either artifact, both are immutable.
+          if ! git diff --quiet "$base" -- migrations/0088_network_no_show_platform_control.sql migrations/meta/0088_snapshot.json; then
+            if git cat-file -e "$base:migrations/0088_network_no_show_platform_control.sql" 2>/dev/null \
+              || git cat-file -e "$base:migrations/meta/0088_snapshot.json" 2>/dev/null; then
+              echo "::error::Migration 0088 and its snapshot are already shipped and immutable."
+              exit 1
+            fi
+            migration_0088_sql_status="$(git diff --name-status "$base" -- migrations/0088_network_no_show_platform_control.sql)"
+            migration_0088_snapshot_status="$(git diff --name-status "$base" -- migrations/meta/0088_snapshot.json)"
+            if [ "$migration_0088_sql_status" != $'A\tmigrations/0088_network_no_show_platform_control.sql' ] \
+              || [ "$migration_0088_snapshot_status" != $'A\tmigrations/meta/0088_snapshot.json' ]; then
+              echo "::error::Migration 0088 must introduce exactly one SQL file and one snapshot."
+              printf 'SQL status: %s\nSnapshot status: %s\n' "$migration_0088_sql_status" "$migration_0088_snapshot_status"
+              exit 1
+            fi
+            migration_0088_sql_sha256="$(sha256sum migrations/0088_network_no_show_platform_control.sql | awk '{print $1}')"
+            migration_0088_snapshot_sha256="$(sha256sum migrations/meta/0088_snapshot.json | awk '{print $1}')"
+            if [ "$migration_0088_sql_sha256" != "31f603540465fa4fa48b6a5aa925fea143b7f037ca6f0bda5031d9a5327d1f74" ] \
+              || [ "$migration_0088_snapshot_sha256" != "7e50bd50f27afa6607d1820a69ae59b923acd15355c99000e057d6f371c1e576" ]; then
+              echo "::error::Migration 0088 artifacts do not match the reviewed network no-show platform control postimage."
+              printf 'SQL SHA256: %s\nSnapshot SHA256: %s\n' "$migration_0088_sql_sha256" "$migration_0088_snapshot_sha256"
+              exit 1
+            fi
+          fi
+
+          # Check even on journal-only changes: missing or duplicate 0088 entries
+          # must never pass the general append-only tag allowlist.
+          expected_0088_journal='{"breakpoints":true,"idx":87,"tag":"0088_network_no_show_platform_control","version":"7","when":1790000634652}'
+          actual_0088_journal="$(jq -cS '.entries[] | select(.tag == "0088_network_no_show_platform_control")' migrations/meta/_journal.json)"
+          if [ "$actual_0088_journal" != "$expected_0088_journal" ]; then
+            echo "::error::Migration 0088 journal entry does not match the reviewed postimage."
+            exit 1
+          fi
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -685,6 +723,7 @@ jobs:
               0085_calendar_intraday_blocks) ;;
               0086_next_visit_offer) ;;
               0087_network_no_show_protection) ;;
+              0088_network_no_show_platform_control) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1

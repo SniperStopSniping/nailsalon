@@ -6,7 +6,11 @@ import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 
 import { getAdminSession } from '@/libs/adminAuth';
 import { readNoShowProtection } from '@/libs/networkNoShow';
-import { getNetworkNoShowParticipation, readNetworkNoShowRisk } from '@/libs/networkNoShow.server';
+import {
+  isNetworkNoShowPlatformActive,
+  isNetworkNoShowPlatformActiveInTx,
+  readNetworkNoShowRisk,
+} from '@/libs/networkNoShow.server';
 import { normalizePhone } from '@/libs/phone';
 import { appointmentSchema, networkNoShowAuditSchema, networkNoShowBookingBindingSchema } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
@@ -23,7 +27,10 @@ export async function getClientProfileBookingRisk(args: {
     return undefined;
   }
   try {
-    if (!await getNetworkNoShowParticipation(args.salonId)) {
+    // The platform control is a global dark gate. Check it before any client
+    // profile authorization, audit, or local-evidence work so disabled means
+    // absent rather than a misleading unavailable result.
+    if (!await isNetworkNoShowPlatformActive()) {
       return undefined;
     }
     const actor = await getAdminSession();
@@ -32,6 +39,11 @@ export async function getClientProfileBookingRisk(args: {
     }
     const { db } = await import('@/libs/DB');
     return await db.transaction(async (tx) => {
+      // Serialize this read with a concurrent platform disable before the
+      // profile audit budget or relationship query can make a visible result.
+      if (!await isNetworkNoShowPlatformActiveInTx(tx)) {
+        return undefined;
+      }
       // Database-scoped budget works across application instances. The key is tenant-local.
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`network-profile:${args.salonId}`}, 0))`);
       const [usage] = await tx.select({

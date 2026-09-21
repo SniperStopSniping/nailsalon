@@ -4,23 +4,27 @@
 
 This implementation is dark by default. It does not enroll salons, backfill
 appointments, enable deposits, generate a key, or modify real customers.
-`NETWORK_NO_SHOW_ENABLED` must be exactly `true` AND a salon must have an active
-`network_no_show_participation` row. The owner cannot change participation.
+`NETWORK_NO_SHOW_ENABLED` must be exactly `true` AND the singleton
+`network_no_show_platform_control` row must have an explicit durable activation
+epoch. All salons are automatically in scope once the platform is active; there
+is no per-salon participation setting or enrollment control.
 The dedicated `NETWORK_NO_SHOW_HMAC_KEY` must contain at least 32 characters.
 Keep it server-only. Rotating it requires an explicit binding migration; never
 silently generate a replacement at startup.
 
-Apply migration `0087_network_no_show_protection` through the repository's guarded
+Apply migrations `0087_network_no_show_protection` and
+`0088_network_no_show_platform_control` through the repository's guarded
 database workflow before activation. Production still requires its documented
 backup/confirmation controls. Do not apply this migration by sending SQL through
 an application API. No historical source appointments are eligible: registration
-happens only in a new public/customer booking transaction, after participation's
+happens only in a new public/customer booking transaction, after the platform's
 prospective timestamp, with an appointment created before its scheduled start.
 Owner/staff-created bookings remain outside automatic collection/publication.
 
 ## Product contract
 
-Participating salons automatically see a compact Booking Risk card when an
+All salons automatically see a compact Booking Risk card when the platform is
+active and an
 eligible contact pair has active history. There is no owner warning-off switch.
 The sole owner control, under Payments > Deposits > No-show protection, is:
 
@@ -74,7 +78,7 @@ system attribution as an identified human correction.
 `POST /api/super-admin/network-no-show` requires the existing super-admin guard.
 Requests are strict, rate limited and no-store. There is no contact-search or
 bulk-import action. `mode` defaults to `plan`; `apply` must be explicit. Plan reads
-produce audit evidence but do not change participation, bindings or events.
+produce audit evidence but do not change platform control, bindings or events.
 
 Request shape:
 
@@ -85,10 +89,10 @@ Request shape:
 Actions:
 
 - `inspect`: minimal internal state, scoped by salon and optional appointment.
-- `enroll_salon`: platform gate/key required. Uses server time for the prospective
-  boundary; cannot backdate. Repeating an active enrollment preserves its epoch.
-- `disable_salon`: stops participation, revokes source events and suppresses
-  bindings; reenrollment cannot revive the old source history.
+- `enable_platform`: platform gate/key required. Its first activation writes the
+  durable prospective epoch; it cannot backdate. Repeating enable preserves it.
+- `disable_platform`: global kill switch. It stops serving/exposure without
+  rewriting source history; re-enable preserves the original eligibility date.
 - `suppress_event`: accuracy dispute, using the tenant-qualified source appointment.
 - `suppress_subject`: conflicting/shared/recycled identity; suppresses the pair.
 - `erase_subject`: removes bindings/events and retains a non-serving HMAC tombstone
@@ -104,7 +108,7 @@ Actions:
 No cleanup schedule or external automation is installed. Establish and verify an
 operational cleanup cadence, tombstone/audit retention policy, customer access
 and dispute process, participation terms and customer disclosure before enabling
-a real cohort. These are activation requirements, not OTP infrastructure.
+the network in Production. These are activation requirements, not OTP infrastructure.
 
 A dispute may suppress sharing immediately while existing deposit forfeiture or
 refund reconciliation proceeds independently. Never erase financial records to
@@ -118,9 +122,9 @@ smoke test. Validate exact-pair collisions, 1 -> 2 -> corrected 1 -> expired 0,
 dark-mode correction, wrong-tenant reads, no public source leakage, duplicate
 status delivery, suppression/erasure concurrency, deposit review and idempotency.
 
-Ship dark; validate isolated Isla/synthetic fixtures; enroll an explicitly
-approved warning-only cohort; then enable optional owner-selected enforcement;
-expand beta only after correction, privacy and payment evidence is reviewed.
+Ship dark and validate rollout stages using isolated synthetic fixtures before
+Production activation. An explicitly approved platform-wide warning launch
+automatically includes every salon; owners may then choose deposit enforcement.
 Turning off the platform gate stops exposure/publication/enforcement. Existing
 holds, payments, refunds and unconditional source-revocation triggers remain in
 force. No deployment alone activates the network.

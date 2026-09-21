@@ -5338,14 +5338,15 @@ export const reviewRequestSchema = pgTable('review_request', {
 // It never stores a source salon's private appointment content in the receiving
 // salon's read model. The only identifier used for V1 matching is an HMAC of the
 // exact normalized phone + email pair; raw contact details never enter these rows.
-export const networkNoShowParticipationSchema = pgTable('network_no_show_participation', {
-  salonId: text('salon_id').primaryKey().references(() => salonSchema.id, { onDelete: 'cascade' }),
-  enabledAt: timestamp('enabled_at', { mode: 'date', withTimezone: true }).notNull(),
-  disabledAt: timestamp('disabled_at', { mode: 'date', withTimezone: true }),
-  prospectiveAfter: timestamp('prospective_after', { mode: 'date', withTimezone: true }).notNull(),
+export const networkNoShowPlatformControlSchema = pgTable('network_no_show_platform_control', {
+  id: integer('id').primaryKey().default(1),
+  enabledAt: timestamp('enabled_at', { mode: 'date', withTimezone: true }),
+  prospectiveAfter: timestamp('prospective_after', { mode: 'date', withTimezone: true }),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, table => ({
+  singleton: check('network_no_show_platform_control_singleton', sql`${table.id} = 1`),
+}));
 
 export const networkNoShowSubjectSchema = pgTable('network_no_show_subject', {
   id: text('id').primaryKey(),

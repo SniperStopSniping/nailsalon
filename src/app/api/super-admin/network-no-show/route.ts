@@ -4,19 +4,19 @@ import { z } from 'zod';
 import { requireSuperAdmin } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import {
-  disableNetworkNoShowSalonInTx,
+  disableNetworkNoShowPlatformInTx,
   eraseNetworkNoShowSubjectInTx,
   suppressNetworkNoShowEventInTx,
   suppressNetworkNoShowSubjectInTx,
 } from '@/libs/networkNoShow.server';
 import { checkEndpointRateLimit, rateLimitResponse } from '@/libs/rateLimit';
-import { networkNoShowAuditSchema, networkNoShowBookingBindingSchema, networkNoShowEventSchema, networkNoShowParticipationSchema, networkNoShowSubjectSchema, salonSchema } from '@/models/Schema';
+import { networkNoShowAuditSchema, networkNoShowBookingBindingSchema, networkNoShowEventSchema, networkNoShowPlatformControlSchema, networkNoShowSubjectSchema, salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
 const requestSchema = z.object({
-  action: z.enum(['inspect', 'cleanup_salon', 'enroll_salon', 'disable_salon', 'suppress_event', 'suppress_subject', 'erase_subject']),
-  salonId: z.string().min(1).max(200),
+  action: z.enum(['inspect', 'cleanup_salon', 'enable_platform', 'disable_platform', 'suppress_event', 'suppress_subject', 'erase_subject']),
+  salonId: z.string().min(1).max(200).optional(),
   appointmentId: z.string().min(1).max(200).optional(),
   mode: z.enum(['plan', 'apply']).default('plan'),
 }).strict();
@@ -37,32 +37,44 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'INVALID_REQUEST' }, { status: 400, headers });
   }
   const { action, salonId, appointmentId, mode } = parsed.data;
+  if (!salonId && !['enable_platform', 'disable_platform'].includes(action)) {
+    return Response.json({ error: 'SALON_REQUIRED' }, { status: 400, headers });
+  }
+  if (['enable_platform', 'disable_platform'].includes(action) && (salonId || appointmentId)) {
+    return Response.json({ error: 'PLATFORM_ACTION_SCOPE_INVALID' }, { status: 400, headers });
+  }
   if (['suppress_event', 'suppress_subject', 'erase_subject'].includes(action) && !appointmentId) {
     return Response.json({ error: 'APPOINTMENT_REQUIRED' }, { status: 400, headers });
   }
-  if (action === 'enroll_salon' && (process.env.NETWORK_NO_SHOW_ENABLED !== 'true' || (process.env.NETWORK_NO_SHOW_HMAC_KEY?.length ?? 0) < 32)) {
+  if (action === 'enable_platform' && (process.env.NETWORK_NO_SHOW_ENABLED !== 'true' || (process.env.NETWORK_NO_SHOW_HMAC_KEY?.length ?? 0) < 32)) {
     return Response.json({ error: 'PLATFORM_NOT_READY' }, { status: 409, headers });
   }
   try {
     const result = await db.transaction(async (tx) => {
-      const [salon] = await tx.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.id, salonId)).for('no key update').limit(1);
-      if (!salon) {
+      const [salon] = salonId ? await tx.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.id, salonId)).for('no key update').limit(1) : [undefined];
+      if (salonId && !salon) {
         return null;
       }
-      const [participation] = await tx.select().from(networkNoShowParticipationSchema).where(eq(networkNoShowParticipationSchema.salonId, salonId)).limit(1);
-      const [binding] = appointmentId ? await tx.select().from(networkNoShowBookingBindingSchema).where(and(eq(networkNoShowBookingBindingSchema.salonId, salonId), eq(networkNoShowBookingBindingSchema.appointmentId, appointmentId))).limit(1) : [];
-      const [event] = appointmentId ? await tx.select().from(networkNoShowEventSchema).where(and(eq(networkNoShowEventSchema.salonId, salonId), eq(networkNoShowEventSchema.appointmentId, appointmentId))).limit(1) : [];
+      const [platformControl] = await tx.select().from(networkNoShowPlatformControlSchema).where(eq(networkNoShowPlatformControlSchema.id, 1)).limit(1);
+      const [binding] = appointmentId && salonId ? await tx.select().from(networkNoShowBookingBindingSchema).where(and(eq(networkNoShowBookingBindingSchema.salonId, salonId), eq(networkNoShowBookingBindingSchema.appointmentId, appointmentId))).limit(1) : [];
+      const [event] = appointmentId && salonId ? await tx.select().from(networkNoShowEventSchema).where(and(eq(networkNoShowEventSchema.salonId, salonId), eq(networkNoShowEventSchema.appointmentId, appointmentId))).limit(1) : [];
       if ((action === 'suppress_event' && !event) || (['suppress_subject', 'erase_subject'].includes(action) && !binding?.subjectId)) {
         return null;
       }
       const now = new Date();
       if (mode === 'apply') {
-        if (action === 'enroll_salon' && (!participation || participation.disabledAt)) {
-          await tx.insert(networkNoShowParticipationSchema).values({ salonId, enabledAt: now, prospectiveAfter: now })
-            .onConflictDoUpdate({ target: networkNoShowParticipationSchema.salonId, set: { enabledAt: now, prospectiveAfter: now, disabledAt: null, updatedAt: now } });
-        } else if (action === 'disable_salon') {
-          await disableNetworkNoShowSalonInTx(tx, { salonId, operatorId: guard.admin.id, now });
-        } else if (action === 'cleanup_salon') {
+        if (action === 'enable_platform' && !platformControl?.enabledAt) {
+          await tx.insert(networkNoShowPlatformControlSchema).values({ id: 1, enabledAt: now, prospectiveAfter: now })
+            .onConflictDoUpdate({ target: networkNoShowPlatformControlSchema.id, set: {
+              enabledAt: now,
+              // The first activation epoch is immutable. Disable is a serving
+              // kill switch; re-enable preserves the original eligibility date.
+              prospectiveAfter: sql`coalesce(${networkNoShowPlatformControlSchema.prospectiveAfter}, ${now})`,
+              updatedAt: now,
+            } });
+        } else if (action === 'disable_platform') {
+          await disableNetworkNoShowPlatformInTx(tx, { operatorId: guard.admin.id, now });
+        } else if (action === 'cleanup_salon' && salonId) {
           const graceCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
           // The source uniqueness fence remains in the binding until its own
           // occurrence is too old to enter the 12-month window again.
@@ -91,9 +103,9 @@ export async function POST(request: Request): Promise<Response> {
           await eraseNetworkNoShowSubjectInTx(tx, { subjectId: binding.subjectId, operatorId: guard.admin.id, now });
         }
       }
-      await tx.insert(networkNoShowAuditSchema).values({ id: crypto.randomUUID(), salonId, actorId: guard.admin.id, actorRole: 'operator', action: `${mode}:${action}:${appointmentId ?? salonId}` });
+      await tx.insert(networkNoShowAuditSchema).values({ id: crypto.randomUUID(), salonId: action.endsWith('_platform') ? null : salonId, actorId: guard.admin.id, actorRole: 'operator', action: `${mode}:${action}:${appointmentId ?? salonId ?? 'platform'}` });
       const [subject] = binding?.subjectId ? await tx.select({ state: networkNoShowSubjectSchema.state }).from(networkNoShowSubjectSchema).where(eq(networkNoShowSubjectSchema.id, binding.subjectId)).limit(1) : [];
-      return { mode, action, applied: mode === 'apply' && action !== 'inspect', before: { participating: Boolean(participation && !participation.disabledAt), bindingState: binding?.state ?? null, eventState: event?.state ?? null }, subjectState: subject?.state ?? null };
+      return { mode, action, applied: mode === 'apply' && action !== 'inspect', before: { platformActive: Boolean(platformControl?.enabledAt), bindingState: binding?.state ?? null, eventState: event?.state ?? null }, subjectState: subject?.state ?? null };
     });
     return Response.json(result ?? { error: 'NOT_FOUND' }, { status: result ? 200 : 404, headers });
   } catch {

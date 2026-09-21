@@ -45,10 +45,13 @@ afterAll(async () => client.close());
 
 async function participant(salonId: string) {
   await db.insert(schema.salonSchema).values({ id: salonId, slug: salonId, name: salonId });
-  await db.insert(schema.networkNoShowParticipationSchema).values({
-    salonId,
+  await db.insert(schema.networkNoShowPlatformControlSchema).values({
+    id: 1,
     enabledAt: new Date('2030-01-01T00:00:00.000Z'),
     prospectiveAfter: new Date('2030-01-01T00:00:00.000Z'),
+  }).onConflictDoUpdate({
+    target: schema.networkNoShowPlatformControlSchema.id,
+    set: { enabledAt: new Date('2030-01-01T00:00:00.000Z'), prospectiveAfter: new Date('2030-01-01T00:00:00.000Z') },
   });
 }
 
@@ -138,9 +141,9 @@ describe('network no-show storage', () => {
 
     const guestEntry = await booking({ salonId: source, status: 'no_show' });
     await db.transaction(tx => recordNetworkNoShowInTx(tx, { salonId: source, appointmentId: guestEntry.id, actorId: 'owner-1', actorRole: 'owner', now }));
-    await db.update(schema.networkNoShowParticipationSchema).set({ disabledAt: now }).where(eq(schema.networkNoShowParticipationSchema.salonId, source));
+    await db.update(schema.networkNoShowPlatformControlSchema).set({ enabledAt: null }).where(eq(schema.networkNoShowPlatformControlSchema.id, 1));
 
-    await expect(readNetworkNoShowRisk({ salonId: receiver, phone: guestEntry.phone, email: guestEntry.email })).resolves.toEqual({ state: 'available', activeNoShowCount: 0, windowMonths: 12 });
+    await expect(readNetworkNoShowRisk({ salonId: receiver, phone: guestEntry.phone, email: guestEntry.email })).resolves.toEqual({ state: 'inactive' });
   });
 
   it('suppresses a binding when a projected appointment is rescheduled', async () => {
@@ -231,7 +234,7 @@ describe('network no-show storage', () => {
 
     await expect(readNetworkNoShowRisk({ salonId: receiver, phone: early.phone, email: early.email, now })).resolves.toEqual({ state: 'available', activeNoShowCount: 0, windowMonths: 12 });
 
-    await db.update(schema.networkNoShowParticipationSchema).set({ prospectiveAfter: now }).where(eq(schema.networkNoShowParticipationSchema.salonId, source));
+    await db.update(schema.networkNoShowPlatformControlSchema).set({ prospectiveAfter: now }).where(eq(schema.networkNoShowPlatformControlSchema.id, 1));
     const old = await booking({ salonId: source, status: 'no_show' });
     await db.transaction(tx => recordNetworkNoShowInTx(tx, {
       salonId: source,

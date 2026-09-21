@@ -36,7 +36,7 @@ const {
   getSalonBySlug,
   refreshAccountReadiness,
   getDepositPolicyForSalon,
-  getNetworkNoShowParticipation,
+  isNetworkNoShowPlatformActive,
   checkEndpointRateLimit,
   rateLimitResponse,
   updatedRows,
@@ -72,7 +72,7 @@ const {
       readinessStale: false,
       readinessAgeMs: null,
     })),
-    getNetworkNoShowParticipation: vi.fn(async () => false),
+    isNetworkNoShowPlatformActive: vi.fn(async () => false),
     checkEndpointRateLimit: vi.fn(() => ({ allowed: true })),
     rateLimitResponse: vi.fn(),
     updatedRows,
@@ -166,7 +166,7 @@ vi.mock('@/libs/depositPolicy.server', () => ({
 }));
 
 vi.mock('@/libs/networkNoShow.server', () => ({
-  getNetworkNoShowParticipation,
+  isNetworkNoShowPlatformActive,
 }));
 
 vi.mock('@/libs/rateLimit', () => ({
@@ -3878,7 +3878,7 @@ describe('/api/admin/salon/settings deposits', () => {
       readinessStale: false,
       readinessAgeMs: null,
     });
-    getNetworkNoShowParticipation.mockResolvedValue(false);
+    isNetworkNoShowPlatformActive.mockResolvedValue(false);
     updatedRows.push({ ...baseSalon });
   });
 
@@ -3893,8 +3893,8 @@ describe('/api/admin/salon/settings deposits', () => {
       expect(db.update).not.toHaveBeenCalled();
     });
 
-    it('accepts warning-only protection for a participating salon', async () => {
-      getNetworkNoShowParticipation.mockResolvedValue(true);
+    it('accepts warning-only protection while the platform feature is active', async () => {
+      isNetworkNoShowPlatformActive.mockResolvedValue(true);
 
       const response = await patch({
         payments: { deposit: { noShowProtection: 'warn_only' } },
@@ -3906,7 +3906,7 @@ describe('/api/admin/salon/settings deposits', () => {
     });
 
     it('accepts no hide or off setting outside the three protection consequences', async () => {
-      getNetworkNoShowParticipation.mockResolvedValue(true);
+      isNetworkNoShowPlatformActive.mockResolvedValue(true);
 
       const response = await patch({
         payments: { deposit: { noShowProtection: 'off' } },
@@ -3917,7 +3917,7 @@ describe('/api/admin/salon/settings deposits', () => {
     });
 
     it('requires an existing amount before changing to deposit enforcement', async () => {
-      getNetworkNoShowParticipation.mockResolvedValue(true);
+      isNetworkNoShowPlatformActive.mockResolvedValue(true);
 
       const response = await patch({
         payments: { deposit: { noShowProtection: 'deposit_1' } },
@@ -3930,7 +3930,7 @@ describe('/api/admin/salon/settings deposits', () => {
     });
 
     it('requires deposit entitlement and a charge-ready account before deposit enforcement', async () => {
-      getNetworkNoShowParticipation.mockResolvedValue(true);
+      isNetworkNoShowPlatformActive.mockResolvedValue(true);
       getSalonBySlug.mockResolvedValue({
         ...baseSalon,
         features: { money: { deposits: false } },
@@ -3946,7 +3946,7 @@ describe('/api/admin/salon/settings deposits', () => {
       expect(refreshAccountReadiness).not.toHaveBeenCalled();
 
       vi.clearAllMocks();
-      getNetworkNoShowParticipation.mockResolvedValue(true);
+      isNetworkNoShowPlatformActive.mockResolvedValue(true);
       requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
       getSalonBySlug.mockResolvedValue({
         ...baseSalon,
@@ -3968,7 +3968,7 @@ describe('/api/admin/salon/settings deposits', () => {
     });
 
     it('does not turn ordinary deposits on when enabling risk-only enforcement', async () => {
-      getNetworkNoShowParticipation.mockResolvedValue(true);
+      isNetworkNoShowPlatformActive.mockResolvedValue(true);
       getSalonBySlug.mockResolvedValue({
         ...baseSalon,
         settings: { payments: { deposit: { enabled: false, amountCents: 2500 } } },
@@ -3987,7 +3987,7 @@ describe('/api/admin/salon/settings deposits', () => {
     });
 
     it('refuses a stale protection save so it cannot restore enforcement after Warn only', async () => {
-      getNetworkNoShowParticipation.mockResolvedValue(true);
+      isNetworkNoShowPlatformActive.mockResolvedValue(true);
       getSalonBySlug.mockResolvedValue({
         ...baseSalon,
         settings: {

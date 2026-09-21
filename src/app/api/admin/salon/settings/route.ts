@@ -47,7 +47,7 @@ import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements'
 import { getSalonSmsReadiness } from '@/libs/integrationHealth';
 import { getDefaultLoyaltyPoints, resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { readNoShowProtection } from '@/libs/networkNoShow';
-import { getNetworkNoShowParticipation } from '@/libs/networkNoShow.server';
+import { isNetworkNoShowPlatformActive } from '@/libs/networkNoShow.server';
 import { getSalonBySlug } from '@/libs/queries';
 import { checkEndpointRateLimit, rateLimitResponse } from '@/libs/rateLimit';
 import {
@@ -274,7 +274,7 @@ export async function GET(request: Request): Promise<Response> {
       collectionLive: true,
       entitled: true,
     });
-    const networkActive = await getNetworkNoShowParticipation(salon.id);
+    const networkActive = await isNetworkNoShowPlatformActive();
     const networkCanCollect = networkActive
       ? await getDepositPolicyForSalon({ salonId: salon.id, salon, networkRiskRequired: true })
       : null;
@@ -709,7 +709,7 @@ export async function PATCH(request: Request): Promise<Response> {
     const storedDeposit = readStoredDepositSettings(currentSettings);
     const depositRequested = updates.payments?.deposit !== undefined;
     const requestedProtection = updates.payments?.deposit?.noShowProtection;
-    if (requestedProtection !== undefined && !await getNetworkNoShowParticipation(salon.id)) {
+    if (requestedProtection !== undefined && !await isNetworkNoShowPlatformActive()) {
       return Response.json({ error: 'NETWORK_NO_SHOW_INACTIVE' }, { status: 409 });
     }
     let mergedPayments: ReturnType<typeof mergePaymentsSettings> | null = null;
@@ -1420,7 +1420,7 @@ export async function PATCH(request: Request): Promise<Response> {
       rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
       bookingConfig,
       ...(depositCopyWarning ? { depositCopyWarning } : {}),
-      networkNoShow: { active: await getNetworkNoShowParticipation(updatedSalon.id), protection: readNoShowProtection(updatedSalon.settings as SalonSettings), canRequireDeposit: process.env.NETWORK_NO_SHOW_ENABLED === 'true' && (await getDepositPolicyForSalon({ salonId: updatedSalon.id, salon: updatedSalon, networkRiskRequired: true })).active },
+      networkNoShow: { active: await isNetworkNoShowPlatformActive(), protection: readNoShowProtection(updatedSalon.settings as SalonSettings), canRequireDeposit: process.env.NETWORK_NO_SHOW_ENABLED === 'true' && (await getDepositPolicyForSalon({ salonId: updatedSalon.id, salon: updatedSalon, networkRiskRequired: true })).active },
       bookingExperience: resolveBookingExperience(
         (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
         { includeAcknowledgmentConfiguration: true },

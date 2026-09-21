@@ -9,10 +9,15 @@ const {
   db,
   selectResults,
   tx,
+  insertValues,
 } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
+  const insertValues: unknown[] = [];
   const tx = {
-    insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+    insert: vi.fn(() => ({ values: vi.fn((value: unknown) => {
+      insertValues.push(value);
+      return { onConflictDoUpdate: vi.fn(async () => undefined) };
+    }) })),
     update: vi.fn(),
     select: vi.fn(() => {
       const result = selectResults.shift() ?? [];
@@ -30,6 +35,7 @@ const {
     rateLimitResponse: vi.fn(),
     db: { transaction: vi.fn(async (callback: (handle: typeof tx) => unknown) => callback(tx)) },
     selectResults,
+    insertValues,
     tx,
   };
 });
@@ -38,6 +44,7 @@ vi.mock('@/libs/adminAuth', () => ({ requireSuperAdmin }));
 vi.mock('@/libs/rateLimit', () => ({ checkEndpointRateLimit, rateLimitResponse }));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/networkNoShow.server', () => ({
+  disableNetworkNoShowPlatformInTx: vi.fn(),
   eraseNetworkNoShowSubjectInTx: vi.fn(),
   suppressNetworkNoShowEventInTx: vi.fn(),
   suppressNetworkNoShowSubjectInTx: vi.fn(),
@@ -55,6 +62,7 @@ describe('/api/super-admin/network-no-show', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     selectResults.length = 0;
+    insertValues.length = 0;
     vi.stubEnv('NETWORK_NO_SHOW_ENABLED', 'true');
     vi.stubEnv('NETWORK_NO_SHOW_HMAC_KEY', 'a'.repeat(32));
     requireSuperAdmin.mockResolvedValue({ ok: true, admin: { id: 'operator_a' } });
@@ -78,13 +86,27 @@ describe('/api/super-admin/network-no-show', () => {
     expect(db.transaction).not.toHaveBeenCalled();
   });
 
-  it('rejects enrollment while the platform remains dark without touching data', async () => {
+  it('rejects platform enable while the environment kill switch remains dark', async () => {
     vi.stubEnv('NETWORK_NO_SHOW_ENABLED', 'false');
 
-    const response = await post({ action: 'enroll_salon', salonId: 'salon_a', mode: 'apply' });
+    const response = await post({ action: 'enable_platform', mode: 'apply' });
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: 'PLATFORM_NOT_READY' });
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects retired per-salon enrollment actions and tenant-scoped platform actions', async () => {
+    const legacy = await post({ action: 'enroll_salon', salonId: 'salon_a' });
+    const scopedEnable = await post({ action: 'enable_platform', salonId: 'salon_a' });
+    const scopedDisable = await post({ action: 'disable_platform', appointmentId: 'appointment_a' });
+
+    expect(legacy.status).toBe(400);
+    expect(await legacy.json()).toEqual({ error: 'INVALID_REQUEST' });
+    expect(scopedEnable.status).toBe(400);
+    expect(await scopedEnable.json()).toEqual({ error: 'PLATFORM_ACTION_SCOPE_INVALID' });
+    expect(scopedDisable.status).toBe(400);
+    expect(await scopedDisable.json()).toEqual({ error: 'PLATFORM_ACTION_SCOPE_INVALID' });
     expect(db.transaction).not.toHaveBeenCalled();
   });
 
@@ -94,16 +116,27 @@ describe('/api/super-admin/network-no-show', () => {
       [],
     );
 
-    const response = await post({ action: 'disable_salon', salonId: 'salon_a' });
+    const response = await post({ action: 'disable_platform' });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       mode: 'plan',
-      action: 'disable_salon',
+      action: 'disable_platform',
       applied: false,
     });
     expect(tx.update).not.toHaveBeenCalled();
     expect(tx.insert).toHaveBeenCalledOnce();
+    expect(insertValues[0]).toMatchObject({ salonId: null, action: 'plan:disable_platform:platform' });
+  });
+
+  it('enables with a platform-only audit and uses an upsert to preserve a prior epoch', async () => {
+    selectResults.push([], [], []);
+
+    const response = await post({ action: 'enable_platform', mode: 'apply' });
+
+    expect(response.status).toBe(200);
+    expect(tx.insert).toHaveBeenCalledTimes(2);
+    expect(insertValues[1]).toMatchObject({ salonId: null, action: 'apply:enable_platform:platform' });
   });
 
   it('does not resolve an appointment from another tenant as an eligible target', async () => {

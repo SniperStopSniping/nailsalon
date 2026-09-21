@@ -7,7 +7,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  disableNetworkNoShowSalonInTx,
+  disableNetworkNoShowPlatformInTx,
   eraseNetworkNoShowSubjectInTx,
   readNetworkNoShowRisk,
   recordNetworkNoShowInTx,
@@ -40,9 +40,9 @@ suite('network no-show PostgreSQL serialization', () => {
 
   beforeEach(async () => {
     const pairHmac = createHmac('sha256', process.env.NETWORK_NO_SHOW_HMAC_KEY!).update('4165551000\u0000x@example.com').digest('base64url');
-    await pool.query(`TRUNCATE network_no_show_subject CASCADE; TRUNCATE salon CASCADE;
+    await pool.query(`TRUNCATE network_no_show_platform_control, network_no_show_subject CASCADE; TRUNCATE salon CASCADE;
       INSERT INTO salon(id,name,slug) VALUES ('a','A','a'),('b','B','b');
-      INSERT INTO network_no_show_participation(salon_id,enabled_at,prospective_after) VALUES ('a','2030-01-01','2030-01-01'),('b','2030-01-01','2030-01-01');
+      INSERT INTO network_no_show_platform_control(id,enabled_at,prospective_after) VALUES (1,'2030-01-01','2030-01-01');
       INSERT INTO network_no_show_subject(id,pair_hmac) VALUES ('subject','${pairHmac}');
       INSERT INTO appointment(id,salon_id,client_phone,client_email,start_time,end_time,status,total_price,total_duration_minutes,created_at) VALUES ('appt','a','4165551000','x@example.com','2030-06-15 14:00Z','2030-06-15 15:00Z','no_show',5000,60,'2030-06-01');
       INSERT INTO appointment(id,salon_id,client_phone,client_email,start_time,end_time,status,total_price,total_duration_minutes,created_at) VALUES ('booking-b','b','4165551000','x@example.com','2030-06-20 14:00Z','2030-06-20 15:00Z','confirmed',5000,60,'2030-06-01');
@@ -104,7 +104,7 @@ suite('network no-show PostgreSQL serialization', () => {
     }
   });
 
-  it('prevents an in-flight publication from surviving disable and re-enrollment', async () => {
+  it('blocks publication during disable and preserves the original eligible cohort on re-enable', async () => {
     const publisher = await pool.connect();
     const disabler = await pool.connect();
     try {
@@ -115,16 +115,16 @@ suite('network no-show PostgreSQL serialization', () => {
       await disabler.query('BEGIN');
       await disabler.query('SET LOCAL statement_timeout=\'300ms\'');
 
-      await expect(disableNetworkNoShowSalonInTx(drizzle(disabler, { schema }), { salonId: 'a', operatorId: 'op', now })).rejects.toMatchObject({ code: '57014' });
+      await expect(disableNetworkNoShowPlatformInTx(drizzle(disabler, { schema }), { operatorId: 'op', now })).rejects.toMatchObject({ code: '57014' });
 
       await disabler.query('ROLLBACK');
       await publisher.query('COMMIT');
 
-      await db.transaction(tx => disableNetworkNoShowSalonInTx(tx, { salonId: 'a', operatorId: 'op', now }));
-      await pool.query('UPDATE network_no_show_participation SET disabled_at=NULL, enabled_at=\'2030-07-01\', prospective_after=\'2030-07-01\' WHERE salon_id=\'a\'');
+      await db.transaction(tx => disableNetworkNoShowPlatformInTx(tx, { operatorId: 'op', now }));
+      await pool.query('UPDATE network_no_show_platform_control SET enabled_at=\'2030-07-01\' WHERE id=1');
       await db.transaction(tx => recordNetworkNoShowInTx(tx, { salonId: 'a', appointmentId: 'appt', actorId: 'owner', actorRole: 'owner', now }));
 
-      expect((await pool.query('SELECT count(*)::int AS count FROM network_no_show_event WHERE salon_id=\'a\' AND state=\'active\'')).rows[0].count).toBe(0);
+      expect((await pool.query('SELECT count(*)::int AS count FROM network_no_show_event WHERE salon_id=\'a\' AND state=\'active\'')).rows[0].count).toBe(1);
     } finally {
       await publisher.query('ROLLBACK');
       await disabler.query('ROLLBACK');
@@ -143,7 +143,7 @@ suite('network no-show PostgreSQL serialization', () => {
       await disabler.query('BEGIN');
       await disabler.query('SET LOCAL statement_timeout=\'300ms\'');
 
-      await expect(disableNetworkNoShowSalonInTx(drizzle(disabler, { schema }), { salonId: 'b', operatorId: 'op', now })).rejects.toMatchObject({ code: '57014' });
+      await expect(disableNetworkNoShowPlatformInTx(drizzle(disabler, { schema }), { operatorId: 'op', now })).rejects.toMatchObject({ code: '57014' });
 
       await disabler.query('ROLLBACK');
       await registerNetworkBookingInTx(bookingDb, {
@@ -172,7 +172,7 @@ suite('network no-show PostgreSQL serialization', () => {
       await suppressor.query('BEGIN');
       await suppressor.query('SELECT id FROM network_no_show_subject WHERE id=\'subject\' FOR UPDATE');
       await disabler.query('BEGIN');
-      const pendingDisable = disableNetworkNoShowSalonInTx(drizzle(disabler, { schema }), { salonId: 'a', operatorId: 'op', now });
+      const pendingDisable = disableNetworkNoShowPlatformInTx(drizzle(disabler, { schema }), { operatorId: 'op', now });
       await suppressor.query('SET LOCAL statement_timeout=\'300ms\'');
       await suppressNetworkNoShowSubjectInTx(drizzle(suppressor, { schema }), {
         subjectId: 'subject',

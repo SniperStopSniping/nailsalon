@@ -224,7 +224,7 @@ type ClientProfileSummary = {
     dueAt: string | null;
   };
   nextVisitOffer?: ClientNextVisitOffer;
-  /** Omitted while Network No-show Protection is dark or this salon is not participating. */
+  /** Omitted while Network No-show Protection is dark at the platform level. */
   bookingRisk?: BookingRisk;
   provenance: {
     lifetimeSpend: FinancialProvenance;

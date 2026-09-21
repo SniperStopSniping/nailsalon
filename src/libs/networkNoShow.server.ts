@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createHmac, randomUUID } from 'node:crypto';
 
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, sql } from 'drizzle-orm';
 
 import type { db } from '@/libs/DB';
 import type { NetworkNoShowRisk, NoShowProtection } from '@/libs/networkNoShow';
@@ -12,7 +12,7 @@ import {
   networkNoShowAuditSchema,
   networkNoShowBookingBindingSchema,
   networkNoShowEventSchema,
-  networkNoShowParticipationSchema,
+  networkNoShowPlatformControlSchema,
   networkNoShowSubjectSchema,
 } from '@/models/Schema';
 
@@ -79,27 +79,34 @@ async function lockNetworkNoShowSubjectInTx(tx: NetworkNoShowHandle, subjectId: 
   await tx.execute(sql`SELECT id FROM network_no_show_subject WHERE id = ${subjectId} FOR UPDATE`);
 }
 
-async function lockParticipationInTx(tx: NetworkNoShowHandle, salonId: string): Promise<boolean> {
-  const rows = await tx.execute(sql`SELECT salon_id FROM network_no_show_participation WHERE salon_id = ${salonId} AND disabled_at IS NULL FOR UPDATE`);
+async function lockPlatformControlInTx(tx: NetworkNoShowHandle): Promise<boolean> {
+  const rows = await tx.execute(sql`SELECT id FROM network_no_show_platform_control WHERE id = 1 AND enabled_at IS NOT NULL AND prospective_after IS NOT NULL FOR SHARE`);
   return rows.rows.length === 1;
 }
 
-export async function getNetworkNoShowParticipation(
-  salonId: string,
+export async function isNetworkNoShowPlatformActive(
   handle?: NetworkNoShowHandle,
 ): Promise<boolean> {
   if (!isNetworkNoShowEnabled()) {
     return false;
   }
   const database = await resolveHandle(handle);
-  const [row] = await database.select({ salonId: networkNoShowParticipationSchema.salonId })
-    .from(networkNoShowParticipationSchema)
+  const [row] = await database.select({ id: networkNoShowPlatformControlSchema.id })
+    .from(networkNoShowPlatformControlSchema)
     .where(and(
-      eq(networkNoShowParticipationSchema.salonId, salonId),
-      isNull(networkNoShowParticipationSchema.disabledAt),
+      eq(networkNoShowPlatformControlSchema.id, 1),
+      isNotNull(networkNoShowPlatformControlSchema.enabledAt),
+      isNotNull(networkNoShowPlatformControlSchema.prospectiveAfter),
     ))
     .limit(1);
   return Boolean(row);
+}
+
+export async function isNetworkNoShowPlatformActiveInTx(tx: NetworkNoShowHandle): Promise<boolean> {
+  if (!isNetworkNoShowEnabled()) {
+    return false;
+  }
+  return lockPlatformControlInTx(tx);
 }
 
 /**
@@ -121,9 +128,9 @@ export async function readNetworkNoShowRisk(args: {
     return importedDb.transaction(tx => readNetworkNoShowRisk({ ...args, handle: tx }));
   }
   const database = await resolveHandle(args.handle);
-  // Keep the receiving salon's participation fence ahead of the subject lock.
+  // Keep the global platform-control fence ahead of the subject lock.
   // A booking transaction invokes register later; disable uses this same order.
-  if (!await lockParticipationInTx(database, args.salonId)) {
+  if (!await lockPlatformControlInTx(database)) {
     return { state: 'inactive' };
   }
 
@@ -151,10 +158,6 @@ export async function readNetworkNoShowRisk(args: {
   const now = args.now ?? new Date();
   const [count] = await database.select({ count: sql<number>`count(*)::int` })
     .from(networkNoShowEventSchema)
-    .innerJoin(networkNoShowParticipationSchema, and(
-      eq(networkNoShowParticipationSchema.salonId, networkNoShowEventSchema.salonId),
-      isNull(networkNoShowParticipationSchema.disabledAt),
-    ))
     .where(and(
       eq(networkNoShowEventSchema.subjectId, subject.id),
       eq(networkNoShowEventSchema.state, 'active'),
@@ -182,7 +185,7 @@ export async function registerNetworkBookingInTx(
   if (args.actorRole !== 'guest' && args.actorRole !== 'client') {
     return;
   }
-  if (!await lockParticipationInTx(tx, args.salonId)) {
+  if (!await lockPlatformControlInTx(tx)) {
     return;
   }
 
@@ -197,8 +200,8 @@ export async function registerNetworkBookingInTx(
     .limit(1);
   // A source appointment must have existed before its scheduled start; this
   // blocks retroactive owner-created records from becoming a network event.
-  const [participation] = await tx.select().from(networkNoShowParticipationSchema).where(eq(networkNoShowParticipationSchema.salonId, args.salonId)).limit(1);
-  if (!participation || !appointment || appointment.createdAt < participation.prospectiveAfter || appointment.createdAt >= appointment.startTime) {
+  const [control] = await tx.select().from(networkNoShowPlatformControlSchema).where(eq(networkNoShowPlatformControlSchema.id, 1)).limit(1);
+  if (!control?.prospectiveAfter || !appointment || appointment.createdAt < control.prospectiveAfter || appointment.createdAt >= appointment.startTime) {
     return;
   }
 
@@ -276,7 +279,7 @@ export async function recordNetworkNoShowInTx(
   if (!isNetworkNoShowEnabled()) {
     return;
   }
-  if (!await lockParticipationInTx(tx, args.salonId)) {
+  if (!await lockPlatformControlInTx(tx)) {
     return;
   }
   const [appointment] = await tx.select({ id: appointmentSchema.id, status: appointmentSchema.status, createdAt: appointmentSchema.createdAt, endTime: appointmentSchema.endTime, deletedAt: appointmentSchema.deletedAt })
@@ -287,9 +290,9 @@ export async function recordNetworkNoShowInTx(
     ? await tx.select({ state: networkNoShowSubjectSchema.state }).from(networkNoShowSubjectSchema)
       .where(eq(networkNoShowSubjectSchema.id, binding.subjectId)).limit(1)
     : [];
-  const [participation] = await tx.select().from(networkNoShowParticipationSchema).where(eq(networkNoShowParticipationSchema.salonId, args.salonId)).limit(1);
-  if (!participation || !appointment || !binding || !subject || subject.state !== 'active' || appointment.status !== 'no_show' || appointment.deletedAt || binding.state !== 'eligible' || !binding.subjectId
-    || appointment.createdAt < participation.prospectiveAfter || args.now < appointment.endTime || args.now.getTime() - appointment.endTime.getTime() > REPORTING_WINDOW_MS) {
+  const [control] = await tx.select().from(networkNoShowPlatformControlSchema).where(eq(networkNoShowPlatformControlSchema.id, 1)).limit(1);
+  if (!control?.prospectiveAfter || !appointment || !binding || !subject || subject.state !== 'active' || appointment.status !== 'no_show' || appointment.deletedAt || binding.state !== 'eligible' || !binding.subjectId
+    || appointment.createdAt < control.prospectiveAfter || args.now < appointment.endTime || args.now.getTime() - appointment.endTime.getTime() > REPORTING_WINDOW_MS) {
     return;
   }
   await lockNetworkNoShowSubjectInTx(tx, binding.subjectId);
@@ -375,27 +378,16 @@ export async function eraseNetworkNoShowSubjectInTx(
 }
 
 /** Disable a source salon atomically with every current projection it owns. */
-export async function disableNetworkNoShowSalonInTx(
+export async function disableNetworkNoShowPlatformInTx(
   tx: NetworkNoShowHandle,
-  args: { salonId: string; operatorId: string; now: Date },
+  args: { operatorId: string; now: Date },
 ): Promise<void> {
   // Participation is always first for source writers; this blocks a stale
   // register/record transaction before it can enter the subject lock phase.
-  await tx.execute(sql`SELECT salon_id FROM network_no_show_participation WHERE salon_id = ${args.salonId} FOR UPDATE`);
-  const subjectRows = await tx.execute(sql`
-    SELECT subject_id FROM network_no_show_booking_binding
-    WHERE salon_id = ${args.salonId} AND subject_id IS NOT NULL
-    ORDER BY subject_id`);
-  for (const row of subjectRows.rows as Array<{ subject_id: string }>) {
-    await lockNetworkNoShowSubjectInTx(tx, row.subject_id);
-  }
-  await tx.update(networkNoShowParticipationSchema).set({ disabledAt: args.now, updatedAt: args.now })
-    .where(eq(networkNoShowParticipationSchema.salonId, args.salonId));
-  await tx.update(networkNoShowEventSchema).set({ state: 'revoked', revokedAt: args.now, sourceRevision: sql`${networkNoShowEventSchema.sourceRevision} + 1` })
-    .where(and(eq(networkNoShowEventSchema.salonId, args.salonId), eq(networkNoShowEventSchema.state, 'active')));
-  await tx.update(networkNoShowBookingBindingSchema).set({ state: 'suppressed', invalidatedAt: args.now })
-    .where(eq(networkNoShowBookingBindingSchema.salonId, args.salonId));
-  await tx.insert(networkNoShowAuditSchema).values({ id: randomUUID(), salonId: args.salonId, actorId: args.operatorId, actorRole: 'operator', action: 'salon_disabled' });
+  await tx.execute(sql`SELECT id FROM network_no_show_platform_control WHERE id = 1 FOR UPDATE`);
+  await tx.update(networkNoShowPlatformControlSchema).set({ enabledAt: null, updatedAt: args.now })
+    .where(eq(networkNoShowPlatformControlSchema.id, 1));
+  await tx.insert(networkNoShowAuditSchema).values({ id: randomUUID(), actorId: args.operatorId, actorRole: 'operator', action: 'platform_disabled' });
 }
 
 /** A caller-established local relationship is recorded without raw contacts. */

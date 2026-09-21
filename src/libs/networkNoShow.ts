@@ -1,6 +1,6 @@
 import type { SalonSettings } from '@/types/salonPolicy';
 
-/** Owner-facing policy. Warning visibility is automatic for participating salons. */
+/** Owner-facing policy. Warning visibility is automatic for every salon when the platform feature is active. */
 export type NoShowProtection = 'warn_only' | 'deposit_1' | 'deposit_2';
 
 export type NetworkNoShowRisk =
