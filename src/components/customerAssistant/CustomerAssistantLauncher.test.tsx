@@ -56,6 +56,7 @@ describe('CustomerAssistantLauncher', () => {
     sessionStorage.clear();
     localStorage.clear();
     navigation.push.mockReset();
+    navigation.params = {};
     navigation.pathname = '/en/isla-nail-studio/book/service';
     bookingState.applyAssistantHandoff.mockReset();
     vi.restoreAllMocks();
@@ -92,6 +93,22 @@ describe('CustomerAssistantLauncher', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(navigation.push).toHaveBeenCalledWith('/en/isla-nail-studio/book/service?campaign=campaign-token');
     expect(screen.queryByRole('heading', { name: 'AI booking assistant' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the assistant open and starts consultation when already on service selection', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sessionResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    navigation.params = { slug: 'isla-nail-studio' };
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.click(await screen.findByRole('button', { name: 'Book an appointment' }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('heading', { name: 'AI booking assistant' })).toBeVisible();
+    expect(screen.getByText(/What are you hoping for today/)).toBeVisible();
+    expect(navigation.push).not.toHaveBeenCalled();
   });
 
   it('starts a local consultation prompt without a chat request and focuses the composer', async () => {
