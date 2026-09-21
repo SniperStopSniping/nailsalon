@@ -109,7 +109,7 @@ export function buildReplyFacts(args: ReplyInput): Record<string, string> {
   const facts: Record<string, string> = {};
   for (const [i, service] of publicFacts.catalogue.services.entries()) {
     const price = service.price.range?.display ?? service.price.displayLabel ?? service.price.baseDisplay;
-    facts[`service_${i}_price`] = fr ? `${publicFacts.salon.name} affiche ${service.name} à partir de ${price} (${publicFacts.catalogue.currency}), avant les options.` : `${publicFacts.salon.name} lists ${service.name} from ${price} (${publicFacts.catalogue.currency}), before any additional options.`;
+    facts[`service_${i}_price`] = fr ? `${service.name} chez ${publicFacts.salon.name} : ${price} (${publicFacts.catalogue.currency}), avant les options.` : `${service.name} at ${publicFacts.salon.name}: ${price} (${publicFacts.catalogue.currency}), before any additional options.`;
     facts[`service_${i}_duration`] = fr ? `${service.name} : durée de base de ${service.durationMinutes} minutes, avant les ajouts.` : `${service.name} has a base duration of ${service.durationMinutes} minutes, before add-ons.`;
     if (service.description) {
       facts[`service_${i}_description`] = fr ? `À propos de ${service.name} : ${service.description}` : `About ${service.name}: ${service.description}`;
