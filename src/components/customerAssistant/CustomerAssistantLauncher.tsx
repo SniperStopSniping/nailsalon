@@ -496,9 +496,12 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
   useEffect(() => {
     const transcript = transcriptRef.current;
     if (transcript) {
-      transcript.scrollTop = transcript.scrollHeight;
+      const showingWelcome = welcomeQuickReplies.length > 0
+        && messages.length === 1
+        && messages[0]?.role === 'assistant';
+      transcript.scrollTop = showingWelcome ? 0 : transcript.scrollHeight;
     }
-  }, [messages, result, loading, error]);
+  }, [messages, result, loading, error, welcomeQuickReplies]);
   useEffect(() => {
     if (conversation && storageScope && storageScopeRef.current === storageScope) {
       storeConversation(salonSlug, { version: 2, conversation, messages, result, ...(welcomeQuickReplies.length ? { welcomeQuickReplies } : {}) }, storageScope);
@@ -671,7 +674,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
   return (
     <div role="dialog" aria-modal="true" aria-label={copy.title} style={visibleHeight ? { height: `min(42rem, calc(${visibleHeight}px - 2rem))`, maxHeight: `calc(${visibleHeight}px - 2rem)` } : undefined} className="flex h-[min(42rem,calc(100dvh-1rem))] flex-col sm:max-h-[calc(100dvh-2rem)]">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-[12px] border-b border-black/10 px-[16px] py-[12px] sm:px-5">
-        <h2 className="min-w-0 flex-[1_1_12rem] text-lg font-semibold text-neutral-950">{copy.title}</h2>
+        <h2 className="min-w-0 flex-[1_1_12rem] text-sm font-semibold text-neutral-950 sm:text-lg">{copy.title}</h2>
         <div className="flex shrink-0 items-center gap-1">
           <button type="button" aria-label={locale === 'fr' ? 'Commencer une nouvelle conversation' : 'Start a new conversation'} onClick={restart} disabled={loading} className="min-h-11 whitespace-nowrap px-2 text-sm font-medium text-neutral-700 underline underline-offset-4 disabled:opacity-50">{copy.restart}</button>
           <button type="button" onClick={onClose} aria-label={copy.close} className="grid size-11 shrink-0 place-items-center rounded-full text-neutral-700 hover:bg-neutral-100"><X className="size-5" /></button>
@@ -685,7 +688,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
                 {message.message}
               </p>
             )
-          : <p key={message.id} aria-label={message.role === 'assistant' ? 'Assistant' : 'You'} className={message.role === 'user' ? 'ml-auto max-w-[85%] rounded-2xl bg-neutral-950 px-4 py-3 text-sm leading-6 text-white' : 'max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-3 text-sm leading-6 text-neutral-800'}>{message.message}</p>)}
+          : <p key={message.id} aria-label={message.role === 'assistant' ? 'Assistant' : 'You'} className={message.role === 'user' ? 'ml-auto max-w-[85%] rounded-2xl bg-neutral-950 px-4 py-3 text-sm leading-6 text-white' : 'max-w-full rounded-2xl bg-neutral-100 px-4 py-3 text-sm leading-5 text-neutral-800 sm:max-w-[85%] sm:leading-6'}>{message.message}</p>)}
         {welcomeQuickReplies.length > 0 && messages.length === 1 && messages[0]?.role === 'assistant' && (
           <div aria-label={locale === 'fr' ? 'Réponses rapides' : 'Quick replies'} className="flex flex-wrap gap-2">
             {welcomeQuickReplies.map(reply => <button key={reply} type="button" disabled={loading} onClick={() => void send(reply, 'quick_reply')} className="min-h-11 rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 disabled:opacity-50">{reply}</button>)}
