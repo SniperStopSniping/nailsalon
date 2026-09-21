@@ -139,7 +139,26 @@ export function renderReceptionistTurn(args: ReplyInput, intent: ReceptionistTur
     })) {
       throw new Error('CUSTOMER_REPLY_INCOMPATIBLE_GUIDANCE_OPTION');
     }
-    const rendered = parseReceptionistReply(JSON.stringify(intent.reply), facts, args.menu, requiredFactKeys);
+    let reply = intent.reply;
+    const referencedFacts = new Set(reply.segments.flatMap(segment => segment.kind === 'fact' ? [segment.key] : []));
+    const quotedSuggestions = args.publicFacts.catalogue.addOns.flatMap((addOn, index) => intent.suggestedAddOnIds.includes(addOn.id) && referencedFacts.has(`addon_${index}`) ? [`addon_${index}`] : []);
+    // A valid upgrade price answer may omit the unrelated current-package
+    // total. Preserve its advice and satisfy that requirement with a clearly
+    // labelled fresh fact; never weaken the price guard or apply the upgrade.
+    // Recommended services cannot stand in for compatibility with THIS quote.
+    if (args.result.kind === 'answer' && (args.result.topic === 'price' || args.result.topic === 'duration')
+      && args.currentProposal && requiredFactKeys.includes('selection') && !referencedFacts.has('selection')
+      && quotedSuggestions.length > 0
+      && intent.suggestedAddOnIds.every(id => args.menu.addOns.some(item => item.id === id)
+        && args.publicFacts.catalogue.addOns.some(item => item.id === id)
+        && args.menu.bindings.some(binding => binding.serviceId === args.currentProposal!.service.id && binding.addOnId === id))) {
+      for (const key of quotedSuggestions) {
+        facts[key] = `${args.locale === 'fr' ? 'Option au tarif indiqué' : 'Listed add-on'}: ${facts[key]}`;
+      }
+      facts.selection = `${args.locale === 'fr' ? 'Votre sélection actuelle, avant toute modification facultative' : 'Your current package, before optional changes'}: ${facts.selection}`;
+      reply = { ...reply, segments: [...reply.segments, { kind: 'fact', key: 'selection' }] };
+    }
+    const rendered = parseReceptionistReply(JSON.stringify(reply), facts, args.menu, requiredFactKeys);
     return { ...rendered, usedModelReply: true };
   } catch (error) {
     // Internal evaluation evidence only; never return exception text or any
