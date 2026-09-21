@@ -1,0 +1,452 @@
+{
+  "generatedAt": "2026-09-21T18:02:33.239Z",
+  "baselineRevision": "952dadc23bace8ff0f43e7158e1eef02efec39c8",
+  "candidateRevision": "current worktree",
+  "samplesPerCategory": 5,
+  "categories": [
+    "greeting"
+  ],
+  "providerBounds": {
+    "baseline": {
+      "contextBytes": 30000,
+      "interpreter": {
+        "maxOutputTokens": 1200,
+        "timeoutMs": 12000
+      },
+      "composer": {
+        "maxOutputTokens": 900,
+        "timeoutMs": 10000
+      }
+    },
+    "candidate": {
+      "contextBytes": 40000,
+      "receptionist": {
+        "maxOutputTokens": 1800,
+        "timeoutMs": 15000
+      }
+    }
+  },
+  "scope": "Real Responses API calls: Terra interpreter/receptionist and archived Luna composer. Synthetic L1 catalogue, resolver, and schedule only; synthetic_resolution excludes real database, availability, booking, SMS/email, payments, and production data.",
+  "notes": [
+    "Baseline is sequential Terra interpreter plus Luna composer; candidate is one Terra receptionist call.",
+    "Provider stages include actual provider latency and reported token-based cost. Synthetic resolution/render timing is local only.",
+    "Quality failures are recorded per observation; numeric business facts are accepted only through server rendering/parser guards."
+  ],
+  "summary": {
+    "baseline": {
+      "n": 5,
+      "totalMs": {
+        "p50": 5689.910500000005,
+        "p95": 10518.731583,
+        "max": 10518.731583
+      },
+      "stages": {
+        "interpreter": {
+          "p50": 3227.5231249999997,
+          "p95": 4097.861958000001,
+          "max": 4097.861958000001
+        },
+        "synthetic_resolution": {
+          "p50": 0.10804199999984121,
+          "p95": 1.2853749999999309,
+          "max": 1.2853749999999309
+        },
+        "composer": {
+          "p50": 2440.7584579999966,
+          "p95": 7286.369750000002,
+          "max": 7286.369750000002
+        }
+      },
+      "reportedCostMicros": 19333,
+      "unknownCostStages": 0,
+      "fallbacks": 0,
+      "qualityFailures": 0
+    },
+    "candidate": {
+      "n": 5,
+      "totalMs": {
+        "p50": 4862.749334000001,
+        "p95": 6113.389374999999,
+        "max": 6113.389374999999
+      },
+      "stages": {
+        "receptionist": {
+          "p50": 4854.4502090000005,
+          "p95": 6109.447,
+          "max": 6109.447
+        },
+        "synthetic_resolution": {
+          "p50": 1.5010000000038417,
+          "p95": 4.9997500000026776,
+          "max": 4.9997500000026776
+        },
+        "render": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "reportedCostMicros": 42759,
+      "unknownCostStages": 0,
+      "fallbacks": 3,
+      "qualityFailures": 3
+    }
+  },
+  "observations": [
+    {
+      "category": "greeting",
+      "sample": 1,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 2682.895667,
+            "costMicros": 3311,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 1.2853749999999309,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2341.905209,
+            "costMicros": 215,
+            "status": "completed"
+          }
+        },
+        "totalMs": 5036.224834,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely! Are you looking for natural-nail strengthening, a simple gel colour on your own nails, or added length with extensions?",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 4854.4502090000005,
+            "costMicros": 20359,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.21595799999886367,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 4862.749334000001,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely. Are you hoping to keep your natural nails with colour, add strength over your natural nails, or have added length/extensions?",
+        "options": [
+          "Gel Manicure",
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false,
+        "modelServiceOptions": [
+          "svc_semantic_gel_manicure",
+          "svc_semantic_biab",
+          "svc_semantic_gelx"
+        ],
+        "resultQuestion": null,
+        "resultOptions": [
+          "BIAB Builder Gel",
+          "Gel Manicure",
+          "Gel-X Extensions"
+        ]
+      }
+    },
+    {
+      "category": "greeting",
+      "sample": 2,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 2980.8220410000013,
+            "costMicros": 3335,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.10804199999984121,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2697.0149170000004,
+            "costMicros": 283,
+            "status": "completed"
+          }
+        },
+        "totalMs": 5682.186667,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely! Are you looking to strengthen your natural nails, add length, or keep things simple with gel polish?",
+        "options": [
+          "BIAB Builder Gel",
+          "Gel Manicure",
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 5934.041416,
+            "costMicros": 6587,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 4.9997500000026776,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 5941.991458,
+        "resultKind": "clarification",
+        "reason": null,
+        "message": "The current matching options are BIAB Builder Gel, Gel Manicure, Gel-X Extensions. What result would you like to achieve?",
+        "options": [],
+        "quality": [
+          "expected_answer_got_clarification"
+        ],
+        "fallback": true,
+        "renderRejectionReason": "CUSTOMER_REPLY_INVALID_REFERENCE",
+        "modelServiceOptions": [
+          "svc_semantic_biab",
+          "svc_semantic_gel_manicure",
+          "svc_semantic_gelx"
+        ],
+        "resultQuestion": "service",
+        "resultOptions": [
+          "BIAB Builder Gel",
+          "Gel Manicure",
+          "Gel-X Extensions",
+          "Gel-X Fill"
+        ]
+      }
+    },
+    {
+      "category": "greeting",
+      "sample": 3,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 3227.5231249999997,
+            "costMicros": 3287,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.17766699999992852,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 7286.369750000002,
+            "costMicros": 240,
+            "status": "completed"
+          }
+        },
+        "totalMs": 10518.731583,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely! Are you after a simple gel polish manicure, extra strength on your natural nails, or added length? ✨",
+        "options": [
+          "Gel Manicure",
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 4689.443540999997,
+            "costMicros": 5375,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.13579200000094716,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 4692.708208000004,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely. Are you hoping to keep your natural nails with colour, add strength to natural nails, or have added length? I can help narrow it down.",
+        "options": [
+          "Gel Manicure",
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false,
+        "modelServiceOptions": [
+          "svc_semantic_gel_manicure",
+          "svc_semantic_biab",
+          "svc_semantic_gelx"
+        ],
+        "resultQuestion": null,
+        "resultOptions": [
+          "BIAB Builder Gel",
+          "Gel Manicure",
+          "Gel-X Extensions"
+        ]
+      }
+    },
+    {
+      "category": "greeting",
+      "sample": 4,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 3247.536,
+            "costMicros": 4007,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.06429200000275159,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2440.7584579999966,
+            "costMicros": 240,
+            "status": "completed"
+          }
+        },
+        "totalMs": 5689.910500000005,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely! For natural nails, choose Gel Manicure for a polished gel finish or BIAB Builder Gel for extra strength. If you’d like added length, Gel-X Extensions are the way to go; if you already have Gel-X and want maintenance, choose a Gel-X Fill. Are you hoping to keep your natural length, strengthen it, or add length?",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 6109.447,
+            "costMicros": 5483,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 1.8408330000020214,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 6113.389374999999,
+        "resultKind": "clarification",
+        "reason": null,
+        "message": "The current matching options are BIAB Builder Gel, Gel Manicure, Gel-X Extensions. What result would you like to achieve?",
+        "options": [],
+        "quality": [
+          "expected_answer_got_clarification"
+        ],
+        "fallback": true,
+        "renderRejectionReason": "CUSTOMER_REPLY_INVALID_REFERENCE",
+        "modelServiceOptions": [],
+        "resultQuestion": "service",
+        "resultOptions": [
+          "BIAB Builder Gel",
+          "Gel Manicure",
+          "Gel-X Extensions",
+          "Gel-X Fill"
+        ]
+      }
+    },
+    {
+      "category": "greeting",
+      "sample": 5,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 4097.861958000001,
+            "costMicros": 4199,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.06895900000381516,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2364.4226249999992,
+            "costMicros": 216,
+            "status": "completed"
+          }
+        },
+        "totalMs": 6463.871583,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely! If you’d like a polished look on your natural nails, a Gel Manicure is a lovely choice; BIAB Builder Gel adds extra strength, while Gel-X Extensions add length. Are you hoping to keep your natural length, strengthen it, or add length?",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 3463.921832999993,
+            "costMicros": 4955,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 1.5010000000038417,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 3467.520040999996,
+        "resultKind": "clarification",
+        "reason": null,
+        "message": "The current matching options are BIAB Builder Gel, Gel Manicure, Gel-X Extensions. What result would you like to achieve?",
+        "options": [],
+        "quality": [
+          "expected_answer_got_clarification"
+        ],
+        "fallback": true,
+        "renderRejectionReason": "CUSTOMER_REPLY_INVALID_REFERENCE",
+        "modelServiceOptions": [],
+        "resultQuestion": "service",
+        "resultOptions": [
+          "BIAB Builder Gel",
+          "Gel Manicure",
+          "Gel-X Extensions",
+          "Gel-X Fill"
+        ]
+      }
+    }
+  ]
+}

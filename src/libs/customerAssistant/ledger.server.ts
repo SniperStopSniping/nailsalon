@@ -9,7 +9,7 @@ import { CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD, customerAssistantModelUsageCost
 
 /** Backward-compatible Luna-only helper for existing isolated callers. */
 export function customerUsageCostMicros(usage: ModelProviderUsage | null): number | null {
-  return customerAssistantModelUsageCostMicros(CUSTOMER_ASSISTANT_MODEL, usage);
+  return customerAssistantModelUsageCostMicros('gpt-5.6-luna', usage);
 }
 
 /** Separate action namespace; no prompts, contact, tokens or model prose. */
@@ -21,6 +21,7 @@ export async function recordCustomerAssistantUsage(args: {
   /** Each invoked model stage is recorded with its actual model and usage. */
   stageUsages?: readonly CustomerAssistantStageUsage[];
   latencyMs: number;
+  timings?: Record<string, number>;
   deterministic?: boolean;
 }): Promise<void> {
   const stages = args.deterministic
@@ -62,6 +63,7 @@ export async function recordCustomerAssistantUsage(args: {
         })),
         reservedCostMicros: args.outcome === 'reserved' ? CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD : 0,
         latencyMs: Math.round(args.latencyMs),
+        ...(args.timings ? { timings: args.timings } : {}),
       },
     },
   });

@@ -36,10 +36,10 @@ describe('customer assistant access boundary', () => {
     expect(isCustomerAssistantEnabledForSalon('another-salon')).toBe(false);
   });
 
-  it('pins Luna low and has no environment model override', () => {
+  it('pins one Terra low model and has no environment model override', () => {
     vi.stubEnv('CUSTOMER_ASSISTANT_MODEL', 'something-else');
 
-    expect(CUSTOMER_ASSISTANT_MODEL).toBe('gpt-5.6-luna');
+    expect(CUSTOMER_ASSISTANT_MODEL).toBe('gpt-5.6-terra');
     expect(CUSTOMER_ASSISTANT_REASONING_EFFORT).toBe('low');
   });
 });

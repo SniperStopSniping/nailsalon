@@ -4,7 +4,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
 
-import { customerAvailabilitySearchSchema, customerAvailableSlotSchema, customerDatePreferenceSchema, customerSelectionSchema } from './contracts';
+import { customerAvailabilitySearchSchema, customerAvailableSlotSchema, customerDatePreferenceSchema, customerSelectionSchema, customerUnsupportedRequestSchema } from './contracts';
 import { factsSchema } from './semanticFacts';
 
 export const CONVERSATION_TTL_MS = 30 * 60 * 1000;
@@ -52,6 +52,7 @@ const conversationSchema = z.object({
   priorSubjects: z.array(z.string().min(1).max(100)).max(4).optional(),
   messages: z.array(customerMessageSchema).max(CUSTOMER_CONVERSATION_MAX_MESSAGES),
   facts: factsSchema.optional(),
+  unsupportedRequest: customerUnsupportedRequestSchema.optional(),
   requestedSelection: customerSelectionSchema.optional(),
   availabilityPreference: customerDatePreferenceSchema.optional(),
   // Preserve the original checked window separately from any later fallback.

@@ -22,6 +22,10 @@ async function installSyntheticAssistantRoutes(page: Page, responseKind: 'answer
       await route.fulfill({ json: { conversation: 'synthetic-conversation', salon: { name: 'Isla Nail Studio' } } });
       return;
     }
+    if (url.pathname === '/api/public/customer-assistant/isla-nail-studio/prices' && request.method() === 'GET') {
+      await route.fulfill({ json: { salon: { name: 'Isla Nail Studio' }, catalogue: { currency: 'CAD', services: [{ id: 'gel-x', name: 'Gel-X Extensions', description: 'Flexible extensions for added length.', price: { baseDisplay: '$85.00', displayLabel: null, range: null } }] } } });
+      return;
+    }
     if (url.pathname === '/api/public/customer-assistant/isla-nail-studio/chat' && request.method() === 'POST') {
       if (responseKind === 'answer') {
         const selectedReply = request.postDataJSON().message === 'Classic French';
@@ -198,6 +202,38 @@ test('component-browser fixture shows a bounded customer/assistant transcript wi
 
   await page.screenshot({ path: path.join(artifactDirectory, `${testInfo.project.name}-selected-quick-reply-390px.png`), fullPage: true });
 
+  expect(unexpected).toEqual([]);
+});
+
+test('welcome actions use deterministic booking, prices, and consultation paths without chat requests', async ({ page }) => {
+  const unexpected = await installSyntheticAssistantRoutes(page, 'answer');
+  const chatRequests: string[] = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.endsWith('/chat')) {
+      chatRequests.push(request.postData() ?? '');
+    }
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Help me choose & book' }).tap();
+
+  await page.getByRole('button', { name: 'See prices' }).tap();
+
+  await expect(page.getByRole('region', { name: 'Current service prices' })).toContainText('Gel-X Extensions');
+  await expect(page.getByRole('region', { name: 'Current service prices' })).toContainText('$85.00');
+  expect(chatRequests).toEqual([]);
+
+  await page.getByRole('button', { name: 'Start a new conversation' }).tap();
+  await page.getByRole('button', { name: 'Help me choose', exact: true }).tap();
+
+  await expect(page.getByText(/What are you hoping for today/)).toBeVisible();
+  await expect(page.getByLabel('Tell me what you would like')).toBeFocused();
+  expect(chatRequests).toEqual([]);
+
+  await page.getByRole('button', { name: 'Start a new conversation' }).tap();
+  await page.getByRole('button', { name: 'Book an appointment' }).tap();
+
+  await expect(page).toHaveURL(/\/en\/isla-nail-studio\/book\/service/);
+  expect(chatRequests).toEqual([]);
   expect(unexpected).toEqual([]);
 });
 

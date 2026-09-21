@@ -13,19 +13,19 @@ import { compactCustomerModelContext } from './boundedModelContext';
 import { reserveCustomerAssistantTurn } from './budget.server';
 import { buildCustomerProposal, loadCustomerClarificationSnapshot, loadCustomerMenu, validateCustomerMenuSelection } from './catalogue.server';
 import { customerPartialQuoteSelection } from './consultation';
-import { CUSTOMER_ASSISTANT_INTERPRETATION_MODEL, CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL, type CustomerAssistantLocale, type CustomerAssistantResponse, type CustomerAssistantResult } from './contracts';
+import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS, CUSTOMER_ASSISTANT_MODEL, type CustomerAssistantLocale, type CustomerAssistantResponse, type CustomerAssistantResult } from './contracts';
 import { advanceCustomerConversation, conversationInvalidReason, signCustomerConversation, verifyCustomerConversation } from './conversation.server';
-import { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } from './interpretation';
 import { projectCustomerInterpreterMenu } from './interpreterMenu';
 import { recordCustomerAssistantUsage } from './ledger.server';
-import { aggregateCustomerAssistantStageUsage, type CustomerAssistantStageUsage } from './modelPricing';
+import { aggregateCustomerAssistantStageUsage, CUSTOMER_ASSISTANT_INTERPRETATION_SCHEMA_BYTES, type CustomerAssistantStageUsage } from './modelPricing';
 import { loadCustomerPublicFacts } from './publicFacts.server';
-import { buildReplyInput, createReplySchema, fallbackReceptionistReply, parseReceptionistReply, RECEPTIONIST_REPLY_PROMPT } from './reply';
+import { createReceptionistTurnSchema, isRecoverableResult, RECEPTIONIST_TURN_PROMPT, receptionistContext, receptionistTurnSchema, renderReceptionistTurn } from './receptionistTurn';
 import { applyCustomerTurnResult, resolveCustomerTurn } from './resolveTurn';
 import { completeCustomerRevision } from './revision.server';
 import { emptyFacts } from './semanticFacts';
-import { selectionConflictsWithExplicitFacts } from './semanticSelection';
+import { selectionConflictsWithExplicitFacts, semanticCatalog } from './semanticSelection';
 import { getCustomerAvailabilityContext, lookupCustomerSlots, lookupNextCustomerSlots } from './slots.server';
+import { CustomerTurnTiming } from './timing';
 import { readCompletedCustomerTurn, storeCompletedCustomerTurn } from './turnReplay.server';
 
 function nextVisitOfferFact(args: {
@@ -90,7 +90,10 @@ export async function runCustomerAssistantTurn(args: {
   message: string;
   locale: CustomerAssistantLocale;
   clientIp: string;
+  timing?: CustomerTurnTiming;
 }, provider?: OwnerAssistantModelProvider): Promise<CustomerAssistantResponse> {
+  const timing = args.timing ?? new CustomerTurnTiming();
+  const requestStarted = performance.now();
   const unavailable = (reason: Extract<CustomerAssistantResult, { kind: 'unavailable' }>['reason']): CustomerAssistantResponse => ({
     conversation: args.conversation,
     result: { kind: 'unavailable', reason },
@@ -99,7 +102,7 @@ export async function runCustomerAssistantTurn(args: {
   if (!config) {
     return unavailable('unavailable');
   }
-  let conversation;
+  let conversation: ReturnType<typeof verifyCustomerConversation>;
   try {
     conversation = verifyCustomerConversation(args.conversation, args.salonId, config.signingSecret);
   } catch (error) {
@@ -132,17 +135,17 @@ export async function runCustomerAssistantTurn(args: {
   }
   const attemptId = randomUUID();
   let interpreterUsage: ModelProviderUsage | null = null;
-  let composerUsage: ModelProviderUsage | null = null;
   let interpreterInvoked = false;
-  let composerInvoked = false;
   let providerCallStarted = false;
   let result: CustomerAssistantResult = { kind: 'unavailable', reason: 'unavailable' };
   const started = performance.now();
+  timing.add('setup', started - requestStarted);
   try {
-    const [menu, publicFacts] = await Promise.all([
+    const [menu, publicFacts, availabilityContext] = await timing.measure('catalogue', () => Promise.all([
       loadCustomerMenu(args.salonId, args.features),
       loadCustomerPublicFacts(args).catch(() => null),
-    ]);
+      getCustomerAvailabilityContext(args.salonId),
+    ]));
     if (conversation.context?.selection) {
       try {
         validateCustomerMenuSelection(menu, conversation.context.selection);
@@ -154,9 +157,10 @@ export async function runCustomerAssistantTurn(args: {
         conversation = { ...conversation, context: undefined, booking: undefined, requestedSelection: undefined };
       }
     }
-    const availabilityContext = await getCustomerAvailabilityContext(args.salonId);
+    const publicContext = publicFacts ? receptionistContext({ menu, publicFacts, result: { kind: 'answer', topic: 'conversation', message: '', options: [] }, conversation, nextState, message: args.message, locale: args.locale }) : { replyFacts: {}, publicServices: [], unsupportedRequest: conversation.unsupportedRequest ?? null };
+    const responseSchema = createReceptionistTurnSchema(Object.keys(publicContext.replyFacts));
     const interpreterContext = compactCustomerModelContext({
-      prompt: CUSTOMER_INTERPRETATION_PROMPT,
+      prompt: RECEPTIONIST_TURN_PROMPT,
       additionalInput: args.message,
       maxBytes: CUSTOMER_ASSISTANT_MAX_INPUT_BYTES,
       legacyMessages: conversation.dialogue?.length ? undefined : conversation.messages,
@@ -173,28 +177,29 @@ export async function runCustomerAssistantTurn(args: {
         bookingState: conversation.booking ?? null,
         availabilitySearch: conversation.availabilitySearch ?? null,
         ...availabilityContext,
+        ...publicContext,
       },
     });
-    if (!interpreterContext.fits) {
+    if (!interpreterContext.fits || Buffer.byteLength(JSON.stringify(responseSchema), 'utf8') > CUSTOMER_ASSISTANT_INTERPRETATION_SCHEMA_BYTES) {
       throw new Error('CUSTOMER_CONTEXT_TOO_LARGE');
     }
     const data = interpreterContext.data;
     // Durable reservation BEFORE network: a failed outcome write still leaves
     // conservative unknown-spend evidence, and a failed reservation makes no call.
-    await recordCustomerAssistantUsage({ salonId: args.salonId, attemptId, outcome: 'reserved', usage: null, latencyMs: 0 });
+    await timing.measure('persistence', () => recordCustomerAssistantUsage({ salonId: args.salonId, attemptId, outcome: 'reserved', usage: null, latencyMs: 0 }));
     interpreterInvoked = true;
     providerCallStarted = true;
-    const response = await model.createResponse({
-      model: CUSTOMER_ASSISTANT_INTERPRETATION_MODEL,
-      input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: data }, { role: 'user', content: args.message }],
+    const response = await timing.measure('model', () => model.createResponse({
+      model: CUSTOMER_ASSISTANT_MODEL,
+      input: [{ role: 'system', content: RECEPTIONIST_TURN_PROMPT }, { role: 'user', content: data }, { role: 'user', content: args.message }],
       tools: [],
       toolChoice: 'none',
       reasoningEffort: 'low',
       jsonMode: 'schema',
-      jsonSchema: CUSTOMER_INTERPRETATION_JSON_SCHEMA,
+      jsonSchema: responseSchema,
       maxOutputTokens: CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKENS,
-      timeoutMs: 12_000,
-    });
+      timeoutMs: 15_000,
+    }));
     interpreterUsage = response.usage;
     if (response.status !== 'completed' || response.items.some(item => item.type === 'function_call' || item.type === 'refusal')) {
       throw new Error('CUSTOMER_MODEL_INVALID');
@@ -203,19 +208,57 @@ export async function runCustomerAssistantTurn(args: {
     if (text.length > 12_000) {
       throw new Error('CUSTOMER_MODEL_INVALID');
     }
-    const intent = customerInterpretationSchema.parse(JSON.parse(text));
-    result = await resolveCustomerTurn(args, menu, intent, conversation, nextState, { buildCustomerProposal, loadCustomerClarificationSnapshot, lookupCustomerSlots, lookupNextCustomerSlots });
+    const intent = receptionistTurnSchema.parse(JSON.parse(text));
+    if (intent.unsupportedRequest && intent.selectionChangeExplicitThisTurn) {
+      nextState.unsupportedRequest = intent.unsupportedRequest;
+      nextState.context = undefined;
+      nextState.booking = undefined;
+      intent.action = 'no_match';
+      intent.serviceId = null;
+      intent.addOns = [];
+      intent.addOnUpdates = { add: [], remove: [] };
+    } else if (intent.unsupportedRequest) {
+      // Educational questions about another system do not change a booking.
+      intent.action = 'answer';
+      intent.unsupportedRequest = null;
+    } else if (conversation.unsupportedRequest && intent.action === 'propose' && intent.selectionChangeExplicitThisTurn && intent.unsupportedResolution !== 'none') {
+      const kind = conversation.unsupportedRequest.kind;
+      const resolvedRemoval = intent.factUpdates.existingProduct === 'none' && intent.factUpdates.removal === 'no';
+      const resolvedDesign = ['plain', 'skip'].includes(intent.factUpdates.designPreference ?? '') || Boolean(intent.addOnUpdates?.add.some(item => menu.addOns.some(addOn => addOn.id === item.addOnId && semanticCatalog.isDesign(addOn)) && menu.bindings.some(binding => binding.serviceId === intent.serviceId && binding.addOnId === item.addOnId)));
+      const resolvedTreatment = Boolean(intent.serviceId && menu.services.some(service => service.id === intent.serviceId));
+      if (kind === 'removal' ? resolvedRemoval : kind === 'design' ? resolvedDesign : resolvedTreatment) {
+        nextState.unsupportedRequest = undefined;
+      }
+    }
+    // Reuse the clarification snapshot within this request only. Quoting and
+    // pre/post availability checks deliberately retain their fresh reads.
+    let snapshot: ReturnType<typeof loadCustomerClarificationSnapshot> | undefined;
+    const clarificationSnapshot = () => snapshot ??= loadCustomerClarificationSnapshot(args.salonId);
+    result = await timing.measure('resolution', () => resolveCustomerTurn(args, menu, intent, conversation, nextState, {
+      buildCustomerProposal,
+      loadCustomerClarificationSnapshot: clarificationSnapshot,
+      lookupCustomerSlots: input => timing.measure('availability', () => lookupCustomerSlots(input)),
+      lookupNextCustomerSlots: input => timing.measure('availability', () => lookupNextCustomerSlots(input)),
+    }));
+    if (nextState.unsupportedRequest && (result.kind === 'proposal' || result.kind === 'slots')) {
+      result = { kind: 'unavailable', reason: nextState.unsupportedRequest.kind === 'removal' ? 'unsupported_removal' : 'no_match' };
+      nextState.context = undefined;
+      nextState.booking = undefined;
+    }
     if (!publicFacts && result.kind === 'answer' && !result.message) {
       result = { ...result, message: args.locale === 'fr' ? 'Je ne peux pas vérifier cette information pour le moment. Le menu habituel reste disponible.' : 'I can’t verify that information right now. You can still use the regular menu.' };
     }
     if (publicFacts) {
+      const factResolutionStarted = performance.now();
+      const requestedReplyFacts = new Set(intent.reply?.segments.flatMap(segment => segment.kind === 'fact' ? [segment.key] : []) ?? []);
+      const needsOffer = requestedReplyFacts.has('next_visit_offer');
       let currentProposal;
       let quoteIsDraft = false;
-      if (result.kind === 'answer') {
+      if (result.kind === 'answer' && (result.topic === 'price' || result.topic === 'duration' || requestedReplyFacts.has('selection') || needsOffer)) {
         try {
           let quoteSelection = nextState.context?.selection;
           if (!quoteSelection && nextState.requestedSelection && menu.l1) {
-            quoteSelection = customerPartialQuoteSelection({ menu, snapshot: await loadCustomerClarificationSnapshot(args.salonId), facts: nextState.facts ?? emptyFacts(), candidate: nextState.requestedSelection }) ?? undefined;
+            quoteSelection = customerPartialQuoteSelection({ menu, snapshot: await clarificationSnapshot(), facts: nextState.facts ?? emptyFacts(), candidate: nextState.requestedSelection }) ?? undefined;
             quoteIsDraft = Boolean(quoteSelection);
           }
           if (!quoteSelection) {
@@ -231,15 +274,17 @@ export async function runCustomerAssistantTurn(args: {
       }
       let nextVisitOfferMessage: string | undefined;
       try {
-        const offer = await getNextVisitOfferAssistantFacts({
-          salonId: args.salonId,
-          ...(conversation.nextVisitOffer ? { reference: conversation.nextVisitOffer } : {}),
-          services: currentProposal && !quoteIsDraft ? [{ id: currentProposal.service.id, priceCents: currentProposal.service.priceCents }] : [],
-          ...(nextState.booking?.selectedSlot ? { startTime: nextState.booking.selectedSlot.startTime } : {}),
-        });
+        const offer = needsOffer
+          ? await getNextVisitOfferAssistantFacts({
+            salonId: args.salonId,
+            ...(conversation.nextVisitOffer ? { reference: conversation.nextVisitOffer } : {}),
+            services: currentProposal && !quoteIsDraft ? [{ id: currentProposal.service.id, priceCents: currentProposal.service.priceCents }] : [],
+            ...(nextState.booking?.selectedSlot ? { startTime: nextState.booking.selectedSlot.startTime } : {}),
+          })
+          : null;
         if (offer) {
           nextVisitOfferMessage = nextVisitOfferFact({ offer, menu, locale: args.locale, hasSelectedService: Boolean(currentProposal) && !quoteIsDraft });
-        } else {
+        } else if (needsOffer) {
           nextVisitOfferMessage = args.locale === 'fr'
             ? 'Aucune offre prochaine visite vérifiée n’est liée à cette session de réservation. Réserver à nouveau n’ajoute pas automatiquement une réduction.'
             : 'There is no verified Next Visit Offer attached to this booking session. Rebooking itself does not add a discount.';
@@ -248,57 +293,19 @@ export async function runCustomerAssistantTurn(args: {
         // Offers are optional public context. A read failure cannot weaken or
         // change the assistant's normal conversation and booking behavior.
       }
-      const replyArgs = { menu, publicFacts, result, conversation, nextState, message: args.message, locale: args.locale, currentProposal, quoteIsDraft, ...(nextVisitOfferMessage ? { nextVisitOfferFact: nextVisitOfferMessage } : {}) };
-      const reply = buildReplyInput(replyArgs);
-      const replySchema = createReplySchema(reply.facts);
-      const fallback = fallbackReceptionistReply(replyArgs, reply.facts);
-      const guidanceOptions = result.kind === 'clarification' && result.question === 'service' ? result.options : null;
-      // Service-choice chips are optional guidance. Do not show an unrelated
-      // menu dump when composition falls back; typed replies remain available.
-      result = { ...result, message: fallback, ...(guidanceOptions ? { options: [] } : {}) };
-      const replyContext = compactCustomerModelContext({
-        prompt: RECEPTIONIST_REPLY_PROMPT,
-        schema: replySchema,
-        maxBytes: 24_000,
-        context: JSON.parse(reply.data) as Record<string, unknown>,
-      });
-      const remaining = 25_000 - (performance.now() - started);
-      // Combined worst-case input bytes + both output caps stay below the
-      // existing derived 150,000-micro-USD turn reservation (including schema overhead).
-      if (remaining >= 1500 && replyContext.fits) {
-        composerInvoked = true;
-        providerCallStarted = true;
-        try {
-          const composed = await model.createResponse({
-            model: CUSTOMER_ASSISTANT_MODEL,
-            input: [{ role: 'system', content: RECEPTIONIST_REPLY_PROMPT }, { role: 'user', content: replyContext.data }],
-            tools: [],
-            toolChoice: 'none',
-            reasoningEffort: 'low',
-            jsonMode: 'schema',
-            jsonSchema: replySchema,
-            maxOutputTokens: 800,
-            timeoutMs: Math.min(10_000, Math.floor(remaining)),
-          });
-          composerUsage = composed.usage;
-          if (composed.status !== 'completed' || composed.items.some(item => item.type === 'function_call' || item.type === 'refusal')) {
-            throw new Error('CUSTOMER_REPLY_INVALID');
-          }
-          const rendered = parseReceptionistReply(composed.items.filter(item => item.type === 'message').map(item => item.text).join(''), reply.facts, menu, reply.requiredFactKeys, intent.action !== 'answer');
-          if (guidanceOptions && rendered.options.some(option => !guidanceOptions.includes(option))) {
-            throw new Error('CUSTOMER_REPLY_INCOMPATIBLE_GUIDANCE_OPTION');
-          }
-          result = { ...result, message: rendered.message, ...(result.kind === 'answer' || guidanceOptions ? { options: rendered.options } : {}) };
-        } catch (error) {
-          if (error instanceof ModelProviderError) {
-            composerUsage = error.usage;
-          }
-          // Preserve the authoritative result and useful fallback on a prose failure.
-        }
+      timing.add('resolution', performance.now() - factResolutionStarted);
+      const replyStarted = performance.now();
+      const rendered = renderReceptionistTurn({ menu, publicFacts, result, conversation, nextState, message: args.message, locale: args.locale, currentProposal, quoteIsDraft, ...(nextVisitOfferMessage ? { nextVisitOfferFact: nextVisitOfferMessage } : {}) }, intent);
+      const offersOptions = result.kind === 'answer' || (result.kind === 'clarification' && result.question === 'service') || isRecoverableResult(result);
+      result = { ...result, message: rendered.message, ...(offersOptions ? { options: rendered.options } : {}) };
+      if (offersOptions && rendered.options.length) {
+        nextState.priorSubjects = conversation.subjects;
+        nextState.subjects = menu.services.filter(service => rendered.options.includes(service.name)).map(service => service.id);
       }
+      timing.add('reply', performance.now() - replyStarted);
     }
   } catch (error) {
-    if (error instanceof ModelProviderError && interpreterInvoked && !composerInvoked) {
+    if (error instanceof ModelProviderError && interpreterInvoked) {
       interpreterUsage = error.usage;
     }
     // Provider and catalogue exceptions may carry untrusted text. Never log
@@ -307,26 +314,24 @@ export async function runCustomerAssistantTurn(args: {
   }
   const stageUsages: CustomerAssistantStageUsage[] = [];
   if (interpreterInvoked) {
-    stageUsages.push({ stage: 'interpreter', model: CUSTOMER_ASSISTANT_INTERPRETATION_MODEL, usage: interpreterUsage });
-  }
-  if (composerInvoked) {
-    stageUsages.push({ stage: 'composer', model: CUSTOMER_ASSISTANT_MODEL, usage: composerUsage });
+    stageUsages.push({ stage: 'receptionist', model: CUSTOMER_ASSISTANT_MODEL, usage: interpreterUsage });
   }
   const usage = aggregateCustomerAssistantStageUsage(stageUsages);
   try {
-    await recordCustomerAssistantUsage({
+    await timing.measure('persistence', () => recordCustomerAssistantUsage({
       salonId: args.salonId,
       attemptId,
       usage,
       stageUsages,
-      latencyMs: performance.now() - started,
+      latencyMs: performance.now() - requestStarted,
+      timings: timing.snapshot(),
       deterministic: !providerCallStarted,
       outcome: result.kind === 'unavailable'
         ? (result.reason === 'no_match' ? 'no_match' : 'failed')
         : (result.kind === 'slots' || result.kind === 'date_prompt')
             ? 'availability'
             : result.kind,
-    });
+    }));
   } catch {
     result = { kind: 'unavailable', reason: 'unavailable' };
   }
@@ -340,10 +345,10 @@ export async function runCustomerAssistantTurn(args: {
   nextState.dialogue = [...(conversation.dialogue ?? conversation.messages.map(content => ({ role: 'user' as const, content }))), { role: 'user' as const, content: args.message }, ...(spoken ? [{ role: 'assistant' as const, content: spoken.slice(0, 2400) }] : [])].slice(-24);
   try {
     const response = { conversation: signCustomerConversation(nextState, config.signingSecret), result };
-    if (!await completeCustomerRevision(nextState, response.conversation)) {
+    if (!await timing.measure('persistence', () => completeCustomerRevision(nextState, response.conversation))) {
       return unavailable('unavailable');
     }
-    await storeCompletedCustomerTurn(args, response);
+    await timing.measure('persistence', () => storeCompletedCustomerTurn(args, response));
     return response;
   } catch {
     return unavailable('session_limit');

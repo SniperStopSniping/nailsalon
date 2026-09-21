@@ -1,0 +1,446 @@
+{
+  "generatedAt": "2026-09-21T17:44:04.037Z",
+  "baselineRevision": "952dadc23bace8ff0f43e7158e1eef02efec39c8",
+  "candidateRevision": "current worktree",
+  "samplesPerCategory": 1,
+  "categories": [
+    "greeting",
+    "price",
+    "recommendation",
+    "unsupported_hardgel",
+    "complete_length_design",
+    "availability_configured_state"
+  ],
+  "scope": "Real Responses API calls: Terra interpreter/receptionist and archived Luna composer. Synthetic L1 catalogue, resolver, and schedule only; synthetic_resolution excludes real database, availability, booking, SMS/email, payments, and production data.",
+  "notes": [
+    "Baseline is sequential Terra interpreter plus Luna composer; candidate is one Terra receptionist call.",
+    "Provider stages include actual provider latency and reported token-based cost. Synthetic resolution/render timing is local only.",
+    "Quality failures are recorded per observation; numeric business facts are accepted only through server rendering/parser guards."
+  ],
+  "summary": {
+    "baseline": {
+      "n": 6,
+      "totalMs": {
+        "p50": 6734.944667,
+        "p95": 8556.597459,
+        "max": 8556.597459
+      },
+      "stages": {
+        "interpreter": {
+          "p50": 4210.274917000001,
+          "p95": 5753.048791,
+          "max": 5753.048791
+        },
+        "synthetic_resolution": {
+          "p50": 1.5895829999999478,
+          "p95": 7.567542000000685,
+          "max": 7.567542000000685
+        },
+        "composer": {
+          "p50": 2879.9152920000006,
+          "p95": 3343.499417,
+          "max": 3343.499417
+        }
+      },
+      "reportedCostMicros": 28143,
+      "unknownCostStages": 0,
+      "fallbacks": 0,
+      "qualityFailures": 4
+    },
+    "candidate": {
+      "n": 6,
+      "totalMs": {
+        "p50": 4195.930833,
+        "p95": 6974.820792000001,
+        "max": 6974.820792000001
+      },
+      "stages": {
+        "receptionist": {
+          "p50": 4188.254333000001,
+          "p95": 6968.041333,
+          "max": 6968.041333
+        },
+        "synthetic_resolution": {
+          "p50": 0.3556670000016311,
+          "p95": 3.046875,
+          "max": 3.046875
+        },
+        "render": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0
+        }
+      },
+      "reportedCostMicros": 34694,
+      "unknownCostStages": 0,
+      "fallbacks": 2,
+      "qualityFailures": 3
+    }
+  },
+  "observations": [
+    {
+      "category": "greeting",
+      "sample": 1,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 4210.274917000001,
+            "costMicros": 3887,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.1280830000005153,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 3343.499417,
+            "costMicros": 264,
+            "status": "completed"
+          }
+        },
+        "totalMs": 7559.004167,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely! For a classic manicure on your natural nails, Gel Manicure is a great choice; BIAB Builder Gel adds extra strength, while Gel-X is for added length. Are you looking to keep your natural nails or add length?",
+        "options": [
+          "Gel Manicure",
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 4092.3218339999994,
+            "costMicros": 5242,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.2017920000016602,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 4101.2195,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Absolutely. For natural nails, a gel manicure is a polished option, while BIAB builder gel is typically chosen for a more structured overlay. If you’d like added length, Gel-X extensions are the best fit. What result are you hoping for?",
+        "options": [
+          "Gel Manicure",
+          "BIAB Builder Gel",
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false
+      }
+    },
+    {
+      "category": "price",
+      "sample": 1,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 3314.858417,
+            "costMicros": 3226,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 1.5895829999999478,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2954.12125,
+            "costMicros": 95,
+            "status": "completed"
+          }
+        },
+        "totalMs": 6276.022625,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Synthetic Isla lists Gel-X Extensions from $70.00 (CAD), before any additional options.",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 6968.041333,
+            "costMicros": 4294,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.1985420000000886,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 6974.820792000001,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Synthetic Isla lists Gel-X Extensions from $70.00 (CAD), before any additional options. Length, removal, repairs, and finishes can add to the total.",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      }
+    },
+    {
+      "category": "recommendation",
+      "sample": 1,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 5753.048791,
+            "costMicros": 3840,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 1.0066670000005615,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2797.5746659999995,
+            "costMicros": 249,
+            "status": "completed"
+          }
+        },
+        "totalMs": 8556.597459,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "For added length, Gel-X Extensions are a great place to start. Medium length is usually a versatile, easy-to-wear choice; if you want a more dramatic look, long length will give you extra impact. I’d lean medium for your first set.",
+        "options": [
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 5599.679667,
+            "costMicros": 5736,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.3556670000016311,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 5603.525707999999,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "For added length, Gel-X Extensions are usually the best fit: they create length right away and can be shaped to suit your hands and lifestyle. BIAB Builder Gel is better if you’d prefer to keep your natural nails and add strength with only minimal length. For a first set, a shorter or medium extension is often the most comfortable place to start.",
+        "options": [
+          "Gel-X Extensions",
+          "BIAB Builder Gel"
+        ],
+        "quality": [],
+        "fallback": false
+      }
+    },
+    {
+      "category": "unsupported_hardgel",
+      "sample": 1,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 3851.365708,
+            "costMicros": 3694,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 1.7471660000001066,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2879.9152920000006,
+            "costMicros": 274,
+            "status": "completed"
+          }
+        },
+        "totalMs": 6734.944667,
+        "resultKind": "unavailable",
+        "reason": "unsupported_service",
+        "message": "That service is not available for online booking. Please choose another option.",
+        "options": [
+          "Gel-X Extensions"
+        ],
+        "quality": [
+          "hardgel_not_no_match",
+          "hardgel_label_not_preserved",
+          "recovery_option_not_supported_gelx"
+        ],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 4188.254333000001,
+            "costMicros": 5230,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.3711249999996653,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 4195.930833,
+        "resultKind": "unavailable",
+        "reason": "no_match",
+        "message": "I can’t match that request to Synthetic Isla’s booking menu. We do offer Gel-X Extensions, which are a full-coverage extension option and may suit the added-length result you’re after. Would you like to explore Gel-X instead?",
+        "options": [
+          "Gel-X Extensions"
+        ],
+        "quality": [
+          "hardgel_label_not_preserved",
+          "recovery_option_not_supported_gelx"
+        ],
+        "fallback": false
+      }
+    },
+    {
+      "category": "complete_length_design",
+      "sample": 1,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 5246.782042,
+            "costMicros": 4871,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 7.567542000000685,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 3071.0332909999997,
+            "costMicros": 163,
+            "status": "completed"
+          }
+        },
+        "totalMs": 8331.10125,
+        "resultKind": "proposal",
+        "reason": null,
+        "message": "Absolutely—this sounds lovely. Your Gel-X set is ready to review.",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 4832.169542,
+            "costMicros": 5315,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 3.046875,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 4838.486667000001,
+        "resultKind": "proposal",
+        "reason": null,
+        "message": "Here’s your appointment package at Synthetic Isla 💅",
+        "options": [],
+        "quality": [],
+        "fallback": true
+      }
+    },
+    {
+      "category": "availability_configured_state",
+      "sample": 1,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 4450.4132500000005,
+            "costMicros": 6949,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 2.5849170000001322,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 1216.7803329999997,
+            "costMicros": 631,
+            "status": "completed"
+          }
+        },
+        "totalMs": 5677.819375,
+        "resultKind": "slots",
+        "reason": null,
+        "message": "I found the next available time for your requested service: Checked times matching your requested search for Sep 18, 12:00 AM–11:59 PM: Friday, Sep 18, 9:00 AM. These are not held.",
+        "options": [],
+        "quality": [
+          "numeric_not_obviously_authoritative"
+        ],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 3914.2852089999997,
+            "costMicros": 8877,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.7996249999996508,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 3919.782792000001,
+        "resultKind": "slots",
+        "reason": null,
+        "message": "Checked times matching your requested search for Sep 18, 12:00 AM–11:59 PM: Friday, Sep 18, 9:00 AM. These are not held.",
+        "options": [],
+        "quality": [
+          "numeric_not_obviously_authoritative"
+        ],
+        "fallback": true
+      }
+    }
+  ]
+}

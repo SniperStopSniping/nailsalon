@@ -4,6 +4,7 @@ const record = vi.hoisted(() => vi.fn());
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({ db: {} }));
 vi.mock('@/libs/salonAuditLog.server', () => ({ writeSalonAuditRow: record }));
+const { CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD } = await import('./modelPricing');
 const { customerUsageCostMicros, recordCustomerAssistantUsage } = await import('./ledger.server');
 
 describe('customer-only spend accounting', () => {
@@ -16,7 +17,7 @@ describe('customer-only spend accounting', () => {
   it('writes only separate action evidence with a worst-case reservation', async () => {
     await recordCustomerAssistantUsage({ salonId: 'salon-a', attemptId: 'attempt', outcome: 'reserved', usage: null, latencyMs: 0 });
 
-    expect(record).toHaveBeenCalledWith({}, expect.objectContaining({ salonId: 'salon-a', action: 'customer_assistant_turn', metadata: expect.objectContaining({ newValue: expect.objectContaining({ costMicros: null, providerCall: null, reservedCostMicros: 150000 }) }) }));
+    expect(record).toHaveBeenCalledWith({}, expect.objectContaining({ salonId: 'salon-a', action: 'customer_assistant_turn', metadata: expect.objectContaining({ newValue: expect.objectContaining({ costMicros: null, providerCall: null, reservedCostMicros: CUSTOMER_ASSISTANT_TURN_COST_MICRO_USD }) }) }));
   });
 
   it('keeps aggregate cost unknown when any invoked stage has no provider usage, while deterministic work costs zero', async () => {

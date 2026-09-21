@@ -1,0 +1,438 @@
+{
+  "generatedAt": "2026-09-21T18:04:11.230Z",
+  "baselineRevision": "952dadc23bace8ff0f43e7158e1eef02efec39c8",
+  "candidateRevision": "current worktree",
+  "samplesPerCategory": 5,
+  "categories": [
+    "recommendation"
+  ],
+  "providerBounds": {
+    "baseline": {
+      "contextBytes": 30000,
+      "interpreter": {
+        "maxOutputTokens": 1200,
+        "timeoutMs": 12000
+      },
+      "composer": {
+        "maxOutputTokens": 900,
+        "timeoutMs": 10000
+      }
+    },
+    "candidate": {
+      "contextBytes": 40000,
+      "receptionist": {
+        "maxOutputTokens": 1800,
+        "timeoutMs": 15000
+      }
+    }
+  },
+  "scope": "Real Responses API calls: Terra interpreter/receptionist and archived Luna composer. Synthetic L1 catalogue, resolver, and schedule only; synthetic_resolution excludes real database, availability, booking, SMS/email, payments, and production data.",
+  "notes": [
+    "Baseline is sequential Terra interpreter plus Luna composer; candidate is one Terra receptionist call.",
+    "Provider stages include actual provider latency and reported token-based cost. Synthetic resolution/render timing is local only.",
+    "Quality failures are recorded per observation; numeric business facts are accepted only through server rendering/parser guards."
+  ],
+  "summary": {
+    "baseline": {
+      "n": 5,
+      "totalMs": {
+        "p50": 6644.819583999999,
+        "p95": 7930.405625,
+        "max": 7930.405625
+      },
+      "stages": {
+        "interpreter": {
+          "p50": 2894.096958000002,
+          "p95": 4091.940167,
+          "max": 4091.940167
+        },
+        "synthetic_resolution": {
+          "p50": 0.43924999999580905,
+          "p95": 2.5568750000002183,
+          "max": 2.5568750000002183
+        },
+        "composer": {
+          "p50": 3745.220125,
+          "p95": 4260.2308339999945,
+          "max": 4260.2308339999945
+        }
+      },
+      "reportedCostMicros": 20095,
+      "unknownCostStages": 0,
+      "fallbacks": 0,
+      "qualityFailures": 0
+    },
+    "candidate": {
+      "n": 5,
+      "totalMs": {
+        "p50": 4932.143666999997,
+        "p95": 5612.929583,
+        "max": 5612.929583
+      },
+      "stages": {
+        "receptionist": {
+          "p50": 4928.219333000001,
+          "p95": 5604.773999999999,
+          "max": 5604.773999999999
+        },
+        "synthetic_resolution": {
+          "p50": 0.46379199999864795,
+          "p95": 0.9266250000000582,
+          "max": 0.9266250000000582
+        },
+        "render": {
+          "p50": 0.7826249999998254,
+          "p95": 4.6264590000009775,
+          "max": 4.6264590000009775
+        }
+      },
+      "reportedCostMicros": 32929,
+      "unknownCostStages": 0,
+      "fallbacks": 1,
+      "qualityFailures": 0
+    }
+  },
+  "observations": [
+    {
+      "category": "recommendation",
+      "sample": 1,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 4091.940167,
+            "costMicros": 3636,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 2.5568750000002183,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 3824.640042,
+            "costMicros": 393,
+            "status": "completed"
+          }
+        },
+        "totalMs": 7930.405625,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "For added length, Gel-X is the best fit. I’d recommend a balanced, easy-to-wear look to start; choose the more dramatic option if you love a statement shape. Medium Length: $10.00 (CAD), 15 min. Long Length: $20.00 (CAD), 30 min.",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 5604.773999999999,
+            "costMicros": 9993,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.9266250000000582,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 4.6264590000009775,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 5612.929583,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "For added length, I’d recommend Gel-X extensions. They’re a lovely option when you want a longer, polished shape without committing to a traditional acrylic set, and you can choose a subtle short extension or go more dramatic. Your natural nail length, lifestyle, and preferred shape all help determine what will feel most comfortable.",
+        "options": [
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false,
+        "modelServiceOptions": [
+          "svc_semantic_gelx"
+        ],
+        "modelReplyFactKeys": [],
+        "resultQuestion": null,
+        "resultOptions": [
+          "Gel-X Extensions"
+        ]
+      }
+    },
+    {
+      "category": "recommendation",
+      "sample": 2,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 2894.096958000002,
+            "costMicros": 3900,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.4671249999992142,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 3745.220125,
+            "costMicros": 303,
+            "status": "completed"
+          }
+        },
+        "totalMs": 6644.819583999999,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "Medium Length: $10.00 (CAD), 15 min. Long Length: $20.00 (CAD), 30 min.",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 5194.658707999999,
+            "costMicros": 5797,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.46379199999864795,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0.6956669999999576,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 5197.4337909999995,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "For added length, Gel-X extensions are usually the best place to start: they give you length right away and can be tailored from a subtle extension to a more noticeable look. BIAB is better suited to reinforcing your natural nails rather than creating length. If you’re unsure, I’d lean toward a shorter-to-medium Gel-X shape for an easy, balanced first set.",
+        "options": [
+          "Gel-X Extensions"
+        ],
+        "quality": [],
+        "fallback": false,
+        "modelServiceOptions": [
+          "svc_semantic_gelx"
+        ],
+        "modelReplyFactKeys": [],
+        "resultQuestion": null,
+        "resultOptions": [
+          "Gel-X Extensions",
+          "BIAB Builder Gel"
+        ]
+      }
+    },
+    {
+      "category": "recommendation",
+      "sample": 3,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 2761.718041,
+            "costMicros": 3516,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.3573340000002645,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 3012.1455000000024,
+            "costMicros": 303,
+            "status": "completed"
+          }
+        },
+        "totalMs": 5775.757583000002,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "For a balanced, wearable look, I’d recommend medium-length Gel-X extensions. If you’re after a more dramatic statement and are comfortable with extra length, long would be lovely—medium is usually the easiest place to start.",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 4789.189583999996,
+            "costMicros": 5473,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.3244170000034501,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0.7027079999970738,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 4792.782374999999,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "For added length, Gel-X Extensions are the salon’s dedicated extension option and are a great choice if you want a noticeable longer shape. BIAB Builder Gel is better suited to reinforcing your natural nails, with only modest length possible from your own nail. If you’d like a clear recommendation, Gel-X is the better match for your goal; you can then choose short, medium, or long.",
+        "options": [
+          "Gel-X Extensions",
+          "BIAB Builder Gel"
+        ],
+        "quality": [],
+        "fallback": false,
+        "modelServiceOptions": [
+          "svc_semantic_gelx",
+          "svc_semantic_biab"
+        ],
+        "modelReplyFactKeys": [],
+        "resultQuestion": null,
+        "resultOptions": [
+          "Gel-X Extensions",
+          "BIAB Builder Gel"
+        ]
+      }
+    },
+    {
+      "category": "recommendation",
+      "sample": 4,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 3672.2758329999997,
+            "costMicros": 3840,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.43924999999580905,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 2165.9367500000008,
+            "costMicros": 249,
+            "status": "completed"
+          }
+        },
+        "totalMs": 5840.497041000002,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "For a first set of extensions, I’d recommend medium length—it gives you noticeable length while staying practical for everyday wear. If you’re after a more dramatic look, long length would suit you beautifully; think elegant almond or soft square shapes. ✨",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 4179.851416999998,
+            "costMicros": 5557,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.46600000000034925,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 4.593334000004688,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 4186.576875000006,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "For added length, Gel-X Extensions are usually the most straightforward option: they create a longer shape right away and can be chosen in a length that feels wearable for you. BIAB Builder Gel is better suited to reinforcing your natural nails rather than adding length. If you tell me whether you prefer a subtle everyday length or something more noticeable, I can help narrow it down.",
+        "options": [
+          "Gel-X Extensions",
+          "BIAB Builder Gel"
+        ],
+        "quality": [],
+        "fallback": false,
+        "modelServiceOptions": [
+          "svc_semantic_gelx",
+          "svc_semantic_biab"
+        ],
+        "modelReplyFactKeys": [],
+        "resultQuestion": null,
+        "resultOptions": [
+          "Gel-X Extensions",
+          "BIAB Builder Gel"
+        ]
+      }
+    },
+    {
+      "category": "recommendation",
+      "sample": 5,
+      "baseline": {
+        "stages": {
+          "interpreter": {
+            "latencyMs": 2645.6410409999953,
+            "costMicros": 3624,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.3436249999940628,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "composer": {
+            "latencyMs": 4260.2308339999945,
+            "costMicros": 331,
+            "status": "completed"
+          }
+        },
+        "totalMs": 6908.050582999997,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "For added length, Gel-X is a great fit. I’d usually recommend medium for a polished, versatile look; long is better if you want something more dramatic and statement-making. ✨ Medium Length: $10.00 (CAD), 15 min. Long Length: $20.00 (CAD), 30 min.",
+        "options": [],
+        "quality": [],
+        "fallback": false
+      },
+      "candidate": {
+        "stages": {
+          "receptionist": {
+            "latencyMs": 4928.219333000001,
+            "costMicros": 6109,
+            "status": "completed"
+          },
+          "synthetic_resolution": {
+            "latencyMs": 0.3117080000010901,
+            "costMicros": 0,
+            "status": "synthetic"
+          },
+          "render": {
+            "latencyMs": 0.7826249999998254,
+            "costMicros": 0,
+            "status": "deterministic"
+          }
+        },
+        "totalMs": 4932.143666999997,
+        "resultKind": "answer",
+        "reason": null,
+        "message": "You’re looking to add length. We can start with that result—you don’t need to know the service names. The online menu offers Gel-X Extensions.",
+        "options": [],
+        "quality": [],
+        "fallback": true,
+        "renderRejectionReason": "CUSTOMER_REPLY_INCOMPATIBLE_UPSELL",
+        "modelServiceOptions": [
+          "svc_semantic_gelx",
+          "svc_semantic_biab"
+        ],
+        "modelReplyFactKeys": [
+          "service_2_price",
+          "service_0_price"
+        ],
+        "resultQuestion": null,
+        "resultOptions": [
+          "Gel-X Extensions",
+          "BIAB Builder Gel"
+        ]
+      }
+    }
+  ]
+}

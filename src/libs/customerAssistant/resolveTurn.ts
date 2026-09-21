@@ -466,6 +466,8 @@ export function applyCustomerTurnResult(nextState: CustomerConversation, result:
     }
   } else if (result.kind === 'answer') {
     nextState.context = { question: null, answerTopic: result.topic, options: result.options, selection: nextState.context?.selection ?? null };
+  } else if (result.kind === 'unavailable' && result.options?.length) {
+    nextState.context = { question: 'service', options: result.options, selection: null };
   } else if (result.kind === 'clarification') {
     nextState.context = {
       question: result.question,
