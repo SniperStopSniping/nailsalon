@@ -57,6 +57,54 @@ describe('one-call receptionist', () => {
     expect(result.options).toEqual([]);
   });
 
+  it.each([
+    { kind: 'treatment' as const, label: 'Hard Gel Extensions' },
+    { kind: 'design' as const, label: 'Raised floral sculptures' },
+    { kind: 'removal' as const, label: 'Acrylic removal' },
+  ])('retains a pending $kind limitation in a natural follow-up answer', (unsupportedRequest) => {
+    const nextState = { ...state, unsupportedRequest };
+    const message = 'Gel-X Extensions can add length once your current nails are ready for a new set. Would you like to discuss that option?';
+    const result = renderReceptionistTurn({ ...args, nextState, message: 'What do you recommend?', result: { kind: 'answer', topic: 'recommendation', message: '', options: [] } }, intent({ segments: [{ kind: 'fact', key: 'limitation' }, { kind: 'text', text: message }], serviceOptions: ['gelx'] }));
+
+    expect(result.usedModelReply).toBe(true);
+    expect(result.message).toBe(`We don’t offer ${unsupportedRequest.label} at Synthetic Nail Studio. ${message}`);
+    expect(result.options).toEqual(['Gel-X Extensions']);
+    expect(nextState.unsupportedRequest).toEqual(unsupportedRequest);
+    expect(nextState).not.toHaveProperty('requestedSelection');
+  });
+
+  it('does not force a pending limitation into an alternative price answer', () => {
+    const nextState = { ...state, unsupportedRequest: { kind: 'treatment' as const, label: 'Hard Gel Extensions' } };
+    const result = renderReceptionistTurn({ ...args, nextState, result: { kind: 'answer', topic: 'price', message: '', options: [] } }, intent({ segments: [{ kind: 'fact', key: 'service_0_price' }], serviceOptions: [] }));
+
+    expect(result.usedModelReply).toBe(true);
+    expect(result.message).toContain('$65.00');
+    expect(result.message).not.toContain('Hard Gel Extensions');
+    expect(nextState.unsupportedRequest).toEqual({ kind: 'treatment', label: 'Hard Gel Extensions' });
+  });
+
+  it('rejects a stale limitation after the customer has resolved the unsupported request', () => {
+    const conversation = { ...state, unsupportedRequest: { kind: 'treatment' as const, label: 'Hard Gel Extensions' } };
+    const result = renderReceptionistTurn({ ...args, conversation, nextState: { ...state }, result: { kind: 'answer', topic: 'recommendation', message: '', options: [] } }, intent(recoveryReply));
+
+    expect(result.usedModelReply).toBe(false);
+    expect(result.rejectionReason).toBe('CUSTOMER_REPLY_INVALID_REFERENCE');
+    expect(result.message).not.toContain('Hard Gel Extensions');
+  });
+
+  it('keeps the pending removal limitation when an optional upgrade is rejected on a follow-up', () => {
+    const nextState = { ...state, unsupportedRequest: { kind: 'removal' as const, label: 'Acrylic removal' } };
+    const result = renderReceptionistTurn({ ...args, nextState, result: { kind: 'answer', topic: 'recommendation', message: '', options: [] } }, intent(recoveryReply, { suggestedAddOnIds: ['foreign-upgrade'] }));
+
+    expect(result.usedModelReply).toBe(false);
+    expect(result.rejectionReason).toBe('CUSTOMER_REPLY_INCOMPATIBLE_UPSELL');
+    expect(result.message).toContain('We don’t offer Acrylic removal at Synthetic Nail Studio.');
+    expect(result.message).toContain('Soft gel tips for added length.');
+    expect(result.options).toEqual(['Gel-X Extensions']);
+    expect(nextState.unsupportedRequest.kind).toBe('removal');
+    expect(nextState).not.toHaveProperty('requestedSelection');
+  });
+
   it.each(['foreign-service', 'fill'])('does not offer a foreign or unsuitable service: %s', (id) => {
     const result = renderReceptionistTurn({ ...args, nextState: { ...state, facts: { ...emptyFacts(), existingProduct: 'none' } } }, intent({ ...recoveryReply, serviceOptions: [id] }));
 

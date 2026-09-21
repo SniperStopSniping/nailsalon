@@ -80,7 +80,13 @@ export function renderReceptionistTurn(args: ReplyInput, intent: ReceptionistTur
   const { facts, requiredFactKeys } = buildReplyInput(args);
   const recovery = isRecoverableResult(args.result);
   const unsupported = args.nextState.unsupportedRequest;
-  if (recovery && unsupported) {
+  // A follow-up answer may still explain a pending unsupported request. Make
+  // that fact available when the model uses it, without requiring repetition
+  // on every price or informational answer. Only the current unresolved state
+  // can supply it; a withdrawn or replaced request cannot reappear from history.
+  const referencesPendingLimitation = args.result.kind === 'answer'
+    && intent.reply?.segments.some(segment => segment.kind === 'fact' && segment.key === 'limitation');
+  if (unsupported && (recovery || referencesPendingLimitation)) {
     const salon = args.publicFacts.salon.name;
     facts.limitation = args.locale === 'fr'
       ? `Nous ne proposons pas « ${unsupported.label} » chez ${salon}.`
@@ -155,7 +161,7 @@ export function renderReceptionistTurn(args: ReplyInput, intent: ReceptionistTur
           ? `${publicService.name}: ${publicService.description}`
           : args.locale === 'fr' ? `${publicService.name} figure au menu de ${args.publicFacts.salon.name}.` : `${publicService.name} is on ${args.publicFacts.salon.name}’s menu.`;
         const question = args.locale === 'fr' ? 'Souhaitez-vous explorer cette option ?' : 'Would you like to explore that option?';
-        return { message: [recovery ? facts.limitation : '', description, question].filter(Boolean).join(' '), options: [publicService.name], usedModelReply: false, rejectionReason };
+        return { message: [facts.limitation, description, question].filter(Boolean).join(' '), options: [publicService.name], usedModelReply: false, rejectionReason };
       }
     }
     return { ...fallback(), rejectionReason };
