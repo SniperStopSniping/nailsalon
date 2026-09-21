@@ -941,6 +941,18 @@ describe('natural receptionist orchestration', () => {
     expect(mocks.lookup).not.toHaveBeenCalled();
   });
 
+  it('stores the concise server question instead of a model process preamble for a preference clarification', async () => {
+    enablePublicFacts();
+    const unresolved = { ...interpretation, action: 'clarify', question: 'product', addOns: [], optionIds: [], factUpdates: noFactUpdates };
+    const model = provider(unresolved);
+    model.createResponse.mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(unresolved) }] }).mockResolvedValueOnce({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify({ segments: [{ kind: 'text', text: 'Before finalizing, I need to check the starting condition.' }, { kind: 'fact', key: 'required_question' }], serviceOptions: [] }) }] });
+    const response = await runCustomerAssistantTurn({ ...input(), message: 'I want Gel-X.' }, model);
+
+    expect(response.result).toMatchObject({ kind: 'clarification', question: 'product', message: 'Anything on your nails right now?' });
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).dialogue?.at(-1)).toEqual({ role: 'assistant', content: 'Anything on your nails right now?' });
+    expect(model.createResponse).toHaveBeenCalledTimes(2);
+  });
+
   it('answers price through fresh facts, stores actual dialogue and does not select a booking', async () => {
     enablePublicFacts();
     const model = provider(information);

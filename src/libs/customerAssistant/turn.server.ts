@@ -284,7 +284,7 @@ export async function runCustomerAssistantTurn(args: {
           if (composed.status !== 'completed' || composed.items.some(item => item.type === 'function_call' || item.type === 'refusal')) {
             throw new Error('CUSTOMER_REPLY_INVALID');
           }
-          const rendered = parseReceptionistReply(composed.items.filter(item => item.type === 'message').map(item => item.text).join(''), reply.facts, menu, reply.requiredFactKeys);
+          const rendered = parseReceptionistReply(composed.items.filter(item => item.type === 'message').map(item => item.text).join(''), reply.facts, menu, reply.requiredFactKeys, intent.action !== 'answer');
           if (guidanceOptions && rendered.options.some(option => !guidanceOptions.includes(option))) {
             throw new Error('CUSTOMER_REPLY_INCOMPATIBLE_GUIDANCE_OPTION');
           }

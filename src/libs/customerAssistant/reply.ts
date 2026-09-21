@@ -251,7 +251,7 @@ export function buildReplyInput(args: ReplyInput): { data: string; facts: Record
   }) };
 }
 
-export function parseReceptionistReply(raw: string, facts: Record<string, string>, menu: CustomerMenu, requiredFactKeys: string[] = []): { message: string; options: string[] } {
+export function parseReceptionistReply(raw: string, facts: Record<string, string>, menu: CustomerMenu, requiredFactKeys: string[] = [], conciseClarification = false): { message: string; options: string[] } {
   const reply = replySchema.parse(JSON.parse(raw));
   if (reply.segments.some(segment => segment.kind === 'fact' && !Object.hasOwn(facts, segment.key))) {
     throw new Error('CUSTOMER_REPLY_INVALID_REFERENCE');
@@ -348,7 +348,12 @@ export function parseReceptionistReply(raw: string, facts: Record<string, string
     }
     return service.name;
   });
-  const message = reply.segments.filter((_, index) => !redundantLeadInIndexes.has(index)).map(segment => segment.kind === 'fact' ? facts[segment.key]! : segment.text).join(' ');
+  // Straightforward preference updates need the server's natural question,
+  // not another model-written process preamble. Informational/help requests
+  // retain explanations. Keep all validated fact segments and run every
+  // grounding guard above even for prose that this presentation rule omits.
+  const message = reply.segments.filter((segment, index) => !redundantLeadInIndexes.has(index)
+    && !(conciseClarification && facts.required_question && segment.kind === 'text')).map(segment => segment.kind === 'fact' ? facts[segment.key]! : segment.text).join(' ');
   if (message.length > 2400) {
     throw new Error('CUSTOMER_REPLY_TOO_LONG');
   }
@@ -392,6 +397,11 @@ export function fallbackReceptionistReply(args: ReplyInput, facts: Record<string
     const subject = args.publicFacts.catalogue.services.findIndex(service => args.nextState.subjects?.includes(service.id));
     if (subject >= 0 && (result.topic === 'price' || result.topic === 'duration')) {
       return facts[`service_${subject}_${result.topic}`]!;
+    }
+    if (result.topic === 'salon_information' && !result.message) {
+      return args.locale === 'fr'
+        ? `Je ne peux pas vérifier ce détail avec les informations publiques de ${args.publicFacts.salon.name}. Veuillez contacter le studio avant de réserver.`
+        : `I can’t verify that detail from ${args.publicFacts.salon.name}’s public booking information. Please check with the studio before booking.`;
     }
     return result.message || (args.locale === 'fr' ? 'Je peux vous aider avec les services, les prix et les informations publiques du salon. Que souhaitez-vous savoir ?' : 'I can help with services, prices and the salon’s public information. What would you like to know?');
   }

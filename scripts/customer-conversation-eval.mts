@@ -564,7 +564,7 @@ async function main(): Promise<void> {
           const guidanceOptions = result.kind === 'clarification' && result.question === 'service' ? result.options : null;
           let parsedReply: { message: string; options: string[] };
           try {
-            parsedReply = parseReceptionistReply(rawReply, replyInput.facts, SEMANTIC_L1_MENU, replyInput.requiredFactKeys);
+            parsedReply = parseReceptionistReply(rawReply, replyInput.facts, SEMANTIC_L1_MENU, replyInput.requiredFactKeys, parsedIntent.action !== 'answer');
             if (guidanceOptions && parsedReply.options.some(option => !guidanceOptions.includes(option))) {
               throw new Error('CUSTOMER_REPLY_INCOMPATIBLE_GUIDANCE_OPTION');
             }

@@ -43,6 +43,18 @@ describe('grounded receptionist reply boundary', () => {
     }
   });
 
+  it('gives an honest branded recovery when a business-information reply fails grounding', () => {
+    const input: ReplyInput = { ...args, message: 'Do you take a deposit?', result: { kind: 'answer', topic: 'salon_information', message: '', options: [] } };
+    const facts = buildReplyInput(input).facts;
+    for (const claim of ['We take a deposit.', 'It takes a day.', 'It takes a full hour.', 'It takes an hour.', 'There is no deposit.']) {
+      expect(() => parseReceptionistReply(output(claim), facts, menu)).toThrow();
+    }
+
+    expect(fallbackReceptionistReply(input, facts)).toBe('I can’t verify that detail from Synthetic salon’s public booking information. Please check with the studio before booking.');
+    expect(fallbackReceptionistReply({ ...input, locale: 'fr' }, facts)).toContain('informations publiques de Synthetic salon');
+    expect(fallbackReceptionistReply({ ...input, result: { ...input.result, message: 'Verified public statement.' } }, facts)).toBe('Verified public statement.');
+  });
+
   it('requires one canonical clarification rather than repeating it in natural prose', () => {
     const facts = { required_question: 'What product is currently on your nails?' };
 
@@ -265,5 +277,29 @@ describe('grounded receptionist reply boundary', () => {
     const { data } = buildReplyInput({ ...args, publicFacts: { ...publicFacts, catalogue: { ...publicFacts.catalogue, addOns: [extra] } } });
 
     expect(data).not.toContain('Unbound add-on');
+  });
+});
+
+describe('concise preference clarifications', () => {
+  const facts = { required_question: 'Anything on your nails right now?', selection: 'Gel Manicure: $40.00 subtotal.' };
+
+  it.each([
+    'Lovely choice! Before finalizing, I need to check your current product.',
+    'To proceed, we must establish your starting condition.',
+    'Absolutely 💅.',
+  ])('uses the direct authoritative question without model preambles: %s', (preamble) => {
+    expect(parseReceptionistReply(output(`${preamble} [[required_question]]`), facts, menu, [], true).message).toBe(facts.required_question);
+  });
+
+  it('preserves explanation for informational/help requests and every referenced fact', () => {
+    const explanation = 'Different products need different compatible removal choices.';
+
+    expect(parseReceptionistReply(output(`${explanation} [[required_question]]`), facts, menu, [], false).message).toBe(`${explanation} ${facts.required_question}`);
+    expect(parseReceptionistReply(output('Here are your current details. [[selection]] [[required_question]]'), facts, menu, ['selection'], true).message).toBe(`${facts.selection} ${facts.required_question}`);
+  });
+
+  it('does not relax grounding guards or change service guidance, answers or proposals', () => {
+    expect(() => parseReceptionistReply(output('It costs $5. [[required_question]]'), facts, menu, [], true)).toThrow('CUSTOMER_REPLY_UNGROUNDED_VALUE');
+    expect(parseReceptionistReply(output('A gel manicure colours natural nails.'), {}, menu, [], true).message).toBe('A gel manicure colours natural nails.');
   });
 });
