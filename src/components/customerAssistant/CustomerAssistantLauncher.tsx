@@ -688,7 +688,7 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
                 {message.message}
               </p>
             )
-          : <p key={message.id} aria-label={message.role === 'assistant' ? 'Assistant' : 'You'} className={message.role === 'user' ? 'ml-auto max-w-[85%] rounded-2xl bg-neutral-950 px-4 py-3 text-sm leading-6 text-white' : 'max-w-full rounded-2xl bg-neutral-100 px-4 py-3 text-sm leading-5 text-neutral-800 sm:max-w-[85%] sm:leading-6'}>{message.message}</p>)}
+          : <p key={message.id} aria-label={message.role === 'assistant' ? 'Assistant' : 'You'} className={message.role === 'user' ? 'ml-auto max-w-[85%] rounded-2xl bg-neutral-950 px-4 py-3 text-sm leading-6 text-white' : 'max-w-full rounded-2xl bg-neutral-100 px-4 py-2 text-sm leading-5 text-neutral-800 sm:max-w-[85%] sm:py-3 sm:leading-6'}>{message.message}</p>)}
         {welcomeQuickReplies.length > 0 && messages.length === 1 && messages[0]?.role === 'assistant' && (
           <div aria-label={locale === 'fr' ? 'Réponses rapides' : 'Quick replies'} className="flex flex-wrap gap-2">
             {welcomeQuickReplies.map(reply => <button key={reply} type="button" disabled={loading} onClick={() => void send(reply, 'quick_reply')} className="min-h-11 rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 disabled:opacity-50">{reply}</button>)}
