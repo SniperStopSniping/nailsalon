@@ -398,6 +398,11 @@ export function fallbackReceptionistReply(args: ReplyInput, facts: Record<string
     if (subject >= 0 && (result.topic === 'price' || result.topic === 'duration')) {
       return facts[`service_${subject}_${result.topic}`]!;
     }
+    if (result.topic === 'salon_information' && !result.message) {
+      return args.locale === 'fr'
+        ? `Je ne peux pas vérifier ce détail avec les informations publiques de ${args.publicFacts.salon.name}. Veuillez contacter le studio avant de réserver.`
+        : `I can’t verify that detail from ${args.publicFacts.salon.name}’s public booking information. Please check with the studio before booking.`;
+    }
     return result.message || (args.locale === 'fr' ? 'Je peux vous aider avec les services, les prix et les informations publiques du salon. Que souhaitez-vous savoir ?' : 'I can help with services, prices and the salon’s public information. What would you like to know?');
   }
   return result.message ?? facts.required_question ?? facts.limitation ?? facts.availability ?? facts.selection ?? '';

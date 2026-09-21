@@ -43,6 +43,18 @@ describe('grounded receptionist reply boundary', () => {
     }
   });
 
+  it('gives an honest branded recovery when a business-information reply fails grounding', () => {
+    const input: ReplyInput = { ...args, message: 'Do you take a deposit?', result: { kind: 'answer', topic: 'salon_information', message: '', options: [] } };
+    const facts = buildReplyInput(input).facts;
+    for (const claim of ['We take a deposit.', 'It takes a day.', 'It takes a full hour.', 'It takes an hour.', 'There is no deposit.']) {
+      expect(() => parseReceptionistReply(output(claim), facts, menu)).toThrow();
+    }
+
+    expect(fallbackReceptionistReply(input, facts)).toBe('I can’t verify that detail from Synthetic salon’s public booking information. Please check with the studio before booking.');
+    expect(fallbackReceptionistReply({ ...input, locale: 'fr' }, facts)).toContain('informations publiques de Synthetic salon');
+    expect(fallbackReceptionistReply({ ...input, result: { ...input.result, message: 'Verified public statement.' } }, facts)).toBe('Verified public statement.');
+  });
+
   it('requires one canonical clarification rather than repeating it in natural prose', () => {
     const facts = { required_question: 'What product is currently on your nails?' };
 
