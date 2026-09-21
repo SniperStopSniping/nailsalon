@@ -475,3 +475,25 @@ it('retains explicit personal preferences in advice without selecting a service 
   expect(answer.next.context?.selection ?? null).toBeNull();
   expect(answer.next.requestedSelection).toBeUndefined();
 });
+
+it('recovers a blocked transition only after an explicit bare-nail starting-condition correction', async () => {
+  const blocked = await evaluateReceptionistTurn(intent({ factUpdates: { ...patch, treatment: 'gel_x', maintenance: 'new_set', desiredApplication: 'extensions', existingProduct: 'acrylic', origin: 'other_salon', removal: 'yes', length: 'medium', french: 'yes' } }), createCustomerConversation('synthetic-isla', 'synthetic-only'), { message: 'medium Gel-X French with outside acrylic', kinds: ['unavailable'], reason: 'unsupported_removal' });
+
+  expect(blocked.failures).toEqual([]);
+
+  const refusal = await evaluateReceptionistTurn(intent({ factUpdates: { ...patch, removal: 'no' } }), blocked.next, { message: 'no removal', kinds: ['unavailable'], reason: 'transition_needs_confirmation' });
+
+  expect(refusal.failures).toEqual([]);
+  expect(refusal.next.facts?.existingProduct).toBe('acrylic');
+
+  const corrected = await evaluateReceptionistTurn(intent({ selectionChangeExplicitThisTurn: true, factUpdates: { ...patch, existingProduct: 'none', removal: 'no', origin: 'unknown', currentProductUncertain: false } }), refusal.next, { message: 'it will be removed before my visit', kinds: ['proposal'], price: 9000, duration: 120 });
+
+  expect(corrected.failures).toEqual([]);
+  expect(corrected.next.facts).toMatchObject({ existingProduct: 'none', removal: 'no', length: 'medium', french: 'yes', treatment: 'gel_x' });
+  expect(corrected.result.kind).toBe('proposal');
+
+  if (corrected.result.kind === 'proposal') {
+    expect(corrected.result.proposal.selection.selectedAddOns).toEqual(expect.arrayContaining([{ addOnId: 'addon_semantic_medium', quantity: 1 }, { addOnId: 'addon_semantic_french', quantity: 1 }]));
+    expect(corrected.result.proposal.addOns.some(item => /removal/i.test(item.name))).toBe(false);
+  }
+});

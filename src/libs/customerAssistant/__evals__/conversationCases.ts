@@ -77,6 +77,16 @@ const ids = {
  */
 export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
   {
+    id: 'consultation-previsit-removal-recovery',
+    category: 'explicit pre-visit removal resolves a blocked transition without inventing salon removal',
+    turns: [
+      { message: 'I have acrylic from somewhere else and want medium Gel-X, plain colour.', expect: { resultKinds: ['unavailable'], facts: { existingProduct: 'acrylic', length: 'medium', designPreference: 'plain' }, handoffReady: false } },
+      { message: 'No removal please.', expect: { resultKinds: ['unavailable', 'clarification'], facts: { existingProduct: 'acrylic' }, handoffReady: false } },
+      { message: 'What if I get it removed before I come?', expect: { resultKinds: ['answer'], facts: { existingProduct: 'acrylic', length: 'medium' }, handoffReady: false } },
+      { message: 'I will have it removed before I come.', expect: { resultKinds: ['proposal'], facts: { existingProduct: 'none', removal: 'no', length: 'medium', designPreference: 'plain' }, proposal: { serviceId: ids.gelx, addOnIds: [ids.medium], subtotalCents: 8000, durationMinutes: 105 }, handoffReady: true } },
+    ],
+  },
+  {
     id: 'consultation-manicure-switch-extensions',
     category: 'complete configuration after service switch and informational comparison',
     turns: [
