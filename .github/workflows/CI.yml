@@ -1004,7 +1004,7 @@ jobs:
           POSTGRES_USER: lifecycle_ci
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
-          - '127.0.0.1:55439:5432'
+          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U lifecycle_ci -d lifecycle_ci"
           --health-interval 5s
@@ -1721,7 +1721,7 @@ jobs:
           POSTGRES_USER: network_test
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
-          - 5432:5432
+          - '127.0.0.1:55439:5432'
         options: >-
           --health-cmd "pg_isready -U network_test -d network_no_show_disposable"
           --health-interval 5s
