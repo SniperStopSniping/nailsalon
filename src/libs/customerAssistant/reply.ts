@@ -251,7 +251,7 @@ export function buildReplyInput(args: ReplyInput): { data: string; facts: Record
   }) };
 }
 
-export function parseReceptionistReply(raw: string, facts: Record<string, string>, menu: CustomerMenu, requiredFactKeys: string[] = []): { message: string; options: string[] } {
+export function parseReceptionistReply(raw: string, facts: Record<string, string>, menu: CustomerMenu, requiredFactKeys: string[] = [], conciseClarification = false): { message: string; options: string[] } {
   const reply = replySchema.parse(JSON.parse(raw));
   if (reply.segments.some(segment => segment.kind === 'fact' && !Object.hasOwn(facts, segment.key))) {
     throw new Error('CUSTOMER_REPLY_INVALID_REFERENCE');
@@ -348,7 +348,12 @@ export function parseReceptionistReply(raw: string, facts: Record<string, string
     }
     return service.name;
   });
-  const message = reply.segments.filter((_, index) => !redundantLeadInIndexes.has(index)).map(segment => segment.kind === 'fact' ? facts[segment.key]! : segment.text).join(' ');
+  // Straightforward preference updates need the server's natural question,
+  // not another model-written process preamble. Informational/help requests
+  // retain explanations. Keep all validated fact segments and run every
+  // grounding guard above even for prose that this presentation rule omits.
+  const message = reply.segments.filter((segment, index) => !redundantLeadInIndexes.has(index)
+    && !(conciseClarification && facts.required_question && segment.kind === 'text')).map(segment => segment.kind === 'fact' ? facts[segment.key]! : segment.text).join(' ');
   if (message.length > 2400) {
     throw new Error('CUSTOMER_REPLY_TOO_LONG');
   }

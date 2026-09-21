@@ -77,6 +77,16 @@ const ids = {
  */
 export const CUSTOMER_CONVERSATION_EVAL_CASES: ConversationEvalCase[] = [
   {
+    id: 'consultation-clarification-help-is-informational',
+    category: 'direct configuration questions retain helpful explanations when the customer asks why',
+    turns: [
+      { message: 'Hi, I want a gel manicure.', expect: { resultKinds: ['clarification'], clarificationQuestion: 'product' } },
+      { message: 'Why do you need to know?', expect: { resultKinds: ['answer'], facts: { treatment: 'gel_polish' }, reply: { nonEmpty: true } } },
+      { message: 'Nothing on my nails, plain colour please.', expect: { resultKinds: ['proposal'], proposal: { serviceId: ids.gelManicure, subtotalCents: 4000, durationMinutes: 60 }, handoffReady: true } },
+      { message: 'How long will that take?', expect: { resultKinds: ['answer'], reply: { configuredDurationMinutes: 60 }, preservesSelection: { serviceId: ids.gelManicure } } },
+    ],
+  },
+  {
     id: 'consultation-previsit-removal-recovery',
     category: 'explicit pre-visit removal resolves a blocked transition without inventing salon removal',
     turns: [
