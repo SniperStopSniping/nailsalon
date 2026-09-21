@@ -120,17 +120,56 @@ describe('one-call receptionist', () => {
     expect(nextState).not.toHaveProperty('requestedSelection');
   });
 
-  it('rejects an upgrade without a compatible selected or recommended service', () => {
-    const result = renderReceptionistTurn({ ...args, nextState: { ...state }, result: { kind: 'answer', topic: 'recommendation', message: '', options: [] } }, intent({ segments: [{ kind: 'text', text: 'Try French Tips!' }], serviceOptions: [] }, { suggestedAddOnIds: ['french'] }));
+  it('can discuss a supported design alternative before the customer chooses a base service', () => {
+    const nextState = { ...state, unsupportedRequest: { kind: 'design' as const, label: 'Sculpted flowers' } };
+    const result = renderReceptionistTurn({ ...args, nextState }, intent({ segments: [{ kind: 'fact', key: 'limitation' }, { kind: 'text', text: 'French Tips could give you a polished detail instead. What kind of manicure are you thinking of?' }], serviceOptions: [] }, { suggestedAddOnIds: ['french'] }));
+
+    expect(result.usedModelReply).toBe(true);
+    expect(result.message).toContain('French Tips could');
+    expect(result.message).toContain('We don’t offer Sculpted flowers at Synthetic Nail Studio.');
+    expect(nextState.unsupportedRequest).toEqual({ kind: 'design', label: 'Sculpted flowers' });
+    expect(nextState).not.toHaveProperty('requestedSelection');
+  });
+
+  it.each(['unknown', 'unbound', 'foreign-binding', 'incompatible-selected'] as const)('rejects unsupported upgrade advice: %s', (kind) => {
+    const candidateMenu = { ...menu, bindings: kind === 'unbound' ? [] : kind === 'foreign-binding' ? [{ ...menu.bindings[0]!, serviceId: 'foreign-service' }] : menu.bindings };
+    const nextState = kind === 'incompatible-selected' ? { ...state, requestedSelection: { baseServiceId: 'fill', selectedAddOns: [] } } : { ...state };
+    const result = renderReceptionistTurn({ ...args, menu: candidateMenu, nextState, result: { kind: 'answer', topic: 'recommendation', message: '', options: [] } }, intent({ segments: [{ kind: 'text', text: 'Try French Tips!' }], serviceOptions: [] }, { suggestedAddOnIds: [kind === 'unknown' ? 'foreign-addon' : 'french'] }));
 
     expect(result.usedModelReply).toBe(false);
     expect(result.rejectionReason).toBe('CUSTOMER_REPLY_INCOMPATIBLE_UPSELL');
+  });
+
+  it.each(['en', 'fr'] as const)('preserves an owner price label without duplicating its qualifier in %s', (locale) => {
+    const facts = structuredClone(publicFacts);
+    facts.catalogue.services[0]!.price.displayLabel = 'From $65';
+    const result = renderReceptionistTurn({ ...args, locale, publicFacts: facts, result: { kind: 'answer', topic: 'price', message: '', options: [] } }, intent({ segments: [{ kind: 'fact', key: 'service_0_price' }], serviceOptions: [] }));
+
+    expect(result.usedModelReply).toBe(true);
+    expect(result.message).toContain(': From $65 (CAD)');
+    expect(result.message).not.toMatch(/from From|à partir de From/u);
   });
 
   it.each(['plain', 'skip'] as const)('respects a declined upsell: %s', (designPreference) => {
     const result = renderReceptionistTurn({ ...args, nextState: { ...state, facts: { ...emptyFacts(), designPreference }, requestedSelection: { baseServiceId: 'gelx', selectedAddOns: [] } }, result: { kind: 'answer', topic: 'recommendation', message: '', options: [] } }, intent({ segments: [{ kind: 'text', text: 'Try French Tips!' }], serviceOptions: [] }, { suggestedAddOnIds: ['french'] }));
 
     expect(result.usedModelReply).toBe(false);
+  });
+
+  it.each(['recommendation', 'unsupported'] as const)('keeps authoritative service guidance when an optional upgrade is invalid: %s', (kind) => {
+    const nextState = { ...state, unsupportedRequest: { kind: 'treatment' as const, label: 'Hard gel' } };
+    const result = renderReceptionistTurn({ ...args, nextState, result: kind === 'recommendation' ? { kind: 'answer', topic: 'recommendation', message: '', options: [] } : args.result }, intent({ segments: [{ kind: 'text', text: 'This invented upgrade is included!' }], serviceOptions: ['foreign-service', 'fill', 'gelx'] }, { suggestedAddOnIds: ['foreign-addon'] }));
+
+    expect(result.usedModelReply).toBe(false);
+    expect(result.rejectionReason).toBe('CUSTOMER_REPLY_INCOMPATIBLE_UPSELL');
+    expect(result.message).toContain('Soft gel tips for added length.');
+    expect(result.message).not.toContain('invented upgrade');
+    expect(result.options).toEqual(['Gel-X Extensions']);
+    expect(nextState).not.toHaveProperty('requestedSelection');
+
+    if (kind === 'unsupported') {
+      expect(result.message).toContain('We don’t offer Hard gel at Synthetic Nail Studio.');
+    }
   });
 
   it('uses the actual server clarification instead of a predicted question or success', () => {
