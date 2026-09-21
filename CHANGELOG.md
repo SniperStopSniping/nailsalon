@@ -1,3 +1,10 @@
+## [1.126.8](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.7...v1.126.8) (2026-09-21)
+
+
+### Bug Fixes
+
+* **customer-ai:** improve receptionist advice and response speed ([#293](https://github.com/SniperStopSniping/nailsalon/issues/293)) ([e6c778b](https://github.com/SniperStopSniping/nailsalon/commit/e6c778be957c205733626bdaf4343cec71f8bb1d))
+
 ## [1.126.7](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.6...v1.126.7) (2026-09-21)
 
 
