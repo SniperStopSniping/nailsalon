@@ -1,3 +1,10 @@
+## [1.126.12](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.11...v1.126.12) (2026-09-22)
+
+
+### Bug Fixes
+
+* **customer-ai:** keep booking assistant open on service page ([8b0b958](https://github.com/SniperStopSniping/nailsalon/commit/8b0b9586b60b2d798691404226804251e8d9d086))
+
 ## [1.126.11](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.10...v1.126.11) (2026-09-21)
 
 
