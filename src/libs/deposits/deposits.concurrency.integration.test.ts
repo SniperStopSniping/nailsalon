@@ -78,7 +78,12 @@ vi.mock('@/core/redis/redisClient', () => ({
   isRedisAvailable: vi.fn(async () => false),
 }));
 
-const holder = vi.hoisted(() => ({ db: null as unknown }));
+const holder = vi.hoisted(() => ({
+  db: null as unknown,
+  withSession: null as unknown as (
+    work: (database: unknown) => Promise<unknown>,
+  ) => Promise<unknown>,
+}));
 const mocks = vi.hoisted(() => ({
   captureException: vi.fn(),
   captureMessage: vi.fn(),
@@ -105,6 +110,11 @@ vi.mock('@/libs/DB', () => ({
   get db() {
     return holder.db;
   },
+  usesRuntimePostgres: true,
+  DatabaseSessionReleaseError: class DatabaseSessionReleaseError extends Error {},
+  withDedicatedDatabaseSession: <T>(
+    work: (database: unknown) => Promise<T>,
+  ) => holder.withSession(work) as Promise<T>,
 }));
 
 vi.mock('@sentry/nextjs', () => ({
@@ -189,7 +199,7 @@ const ACCOUNT_ID = 'acct_d5_concurrency';
 const BOOKING_START = '2099-09-01T15:00:00.000Z';
 const LINEAGE_PHONE = '4165553030';
 const LINEAGE_EMAIL = 'lineage.d5@example.invalid';
-const EXPECTED_EXECUTED_TESTS = 5;
+const EXPECTED_EXECUTED_TESTS = 6;
 
 const BASE_SETTINGS: SalonSettings = {
   bookingExperience: { policy: { enabled: false } },
@@ -240,6 +250,14 @@ suite('D5 — genuine PostgreSQL concurrency', () => {
 
     db = drizzle(pool, { schema });
     holder.db = db;
+    holder.withSession = async (work) => {
+      const client = await pool.connect();
+      try {
+        return await work(drizzle(client, { schema }));
+      } finally {
+        client.release();
+      }
+    };
     await migrate(db, { migrationsFolder: path.join(process.cwd(), 'migrations') });
 
     await pool.query('TRUNCATE TABLE salon RESTART IDENTITY CASCADE');
@@ -308,6 +326,7 @@ suite('D5 — genuine PostgreSQL concurrency', () => {
       integration_outbox,
       google_calendar_event,
       appointment_deposit,
+      public_booking_attempt,
       stripe_webhook_event,
       appointment,
       salon_client_contact_alias,
@@ -529,6 +548,84 @@ suite('D5 — genuine PostgreSQL concurrency', () => {
     executedTests += 1;
   }, 45_000);
 
+  it('allows one unpaid deposit hold across distinct attempts for the same client', async () => {
+    const readinessBinding = await seedBinding();
+    const clientId = 'client_d5_distinct_attempt_holds';
+    await seedClient(clientId, '4165553301', 'distinct.holds@example.invalid');
+    await db.update(schema.salonSchema).set({
+      settings: DEPOSIT_SETTINGS,
+      features: { money: { deposits: true } },
+    }).where(eq(schema.salonSchema.id, SALON_ID));
+    mocks.refreshAccountReadiness.mockResolvedValue({
+      chargeReady: true,
+      status: 'charge_ready',
+      payoutsPending: false,
+      binding: readinessBinding,
+    });
+
+    const attempt = () => ({
+      id: crypto.randomUUID(),
+      recoveryKey: crypto.randomUUID(),
+    });
+    const firstAttempt = attempt();
+    const secondAttempt = attempt();
+    const firstRequest = bookingRequest({
+      clientName: 'Distinct Attempt Holder',
+      clientPhone: '4165553301',
+      clientEmail: 'distinct.holds@example.invalid',
+      technicianId: TECH_ID,
+      startTime: '2099-09-03T15:00:00.000Z',
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const secondRequest = bookingRequest({
+      clientName: 'Distinct Attempt Holder',
+      clientPhone: '4165553301',
+      clientEmail: 'distinct.holds@example.invalid',
+      technicianId: SECOND_TECH_ID,
+      startTime: '2099-09-04T18:00:00.000Z',
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    for (const [request, bookingAttempt] of [
+      [firstRequest, firstAttempt],
+      [secondRequest, secondAttempt],
+    ] as const) {
+      request.headers.set('X-Booking-Attempt-Version', '2');
+      request.headers.set('Idempotency-Key', bookingAttempt.id);
+      request.headers.set('X-Booking-Recovery-Key', bookingAttempt.recoveryKey);
+    }
+
+    const held = await holdClientRow(clientId);
+    const requests = [createAppointment(firstRequest), createAppointment(secondRequest)];
+    await releaseAfterBlocked(held, 2, requests);
+    const responses = await Promise.all(requests);
+
+    expect(responses.map(response => response.status).sort()).toEqual([201, 409]);
+
+    const rejected = responses.find(response => response.status === 409)!;
+
+    await expect(rejected.json()).resolves.toMatchObject({
+      error: { code: 'DEPOSIT_HOLD_ACTIVE' },
+      bookingAttemptOutcome: 'resolved_failure',
+    });
+
+    const [holds, deposits, attempts] = await Promise.all([
+      db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.status, 'awaiting_payment')),
+      db.select().from(schema.appointmentDepositSchema),
+      db.select().from(schema.publicBookingAttemptSchema),
+    ]);
+
+    expect(holds).toHaveLength(1);
+    expect(holds[0]?.salonClientId).toBe(clientId);
+    expect(deposits).toHaveLength(1);
+    expect(mocks.checkoutCreate).toHaveBeenCalledTimes(1);
+    expect(attempts).toHaveLength(2);
+    expect(attempts.map(row => row.state).sort()).toEqual(['failed', 'succeeded']);
+    expect(attempts.find(row => row.state === 'succeeded')?.appointmentId).toBe(holds[0]?.id);
+    expect(attempts.find(row => row.state === 'failed')?.failureCode).toBe('DEPOSIT_HOLD_ACTIVE');
+
+    executedTests += 1;
+  }, 45_000);
+
   it('has exactly one stale-claim winner without the 0065 updated_at trigger (M23)', async () => {
     const eventId = 'evt_d5_m23_reclaim';
     const rowId = 'swe_d5_m23_reclaim';
@@ -588,7 +685,7 @@ suite('D5 — genuine PostgreSQL concurrency', () => {
     executedTests += 1;
   }, 30_000);
 
-  it('preserves one-active lineage when booking races TX-C restore (M30)', async () => {
+  it('restores a paid deposit alongside a different future booking (M30)', async () => {
     const clientId = 'client_d5_m30';
     await seedClient(clientId, LINEAGE_PHONE, LINEAGE_EMAIL);
     const pair = await seedDepositPair({
@@ -627,19 +724,13 @@ suite('D5 — genuine PostgreSQL concurrency', () => {
     const [deposit] = await db.select().from(schema.appointmentDepositSchema)
       .where(eq(schema.appointmentDepositSchema.id, pair.depositId));
 
-    expect(active).toHaveLength(1);
+    expect(bookingResponse.status).toBe(201);
+    expect(recoveryResult.disposition).toBe('restored');
+    expect(active).toHaveLength(2);
+    expect(active.map(appointment => appointment.id)).toContain(pair.appointmentId);
+    expect(deposit?.status).toBe('paid');
+    expect(mocks.refundsCreate).not.toHaveBeenCalled();
 
-    if (recoveryResult.disposition === 'restored') {
-      expect(bookingResponse.status).toBe(409);
-      expect(active[0]?.id).toBe(pair.appointmentId);
-      expect(deposit?.status).toBe('paid');
-      expect(mocks.refundsCreate).not.toHaveBeenCalled();
-    } else {
-      expect(bookingResponse.status).toBe(201);
-      expect(active[0]?.id).not.toBe(pair.appointmentId);
-      expect(deposit?.status).toBe('refunded');
-      expect(mocks.refundsCreate).toHaveBeenCalledTimes(1);
-    }
     executedTests += 1;
   }, 45_000);
 });

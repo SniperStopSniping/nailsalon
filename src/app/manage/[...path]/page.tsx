@@ -36,7 +36,7 @@ export default async function HostRelativeManageRedirect(props: { params: Promis
           <h1 className="text-2xl font-semibold text-stone-900">This link is not valid</h1>
           <p className="mt-3 text-sm leading-6 text-stone-600">
             The link may have been copied incompletely, or it has already been replaced by a newer one.
-            Request a fresh private link from the salon and we will email it to the address on file.
+            Request a fresh private link using your booking email or mobile phone, or contact the salon.
           </p>
         </div>
       </main>

@@ -10,8 +10,9 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 
-import { and, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
+import { SLOT_OCCUPYING_CLIENT_STATUSES } from '@/libs/activeAppointments';
 import {
   reapExpiredReservations,
   refundTerminalFailure,
@@ -32,6 +33,7 @@ import { channelModeIncludes, type CommunicationSettings, resolveEventChannels, 
 import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
+import { hashOpaqueToken } from '@/libs/lusterSecurity';
 import { readCommunicationControlUncached } from '@/libs/platformCommunicationControl';
 import { isReminderEligibleAppointment } from '@/libs/reminderEligibility';
 import {
@@ -49,6 +51,7 @@ import {
 } from '@/libs/smsSender';
 import { ProviderOutcomeUnknownError } from '@/libs/twilioMessagingSend';
 import {
+  appointmentAccessTokenSchema,
   communicationConsentSchema,
   type CommunicationIntent,
   communicationIntentSchema,
@@ -56,6 +59,59 @@ import {
   salonSchema,
   salonTwilioConnectionSchema,
 } from '@/models/Schema';
+
+const MAX_ACTIVE_RECOVERY_CAPABILITIES = 3;
+
+async function revokeSuppressedRecoveryCapability(intent: CommunicationIntent, variables: Record<string, string>) {
+  if (intent.eventType !== 'booking_recovery' || !intent.appointmentId) {
+    return;
+  }
+  const token = /\/a\/([\w-]{22})$/.exec(variables.manageUrl ?? '')?.[1];
+  if (!token) {
+    return;
+  }
+  await db.update(appointmentAccessTokenSchema).set({ revokedAt: new Date() }).where(and(
+    eq(appointmentAccessTokenSchema.salonId, intent.salonId),
+    eq(appointmentAccessTokenSchema.appointmentId, intent.appointmentId),
+    eq(appointmentAccessTokenSchema.tokenHash, hashOpaqueToken(token)),
+    isNull(appointmentAccessTokenSchema.revokedAt),
+  ));
+}
+
+async function clearRevokedRecoveryCapability(intent: CommunicationIntent, variables: Record<string, string>) {
+  await revokeSuppressedRecoveryCapability(intent, variables);
+  if (intent.eventType !== 'booking_recovery') {
+    return;
+  }
+  await db.update(communicationIntentSchema).set({
+    variables: { ...variables, manageUrl: 'pending' },
+  }).where(and(
+    eq(communicationIntentSchema.id, intent.id),
+    eq(communicationIntentSchema.salonId, intent.salonId),
+  ));
+}
+
+async function pruneRecoveryCapabilities(intent: CommunicationIntent) {
+  if (intent.eventType !== 'booking_recovery' || !intent.appointmentId) {
+    return;
+  }
+  const active = await db.select({ id: appointmentAccessTokenSchema.id })
+    .from(appointmentAccessTokenSchema)
+    .where(and(
+      eq(appointmentAccessTokenSchema.salonId, intent.salonId),
+      eq(appointmentAccessTokenSchema.appointmentId, intent.appointmentId),
+      isNull(appointmentAccessTokenSchema.revokedAt),
+    ))
+    .orderBy(asc(appointmentAccessTokenSchema.createdAt));
+  const staleIds = active.slice(0, Math.max(0, active.length - MAX_ACTIVE_RECOVERY_CAPABILITIES))
+    .map(row => row.id);
+  if (staleIds.length) {
+    await db.update(appointmentAccessTokenSchema).set({ revokedAt: new Date() }).where(and(
+      eq(appointmentAccessTokenSchema.salonId, intent.salonId),
+      inArray(appointmentAccessTokenSchema.id, staleIds),
+    ));
+  }
+}
 
 /**
  * Gate C's provider wiring throws THIS when the send outcome is ambiguous
@@ -134,11 +190,11 @@ async function appointmentStillActive(intent: CommunicationIntent, now = new Dat
     return true;
   }
   const rows = await db.execute(sql`
-    SELECT status, start_time, request_expires_at, confirmation_mode_snapshot, cancel_reason FROM appointment
+    SELECT status, start_time, end_time, request_expires_at, confirmation_mode_snapshot, cancel_reason FROM appointment
     WHERE id = ${intent.appointmentId} AND salon_id = ${intent.salonId}
       AND deleted_at IS NULL LIMIT 1
   `);
-  const appointment = rows.rows[0] as { status: string; start_time: Date | string; request_expires_at: Date | string | null; confirmation_mode_snapshot: string | null; cancel_reason: string | null } | undefined;
+  const appointment = rows.rows[0] as { status: string; start_time: Date | string; end_time: Date | string; request_expires_at: Date | string | null; confirmation_mode_snapshot: string | null; cancel_reason: string | null } | undefined;
   if (!appointment) {
     return false;
   }
@@ -153,6 +209,10 @@ async function appointmentStillActive(intent: CommunicationIntent, now = new Dat
   }
   if (intent.eventType === 'manual_text') {
     return true;
+  }
+  if (intent.eventType === 'booking_recovery') {
+    return SLOT_OCCUPYING_CLIENT_STATUSES.includes(appointment.status as typeof SLOT_OCCUPYING_CLIENT_STATUSES[number])
+      && new Date(appointment.end_time).getTime() > now.getTime();
   }
   if (intent.startRevision && new Date(appointment.start_time).toISOString() !== intent.startRevision) {
     return false;
@@ -196,6 +256,16 @@ async function recipientStillCurrent(intent: CommunicationIntent): Promise<boole
     `);
     const technician = rows.rows[0] as { phone: string | null } | undefined;
     return !!technician?.phone && normalizeConsentRecipient(technician.phone) === normalizeConsentRecipient(intent.recipient);
+  }
+  if (intent.eventType === 'booking_recovery' && intent.appointmentId) {
+    const { resolveAppointmentOperationalPhoneRecipient } = await import('@/libs/clientLifecycleStabilization');
+    const recipient = await resolveAppointmentOperationalPhoneRecipient({ salonId: intent.salonId, appointmentId: intent.appointmentId });
+    return (recipient.status === 'terminal_current'
+      && recipient.terminalClientId === intent.variables.clientId
+      && normalizeConsentRecipient(recipient.phone) === normalizeConsentRecipient(intent.recipient))
+      || (recipient.status === 'appointment_snapshot'
+        && intent.variables.clientId === undefined
+        && normalizeConsentRecipient(recipient.phone) === normalizeConsentRecipient(intent.recipient));
   }
   let clientId = intent.variables?.clientId;
   if (intent.appointmentId) {
@@ -520,7 +590,7 @@ export async function dispatchClaimedIntent(
   const finalControl = await readCommunicationControlUncached();
   const finalSuppressed = readiness.mode === 'shared_luster' && await hasGlobalSuppression(readiness.senderIdentity, destination.e164);
   const appointmentReminder = intent.audience === 'client' && intent.appointmentId !== null
-    && intent.eventType !== 'review_request' && intent.eventType !== 'manual_text';
+    && intent.eventType !== 'review_request' && intent.eventType !== 'manual_text' && intent.eventType !== 'booking_recovery';
   const reminderPreference = appointmentReminder
     ? await getAppointmentSmsDeliveryPreference({ salonId: intent.salonId, phone: intent.recipient, appointmentId: intent.appointmentId! })
     : null;
@@ -577,6 +647,7 @@ export async function dispatchClaimedIntent(
     await db.update(notificationDeliverySchema)
       .set({ status: 'canceled', settlementState: 'not_applicable', errorCode: finalFailure })
       .where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, intent.salonId)));
+    await revokeSuppressedRecoveryCapability(intent, variables);
     await transitionIntent(intent.id, { to: 'suppressed', lastError: finalFailure }, finalNow);
     return 'suppressed';
   }
@@ -606,6 +677,7 @@ export async function dispatchClaimedIntent(
     await db.update(notificationDeliverySchema)
       .set({ status: 'canceled', settlementState: 'not_applicable' })
       .where(eq(notificationDeliverySchema.id, deliveryId));
+    await revokeSuppressedRecoveryCapability(intent, variables);
     await transitionIntent(intent.id, { to: 'suppressed', lastError: 'APPOINTMENT_NO_LONGER_ACTIVE' }, now);
     return 'suppressed';
   }
@@ -658,6 +730,7 @@ export async function dispatchClaimedIntent(
         retryable: !providerOptedOut,
       })
       .where(eq(notificationDeliverySchema.id, deliveryId));
+    await clearRevokedRecoveryCapability(intent, variables);
     await transitionIntent(intent.id, { to: 'failed', lastError: providerOptedOut ? 'PROVIDER_OPT_OUT' : 'PROVIDER_SYNC_REJECT' }, now);
     return 'failed';
   }
@@ -713,6 +786,9 @@ export async function dispatchClaimedIntent(
       ));
   }
   await transitionIntent(intent.id, { to: 'sent' }, now);
+  // Acceptance is the no-resend boundary. Capability maintenance is best
+  // effort after that boundary, as in the email recovery path.
+  await pruneRecoveryCapabilities(intent).catch(() => undefined);
   return 'sent';
 }
 

@@ -1255,6 +1255,72 @@ export function resolveAppointmentOperationalEmailRecipient(input: {
   );
 }
 
+export type OperationalPhoneRecipientResolution =
+  | { status: 'terminal_current'; phone: string; terminalClientId: string }
+  | { status: 'appointment_snapshot'; phone: string; terminalClientId: null; identityResolution: 'zero_identity_candidates' }
+  | { status: 'unavailable' };
+
+/**
+ * Phone analogue of operational-email resolution. It is deliberately
+ * appointment-scoped: legacy snapshots may only send while they still resolve
+ * to the same terminal client, and a true orphan may only use its own snapshot
+ * while both snapshot identities remain zero-candidate.
+ */
+export async function resolveAppointmentOperationalPhoneRecipientWithHandle(
+  handle: LifecycleSqlHandle,
+  input: { salonId: string; appointmentId: string },
+): Promise<OperationalPhoneRecipientResolution> {
+  const appointment = await loadAppointmentOperationalContact(handle, input);
+  if (!appointment) {
+    return { status: 'unavailable' };
+  }
+  try {
+    let lineage: SalonClientLineageIdentity | null;
+    if (appointment.salonClientId) {
+      const terminal = await resolveTerminalSalonClientWithHandle(handle, { salonId: input.salonId, clientId: appointment.salonClientId, allowArchived: true });
+      lineage = await getSalonClientLineageIdentityWithHandle(handle, { salonId: input.salonId, terminalClientId: terminal.id, allowArchived: true });
+    } else {
+      const phone = tryNormalizeSupportedPhone(appointment.clientPhone);
+      const email = tryNormalizeSupportedEmail(appointment.clientEmail);
+      if (!phone && !email) {
+        return { status: 'unavailable' };
+      }
+      const outcome = await resolveCanonicalSalonClientIdentityOutcomeWithHandle(handle, { salonId: input.salonId, phone, email, allowArchived: true });
+      if (outcome.status === 'zero_identity_candidates') {
+        if (await hasUnsupportedGlobalClientIdentityWithHandle(handle, normalizeClientIdentityInput({ phone, email }))) {
+          return { status: 'unavailable' };
+        }
+        if (!phone) {
+          return { status: 'unavailable' };
+        }
+        return { status: 'appointment_snapshot', phone, terminalClientId: null, identityResolution: 'zero_identity_candidates' };
+      }
+      if (outcome.status !== 'resolved_terminal') {
+        return { status: 'unavailable' };
+      }
+      if ((phone && !outcome.identity.matchedBy.some(match => match.kind === 'phone' && match.value === phone))
+        || (email && !outcome.identity.matchedBy.some(match => match.kind === 'email' && match.value === email))) {
+        return { status: 'unavailable' };
+      }
+      lineage = outcome.identity;
+    }
+    if (lineage.externalClientId !== null) {
+      return { status: 'unavailable' };
+    }
+    const phone = tryNormalizeSupportedPhone(lineage.terminal.phone);
+    return phone ? { status: 'terminal_current', phone, terminalClientId: lineage.terminal.id } : { status: 'unavailable' };
+  } catch (error) {
+    if (error instanceof ClientLifecycleStabilizationError || error instanceof TypeError) {
+      return { status: 'unavailable' };
+    }
+    throw error;
+  }
+}
+
+export function resolveAppointmentOperationalPhoneRecipient(input: { salonId: string; appointmentId: string }) {
+  return resolveAppointmentOperationalPhoneRecipientWithHandle(db as LifecycleSqlHandle, input);
+}
+
 function throwIfOperationalEmailAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) {
     return;

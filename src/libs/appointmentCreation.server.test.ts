@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   readCustomerBookingOperation: vi.fn(),
   normalizePhone: vi.fn(),
   getBookingConfigForSalon: vi.fn(),
+  attemptRateLimit: vi.fn(),
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -26,6 +27,7 @@ vi.mock('@/libs/staffAuth', () => ({ requireStaffSession: mocks.requireStaffSess
 vi.mock('@/libs/adminAuth', () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock('@/libs/clientApiGuards', () => ({ requireClientApiSession: mocks.requireClientApiSession }));
 vi.mock('@/libs/bookingConfig', () => ({ getBookingConfigForSalon: mocks.getBookingConfigForSalon }));
+vi.mock('@/libs/publicBookingAttemptRateLimit', () => ({ checkPublicBookingAttemptRateLimit: mocks.attemptRateLimit }));
 vi.mock('@/libs/customerAssistant/operationStore.server', () => ({
   CustomerBookingOperationError: class CustomerBookingOperationError extends Error {},
   readCustomerBookingOperation: mocks.readCustomerBookingOperation,
@@ -42,10 +44,10 @@ const access = {
   operation: { capability: 'capability', revision: 1, fingerprint: 'f'.repeat(64), secret: 's'.repeat(32) },
 };
 
-function request(overrides: Record<string, unknown> = {}) {
+function request(overrides: Record<string, unknown> = {}, headers: Record<string, string> = {}) {
   return new Request('http://localhost/api/appointments', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({
       salonSlug: access.salon.slug,
       baseServiceId: 'service_customer_assistant',
@@ -71,6 +73,7 @@ beforeEach(() => {
   mocks.guardSalonApiRoute.mockResolvedValue(new Response(null, { status: 503 }));
   mocks.normalizePhone.mockImplementation((phone: string) => phone.replace(/\D/g, '').replace(/^1/, ''));
   mocks.getBookingConfigForSalon.mockResolvedValue({ timezone: 'America/Toronto' });
+  mocks.attemptRateLimit.mockResolvedValue(true);
   mocks.readCustomerBookingOperation.mockResolvedValue({
     appointmentId: null,
     material: {
@@ -86,6 +89,47 @@ beforeEach(() => {
 });
 
 describe('createAppointmentFromRequest anonymous customer access', () => {
+  it('rejects malformed v2 direct-attempt headers before any booking authority runs', async () => {
+    const response = await createAppointmentFromRequest(request({}, {
+      'X-Booking-Attempt-Version': '2',
+      'Idempotency-Key': 'not-a-uuid',
+      'X-Booking-Recovery-Key': 'not-a-uuid',
+    }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'BOOKING_ATTEMPT_INVALID' } });
+    expect(mocks.getSalonBySlug).not.toHaveBeenCalled();
+  });
+
+  it('rate-limits a valid v2 attempt before registering durable authority', async () => {
+    mocks.attemptRateLimit.mockResolvedValue(false);
+    const response = await createAppointmentFromRequest(request({}, {
+      'X-Booking-Attempt-Version': '2',
+      'Idempotency-Key': '123e4567-e89b-42d3-a456-426614174000',
+      'X-Booking-Recovery-Key': '11111111-1111-4111-8111-111111111111',
+    }));
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toMatchObject({ error: { code: 'RATE_LIMIT_EXCEEDED' } });
+    expect(mocks.getBookingConfigForSalon).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { originalAppointmentId: 'appointment_existing' },
+    { manageToken: 'manage-token' },
+    { googleEventReviewId: 'google-event-review' },
+  ])('rejects v2 direct authority on unsupported existing-booking flows: %o', async (overrides) => {
+    const response = await createAppointmentFromRequest(request(overrides, {
+      'X-Booking-Attempt-Version': '2',
+      'Idempotency-Key': '123e4567-e89b-42d3-a456-426614174000',
+      'X-Booking-Recovery-Key': '11111111-1111-4111-8111-111111111111',
+    }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'BOOKING_ATTEMPT_INVALID' } });
+    expect(mocks.getBookingConfigForSalon).not.toHaveBeenCalled();
+  });
+
   it('rejects assistant-forbidden authority fields before any ambient authentication', async () => {
     const response = await createAppointmentFromRequest(request({ bookingSubject: 'self' }), access);
 

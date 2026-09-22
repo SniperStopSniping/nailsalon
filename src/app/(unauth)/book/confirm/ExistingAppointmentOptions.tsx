@@ -13,8 +13,8 @@ export type ExistingAppointmentOptionsProps = {
   guestEmail: string;
   guestPhone: string;
   salonPhone?: string | null;
+  hasDepositHold?: boolean;
   onManageBooking: () => void;
-  onEditContact: () => void;
   onRetryBooking: () => void;
 };
 
@@ -34,8 +34,8 @@ export function ExistingAppointmentOptions({
   guestEmail,
   guestPhone,
   salonPhone = null,
+  hasDepositHold = false,
   onManageBooking,
-  onEditContact,
   onRetryBooking,
 }: ExistingAppointmentOptionsProps) {
   const [sendState, setSendState] = useState<SendState>('idle');
@@ -64,8 +64,8 @@ export function ExistingAppointmentOptions({
         <StateCard
           tone="warning"
           icon={<Calendar className="mx-auto size-10 text-[var(--n5-warning)]" />}
-          title="You already have a booking"
-          description="To avoid duplicates, manage your existing appointment instead of booking another one."
+          title={hasDepositHold ? 'You have a booking waiting for its deposit' : 'You already have an upcoming appointment'}
+          description={hasDepositHold ? 'Finish payment or wait for the hold to expire before checking availability again.' : 'You can manage your appointments or book another appointment.'}
           contentClassName="py-7"
         />
 
@@ -73,7 +73,7 @@ export function ExistingAppointmentOptions({
           ? (
               <div className="rounded-2xl bg-emerald-50 p-5 text-sm leading-6 text-emerald-900" data-testid="existing-appointment-sent">
                 <p className="font-semibold">Request received</p>
-                <p>If we find a matching appointment, we&apos;ll email the secure link to the contact on file within a few minutes. Check spam too.</p>
+                <p>If we find a matching appointment, we&apos;ll send the secure link to the contact on file.</p>
               </div>
             )
           : (
@@ -85,7 +85,7 @@ export function ExistingAppointmentOptions({
                 className="font-body w-full bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:opacity-60"
                 style={{ borderRadius: n5.radiusMd, boxShadow: n5.shadowSm }}
               >
-                {sendState === 'sending' ? 'Sending…' : 'Send my appointment link'}
+                {sendState === 'sending' ? 'Sending…' : guestEmail.trim() || !guestPhone.trim() ? 'Email my appointment link' : 'Text my appointment link'}
               </button>
             )}
         {sendState === 'error' && (
@@ -104,20 +104,7 @@ export function ExistingAppointmentOptions({
           className={secondaryButtonClass}
           style={{ borderRadius: n5.radiusMd }}
         >
-          Manage my appointment
-        </button>
-
-        <button
-          type="button"
-          data-testid="existing-appointment-edit-contact"
-          onClick={() => {
-            triggerHaptic('select');
-            onEditContact();
-          }}
-          className={secondaryButtonClass}
-          style={{ borderRadius: n5.radiusMd }}
-        >
-          Use different contact information
+          View my appointments
         </button>
 
         <button
@@ -130,7 +117,7 @@ export function ExistingAppointmentOptions({
           className={secondaryButtonClass}
           style={{ borderRadius: n5.radiusMd }}
         >
-          I don&apos;t have a booking — try again
+          {hasDepositHold ? 'Check availability again' : 'Book another appointment'}
         </button>
 
         {salonPhone && (

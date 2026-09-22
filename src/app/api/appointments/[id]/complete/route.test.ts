@@ -233,7 +233,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
     getActiveAppointmentsForCanonicalClientWithHandle.mockImplementation(
       async () => {
         events.push('lineage-active-check');
-        return [];
+        return [{ id: 'future_appointment', status: 'confirmed' }];
       },
     );
 
@@ -404,6 +404,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
     requireAppointmentManagerAccess.mockResolvedValue(STAFF_ACCESS);
     getActiveAppointmentsForCanonicalClientWithHandle.mockResolvedValue([{
       id: 'appt_other',
+      status: 'in_progress',
     }]);
     const update = vi.fn();
     const tx = {

@@ -401,6 +401,29 @@ describe('runLateDepositRecovery dispatch', () => {
     }));
     expect(stripeMock.refunds.create).not.toHaveBeenCalled();
   });
+
+  it('restores a late paid deposit when the same client has another ordinary future visit', async () => {
+    const seeded = await seedDeposit({ status: 'expired' });
+    const future = new Date(Date.now() + 5 * 86_400_000);
+    await db.insert(schema.appointmentSchema).values({
+      id: 'appt_other_future',
+      salonId: SALON,
+      salonClientId: SALON_CLIENT,
+      clientPhone: '4165559999',
+      clientName: 'Recovery Client',
+      startTime: future,
+      endTime: new Date(future.getTime() + 3_600_000),
+      status: 'confirmed',
+      totalPrice: 6500,
+      totalDurationMinutes: 60,
+    });
+
+    const result = await runLateDepositRecovery({ depositId: seeded.depositId, salonId: SALON });
+
+    expect(result.disposition).toBe('restored');
+    expect((await readDeposit(seeded.depositId))?.status).toBe('paid');
+    expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+  });
 });
 
 // ===========================================================================

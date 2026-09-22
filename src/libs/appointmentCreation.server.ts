@@ -153,6 +153,15 @@ import {
   reserveNextVisitOffer,
 } from '@/libs/nextVisitOffer.server';
 import {
+  finalizePublicBookingAttemptFailure,
+  linkPublicBookingAttempt,
+  lockPublicBookingAttempt,
+  PublicBookingAttemptError,
+  readDirectPublicBookingAttempt,
+  registerPublicBookingAttempt,
+} from '@/libs/publicBookingAttempt.server';
+import { checkPublicBookingAttemptRateLimit } from '@/libs/publicBookingAttemptRateLimit';
+import {
   checkPublicBookingRateLimit,
   getPublicBookingClientIp,
 } from '@/libs/publicBookingRateLimit.server';
@@ -170,6 +179,7 @@ import {
   normalizePhone,
   type TechnicianWithServices,
 } from '@/libs/queries';
+import { getClientIp } from '@/libs/rateLimit';
 import { resolveExplicitRequestApprovalActivation } from '@/libs/requestApprovalReconciliation.server';
 import {
   calculateRetentionDiscount,
@@ -489,10 +499,9 @@ class BookingClientConflictError extends Error {
   }
 }
 
-class BookingActiveAppointmentError extends Error {
-  constructor() {
-    super('BOOKING_ACTIVE_APPOINTMENT');
-    this.name = 'BookingActiveAppointmentError';
+class BookingDepositHoldActiveError extends Error {
+  constructor(readonly holdExpiresAt: Date | null) {
+    super('DEPOSIT_HOLD_ACTIVE');
   }
 }
 
@@ -741,22 +750,6 @@ function bookingClientConflictResponse(): Response {
       error: {
         code: 'CONTACT_IDENTITY_CONFLICT',
         message: 'These contact details cannot be used for an online booking. Please check the details, or contact the salon for help.',
-      },
-    } satisfies ErrorResponse,
-    { status: 409 },
-  );
-}
-
-function bookingActiveAppointmentResponse(
-  bookingSubjectMode: BookingSubjectMode,
-): Response {
-  return Response.json(
-    {
-      error: {
-        code: 'EXISTING_APPOINTMENT',
-        message: bookingSubjectMode === 'self'
-          ? 'You already have an upcoming appointment. Use your appointment link to change or cancel it, or request a fresh link.'
-          : 'An active appointment already exists for these contact details. Use the appointment-access email or contact the salon for help.',
       },
     } satisfies ErrorResponse,
     { status: 409 },
@@ -1041,7 +1034,7 @@ function anonymousMaterialMatchesRequest(data: CreateAppointmentRequest, materia
     && data.expectedDepositFingerprint === material.expectedDepositFingerprint;
 }
 
-export async function createAppointmentFromRequest(
+async function createAppointmentFromRequestCore(
   request: Request,
   access: AppointmentCreationAccess = { kind: 'ambient' },
 ): Promise<Response> {
@@ -1416,6 +1409,13 @@ export async function createAppointmentFromRequest(
     && !normalizedOriginalApptId
     && !data.manageToken
     && !googleReviewEvent;
+    // v2 direct browser attempts use the existing idempotency UUID as their
+    // durable identity. Older direct attempts remain on the Redis-only path.
+    const directPublicBookingAttempt = !normalizedOriginalApptId
+      && !data.manageToken
+      && !googleReviewEvent
+      ? readDirectPublicBookingAttempt(request)
+      : null;
     const requestedPolicyAcknowledgment = data.bookingPolicyAcknowledgment;
 
     // New public L1 bookings require a single authoritative selection and review.
@@ -1518,7 +1518,7 @@ export async function createAppointmentFromRequest(
         // First check if result is already cached
         const cachedResultJson = await redis.get(idempotencyCacheKey);
 
-        if (cachedResultJson) {
+        if (cachedResultJson && !directPublicBookingAttempt) {
           const cachedResult = JSON.parse(cachedResultJson);
 
           // Check if payload hash matches (same key, different payload = error)
@@ -1570,7 +1570,7 @@ export async function createAppointmentFromRequest(
             elapsedMs += delay;
 
             const retryCache = await redis.get(idempotencyCacheKey);
-            if (retryCache) {
+            if (retryCache && !directPublicBookingAttempt) {
               const cachedResult = JSON.parse(retryCache);
 
               // Validate payload hash even on retry
@@ -2012,15 +2012,13 @@ export async function createAppointmentFromRequest(
           : Promise.resolve([]),
       ]);
 
-      const stableLineageIds = new Set(
-        preliminaryCanonicalIdentity?.clientIds ?? [],
-      );
-      const eligiblePhoneMatches = phoneMatches.filter(appointment =>
-        appointment.salonClientId == null
-        || stableLineageIds.has(appointment.salonClientId));
-      const eligibleEmailMatches = emailMatches.filter(appointment =>
-        appointment.salonClientId == null
-        || stableLineageIds.has(appointment.salonClientId));
+      // Stable rows belong to canonical client lineages and are reconciled
+      // under that lineage's transaction lock below. Feeding historical source
+      // phone snapshots from the same lineage to raw contact classification
+      // would mislabel one customer as two different people after a merge.
+      // This preflight classifier is only for genuinely unlinked legacy rows.
+      const eligiblePhoneMatches = phoneMatches.filter(appointment => appointment.salonClientId == null);
+      const eligibleEmailMatches = emailMatches.filter(appointment => appointment.salonClientId == null);
       const duplicate = classifyDuplicateBooking({
         normalizedPhone,
         email: normalizedClientEmail,
@@ -2068,17 +2066,9 @@ export async function createAppointmentFromRequest(
           );
         }
 
-        return Response.json(
-          {
-            error: {
-              code: 'EXISTING_APPOINTMENT',
-              message: bookingSubjectMode === 'self'
-                ? 'You already have an upcoming appointment. Use your appointment link to change or cancel it, or request a fresh link.'
-                : 'An active appointment already exists for these contact details. Use the appointment-access email or contact the salon for help.',
-            },
-          } satisfies ErrorResponse,
-          { status: 409 },
-        );
+        // Ordinary confirmed/pending appointments are not a duplicate-booking
+        // authority. A client can legitimately schedule multiple future visits;
+        // slot locking below remains the only temporal conflict gate.
       }
     }
 
@@ -2679,7 +2669,7 @@ export async function createAppointmentFromRequest(
           // Check if a cached result appeared (winner may have completed)
           if (idempotencyCacheKey) {
             const cachedResult = await redis.get(idempotencyCacheKey);
-            if (cachedResult) {
+            if (cachedResult && !directPublicBookingAttempt) {
               const parsed = JSON.parse(cachedResult);
               // Validate payload hash before returning cached result
               if (parsed.payloadHash && parsed.payloadHash !== requestBodyHash) {
@@ -3661,6 +3651,13 @@ export async function createAppointmentFromRequest(
             resetTransactionPricing();
             let lockedCustomerBookingOperation: LockedCustomerBookingOperation | null = null;
             const transaction = async (tx: BookingTx) => {
+              if (directPublicBookingAttempt) {
+                await lockPublicBookingAttempt(tx, {
+                  salonId: salon.id,
+                  ...directPublicBookingAttempt,
+                  requestHash: requestBodyHash,
+                });
+              }
               if (access.kind === 'anonymous_customer') {
                 const locked = await lockCustomerBookingOperation(tx, {
                   salonId: salon.id,
@@ -3679,6 +3676,23 @@ export async function createAppointmentFromRequest(
                 }
               }
               const salonClient = await resolveBookingSalonClientInTx(tx, expectedTerminalClientId);
+              // The canonical-client lock above serializes every alias of this
+              // client. Scan the whole lineage for an unpaid hold here, not
+              // just the first preflight contact result; confirmed/pending
+              // visits remain intentionally allowed.
+              const lineageAppointments = await getActiveAppointmentsForCanonicalClientWithHandle(
+                tx as LifecycleSqlHandle,
+                {
+                  salonId: salon.id,
+                  terminalClientId: salonClient.id,
+                  horizon: 'lineage-active',
+                  excludeAppointmentId: normalizedOriginalApptId,
+                },
+              );
+              const existingHold = lineageAppointments.find(appointment => appointment.status === 'awaiting_payment');
+              if (existingHold) {
+                throw new BookingDepositHoldActiveError(existingHold.depositHoldExpiresAt ?? null);
+              }
               if (catalogOutcome.status === 'ok' && catalogSelectionInput) {
                 const configuration = await lockAndResolveRequiredBookingPolicyInTx(tx);
                 const current = await reconcileCatalogSelection({
@@ -4010,20 +4024,6 @@ export async function createAppointmentFromRequest(
               throw new BookingClientConflictError();
             }
 
-            const competingAppointments
-              = await getActiveAppointmentsForCanonicalClientWithHandle(
-                tx as LifecycleSqlHandle,
-                {
-                  salonId: salon.id,
-                  terminalClientId: lockedSalonClient.id,
-                  horizon: 'lineage-active',
-                  excludeAppointmentId: normalizedOriginalApptId,
-                },
-              );
-            if (competingAppointments.length > 0) {
-              throw new BookingActiveAppointmentError();
-            }
-
             const originalMutationVersion = new Date(Math.max(
               Date.now(),
               lockedOriginal.updatedAt.getTime() + 1,
@@ -4252,8 +4252,14 @@ export async function createAppointmentFromRequest(
         appointmentAddOns = transactionalResult.appointmentAddOns;
         salonClient = transactionalResult.salonClient;
       } catch (error) {
-        if (error instanceof BookingActiveAppointmentError) {
-          return bookingActiveAppointmentResponse(bookingSubjectMode);
+        if (error instanceof BookingDepositHoldActiveError) {
+          return Response.json({
+            error: {
+              code: 'DEPOSIT_HOLD_ACTIVE',
+              message: 'You already have a booking waiting for its deposit. Finish that payment, or wait for the hold to expire.',
+              details: { holdExpiresAt: error.holdExpiresAt?.toISOString() ?? null },
+            },
+          } satisfies ErrorResponse, { status: 409 });
         }
         if (error instanceof RescheduleRequiresManageFlowError) {
           return Response.json(
@@ -4357,19 +4363,6 @@ export async function createAppointmentFromRequest(
                 blockedEndTime,
                 now,
               });
-            }
-
-            const competingAppointments
-            = await getActiveAppointmentsForCanonicalClientWithHandle(
-              tx as LifecycleSqlHandle,
-              {
-                salonId: salon.id,
-                terminalClientId: lockedSalonClient.id,
-                horizon: 'lineage-active',
-              },
-            );
-            if (competingAppointments.length > 0) {
-              throw new BookingActiveAppointmentError();
             }
 
             await finalizeBookingPricingInTx(tx, lockedSalonClient, lockedBookingConfiguration.invoiceCurrency);
@@ -4598,6 +4591,13 @@ export async function createAppointmentFromRequest(
 
             if (!createdAppointment) {
               throw new Error('Failed to create appointment');
+            }
+            if (directPublicBookingAttempt) {
+              await linkPublicBookingAttempt(tx, {
+                salonId: salon.id,
+                appointmentId: createdAppointment.id,
+                ...directPublicBookingAttempt,
+              });
             }
             await registerNetworkBookingInTx(tx, {
               salonId: salon.id,
@@ -4880,6 +4880,26 @@ export async function createAppointmentFromRequest(
           respondDepositNotRequired = true;
         }
       } catch (error) {
+        if (error instanceof BookingDepositHoldActiveError) {
+          return Response.json({
+            error: {
+              code: 'DEPOSIT_HOLD_ACTIVE',
+              message: 'You already have a booking waiting for its deposit. Finish that payment, or wait for the hold to expire.',
+              details: { holdExpiresAt: error.holdExpiresAt?.toISOString() ?? null },
+            },
+          } satisfies ErrorResponse, { status: 409 });
+        }
+        if (error instanceof PublicBookingAttemptError) {
+          if (error.kind === 'failed') {
+            return Response.json({
+              error: { code: 'BOOKING_ATTEMPT_FAILED', message: 'This booking attempt was already closed. Please review and try again.' },
+              bookingAttemptOutcome: 'resolved_failure',
+            }, { status: 409 });
+          }
+          return Response.json({
+            error: { code: 'BOOKING_ATTEMPT_RECONCILE', message: 'We are checking this booking attempt.' },
+          }, { status: 409 });
+        }
         if (error instanceof L1SelectionChangedError) {
           return error.payload
             ? catalogSelectionChangedResponse(error.payload)
@@ -4943,9 +4963,6 @@ export async function createAppointmentFromRequest(
         }
         if (isBookingPolicyLockTimeout(error)) {
           return bookingPolicyCheckRetryResponse();
-        }
-        if (error instanceof BookingActiveAppointmentError) {
-          return bookingActiveAppointmentResponse(bookingSubjectMode);
         }
         if (
           error instanceof BookingClientConflictError
@@ -5327,5 +5344,85 @@ export async function createAppointmentFromRequest(
         console.warn('[Idempotency] Failed to release booking lock:', releaseError);
       }
     }
+  }
+}
+
+const NON_TERMINAL_DIRECT_ATTEMPT_CODES = new Set([
+  'IDEMPOTENCY_KEY_REUSE',
+  'BOOKING_IN_PROGRESS',
+  'BOOKING_ATTEMPT_RECONCILE',
+]);
+
+/**
+ * v2 direct attempts are registered before validation. This small outer layer
+ * makes a returned definitive 4xx durable without allowing a generic 4xx to
+ * clear a linked/in-flight attempt.
+ */
+export async function createAppointmentFromRequest(
+  request: Request,
+  access: AppointmentCreationAccess = { kind: 'ambient' },
+): Promise<Response> {
+  const directAttempt = readDirectPublicBookingAttempt(request);
+  if (request.headers.get('X-Booking-Attempt-Version') === '2' && !directAttempt) {
+    return Response.json({
+      error: { code: 'BOOKING_ATTEMPT_INVALID', message: 'This booking attempt could not be verified.' },
+    }, { status: 400 });
+  }
+  let directSalonId: string | null = null;
+  if (directAttempt) {
+    try {
+      const body = await request.clone().json() as {
+        salonSlug?: unknown;
+        originalAppointmentId?: unknown;
+        manageToken?: unknown;
+        googleEventReviewId?: unknown;
+      };
+      // v2 is direct new-booking authority only. Reschedules retain their
+      // capability-based lifecycle and must never receive a direct tombstone.
+      const supportsDirectAttempt = !body.originalAppointmentId
+        && !body.manageToken
+        && !body.googleEventReviewId;
+      if (!supportsDirectAttempt) {
+        return Response.json({
+          error: { code: 'BOOKING_ATTEMPT_INVALID', message: 'This booking attempt cannot be used for this booking flow.' },
+        }, { status: 400 });
+      }
+      if (supportsDirectAttempt && typeof body.salonSlug === 'string') {
+        directSalonId = (await getSalonBySlug(body.salonSlug))?.id ?? null;
+      }
+      if (directSalonId) {
+        if (!await checkPublicBookingAttemptRateLimit(getClientIp(request), directSalonId)) {
+          return Response.json({ error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Too many requests. Please try again later.' } }, { status: 429 });
+        }
+        await registerPublicBookingAttempt({ salonId: directSalonId, ...directAttempt });
+      }
+    } catch (error) {
+      if (error instanceof PublicBookingAttemptError) {
+        return Response.json({ error: { code: 'BOOKING_ATTEMPT_RECONCILE', message: 'We are checking this booking attempt.' } }, { status: 409 });
+      }
+      // A registration outage is ambiguous. Do not create without the durable
+      // authority the v2 browser requested.
+      return Response.json({ error: { code: 'BOOKING_ATTEMPT_RECONCILE', message: 'We are checking this booking attempt.' } }, { status: 503 });
+    }
+  }
+
+  const response = await createAppointmentFromRequestCore(request, access);
+  if (!directAttempt || !directSalonId || response.status < 400 || response.status >= 500) {
+    return response;
+  }
+  try {
+    const payload = await response.clone().json() as { error?: string | { code?: unknown }; bookingAttemptOutcome?: unknown };
+    const code = typeof payload.error === 'string'
+      ? payload.error
+      : typeof payload.error?.code === 'string' ? payload.error.code : null;
+    if (!code || NON_TERMINAL_DIRECT_ATTEMPT_CODES.has(code) || payload.bookingAttemptOutcome === 'resolved_failure') {
+      return response;
+    }
+    const failed = await finalizePublicBookingAttemptFailure({ salonId: directSalonId, ...directAttempt, code });
+    return failed
+      ? Response.json({ ...payload, bookingAttemptOutcome: 'resolved_failure' }, { status: response.status })
+      : response;
+  } catch {
+    return response;
   }
 }

@@ -992,20 +992,22 @@ const BookingRecoveryNotice = ({
   onCheckAgain,
   isChecking,
   findBookingUrl,
+  salonPhone,
 }: {
   onCheckAgain: () => void;
   isChecking: boolean;
   findBookingUrl: string;
+  salonPhone: string | null;
 }) => (
   <div className="mx-auto max-w-lg px-5 pt-3" role="status" data-testid="booking-recovery-notice">
     <StateCard
       tone="warning"
       icon={<RefreshCw className="mx-auto size-8 text-[var(--n5-warning)]" />}
       title="We’re checking your booking"
-      description="Your last confirmation may still be processing. To avoid a duplicate, we won’t submit it again."
+      description="We’re checking whether your appointment was created. We won’t submit another booking until this check is complete."
       contentClassName="py-5"
     />
-    <div className="mt-3 flex gap-3">
+    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
       <button
         type="button"
         onClick={onCheckAgain}
@@ -1018,6 +1020,13 @@ const BookingRecoveryNotice = ({
         Find my booking
       </a>
     </div>
+    <p className="mt-3 text-center text-sm leading-relaxed text-[var(--n5-ink-muted)]">
+      Still unable to recover your booking?
+      {' '}
+      {salonPhone
+        ? <a className="underline" href={`tel:${salonPhone.replace(/[^+\d]/g, '')}`}>Contact the salon</a>
+        : 'Contact the salon for help before booking again.'}
+    </p>
   </div>
 );
 
@@ -1133,6 +1142,7 @@ const ConfirmContent = ({
   isSubmitting,
   isRecoveringBooking,
   recoveryUnresolved = false,
+  findBookingUrl,
   location,
   subtotalBeforeDiscount,
   discountAmount,
@@ -1178,6 +1188,7 @@ const ConfirmContent = ({
   isSubmitting: boolean;
   isRecoveringBooking: boolean;
   recoveryUnresolved?: boolean;
+  findBookingUrl?: string;
   location: LocationSummary;
   subtotalBeforeDiscount: number;
   discountAmount: number;
@@ -1224,6 +1235,8 @@ const ConfirmContent = ({
   // actions unmount the banner (and the focused button with it), so focus
   // moves to the confirm button and a polite live region states the outcome.
   const confirmActionRef = useRef<HTMLButtonElement>(null);
+  const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const [showAppointmentChoice, setShowAppointmentChoice] = useState(true);
   const acknowledgmentHelpId = useId();
   const [smartFitOutcomeAnnouncement, setSmartFitOutcomeAnnouncement] = useState<string | null>(null);
 
@@ -1311,19 +1324,42 @@ const ConfirmContent = ({
           animate={{ opacity: 1, y: 0 }}
           className="text-center"
         >
-          <h1 className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
+          <h1 ref={reviewHeadingRef} tabIndex={-1} className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
             Review your appointment
           </h1>
           <p className="font-body mx-auto max-w-sm text-sm leading-relaxed text-[var(--n5-ink-muted)]">
-            {isReschedule
-              ? 'Your current appointment stays booked until you confirm this new time.'
-              : createsRequest
-                ? estimatedDepositDueCents > 0
-                  ? 'Pay the required deposit to send your request. The salon will review it before the appointment is confirmed.'
-                  : 'Nothing is booked yet. Send your request below for the salon to review.'
-                : 'Not booked yet. Confirm below to reserve your time.'}
+            {recoveryUnresolved
+              ? 'Your booking result is still being checked. Please use the recovery options above.'
+              : isReschedule
+                ? 'Your current appointment stays booked until you confirm this new time.'
+                : createsRequest
+                  ? estimatedDepositDueCents > 0
+                    ? 'Pay the required deposit to send your request. The salon will review it before the appointment is confirmed.'
+                    : 'Nothing is booked yet. Send your request below for the salon to review.'
+                  : 'Not booked yet. Confirm below to reserve your time.'}
           </p>
         </motion.div>
+
+        {findBookingUrl && showAppointmentChoice && !isReschedule && !isSubmitting && !recoveryUnresolved && (
+          <aside className="space-y-3 rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-sm leading-6" aria-label="Existing appointment options">
+            <p className="font-semibold">Already have an upcoming appointment?</p>
+            <p>You can manage your appointments or book another appointment.</p>
+            <div className="grid gap-2">
+              <a href={findBookingUrl} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--n5-border)] p-3 text-center font-semibold">View my appointments</a>
+              <p className="text-center text-xs">Use a secure link to view, change or cancel.</p>
+              <button
+                type="button"
+                className="min-h-11 rounded-xl border border-[var(--n5-border)] p-3 font-semibold"
+                onClick={() => {
+                  setShowAppointmentChoice(false);
+                  reviewHeadingRef.current?.focus();
+                }}
+              >
+                Book another appointment
+              </button>
+            </div>
+          </aside>
+        )}
 
         {isSubmitting && !recoveryUnresolved && (
           <div
@@ -2290,6 +2326,19 @@ export function BookConfirmClient({
     if (fromRecovery) {
       setRecoveredReceipt(data);
     }
+    const recoveredStatus = data?.data?.appointment?.status;
+    if (fromRecovery && recoveredStatus === 'awaiting_payment' && !data?.data?.deposit?.checkoutUrl) {
+      setDepositHold({ expiresAt: null, resumeUrl: null });
+      setHasExistingAppointment(true);
+      setPublicRecoveryPending(false);
+      return;
+    }
+    if (fromRecovery && !['confirmed', 'pending', 'awaiting_payment'].includes(recoveredStatus)) {
+      // A durable link proves creation, but current terminal states must never
+      // be presented as a new confirmation or silently retried.
+      setPublicRecoveryPending(false);
+      return;
+    }
     // A deposit hold is NOT a completed booking. This callback is also used for
     // a recovered 201 receipt, so recovery preserves the original checkout
     // handoff exactly rather than turning an unpaid hold into a success state.
@@ -2361,7 +2410,12 @@ export function BookConfirmClient({
     setCheckingPublicRecovery(true);
     try {
       const recovered = await recoverPublicBookingAttempt(salonId);
-      if (isPublicBookingReceipt(recovered)) {
+      if (recovered?.kind === 'resolved_failure') {
+        setPublicRecoveryPending(false);
+        setBookingError('That booking attempt did not complete. Review your details and confirm again.');
+        bookingInitiatedRef.current = false;
+        idempotencyKeyRef.current = crypto.randomUUID();
+      } else if (isPublicBookingReceipt(recovered)) {
         completeManualBooking(recovered, true);
       }
     } catch {
@@ -2371,6 +2425,26 @@ export function BookConfirmClient({
       setCheckingPublicRecovery(false);
     }
   }, [completeManualBooking, salonId]);
+
+  const startAnotherManualBooking = useCallback(() => {
+    try {
+      const attempt = salonId ? readPublicBookingAttempt(salonId) : null;
+      if (attempt?.state === 'pending') {
+        setBookingComplete(false);
+        setPublicRecoveryPending(true);
+        void checkPublicRecovery();
+        return;
+      }
+      if (salonId && attempt?.state === 'resolved') {
+        clearPublicBookingAttempt(salonId);
+      }
+      clearBookingState();
+      router.push(buildBookingUrl(`/${locale}/book/service`, { salonSlug }, { routeSalonSlug, locale }));
+    } catch {
+      setBookingComplete(false);
+      setPublicRecoveryPending(true);
+    }
+  }, [checkPublicRecovery, clearBookingState, locale, routeSalonSlug, router, salonId, salonSlug]);
 
   useEffect(() => {
     if (!salonId) {
@@ -2748,6 +2822,7 @@ export function BookConfirmClient({
           publicAttempt = beginPublicBookingAttempt({
             salonId,
             attemptId: idempotencyKeyRef.current,
+            protocolVersion: originalAppointmentId ? 1 : 2,
             confirmationPath: `${window.location.pathname}${window.location.search}`,
           });
         } catch {
@@ -2763,7 +2838,12 @@ export function BookConfirmClient({
         headers: {
           'Content-Type': 'application/json',
           'Idempotency-Key': idempotencyKeyRef.current,
-          ...(publicAttempt ? { 'X-Booking-Recovery-Key': publicAttempt.recoveryKey } : {}),
+          ...(publicAttempt
+            ? {
+                'X-Booking-Recovery-Key': publicAttempt.recoveryKey,
+                ...(publicAttempt.version === 2 ? { 'X-Booking-Attempt-Version': '2' } : {}),
+              }
+            : {}),
         },
         body: JSON.stringify(requestBody),
       });
@@ -2789,6 +2869,11 @@ export function BookConfirmClient({
         const errorCode = typeof errorData?.error === 'string'
           ? errorData.error
           : errorData?.error?.code;
+        if (publicAttempt?.version === 2 && errorData?.bookingAttemptOutcome !== 'resolved_failure') {
+          // A generic 4xx may be a replay of an already linked or concurrent
+          // attempt. Only the durable authority can release a v2 identity.
+          throw new CustomerSafeBookingError(BOOKING_CONFIRM_FALLBACK_MESSAGE);
+        }
         // These server codes prove creation stopped before a booking receipt
         // could exist, except the checkout failure code whose server contract
         // proves its hold was released. Unknown failures, 5xx, and in-progress
@@ -2800,6 +2885,9 @@ export function BookConfirmClient({
           setPublicRecoveryPending(false);
           idempotencyKeyRef.current = crypto.randomUUID();
         };
+        if (errorData?.bookingAttemptOutcome === 'resolved_failure') {
+          releasePublicAttempt();
+        }
         const definitiveValidationMessages: Record<string, string> = {
           VALIDATION_ERROR: 'Check your booking and contact details before confirming again.',
           INVALID_PHONE: 'Check your phone number before confirming again.',
@@ -3177,10 +3265,8 @@ export function BookConfirmClient({
     );
   }
 
-  // Existing appointment error: the server (never browser state) confirmed an
-  // active appointment for this phone. Offer every path forward instead of a
-  // dead end. When the blocker is a live deposit hold, a countdown (and, in
-  // the tab that owns the checkout, a resume link) renders above the options.
+  // Compatibility for older rejection responses, plus the distinct live-hold
+  // gate. Ordinary upcoming appointments no longer block creation.
   if (hasExistingAppointment) {
     return (
       <div>
@@ -3196,6 +3282,7 @@ export function BookConfirmClient({
           guestEmail={guestEmail}
           guestPhone={guestPhone}
           salonPhone={salonPhone}
+          hasDepositHold={depositHold !== null}
           onManageBooking={() => {
             if (manageToken) {
               router.push(`/${locale}/${salonSlug}/manage/${manageToken}`);
@@ -3203,18 +3290,14 @@ export function BookConfirmClient({
             }
             router.push(`/${locale}/${salonSlug}/find-booking`);
           }}
-          onEditContact={() => {
-            setHasExistingAppointment(false);
-            setBookingError('You already have a booking under that phone number. Update your contact details below, then confirm again.');
-          }}
           onRetryBooking={() => {
-          // The server re-verifies on every attempt; if the appointment was
-          // cancelled meanwhile, this proceeds and the success path clears the
-          // stored contact details.
             setHasExistingAppointment(false);
             setDepositHold(null);
             setBookingError(null);
-            void createBooking();
+            if (depositHold) {
+              // Live-hold retries still pass the unchanged server hold gate.
+              void createBooking();
+            }
           }}
         />
       </div>
@@ -3258,6 +3341,7 @@ export function BookConfirmClient({
           <h1 className="text-xl font-semibold">Booking received</h1>
           <p className="mt-3">Your booking was received. Open its details for the current appointment and payment status.</p>
           <a className="mt-4 flex min-h-11 items-center underline" href={manageUrl || appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug, locale })}>View booking details</a>
+          <button type="button" className="mt-3 min-h-11 underline" onClick={startAnotherManualBooking}>Book another appointment</button>
         </div>
       );
     }
@@ -3291,7 +3375,35 @@ export function BookConfirmClient({
         totalPriceDisplay={recovered ? formatMoney(recovered.totalCents, recovered.currency) : totalPriceDisplay}
         confirmationMessage={recovered ? null : bookingExperience.confirmationMessage}
         policy={recovered ? { ...displayedPolicy, enabled: false } : displayedPolicy}
+        onStartAnother={startAnotherManualBooking}
       />
+    );
+  }
+
+  const recoveredStatus = recoveredReceipt?.data?.appointment?.status;
+  if (recoveredStatus && !['confirmed', 'pending', 'awaiting_payment'].includes(recoveredStatus)) {
+    const statusLabels: Record<string, string> = {
+      cancelled: 'This appointment was cancelled',
+      completed: 'This appointment is complete',
+      no_show: 'This appointment is no longer active',
+      expired: 'This booking has expired',
+      in_progress: 'Your appointment is in progress',
+    };
+    return (
+      <main className="mx-auto max-w-lg space-y-4 px-5 py-8">
+        <StateCard
+          tone="neutral"
+          title={statusLabels[recoveredStatus] ?? 'Your booking was found'}
+          description="The original booking was found. Use secure booking recovery or contact the salon for help with its current status."
+        />
+        <a className="block min-h-11 rounded-xl border border-[var(--n5-border)] p-3 text-center font-semibold" href={appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug, locale })}>
+          Find my booking
+        </a>
+        {salonPhone && <a className="block min-h-11 p-3 text-center underline" href={`tel:${salonPhone.replace(/[^+\d]/g, '')}`}>Contact the salon</a>}
+        <button type="button" className="block min-h-11 w-full p-3 text-center underline" onClick={startAnotherManualBooking}>
+          Start a new booking
+        </button>
+      </main>
     );
   }
 
@@ -3306,10 +3418,11 @@ export function BookConfirmClient({
 
   return (
     <>
-      {publicRecoveryPending && !checkingPublicRecovery && (
+      {publicRecoveryPending && (
         <BookingRecoveryNotice
           onCheckAgain={() => void checkPublicRecovery()}
           isChecking={checkingPublicRecovery}
+          salonPhone={salonPhone}
           findBookingUrl={appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug, locale })}
         />
       )}
@@ -3331,7 +3444,8 @@ export function BookConfirmClient({
         onEditSelection={() => router.back()}
         isSubmitting={isBooking || publicRecoveryPending}
         isRecoveringBooking={recoveringHandoff || checkingPublicRecovery}
-        recoveryUnresolved={publicRecoveryPending && !checkingPublicRecovery}
+        recoveryUnresolved={publicRecoveryPending}
+        findBookingUrl={!isAssistantHandoff ? appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug, locale }) : undefined}
         location={location}
         rewardsEnabled={rewardsEnabled}
         isReschedule={Boolean(originalAppointmentId)}

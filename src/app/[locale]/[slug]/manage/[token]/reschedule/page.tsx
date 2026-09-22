@@ -59,9 +59,9 @@ export default async function RescheduleAppointmentPage(
     return (
       <ErrorCard
         title="This link is not valid"
-        body="The link may have been copied incompletely, or it has already been replaced by a newer one. Request a fresh private link and we will email it to the address on file."
+        body="The link may have been copied incompletely, or it has already been replaced by a newer one. Request a fresh private link using your booking email or mobile phone."
         href={findBookingHref}
-        cta="Email me a fresh link"
+        cta="Find my booking"
       />
     );
   }

@@ -772,7 +772,7 @@ describe('appointment detail route auth', () => {
       salonClientId: 'primary_client',
       clientPhone: '4165550198',
       clientEmail: null,
-      status: 'confirmed',
+      status: 'in_progress',
       startTime: new Date('2099-04-01T15:00:00.000Z'),
       endTime: new Date('2099-04-01T16:00:00.000Z'),
     }]);
@@ -1103,7 +1103,7 @@ describe('appointment detail route auth', () => {
       salonClientId: 'primary_client',
       clientPhone: '4165550198',
       clientEmail: null,
-      status: 'confirmed',
+      status: 'in_progress',
       startTime: new Date('2099-04-01T15:00:00.000Z'),
       endTime: new Date('2099-04-01T16:00:00.000Z'),
     }]);
@@ -1128,7 +1128,7 @@ describe('appointment detail route auth', () => {
     expect(body.error.details).toMatchObject({
       conflictingAppointmentId: 'appt_other',
       conflictingStartTime: '2099-04-01T15:00:00.000Z',
-      conflictingStatus: 'confirmed',
+      conflictingStatus: 'in_progress',
     });
     expect(transitionReturning).not.toHaveBeenCalled();
     expect(updateAppointmentStatus).not.toHaveBeenCalled();

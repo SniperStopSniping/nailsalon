@@ -22,7 +22,7 @@ function fillAndSubmit(args: { email?: string; phone?: string }) {
   if (args.phone !== undefined) {
     fireEvent.change(screen.getByLabelText('Mobile phone'), { target: { value: args.phone } });
   }
-  fireEvent.click(screen.getByRole('button', { name: /email my booking link/i }));
+  fireEvent.click(screen.getByRole('button', { name: /email my booking link|text my booking link/i }));
 }
 
 describe('FindBookingForm', () => {
@@ -31,6 +31,7 @@ describe('FindBookingForm', () => {
 
     expect(screen.getByLabelText('Booking email')).toBeInTheDocument();
     expect(screen.getByLabelText('Mobile phone')).toBeInTheDocument();
+    expect(screen.getByText(/Use the email/i)).toHaveTextContent('Use the email or mobile number');
   });
 
   it('blocks submission with neither field filled and does not call the API', async () => {
@@ -56,7 +57,11 @@ describe('FindBookingForm', () => {
   it('submits phone-only requests', async () => {
     render(<FindBookingForm salonSlug="test-salon" />);
 
-    fillAndSubmit({ phone: '(416) 555-1234' });
+    fireEvent.change(screen.getByLabelText('Mobile phone'), { target: { value: '(416) 555-1234' } });
+
+    expect(screen.getByRole('button', { name: 'Text my booking link' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Text my booking link' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
@@ -73,7 +78,25 @@ describe('FindBookingForm', () => {
 
     expect(sent).toHaveTextContent('Request received');
     expect(sent).toHaveTextContent('If we find a matching appointment');
+    expect(sent).toHaveTextContent('email the secure link');
     expect(screen.getByRole('link', { name: /call the salon/i })).toHaveAttribute('href', 'tel:4165550000');
+  });
+
+  it('uses SMS-specific sent copy for a phone-only request and neutral salon fallback', async () => {
+    render(<FindBookingForm salonSlug="test-salon" salonPhone="4165550000" />);
+
+    fillAndSubmit({ phone: '4165551234' });
+
+    const sent = await screen.findByTestId('find-booking-sent');
+
+    expect(sent).toHaveTextContent('text the secure link');
+    expect(sent).toHaveTextContent('If the link doesn\'t arrive');
+  });
+
+  it('explains email precedence when both recovery contacts are supplied', () => {
+    render(<FindBookingForm salonSlug="test-salon" />);
+
+    expect(screen.getByText(/Use the email/i)).toHaveTextContent('If you enter both, we\'ll email the link.');
   });
 
   it('shows an error state that preserves the entered values', async () => {

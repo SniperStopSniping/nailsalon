@@ -334,10 +334,11 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(89);
+    expect(journal.entries).toHaveLength(90);
     expect(journal.entries[86]).toMatchObject({ idx: 86, tag: '0087_network_no_show_protection' });
     expect(journal.entries[87]).toMatchObject({ idx: 87, tag: '0088_network_no_show_platform_control' });
     expect(journal.entries[88]).toMatchObject({ idx: 88, tag: '0089_service_add_on_manual_confirmation' });
+    expect(journal.entries[89]).toMatchObject({ idx: 89, tag: '0090_misty_sprite' });
     // The Stripe prerequisite keeps its own identity assertion as the tail
     // grows: 0078 appends, it does not displace what 0076 pinned.
     expect(journal.entries[76]).toMatchObject({
@@ -371,7 +372,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     [76, '0075'],
     [77, 'Stripe 0076'],
     [78, 'Review 0077'],
-  ])('upgrades a %s ledger through review requests, intraday blocks and network platform control through 0089', async (existingCount) => {
+  ])('upgrades a %s ledger through review requests, intraday blocks and network platform control and booking recovery through 0090', async (existingCount) => {
     const upgradeClient = new PGlite();
     const upgradeDb = drizzle(upgradeClient);
     const migrationsFolder = path.join(process.cwd(), 'migrations');
@@ -389,7 +390,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
         'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',
       );
 
-      expect(rows.rows).toHaveLength(89);
+      expect(rows.rows).toHaveLength(90);
       expect(Number(rows.rows[76]?.created_at)).toBe(1787476392670);
       expect(Number(rows.rows[77]?.created_at)).toBe(1787562792670);
       expect(Number(rows.rows[78]?.created_at)).toBe(1787649192670);

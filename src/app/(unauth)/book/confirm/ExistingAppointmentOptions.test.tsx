@@ -18,7 +18,6 @@ afterEach(() => {
 function renderOptions(overrides: Partial<Parameters<typeof ExistingAppointmentOptions>[0]> = {}) {
   const handlers = {
     onManageBooking: vi.fn(),
-    onEditContact: vi.fn(),
     onRetryBooking: vi.fn(),
   };
   render(
@@ -35,14 +34,15 @@ function renderOptions(overrides: Partial<Parameters<typeof ExistingAppointmentO
 }
 
 describe('ExistingAppointmentOptions', () => {
-  it('renders every action, with the salon call link only when a phone exists', () => {
+  it('offers normal appointment management and another booking, with the salon call link', () => {
     renderOptions();
 
-    expect(screen.getByText('You already have a booking')).toBeInTheDocument();
+    expect(screen.getByText('You already have an upcoming appointment')).toBeInTheDocument();
     expect(screen.getByTestId('existing-appointment-send-link')).toBeInTheDocument();
     expect(screen.getByTestId('existing-appointment-manage')).toBeInTheDocument();
-    expect(screen.getByTestId('existing-appointment-edit-contact')).toBeInTheDocument();
     expect(screen.getByTestId('existing-appointment-retry')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Book another appointment' })).toBeInTheDocument();
+    expect(screen.queryByText('Use different contact information')).not.toBeInTheDocument();
     expect(screen.getByTestId('existing-appointment-call-salon')).toHaveAttribute('href', 'tel:4165550000');
   });
 
@@ -76,6 +76,8 @@ describe('ExistingAppointmentOptions', () => {
   it('omits empty contact fields from the recovery request', async () => {
     renderOptions({ guestEmail: '' });
 
+    expect(screen.getByText('Text my appointment link')).toBeInTheDocument();
+
     fireEvent.click(screen.getByTestId('existing-appointment-send-link'));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -97,15 +99,22 @@ describe('ExistingAppointmentOptions', () => {
     expect(screen.getByTestId('existing-appointment-send-link')).toBeInTheDocument();
   });
 
-  it('fires the manage, edit-contact, and retry callbacks', () => {
+  it('fires the manage and retry callbacks', () => {
     const handlers = renderOptions();
 
     fireEvent.click(screen.getByTestId('existing-appointment-manage'));
-    fireEvent.click(screen.getByTestId('existing-appointment-edit-contact'));
     fireEvent.click(screen.getByTestId('existing-appointment-retry'));
 
     expect(handlers.onManageBooking).toHaveBeenCalledTimes(1);
-    expect(handlers.onEditContact).toHaveBeenCalledTimes(1);
     expect(handlers.onRetryBooking).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows hold-specific copy and only offers an availability recheck', () => {
+    renderOptions({ hasDepositHold: true });
+
+    expect(screen.getByText('You have a booking waiting for its deposit')).toBeInTheDocument();
+    expect(screen.getByText(/Finish payment or wait for the hold to expire/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check availability again' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Book another appointment' })).not.toBeInTheDocument();
   });
 });

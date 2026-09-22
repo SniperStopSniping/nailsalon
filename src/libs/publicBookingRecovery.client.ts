@@ -1,6 +1,7 @@
 /** Browser-owned attempt identity; uncertainty never authorizes another create. */
 export type PublicBookingAttempt = {
-  version: 1;
+  version: 1 | 2;
+  startedAt?: string;
   salonId: string;
   attemptId: string;
   recoveryKey: string;
@@ -25,7 +26,7 @@ export function readPublicBookingAttempt(salonId: string): PublicBookingAttempt 
     return null;
   }
   const value = JSON.parse(raw) as PublicBookingAttempt;
-  if (value.version !== 1 || value.salonId !== salonId || !uuid.test(value.attemptId)
+  if (![1, 2].includes(value.version) || (value.version === 2 && (!value.startedAt || !Number.isFinite(Date.parse(value.startedAt)))) || value.salonId !== salonId || !uuid.test(value.attemptId)
     || !uuid.test(value.recoveryKey) || typeof value.confirmationPath !== 'string'
     || !value.confirmationPath.startsWith('/') || value.confirmationPath.startsWith('//')
     || value.confirmationPath.includes('\\') || [...value.confirmationPath].some(character => character.charCodeAt(0) <= 32)
@@ -44,12 +45,13 @@ function save(value: PublicBookingAttempt): void {
   }
 }
 
-export function beginPublicBookingAttempt(args: { salonId: string; attemptId: string; confirmationPath: string }): PublicBookingAttempt {
+export function beginPublicBookingAttempt(args: { salonId: string; attemptId: string; confirmationPath: string; protocolVersion?: 1 | 2 }): PublicBookingAttempt {
   const existing = readPublicBookingAttempt(args.salonId);
   if (existing?.state === 'pending') {
     throw new Error('BOOKING_RECOVERY_REQUIRED');
   }
-  const value: PublicBookingAttempt = { ...args, version: 1, recoveryKey: crypto.randomUUID(), state: 'pending' };
+  const { protocolVersion = 2, ...identity } = args;
+  const value: PublicBookingAttempt = { ...identity, version: protocolVersion, ...(protocolVersion === 2 ? { startedAt: new Date().toISOString() } : {}), recoveryKey: crypto.randomUUID(), state: 'pending' };
   save(value);
   return value;
 }
@@ -85,14 +87,25 @@ export async function recoverPublicBookingAttempt(salonId: string): Promise<any 
       const response = await fetch(`/api/public/booking-attempt/${encodeURIComponent(salonId)}/status`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ attemptId: attempt.attemptId, recoveryKey: attempt.recoveryKey }),
+        body: JSON.stringify({ attemptId: attempt.attemptId, recoveryKey: attempt.recoveryKey, ...(attempt.version === 2 ? { version: 2, startedAt: attempt.startedAt } : {}) }),
         cache: 'no-store',
         signal: controller.signal,
       });
       const result = response.ok ? await response.json() : null;
-      if (result?.kind === 'resolved' && isPublicBookingReceipt(result.response)) {
+      if (result?.kind === 'resolved_failure') {
+        // Only an authoritative server failure releases this exact capability.
+        // A delayed response must never clear a newer attempt in the same tab.
+        const current = readPublicBookingAttempt(salonId);
+        if (current?.attemptId !== attempt.attemptId || current.recoveryKey !== attempt.recoveryKey) {
+          return null;
+        }
+        clearPublicBookingAttempt(salonId);
+        return { kind: 'resolved_failure' };
+      }
+      if (['resolved', 'resolved_success'].includes(result?.kind) && isPublicBookingReceipt(result.response)) {
         // Do not overwrite a newer attempt if another lifecycle resolved this one.
-        if (readPublicBookingAttempt(salonId)?.attemptId !== attempt.attemptId) {
+        const current = readPublicBookingAttempt(salonId);
+        if (current?.attemptId !== attempt.attemptId || current.recoveryKey !== attempt.recoveryKey) {
           throw new Error('BOOKING_RECOVERY_CHANGED');
         }
         resolvePublicBookingAttempt(salonId, result.response);

@@ -66,7 +66,7 @@ function pendingAttempt() {
 
 async function installSyntheticRecoveryRoutes(page: Page, options: {
   appointment?: (route: Route) => Promise<void>;
-  recovery?: 'resolved' | 'unresolved';
+  recovery?: 'resolved' | 'unresolved' | 'resolved_failure';
 } = {}): Promise<SyntheticRoutes> {
   const appointmentPosts: unknown[] = [];
   const recoveryPosts: unknown[] = [];
@@ -100,7 +100,7 @@ async function installSyntheticRecoveryRoutes(page: Page, options: {
       recoveryPosts.push(request.postDataJSON());
       await route.fulfill({ json: options.recovery === 'resolved'
         ? { kind: 'resolved', response: receipt() }
-        : { kind: 'unresolved' } });
+        : { kind: options.recovery === 'resolved_failure' ? 'resolved_failure' : 'unresolved' } });
       return;
     }
     unexpected.push(`${request.method()} ${url.pathname}`);
@@ -138,6 +138,63 @@ test('direct normal confirmation has no recovery banner at 320px', async ({ page
   expect(routes.appointmentPosts).toEqual([]);
   expect(routes.recoveryPosts).toEqual([]);
   expect(routes.unexpected).toEqual([]);
+});
+
+test('existing appointment choices preserve privacy and keyboard focus at 320px and 200 percent text', async ({ page }) => {
+  const routes = await installSyntheticRecoveryRoutes(page);
+  await openConfirm(page);
+  await fillGuestDetails(page);
+  await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+  const options = page.getByRole('complementary', { name: 'Existing appointment options' });
+
+  await expect(options.getByRole('link', { name: 'View my appointments' })).toHaveAttribute('href', `/en/${SALON_SLUG}/find-booking`);
+  await expect(options.getByRole('button', { name: /cancel/i })).toHaveCount(0);
+  expect(routes.appointmentPosts).toHaveLength(0);
+  expect(routes.recoveryPosts).toHaveLength(0);
+
+  await options.getByRole('button', { name: 'Book another appointment' }).focus();
+  await page.keyboard.press('Enter');
+
+  await expect(options).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Review your appointment' })).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  expect(routes.appointmentPosts).toHaveLength(0);
+
+  await page.getByRole('button', { name: /confirm appointment/i }).click();
+
+  await expect(page.getByRole('heading', { name: 'Appointment confirmed' })).toBeVisible();
+  expect(routes.appointmentPosts).toHaveLength(1);
+});
+
+test('manage existing opens secure recovery without submitting another appointment', async ({ page }) => {
+  const routes = await installSyntheticRecoveryRoutes(page);
+  await openConfirm(page);
+  await page.getByRole('link', { name: 'View my appointments' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Find my booking' })).toBeVisible();
+  expect(routes.appointmentPosts).toHaveLength(0);
+  expect(routes.recoveryPosts).toHaveLength(0);
+});
+
+test('a deliberate new booking clears only the resolved receipt and accepts a new submission', async ({ page }) => {
+  const routes = await installSyntheticRecoveryRoutes(page);
+  await openConfirm(page);
+  await fillGuestDetails(page);
+  await page.getByRole('button', { name: /confirm appointment/i }).click();
+
+  await expect(page.getByRole('heading', { name: 'Appointment confirmed' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Start another booking' }).click();
+
+  expect(await page.evaluate(key => sessionStorage.getItem(key), ATTEMPT_STORAGE_KEY)).toBeNull();
+
+  await openConfirm(page);
+  await fillGuestDetails(page);
+  await page.getByRole('button', { name: /confirm appointment/i }).click();
+
+  await expect(page.getByRole('heading', { name: 'Appointment confirmed' })).toBeVisible();
+  expect(routes.appointmentPosts).toHaveLength(2);
+  expect(routes.recoveryPosts).toHaveLength(0);
 });
 
 test('a double tap creates one booking POST at 320px', async ({ page }) => {
@@ -182,7 +239,7 @@ test('a lost creation response recovers its receipt without a second POST at 320
   await expect(page.getByRole('heading', { name: 'Appointment confirmed' })).toBeVisible({ timeout: 10_000 });
 
   expect(routes.appointmentPosts).toHaveLength(1);
-  expect(routes.recoveryPosts).toEqual([{ attemptId: expect.any(String), recoveryKey: expect.any(String) }]);
+  expect(routes.recoveryPosts).toEqual([{ attemptId: expect.any(String), recoveryKey: expect.any(String), version: 2, startedAt: expect.any(String) }]);
   expect(routes.unexpected).toEqual([]);
 });
 
@@ -226,7 +283,7 @@ test('uncertainty Check again performs status recovery only at 320px', async ({ 
   await seedAttemptBeforeNavigation(page, pendingAttempt());
   await openConfirm(page);
 
-  await expect(page.getByRole('button', { name: 'Check again' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('button', { name: 'Check again' })).toBeVisible({ timeout: 25_000 });
 
   await expect.poll(() => routes.recoveryPosts.length).toBeGreaterThan(0);
 
@@ -280,3 +337,68 @@ test('resolved success stays quiet on service revisit and browser back/forward a
   expect(routes.appointmentPosts).toHaveLength(1);
   expect(routes.unexpected).toEqual([]);
 });
+
+test('server-proven stale failure releases confirmation and permits exactly one deliberate new booking', async ({ page }) => {
+  const routes = await installSyntheticRecoveryRoutes(page, { recovery: 'resolved_failure' });
+  await seedAttemptBeforeNavigation(page, { ...pendingAttempt(), version: 2, startedAt: '2030-01-01T00:00:00.000Z' });
+  await openConfirm(page);
+
+  await expect(page.getByText(/That booking attempt did not complete/)).toBeVisible();
+  await expect(page.getByTestId('booking-recovery-notice')).toHaveCount(0);
+  expect(routes.appointmentPosts).toEqual([]);
+  expect(await page.evaluate(key => sessionStorage.getItem(key), ATTEMPT_STORAGE_KEY)).toBeNull();
+
+  await fillGuestDetails(page);
+  await page.getByRole('button', { name: /confirm appointment/i }).tap();
+
+  await expect(page.getByRole('heading', { name: 'Appointment confirmed' })).toBeVisible();
+  expect(routes.appointmentPosts).toHaveLength(1);
+  expect(routes.unexpected).toEqual([]);
+});
+
+test('uncertainty remains coherent at 320px and 200 percent text through refresh', async ({ page }) => {
+  const routes = await installSyntheticRecoveryRoutes(page, { recovery: 'unresolved' });
+  await seedAttemptBeforeNavigation(page, pendingAttempt());
+  await openConfirm(page);
+  await page.addStyleTag({ content: 'html { font-size: 200%; }' });
+
+  await expect(page.getByTestId('booking-recovery-notice')).toBeVisible();
+  await expect(page.getByText(/Not booked yet|Nothing is booked yet/)).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Find my booking' })).toBeVisible();
+  expect(await page.evaluate(() => [...document.querySelectorAll('body *')].filter(el => el.getBoundingClientRect().right > window.innerWidth + 1).map(el => ({ tag: el.tagName, text: el.textContent?.slice(0, 80), className: el.className })))).toEqual([]);
+
+  await page.reload();
+
+  await expect(page.getByTestId('booking-recovery-notice')).toBeVisible();
+  await expect(page.getByText(/Not booked yet|Nothing is booked yet/)).toHaveCount(0);
+  expect(routes.appointmentPosts).toEqual([]);
+});
+
+for (const channel of ['email', 'phone'] as const) {
+  test(`find booking uses ${channel} alone at 320px and 200 percent text`, async ({ page }) => {
+    const requests: unknown[] = [];
+    await page.route('**/api/public/appointments/recovery', async (route) => {
+      requests.push(route.request().postDataJSON());
+      await route.fulfill({ status: 202, json: { data: { accepted: true } } });
+    });
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.goto(`/en/${SALON_SLUG}/find-booking`);
+    await page.addStyleTag({ content: 'html { font-size: 200%; }' });
+    await page.getByLabel(channel === 'email' ? 'Booking email' : 'Mobile phone').fill(channel === 'email' ? 'synthetic@example.test' : '4165550101');
+    const submit = page.getByRole('button', { name: channel === 'email' ? 'Email my booking link' : 'Text my booking link' });
+
+    await expect(submit).toBeVisible();
+    expect(await submit.evaluate((button) => {
+      const bounds = button.getBoundingClientRect();
+      const text = document.createRange();
+      text.selectNodeContents(button);
+      return [...text.getClientRects()].every(rect => rect.left >= bounds.left && rect.right <= bounds.right);
+    })).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+
+    await submit.tap();
+
+    await expect(page.getByText('Request received')).toBeVisible();
+    expect(requests).toEqual([{ salonSlug: SALON_SLUG, [channel]: channel === 'email' ? 'synthetic@example.test' : '4165550101' }]);
+  });
+}

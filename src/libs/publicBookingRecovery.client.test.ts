@@ -80,4 +80,64 @@ describe('manual booking receipt recovery', () => {
 
     expect(() => beginPublicBookingAttempt({ salonId: 'a', attemptId, confirmationPath: '/book/confirm' })).toThrow('BOOKING_RECOVERY_STORAGE_UNAVAILABLE');
   });
+
+  it('releases only a server-proven failure and allows a new attempt at the same salon', async () => {
+    beginPublicBookingAttempt({ salonId: 'a', attemptId, confirmationPath: '/book/confirm' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ kind: 'resolved_failure' }) }));
+
+    await expect(recoverPublicBookingAttempt('a')).resolves.toEqual({ kind: 'resolved_failure' });
+    expect(readPublicBookingAttempt('a')).toBeNull();
+
+    const next = beginPublicBookingAttempt({ salonId: 'a', attemptId: crypto.randomUUID(), confirmationPath: '/book/confirm' });
+
+    expect(next.attemptId).not.toBe(attemptId);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not clear a newer attempt when an older status response arrives', async () => {
+    beginPublicBookingAttempt({ salonId: 'a', attemptId, confirmationPath: '/book/confirm' });
+    let finish!: (value: unknown) => void;
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise((resolve) => {
+      finish = resolve;
+    })));
+    const recovery = recoverPublicBookingAttempt('a');
+    clearPublicBookingAttempt('a');
+    const next = beginPublicBookingAttempt({ salonId: 'a', attemptId: crypto.randomUUID(), confirmationPath: '/book/confirm' });
+    finish({ ok: true, json: async () => ({ kind: 'resolved_failure' }) });
+
+    await expect(recovery).resolves.toBeNull();
+    expect(readPublicBookingAttempt('a')?.attemptId).toBe(next.attemptId);
+  });
+
+  it('uses the durable v2 protocol only for newly created browser attempts', async () => {
+    const attempt = beginPublicBookingAttempt({ salonId: 'a', attemptId, confirmationPath: '/book/confirm' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ kind: 'resolved_success', response: receipt }) }));
+
+    await expect(recoverPublicBookingAttempt('a')).resolves.toEqual(receipt);
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string)).toEqual({
+      attemptId,
+      recoveryKey: attempt.recoveryKey,
+      version: 2,
+      startedAt: attempt.startedAt,
+    });
+  });
+
+  it('never upgrades legacy pending evidence to the new failure authority', async () => {
+    vi.useFakeTimers();
+    sessionStorage.setItem('luster.public-booking-attempt.v1.a', JSON.stringify({
+      version: 1,
+      salonId: 'a',
+      attemptId,
+      recoveryKey: crypto.randomUUID(),
+      confirmationPath: '/book/confirm',
+      state: 'pending',
+    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ kind: 'unknown' }) }));
+    const result = recoverPublicBookingAttempt('a');
+    await vi.runAllTimersAsync();
+
+    await expect(result).resolves.toBeNull();
+    expect(readPublicBookingAttempt('a')?.state).toBe('pending');
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string)).not.toHaveProperty('version');
+  });
 });

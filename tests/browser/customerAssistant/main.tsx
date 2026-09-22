@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 
 import { BookConfirmClient } from '@/app/(unauth)/book/confirm/BookConfirmClient';
 import { BookTimeClient } from '@/app/(unauth)/book/time/BookTimeClient';
+import { FindBookingForm } from '@/app/[locale]/[slug]/find-booking/FindBookingForm';
 import { CustomerAssistantLauncher } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 
@@ -21,6 +22,7 @@ export function CustomerAssistantBrowserFixture() {
   const url = new URL(href, 'http://127.0.0.1:3130');
   const atTime = url.pathname.includes('/book/time');
   const atConfirm = url.pathname.includes('/book/confirm');
+  const atFindBooking = url.pathname.endsWith('/find-booking');
   const [data, setData] = useState<PageData | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   useEffect(() => {
@@ -57,7 +59,17 @@ export function CustomerAssistantBrowserFixture() {
   const salon = { id: 'synthetic-browser-isla-salon', slug: 'isla-nail-studio', name: 'Synthetic Isla Browser Salon', themeKey: 'espresso', status: 'active', settings: null } as ComponentProps<typeof PublicSalonPageShell>['salon'];
   return (
     <PublicSalonPageShell appearance={{ mode: 'theme', themeKey: 'espresso' }} salon={salon} bookingPage={{ layout: 'quick_book', stylePack: 'default', tokenOverrides: null, serviceMenuLayout: 'visual_grid', quickBookProfile: { showTechName: false, showTechPhoto: false, showLocation: false, showHours: false, showPhone: false, showEmail: false, showBookingPolicy: false, showCancellationPolicy: false, showReviews: false, showInstagram: false, showBio: false }, sectionOrder: ['serviceMenu'], sectionVariants: {}, hiddenSections: [], businessMode: 'solo', startMode: 'services_first' }} pageName={atTime ? 'book-datetime' : atConfirm ? 'book-confirm' : 'book-service'}>
-      {!atTime && !atConfirm && (
+      {atFindBooking && (
+        <main className="min-h-[calc(100vh-60px)] bg-[#fbf6f1] px-3 py-14">
+          <div className="mx-auto max-w-md">
+            <div className="mt-5 rounded-[2rem] border border-stone-200 bg-white p-4 shadow-sm sm:p-7">
+              <h1 className="text-3xl font-semibold tracking-tight text-stone-950">Find my booking</h1>
+              <FindBookingForm salonSlug="isla-nail-studio" salonPhone="+14165550100" />
+            </div>
+          </div>
+        </main>
+      )}
+      {!atTime && !atConfirm && !atFindBooking && (
         <main className="mx-auto min-h-screen max-w-md bg-stone-50 p-4">
           <h1 className="mb-4 text-xl font-semibold text-neutral-950">Synthetic Booking Test Salon</h1>
           <p className="mb-5 text-sm text-neutral-700">Book your next appointment.</p>
