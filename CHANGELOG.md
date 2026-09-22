@@ -1,3 +1,10 @@
+# [1.127.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.13...v1.127.0) (2026-09-22)
+
+
+### Features
+
+* **customer-ai:** support tech-confirmed booking items ([df535c1](https://github.com/SniperStopSniping/nailsalon/commit/df535c198451468a2483bc35d238630fa45a6c30))
+
 ## [1.126.13](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.12...v1.126.13) (2026-09-22)
 
 
