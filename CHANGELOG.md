@@ -1,3 +1,10 @@
+## [1.126.13](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.12...v1.126.13) (2026-09-22)
+
+
+### Bug Fixes
+
+* **customer-ai:** recognize public booking service route ([7b92ab8](https://github.com/SniperStopSniping/nailsalon/commit/7b92ab8ecc844f1e7bfbc991b362649cf1466566))
+
 ## [1.126.12](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.11...v1.126.12) (2026-09-22)
 
 
