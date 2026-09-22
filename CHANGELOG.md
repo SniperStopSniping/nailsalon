@@ -1,3 +1,10 @@
+## [1.127.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.127.1...v1.127.2) (2026-09-22)
+
+
+### Bug Fixes
+
+* recover bookings by email or phone and allow multiple future visits ([8f4b852](https://github.com/SniperStopSniping/nailsalon/commit/8f4b8523af7db04437f8695a93c5ca502cc97701))
+
 ## [1.127.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.127.0...v1.127.1) (2026-09-22)
 
 
