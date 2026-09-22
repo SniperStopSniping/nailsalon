@@ -1017,6 +1017,8 @@ export type AppointmentCreationAccess
     salon: { id: string; slug: string };
     contact: { name: string; email: string; phone: string };
     operation: { capability: string; revision: number; fingerprint: string; secret: string };
+    /** Server-owned transport fence; never decoded from a public request body. */
+    executionGuard?: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => Promise<void>;
   };
 
 class CustomerBookingOperationReplay extends Error {
@@ -3941,6 +3943,9 @@ async function createAppointmentFromRequestCore(
                 const configuration = await lockAndResolveRequiredBookingPolicyInTx(tx);
                 await revalidateAnonymousMaterialInTx(tx, salonClient, configuration);
               }
+              if (access.kind === 'anonymous_customer') {
+                await access.executionGuard?.(tx);
+              }
               const result = await operation(tx, salonClient);
               if (lockedCustomerBookingOperation) {
                 const appointmentId = (result as { appointment?: { id?: string } }).appointment?.id;
@@ -3962,6 +3967,9 @@ async function createAppointmentFromRequestCore(
                   }
                 }
                 await linkCustomerBookingOperation(tx, lockedCustomerBookingOperation, appointmentId);
+              }
+              if (access.kind === 'anonymous_customer') {
+                await access.executionGuard?.(tx);
               }
               return result;
             };

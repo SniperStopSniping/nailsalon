@@ -37,6 +37,7 @@ import {
   MessageSquare,
   Music2,
   Palette,
+  Phone,
   Plug,
   RotateCcw,
   Save,
@@ -97,6 +98,7 @@ import { PageThemesSettings } from './PageThemesSettings';
 import { ReviewRequestSettings } from './ReviewRequestSettings';
 import { SmartFitSettingsCard } from './SmartFitSettingsCard';
 import { UsageBillingModal } from './UsageBillingModal';
+import { VoiceReceptionistSettings } from './VoiceReceptionistSettings';
 
 /**
  * Formats a Canadian postal code readably (`m5h2m9` → `M5H 2M9`). Values that
@@ -1770,6 +1772,7 @@ type SettingsView
   | 'notifications'
   | 'communications'
   | 'review-requests'
+  | 'phone-receptionist'
   | 'features'
   | 'visibility';
 
@@ -1800,6 +1803,7 @@ const SETTINGS_VIEW_IDS: readonly SettingsView[] = [
   'notifications',
   'communications',
   'review-requests',
+  'phone-receptionist',
   'features',
   'visibility',
 ];
@@ -1832,6 +1836,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'notifications': 'Notifications',
   'communications': 'Client communications',
   'review-requests': 'Review requests',
+  'phone-receptionist': 'Phone receptionist',
   'features': 'Optional Features',
   'visibility': 'Staff visibility',
 };
@@ -3902,6 +3907,7 @@ export function SettingsModal({
             { title: 'Client Messages', description: 'Email, SMS and pause controls for client updates', icon: MessageSquare, onClick: () => openView('communications') },
             { title: 'Appointment Reminders', description: 'The one place to set reminder timing and channels', icon: CalendarClock, onClick: () => openView('communications') },
             { title: 'Review requests', description: 'Choose when eligible clients receive a Google review request', icon: Star, onClick: () => openView('review-requests') },
+            { title: 'Phone receptionist', description: 'AI inbound calls, booking permission and call history', icon: Phone, onClick: () => openView('phone-receptionist') },
             { title: 'Owner & Staff Alerts', description: 'New booking and cancellation alerts', icon: Bell, onClick: () => openView('notifications') },
             { title: 'Quiet Hours', description: 'Hold client texts overnight', icon: CalendarClock, onClick: () => openView('communications') },
             { title: 'Message Usage', description: 'SMS credits, usage and recent delivery history', icon: BarChart3, onClick: () => openView('communications') },
@@ -5081,6 +5087,10 @@ export function SettingsModal({
 
         {view === 'review-requests' && salonSlug && (
           <ReviewRequestSettings salonSlug={salonSlug} />
+        )}
+
+        {view === 'phone-receptionist' && salonSlug && (
+          <VoiceReceptionistSettings key={salonSlug} salonSlug={salonSlug} locale={locale === 'fr' || locale === 'es' ? locale : 'en'} />
         )}
 
         {view === 'communications' && (

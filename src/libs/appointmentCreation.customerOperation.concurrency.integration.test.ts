@@ -167,7 +167,7 @@ async function prepare(person = contact(), value = material()) {
   const operation = await prepareCustomerBookingOperation({ salonId: SALON, sessionId: randomUUID(), secret: SECRET, contact: person, material: value, expectedRevision: 0 });
   return { operation, reference: customerBookingOperationReference(operation, SECRET), person };
 }
-async function create(prepared: Awaited<ReturnType<typeof prepare>>) {
+async function create(prepared: Awaited<ReturnType<typeof prepare>>, executionGuard?: (tx: import('./customerAssistant/operationStore.server').CustomerBookingTransaction) => Promise<void>) {
   const value = prepared.operation.material;
   const request = new Request('https://app.luster.test/api/appointments', { method: 'POST', headers: { 'content-type': 'application/json', 'origin': 'https://app.luster.test' }, body: JSON.stringify({
     salonSlug: SALON,
@@ -185,7 +185,7 @@ async function create(prepared: Awaited<ReturnType<typeof prepare>>) {
     expectedDepositFingerprint: value.expectedDepositFingerprint,
     catalogAcknowledgment: value.catalogAcknowledgment,
   }) });
-  return createAppointmentFromRequest(request, { kind: 'anonymous_customer', salon: { id: SALON, slug: SALON }, contact: prepared.person, operation: { ...prepared.reference, secret: SECRET }, ...(value.nextVisitOffer ? { nextVisitOffer: value.nextVisitOffer } : {}) });
+  return createAppointmentFromRequest(request, { kind: 'anonymous_customer', salon: { id: SALON, slug: SALON }, contact: prepared.person, operation: { ...prepared.reference, secret: SECRET }, ...(executionGuard ? { executionGuard } : {}), ...(value.nextVisitOffer ? { nextVisitOffer: value.nextVisitOffer } : {}) });
 }
 
 function specificTechnicianMaterial(technicianId = TECH, technicianName = 'Synthetic Technician') {
@@ -619,7 +619,7 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
 
   it('permits only one of two different customers to claim the same slot', async () => {
     const prepared = await Promise.all([prepare(contact('1')), prepare(contact('2'))]);
-    const responses = await Promise.all(prepared.map(create));
+    const responses = await Promise.all(prepared.map(item => create(item)));
     const results = await Promise.all(responses.map(async response => ({ status: response.status, body: await response.json() })));
 
     expect(results.map(result => result.status).sort()).toEqual([201, 409]);
@@ -864,6 +864,58 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     expect(response.status, JSON.stringify(await response.json())).toBe(201);
     expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(1);
     expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toEqual([expect.objectContaining({ salonClientId: 'synthetic-creator-returning' })]);
+  });
+
+  it('rolls back the canonical booking when the trusted execution guard rejects its tenant lease', async () => {
+    const prepared = await prepare();
+    let calls = 0;
+    const response = await create(prepared, async (tx) => {
+      calls += 1;
+      // A real guard uses this same transaction to fence the route-resolved
+      // tenant/call epoch. Throwing here must leave no appointment or link.
+      await tx.select({ id: schema.salonSchema.id }).from(schema.salonSchema).where(eq(schema.salonSchema.id, OTHER_SALON));
+      throw new Error('VOICE_TENANT_LEASE_REJECTED');
+    });
+
+    expect(response.status).toBeGreaterThanOrEqual(500);
+    expect(calls).toBe(1);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+    expect((await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET })).appointmentId).toBeNull();
+  });
+
+  it('runs the trusted execution guard inside the successful canonical booking transaction', async () => {
+    const prepared = await prepare();
+    const transactionHandles = new Set<unknown>();
+    let calls = 0;
+    const response = await create(prepared, async (tx) => {
+      calls += 1;
+      transactionHandles.add(tx);
+      await tx.select({ id: schema.salonSchema.id }).from(schema.salonSchema).where(eq(schema.salonSchema.id, SALON));
+    });
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+    // The guard fences both the pre-write revalidation and post-write link in
+    // one transaction handle; it never runs as a detached preflight.
+    expect(transactionHandles.size).toBe(1);
+    expect(calls).toBe(2);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+  });
+
+  it('rolls back the appointment and operation link when the final execution fence rejects', async () => {
+    const prepared = await prepare();
+    let calls = 0;
+    const response = await create(prepared, async () => {
+      calls += 1;
+      if (calls === 2) {
+        throw new Error('VOICE_LEASE_EXPIRED_BEFORE_COMMIT');
+      }
+    });
+
+    expect(calls).toBe(2);
+    expect(response.status).toBeGreaterThanOrEqual(500);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+    expect((await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET })).appointmentId).toBeNull();
+    expect(await database.select().from(schema.appointmentDepositSchema).where(eq(schema.appointmentDepositSchema.salonId, SALON))).toHaveLength(0);
   });
 
   it('creates nothing when another booking takes the reviewed slot before Confirm', async () => {

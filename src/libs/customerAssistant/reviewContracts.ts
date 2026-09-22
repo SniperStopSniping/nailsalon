@@ -23,9 +23,9 @@ export type CustomerReviewLocation = {
   zipCode: string | null;
 };
 
-export type CustomerReviewService = { id: string; name: string; priceCents: number };
-export type CustomerReviewAddOn = { id: string; name: string; quantity: number; priceCents: number };
-export type CustomerReviewManualConfirmationItem = { id: string; name: string; quantity: number; durationMinutes: number; priceStatus: 'to_be_confirmed' };
+export type CustomerReviewService = { id: string; name: string; priceCents: number; priceDisplayText?: string | null };
+export type CustomerReviewAddOn = { id: string; name: string; quantity: number; priceCents: number; priceDisplayText?: string | null };
+export type CustomerReviewManualConfirmationItem = { id: string; name: string; quantity: number; durationMinutes: number; priceStatus: 'to_be_confirmed'; priceDisplayText?: string | null };
 
 export type CustomerReviewDeposit =
   | { status: 'required'; amountCents: number; currency: string; label: string }

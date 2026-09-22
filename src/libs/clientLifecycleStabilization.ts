@@ -1367,7 +1367,7 @@ export async function sendAppointmentOperationalEmailOnce(input: {
   purpose: string;
   eventVersion: string;
   prepare: () => Promise<OperationalEmailContent> | OperationalEmailContent;
-  validateBeforeDelivery?: () => Promise<boolean> | boolean;
+  validateBeforeDelivery?: (recipient: { email: string }) => Promise<boolean> | boolean;
   validationErrorCode?: string;
   retryFailed?: boolean;
   signal?: AbortSignal;
@@ -1512,7 +1512,7 @@ export async function sendAppointmentOperationalEmailOnce(input: {
   if (input.validateBeforeDelivery) {
     let valid: boolean;
     try {
-      valid = await input.validateBeforeDelivery();
+      valid = await input.validateBeforeDelivery({ email: recipient.email });
     } catch {
       await stopOperationalEmailBeforeDispatch({
         salonId,

@@ -49,6 +49,8 @@ export type PublicBookingManualConfirmationItem = {
   serviceId?: string;
   addOnId: string;
   name: string;
+  /** Owner-authored public qualifier (for example, "$15+"); never calculated. */
+  priceDisplayText: string | null;
   quantity: number;
   lineDurationMinutes: number;
   priceStatus: 'to_be_confirmed';
@@ -282,14 +284,18 @@ export async function resolvePublicBookingSelection(args: {
           priceDisplayText: addOnRecord.priceDisplayText ?? null,
         };
       }),
-      manualConfirmationItems: validated.quote.manualConfirmationItems.map(item => ({
-        serviceId: validated.baseServiceRecord.id,
-        addOnId: item.addOnId,
-        name: item.name,
-        quantity: item.quantity,
-        lineDurationMinutes: item.lineDurationMinutes,
-        priceStatus: item.priceStatus,
-      })),
+      manualConfirmationItems: validated.quote.manualConfirmationItems.map((item) => {
+        const priceDisplayText = validated.addOnRecords.find(addOn => addOn.id === item.addOnId)?.priceDisplayText ?? null;
+        return {
+          serviceId: validated.baseServiceRecord.id,
+          addOnId: item.addOnId,
+          name: item.name,
+          priceDisplayText,
+          quantity: item.quantity,
+          lineDurationMinutes: item.lineDurationMinutes,
+          priceStatus: item.priceStatus,
+        };
+      }),
       subtotalBeforeDiscountCents: pricing.subtotalBeforeDiscountCents,
       discountAmountCents: pricing.discountAmountCents,
       totalPriceCents: pricing.finalTotalCents,

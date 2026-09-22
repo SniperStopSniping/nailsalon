@@ -276,6 +276,9 @@ jobs:
               # Next 15.5.25 / React 19.2.8: patched App Router request handling
               # (GHSA-m99w-x7hq-7vfj), with compatible intl/UI/test dependencies.
               2566f6f2a1cb093ce512627a1568265c57aa8895:8d44f4449583e8d5d8bcc3cf6e844d9f47610578) ;;
+              # Voice receptionist: ws runtime sideband + matching TypeScript
+              # types only; existing payment dependencies remain unchanged.
+              2a590571356b139c9f6ea6ab15b29d53c008c141:989b81dadd00781e8633bb9b518bd05566951dea) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -400,6 +403,8 @@ jobs:
               27fd38cdd3e1ae7dbb0b5ec5f4180febb6a50584) ;;
               # Next Visit: tenant-scoped child-before-parent offer cleanup.
               857caed5cee8ee8eabebc820b33ca5d322c6faa5) ;;
+              # Voice call history: tenant-scoped child before appointment.
+              06b93e306c1f007d86fa29aaaf9cf511d8493a7b) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -456,6 +461,8 @@ jobs:
               migrations/0090_misty_sprite.sql) ;;
               # Service-owned booked add-on snapshots; additive only.
               migrations/0091_appointment_add_on_service_snapshot.sql) ;;
+              # Shared-authority voice receptionist; additive only.
+              migrations/0092_voice_receptionist.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -468,6 +475,7 @@ jobs:
               migrations/meta/0089_snapshot.json) ;;
               migrations/meta/0090_snapshot.json) ;;
               migrations/meta/0091_snapshot.json) ;;
+              migrations/meta/0092_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -804,6 +812,7 @@ jobs:
               0089_service_add_on_manual_confirmation) ;;
               0090_misty_sprite) ;;
               0091_appointment_add_on_service_snapshot) ;;
+              0092_voice_receptionist) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -824,6 +833,7 @@ jobs:
               /api/deposits/holds/reap) ;;
               /api/deposits/reconcile) ;;
               /api/communications/dispatch) ;;
+              /api/voice/maintenance) ;;
               # D3 (2026-09-14): billing crons, dark until BILLING_* switches flip
               /api/billing/windows/evaluate) ;;
               /api/billing/reconcile) ;;

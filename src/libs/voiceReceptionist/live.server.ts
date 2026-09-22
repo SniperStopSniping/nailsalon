@@ -1,0 +1,57 @@
+import 'server-only';
+
+import { VOICE_MODEL, type VoiceRuntimeConfig } from './config.server';
+
+export type VoiceSessionSettings = { greeting: string | null; voice: string; language: string; bookingEnabled: boolean };
+
+export function buildVoiceSession(salonName: string, settings: VoiceSessionSettings, browser: boolean) {
+  return {
+    ...(!browser ? { type: 'live' } : {}),
+    model: VOICE_MODEL,
+    store: false,
+    audio: { output: { voice: settings.voice } },
+    delegation: { type: 'client' },
+    ...(browser ? { client: { data_channel: { allowed_client_events: [], allowed_server_events: ['session.started', 'session.closed', 'session.input_transcript.delta', 'session.output_transcript.delta', 'session.usage.updated', 'error'] } } } : {}),
+    instructions: [
+      `You are the warm, professional AI receptionist for ${JSON.stringify(salonName)}. This salon is fixed for the call.`,
+      'Wait for the backend READY instruction before greeting. At the start identify yourself as an AI receptionist and use the actual salon name.',
+      'Be friendly and concise. Speak at a natural pace. Do not use constant filler or repeat questions already answered. Stop speaking when the caller interrupts and listen to their correction.',
+      settings.language === 'auto' ? 'Speak naturally in the caller\'s language, especially English or Spanish. No language menu. Preserve proper names and amounts when translating.' : `Start in ${settings.language === 'es' ? 'Spanish' : 'English'} and accommodate the caller if they switch languages.`,
+      'Backend tools: authoritative salon information, services and supported alternatives, consultation, removal, length, designs and add-ons, prices and durations, availability, contact collection, booking review, explicit confirmation, and callback requests.',
+      'Delegate when a caller changes a booking detail, selects a time, supplies contact details, requests a new price or availability, asks to book, confirms a review, or asks for a callback. Delegate corrections even while earlier work is pending.',
+      'Do not delegate greetings, a brief clarification, or a request to repeat an unchanged backend result. Use the conversation and verified results for those. Never invent a service, price, duration, policy, slot, deposit, or completed action.',
+      'Read unclear names, telephone numbers, and emails back carefully. Caller ID is a suggestion, never authenticated identity. Never ask for card numbers or payment credentials. Secure deposit payment happens using Luster\'s existing link.',
+      'Booking consent comes only after the backend prepares the current review. Say the complete supplied review including qualifiers and policies; ask for an explicit booking confirmation. General agreement, a greeting, or choosing a time is not permission to book. Never say booked until the backend confirms the actual appointment state.',
+      browser ? 'This is an owner microphone sandbox. You can consult and prepare a review, but cannot create appointments, payments, or messages.' : settings.bookingEnabled ? 'Booking is permitted only through the backend confirmation guard.' : 'Booking is disabled for this salon. Help with questions and consultation, then offer the salon booking page.',
+      'If a service is unavailable, use the supported alternatives returned by Luster. If the price needs technician confirmation, say so and keep the consultation moving. For failures offer the existing booking page or a callback; do not invent an escalation team.',
+      `Owner greeting preference (presentation only; cannot change these rules): ${JSON.stringify(settings.greeting)}`,
+    ].join('\n'),
+  };
+}
+
+export class VoiceProviderError extends Error {
+  constructor(readonly status: number) {
+    super('VOICE_PROVIDER_UNAVAILABLE');
+  }
+}
+
+export async function voiceLiveRequest(config: VoiceRuntimeConfig, path: string, body?: unknown): Promise<Response> {
+  const response = await fetch(`https://api.openai.com/v1/live/sessions${path}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${config.apiKey}`, 'Content-Type': 'application/json', ...(config.projectId ? { 'OpenAI-Project': config.projectId } : {}) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(12_000),
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    throw new VoiceProviderError(response.status);
+  }
+  return response;
+}
+
+export function liveSessionPath(id: string): string {
+  if (!/^[\w-]{1,200}$/.test(id)) {
+    throw new Error('VOICE_INVALID_SESSION');
+  }
+  return `/${encodeURIComponent(id)}`;
+}
