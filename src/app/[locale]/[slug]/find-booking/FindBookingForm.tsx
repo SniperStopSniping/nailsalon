@@ -39,6 +39,7 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
         <p className="font-semibold">Request received</p>
         <p>
           If we find a matching appointment, we&apos;ll
+          {' '}
           {requestedChannel === 'email' ? 'email' : 'text'}
           {' '}
           the secure link to the contact on file.
@@ -65,6 +66,7 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
       </label>
       <p className="text-sm text-stone-600">
         Use the email
+        {' '}
         <strong>or</strong>
         {' '}
         mobile number from your booking. If you enter both, we&apos;ll email the link.

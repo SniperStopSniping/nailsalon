@@ -31,7 +31,7 @@ describe('FindBookingForm', () => {
 
     expect(screen.getByLabelText('Booking email')).toBeInTheDocument();
     expect(screen.getByLabelText('Mobile phone')).toBeInTheDocument();
-    expect(screen.getByText(/Use the email/i)).toHaveTextContent('Use the emailor mobile number');
+    expect(screen.getByText(/Use the email/i)).toHaveTextContent('Use the email or mobile number');
   });
 
   it('blocks submission with neither field filled and does not call the API', async () => {
