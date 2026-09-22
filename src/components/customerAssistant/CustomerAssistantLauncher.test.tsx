@@ -241,6 +241,27 @@ describe('CustomerAssistantLauncher', () => {
     expect(card).toHaveTextContent('Included finishIncluded');
     expect(card).toHaveTextContent('$91.00');
     expect(card).not.toHaveTextContent('$0.00');
+    expect(card).toHaveTextContent('Prices shown are estimates or starting prices.');
+  });
+
+  it('preserves authoritative starting-price labels in the proposed package', async () => {
+    const packageQuote = {
+      ...proposal(),
+      service: { ...proposal().service, priceDisplayText: '$85+' },
+      addOns: [{ id: 'removal', name: 'Removal From Another Salon', quantity: 1, priceCents: 1500, priceDisplayText: '$15+' }],
+      subtotalCents: 10000,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(sessionResponse()).mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'package-token', result: { kind: 'proposal', proposal: packageQuote } }), { status: 200 })));
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(await screen.findByLabelText('Tell me what you would like'), 'Gel-X with another-salon removal');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    const card = await screen.findByRole('region', { name: 'Your appointment package' });
+
+    expect(card).toHaveTextContent('Gel-X Extensions$85+');
+    expect(card).toHaveTextContent('Removal From Another Salon$15+');
   });
 
   it('binds a campaign session without persisting its raw token and preserves it through assistant handoff', async () => {

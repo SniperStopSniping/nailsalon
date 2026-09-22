@@ -41,6 +41,8 @@ const ids = {
   ownRemoval: 'addon_semantic_gelx_removal',
   foreignRemoval: 'addon_semantic_other_salon_gelx_removal',
   builderForeignRemoval: 'addon_semantic_other_salon_builder_removal',
+  generalForeignRemoval: 'addon_semantic_other_salon_removal',
+  generalOwnRemoval: 'addon_semantic_own_work_removal',
 } as const;
 
 const built = buildPublicCatalogSnapshot({
@@ -62,6 +64,8 @@ const built = buildPublicCatalogSnapshot({
     makeFixtureAddOn({ id: ids.ownRemoval, name: 'Gel-X Removal', priceCents: 1500, durationMinutes: 20 }),
     makeFixtureAddOn({ id: ids.foreignRemoval, name: 'Other Salon Gel-X Removal', priceCents: 2000, durationMinutes: 30 }),
     makeFixtureAddOn({ id: ids.builderForeignRemoval, name: 'Other Salon Builder Gel Removal', priceCents: 1800, durationMinutes: 25 }),
+    makeFixtureAddOn({ id: ids.generalForeignRemoval, name: 'Removal From Another Salon', priceCents: 1500, durationMinutes: 20 }),
+    makeFixtureAddOn({ id: ids.generalOwnRemoval, name: 'Removal of Our Work', priceCents: 0, durationMinutes: 15 }),
   ],
   serviceAddOnBindings: [
     ...[ids.gelManicure, ids.biab, ids.gelx, ids.gelxFill].flatMap(serviceId => [
@@ -71,6 +75,8 @@ const built = buildPublicCatalogSnapshot({
     ]),
     ...[ids.short, ids.medium, ids.long, ids.ownRemoval, ids.foreignRemoval].map(addOnId => makeFixtureBinding({ id: `binding_${ids.gelx}_${addOnId}`, serviceId: ids.gelx, addOnId })),
     makeFixtureBinding({ id: `binding_${ids.biab}_${ids.builderForeignRemoval}`, serviceId: ids.biab, addOnId: ids.builderForeignRemoval }),
+    makeFixtureBinding({ id: `binding_${ids.gelManicure}_${ids.generalForeignRemoval}`, serviceId: ids.gelManicure, addOnId: ids.generalForeignRemoval }),
+    makeFixtureBinding({ id: `binding_${ids.gelManicure}_${ids.generalOwnRemoval}`, serviceId: ids.gelManicure, addOnId: ids.generalOwnRemoval }),
   ],
   rules: [],
 });

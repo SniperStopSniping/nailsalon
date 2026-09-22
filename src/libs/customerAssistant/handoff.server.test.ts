@@ -13,6 +13,7 @@ vi.mock('./operationStore.server', () => ({
 const { createCustomerConversation, signCustomerConversation, verifyCustomerConversation } = await import('./conversation.server');
 const { runCustomerHandoff } = await import('./handoff.server');
 const { issueNormalConfirmHandoff, verifyNormalConfirmHandoff } = await import('./normalConfirmHandoff.server');
+const { emptyFacts } = await import('./semanticFacts');
 
 const secret = 'x'.repeat(32);
 const fingerprint = 'a'.repeat(64);
@@ -37,6 +38,23 @@ beforeEach(() => {
 });
 
 describe('customer assistant normal-flow handoff', () => {
+  it('carries priced-removal starting-condition context into the normal booking flow', async () => {
+    const token = signCustomerConversation({
+      ...createCustomerConversation('salon-a', secret, now.getTime()),
+      facts: { ...emptyFacts(), existingProduct: 'builder_gel', origin: 'other_salon', removal: 'yes' },
+      context: { question: null, options: [], selection },
+    }, secret);
+    const response = await runCustomerHandoff({ salon: { id: 'salon-a', slug: 'isla-nail-studio' }, features: null, conversation: token, fingerprint, now });
+
+    expect(response.result).toMatchObject({ kind: 'handoff' });
+
+    if (response.result.kind === 'handoff') {
+      expect(verifyNormalConfirmHandoff({ salonId: 'salon-a', secret, flowToken: response.result.handoff.flow.flowToken, now })).toMatchObject({
+        manualConfirmationContext: { currentProduct: 'builder_gel', itemIds: [], removalRequired: true },
+      });
+    }
+  });
+
   it('rejects incomplete drafts and historical tokens, including edits during revalidation', async () => {
     mocks.proposal.mockResolvedValueOnce(null);
     const incomplete = await runCustomerHandoff({ salon: { id: 'salon-a', slug: 'isla-nail-studio' }, features: null, conversation: conversation(), fingerprint, now });

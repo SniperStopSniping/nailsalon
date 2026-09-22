@@ -13,10 +13,11 @@ export type CustomerBookingMaterial = {
   technicianId?: string;
   locationId?: string;
   review: CustomerReadyReviewSnapshot;
-  /** Bounded customer condition carried only when a salon-owned manual item was selected. */
+  /** Bounded customer condition carried for salon-owned manual items or removal work. */
   manualConfirmationContext?: {
     currentProduct: 'gel_x' | 'builder_gel' | 'acrylic' | 'gel_polish' | 'unknown';
     itemIds: string[];
+    removalRequired?: boolean;
   };
   smsConsent?: BookingSmsConsentInput;
   expectedTotalCents: number;

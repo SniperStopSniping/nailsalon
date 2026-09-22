@@ -170,8 +170,8 @@ export function planCustomerClarification(args: {
     if (facts.removal === 'yes') {
       const removals = menu.addOns.filter(item => vocabulary.isRemoval(item)
         && (facts.existingProduct === 'unknown'
-          ? ['gel_polish', 'builder_gel', 'gel_x', 'acrylic'].some(product => vocabulary.productMatches(item, product as Facts['existingProduct']))
-          : vocabulary.productMatches(item, facts.existingProduct))
+          ? ['gel_polish', 'builder_gel', 'gel_x', 'acrylic'].some(product => vocabulary.productMatches(item, product as Facts['existingProduct'])) || !vocabulary.namesSpecificProduct(item)
+          : vocabulary.productMatches(item, facts.existingProduct) || !vocabulary.namesSpecificProduct(item))
           && (facts.origin === 'unknown' || vocabulary.isForeignRemoval(item) === (facts.origin === 'other_salon')));
       requireChoice(removals, facts.existingProduct === 'unknown' ? 'product' : facts.origin === 'unknown' ? 'origin' : 'removal');
     }
@@ -248,7 +248,7 @@ export function planCustomerClarification(args: {
     && !(['removal', 'origin', 'product'].includes(question) && facts.existingProduct === 'none')
     && !(question === 'removal' && facts.maintenance === 'refill')) {
     const ids = menu.addOns.filter(item => (dimension(item, question) || (question === 'details' && optionIds.includes(item.id)))
-      && !(dimension(item, 'removal') && facts.existingProduct !== 'unknown' && !vocabulary.productMatches(item, facts.existingProduct))
+      && !(dimension(item, 'removal') && facts.existingProduct !== 'unknown' && !vocabulary.productMatches(item, facts.existingProduct) && vocabulary.namesSpecificProduct(item))
       && !(dimension(item, 'removal') && facts.origin !== 'unknown' && vocabulary.isForeignRemoval(item) !== (facts.origin === 'other_salon'))
       && !(question === 'finish' && vocabulary.isFrench(item) && facts.french !== 'unknown')
       && !(question === 'finish' && optionIds.length > 0 && !optionIds.includes(item.id))).map(item => item.id);

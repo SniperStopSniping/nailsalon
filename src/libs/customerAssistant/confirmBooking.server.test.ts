@@ -85,6 +85,24 @@ describe('explicit customer booking adapter', () => {
     expect(body.notes).not.toContain('synthetic@example.test');
   });
 
+  it('keeps priced removal context in technician notes without adding an unspecified charge', async () => {
+    const removalOperation = {
+      ...operation,
+      material: {
+        ...material,
+        manualConfirmationContext: { currentProduct: 'builder_gel', itemIds: [], removalRequired: true },
+      },
+    };
+    mocks.read.mockResolvedValueOnce(removalOperation).mockResolvedValueOnce({ ...removalOperation, appointmentId: 'one' });
+
+    await confirmCustomerBooking(input());
+    const [request] = mocks.create.mock.calls[0]!;
+    const body = await request.json();
+
+    expect(body.notes).toBe('Removal required\nCurrent product: BIAB / Builder Gel');
+    expect(body.expectedTotalCents).toBe(7000);
+  });
+
   it('forwards only the server-stored next-visit reference through access, never through public JSON', async () => {
     const withOffer = { ...operation, material: { ...material, nextVisitOffer: { campaignId: 'campaign', entitlementId: 'offer' } } };
     mocks.read.mockResolvedValueOnce(withOffer).mockResolvedValueOnce({ ...withOffer, appointmentId: 'one' });

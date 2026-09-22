@@ -53,11 +53,11 @@ export async function confirmCustomerBooking(args: {
       clientName: args.contact.name,
       clientEmail: args.contact.email,
       clientPhone: args.contact.phone,
-      ...(material.manualConfirmationContext && material.review.manualConfirmationItems?.length
+      ...(material.manualConfirmationContext
         ? {
             notes: [
-              'Manual confirmation required:',
-              ...material.review.manualConfirmationItems.map(item => `- ${item.name}: price to be confirmed`),
+              ...(material.review.manualConfirmationItems?.length ? ['Manual confirmation required:', ...material.review.manualConfirmationItems.map(item => `- ${item.name}: price to be confirmed`)] : []),
+              ...(material.manualConfirmationContext.removalRequired ? ['Removal required'] : []),
               `Current product: ${({ gel_x: 'Gel-X', builder_gel: 'BIAB / Builder Gel', acrylic: 'Acrylic', gel_polish: 'Gel polish', unknown: 'Unknown' } as const)[material.manualConfirmationContext.currentProduct]}`,
             ].join('\n').slice(0, 2000),
           }

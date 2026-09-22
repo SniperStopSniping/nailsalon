@@ -152,12 +152,13 @@ export async function prepareCustomerAssistantReview(args: {
     });
     const manualItems = preparedMaterial?.review.manualConfirmationItems ?? [];
     const currentProduct = prior.facts?.existingProduct;
-    const material = preparedMaterial && manualItems.length > 0
+    const material = preparedMaterial && (manualItems.length > 0 || prior.facts?.removal === 'yes')
       ? {
           ...preparedMaterial,
           manualConfirmationContext: {
             currentProduct: currentProduct && ['gel_x', 'builder_gel', 'acrylic', 'gel_polish'].includes(currentProduct) ? currentProduct as 'gel_x' | 'builder_gel' | 'acrylic' | 'gel_polish' : 'unknown' as const,
             itemIds: manualItems.map(item => item.id),
+            removalRequired: prior.facts?.removal === 'yes',
           },
         }
       : preparedMaterial;

@@ -25,7 +25,7 @@ export function transitionFailure(menu: CustomerMenu, facts: Facts): 'unsupporte
   const serviceIds = new Set(services.map(item => item.id));
   const allowed = new Set(menu.bindings.filter(item => serviceIds.has(item.serviceId)).map(item => item.addOnId));
   const removal = menu.addOns.filter(item => allowed.has(item.id) && semanticCatalog.isRemoval(item)
-    && semanticCatalog.productMatches(item, facts.existingProduct)
+    && (semanticCatalog.productMatches(item, facts.existingProduct) || !semanticCatalog.namesSpecificProduct(item))
     && (facts.origin === 'unknown' || semanticCatalog.isForeignRemoval(item) === (facts.origin === 'other_salon')));
   return removal.length ? null : 'unsupported_removal';
 }

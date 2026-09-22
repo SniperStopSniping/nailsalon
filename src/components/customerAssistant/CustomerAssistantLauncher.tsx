@@ -307,7 +307,7 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
           <dt className="min-w-0 shrink">{copy.services}</dt>
           <dd className="min-w-0 max-w-[62%] break-words text-right font-medium text-neutral-950">
             {proposal.service.name}
-            <span className="block text-xs font-normal text-neutral-600">{formatMoney(proposal.service.priceCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}</span>
+            <span className="block text-xs font-normal text-neutral-600">{proposal.service.priceDisplayText ?? formatMoney(proposal.service.priceCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}</span>
           </dd>
         </div>
         {proposal.addOns.length > 0 && (
@@ -324,7 +324,9 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
                       : (
                           <>
                             {addOn.quantity > 1 && addOn.unitPriceCents !== undefined && `${formatMoney(addOn.unitPriceCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')} ${copy.each} · `}
-                            {formatMoney(addOn.priceCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}
+                            {addOn.quantity === 1 && addOn.priceDisplayText
+                              ? addOn.priceDisplayText
+                              : formatMoney(addOn.priceCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}
                             {addOn.quantity > 1 && ` ${copy.lineTotal}`}
                           </>
                         )}
@@ -371,6 +373,11 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
             {(proposal.manualConfirmationItems?.length ?? 0) > 0
               ? (locale === 'fr' ? 'Sous-total actuel seulement. Les articles à confirmer ne sont pas inclus.' : 'Current booking subtotal only. Items requiring confirmation are not included.')
               : copy.subtotalNote}
+          </p>
+          <p className="mt-[4px] text-xs text-neutral-500">
+            {locale === 'fr'
+              ? 'Les prix affichés sont des estimations ou des prix de départ. La prothésiste confirmera le prix final selon les services et le travail requis. Tout supplément sera discuté avec vous avant de procéder.'
+              : 'Prices shown are estimates or starting prices. Your nail tech will confirm the final price based on the services and work required. Any additional charges will be discussed with you before proceeding.'}
           </p>
         </div>
       </dl>
