@@ -78,7 +78,12 @@ vi.mock('@/core/redis/redisClient', () => ({
   isRedisAvailable: vi.fn(async () => false),
 }));
 
-const holder = vi.hoisted(() => ({ db: null as unknown }));
+const holder = vi.hoisted(() => ({
+  db: null as unknown,
+  withSession: null as unknown as (
+    work: (database: unknown) => Promise<unknown>,
+  ) => Promise<unknown>,
+}));
 const mocks = vi.hoisted(() => ({
   captureException: vi.fn(),
   captureMessage: vi.fn(),
@@ -105,6 +110,11 @@ vi.mock('@/libs/DB', () => ({
   get db() {
     return holder.db;
   },
+  usesRuntimePostgres: true,
+  DatabaseSessionReleaseError: class DatabaseSessionReleaseError extends Error {},
+  withDedicatedDatabaseSession: <T>(
+    work: (database: unknown) => Promise<T>,
+  ) => holder.withSession(work) as Promise<T>,
 }));
 
 vi.mock('@sentry/nextjs', () => ({
@@ -240,6 +250,14 @@ suite('D5 — genuine PostgreSQL concurrency', () => {
 
     db = drizzle(pool, { schema });
     holder.db = db;
+    holder.withSession = async (work) => {
+      const client = await pool.connect();
+      try {
+        return await work(drizzle(client, { schema }));
+      } finally {
+        client.release();
+      }
+    };
     await migrate(db, { migrationsFolder: path.join(process.cwd(), 'migrations') });
 
     await pool.query('TRUNCATE TABLE salon RESTART IDENTITY CASCADE');
