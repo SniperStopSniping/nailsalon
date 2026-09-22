@@ -233,6 +233,9 @@ describe('CheckoutSheet', () => {
 
     fireEvent.click(screen.getByTestId('checkout-record-later'));
     fireEvent.click(screen.getByTestId('checkout-review-button'));
+
+    expect(await screen.findByText('Pending — not included')).toBeVisible();
+
     fireEvent.click(await screen.findByTestId('checkout-complete-button'));
     fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
     await screen.findByTestId('checkout-success');

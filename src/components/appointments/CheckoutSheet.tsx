@@ -1988,7 +1988,7 @@ export function CheckoutSheet({
                         {item.name || 'Custom item'}
                         {item.quantity > 1 ? ` × ${item.quantity}` : ''}
                       </span>
-                      <span>{money(item.unitPriceCents * item.quantity)}</span>
+                      <span>{item.priceMode === 'manual_confirmation' && item.unitPriceCents === 0 ? 'Pending — not included' : money(item.unitPriceCents * item.quantity)}</span>
                     </div>
                   ))}
                 </div>
