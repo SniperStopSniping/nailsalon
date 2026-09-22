@@ -388,6 +388,12 @@ for (const channel of ['email', 'phone'] as const) {
     const submit = page.getByRole('button', { name: channel === 'email' ? 'Email my booking link' : 'Text my booking link' });
 
     await expect(submit).toBeVisible();
+    expect(await submit.evaluate((button) => {
+      const bounds = button.getBoundingClientRect();
+      const text = document.createRange();
+      text.selectNodeContents(button);
+      return [...text.getClientRects()].every(rect => rect.left >= bounds.left && rect.right <= bounds.right);
+    })).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 
     await submit.tap();

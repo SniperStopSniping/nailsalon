@@ -60,9 +60,13 @@ export function CustomerAssistantBrowserFixture() {
   return (
     <PublicSalonPageShell appearance={{ mode: 'theme', themeKey: 'espresso' }} salon={salon} bookingPage={{ layout: 'quick_book', stylePack: 'default', tokenOverrides: null, serviceMenuLayout: 'visual_grid', quickBookProfile: { showTechName: false, showTechPhoto: false, showLocation: false, showHours: false, showPhone: false, showEmail: false, showBookingPolicy: false, showCancellationPolicy: false, showReviews: false, showInstagram: false, showBio: false }, sectionOrder: ['serviceMenu'], sectionVariants: {}, hiddenSections: [], businessMode: 'solo', startMode: 'services_first' }} pageName={atTime ? 'book-datetime' : atConfirm ? 'book-confirm' : 'book-service'}>
       {atFindBooking && (
-        <main className="mx-auto max-w-md px-5 py-8">
-          <h1 className="text-2xl font-semibold">Find my booking</h1>
-          <FindBookingForm salonSlug="isla-nail-studio" salonPhone="+14165550100" />
+        <main className="min-h-[calc(100vh-60px)] bg-[#fbf6f1] px-3 py-14">
+          <div className="mx-auto max-w-md">
+            <div className="mt-5 rounded-[2rem] border border-stone-200 bg-white p-4 shadow-sm sm:p-7">
+              <h1 className="text-3xl font-semibold tracking-tight text-stone-950">Find my booking</h1>
+              <FindBookingForm salonSlug="isla-nail-studio" salonPhone="+14165550100" />
+            </div>
+          </div>
         </main>
       )}
       {!atTime && !atConfirm && !atFindBooking && (
