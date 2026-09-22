@@ -1,3 +1,12 @@
+## [1.127.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.127.0...v1.127.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* **checkout:** label pending amount before final total ([4341034](https://github.com/SniperStopSniping/nailsalon/commit/4341034aeecf9566ea505b02cfa712064820d7a4))
+* **customer-ai:** simplify removal and pending-price completion ([5898465](https://github.com/SniperStopSniping/nailsalon/commit/589846591e76ff008082cdf68b283997e4a32f08))
+* resolve removal pricing CI regressions ([01409fb](https://github.com/SniperStopSniping/nailsalon/commit/01409fb8b7d3d7f1212c994d723ca7fd170252b3))
+
 # [1.127.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.126.13...v1.127.0) (2026-09-22)
 
 
