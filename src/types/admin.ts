@@ -236,6 +236,8 @@ export type AddOnResponse = {
    * these services.
    */
   compatibleServiceIds?: string[];
+  /** Compatible services where this add-on is bookable but priced by the tech. */
+  manualConfirmationServiceIds?: string[];
   // ---- Luster L1 catalog rules foundation (dark; migration 0073) ---------
   /** `add_on_group` this add-on belongs to; null is a perfectly valid, legacy-compatible ungrouped add-on. */
   groupId?: string | null;

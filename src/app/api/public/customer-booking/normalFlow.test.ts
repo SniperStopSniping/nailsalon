@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   secret: vi.fn(),
   quote: vi.fn(),
   prepare: vi.fn(),
+  read: vi.fn(),
   reference: vi.fn(),
   status: vi.fn(),
   limit: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('@/libs/customerAssistant/operationStore.server', () => ({
   },
   prepareCustomerBookingOperation: mocks.prepare,
   customerBookingOperationReference: mocks.reference,
+  readCustomerBookingOperation: mocks.read,
 }));
 vi.mock('@/libs/customerAssistant/bookingStatus.server', () => ({ readCustomerBookingStatus: mocks.status }));
 vi.mock('@/libs/publicBookingRateLimit.server', () => ({ checkPublicBookingRateLimit: mocks.limit, getPublicBookingClientIp: () => '127.0.0.1' }));
@@ -182,6 +184,20 @@ describe('normal booking prepare route', () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ reason: 'review_unavailable' });
     expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+
+  it('preserves server-owned manual confirmation context through normal confirm preparation', async () => {
+    seed();
+    const manualItem = { id: 'removal', name: 'Builder Gel Removal', quantity: 1, durationMinutes: 30, priceStatus: 'to_be_confirmed' as const };
+    const manualMaterial = { ...material, review: { ...material.review, manualConfirmationItems: [manualItem], durationMinutes: 80 } };
+    mocks.quote.mockResolvedValueOnce(manualMaterial);
+    mocks.verify.mockReturnValueOnce({ flowId, manualConfirmationContext: { currentProduct: 'builder_gel', itemIds: ['removal'] } });
+    mocks.prepare.mockImplementationOnce(args => Promise.resolve({ material: args.material, appointmentId: null }));
+
+    const response = await POST(request({ flowToken, expectedRevision: 0, booking, displayed: { ...displayed, durationMinutes: 80, manualConfirmationItems: [manualItem] } }), context());
+
+    expect(response.status).toBe(200);
+    expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({ material: expect.objectContaining({ manualConfirmationContext: { currentProduct: 'builder_gel', itemIds: ['removal'] } }) }));
   });
 
   it('accepts the same authoritative single-digit hour in canonical normal-booking format', async () => {

@@ -38,6 +38,7 @@ export type CustomerProposal = {
   fingerprint: string;
   service: { id: string; name: string; priceCents: number };
   addOns: { id: string; name: string; quantity: number; priceCents: number; unitPriceCents?: number }[];
+  manualConfirmationItems?: { id: string; name: string; quantity: number; durationMinutes: number; priceStatus: 'to_be_confirmed' }[];
   currency: string;
   subtotalCents: number;
   durationMinutes: number;
@@ -83,7 +84,7 @@ export const customerHandoffRequestSchema = z.object({
   locale: z.enum(['en', 'fr']).optional(),
   conversation: z.string().min(1).max(24_576),
   fingerprint: z.string().length(64),
-  flowToken: z.string().min(1).max(1_024).optional(),
+  flowToken: z.string().min(1).max(2_048).optional(),
   operationCapability: z.string().min(1).max(200).optional(),
 }).strict();
 

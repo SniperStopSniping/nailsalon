@@ -23,4 +23,13 @@ describe('normal confirm handoff', () => {
     expect(() => verifyNormalConfirmHandoff({ salonId: 'salon-a', flowToken: `${handoff.flowToken}x`, secret, now })).toThrow('NORMAL_CONFIRM_HANDOFF_INVALID');
     expect(() => verifyNormalConfirmHandoff({ salonId: 'salon-a', flowToken: handoff.flowToken, secret, now: new Date('2030-01-01T02:01:00.000Z') })).toThrow('NORMAL_CONFIRM_HANDOFF_EXPIRED');
   });
+  it('round-trips the largest bounded manual confirmation context', () => {
+    const manualConfirmationContext = { currentProduct: 'builder_gel' as const, itemIds: Array.from({ length: 20 }, (_, index) => `123e4567-e89b-12d3-a456-${String(index).padStart(12, '0')}`) };
+    const handoff = issueNormalConfirmHandoff({ salonId: 'salon-a', secret, now, manualConfirmationContext });
+
+    expect(handoff.flowToken.length).toBeLessThanOrEqual(2_048);
+    expect(verifyNormalConfirmHandoff({ salonId: 'salon-a', flowToken: handoff.flowToken, secret, now })).toMatchObject({ manualConfirmationContext });
+    expect(() => verifyNormalConfirmHandoff({ salonId: 'salon-b', flowToken: handoff.flowToken, secret, now })).toThrow('NORMAL_CONFIRM_HANDOFF_INVALID');
+  });
+
 });

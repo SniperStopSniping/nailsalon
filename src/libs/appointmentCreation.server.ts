@@ -1744,6 +1744,7 @@ export async function createAppointmentFromRequest(
       quantity: number;
       category: string;
       pricingType: string;
+      priceMode: 'catalog_priced' | 'manual_confirmation';
       unitPriceCents: number;
       unitDurationMinutes: number;
       lineTotalCents: number;
@@ -1784,6 +1785,7 @@ export async function createAppointmentFromRequest(
           quantity: addOn.quantity,
           category: addOn.category,
           pricingType: addOn.pricingType,
+          priceMode: addOn.priceMode,
           unitPriceCents: addOn.unitPriceCents,
           unitDurationMinutes: addOn.unitDurationMinutes,
           lineTotalCents: addOn.lineTotalCents,
@@ -3567,7 +3569,11 @@ export async function createAppointmentFromRequest(
         || selection.quote.blockedDurationMinutes !== preTransactionBlockedDurationMinutes
         || !isDeepStrictEqual(
           material.review.addOns.map(addOn => ({ id: addOn.id, name: addOn.name, quantity: addOn.quantity, priceCents: addOn.priceCents })),
-          selection.quote.addOns.map(addOn => ({ id: addOn.addOnId, name: addOn.name, quantity: addOn.quantity, priceCents: addOn.lineTotalCents })),
+          selection.quote.addOns.filter(addOn => addOn.priceMode === 'catalog_priced').map(addOn => ({ id: addOn.addOnId, name: addOn.name, quantity: addOn.quantity, priceCents: addOn.lineTotalCents })),
+        )
+        || !isDeepStrictEqual(
+          material.review.manualConfirmationItems ?? [],
+          selection.quote.manualConfirmationItems.map(item => ({ id: item.addOnId, name: item.name, quantity: item.quantity, durationMinutes: item.lineDurationMinutes, priceStatus: item.priceStatus })),
         )
         || material.review.timeZone !== lockedBookingConfig.timezone
         || material.review.financial.currency !== lockedBookingConfig.currency
@@ -3624,7 +3630,7 @@ export async function createAppointmentFromRequest(
         throw new CustomerBookingOperationError('slot_unavailable');
       }
       services = [selection.baseServiceRecord];
-      selectedAddOnsForBooking = selection.quote.addOns.map(addOn => ({ addOnId: addOn.addOnId, name: addOn.name, quantity: addOn.quantity, category: addOn.category, pricingType: addOn.pricingType, unitPriceCents: addOn.unitPriceCents, unitDurationMinutes: addOn.unitDurationMinutes, lineTotalCents: addOn.lineTotalCents, lineDurationMinutes: addOn.lineDurationMinutes }));
+      selectedAddOnsForBooking = selection.quote.addOns.map(addOn => ({ addOnId: addOn.addOnId, name: addOn.name, quantity: addOn.quantity, category: addOn.category, pricingType: addOn.pricingType, priceMode: addOn.priceMode, unitPriceCents: addOn.unitPriceCents, unitDurationMinutes: addOn.unitDurationMinutes, lineTotalCents: addOn.lineTotalCents, lineDurationMinutes: addOn.lineDurationMinutes }));
       basePriceCents = selection.quote.baseService.priceCents;
       addOnsPriceCents = selection.quote.addOns.reduce((sum, addOn) => sum + addOn.lineTotalCents, 0);
       baseDurationMinutes = selection.quote.baseDurationMinutes;
@@ -3941,6 +3947,7 @@ export async function createAppointmentFromRequest(
       id: string | null;
       name: string;
       quantity: number;
+      priceMode: 'catalog_priced' | 'manual_confirmation';
       lineTotalCents: number;
       lineDurationMinutes: number;
     }> = [];
@@ -4193,6 +4200,7 @@ export async function createAppointmentFromRequest(
                   nameSnapshot: addOn.name,
                   categorySnapshot: addOn.category,
                   pricingTypeSnapshot: addOn.pricingType,
+                  priceModeSnapshot: addOn.priceMode,
                   unitPriceCentsSnapshot: addOn.unitPriceCents,
                   durationMinutesSnapshot: addOn.unitDurationMinutes,
                   lineTotalCentsSnapshot: addOn.lineTotalCents,
@@ -4203,6 +4211,7 @@ export async function createAppointmentFromRequest(
                 id: addOn.addOnId,
                 name: addOn.name,
                 quantity: addOn.quantity,
+                priceMode: addOn.priceMode,
                 lineTotalCents: addOn.lineTotalCents,
                 lineDurationMinutes: addOn.lineDurationMinutes,
               });
@@ -4718,6 +4727,7 @@ export async function createAppointmentFromRequest(
                 nameSnapshot: addOn.name,
                 categorySnapshot: addOn.category,
                 pricingTypeSnapshot: addOn.pricingType,
+                priceModeSnapshot: addOn.priceMode,
                 unitPriceCentsSnapshot: addOn.unitPriceCents,
                 durationMinutesSnapshot: addOn.unitDurationMinutes,
                 lineTotalCentsSnapshot: addOn.lineTotalCents,
@@ -4728,6 +4738,7 @@ export async function createAppointmentFromRequest(
                 id: addOn.addOnId,
                 name: addOn.name,
                 quantity: addOn.quantity,
+                priceMode: addOn.priceMode,
                 lineTotalCents: addOn.lineTotalCents,
                 lineDurationMinutes: addOn.lineDurationMinutes,
               });

@@ -42,7 +42,7 @@ export async function assessReadyCustomerProposal(args: {
     return { proposal: null };
   }
   const proposal = await buildCustomerProposal(args.salonId, args.features, selection);
-  const quotedSelection = { baseServiceId: proposal.service.id, selectedAddOns: proposal.addOns.map(item => ({ addOnId: item.id, quantity: item.quantity })) };
+  const quotedSelection = { baseServiceId: proposal.service.id, selectedAddOns: [...proposal.addOns, ...(proposal.manualConfirmationItems ?? [])].map(item => ({ addOnId: item.id, quantity: item.quantity })) };
   if (selectionConflictsWithExplicitFacts(menu, facts, quotedSelection)) {
     return { proposal: null };
   }

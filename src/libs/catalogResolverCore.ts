@@ -472,6 +472,7 @@ function buildBindingsForService(
       addOnId: row.addOnId,
       displayOrder: index,
       selectionMode: row.selectionMode,
+      priceMode: row.priceMode,
       defaultQuantity: row.defaultQuantity ?? null,
       effectiveMaxQuantity,
     };
@@ -803,6 +804,7 @@ export function buildCatalogResolutionFingerprintInput(
       lineTotalCents: line.lineTotalCents,
       unitDurationMinutes: line.unitDurationMinutes,
       lineDurationMinutes: line.lineDurationMinutes,
+      priceMode: line.priceMode,
     }));
 
   // `reasonCode` only, read off each `add_on_auto_added` explanation — never
@@ -1065,6 +1067,7 @@ export function resolveCatalogSelection(
       lineTotalCents: addOn.priceCents * requestedQuantity,
       unitDurationMinutes: addOn.durationMinutes,
       lineDurationMinutes: addOn.durationMinutes * requestedQuantity,
+      priceMode: bindingByAddOnId.get(addOnId)?.priceMode ?? 'catalog_priced',
       autoAdded: isAutoAdded,
     });
   }
@@ -1185,7 +1188,12 @@ export function resolveCatalogSelection(
     }
   }
 
-  const subtotalCents = service.priceCents + lines.reduce((sum, line) => sum + line.lineTotalCents, 0);
+  // A manual-confirmation binding remains supported and scheduled, but its
+  // stored add-on amount is not a quote for this service.
+  const subtotalCents = service.priceCents + lines.reduce(
+    (sum, line) => sum + (line.priceMode === 'catalog_priced' ? line.lineTotalCents : 0),
+    0,
+  );
   const totalDurationMinutes = service.durationMinutes + lines.reduce((sum, line) => sum + line.lineDurationMinutes, 0);
 
   const resolved: ResolvedCatalogSelection = {

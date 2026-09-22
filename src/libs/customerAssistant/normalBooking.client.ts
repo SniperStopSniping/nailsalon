@@ -157,6 +157,7 @@ export async function confirmNormalHandoffBooking(args: {
   const prepared = await post<{ operation: CustomerBookingOperationReference } | { status: CustomerBookingStatus }>(args.salonId, 'prepare', {
     flowToken: flow.flowToken,
     expectedRevision: existing?.operation.revision ?? 0,
+    ...(existing?.operation.capability ? { sourceCapability: existing.operation.capability } : {}),
     booking: args.booking,
     displayed: args.displayed,
   });

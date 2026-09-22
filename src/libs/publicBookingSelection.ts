@@ -10,7 +10,7 @@ import {
   FIRST_VISIT_DISCOUNT_PERCENT,
   resolveAutomaticBookingDiscount,
 } from '@/libs/firstVisitDiscount';
-import { type AddOnCategory, type AddOnPricingType, type Service, type ServiceCategory, serviceSchema } from '@/models/Schema';
+import { type AddOnCategory, type AddOnPricingType, type Service, type ServiceAddOnPriceMode, type ServiceCategory, serviceSchema } from '@/models/Schema';
 
 export type PublicBookingServiceSummary = {
   id: string;
@@ -38,7 +38,17 @@ export type PublicBookingAddOnSummary = {
   lineTotalCents: number;
   unitDurationMinutes: number;
   lineDurationMinutes: number;
+  /** Binding-level price authority, preserved through appointment creation. */
+  priceMode: ServiceAddOnPriceMode;
   priceDisplayText: string | null;
+};
+
+export type PublicBookingManualConfirmationItem = {
+  addOnId: string;
+  name: string;
+  quantity: number;
+  lineDurationMinutes: number;
+  priceStatus: 'to_be_confirmed';
 };
 
 export type ResolvedPublicBookingSelection = {
@@ -52,6 +62,7 @@ export type ResolvedPublicBookingSelection = {
   requestedServices: Service[];
   services: PublicBookingServiceSummary[];
   addOns: PublicBookingAddOnSummary[];
+  manualConfirmationItems: PublicBookingManualConfirmationItem[];
   subtotalBeforeDiscountCents: number;
   discountAmountCents: number;
   totalPriceCents: number;
@@ -165,9 +176,17 @@ export async function resolvePublicBookingSelection(args: {
           lineTotalCents: quoteAddOn.lineTotalCents,
           unitDurationMinutes: quoteAddOn.unitDurationMinutes,
           lineDurationMinutes: quoteAddOn.lineDurationMinutes,
+          priceMode: quoteAddOn.priceMode,
           priceDisplayText: addOnRecord.priceDisplayText ?? null,
         };
       }),
+      manualConfirmationItems: validated.quote.manualConfirmationItems.map(item => ({
+        addOnId: item.addOnId,
+        name: item.name,
+        quantity: item.quantity,
+        lineDurationMinutes: item.lineDurationMinutes,
+        priceStatus: item.priceStatus,
+      })),
       subtotalBeforeDiscountCents: pricing.subtotalBeforeDiscountCents,
       discountAmountCents: pricing.discountAmountCents,
       totalPriceCents: pricing.finalTotalCents,
@@ -227,6 +246,7 @@ export async function resolvePublicBookingSelection(args: {
       }),
     })),
     addOns: [],
+    manualConfirmationItems: [],
     subtotalBeforeDiscountCents: pricing.subtotalBeforeDiscountCents,
     discountAmountCents: pricing.discountAmountCents,
     totalPriceCents: pricing.finalTotalCents,

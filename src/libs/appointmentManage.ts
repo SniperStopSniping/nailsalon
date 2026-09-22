@@ -221,6 +221,7 @@ export type AppointmentManageDetail = {
     category: AddOnCategory;
     quantity: number;
     lineTotalCents: number;
+    priceMode?: 'catalog_priced' | 'manual_confirmation';
     lineDurationMinutes: number;
   }>;
   serviceOptions: Array<{
@@ -1304,6 +1305,7 @@ export async function getAppointmentManageDetail(args: {
       category: addOn.categorySnapshot as AddOnCategory,
       quantity: addOn.quantitySnapshot,
       lineTotalCents: addOn.lineTotalCentsSnapshot,
+      priceMode: addOn.priceModeSnapshot,
       lineDurationMinutes: addOn.lineDurationMinutesSnapshot,
     })),
     serviceOptions: loaded.activeServices
@@ -1674,6 +1676,7 @@ async function applyChangeService(
           nameSnapshot: addOn.nameSnapshot,
           categorySnapshot: addOn.categorySnapshot,
           pricingTypeSnapshot: addOn.pricingTypeSnapshot,
+          priceModeSnapshot: addOn.priceModeSnapshot,
           unitPriceCentsSnapshot: addOn.unitPriceCentsSnapshot,
           durationMinutesSnapshot: addOn.durationMinutesSnapshot,
           lineTotalCentsSnapshot: addOn.lineTotalCentsSnapshot,

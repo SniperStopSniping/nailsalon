@@ -63,6 +63,28 @@ describe('explicit customer booking adapter', () => {
     expect(body).not.toHaveProperty('bookingSubject');
   });
 
+  it('writes only bounded server-owned manual-confirmation context into appointment notes', async () => {
+    const manualOperation = {
+      ...operation,
+      material: {
+        ...material,
+        manualConfirmationContext: { currentProduct: 'builder_gel', itemIds: ['removal'] },
+        review: {
+          ...material.review,
+          manualConfirmationItems: [{ id: 'removal', name: 'Builder Gel Removal', quantity: 1, durationMinutes: 30, priceStatus: 'to_be_confirmed' }],
+        },
+      },
+    };
+    mocks.read.mockResolvedValueOnce(manualOperation).mockResolvedValueOnce({ ...manualOperation, appointmentId: 'one' });
+
+    await confirmCustomerBooking(input());
+    const [request] = mocks.create.mock.calls[0]!;
+    const body = await request.json();
+
+    expect(body.notes).toBe('Manual confirmation required:\n- Builder Gel Removal: price to be confirmed\nCurrent product: BIAB / Builder Gel');
+    expect(body.notes).not.toContain('synthetic@example.test');
+  });
+
   it('forwards only the server-stored next-visit reference through access, never through public JSON', async () => {
     const withOffer = { ...operation, material: { ...material, nextVisitOffer: { campaignId: 'campaign', entitlementId: 'offer' } } };
     mocks.read.mockResolvedValueOnce(withOffer).mockResolvedValueOnce({ ...withOffer, appointmentId: 'one' });

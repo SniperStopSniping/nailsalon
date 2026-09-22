@@ -11,6 +11,7 @@ import type { AddOnResponse } from '@/types/admin';
 export function buildAddOnPayload(
   addOn: AddOn,
   compatibleServiceIds: string[] = [],
+  manualConfirmationServiceIds: string[] = [],
 ): AddOnResponse {
   return {
     id: addOn.id,
@@ -28,8 +29,28 @@ export function buildAddOnPayload(
     isActive: addOn.isActive,
     templateKey: addOn.templateKey ?? null,
     compatibleServiceIds,
+    manualConfirmationServiceIds,
     groupId: addOn.groupId ?? null,
   };
+}
+
+/** addOnId → compatible service ids that require a technician price confirmation. */
+export function groupManualConfirmationServiceIds(
+  rules: Array<{ addOnId: string; serviceId: string; priceMode: 'catalog_priced' | 'manual_confirmation' }>,
+): Map<string, string[]> {
+  const byAddOn = new Map<string, string[]>();
+  for (const rule of rules) {
+    if (rule.priceMode !== 'manual_confirmation') {
+      continue;
+    }
+    const existing = byAddOn.get(rule.addOnId);
+    if (existing) {
+      existing.push(rule.serviceId);
+    } else {
+      byAddOn.set(rule.addOnId, [rule.serviceId]);
+    }
+  }
+  return byAddOn;
 }
 
 /** addOnId → serviceIds, from a salon's full service_add_on rule set. */

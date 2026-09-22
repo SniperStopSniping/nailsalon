@@ -50,6 +50,7 @@ export type AddOnSummary = {
   quantity: number;
   price: number;
   duration: number;
+  priceMode?: 'catalog_priced' | 'manual_confirmation';
 };
 
 type BookTimeClientProps = {
@@ -1052,6 +1053,7 @@ export function BookTimeClient({
           serviceNames={serviceNames}
           totalDuration={totalDuration}
           totalPrice={totalPrice}
+          hasManualConfirmationItems={addOns.some(addOn => addOn.priceMode === 'manual_confirmation')}
           locationName={locationName}
           technician={technician}
         />

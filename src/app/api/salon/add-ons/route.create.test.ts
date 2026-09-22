@@ -151,6 +151,22 @@ describe('POST /api/salon/add-ons', () => {
     expect(links).toHaveLength(1);
   });
 
+  it('allows manual confirmation only on a selected compatible service', async () => {
+    const response = await POST(postRequest({ ...VALID_BODY, serviceIds: [SERVICE_A], manualConfirmationServiceIds: [SERVICE_A] }));
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data.addOn.manualConfirmationServiceIds).toEqual([SERVICE_A]);
+    const [link] = await db.select().from(schema.serviceAddOnSchema).where(eq(schema.serviceAddOnSchema.addOnId, body.data.addOn.id));
+    expect(link?.priceMode).toBe('manual_confirmation');
+  });
+
+  it('rejects a manual confirmation service that is not compatible', async () => {
+    const response = await POST(postRequest({ ...VALID_BODY, serviceIds: [SERVICE_A], manualConfirmationServiceIds: [FOREIGN_SERVICE] }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe('INVALID_SERVICE_SELECTION');
+  });
+
   it('rejects a compatible service from another salon and creates no add-on at all (atomic)', async () => {
     const response = await POST(postRequest({ ...VALID_BODY, serviceIds: [SERVICE_A, FOREIGN_SERVICE] }));
     const body = await response.json();

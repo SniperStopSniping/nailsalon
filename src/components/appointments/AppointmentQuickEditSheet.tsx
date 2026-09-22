@@ -630,7 +630,7 @@ export function AppointmentQuickEditSheet({
                                         </div>
                                         {financialCurrency && (
                                           <div className="shrink-0 text-sm font-medium text-neutral-900">
-                                            {formatMoney(addOn.lineTotalCents, financialCurrency)}
+                                            {addOn.priceMode === 'manual_confirmation' ? 'Price to be confirmed' : formatMoney(addOn.lineTotalCents, financialCurrency)}
                                           </div>
                                         )}
                                       </div>

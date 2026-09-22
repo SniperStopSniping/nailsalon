@@ -107,6 +107,7 @@ function makeBinding(overrides: Partial<ServiceAddOn> = {}): ServiceAddOn {
     serviceId: 'svc_default',
     addOnId: 'addon_default',
     selectionMode: 'optional',
+    priceMode: 'catalog_priced',
     conditions: null,
     defaultQuantity: null,
     maxQuantityOverride: null,
@@ -1234,6 +1235,34 @@ describe('money and duration arithmetic', () => {
     expect(line.lineDurationMinutes).toBe(21);
     expect(resolution.selection.subtotalCents).toBe(4900);
     expect(resolution.selection.totalDurationMinutes).toBe(61);
+  });
+
+  it('keeps a manual-confirmation add-on in scheduling while excluding its unquoted price', () => {
+    const snapshot = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc1', price: 4000, durationMinutes: 40 })],
+      addOns: [makeAddOn({ id: 'removal', priceCents: 2500, durationMinutes: 25 })],
+      serviceAddOnBindings: [makeBinding({
+        id: 'sao-removal',
+        serviceId: 'svc1',
+        addOnId: 'removal',
+        priceMode: 'manual_confirmation',
+      })],
+    }));
+    expectOk(snapshot);
+
+    const resolution = resolveCatalogSelection(snapshot.snapshot, {
+      serviceId: 'svc1',
+      selectedAddOns: [{ addOnId: 'removal', quantity: 1 }],
+    });
+    expectOk(resolution);
+
+    expect(resolution.selection.addOns[0]).toMatchObject({
+      addOnId: 'removal',
+      priceMode: 'manual_confirmation',
+      lineDurationMinutes: 25,
+    });
+    expect(resolution.selection.subtotalCents).toBe(4000);
+    expect(resolution.selection.totalDurationMinutes).toBe(65);
   });
 });
 

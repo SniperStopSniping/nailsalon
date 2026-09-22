@@ -258,6 +258,7 @@ export default async function BookTechPage(
             quantity: addOn.quantity,
             price: addOn.lineTotalCents / 100,
             duration: addOn.lineDurationMinutes,
+            priceMode: addOn.priceMode,
           }))}
           totalPrice={resolvedTechnicianContext.resolvedSelection.totalPriceCents / 100}
           totalDuration={resolvedTechnicianContext.resolvedSelection.visibleDurationMinutes}

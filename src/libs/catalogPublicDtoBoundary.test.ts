@@ -186,7 +186,7 @@ const ALLOWED_KEYS = {
     'baseMaxQuantity',
     'groupId',
   ],
-  binding: ['serviceId', 'addOnId', 'displayOrder', 'selectionMode', 'defaultQuantity', 'effectiveMaxQuantity'],
+  binding: ['serviceId', 'addOnId', 'displayOrder', 'selectionMode', 'priceMode', 'defaultQuantity', 'effectiveMaxQuantity'],
   ruleProjection: ['projectionKey', 'effect', 'trigger', 'serviceScopeId', 'targetAddOnId', 'maxQuantity', 'reasonCode', 'reasonText', 'presentation'],
   trigger: ['subjectKind', 'subjectId'],
 } as const;

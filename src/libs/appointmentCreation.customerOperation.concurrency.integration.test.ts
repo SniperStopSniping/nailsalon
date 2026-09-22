@@ -282,6 +282,7 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     await database.update(schema.salonSchema).set({ settings: SETTINGS, features: null }).where(eq(schema.salonSchema.id, SALON));
     await database.update(schema.serviceSchema).set({ price: 6500, durationMinutes: 60 }).where(eq(schema.serviceSchema.id, SERVICE));
     await database.update(schema.addOnSchema).set({ priceCents: 500, durationMinutes: 10 }).where(eq(schema.addOnSchema.id, ADDON));
+    await database.update(schema.serviceAddOnSchema).set({ priceMode: 'catalog_priced' }).where(eq(schema.serviceAddOnSchema.id, 'synthetic-creator-addon-binding'));
     await database.delete(schema.salonStripeAccountSchema).where(eq(schema.salonStripeAccountSchema.salonId, SALON));
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('External requests forbidden in synthetic booking verification'));
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -304,7 +305,7 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
   afterAll(async () => {
     await pool?.end();
 
-    expect(executed).toBe(34);
+    expect(executed).toBe(35);
 
     process.stdout.write(`CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=${executed} CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0\n`);
   });
@@ -679,6 +680,24 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
 
     expect(appointment).toMatchObject({ totalPrice: 7500, totalDurationMinutes: 80 });
     expect(await database.select().from(schema.appointmentAddOnSchema).where(eq(schema.appointmentAddOnSchema.appointmentId, appointment!.id))).toEqual([expect.objectContaining({ quantitySnapshot: 2, lineTotalCentsSnapshot: 1000, lineDurationMinutesSnapshot: 20 })]);
+  });
+
+  it('commits a salon-authorized manual-price add-on with duration but without inventing a charge', async () => {
+    await database.update(schema.serviceAddOnSchema).set({ priceMode: 'manual_confirmation' }).where(eq(schema.serviceAddOnSchema.id, 'synthetic-creator-addon-binding'));
+    const value = material();
+    value.selection.selectedAddOns = [{ addOnId: ADDON, quantity: 1 }];
+    value.review.manualConfirmationItems = [{ id: ADDON, name: 'Synthetic Art', quantity: 1, durationMinutes: 10, priceStatus: 'to_be_confirmed' }];
+    value.review.durationMinutes = 70;
+
+    const response = await create(await prepare(contact(), value));
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+
+    const [appointment] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+    const [addOn] = await database.select().from(schema.appointmentAddOnSchema).where(eq(schema.appointmentAddOnSchema.appointmentId, appointment!.id));
+
+    expect(appointment).toMatchObject({ totalPrice: 6500, totalDurationMinutes: 70 });
+    expect(addOn).toMatchObject({ addOnId: ADDON, priceModeSnapshot: 'manual_confirmation', lineTotalCentsSnapshot: 0, lineDurationMinutesSnapshot: 10 });
   });
 
   it('uses the existing same-salon client without creating a duplicate identity', async () => {

@@ -101,6 +101,24 @@ describe('public customer catalogue authority', () => {
     expect(changed.fingerprint).not.toEqual(first.fingerprint);
   });
 
+  it('separates a salon-authorized manual item from the priced subtotal while retaining its duration', async () => {
+    const selection = { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'builder-removal', quantity: 1 }] };
+    mocks.addOns.mockResolvedValue([{ id: 'builder-removal', name: 'Builder Gel Removal', category: 'removal', pricingType: 'fixed', isActive: true }]);
+    mocks.rules.mockResolvedValue([{ serviceId: 'gelx', addOnId: 'builder-removal', selectionMode: 'optional', priceMode: 'manual_confirmation' }]);
+    mocks.validate.mockResolvedValue({ quote: {
+      baseService: { id: 'gelx', name: 'Gel Manicure', priceCents: 4000 },
+      addOns: [{ addOnId: 'builder-removal', name: 'Builder Gel Removal', quantity: 1, unitPriceCents: 0, lineTotalCents: 0, unitDurationMinutes: 30, lineDurationMinutes: 30, priceMode: 'manual_confirmation' }],
+      manualConfirmationItems: [{ addOnId: 'builder-removal', name: 'Builder Gel Removal', category: 'removal', quantity: 1, unitDurationMinutes: 30, lineDurationMinutes: 30, priceStatus: 'to_be_confirmed' }],
+      subtotalCents: 4000,
+      visibleDurationMinutes: 90,
+    } });
+
+    const proposal = await buildCustomerProposal('salon-a', null, selection);
+
+    expect(proposal).toMatchObject({ subtotalCents: 4000, durationMinutes: 90, addOns: [] });
+    expect(proposal.manualConfirmationItems).toEqual([{ id: 'builder-removal', name: 'Builder Gel Removal', quantity: 1, durationMinutes: 30, priceStatus: 'to_be_confirmed' }]);
+  });
+
   it('excludes inactive and unassigned services with their orphan options', async () => {
     mocks.bookable.mockResolvedValue(new Set());
     const menu = await loadCustomerMenu('salon-a', null);

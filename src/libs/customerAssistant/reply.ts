@@ -107,6 +107,9 @@ export function buildReplyFacts(args: ReplyInput): Record<string, string> {
   const { publicFacts, result, locale } = args;
   const fr = locale === 'fr';
   const facts: Record<string, string> = {};
+  const selectedProposal = 'proposal' in result ? result.proposal : args.currentProposal;
+  const manualConfirmationIds = new Set(selectedProposal?.manualConfirmationItems?.map(item => item.id) ?? []);
+  const selectedServiceId = selectedProposal?.service.id ?? args.nextState.requestedSelection?.baseServiceId ?? null;
   for (const [i, service] of publicFacts.catalogue.services.entries()) {
     const price = service.price.range?.display ?? service.price.displayLabel ?? service.price.baseDisplay;
     facts[`service_${i}_price`] = fr ? `${service.name} chez ${publicFacts.salon.name} : ${price} (${publicFacts.catalogue.currency}), avant les options.` : `${service.name} at ${publicFacts.salon.name}: ${price} (${publicFacts.catalogue.currency}), before any additional options.`;
@@ -117,6 +120,13 @@ export function buildReplyFacts(args: ReplyInput): Record<string, string> {
   }
   for (const [i, addOn] of publicFacts.catalogue.addOns.entries()) {
     if (!args.menu.addOns.some(item => item.id === addOn.id)) {
+      continue;
+    }
+    const bindings = args.menu.bindings.filter(binding => binding.addOnId === addOn.id && (!selectedServiceId || binding.serviceId === selectedServiceId));
+    if (manualConfirmationIds.has(addOn.id) || bindings.some(binding => binding.priceMode === 'manual_confirmation')) {
+      facts[`addon_${i}`] = fr
+        ? `${addOn.name} est pris en charge avec ce service; le prix doit être confirmé par la prothésiste et la durée configurée est de ${addOn.durationMinutes} minutes.`
+        : `${addOn.name} is supported with this service; the nail tech must confirm its price and its configured duration is ${addOn.durationMinutes} minutes.`;
       continue;
     }
     facts[`addon_${i}`] = `${addOn.name}: ${addOn.price.baseDisplay} (${publicFacts.catalogue.currency}), ${addOn.durationMinutes} min${addOn.pricingType === 'per_unit' ? (fr ? ' par unité' : ' per unit') : ''}.`;
@@ -155,13 +165,18 @@ export function buildReplyFacts(args: ReplyInput): Record<string, string> {
   salon.policies?.forEach((policy, i) => {
     facts[`salon_policy_${i}`] = `${policy.label}: ${policy.text}`;
   });
-  const proposal = 'proposal' in result ? result.proposal : args.currentProposal;
+  const proposal = selectedProposal;
   if (proposal && result.kind !== 'proposal') {
-    const selection = [proposal.service.name, ...proposal.addOns.map(item => `${item.name}${item.quantity > 1 ? ` × ${item.quantity}` : ''}`)].join(', ');
+    const selection = [proposal.service.name, ...proposal.addOns.map(item => `${item.name}${item.quantity > 1 ? ` × ${item.quantity}` : ''}`), ...(proposal.manualConfirmationItems ?? []).map(item => `${item.name}${item.quantity > 1 ? ` × ${item.quantity}` : ''}`)].join(', ');
     facts.selection = fr
-      ? `${selection} : sous-total ${money(proposal.subtotalCents, proposal.currency, locale)}, ${proposal.durationMinutes} minutes, avant taxes et rabais conditionnels.`
-      : `${selection}: ${money(proposal.subtotalCents, proposal.currency, locale)} subtotal and ${proposal.durationMinutes} minutes, before tax and conditional discounts.`;
+      ? `${selection} : sous-total ${money(proposal.subtotalCents, proposal.currency, locale)}, ${proposal.durationMinutes} minutes, avant taxes et rabais conditionnels.${proposal.manualConfirmationItems?.length ? ' La prothésiste confirmera le prix de l’ajout; il n’est pas inclus dans ce sous-total.' : ''}`
+      : `${selection}: ${money(proposal.subtotalCents, proposal.currency, locale)} subtotal and ${proposal.durationMinutes} minutes, before tax and conditional discounts.${proposal.manualConfirmationItems?.length ? ' The nail tech will confirm the price of the additional item; it is not included in this subtotal.' : ''}`;
   }
+  proposal?.manualConfirmationItems?.forEach((item, index) => {
+    facts[`manual_confirmation_${index}`] = fr
+      ? `${item.name} est pris en charge par le salon et inclus dans la durée réservée; le prix sera confirmé par la prothésiste et n’est pas inclus dans le sous-total actuel.`
+      : `${item.name} is supported by the salon and included in the scheduled duration; the nail tech will confirm its price, which is not included in the current subtotal.`;
+  });
   if (args.quoteIsDraft && facts.selection) {
     facts.selection = fr
       ? `Choix actuels : ${facts.selection} Le choix d’une décoration peut modifier ce total.`
@@ -230,6 +245,7 @@ export function buildReplyInput(args: ReplyInput): { data: string; facts: Record
     ...(args.result.kind === 'slots' ? ['availability'] : []),
     ...(args.result.kind === 'clarification' && args.result.availabilitySearch ? ['availability_summary'] : []),
     ...(asksAboutSelection && !(args.result.kind === 'answer' && args.result.alternatives?.length) ? ['selection'] : []),
+    ...Object.keys(facts).filter(key => key.startsWith('manual_confirmation_')),
     ...(args.result.kind === 'answer' ? (args.result.alternatives ?? []).map((_, index) => `alternative_${index}`) : []),
   ].filter(key => Boolean(facts[key]));
   return { facts, requiredFactKeys, data: JSON.stringify({

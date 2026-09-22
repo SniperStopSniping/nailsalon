@@ -101,6 +101,7 @@ export async function runCustomerHandoff(args: {
     secret: config.signingSecret,
     flowId,
     now: args.now,
+    ...(proposal.manualConfirmationItems?.length ? { manualConfirmationContext: { currentProduct: state.facts?.existingProduct && ['gel_x', 'builder_gel', 'acrylic', 'gel_polish'].includes(state.facts.existingProduct) ? state.facts.existingProduct as 'gel_x' | 'builder_gel' | 'acrylic' | 'gel_polish' : 'unknown' as const, itemIds: proposal.manualConfirmationItems.map(item => item.id) } } : {}),
   });
   return {
     conversation: args.conversation,

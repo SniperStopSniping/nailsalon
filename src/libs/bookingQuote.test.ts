@@ -80,6 +80,32 @@ describe('bookingQuote helpers', () => {
     expect(quote.blockedDurationMinutes).toBe(105);
   });
 
+  it('keeps a manual-confirmation item structured and out of the priced subtotal', () => {
+    const quote = buildBookingQuote({
+      baseService: {
+        id: 'svc_gel', salonId: 'salon_1', name: 'Gel Manicure', slug: 'gel', category: 'manicure',
+        descriptionItems: null, priceCents: 4500, priceDisplayText: null, durationMinutes: 45,
+        isIntroPrice: false, introPriceLabel: null, introPriceExpiresAt: null, isActive: true,
+      },
+      addOns: [{
+        id: 'addon_biab_removal', salonId: 'salon_1', name: 'BIAB Removal', slug: 'biab-removal',
+        category: 'removal', descriptionItems: null, priceCents: 2500, priceDisplayText: null,
+        durationMinutes: 25, pricingType: 'fixed', unitLabel: null, maxQuantity: null, isActive: true,
+        quantity: 1, priceMode: 'manual_confirmation',
+      }],
+      bufferMinutes: 10,
+      resolvedIntroPriceLabel: null,
+    });
+
+    expect(quote.subtotalCents).toBe(4500);
+    expect(quote.visibleDurationMinutes).toBe(70);
+    expect(quote.blockedDurationMinutes).toBe(80);
+    expect(quote.manualConfirmationItems).toEqual([{
+      addOnId: 'addon_biab_removal', name: 'BIAB Removal', category: 'removal', quantity: 1,
+      unitDurationMinutes: 25, lineDurationMinutes: 25, priceStatus: 'to_be_confirmed',
+    }]);
+  });
+
   it('computes blocked end time from the blocked duration', () => {
     expect(getBlockedEndTimeWithBuffer(
       new Date('2026-03-27T10:00:00.000Z'),

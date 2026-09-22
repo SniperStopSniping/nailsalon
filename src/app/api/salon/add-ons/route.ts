@@ -2,7 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
-import { buildAddOnPayload, groupCompatibleServiceIds } from '@/libs/addOnPayload';
+import { buildAddOnPayload, groupCompatibleServiceIds, groupManualConfirmationServiceIds } from '@/libs/addOnPayload';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { normalizeDescriptionItems } from '@/libs/bookingCatalog';
 import { db } from '@/libs/DB';
@@ -51,6 +51,8 @@ const createAddOnSchema = z.object({
   groupId: z.string().min(1).nullable().optional(),
   /** Base services this add-on is offered under, bound at creation time. */
   serviceIds: z.array(z.string().min(1)).max(200).optional(),
+  /** A strict subset of serviceIds; these bindings remain bookable but unquoted. */
+  manualConfirmationServiceIds: z.array(z.string().min(1)).max(200).optional(),
 });
 
 function uniqueSlugFromName(name: string): string {
@@ -96,11 +98,12 @@ export async function GET(request: Request): Promise<Response> {
       getServiceAddOnRulesBySalonId(salon.id),
     ]);
     const serviceIdsByAddOn = groupCompatibleServiceIds(rules);
+    const manualServiceIdsByAddOn = groupManualConfirmationServiceIds(rules);
 
     return Response.json({
       data: {
         addOns: addOns.map(addOn =>
-          buildAddOnPayload(addOn, serviceIdsByAddOn.get(addOn.id) ?? []),
+          buildAddOnPayload(addOn, serviceIdsByAddOn.get(addOn.id) ?? [], manualServiceIdsByAddOn.get(addOn.id) ?? []),
         ),
       },
     });
@@ -135,7 +138,7 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const { salonSlug, serviceIds, ...data } = validated.data;
+  const { salonSlug, serviceIds, manualConfirmationServiceIds, ...data } = validated.data;
   const { error, salon } = await requireAdminSalon(salonSlug);
   if (error || !salon) {
     return error!;
@@ -177,6 +180,15 @@ export async function POST(request: Request): Promise<Response> {
 
       let linkedServiceIds: string[] = [];
       const requestedIds = [...new Set(serviceIds ?? [])];
+      const manualIds = [...new Set(manualConfirmationServiceIds ?? [])];
+      if (manualIds.some(id => !requestedIds.includes(id))) {
+        throw new OwnerCatalogConfigError({
+          code: 'INVALID_SERVICE_SELECTION',
+          message: 'Price confirmation can only be set for a compatible service.',
+          anchor: { kind: 'relationship' },
+          status: 400,
+        });
+      }
       if (requestedIds.length > 0) {
         const ownedServices = await tx
           .select({ id: serviceSchema.id })
@@ -201,13 +213,14 @@ export async function POST(request: Request): Promise<Response> {
             serviceId,
             addOnId,
             selectionMode: 'optional' as const,
+            priceMode: manualIds.includes(serviceId) ? 'manual_confirmation' as const : 'catalog_priced' as const,
             displayOrder: index,
           })))
           .onConflictDoNothing();
         linkedServiceIds = ownedIds;
       }
 
-      return { addOn: created, linkedServiceIds };
+      return { addOn: created, linkedServiceIds, manualServiceIds: manualIds };
     });
 
     if (!result?.addOn) {
@@ -218,7 +231,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     return Response.json(
-      { data: { addOn: buildAddOnPayload(result.addOn, result.linkedServiceIds) } },
+      { data: { addOn: buildAddOnPayload(result.addOn, result.linkedServiceIds, result.manualServiceIds) } },
       { status: 201 },
     );
   } catch (createError) {

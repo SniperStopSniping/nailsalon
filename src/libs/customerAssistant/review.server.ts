@@ -140,7 +140,7 @@ export async function prepareCustomerAssistantReview(args: {
   }
 
   try {
-    const material = await prepareCustomerBookingQuote({
+    const preparedMaterial = await prepareCustomerBookingQuote({
       salon: args.salon,
       features: args.features,
       selection,
@@ -150,6 +150,17 @@ export async function prepareCustomerAssistantReview(args: {
       smsConsent: args.smsConsent,
       now: args.now,
     });
+    const manualItems = preparedMaterial?.review.manualConfirmationItems ?? [];
+    const currentProduct = prior.facts?.existingProduct;
+    const material = preparedMaterial && manualItems.length > 0
+      ? {
+          ...preparedMaterial,
+          manualConfirmationContext: {
+            currentProduct: currentProduct && ['gel_x', 'builder_gel', 'acrylic', 'gel_polish'].includes(currentProduct) ? currentProduct as 'gel_x' | 'builder_gel' | 'acrylic' | 'gel_polish' : 'unknown' as const,
+            itemIds: manualItems.map(item => item.id),
+          },
+        }
+      : preparedMaterial;
     if (!material || material.review.timeZone !== fresh.timeZone || material.review.financial.currency !== fresh.proposal.currency) {
       return sign({ kind: 'unavailable', reason: 'selection_changed' });
     }

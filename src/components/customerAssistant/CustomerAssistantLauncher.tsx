@@ -334,6 +334,22 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
             </dd>
           </div>
         )}
+        {(proposal.manualConfirmationItems?.length ?? 0) > 0 && (
+          <div className="flex min-w-0 items-start justify-between gap-[8px]">
+            <dt className="min-w-0 shrink">{locale === 'fr' ? 'À confirmer' : 'Additional item'}</dt>
+            <dd className="min-w-0 max-w-[62%] space-y-1 break-words text-right font-medium text-neutral-950">
+              {proposal.manualConfirmationItems?.map(item => (
+                <div key={item.id}>
+                  {item.quantity > 1 ? `${item.quantity} × ` : ''}
+                  {item.name}
+                  <span className="block text-xs font-normal text-amber-700">
+                    {locale === 'fr' ? 'Prix à confirmer par la prothésiste' : 'Price to be confirmed by the nail tech'}
+                  </span>
+                </div>
+              ))}
+            </dd>
+          </div>
+        )}
         {configuration.length > 0 && (
           <div className="flex min-w-0 items-start justify-between gap-[8px]">
             <dt className="min-w-0 shrink">{copy.configuration}</dt>
@@ -351,7 +367,11 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
             <dt className="min-w-0 shrink break-words">{copy.subtotal}</dt>
             <dd className="shrink-0 whitespace-nowrap">{formatMoney(proposal.subtotalCents, proposal.currency, locale === 'fr' ? 'fr-CA' : 'en-CA')}</dd>
           </div>
-          <p className="mt-[4px] text-xs text-neutral-500">{copy.subtotalNote}</p>
+          <p className="mt-[4px] text-xs text-neutral-500">
+            {(proposal.manualConfirmationItems?.length ?? 0) > 0
+              ? (locale === 'fr' ? 'Sous-total actuel seulement. Les articles à confirmer ne sont pas inclus.' : 'Current booking subtotal only. Items requiring confirmation are not included.')
+              : copy.subtotalNote}
+          </p>
         </div>
       </dl>
     </section>

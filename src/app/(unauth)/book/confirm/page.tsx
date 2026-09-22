@@ -468,6 +468,7 @@ export default async function BookConfirmPage(
             quantity: addOn.quantity,
             price: addOn.lineTotalCents / 100,
             duration: addOn.lineDurationMinutes,
+            priceMode: addOn.priceMode,
           }))}
           baseServiceId={resolvedTechnicianContext.resolvedSelection.baseServiceId}
           selectedAddOns={resolvedTechnicianContext.resolvedSelection.requestedSelectedAddOns ?? resolvedTechnicianContext.resolvedSelection.selectedAddOns}
