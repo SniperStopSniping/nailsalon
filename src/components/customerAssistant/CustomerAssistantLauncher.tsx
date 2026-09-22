@@ -371,13 +371,8 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
           </div>
           <p className="mt-[4px] text-xs text-neutral-500">
             {(proposal.manualConfirmationItems?.length ?? 0) > 0
-              ? (locale === 'fr' ? 'Sous-total actuel seulement. Les articles à confirmer ne sont pas inclus.' : 'Current booking subtotal only. Items requiring confirmation are not included.')
-              : copy.subtotalNote}
-          </p>
-          <p className="mt-[4px] text-xs text-neutral-500">
-            {locale === 'fr'
-              ? 'Les prix affichés sont des estimations ou des prix de départ. La prothésiste confirmera le prix final selon les services et le travail requis. Tout supplément sera discuté avec vous avant de procéder.'
-              : 'Prices shown are estimates or starting prices. Your nail tech will confirm the final price based on the services and work required. Any additional charges will be discussed with you before proceeding.'}
+              ? (locale === 'fr' ? 'Sous-total actuel seulement. Les articles à confirmer ne sont pas inclus; la prothésiste confirmera le prix final.' : 'Current booking subtotal only. Pending items are not included; your nail tech will confirm the final price.')
+              : (locale === 'fr' ? 'Prix estimés ou de départ. La prothésiste confirmera le prix final et discutera d’abord de tout supplément.' : 'Estimated or starting prices. Your nail tech will confirm the final price and discuss any added charges first.')}
           </p>
         </div>
       </dl>

@@ -241,7 +241,7 @@ describe('CustomerAssistantLauncher', () => {
     expect(card).toHaveTextContent('Included finishIncluded');
     expect(card).toHaveTextContent('$91.00');
     expect(card).not.toHaveTextContent('$0.00');
-    expect(card).toHaveTextContent('Prices shown are estimates or starting prices.');
+    expect(card).toHaveTextContent('Estimated or starting prices. Your nail tech will confirm the final price and discuss any added charges first.');
   });
 
   it('preserves authoritative starting-price labels in the proposed package', async () => {
