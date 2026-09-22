@@ -1500,7 +1500,6 @@ jobs:
           npx vitest run src/libs/customerAssistant/backendJourney.integration.test.ts | tee customer-booking-browser.log
           grep -Fqx 'CUSTOMER_BACKEND_BROWSER_TESTS_EXECUTED=4 CUSTOMER_BACKEND_BROWSER_TESTS_SKIPPED=0' customer-booking-browser.log
 
-
   communications-dispatch-postgres:
     needs: secret-scan
     name: Communications dispatcher PostgreSQL concurrency
@@ -1822,3 +1821,38 @@ jobs:
           set -o pipefail
           npx vitest run src/libs/networkNoShow.concurrency.integration.test.ts --no-file-parallelism 2>&1 | tee network-no-show-postgres.log
           grep -Eq 'NETWORK_NO_SHOW_POSTGRES_TESTS_EXECUTED=[1-9][0-9]* NETWORK_NO_SHOW_POSTGRES_TESTS_SKIPPED=0' network-no-show-postgres.log
+
+  public-booking-attempt-postgres:
+    name: Public booking attempt PostgreSQL concurrency
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: booking_recovery_disposable
+          POSTGRES_USER: booking_recovery_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - '127.0.0.1:55449:5432'
+        options: >-
+          --health-cmd "pg_isready -U booking_recovery_test -d booking_recovery_disposable"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PUBLIC_BOOKING_ATTEMPT_TEST_DATABASE_URL: postgresql://booking_recovery_test@127.0.0.1:55449/booking_recovery_disposable
+      PUBLIC_BOOKING_ATTEMPT_DISPOSABLE_CONFIRMED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run src/libs/publicBookingAttempt.concurrency.integration.test.ts --no-file-parallelism

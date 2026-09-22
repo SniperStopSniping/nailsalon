@@ -73,7 +73,7 @@ export function ExistingAppointmentOptions({
           ? (
               <div className="rounded-2xl bg-emerald-50 p-5 text-sm leading-6 text-emerald-900" data-testid="existing-appointment-sent">
                 <p className="font-semibold">Request received</p>
-                <p>If we find a matching appointment, we&apos;ll email the secure link to the contact on file within a few minutes. Check spam too.</p>
+                <p>If we find a matching appointment, we&apos;ll send the secure link to the contact on file.</p>
               </div>
             )
           : (
@@ -85,7 +85,7 @@ export function ExistingAppointmentOptions({
                 className="font-body w-full bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:opacity-60"
                 style={{ borderRadius: n5.radiusMd, boxShadow: n5.shadowSm }}
               >
-                {sendState === 'sending' ? 'Sending…' : 'Send my appointment link'}
+                {sendState === 'sending' ? 'Sending…' : guestEmail.trim() || !guestPhone.trim() ? 'Email my appointment link' : 'Text my appointment link'}
               </button>
             )}
         {sendState === 'error' && (

@@ -140,6 +140,33 @@ async function claimOne(salonId: string): Promise<schema.CommunicationIntent> {
   return mine!;
 }
 
+async function enqueueRecoveryIntent(input: { salonId: string; recipient: string; appointmentId: string; dedupeKey: string; clientId?: string }) {
+  return enqueueSmsIntent(input.salonId, input.recipient, {
+    appointmentId: input.appointmentId,
+    eventType: 'booking_recovery',
+    dedupeKey: input.dedupeKey,
+    templateKey: 'client_booking_recovery_shortlink',
+    templateVersion: 'v1',
+    variables: { ...(input.clientId ? { clientId: input.clientId } : {}), manageUrl: 'pending' },
+  });
+}
+
+async function seedRecoveryAppointment(input: { salonId: string; recipient: string; status?: 'pending' | 'confirmed' | 'awaiting_payment' | 'cancelled' | 'completed'; endTime?: Date }) {
+  const id = `recovery_${input.salonId}_${crypto.randomUUID()}`;
+  await db.insert(schema.appointmentSchema).values({
+    id,
+    salonId: input.salonId,
+    clientName: 'Recovery Client',
+    clientPhone: input.recipient,
+    startTime: new Date(NOW.getTime() - 30 * 60 * 1000),
+    endTime: input.endTime ?? new Date(NOW.getTime() + 60 * 60 * 1000),
+    status: input.status ?? 'confirmed',
+    totalPrice: 50,
+    totalDurationMinutes: 60,
+  });
+  return id;
+}
+
 describe('dispatcher — dark by default, live only behind every switch', () => {
   it('defers (never sends, never destroys) when the platform control row is disabled', async () => {
     const { salonId, recipient } = await seedSalonWithConsent();
@@ -769,5 +796,186 @@ describe('public booking reminder preference dispatch', () => {
 
       expect(stored?.lastError).toBe('CUSTOMER_DISABLED');
     }
+  });
+});
+
+describe('booking recovery SMS capabilities', () => {
+  it.each(['pending', 'confirmed', 'awaiting_payment'] as const)('sends a live %s appointment recovery', async (status) => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    const appointmentId = await seedRecoveryAppointment({ salonId, recipient, status });
+    await grantCredits(salonId, 10);
+    await enableControl(true);
+    await enqueueRecoveryIntent({ salonId, recipient, appointmentId, dedupeKey: `recovery-live:${salonId}` });
+    const intent = await claimOne(salonId);
+    const provider = vi.fn().mockResolvedValue({ sid: `SM_recovery_${status}` });
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, provider, NOW)).toBe('sent');
+    expect(provider).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['cancelled', new Date(NOW.getTime() + 60 * 60 * 1000)],
+    ['completed', new Date(NOW.getTime() + 60 * 60 * 1000)],
+    ['confirmed', new Date(NOW.getTime() - 1000)],
+  ] as const)('suppresses inactive recovery (%s)', async (status, endTime) => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    const appointmentId = await seedRecoveryAppointment({ salonId, recipient, status, endTime });
+    await grantCredits(salonId, 10);
+    await enableControl(true);
+    await enqueueRecoveryIntent({ salonId, recipient, appointmentId, dedupeKey: `recovery-inactive:${salonId}` });
+    const intent = await claimOne(salonId);
+    const provider = vi.fn();
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, provider, NOW)).toBe('suppressed');
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('revokes a minted recovery capability when STOP suppresses the final provider check', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    const appointmentId = await seedRecoveryAppointment({ salonId, recipient });
+    await grantCredits(salonId, 10);
+    await enableControl(true);
+    const { appendGlobalConsentEvent } = await import('./smsConsentShared');
+    await appendGlobalConsentEvent({ senderIdentity: 'luster_shared_v1', recipient, state: 'suppressed', source: 'twilio_inbound' });
+    await enqueueRecoveryIntent({ salonId, recipient, appointmentId, dedupeKey: `recovery-stop:${salonId}` });
+    const intent = await claimOne(salonId);
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, vi.fn(), NOW)).toBe('suppressed');
+
+    const tokens = await db.select().from(schema.appointmentAccessTokenSchema)
+      .where(eq(schema.appointmentAccessTokenSchema.appointmentId, appointmentId));
+
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]?.revokedAt).not.toBeNull();
+  });
+
+  it('revokes a recovery capability on a proven provider rejection but preserves it for an ambiguous outcome', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    const rejectedAppointmentId = await seedRecoveryAppointment({ salonId, recipient });
+    const ambiguousAppointmentId = await seedRecoveryAppointment({ salonId, recipient });
+    await grantCredits(salonId, 20);
+    await enableControl(true);
+    await enqueueRecoveryIntent({ salonId, recipient, appointmentId: rejectedAppointmentId, dedupeKey: `recovery-reject:${salonId}` });
+    let intent = await claimOne(salonId);
+    const { dispatchClaimedIntent, ProviderOutcomeUnknownError } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, vi.fn(async () => {
+      throw Object.assign(new Error('rejected'), { code: '30001' });
+    }), NOW)).toBe('failed');
+
+    let tokens = await db.select().from(schema.appointmentAccessTokenSchema)
+      .where(eq(schema.appointmentAccessTokenSchema.appointmentId, rejectedAppointmentId));
+
+    expect(tokens[0]?.revokedAt).not.toBeNull();
+
+    const [rejected] = await db.select().from(schema.communicationIntentSchema)
+      .where(eq(schema.communicationIntentSchema.id, intent.id));
+
+    expect(rejected?.variables.manageUrl).toBe('pending');
+
+    await enqueueRecoveryIntent({ salonId, recipient, appointmentId: ambiguousAppointmentId, dedupeKey: `recovery-ambiguous:${salonId}` });
+    intent = await claimOne(salonId);
+
+    expect(await dispatchClaimedIntent(intent, vi.fn(async () => {
+      throw new ProviderOutcomeUnknownError();
+    }), NOW)).toBe('unknown_outcome');
+
+    tokens = await db.select().from(schema.appointmentAccessTokenSchema)
+      .where(eq(schema.appointmentAccessTokenSchema.appointmentId, ambiguousAppointmentId));
+
+    expect(tokens[0]?.revokedAt).toBeNull();
+  });
+
+  it('caps active capabilities at three after accepted recovery delivery', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    const appointmentId = await seedRecoveryAppointment({ salonId, recipient });
+    const { hashOpaqueToken } = await import('./lusterSecurity');
+    await db.insert(schema.appointmentAccessTokenSchema).values([0, 1, 2].map(index => ({
+      id: `old-recovery-token-${salonId}-${index}`,
+      salonId,
+      appointmentId,
+      tokenHash: hashOpaqueToken(`old-recovery-token-${salonId}-${index}`),
+      expiresAt: new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000),
+      createdAt: new Date(NOW.getTime() - (3 - index) * 1000),
+    })));
+    await grantCredits(salonId, 10);
+    await enableControl(true);
+    await enqueueRecoveryIntent({ salonId, recipient, appointmentId, dedupeKey: `recovery-cap:${salonId}` });
+    const intent = await claimOne(salonId);
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, vi.fn().mockResolvedValue({ sid: 'SM_recovery_cap' }), NOW)).toBe('sent');
+
+    const tokens = await db.select().from(schema.appointmentAccessTokenSchema)
+      .where(eq(schema.appointmentAccessTokenSchema.appointmentId, appointmentId));
+
+    expect(tokens.filter(token => token.revokedAt === null)).toHaveLength(3);
+  });
+
+  it('suppresses a queued orphan when a canonical client is introduced before delivery', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    const appointmentId = await seedRecoveryAppointment({ salonId, recipient });
+    await grantCredits(salonId, 10);
+    await enableControl(true);
+    await enqueueRecoveryIntent({ salonId, recipient, appointmentId, dedupeKey: `recovery-orphan-linked:${salonId}` });
+    await db.insert(schema.salonClientSchema).values({ id: `client-${salonId}`, salonId, phone: recipient, fullName: 'Linked later' });
+    const intent = await claimOne(salonId);
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, vi.fn(), NOW)).toBe('suppressed');
+    expect(await db.select().from(schema.appointmentAccessTokenSchema)
+      .where(eq(schema.appointmentAccessTokenSchema.appointmentId, appointmentId))).toHaveLength(0);
+  });
+
+  it('suppresses canonical recovery when the terminal phone changes before delivery', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    const clientId = `client-update-${salonId}`;
+    await db.insert(schema.salonClientSchema).values({ id: clientId, salonId, phone: recipient, fullName: 'Current client' });
+    const appointmentId = await seedRecoveryAppointment({ salonId, recipient });
+    await db.update(schema.appointmentSchema).set({ salonClientId: clientId })
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+    await grantCredits(salonId, 10);
+    await enableControl(true);
+    await enqueueRecoveryIntent({ salonId, recipient, appointmentId, dedupeKey: `recovery-phone-changed:${salonId}` });
+    await db.update(schema.salonClientSchema).set({ phone: '6475550199' })
+      .where(eq(schema.salonClientSchema.id, clientId));
+    const intent = await claimOne(salonId);
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, vi.fn(), NOW)).toBe('suppressed');
+  });
+
+  it('sends an unlinked legacy appointment only when both snapshots resolve to its queued terminal', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    const clientId = `client-legacy-${salonId}`;
+    await db.insert(schema.salonClientSchema).values({ id: clientId, salonId, phone: recipient, email: 'legacy@example.com', fullName: 'Legacy client' });
+    const appointmentId = await seedRecoveryAppointment({ salonId, recipient });
+    await db.update(schema.appointmentSchema).set({ clientEmail: 'legacy@example.com' })
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+    await grantCredits(salonId, 10);
+    await enableControl(true);
+    await enqueueRecoveryIntent({ salonId, recipient, appointmentId, clientId, dedupeKey: `recovery-legacy:${salonId}` });
+    const intent = await claimOne(salonId);
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, vi.fn().mockResolvedValue({ sid: 'SM_legacy' }), NOW)).toBe('sent');
+  });
+
+  it('suppresses an orphan when an email-only canonical client appears before delivery', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    const appointmentId = await seedRecoveryAppointment({ salonId, recipient });
+    await db.update(schema.appointmentSchema).set({ clientEmail: 'orphan@example.com' })
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+    await grantCredits(salonId, 10);
+    await enableControl(true);
+    await enqueueRecoveryIntent({ salonId, recipient, appointmentId, dedupeKey: `recovery-orphan-email:${salonId}` });
+    await db.insert(schema.salonClientSchema).values({ id: `email-only-${salonId}`, salonId, phone: '6475550198', email: 'orphan@example.com', fullName: 'Email linked later' });
+    const intent = await claimOne(salonId);
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, vi.fn(), NOW)).toBe('suppressed');
   });
 });

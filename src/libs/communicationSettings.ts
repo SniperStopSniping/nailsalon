@@ -156,7 +156,7 @@ export const EVENTS_GOVERNED_ELSEWHERE: ReadonlySet<CommunicationEventType> = ne
  * DEFAULT_BOOKING_NOTIFICATION_SETTINGS technicianChannel.
  */
 function defaultChannelsFor(eventType: CommunicationEventType): CommunicationChannelMode {
-  if (eventType === 'manual_text' || eventType === 'review_request') {
+  if (eventType === 'manual_text' || eventType === 'review_request' || eventType === 'booking_recovery') {
     return 'sms';
   }
   if (eventType.startsWith('owner_') || eventType.startsWith('tech_')) {
@@ -411,7 +411,7 @@ export function resolveEventChannels(
   if (settings.killSwitch) {
     return [];
   }
-  if (eventType === 'manual_text' || eventType === 'review_request') {
+  if (eventType === 'manual_text' || eventType === 'review_request' || eventType === 'booking_recovery') {
     return settings.sms.enabled ? ['sms'] : [];
   }
   const event = settings.events[eventType] ?? DEFAULT_COMMUNICATION_EVENT_SETTINGS[eventType];

@@ -8,6 +8,7 @@ const {
   getZeroCandidateOrphanRecoveryAppointments,
   resolveCanonicalSalonClientIdentityOutcome,
   sendBookingRecoveryEmail,
+  queueBookingRecoverySms,
   loggerWarn,
   loggerError,
 } = vi.hoisted(() => ({
@@ -17,6 +18,7 @@ const {
   getZeroCandidateOrphanRecoveryAppointments: vi.fn(),
   resolveCanonicalSalonClientIdentityOutcome: vi.fn(),
   sendBookingRecoveryEmail: vi.fn(),
+  queueBookingRecoverySms: vi.fn(),
   loggerWarn: vi.fn(),
   loggerError: vi.fn(),
 }));
@@ -31,6 +33,7 @@ vi.mock('@/libs/clientLifecycleStabilization', () => ({
   resolveCanonicalSalonClientIdentityOutcome,
 }));
 vi.mock('@/libs/bookingRecoveryEmail', () => ({ sendBookingRecoveryEmail }));
+vi.mock('@/libs/bookingRecoverySms', () => ({ queueBookingRecoverySms }));
 vi.mock('@/libs/Logger', () => ({ logger: { warn: loggerWarn, error: loggerError } }));
 vi.mock('@/libs/DB', () => ({ db: {} }));
 
@@ -44,7 +47,7 @@ const SALON = {
   settings: null,
 };
 
-const GENERIC_MESSAGE = 'If we find a matching appointment, we\'ll email its secure management link to the contact on file within a few minutes.';
+const GENERIC_MESSAGE = 'If we find a matching appointment, we\'ll send its secure management link to the contact on file.';
 
 function makeAppointment(overrides: Partial<{ id: string; clientEmail: string | null }> = {}) {
   return {
@@ -78,6 +81,7 @@ describe('POST /api/public/appointments/recovery', () => {
       },
     });
     sendBookingRecoveryEmail.mockResolvedValue({ ok: true, deduped: false, deliveryId: 'delivery_1' });
+    queueBookingRecoverySms.mockResolvedValue({ queued: true });
   });
 
   it('returns the same privacy-safe response for invalid input', async () => {
@@ -95,6 +99,15 @@ describe('POST /api/public/appointments/recovery', () => {
     expect(response.status).toBe(202);
     expect(getSalonBySlug).not.toHaveBeenCalled();
     expect(sendBookingRecoveryEmail).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a supplied phone is malformed even if email is otherwise valid', async () => {
+    const response = await post({ salonSlug: 'test-salon', email: 'onfile@example.com', phone: '123' });
+
+    expect(response.status).toBe(202);
+    expect(getSalonBySlug).not.toHaveBeenCalled();
+    expect(sendBookingRecoveryEmail).not.toHaveBeenCalled();
+    expect(queueBookingRecoverySms).not.toHaveBeenCalled();
   });
 
   it('does not reveal whether a salon exists', async () => {
@@ -134,6 +147,7 @@ describe('POST /api/public/appointments/recovery', () => {
       appointments: [expect.objectContaining({ id: 'appt_1' })],
       recipientMode: 'canonical_terminal',
     });
+    expect(queueBookingRecoverySms).not.toHaveBeenCalled();
     expect(JSON.stringify(sendBookingRecoveryEmail.mock.calls))
       .not.toContain('onfile@example.com');
   });
@@ -158,14 +172,31 @@ describe('POST /api/public/appointments/recovery', () => {
       horizon: 'recovery',
       allowArchived: true,
     });
+    expect(queueBookingRecoverySms).toHaveBeenCalledWith({
+      salonId: SALON.id,
+      terminalClientId: 'client_1',
+      appointments: [expect.objectContaining({ id: 'appt_1' })],
+    });
+  });
+
+  it('uses email as the explicit default when matching email and phone resolve to one identity', async () => {
+    getActiveAppointmentsForCanonicalClient.mockResolvedValue([makeAppointment()]);
+
+    await post({
+      salonSlug: 'test-salon',
+      email: 'onfile@example.com',
+      phone: '4165550101',
+    });
+
     expect(sendBookingRecoveryEmail).toHaveBeenCalledWith({
       salon: SALON,
       appointments: [expect.objectContaining({ id: 'appt_1' })],
       recipientMode: 'canonical_terminal',
     });
+    expect(queueBookingRecoverySms).not.toHaveBeenCalled();
   });
 
-  it('allows the sender to resolve a current terminal email when the snapshot is empty', async () => {
+  it('queues a phone-only recovery without relying on an appointment email snapshot', async () => {
     getActiveAppointmentsForCanonicalClient.mockResolvedValue([
       makeAppointment({ clientEmail: null }),
     ]);
@@ -175,10 +206,10 @@ describe('POST /api/public/appointments/recovery', () => {
 
     expect(response.status).toBe(202);
     expect(body.data.message).toBe(GENERIC_MESSAGE);
-    expect(sendBookingRecoveryEmail).toHaveBeenCalledWith({
-      salon: SALON,
+    expect(queueBookingRecoverySms).toHaveBeenCalledWith({
+      salonId: SALON.id,
+      terminalClientId: 'client_1',
       appointments: [expect.objectContaining({ id: 'appt_1' })],
-      recipientMode: 'canonical_terminal',
     });
   });
 
@@ -190,13 +221,13 @@ describe('POST /api/public/appointments/recovery', () => {
 
     await post({ salonSlug: 'test-salon', phone: '4165550101' });
 
-    expect(sendBookingRecoveryEmail).toHaveBeenCalledWith({
-      salon: SALON,
+    expect(queueBookingRecoverySms).toHaveBeenCalledWith({
+      salonId: SALON.id,
+      terminalClientId: 'client_1',
       appointments: [
         expect.objectContaining({ id: 'appt_walkin' }),
         expect.objectContaining({ id: 'appt_online' }),
       ],
-      recipientMode: 'canonical_terminal',
     });
   });
 
@@ -234,6 +265,22 @@ describe('POST /api/public/appointments/recovery', () => {
       .not.toContain('onfile@example.com');
   });
 
+  it('queues phone-only zero-candidate orphan recovery to the matched snapshot phone', async () => {
+    resolveCanonicalSalonClientIdentityOutcome.mockResolvedValue({
+      status: 'zero_identity_candidates',
+    });
+    getZeroCandidateOrphanRecoveryAppointments.mockResolvedValue([makeAppointment({ id: 'orphan_phone' })]);
+
+    await post({ salonSlug: 'test-salon', phone: '+1 (416) 555-0101' });
+
+    expect(queueBookingRecoverySms).toHaveBeenCalledWith({
+      salonId: SALON.id,
+      recipientPhone: '4165550101',
+      appointments: [expect.objectContaining({ id: 'orphan_phone' })],
+    });
+    expect(sendBookingRecoveryEmail).not.toHaveBeenCalled();
+  });
+
   it('never unlocks orphan lookup for invalid or ambiguous identity state', async () => {
     resolveCanonicalSalonClientIdentityOutcome.mockResolvedValue({
       status: 'invalid_or_ambiguous_identity',
@@ -249,6 +296,24 @@ describe('POST /api/public/appointments/recovery', () => {
     expect(getActiveAppointmentsForCanonicalClient).not.toHaveBeenCalled();
     expect(getZeroCandidateOrphanRecoveryAppointments).not.toHaveBeenCalled();
     expect(sendBookingRecoveryEmail).not.toHaveBeenCalled();
+    expect(queueBookingRecoverySms).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when email and phone resolve to distinct identities', async () => {
+    resolveCanonicalSalonClientIdentityOutcome.mockResolvedValue({
+      status: 'invalid_or_ambiguous_identity',
+      reason: 'INVALID_CLIENT_STATE',
+    });
+
+    const response = await post({
+      salonSlug: 'test-salon',
+      email: 'onfile@example.com',
+      phone: '4165550101',
+    });
+
+    expect(response.status).toBe(202);
+    expect(sendBookingRecoveryEmail).not.toHaveBeenCalled();
+    expect(queueBookingRecoverySms).not.toHaveBeenCalled();
   });
 
   it('returns the generic response with no send when nothing matches', async () => {

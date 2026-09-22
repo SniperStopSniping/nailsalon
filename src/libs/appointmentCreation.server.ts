@@ -153,6 +153,15 @@ import {
   reserveNextVisitOffer,
 } from '@/libs/nextVisitOffer.server';
 import {
+  finalizePublicBookingAttemptFailure,
+  linkPublicBookingAttempt,
+  lockPublicBookingAttempt,
+  PublicBookingAttemptError,
+  readDirectPublicBookingAttempt,
+  registerPublicBookingAttempt,
+} from '@/libs/publicBookingAttempt.server';
+import { checkPublicBookingAttemptRateLimit } from '@/libs/publicBookingAttemptRateLimit';
+import {
   checkPublicBookingRateLimit,
   getPublicBookingClientIp,
 } from '@/libs/publicBookingRateLimit.server';
@@ -170,6 +179,7 @@ import {
   normalizePhone,
   type TechnicianWithServices,
 } from '@/libs/queries';
+import { getClientIp } from '@/libs/rateLimit';
 import { resolveExplicitRequestApprovalActivation } from '@/libs/requestApprovalReconciliation.server';
 import {
   calculateRetentionDiscount,
@@ -1041,7 +1051,7 @@ function anonymousMaterialMatchesRequest(data: CreateAppointmentRequest, materia
     && data.expectedDepositFingerprint === material.expectedDepositFingerprint;
 }
 
-export async function createAppointmentFromRequest(
+async function createAppointmentFromRequestCore(
   request: Request,
   access: AppointmentCreationAccess = { kind: 'ambient' },
 ): Promise<Response> {
@@ -1416,6 +1426,13 @@ export async function createAppointmentFromRequest(
     && !normalizedOriginalApptId
     && !data.manageToken
     && !googleReviewEvent;
+    // v2 direct browser attempts use the existing idempotency UUID as their
+    // durable identity. Older direct attempts remain on the Redis-only path.
+    const directPublicBookingAttempt = !normalizedOriginalApptId
+      && !data.manageToken
+      && !googleReviewEvent
+      ? readDirectPublicBookingAttempt(request)
+      : null;
     const requestedPolicyAcknowledgment = data.bookingPolicyAcknowledgment;
 
     // New public L1 bookings require a single authoritative selection and review.
@@ -1518,7 +1535,7 @@ export async function createAppointmentFromRequest(
         // First check if result is already cached
         const cachedResultJson = await redis.get(idempotencyCacheKey);
 
-        if (cachedResultJson) {
+        if (cachedResultJson && !directPublicBookingAttempt) {
           const cachedResult = JSON.parse(cachedResultJson);
 
           // Check if payload hash matches (same key, different payload = error)
@@ -1570,7 +1587,7 @@ export async function createAppointmentFromRequest(
             elapsedMs += delay;
 
             const retryCache = await redis.get(idempotencyCacheKey);
-            if (retryCache) {
+            if (retryCache && !directPublicBookingAttempt) {
               const cachedResult = JSON.parse(retryCache);
 
               // Validate payload hash even on retry
@@ -2679,7 +2696,7 @@ export async function createAppointmentFromRequest(
           // Check if a cached result appeared (winner may have completed)
           if (idempotencyCacheKey) {
             const cachedResult = await redis.get(idempotencyCacheKey);
-            if (cachedResult) {
+            if (cachedResult && !directPublicBookingAttempt) {
               const parsed = JSON.parse(cachedResult);
               // Validate payload hash before returning cached result
               if (parsed.payloadHash && parsed.payloadHash !== requestBodyHash) {
@@ -3661,6 +3678,13 @@ export async function createAppointmentFromRequest(
             resetTransactionPricing();
             let lockedCustomerBookingOperation: LockedCustomerBookingOperation | null = null;
             const transaction = async (tx: BookingTx) => {
+              if (directPublicBookingAttempt) {
+                await lockPublicBookingAttempt(tx, {
+                  salonId: salon.id,
+                  ...directPublicBookingAttempt,
+                  requestHash: requestBodyHash,
+                });
+              }
               if (access.kind === 'anonymous_customer') {
                 const locked = await lockCustomerBookingOperation(tx, {
                   salonId: salon.id,
@@ -4599,6 +4623,13 @@ export async function createAppointmentFromRequest(
             if (!createdAppointment) {
               throw new Error('Failed to create appointment');
             }
+            if (directPublicBookingAttempt) {
+              await linkPublicBookingAttempt(tx, {
+                salonId: salon.id,
+                appointmentId: createdAppointment.id,
+                ...directPublicBookingAttempt,
+              });
+            }
             await registerNetworkBookingInTx(tx, {
               salonId: salon.id,
               appointmentId: createdAppointment.id,
@@ -4880,6 +4911,17 @@ export async function createAppointmentFromRequest(
           respondDepositNotRequired = true;
         }
       } catch (error) {
+        if (error instanceof PublicBookingAttemptError) {
+          if (error.kind === 'failed') {
+            return Response.json({
+              error: { code: 'BOOKING_ATTEMPT_FAILED', message: 'This booking attempt was already closed. Please review and try again.' },
+              bookingAttemptOutcome: 'resolved_failure',
+            }, { status: 409 });
+          }
+          return Response.json({
+            error: { code: 'BOOKING_ATTEMPT_RECONCILE', message: 'We are checking this booking attempt.' },
+          }, { status: 409 });
+        }
         if (error instanceof L1SelectionChangedError) {
           return error.payload
             ? catalogSelectionChangedResponse(error.payload)
@@ -5327,5 +5369,85 @@ export async function createAppointmentFromRequest(
         console.warn('[Idempotency] Failed to release booking lock:', releaseError);
       }
     }
+  }
+}
+
+const NON_TERMINAL_DIRECT_ATTEMPT_CODES = new Set([
+  'IDEMPOTENCY_KEY_REUSE',
+  'BOOKING_IN_PROGRESS',
+  'BOOKING_ATTEMPT_RECONCILE',
+]);
+
+/**
+ * v2 direct attempts are registered before validation. This small outer layer
+ * makes a returned definitive 4xx durable without allowing a generic 4xx to
+ * clear a linked/in-flight attempt.
+ */
+export async function createAppointmentFromRequest(
+  request: Request,
+  access: AppointmentCreationAccess = { kind: 'ambient' },
+): Promise<Response> {
+  const directAttempt = readDirectPublicBookingAttempt(request);
+  if (request.headers.get('X-Booking-Attempt-Version') === '2' && !directAttempt) {
+    return Response.json({
+      error: { code: 'BOOKING_ATTEMPT_INVALID', message: 'This booking attempt could not be verified.' },
+    }, { status: 400 });
+  }
+  let directSalonId: string | null = null;
+  if (directAttempt) {
+    try {
+      const body = await request.clone().json() as {
+        salonSlug?: unknown;
+        originalAppointmentId?: unknown;
+        manageToken?: unknown;
+        googleEventReviewId?: unknown;
+      };
+      // v2 is direct new-booking authority only. Reschedules retain their
+      // capability-based lifecycle and must never receive a direct tombstone.
+      const supportsDirectAttempt = !body.originalAppointmentId
+        && !body.manageToken
+        && !body.googleEventReviewId;
+      if (!supportsDirectAttempt) {
+        return Response.json({
+          error: { code: 'BOOKING_ATTEMPT_INVALID', message: 'This booking attempt cannot be used for this booking flow.' },
+        }, { status: 400 });
+      }
+      if (supportsDirectAttempt && typeof body.salonSlug === 'string') {
+        directSalonId = (await getSalonBySlug(body.salonSlug))?.id ?? null;
+      }
+      if (directSalonId) {
+        if (!await checkPublicBookingAttemptRateLimit(getClientIp(request), directSalonId)) {
+          return Response.json({ error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Too many requests. Please try again later.' } }, { status: 429 });
+        }
+        await registerPublicBookingAttempt({ salonId: directSalonId, ...directAttempt });
+      }
+    } catch (error) {
+      if (error instanceof PublicBookingAttemptError) {
+        return Response.json({ error: { code: 'BOOKING_ATTEMPT_RECONCILE', message: 'We are checking this booking attempt.' } }, { status: 409 });
+      }
+      // A registration outage is ambiguous. Do not create without the durable
+      // authority the v2 browser requested.
+      return Response.json({ error: { code: 'BOOKING_ATTEMPT_RECONCILE', message: 'We are checking this booking attempt.' } }, { status: 503 });
+    }
+  }
+
+  const response = await createAppointmentFromRequestCore(request, access);
+  if (!directAttempt || !directSalonId || response.status < 400 || response.status >= 500) {
+    return response;
+  }
+  try {
+    const payload = await response.clone().json() as { error?: string | { code?: unknown }; bookingAttemptOutcome?: unknown };
+    const code = typeof payload.error === 'string'
+      ? payload.error
+      : typeof payload.error?.code === 'string' ? payload.error.code : null;
+    if (!code || NON_TERMINAL_DIRECT_ATTEMPT_CODES.has(code) || payload.bookingAttemptOutcome === 'resolved_failure') {
+      return response;
+    }
+    const failed = await finalizePublicBookingAttemptFailure({ salonId: directSalonId, ...directAttempt, code });
+    return failed
+      ? Response.json({ ...payload, bookingAttemptOutcome: 'resolved_failure' }, { status: response.status })
+      : response;
+  } catch {
+    return response;
   }
 }

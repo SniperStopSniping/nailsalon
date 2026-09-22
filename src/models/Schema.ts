@@ -988,6 +988,37 @@ export const appointmentBookingPolicyAcknowledgmentSchema = pgTable(
 );
 
 // -----------------------------------------------------------------------------
+// PublicBookingAttempt - proof-bound direct public booking authority. This is
+// deliberately separate from customer_booking_operation: direct form posts do
+// not have an anonymous-customer capability or reviewed material.
+// -----------------------------------------------------------------------------
+export const publicBookingAttemptSchema = pgTable(
+  'public_booking_attempt',
+  {
+    salonId: text('salon_id').notNull(),
+    attemptId: uuid('attempt_id').notNull(),
+    recoveryKeyHash: text('recovery_key_hash').notNull(),
+    requestHash: text('request_hash'),
+    state: text('state').$type<'in_flight' | 'succeeded' | 'failed'>().notNull(),
+    appointmentId: text('appointment_id'),
+    failureCode: text('failure_code'),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => ({
+    primary: primaryKey({ columns: [table.salonId, table.attemptId] }),
+    stateValid: check('public_booking_attempt_state_valid', sql`${table.state} IN ('in_flight', 'succeeded', 'failed')`),
+    recoveryKeyHashValid: check('public_booking_attempt_recovery_key_hash_valid', sql`${table.recoveryKeyHash} ~ '^[0-9a-f]{64}$'`),
+    requestHashValid: check('public_booking_attempt_request_hash_valid', sql`${table.requestHash} IS NULL OR ${table.requestHash} ~ '^[0-9a-f]{64}$'`),
+    lifecycleValid: check('public_booking_attempt_lifecycle_valid', sql`(${table.state} = 'in_flight' AND ${table.appointmentId} IS NULL AND ${table.failureCode} IS NULL) OR (${table.state} = 'succeeded' AND ${table.appointmentId} IS NOT NULL AND ${table.failureCode} IS NULL) OR (${table.state} = 'failed' AND ${table.appointmentId} IS NULL AND ${table.failureCode} IS NOT NULL)`),
+    salonFk: foreignKey({ columns: [table.salonId], foreignColumns: [salonSchema.id], name: 'public_booking_attempt_salon_fk' }).onDelete('cascade'),
+    appointmentTenantFk: foreignKey({ columns: [table.salonId, table.appointmentId], foreignColumns: [appointmentSchema.salonId, appointmentSchema.id], name: 'public_booking_attempt_appointment_fk' }).onDelete('cascade'),
+    appointmentUnique: uniqueIndex('public_booking_attempt_appointment_unique').on(table.appointmentId),
+    stateIdx: index('public_booking_attempt_state_idx').on(table.salonId, table.state, table.updatedAt),
+  }),
+);
+
+// -----------------------------------------------------------------------------
 // AppointmentServices - Junction table for multi-service bookings
 // -----------------------------------------------------------------------------
 export const appointmentServicesSchema = pgTable(
@@ -4428,6 +4459,7 @@ export const COMMUNICATION_EVENT_TYPES = [
   'appointment_reminder',
   'manual_reminder',
   'manual_text',
+  'booking_recovery',
   'review_request',
   'owner_new_booking',
   'owner_appointment_cancelled',

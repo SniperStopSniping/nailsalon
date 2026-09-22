@@ -176,6 +176,17 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
     render: variables => `${buildClientSmsPrefix(variables.salonName ?? '')}${variables.message ?? ''} ${STOP_LANGUAGE}`,
     worstCaseVariables: [{ salonName: WORST_CASE_SALON_NAME, message: 'Please use your appointment link to update your booking.' }],
   },
+  client_booking_recovery_shortlink: {
+    key: 'client_booking_recovery_shortlink',
+    version: 'v1',
+    audience: 'client',
+    render: variables =>
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Here is your private booking link: ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [{
+      salonName: WORST_CASE_SALON_NAME,
+      manageUrl: WORST_CASE_SHORT_LINK,
+    }],
+  },
   client_review_request: {
     key: 'client_review_request',
     version: 'v2',

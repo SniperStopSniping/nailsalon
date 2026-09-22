@@ -76,6 +76,7 @@ describe('ExistingAppointmentOptions', () => {
   it('omits empty contact fields from the recovery request', async () => {
     renderOptions({ guestEmail: '' });
 
+    expect(screen.getByText('Text my appointment link')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('existing-appointment-send-link'));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));

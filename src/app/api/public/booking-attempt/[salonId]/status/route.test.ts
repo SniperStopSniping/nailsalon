@@ -4,12 +4,21 @@ const mocks = vi.hoisted(() => ({
   available: vi.fn(),
   get: vi.fn(),
   set: vi.fn(),
+  durableStatus: vi.fn(),
+  attemptRateLimit: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/core/redis/redisClient', () => ({
   isRedisAvailable: mocks.available,
   redis: { get: mocks.get, set: mocks.set },
+}));
+vi.mock('@/libs/publicBookingAttempt.server', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/publicBookingAttempt.server')>()),
+  readPublicBookingAttemptStatus: mocks.durableStatus,
+}));
+vi.mock('@/libs/publicBookingAttemptRateLimit', () => ({
+  checkPublicBookingAttemptRateLimit: mocks.attemptRateLimit,
 }));
 
 const { hashPublicBookingRecoveryKey } = await import('@/libs/publicBookingRecovery.server');
@@ -52,6 +61,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.available.mockResolvedValue(true);
   mocks.get.mockResolvedValue(null);
+  mocks.durableStatus.mockResolvedValue({ kind: 'unknown' });
+  mocks.attemptRateLimit.mockResolvedValue(true);
 });
 
 describe('POST /api/public/booking-attempt/[salonId]/status', () => {
@@ -122,5 +133,30 @@ describe('POST /api/public/booking-attempt/[salonId]/status', () => {
     expect(await response.json()).toEqual({ kind: 'unresolved' });
     expect(mocks.get).not.toHaveBeenCalled();
     expect(mocks.set).not.toHaveBeenCalled();
+  });
+
+  it('uses v2 durable authority before Redis and accepts its strict version payload', async () => {
+    mocks.durableStatus.mockResolvedValue({
+      kind: 'resolved_success',
+      response: { data: { appointmentId: 'appointment_v2', appointment: { id: 'appointment_v2', status: 'awaiting_payment' } }, meta: { timestamp: '2026-09-22T00:00:00.000Z', recovered: true } },
+    });
+    const response = await POST(request({ attemptId: ATTEMPT_ID, recoveryKey: RECOVERY_KEY, version: 2, startedAt: '2026-09-22T00:00:00.000Z' }), context);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ kind: 'resolved_success', response: { data: { appointmentId: 'appointment_v2' } } });
+    expect(mocks.durableStatus).toHaveBeenCalledWith(expect.objectContaining({ salonId: 'salon-a', version: 2 }));
+    expect(mocks.get).not.toHaveBeenCalled();
+  });
+
+  it('returns durable failure and unknown without reading Redis', async () => {
+    const body = { attemptId: ATTEMPT_ID, recoveryKey: RECOVERY_KEY, version: 2, startedAt: '2026-09-22T00:00:00.000Z' };
+    mocks.durableStatus.mockResolvedValueOnce({ kind: 'resolved_failure' });
+
+    expect(await (await POST(request(body), context)).json()).toEqual({ kind: 'resolved_failure' });
+
+    mocks.durableStatus.mockResolvedValueOnce({ kind: 'unknown' });
+
+    expect(await (await POST(request(body), context)).json()).toEqual({ kind: 'unknown' });
+    expect(mocks.get).not.toHaveBeenCalled();
   });
 });

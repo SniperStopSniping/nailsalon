@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getActiveAppointmentsForCanonicalClient } from '@/libs/activeAppointments';
 import { sendBookingRecoveryEmail } from '@/libs/bookingRecoveryEmail';
 import { checkBookingRecoveryRateLimit } from '@/libs/bookingRecoveryRateLimit';
+import { queueBookingRecoverySms } from '@/libs/bookingRecoverySms';
 import {
   getZeroCandidateOrphanRecoveryAppointments,
   resolveCanonicalSalonClientIdentityOutcome,
@@ -22,13 +23,12 @@ const schema = z.object({
 
 // The response is intentionally identical for every outcome (no match,
 // rate-limited, provider failure, unknown salon) so this endpoint can never
-// be used to enumerate which contacts hold appointments. The copy is honest:
-// it promises an email only if a match is found, and only to the contact on
-// file.
+// be used to enumerate which contacts hold appointments. The copy never says
+// which channel was used or whether a matching booking exists.
 const genericResponse = () => Response.json({
   data: {
     accepted: true,
-    message: 'If we find a matching appointment, we\'ll email its secure management link to the contact on file within a few minutes.',
+    message: 'If we find a matching appointment, we\'ll send its secure management link to the contact on file.',
   },
 }, { status: 202 });
 
@@ -39,9 +39,10 @@ export async function POST(request: Request) {
   }
 
   const email = parsed.data.email;
-  const normalizedPhone = parsed.data.phone && isValidPhone(parsed.data.phone)
-    ? normalizePhone(parsed.data.phone)
-    : undefined;
+  if (parsed.data.phone && !isValidPhone(parsed.data.phone)) {
+    return genericResponse();
+  }
+  const normalizedPhone = parsed.data.phone ? normalizePhone(parsed.data.phone) : undefined;
   if (!email && !normalizedPhone) {
     return genericResponse();
   }
@@ -98,27 +99,47 @@ export async function POST(request: Request) {
       return genericResponse();
     }
 
-    const result = await sendBookingRecoveryEmail({
-      salon: {
-        id: salon.id,
-        slug: salon.slug,
-        name: salon.name,
-        customDomain: salon.customDomain,
-        settings: salon.settings,
-      },
-      appointments: appointments.map(appointment => ({
-        id: appointment.id,
-        startTime: appointment.startTime,
-        endTime: appointment.endTime,
-      })),
-      recipientMode,
-    });
-    if (!result.ok) {
-      logger.warn({
-        event: 'booking_recovery_send_failed',
+    // When both identifiers resolve to one terminal identity, email is the
+    // explicit default. A phone-only lookup never falls back to email: it can
+    // only queue a text to the terminal's stored phone.
+    if (email) {
+      const result = await sendBookingRecoveryEmail({
+        salon: {
+          id: salon.id,
+          slug: salon.slug,
+          name: salon.name,
+          customDomain: salon.customDomain,
+          settings: salon.settings,
+        },
+        appointments: appointments.map(appointment => ({
+          id: appointment.id,
+          startTime: appointment.startTime,
+          endTime: appointment.endTime,
+        })),
+        recipientMode,
+      });
+      if (!result.ok) {
+        logger.warn({
+          event: 'booking_recovery_send_failed',
+          salonId: salon.id,
+          deliveryId: result.deliveryId,
+          errorCode: result.errorCode,
+        });
+      }
+    } else if (identityOutcome.status === 'resolved_terminal') {
+      await queueBookingRecoverySms({
         salonId: salon.id,
-        deliveryId: result.deliveryId,
-        errorCode: result.errorCode,
+        terminalClientId: identityOutcome.identity.terminal.id,
+        appointments,
+      });
+    } else if (identityOutcome.status === 'zero_identity_candidates' && normalizedPhone) {
+      // No salon client exists, so the exact matched appointment snapshot is
+      // the only allowed destination. The dispatcher rechecks that snapshot
+      // immediately before provider delivery.
+      await queueBookingRecoverySms({
+        salonId: salon.id,
+        recipientPhone: normalizedPhone,
+        appointments,
       });
     }
   } catch (error) {
