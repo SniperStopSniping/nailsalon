@@ -729,10 +729,12 @@ test('Smart Fit recovery fits an actual 320px booking viewport @mobile-layout', 
         return;
       }
 
+      expect(route.request().headers()['x-booking-attempt-version']).toBe('2');
       await route.fulfill({
         status: 409,
         contentType: 'application/json',
         body: JSON.stringify({
+          bookingAttemptOutcome: 'resolved_failure',
           error: {
             code: 'SMART_FIT_CHANGED',
             message: 'This discounted time is no longer available. Please choose from the latest times.',
@@ -807,10 +809,12 @@ for (const scenario of [
           return;
         }
 
+        expect(route.request().headers()['x-booking-attempt-version']).toBe('2');
         await route.fulfill({
           status: 409,
           contentType: 'application/json',
           body: JSON.stringify({
+            bookingAttemptOutcome: 'resolved_failure',
             error: {
               code: 'DEPOSIT_HOLD_ACTIVE',
               message: 'You already have a booking waiting for its deposit.',
