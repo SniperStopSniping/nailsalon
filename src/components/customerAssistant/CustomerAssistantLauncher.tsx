@@ -653,6 +653,11 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
   };
   const handleWelcomeAction = (action: WelcomeAction) => {
     if (action === 'book') {
+      const bookingPath = routeSalonSlug ? `/${locale}/${routeSalonSlug}/book/service` : `/${locale}/book/service`;
+      if (pathname === bookingPath) {
+        startConsultation();
+        return;
+      }
       openNormalBooking();
       return;
     }
