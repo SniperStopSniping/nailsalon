@@ -395,6 +395,13 @@ describe('BookConfirmClient', () => {
 
     expect(screen.getByText(/awaiting salon approval/i)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start another booking' }));
+
+    expect(publicRecoveryMock.clear).toHaveBeenCalledWith('salon_internal_a');
+    expect(clearBookingState).toHaveBeenCalledTimes(1);
+    expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('/book/service'));
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('does not let a resolved receipt hijack a deliberate new selection', () => {
@@ -525,7 +532,7 @@ describe('BookConfirmClient', () => {
     renderBasicConfirm({ salonId: 'salon_internal_a' });
 
     expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Start a new booking' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start a new booking' })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -543,7 +550,7 @@ describe('BookConfirmClient', () => {
     renderBasicConfirm({ salonId: 'salon_internal_a' });
 
     expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /manage my appointment/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /view my appointments/i })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1101,7 +1108,7 @@ describe('BookConfirmClient', () => {
           message: HOSTILE_SERVER_MESSAGE_FOR_TEST,
         },
       },
-      expected: 'You already have a booking',
+      expected: 'You already have an upcoming appointment',
     },
     {
       code: 'DEPOSIT_HOLD_ACTIVE',
@@ -1113,7 +1120,7 @@ describe('BookConfirmClient', () => {
           details: { holdExpiresAt: '2030-03-20T15:35:00.000Z' },
         },
       },
-      expected: 'You already have a booking',
+      expected: 'You have a booking waiting for its deposit',
     },
     {
       code: 'SMART_FIT_CHANGED',
@@ -1176,16 +1183,35 @@ describe('BookConfirmClient', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
-    expect(await screen.findByText('You already have a booking')).toBeInTheDocument();
+    expect(await screen.findByText('You already have an upcoming appointment')).toBeInTheDocument();
     expect(screen.getByTestId('existing-appointment-send-link')).toBeInTheDocument();
     expect(screen.getByTestId('existing-appointment-manage')).toBeInTheDocument();
-    expect(screen.getByTestId('existing-appointment-edit-contact')).toBeInTheDocument();
+    expect(screen.queryByTestId('existing-appointment-edit-contact')).not.toBeInTheDocument();
     expect(screen.getByTestId('existing-appointment-retry')).toBeInTheDocument();
     expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('existing-appointment-manage'));
 
     expect(routerPush).toHaveBeenCalledWith('/en/salon-a/find-booking');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Book another appointment' }));
+
+    expect(screen.getByRole('heading', { name: 'Review your appointment' })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers private appointment management without an identifying lookup and lets the customer continue', () => {
+    renderBasicConfirm();
+
+    expect(screen.getByRole('link', { name: 'View my appointments' })).toHaveAttribute('href', '/en/salon-a/find-booking');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Book another appointment' }));
+
+    expect(screen.queryByRole('complementary', { name: 'Existing appointment options' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Review your appointment' })).toHaveFocus();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
   });
 
   describe('booking policy presentation', () => {

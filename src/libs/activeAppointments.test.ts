@@ -436,3 +436,33 @@ describe('getActiveAppointmentsForCanonicalClientWithHandle', () => {
     expect(found.map(row => row.id)).toContain(appointmentId);
   });
 });
+
+it('returns every applicable visit and does not hide a hold behind ordinary upcoming appointments', async () => {
+  const phone = '4165550666';
+  const clientId = 'active-many-visits';
+  const expiresAt = new Date('2099-07-01T12:30:00Z');
+  await db.insert(schema.salonClientSchema).values({ id: clientId, salonId: SALON_A, phone });
+  await db.insert(schema.appointmentSchema).values(Array.from({ length: 32 }, (_, index) => ({
+    id: `active-many-${index}`,
+    salonId: SALON_A,
+    salonClientId: clientId,
+    clientPhone: phone,
+    status: index === 31 ? 'awaiting_payment' : 'confirmed',
+    startTime: new Date(NOW.getTime() + (index + 1) * 86_400_000),
+    endTime: new Date(NOW.getTime() + (index + 1) * 86_400_000 + 3_600_000),
+    totalPrice: 6500,
+    totalDurationMinutes: 60,
+    depositHoldExpiresAt: index === 31 ? expiresAt : null,
+  })));
+  const canonical = await getActiveAppointmentsForCanonicalClientWithHandle(db, {
+    salonId: SALON_A,
+    terminalClientId: clientId,
+    horizon: 'recovery',
+    now: NOW,
+  });
+  const contact = await getActiveAppointmentsForContact({ salonId: SALON_A, phone, horizon: 'recovery', now: NOW });
+
+  expect(canonical).toHaveLength(32);
+  expect(contact).toHaveLength(32);
+  expect(canonical.at(-1)).toMatchObject({ id: 'active-many-31', status: 'awaiting_payment', depositHoldExpiresAt: expiresAt });
+});

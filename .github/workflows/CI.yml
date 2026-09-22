@@ -1389,7 +1389,7 @@ jobs:
           set -euo pipefail
           npm run test:deposits:pg | tee d5-postgres-concurrency.log
           grep -Fqx \
-            'D5_REAL_POSTGRES_TESTS_EXECUTED=5 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
+            'D5_REAL_POSTGRES_TESTS_EXECUTED=6 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
             d5-postgres-concurrency.log
 
       - name: Run all D6/D6.1 real-PostgreSQL money races and prove zero skips

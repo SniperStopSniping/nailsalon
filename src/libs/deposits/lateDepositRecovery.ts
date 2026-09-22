@@ -294,7 +294,13 @@ async function restoreReleasedHold(deposit: DepositRow): Promise<boolean> {
         allowArchived: true,
       });
 
-      if (active.length > 0) {
+      // Multiple ordinary future visits are legitimate. A second unpaid hold
+      // or an in-progress service remains conservative: restoring this late
+      // payment would otherwise create overlapping payment/lifecycle claims.
+      if (active.some(appointment => (
+        appointment.status === 'awaiting_payment'
+        || appointment.status === 'in_progress'
+      ))) {
         return false;
       }
 

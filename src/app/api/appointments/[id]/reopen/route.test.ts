@@ -239,7 +239,7 @@ describe('POST /api/appointments/:id/reopen', () => {
     getActiveAppointmentsForCanonicalClientWithHandle.mockImplementation(
       async () => {
         callOrder.push('active-check');
-        return [{ id: 'appt_other' }];
+        return [{ id: 'appt_other', status: 'in_progress' }];
       },
     );
 

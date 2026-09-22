@@ -390,7 +390,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
               excludeAppointmentId: appointmentId,
               allowArchived: true,
             });
-          if (activeAppointments.length > 0) {
+          if (activeAppointments.some(active => active.status === 'in_progress')) {
             throw new TransitionConflictError();
           }
         }

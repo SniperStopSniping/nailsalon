@@ -1733,7 +1733,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
               allowArchived: true,
             },
           );
-        if (competingAppointments.length > 0) {
+        if (competingAppointments.some(competing => competing.status === 'in_progress')) {
           throw new StartAppointmentActiveConflictError();
         }
 

@@ -1122,7 +1122,8 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
                 excludeAppointmentId: appointmentId,
                 allowArchived: true,
               });
-            const [blockingAppointment] = activeAppointments;
+            const blockingAppointment = activeAppointments.find(active =>
+              active.status === 'in_progress' || active.status === 'awaiting_payment');
             if (blockingAppointment) {
               throw new ActiveAppointmentConflictError({
                 appointmentId: blockingAppointment.id,

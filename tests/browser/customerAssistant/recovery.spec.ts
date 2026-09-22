@@ -140,6 +140,63 @@ test('direct normal confirmation has no recovery banner at 320px', async ({ page
   expect(routes.unexpected).toEqual([]);
 });
 
+test('existing appointment choices preserve privacy and keyboard focus at 320px and 200 percent text', async ({ page }) => {
+  const routes = await installSyntheticRecoveryRoutes(page);
+  await openConfirm(page);
+  await fillGuestDetails(page);
+  await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+  const options = page.getByRole('complementary', { name: 'Existing appointment options' });
+
+  await expect(options.getByRole('link', { name: 'View my appointments' })).toHaveAttribute('href', `/en/${SALON_SLUG}/find-booking`);
+  await expect(options.getByRole('button', { name: /cancel/i })).toHaveCount(0);
+  expect(routes.appointmentPosts).toHaveLength(0);
+  expect(routes.recoveryPosts).toHaveLength(0);
+
+  await options.getByRole('button', { name: 'Book another appointment' }).focus();
+  await page.keyboard.press('Enter');
+
+  await expect(options).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Review your appointment' })).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  expect(routes.appointmentPosts).toHaveLength(0);
+
+  await page.getByRole('button', { name: /confirm appointment/i }).click();
+
+  await expect(page.getByRole('heading', { name: 'Appointment confirmed' })).toBeVisible();
+  expect(routes.appointmentPosts).toHaveLength(1);
+});
+
+test('manage existing opens secure recovery without submitting another appointment', async ({ page }) => {
+  const routes = await installSyntheticRecoveryRoutes(page);
+  await openConfirm(page);
+  await page.getByRole('link', { name: 'View my appointments' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Find my booking' })).toBeVisible();
+  expect(routes.appointmentPosts).toHaveLength(0);
+  expect(routes.recoveryPosts).toHaveLength(0);
+});
+
+test('a deliberate new booking clears only the resolved receipt and accepts a new submission', async ({ page }) => {
+  const routes = await installSyntheticRecoveryRoutes(page);
+  await openConfirm(page);
+  await fillGuestDetails(page);
+  await page.getByRole('button', { name: /confirm appointment/i }).click();
+
+  await expect(page.getByRole('heading', { name: 'Appointment confirmed' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Start another booking' }).click();
+
+  expect(await page.evaluate(key => sessionStorage.getItem(key), ATTEMPT_STORAGE_KEY)).toBeNull();
+
+  await openConfirm(page);
+  await fillGuestDetails(page);
+  await page.getByRole('button', { name: /confirm appointment/i }).click();
+
+  await expect(page.getByRole('heading', { name: 'Appointment confirmed' })).toBeVisible();
+  expect(routes.appointmentPosts).toHaveLength(2);
+  expect(routes.recoveryPosts).toHaveLength(0);
+});
+
 test('a double tap creates one booking POST at 320px', async ({ page }) => {
   let releaseResponse: (() => void) | null = null;
   const responseReady = new Promise<void>((resolve) => {

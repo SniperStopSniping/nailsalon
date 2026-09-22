@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0089_service_add_on_manual_confirmation';
-const MIGRATION_COUNT = 89;
+const FINAL_MIGRATION = '0090_misty_sprite';
+const MIGRATION_COUNT = 90;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -369,6 +369,7 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   // needs no plan step for it.
   // Durable customer booking operations belong only to their synthetic salon.
   ['public', 'customer_booking_operation', 'customer_booking_operation_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'public_booking_attempt', 'public_booking_attempt_salon_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'billing_customer', 'billing_customer_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'billing_promotion_claim', 'billing_promotion_claim_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
   ['public', 'billing_starter_grant', 'billing_starter_grant_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],

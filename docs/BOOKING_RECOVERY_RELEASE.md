@@ -29,6 +29,16 @@ SMS recovery uses the existing communications dispatcher, canonical/snapshot ide
 
 Every lookup outcome returns the neutral accepted response (with the existing infrastructure-unavailable error contract retained). No appointment details or existence are returned to the requester. Token access remains bearer-based and tenant-scoped.
 
+## Multiple upcoming appointments
+
+Ordinary confirmed and pending appointments no longer reject another booking or reschedule for the same canonical client. The canonical-client transaction lock still checks unpaid holds across merged/archived lineage, and each technician's slot guard remains authoritative. Historical contacts on linked appointments defer to canonical client authority; raw snapshot conflict checks remain for unlinked legacy records.
+
+Starting a visit and reactivating a prior visit no longer reject solely because another ordinary future visit exists. In-service conflicts, unpaid holds where applicable, technician slot checks, status compare-and-swap and financial safeguards remain. Late-deposit recovery can restore a paid appointment alongside an ordinary non-overlapping future visit instead of refunding solely because that visit exists.
+
+Canonical recovery selectors return all applicable active visits instead of truncating at ten/twenty-five. Email aggregates the applicable links; SMS queues a separately authorized, deduplicated recovery intent for each applicable appointment. Per-appointment token limits and suppression remain unchanged. The existing unlinked-orphan safety bound remains fail-closed above twenty-five matches, returning the neutral salon-assistance path rather than selecting an arbitrary subset.
+
+Anonymous confirmation offers a neutral 'Already have an upcoming appointment?' choice without a contact lookup or appointment-count disclosure. 'View my appointments' opens secure recovery; 'Book another appointment' returns focus to review without submitting. Counts, dates and service details are available through authorized management links. There is no one-tap cancellation. Direct confirmation's 'Start another booking' clears only a resolved receipt, never an unresolved attempt.
+
 ## UI
 
 Pending recovery stays visible during checks, hides both 'Not booked yet' variants, disables confirmation, and offers Check again, Find my booking and salon contact. Authoritative failure restores review without automatically submitting. Recovered payment holds and terminal statuses have distinct presentation. Recovery actions stack at small widths so 320px/200% text remains usable.

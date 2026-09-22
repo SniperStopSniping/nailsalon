@@ -1348,6 +1348,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     stableClientId?: string;
     bookingResponse?: Response;
     expectedAppointmentCount?: number;
+    expectedActiveCount?: number;
     expectedAuditActions?: string[];
     expectedReactivationCalendarJob?: boolean;
   }) {
@@ -1431,7 +1432,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
           normalizedValue: '4165553002',
         },
       ]);
-    expect(active).toHaveLength(1);
+    expect(active).toHaveLength(input.expectedActiveCount ?? 1);
     expect(original.clientPhone).toBe(input.historicalPhone);
     expect(original.clientEmail).toBe(input.historicalEmail);
     expect(original.salonClientId).toBe(
@@ -1495,7 +1496,12 @@ suite('POST /api/appointments — genuine concurrency', () => {
       expect(appointmentRows).toHaveLength(input.expectedAppointmentCount ?? 2);
       expect(appointmentServices).toHaveLength(1);
       expect(appointmentAddOns).toHaveLength(0);
-      expect(accessTokens).toHaveLength(1);
+
+      if (input.expectedActiveCount === undefined) {
+        expect(accessTokens).toHaveLength(1);
+      } else {
+        expect(accessTokens.length).toBeGreaterThanOrEqual(1);
+      }
 
       const booking = appointmentRows.find(
         appointment => appointment.id !== input.originalAppointmentId,
@@ -1506,7 +1512,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
         salonClientId: 'client_terminal',
       });
       expect(appointmentServices[0]?.appointmentId).toBe(booking?.id);
-      expect(accessTokens[0]?.appointmentId).toBe(booking?.id);
+      expect(accessTokens.some(token => token.appointmentId === booking?.id)).toBe(true);
       expect(deliveries).toHaveLength(2);
       expect(deliveries.map(delivery => ({
         appointmentId: delivery.appointmentId,
@@ -1528,8 +1534,14 @@ suite('POST /api/appointments — genuine concurrency', () => {
             status: 'sent',
           },
         ]);
-      expect(outbox).toHaveLength(1);
-      expect(outbox[0]).toMatchObject({
+
+      const bookingOutbox = outbox.find(row => row.appointmentId === booking?.id);
+
+      if (input.expectedActiveCount === undefined) {
+        expect(outbox).toHaveLength(1);
+      }
+
+      expect(bookingOutbox).toMatchObject({
         salonId: SALON_ID,
         appointmentId: booking?.id,
         provider: 'google_calendar',
@@ -1557,7 +1569,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     }
   }
 
-  async function expectSingleBookingSideEffects(input: {
+  async function _expectSingleBookingSideEffects(input: {
     expectedClientCount: number;
     expectedTerminalClientId?: string;
     expectedAliasCount?: number;
@@ -1769,12 +1781,25 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
     const responses = await Promise.all(requests);
 
-    expect(responses.map(response => response.status).sort()).toEqual([201, 409]);
+    expect(responses.map(response => response.status).sort()).toEqual([201, 201]);
 
-    const loser = responses.find(response => response.status === 409)!;
+    const [clients, appointments, services, tokens, deliveries, outbox] = await Promise.all([
+      db.select().from(schema.salonClientSchema),
+      db.select().from(schema.appointmentSchema),
+      db.select().from(schema.appointmentServicesSchema),
+      db.select().from(schema.appointmentAccessTokenSchema),
+      db.select().from(schema.notificationDeliverySchema),
+      db.select().from(schema.integrationOutboxSchema),
+    ]);
 
-    await expectErrorCode(loser, 'EXISTING_APPOINTMENT');
-    await expectSingleBookingSideEffects({ expectedClientCount: 1 });
+    expect(clients).toHaveLength(1);
+    expect(appointments).toHaveLength(2);
+    expect(appointments.every(appointment => appointment.salonClientId === clients[0]?.id))
+      .toBe(true);
+    expect(services).toHaveLength(2);
+    expect(tokens).toHaveLength(2);
+    expect(deliveries).toHaveLength(4);
+    expect(outbox).toHaveLength(2);
   });
 
   it('serializes an admin email update against new-profile booking creation', async () => {
@@ -2508,8 +2533,10 @@ suite('POST /api/appointments — genuine concurrency', () => {
       startTime: '2099-09-09T18:00:00.000Z',
     }));
 
-    await expectErrorCode(currentContactBooking, 'EXISTING_APPOINTMENT');
-    await expectErrorCode(replacedContactBooking, 'EXISTING_APPOINTMENT');
+    // Both the current contact and the historical alias resolve to the same
+    // terminal client. Different free slots are legitimate repeat visits.
+    expect(currentContactBooking.status).toBe(201);
+    expect(replacedContactBooking.status).toBe(201);
 
     const [
       clients,
@@ -2565,7 +2592,13 @@ suite('POST /api/appointments — genuine concurrency', () => {
         normalizedValue: 'terminal@example.invalid',
       }),
     ]));
-    expect(appointments).toEqual([appointmentBefore]);
+    expect(appointments).toHaveLength(3);
+    expect(appointments).toEqual(expect.arrayContaining([
+      appointmentBefore,
+      expect.objectContaining({ salonClientId: 'client_terminal' }),
+    ]));
+    expect(appointments.filter(appointment => appointment.id !== appointmentBefore.id))
+      .toHaveLength(2);
     expect(communicationsAfter).toEqual(communicationsBefore);
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({
@@ -2578,10 +2611,10 @@ suite('POST /api/appointments — genuine concurrency', () => {
     });
     expect(rewards).toHaveLength(0);
     expect(referrals).toHaveLength(0);
-    expect(services).toHaveLength(0);
-    expect(accessTokens).toHaveLength(0);
-    expect(deliveries).toHaveLength(0);
-    expect(outbox).toHaveLength(0);
+    expect(services).toHaveLength(2);
+    expect(accessTokens).toHaveLength(2);
+    expect(deliveries).toHaveLength(4);
+    expect(outbox).toHaveLength(2);
   });
 
   it('serializes terminal, source, phone-alias, and email-alias bookings', async () => {
@@ -2618,18 +2651,27 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
     const responses = await Promise.all(requests);
 
-    expect(responses.filter(response => response.status === 201)).toHaveLength(1);
-    expect(responses.filter(response => response.status === 409)).toHaveLength(3);
+    expect(responses.map(response => response.status)).toEqual([201, 201, 201, 201]);
 
-    for (const loser of responses.filter(response => response.status === 409)) {
-      await expectErrorCode(loser, 'EXISTING_APPOINTMENT');
-    }
+    const [clients, aliases, appointments, services, tokens, deliveries, outbox] = await Promise.all([
+      db.select().from(schema.salonClientSchema),
+      db.select().from(schema.salonClientContactAliasSchema),
+      db.select().from(schema.appointmentSchema),
+      db.select().from(schema.appointmentServicesSchema),
+      db.select().from(schema.appointmentAccessTokenSchema),
+      db.select().from(schema.notificationDeliverySchema),
+      db.select().from(schema.integrationOutboxSchema),
+    ]);
 
-    await expectSingleBookingSideEffects({
-      expectedClientCount: 2,
-      expectedTerminalClientId: 'client_terminal',
-      expectedAliasCount: 2,
-    });
+    expect(clients).toHaveLength(2);
+    expect(aliases).toHaveLength(2);
+    expect(appointments).toHaveLength(4);
+    expect(appointments.every(appointment => appointment.salonClientId === 'client_terminal'))
+      .toBe(true);
+    expect(services).toHaveLength(4);
+    expect(tokens).toHaveLength(4);
+    expect(deliveries).toHaveLength(8);
+    expect(outbox).toHaveLength(4);
   });
 
   it('serializes an alias booking against reopening a stale source appointment', async () => {
@@ -2666,30 +2708,16 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
     const responses = await Promise.all([bookingPromise, reopenPromise]);
 
-    expect(responses.filter(response => response.status < 300)).toHaveLength(1);
-    expect(responses.filter(response => response.status === 409)).toHaveLength(1);
-
-    if (responses[0]!.status === 409) {
-      await expectErrorCode(responses[0]!, 'EXISTING_APPOINTMENT');
-
-      expect(responses[1]!.status).toBe(200);
-    } else {
-      expect(responses[0]!.status).toBe(201);
-
-      await expectErrorCode(
-        responses[1]!,
-        'CLIENT_ACTIVE_APPOINTMENT_CONFLICT',
-      );
-    }
+    expect(responses[0]!.status).toBe(201);
+    expect(responses[1]!.status).toBe(200);
 
     await expectCanonicalRaceOutcome({
       originalAppointmentId: appointmentId,
       historicalPhone,
       historicalEmail,
       bookingResponse: responses[0],
-      expectedAuditActions: responses[1]!.status === 200
-        ? ['reopened']
-        : [],
+      expectedActiveCount: 2,
+      expectedAuditActions: ['reopened'],
     });
   });
 
@@ -2735,24 +2763,15 @@ suite('POST /api/appointments — genuine concurrency', () => {
       reactivationPromise,
     ]);
 
-    expect(responses.filter(response => response.status < 300)).toHaveLength(1);
-    expect(responses.filter(response => response.status === 409)).toHaveLength(1);
-
-    if (responses[0]!.status === 409) {
-      await expectErrorCode(responses[0]!, 'EXISTING_APPOINTMENT');
-
-      expect(responses[1]!.status).toBe(200);
-    } else {
-      expect(responses[0]!.status).toBe(201);
-
-      await expectErrorCode(responses[1]!, 'INVALID_STATE');
-    }
+    expect(responses[0]!.status).toBe(201);
+    expect(responses[1]!.status).toBe(200);
 
     await expectCanonicalRaceOutcome({
       originalAppointmentId: appointmentId,
       historicalPhone,
       historicalEmail,
       bookingResponse: responses[0],
+      expectedActiveCount: 2,
       expectedReactivationCalendarJob: true,
     });
   });
@@ -2801,21 +2820,8 @@ suite('POST /api/appointments — genuine concurrency', () => {
       transitionPromise,
     ]);
 
-    expect(responses.filter(response => response.status < 300)).toHaveLength(1);
-    expect(responses.filter(response => response.status === 409)).toHaveLength(1);
-
-    if (responses[0]!.status === 409) {
-      await expectErrorCode(responses[0]!, 'EXISTING_APPOINTMENT');
-
-      expect(responses[1]!.status).toBe(200);
-    } else {
-      expect(responses[0]!.status).toBe(201);
-
-      await expectErrorCode(
-        responses[1]!,
-        'CLIENT_ACTIVE_APPOINTMENT_CONFLICT',
-      );
-    }
+    expect(responses[0]!.status).toBe(201);
+    expect(responses[1]!.status).toBe(200);
 
     await expectCanonicalRaceOutcome({
       originalAppointmentId: appointmentId,
@@ -2823,9 +2829,8 @@ suite('POST /api/appointments — genuine concurrency', () => {
       historicalEmail: email,
       stableClientId: 'client_terminal',
       bookingResponse: responses[0],
-      expectedAuditActions: responses[1]!.status === 200
-        ? ['locked', 'status_changed']
-        : [],
+      expectedActiveCount: 2,
+      expectedAuditActions: ['locked', 'status_changed'],
     });
   });
 

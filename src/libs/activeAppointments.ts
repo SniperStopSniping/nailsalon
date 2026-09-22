@@ -85,6 +85,7 @@ export type CanonicalActiveAppointment = Pick<
   | 'status'
   | 'startTime'
   | 'endTime'
+  | 'depositHoldExpiresAt'
 >;
 
 function resultRows(result: unknown): Record<string, unknown>[] {
@@ -172,7 +173,8 @@ export async function getActiveAppointmentsForCanonicalClientWithHandle(
       appointment.client_email,
       appointment.status,
       appointment.start_time,
-      appointment.end_time
+      appointment.end_time,
+      appointment.deposit_hold_expires_at
     from appointment
     where appointment.salon_id = ${args.salonId}
       and appointment.status in (
@@ -194,7 +196,6 @@ export async function getActiveAppointmentsForCanonicalClientWithHandle(
       )
       and (${excluded}::text is null or appointment.id <> ${excluded})
     order by appointment.start_time, appointment.id
-    limit 25
   `);
 
   return resultRows(result).map(row => ({
@@ -208,6 +209,7 @@ export async function getActiveAppointmentsForCanonicalClientWithHandle(
     status: String(row.status),
     startTime: dateFromRow(row.start_time),
     endTime: dateFromRow(row.end_time),
+    depositHoldExpiresAt: row.deposit_hold_expires_at == null ? null : dateFromRow(row.deposit_hold_expires_at),
   })) as CanonicalActiveAppointment[];
 }
 
@@ -274,6 +276,5 @@ export async function getActiveAppointmentsForContact(args: {
         or(...identityConditions),
       ),
     )
-    .orderBy(asc(appointmentSchema.startTime))
-    .limit(10);
+    .orderBy(asc(appointmentSchema.startTime));
 }

@@ -891,14 +891,6 @@ describe('POST /api/appointments booking policy', () => {
         phone: '1111111111',
       }),
     );
-    expect(getActiveAppointmentsForCanonicalClientWithHandle).toHaveBeenCalledWith(
-      db,
-      {
-        salonId: 'salon_1',
-        terminalClientId: 'client_1',
-        horizon: 'lineage-active',
-      },
-    );
     expect(insertState.appointmentValues).toEqual(expect.objectContaining({
       salonClientId: 'client_1',
       clientPhone: '1111111111',
@@ -989,7 +981,7 @@ describe('POST /api/appointments booking policy', () => {
     vi.restoreAllMocks();
   });
 
-  it('rejects a lineage-wide active conflict before any appointment-side insert', async () => {
+  it('allows a second upcoming visit for a canonical client at a different slot', async () => {
     canTechnicianTakeAppointment.mockReturnValue({
       available: true,
       schedule: { start: '09:00', end: '18:00' },
@@ -1005,13 +997,33 @@ describe('POST /api/appointments booking policy', () => {
       endTime: new Date('2099-03-14T16:30:00.000Z'),
     }]);
 
-    const response = await postBooking();
+    mockSuccessfulAppointmentInserts({
+      appointmentId: 'appt_second_visit',
+      salonClientId: 'client_1',
+      clientPhone: '1111111111',
+    });
+    const response = await postBooking({ startTime: '2099-03-15T15:00:00.000Z' });
+
+    expect(response.status).toBe(201);
+    expect(sendBookingNotificationsForNewBooking).toHaveBeenCalledOnce();
+  });
+
+  it('blocks a canonical client when an awaiting-payment hold follows ordinary upcoming visits', async () => {
+    canTechnicianTakeAppointment.mockReturnValue({ available: true, schedule: { start: '09:00', end: '18:00' } });
+    getActiveAppointmentsForCanonicalClientWithHandle.mockResolvedValue([
+      { id: 'appt_confirmed', status: 'confirmed', depositHoldExpiresAt: null },
+      { id: 'appt_hold', status: 'awaiting_payment', depositHoldExpiresAt: new Date('2099-03-14T15:00:00.000Z') },
+    ]);
+
+    const response = await postBooking({ startTime: '2099-03-13T15:00:00.000Z' });
     const body = await response.json();
 
     expect(response.status).toBe(409);
-    expect(body.error.code).toBe('EXISTING_APPOINTMENT');
+    expect(body.error).toMatchObject({
+      code: 'DEPOSIT_HOLD_ACTIVE',
+      details: { holdExpiresAt: '2099-03-14T15:00:00.000Z' },
+    });
     expect(db.insert).not.toHaveBeenCalled();
-    expect(sendBookingNotificationsForNewBooking).not.toHaveBeenCalled();
   });
 
   it('serializes a genuinely new phone and email before creating the client in-transaction', async () => {
@@ -1197,38 +1209,17 @@ describe('POST /api/appointments booking policy', () => {
     expect(db.transaction).not.toHaveBeenCalled();
   });
 
-  it('returns a 409 without any appointment details when an active booking exists', async () => {
+  it('allows a guest with one prior upcoming visit to make a second appointment', async () => {
+    canTechnicianTakeAppointment.mockReturnValue({ available: true, schedule: { start: '09:00', end: '18:00' } });
     getActiveAppointmentsForContact.mockResolvedValue([{
       id: 'appt_existing',
       startTime: new Date('2099-03-14T15:00:00.000Z'),
     }]);
 
-    const response = await POST(
-      new Request('http://localhost/api/appointments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          salonSlug: 'salon-a',
-          serviceIds: ['srv_1'],
-          technicianId: 'tech_1',
-          startTime: '2099-03-13T17:00:00.000Z',
-        }),
-      }),
-    );
-    const body = await response.json();
+    mockSuccessfulAppointmentInserts({ appointmentId: 'appt_second_guest', salonClientId: 'client_1', clientPhone: '1111111111' });
+    const response = await postBooking({ startTime: '2099-03-13T15:00:00.000Z' });
 
-    expect(response.status).toBe(409);
-    expect(body.error.code).toBe('EXISTING_APPOINTMENT');
-
-    // Anti-enumeration: the body must not leak the existing appointment's
-    // id or schedule to a caller who only knows a phone number.
-    const serialized = JSON.stringify(body);
-
-    expect(serialized).not.toContain('existingAppointmentId');
-    expect(serialized).not.toContain('existingAppointmentDate');
-    expect(serialized).not.toContain('appt_existing');
-    expect(serialized).not.toContain('2099-03-14');
-    expect(db.insert).not.toHaveBeenCalled();
+    expect(response.status).toBe(201);
   });
 
   it('passes requested services and location constraints into any-tech assignment', async () => {
@@ -2142,15 +2133,6 @@ describe('POST /api/appointments booking policy', () => {
       expect.anything(),
       { salonId: 'salon_1', clientId: 'client_1' },
     );
-    expect(getActiveAppointmentsForCanonicalClientWithHandle).toHaveBeenCalledWith(
-      expect.anything(),
-      {
-        salonId: 'salon_1',
-        terminalClientId: 'client_1',
-        horizon: 'lineage-active',
-        excludeAppointmentId: 'appt_original',
-      },
-    );
   });
 
   it('rolls back a reschedule when cancelling the original appointment fails', async () => {
@@ -2762,17 +2744,16 @@ describe('POST /api/appointments booking policy', () => {
       );
     });
 
-    it('blocks a genuine duplicate on the normalized phone', async () => {
+    it('allows a second visit with the same normalized phone at a different slot', async () => {
       signedOut();
+      canTechnicianTakeAppointment.mockReturnValue({ available: true, schedule: { start: '09:00', end: '18:00' } });
+      mockSuccessfulAppointmentInserts({ appointmentId: 'appt_second_phone', salonClientId: 'client_1', clientPhone: '9999999999' });
       getActiveAppointmentsForContact.mockImplementation(async (args: { phone?: string }) =>
         (args.phone === '9999999999' ? [{ id: 'appt_x', clientPhone: '+19999999999', clientEmail: null }] : []));
 
       const response = await post({ clientPhone: '9999999999' });
-      const body = await response.json();
 
-      expect(response.status).toBe(409);
-      expect(body.error.code).toBe('EXISTING_APPOINTMENT');
-      expect(db.transaction).not.toHaveBeenCalled();
+      expect(response.status).toBe(201);
     });
 
     it('keeps the guest-facing block message free of appointment details', async () => {
@@ -2806,18 +2787,18 @@ describe('POST /api/appointments booking policy', () => {
       expect(response.status).not.toBe(409);
     });
 
-    it('blocks on email for a legacy row that has no phone', async () => {
+    it('allows a second visit when a legacy row matches only the email', async () => {
       signedOut();
+      canTechnicianTakeAppointment.mockReturnValue({ available: true, schedule: { start: '09:00', end: '18:00' } });
+      mockSuccessfulAppointmentInserts({ appointmentId: 'appt_second_email', salonClientId: 'client_1', clientPhone: '9999999999' });
       getActiveAppointmentsForContact.mockImplementation(async (args: { email?: string }) =>
         (args.email
           ? [{ id: 'appt_legacy', clientPhone: null, clientEmail: 'legacy@example.com' }]
           : []));
 
       const response = await post({ clientPhone: '9999999999', clientEmail: 'legacy@example.com' });
-      const body = await response.json();
 
-      expect(response.status).toBe(409);
-      expect(body.error.code).toBe('EXISTING_APPOINTMENT');
+      expect(response.status).toBe(201);
     });
 
     it('reports an identity conflict when phone and email point at different people', async () => {

@@ -499,10 +499,9 @@ class BookingClientConflictError extends Error {
   }
 }
 
-class BookingActiveAppointmentError extends Error {
-  constructor() {
-    super('BOOKING_ACTIVE_APPOINTMENT');
-    this.name = 'BookingActiveAppointmentError';
+class BookingDepositHoldActiveError extends Error {
+  constructor(readonly holdExpiresAt: Date | null) {
+    super('DEPOSIT_HOLD_ACTIVE');
   }
 }
 
@@ -751,22 +750,6 @@ function bookingClientConflictResponse(): Response {
       error: {
         code: 'CONTACT_IDENTITY_CONFLICT',
         message: 'These contact details cannot be used for an online booking. Please check the details, or contact the salon for help.',
-      },
-    } satisfies ErrorResponse,
-    { status: 409 },
-  );
-}
-
-function bookingActiveAppointmentResponse(
-  bookingSubjectMode: BookingSubjectMode,
-): Response {
-  return Response.json(
-    {
-      error: {
-        code: 'EXISTING_APPOINTMENT',
-        message: bookingSubjectMode === 'self'
-          ? 'You already have an upcoming appointment. Use your appointment link to change or cancel it, or request a fresh link.'
-          : 'An active appointment already exists for these contact details. Use the appointment-access email or contact the salon for help.',
       },
     } satisfies ErrorResponse,
     { status: 409 },
@@ -2029,15 +2012,13 @@ async function createAppointmentFromRequestCore(
           : Promise.resolve([]),
       ]);
 
-      const stableLineageIds = new Set(
-        preliminaryCanonicalIdentity?.clientIds ?? [],
-      );
-      const eligiblePhoneMatches = phoneMatches.filter(appointment =>
-        appointment.salonClientId == null
-        || stableLineageIds.has(appointment.salonClientId));
-      const eligibleEmailMatches = emailMatches.filter(appointment =>
-        appointment.salonClientId == null
-        || stableLineageIds.has(appointment.salonClientId));
+      // Stable rows belong to canonical client lineages and are reconciled
+      // under that lineage's transaction lock below. Feeding historical source
+      // phone snapshots from the same lineage to raw contact classification
+      // would mislabel one customer as two different people after a merge.
+      // This preflight classifier is only for genuinely unlinked legacy rows.
+      const eligiblePhoneMatches = phoneMatches.filter(appointment => appointment.salonClientId == null);
+      const eligibleEmailMatches = emailMatches.filter(appointment => appointment.salonClientId == null);
       const duplicate = classifyDuplicateBooking({
         normalizedPhone,
         email: normalizedClientEmail,
@@ -2085,17 +2066,9 @@ async function createAppointmentFromRequestCore(
           );
         }
 
-        return Response.json(
-          {
-            error: {
-              code: 'EXISTING_APPOINTMENT',
-              message: bookingSubjectMode === 'self'
-                ? 'You already have an upcoming appointment. Use your appointment link to change or cancel it, or request a fresh link.'
-                : 'An active appointment already exists for these contact details. Use the appointment-access email or contact the salon for help.',
-            },
-          } satisfies ErrorResponse,
-          { status: 409 },
-        );
+        // Ordinary confirmed/pending appointments are not a duplicate-booking
+        // authority. A client can legitimately schedule multiple future visits;
+        // slot locking below remains the only temporal conflict gate.
       }
     }
 
@@ -3703,6 +3676,23 @@ async function createAppointmentFromRequestCore(
                 }
               }
               const salonClient = await resolveBookingSalonClientInTx(tx, expectedTerminalClientId);
+              // The canonical-client lock above serializes every alias of this
+              // client. Scan the whole lineage for an unpaid hold here, not
+              // just the first preflight contact result; confirmed/pending
+              // visits remain intentionally allowed.
+              const lineageAppointments = await getActiveAppointmentsForCanonicalClientWithHandle(
+                tx as LifecycleSqlHandle,
+                {
+                  salonId: salon.id,
+                  terminalClientId: salonClient.id,
+                  horizon: 'lineage-active',
+                  excludeAppointmentId: normalizedOriginalApptId,
+                },
+              );
+              const existingHold = lineageAppointments.find(appointment => appointment.status === 'awaiting_payment');
+              if (existingHold) {
+                throw new BookingDepositHoldActiveError(existingHold.depositHoldExpiresAt ?? null);
+              }
               if (catalogOutcome.status === 'ok' && catalogSelectionInput) {
                 const configuration = await lockAndResolveRequiredBookingPolicyInTx(tx);
                 const current = await reconcileCatalogSelection({
@@ -4034,20 +4024,6 @@ async function createAppointmentFromRequestCore(
               throw new BookingClientConflictError();
             }
 
-            const competingAppointments
-              = await getActiveAppointmentsForCanonicalClientWithHandle(
-                tx as LifecycleSqlHandle,
-                {
-                  salonId: salon.id,
-                  terminalClientId: lockedSalonClient.id,
-                  horizon: 'lineage-active',
-                  excludeAppointmentId: normalizedOriginalApptId,
-                },
-              );
-            if (competingAppointments.length > 0) {
-              throw new BookingActiveAppointmentError();
-            }
-
             const originalMutationVersion = new Date(Math.max(
               Date.now(),
               lockedOriginal.updatedAt.getTime() + 1,
@@ -4276,8 +4252,14 @@ async function createAppointmentFromRequestCore(
         appointmentAddOns = transactionalResult.appointmentAddOns;
         salonClient = transactionalResult.salonClient;
       } catch (error) {
-        if (error instanceof BookingActiveAppointmentError) {
-          return bookingActiveAppointmentResponse(bookingSubjectMode);
+        if (error instanceof BookingDepositHoldActiveError) {
+          return Response.json({
+            error: {
+              code: 'DEPOSIT_HOLD_ACTIVE',
+              message: 'You already have a booking waiting for its deposit. Finish that payment, or wait for the hold to expire.',
+              details: { holdExpiresAt: error.holdExpiresAt?.toISOString() ?? null },
+            },
+          } satisfies ErrorResponse, { status: 409 });
         }
         if (error instanceof RescheduleRequiresManageFlowError) {
           return Response.json(
@@ -4381,19 +4363,6 @@ async function createAppointmentFromRequestCore(
                 blockedEndTime,
                 now,
               });
-            }
-
-            const competingAppointments
-            = await getActiveAppointmentsForCanonicalClientWithHandle(
-              tx as LifecycleSqlHandle,
-              {
-                salonId: salon.id,
-                terminalClientId: lockedSalonClient.id,
-                horizon: 'lineage-active',
-              },
-            );
-            if (competingAppointments.length > 0) {
-              throw new BookingActiveAppointmentError();
             }
 
             await finalizeBookingPricingInTx(tx, lockedSalonClient, lockedBookingConfiguration.invoiceCurrency);
@@ -4911,6 +4880,15 @@ async function createAppointmentFromRequestCore(
           respondDepositNotRequired = true;
         }
       } catch (error) {
+        if (error instanceof BookingDepositHoldActiveError) {
+          return Response.json({
+            error: {
+              code: 'DEPOSIT_HOLD_ACTIVE',
+              message: 'You already have a booking waiting for its deposit. Finish that payment, or wait for the hold to expire.',
+              details: { holdExpiresAt: error.holdExpiresAt?.toISOString() ?? null },
+            },
+          } satisfies ErrorResponse, { status: 409 });
+        }
         if (error instanceof PublicBookingAttemptError) {
           if (error.kind === 'failed') {
             return Response.json({
@@ -4985,9 +4963,6 @@ async function createAppointmentFromRequestCore(
         }
         if (isBookingPolicyLockTimeout(error)) {
           return bookingPolicyCheckRetryResponse();
-        }
-        if (error instanceof BookingActiveAppointmentError) {
-          return bookingActiveAppointmentResponse(bookingSubjectMode);
         }
         if (
           error instanceof BookingClientConflictError
