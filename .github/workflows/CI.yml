@@ -1469,7 +1469,7 @@ jobs:
             src/libs/appointmentCreation.customerOperation.concurrency.integration.test.ts \
             | tee customer-booking-postgres.log
           grep -Fqx 'CUSTOMER_OPERATION_POSTGRES_TESTS_EXECUTED=12 CUSTOMER_OPERATION_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
-          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=34 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
+          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=35 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
 
       - name: Verify calendar block and booking fence races on real PostgreSQL with zero skips
         shell: bash
