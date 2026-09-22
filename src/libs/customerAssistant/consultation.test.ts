@@ -6,6 +6,7 @@ import { SEMANTIC_L1_MENU as menu, SEMANTIC_L1_SNAPSHOT as snapshot } from './__
 import { assessCustomerConsultation, customerConsultationChoices, customerPartialQuoteSelection } from './consultation';
 import type { CustomerSelection } from './contracts';
 import { emptyFacts, type Facts, mergeFacts } from './semanticFacts';
+import { resolveSemanticSelection } from './semanticSelection';
 
 const gelx = menu.services.find(item => item.name === 'Gel-X Extensions')!.id;
 const biab = menu.services.find(item => item.name === 'BIAB Builder Gel')!.id;
@@ -73,6 +74,48 @@ describe('server-owned consultation completeness', () => {
     const manicure = menu.services.find(item => item.name === 'Gel Manicure')!.id;
 
     expect(assess({ ...emptyFacts(), treatment: 'gel_polish', desiredApplication: 'natural_nails', designPreference: 'plain' }, { baseServiceId: manicure, selectedAddOns: [] })).toMatchObject({ kind: 'clarification', question: 'product' });
+  });
+
+  it('uses one salon-configured general other-salon removal without requiring the product name in the add-on', () => {
+    const manicure = menu.services.find(item => item.name === 'Gel Manicure')!.id;
+    const generalRemoval = addon('Removal From Another Salon');
+    const facts: Facts = {
+      ...emptyFacts(),
+      treatment: 'gel_polish',
+      desiredApplication: 'natural_nails',
+      existingProduct: 'builder_gel',
+      origin: 'other_salon',
+      removal: 'yes',
+      designPreference: 'plain',
+    };
+
+    const expected = {
+      kind: 'selection',
+      selection: { baseServiceId: manicure, selectedAddOns: [{ addOnId: generalRemoval, quantity: 1 }] },
+    } as const;
+
+    expect(resolveSemanticSelection({ menu, facts, candidate: { baseServiceId: manicure, selectedAddOns: [] } })).toEqual(expected);
+    expect(assess(facts, { baseServiceId: manicure, selectedAddOns: [] })).toEqual(expected);
+  });
+
+  it('uses an included own-work removal with its configured duration and no extra charge', () => {
+    const manicure = menu.services.find(item => item.name === 'Gel Manicure')!.id;
+    const ownRemoval = addon('Removal of Our Work');
+    const facts: Facts = {
+      ...emptyFacts(),
+      treatment: 'gel_polish',
+      desiredApplication: 'natural_nails',
+      existingProduct: 'builder_gel',
+      origin: 'this_salon',
+      removal: 'yes',
+      designPreference: 'plain',
+    };
+    const result = assess(facts, { baseServiceId: manicure, selectedAddOns: [] });
+    const quote = resolveCatalogSelection(snapshot, { serviceId: manicure, selectedAddOns: [{ addOnId: ownRemoval, quantity: 1 }] });
+
+    expect(result).toEqual({ kind: 'selection', selection: { baseServiceId: manicure, selectedAddOns: [{ addOnId: ownRemoval, quantity: 1 }] } });
+
+    expect(quote).toMatchObject({ ok: true, selection: { subtotalCents: 4000, totalDurationMinutes: 75 } });
   });
 
   it('accepts an explicitly included base length without a fabricated add-on ID', () => {

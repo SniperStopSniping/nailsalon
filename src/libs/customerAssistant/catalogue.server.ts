@@ -117,14 +117,17 @@ export async function loadCustomerClarificationSnapshot(salonId: string): Promis
 export async function buildCustomerProposal(salonId: string, features: SalonFeatures | null, selection: CustomerSelection): Promise<CustomerProposal> {
   const menu = await loadCustomerMenu(salonId, features);
   validateCustomerMenuSelection(menu, selection);
-  const [{ quote, l1 }, config] = await Promise.all([
+  const [{ quote, l1, baseServiceRecord, addOnRecords }, config] = await Promise.all([
     validatePublicBookingSelection({ salonId, selection }),
     getBookingConfigForSalon(salonId),
   ]);
   const material = {
     selection,
-    service: { id: quote.baseService.id, name: quote.baseService.name, priceCents: quote.baseService.priceCents },
-    addOns: quote.addOns.filter(item => item.priceMode !== 'manual_confirmation').map(item => ({ id: item.addOnId, name: item.name, quantity: item.quantity, priceCents: item.lineTotalCents, unitPriceCents: item.unitPriceCents })),
+    service: { id: quote.baseService.id, name: quote.baseService.name, priceCents: quote.baseService.priceCents, ...(baseServiceRecord?.priceDisplayText ? { priceDisplayText: baseServiceRecord.priceDisplayText } : {}) },
+    addOns: quote.addOns.filter(item => item.priceMode !== 'manual_confirmation').map((item) => {
+      const priceDisplayText = addOnRecords?.find(record => record.id === item.addOnId)?.priceDisplayText;
+      return { id: item.addOnId, name: item.name, quantity: item.quantity, priceCents: item.lineTotalCents, unitPriceCents: item.unitPriceCents, ...(priceDisplayText ? { priceDisplayText } : {}) };
+    }),
     manualConfirmationItems: (quote.manualConfirmationItems ?? []).map(item => ({ id: item.addOnId, name: item.name, quantity: item.quantity, durationMinutes: item.lineDurationMinutes, priceStatus: item.priceStatus })),
     currency: config.currency,
     subtotalCents: quote.subtotalCents,

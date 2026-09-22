@@ -10,7 +10,7 @@ export type NormalConfirmHandoff = {
   expiresAt: string;
 };
 
-type ManualContext = { currentProduct: 'gel_x' | 'builder_gel' | 'acrylic' | 'gel_polish' | 'unknown'; itemIds: string[] };
+type ManualContext = { currentProduct: 'gel_x' | 'builder_gel' | 'acrylic' | 'gel_polish' | 'unknown'; itemIds: string[]; removalRequired?: boolean };
 type FlowPayload = { salonId: string; flowId: string; issuedAt: number; manualConfirmationContext?: ManualContext };
 
 function sign(secret: string, payload: FlowPayload): string {
@@ -47,7 +47,7 @@ export function verifyNormalConfirmHandoff(args: { salonId: string; flowToken: s
   if (contextText) {
     try {
       const candidate = JSON.parse(Buffer.from(contextText, 'base64url').toString('utf8')) as ManualContext;
-      if (!['gel_x', 'builder_gel', 'acrylic', 'gel_polish', 'unknown'].includes(candidate.currentProduct) || !Array.isArray(candidate.itemIds) || candidate.itemIds.length > 20 || candidate.itemIds.some(id => typeof id !== 'string' || id.length > 100)) {
+      if (!['gel_x', 'builder_gel', 'acrylic', 'gel_polish', 'unknown'].includes(candidate.currentProduct) || !Array.isArray(candidate.itemIds) || candidate.itemIds.length > 20 || candidate.itemIds.some(id => typeof id !== 'string' || id.length > 100) || (candidate.removalRequired !== undefined && typeof candidate.removalRequired !== 'boolean')) {
         throw new Error('NORMAL_CONFIRM_HANDOFF_CONTEXT_INVALID');
       }
       manualConfirmationContext = candidate;

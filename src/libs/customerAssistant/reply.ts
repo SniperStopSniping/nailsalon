@@ -129,7 +129,8 @@ export function buildReplyFacts(args: ReplyInput): Record<string, string> {
         : `${addOn.name} is supported with this service; the nail tech must confirm its price and its configured duration is ${addOn.durationMinutes} minutes.`;
       continue;
     }
-    facts[`addon_${i}`] = `${addOn.name}: ${addOn.price.baseDisplay} (${publicFacts.catalogue.currency}), ${addOn.durationMinutes} min${addOn.pricingType === 'per_unit' ? (fr ? ' par unité' : ' per unit') : ''}.`;
+    const price = addOn.price.range?.display ?? addOn.price.displayLabel ?? addOn.price.baseDisplay;
+    facts[`addon_${i}`] = `${addOn.name}: ${price} (${publicFacts.catalogue.currency}), ${addOn.durationMinutes} min${addOn.pricingType === 'per_unit' ? (fr ? ' par unité' : ' per unit') : ''}.`;
   }
   const subjects = [...new Set([...(args.conversation.priorSubjects ?? []), ...(args.conversation.subjects ?? []), ...(args.nextState.subjects ?? [])])].slice(-4);
   for (let a = 0; a < subjects.length; a++) {

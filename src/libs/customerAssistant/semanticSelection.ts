@@ -143,6 +143,25 @@ function productMatches(addOn: PublicAddOn, product: Facts['existingProduct']): 
   }
 }
 
+function namesSpecificProduct(addOn: PublicAddOn): boolean {
+  const text = textFor(addOn);
+  return /\bgel x\b|\bgelx\b|\bbiab\b|\bbuilder\b|\bgel polish\b|\bacrylic\b|\bhard gel\b|\bextension/.test(text);
+}
+
+function removalForOrigin(allowed: PublicAddOn[], facts: Facts): PublicAddOn | null {
+  const originMatches = allowed.filter(isRemoval).filter(addOn => (
+    facts.origin === 'this_salon' ? !isForeignRemoval(addOn) : isForeignRemoval(addOn)
+  ));
+  const exact = originMatches.filter(addOn => productMatches(addOn, facts.existingProduct));
+  if (exact.length) {
+    return unique(exact);
+  }
+  // A salon can intentionally bind one general own-work or other-salon
+  // removal across products. The customer's current product is still kept as
+  // appointment context; it does not have to be repeated in the add-on name.
+  return unique(originMatches.filter(addOn => !namesSpecificProduct(addOn)));
+}
+
 /** Shared vocabulary mapping only; catalog rules remain with the L1 resolver. */
 export const semanticCatalog = {
   serviceFamily,
@@ -157,6 +176,7 @@ export const semanticCatalog = {
   isRemoval,
   isForeignRemoval,
   productMatches,
+  namesSpecificProduct,
 };
 
 function unique<T>(items: T[]): T | null {
@@ -305,11 +325,13 @@ export function resolveSemanticSelection(args: {
     if (facts.origin === 'unknown') {
       return clarification('origin');
     }
-    const removalCandidates = allowed.filter(isRemoval).filter(addOn => productMatches(addOn, facts.existingProduct));
+    const removalCandidates = allowed.filter(isRemoval).filter(addOn => (
+      productMatches(addOn, facts.existingProduct) || !namesSpecificProduct(addOn)
+    ));
     const originCandidates = facts.origin === 'this_salon'
       ? removalCandidates.filter(addOn => !isForeignRemoval(addOn))
       : removalCandidates.filter(isForeignRemoval);
-    const removal = unique(originCandidates);
+    const removal = removalForOrigin(allowed, facts);
     if (!removal) {
       return clarification('removal', originCandidates.length ? originCandidates : removalCandidates);
     }
@@ -380,9 +402,9 @@ export function selectionConflictsWithExplicitFacts(
     return true;
   }
   if (facts.removal === 'yes' && facts.existingProduct !== 'unknown' && facts.existingProduct !== 'none' && facts.origin !== 'unknown') {
-    const matchingRemoval = selected.some(item => isRemoval(item.addOn)
-      && productMatches(item.addOn, facts.existingProduct)
-      && (facts.origin === 'this_salon' ? !isForeignRemoval(item.addOn) : isForeignRemoval(item.addOn)));
+    const expectedRemoval = removalForOrigin(compatibleAddOns(menu, service.id), facts);
+    const matchingRemoval = expectedRemoval !== null
+      && selected.some(item => item.addOn.id === expectedRemoval.id);
     if (!matchingRemoval) {
       return true;
     }

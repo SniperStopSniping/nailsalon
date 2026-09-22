@@ -96,14 +96,23 @@ describe('authoritative customer clarification applicability', () => {
     }
   });
 
-  it('asks origin only for a viable removal path and never guesses generic foreign-removal meaning', () => {
+  it('asks origin only for a viable removal path and accepts a configured general foreign-removal option', () => {
     const facts: Facts = { ...gelxFacts, length: 'short', removal: 'yes', existingProduct: 'gel_x' };
 
     expect(plan({ facts, candidate: { baseServiceId: gelx, selectedAddOns: [] }, question: 'origin', optionIds: [] })).toEqual({ kind: 'clarification', question: 'origin', optionIds: [] });
 
     const menu: CustomerMenu = { ...SEMANTIC_L1_MENU, addOns: SEMANTIC_L1_MENU.addOns.map(item => item.id === foreignRemoval ? { ...item, name: 'Removal From Another Salon' } : item) };
 
-    expect(plan({ menu, facts: { ...facts, origin: 'other_salon' }, candidate: { baseServiceId: gelx, selectedAddOns: [] }, question: 'removal', optionIds: [ownRemoval] })).toEqual({ kind: 'no_match' });
+    const result = plan({ menu, facts: { ...facts, origin: 'other_salon' }, candidate: { baseServiceId: gelx, selectedAddOns: [] }, question: 'removal', optionIds: [ownRemoval] });
+
+    expect(result.kind).toBe('selection');
+
+    if (result.kind === 'selection') {
+      expect(result.selection.selectedAddOns).toEqual(expect.arrayContaining([
+        { addOnId: short, quantity: 1 },
+        { addOnId: foreignRemoval, quantity: 1 },
+      ]));
+    }
   });
 
   it('does not ask removal for bare natural nails or an unrelated refill path', () => {

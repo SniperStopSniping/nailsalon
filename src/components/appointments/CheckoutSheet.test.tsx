@@ -204,6 +204,51 @@ describe('CheckoutSheet', () => {
     expect(screen.getByTestId('checkout-remaining-balance')).toHaveTextContent('$50.85');
   });
 
+  it('allows normal completion with a pending-price item without a separate price confirmation step', async () => {
+    await renderSheet(buildContext({
+      bookedItems: [
+        {
+          kind: 'service',
+          catalogServiceId: 'svc_1',
+          catalogAddOnId: null,
+          name: 'Gel Manicure',
+          quantity: 1,
+          unitPriceCents: 4500,
+          durationMinutes: 60,
+        },
+        {
+          kind: 'addon',
+          catalogServiceId: null,
+          catalogAddOnId: 'addon_pending',
+          name: 'Complex removal',
+          quantity: 1,
+          unitPriceCents: 0,
+          durationMinutes: 20,
+          priceMode: 'manual_confirmation',
+        },
+      ],
+    }));
+
+    expect(screen.getByText('Price pending — adjust, include, or waive')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('checkout-record-later'));
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+
+    expect(await screen.findByText('Pending — not included')).toBeVisible();
+
+    fireEvent.click(await screen.findByTestId('checkout-complete-button'));
+    fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
+    await screen.findByTestId('checkout-success');
+
+    const completeCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH');
+    const body = JSON.parse(String((completeCall![1] as RequestInit).body));
+
+    expect(body.finalItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({ catalogAddOnId: 'addon_pending', unitPriceCents: 0 }),
+    ]));
+    expect(body.payments).toEqual([]);
+  });
+
   it.each(PAYMENT_METHODS)('submits a shared-contract-valid payment using %s', async (method) => {
     await renderSheet(buildContext({ photos: [{ id: 'synthetic_after', imageUrl: 'https://example.test/after.jpg', photoType: 'after' }] }));
     fireEvent.click(screen.getByTestId(`checkout-method-${method}`));

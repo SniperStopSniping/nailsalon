@@ -36,8 +36,8 @@ export const customerChatRequestSchema = z.object({
 export type CustomerProposal = {
   selection: CustomerSelection;
   fingerprint: string;
-  service: { id: string; name: string; priceCents: number };
-  addOns: { id: string; name: string; quantity: number; priceCents: number; unitPriceCents?: number }[];
+  service: { id: string; name: string; priceCents: number; priceDisplayText?: string | null };
+  addOns: { id: string; name: string; quantity: number; priceCents: number; unitPriceCents?: number; priceDisplayText?: string | null }[];
   manualConfirmationItems?: { id: string; name: string; quantity: number; durationMinutes: number; priceStatus: 'to_be_confirmed' }[];
   currency: string;
   subtotalCents: number;
