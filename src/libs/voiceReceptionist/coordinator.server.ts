@@ -23,6 +23,54 @@ type CallState = VoiceCallState;
 type ProviderEvent = { type?: string; event_id?: string; delta?: string; start_ms?: number; end_ms?: number; offset_ms?: number; delegation?: { id?: string; target?: string }; usage?: { seconds?: number }; reason?: string };
 type Input = { text: string; start: number; end: number };
 
+const SPANISH_CONVERSATION_PHRASES = [
+  'como te puedo ayudar',
+  'como puedo ayudarte',
+  'como puedo ayudarle',
+  'en que te puedo ayudar',
+  'en que puedo ayudarte',
+  'en que puedo ayudarle',
+  'que te gustaria',
+  'claro que si',
+  'vamos a revisar',
+  'para confirmar',
+  'tengo disponibilidad',
+  'te puedo ofrecer',
+  'a que hora',
+  'tu correo',
+  'tu nombre',
+  'su correo',
+  'su nombre',
+  'tu cita',
+  'la cita',
+];
+const ENGLISH_CONVERSATION_PHRASES = [
+  'how can i help',
+  'what would you like',
+  'i can help you',
+  'let me check',
+  'to confirm',
+  'i have availability',
+  'i can offer',
+  'what time works',
+  'your email',
+  'your name',
+  'your appointment',
+];
+
+/** RAM-only phrase window for locale selection; never persisted or logged. */
+export function voiceOutputLanguage(buffer: string, delta: string): { buffer: string; language: 'en' | 'es' | null } {
+  // Preserve raw boundaries first: a fragment may end in whitespace or split
+  // a word (for example, `p` + `uedo`). Normalization trims by design, so it
+  // is only used for phrase matching and never fed back as the next buffer.
+  const rawBuffer = `${buffer}${delta}`.slice(-600);
+  const next = normalizedSpeech(rawBuffer);
+  const latest = (phrases: string[]) => Math.max(...phrases.map(phrase => next.lastIndexOf(phrase)));
+  const spanish = latest(SPANISH_CONVERSATION_PHRASES);
+  const english = latest(ENGLISH_CONVERSATION_PHRASES);
+  return { buffer: rawBuffer, language: spanish < 0 && english < 0 ? null : spanish > english ? 'es' : 'en' };
+}
+
 function safeStoredState(value: unknown, salonId: string, callId: string): CallState {
   const stored = value as Partial<CallState> | null;
   if (stored?.booking?.conversation?.salonId === salonId && stored.booking.conversation.sessionId === callId) {
@@ -84,6 +132,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
   let handedOff = false;
   let reconnect = false;
   let language: 'en' | 'es' = settings.language === 'es' ? 'es' : 'en';
+  let outputLanguageBuffer = '';
   let voiceSeconds = call.voiceSeconds ?? 0;
   let outcome = call.outcome ?? 'inquiry';
   let summary = call.summary ?? 'Call connected to the AI receptionist.';
@@ -393,8 +442,10 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
           }
         } else if (event.type === 'session.output_transcript.delta' && typeof event.delta === 'string' && Number.isFinite(event.start_ms) && Number.isFinite(event.end_ms)) {
           lastOutputEnd = Math.max(lastOutputEnd, event.end_ms!);
-          if (settings.language === 'auto' && /\b(?:cita|correo|nombre|precio|gracias|quieres)\b/i.test(event.delta)) {
-            language = 'es';
+          const detected = voiceOutputLanguage(outputLanguageBuffer, event.delta);
+          outputLanguageBuffer = detected.buffer;
+          if (detected.language) {
+            language = detected.language;
           }
           consent.observeOutput(event.delta, event.start_ms!, event.end_ms!);
           if (!metrics.firstSpokenOutputMs) {

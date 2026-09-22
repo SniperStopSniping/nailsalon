@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => {
       this.close();
     }
   }
-  return { Socket, sockets, claim: vi.fn(), get: vi.fn(), save: vi.fn(), release: vi.fn(), review: vi.fn(), consult: vi.fn(), checkpoint: vi.fn(), readOperation: vi.fn(), status: vi.fn(), live: vi.fn() };
+  return { Socket, sockets, claim: vi.fn(), get: vi.fn(), save: vi.fn(), release: vi.fn(), settings: vi.fn(), review: vi.fn(), consult: vi.fn(), checkpoint: vi.fn(), readOperation: vi.fn(), status: vi.fn(), live: vi.fn() };
 });
 vi.mock('server-only', () => ({}));
 vi.mock('ws', () => ({ default: mocks.Socket }));
@@ -40,8 +40,8 @@ vi.mock('@/libs/customerAssistant/bookingStatus.server', () => ({ readCustomerBo
 vi.mock('./authority.server', () => ({ createVoiceDraft: vi.fn(), prepareVoiceReview: mocks.review, runVoiceConsultation: mocks.consult, chooseVoiceSlot: vi.fn() }));
 vi.mock('./checkpoint.server', () => ({ requestVoiceCheckpoint: mocks.checkpoint }));
 vi.mock('./live.server', () => ({ liveSessionPath: (id: string) => `/${id}`, voiceLiveRequest: mocks.live }));
-vi.mock('./storage.server', () => ({ claimVoiceLease: mocks.claim, renewVoiceLease: mocks.claim, getVoiceCall: mocks.get, saveVoiceCall: mocks.save, releaseVoiceLease: mocks.release, getVoiceSettings: vi.fn(async () => ({ enabled: true, bookingEnabled: true, language: 'auto', callbackEnabled: true })) }));
-const { coordinateVoiceCall } = await import('./coordinator.server');
+vi.mock('./storage.server', () => ({ claimVoiceLease: mocks.claim, renewVoiceLease: mocks.claim, getVoiceCall: mocks.get, saveVoiceCall: mocks.save, releaseVoiceLease: mocks.release, getVoiceSettings: mocks.settings }));
+const { coordinateVoiceCall, voiceOutputLanguage } = await import('./coordinator.server');
 
 const review = { status: 'READY', services: [{ name: 'Gel-X' }], addOns: [], date: '2030-01-01', time: '4:00 PM', durationMinutes: 60, location: null, technician: { kind: 'any_artist' }, financial: { subtotalCents: 6500, taxAmountCents: 845, totalDueCents: 7345, currency: 'CAD', discountAmountCents: 0 }, deposit: { status: 'not_required' }, bookingPolicy: { required: false }, reminders: { mode: 'default_on', selection: 'default_on', requestedEnabled: true } };
 
@@ -54,6 +54,9 @@ function event(value: object) {
 }
 function input(delta: string, start = 100, end = 400) {
   event({ type: 'session.input_transcript.delta', delta, start_ms: start, end_ms: end });
+}
+function output(delta: string, start = 20, end = 80) {
+  event({ type: 'session.output_transcript.delta', delta, start_ms: start, end_ms: end });
 }
 function delegate(id = 'delegation-a') {
   event({ type: 'session.delegation.created', delegation: { id, target: 'client' } });
@@ -75,6 +78,7 @@ beforeEach(() => {
   mocks.get.mockResolvedValue(null);
   mocks.save.mockResolvedValue({ id: 'call-a' });
   mocks.release.mockResolvedValue(null);
+  mocks.settings.mockResolvedValue({ enabled: true, bookingEnabled: true, language: 'auto', callbackEnabled: true });
   mocks.checkpoint.mockResolvedValue(undefined);
   mocks.live.mockResolvedValue(new Response(null));
   mocks.consult.mockImplementation(async ({ draft }) => ({ draft, result: { kind: 'answer', topic: 'conversation', message: '', options: [] }, modelCalls: 0 }));
@@ -98,6 +102,48 @@ describe('voice sideband consultation and interruption', () => {
 
     expect(mocks.checkpoint).toHaveBeenCalledOnce();
     expect(mocks.checkpoint).toHaveBeenCalledWith(expect.objectContaining({ state: expect.objectContaining({ booking: expect.objectContaining({ operation }) }) }));
+  });
+
+  it('uses Spanish for the checkpoint when a conversational phrase arrives across output fragments', async () => {
+    const state = callState();
+    const operation = { capability: 'operation-a', fingerprint: 'f'.repeat(64), revision: 1, expiresAt: new Date(Date.now() + 120_000).toISOString() };
+    mocks.review.mockResolvedValue({ draft: { ...state.booking, operation, review, lastOperationRevision: 1, lastOperationCapability: 'operation-a' }, review });
+    mocks.settings.mockResolvedValue({ enabled: true, bookingEnabled: true, language: 'en', callbackEnabled: true });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    output('¿Cómo te p');
+    output('uedo ayudar hoy?', 81, 160);
+    input('yes');
+    delegate();
+    await vi.advanceTimersByTimeAsync(700);
+    await run;
+
+    expect(mocks.checkpoint).toHaveBeenCalledWith(expect.objectContaining({ language: 'es' }));
+  });
+
+  it('preserves whitespace and word boundaries while scanning output phrases', () => {
+    expect(voiceOutputLanguage('¿Cómo te ', 'puedo ayudar?')).toMatchObject({ buffer: '¿Cómo te puedo ayudar?', language: 'es' });
+    expect(voiceOutputLanguage('¿Cómo te p', 'uedo ayudar?')).toMatchObject({ buffer: '¿Cómo te puedo ayudar?', language: 'es' });
+    expect(voiceOutputLanguage('¿En qué puedo ', 'ayudarte?').language).toBe('es');
+    expect(voiceOutputLanguage('¿Cuál es tu ', 'nombre?').language).toBe('es');
+    expect(voiceOutputLanguage('¿Cuál es tu nombre? Now please confirm your ', 'email.').language).toBe('en');
+  });
+
+  it('switches back to English after a later clear conversational phrase', async () => {
+    const state = callState();
+    const operation = { capability: 'operation-a', fingerprint: 'f'.repeat(64), revision: 1, expiresAt: new Date(Date.now() + 120_000).toISOString() };
+    mocks.review.mockResolvedValue({ draft: { ...state.booking, operation, review, lastOperationRevision: 1, lastOperationCapability: 'operation-a' }, review });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    output('¿Cómo te puedo ayudar?');
+    output(' Let me ch');
+    output('eck what time works.', 81, 160);
+    input('yes');
+    delegate();
+    await vi.advanceTimersByTimeAsync(700);
+    await run;
+
+    expect(mocks.checkpoint).toHaveBeenCalledWith(expect.objectContaining({ language: 'en' }));
   });
 
   it('invalidates an in-flight review when the caller interrupts with a material correction', async () => {
