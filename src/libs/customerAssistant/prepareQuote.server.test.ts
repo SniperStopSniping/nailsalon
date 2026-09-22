@@ -98,6 +98,26 @@ describe('prepareCustomerBookingQuote', () => {
     expect(material?.review.bookingPolicy).toMatchObject({ acknowledgmentText: expect.any(String), version: expect.any(String) });
   });
 
+  it('keeps a manually priced item outside financial totals while retaining it in review and duration', async () => {
+    mocks.selection.mockResolvedValue({
+      services: [{ id: 'svc', name: 'Gel Manicure', priceCents: 4000 }],
+      addOns: [{ id: 'removal', name: 'Builder Gel Removal', quantity: 1, lineTotalCents: 0, priceMode: 'manual_confirmation' }],
+      manualConfirmationItems: [{ addOnId: 'removal', name: 'Builder Gel Removal', quantity: 1, lineDurationMinutes: 30, priceStatus: 'to_be_confirmed' }],
+      subtotalBeforeDiscountCents: 4000,
+      visibleDurationMinutes: 90,
+      automaticDiscount: { kind: 'none', subtotalBeforeDiscountCents: 4000, discountAmountCents: 0, finalTotalCents: 4000, reward: null, firstVisit: null },
+    });
+
+    const material = await prepareCustomerBookingQuote(input());
+
+    expect(material?.review).toMatchObject({
+      durationMinutes: 90,
+      addOns: [],
+      manualConfirmationItems: [{ id: 'removal', name: 'Builder Gel Removal', priceStatus: 'to_be_confirmed' }],
+      financial: { subtotalCents: 4000, taxAmountCents: 520, totalDueCents: 4520 },
+    });
+  });
+
   it('uses an L1 service request-approval mode when no deposit is required', async () => {
     mocks.deposit.mockResolvedValue({ active: false, reason: 'not_required' });
     mocks.selection.mockResolvedValue({

@@ -617,6 +617,13 @@
       "when": 1790000634652,
       "tag": "0088_network_no_show_platform_control",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1790041987139,
+      "tag": "0089_service_add_on_manual_confirmation",
+      "breakpoints": true
     }
   ]
 }

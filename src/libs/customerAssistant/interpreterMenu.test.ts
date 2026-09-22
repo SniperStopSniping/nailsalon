@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { CustomerMenu } from './catalogue.server';
 import { projectCustomerInterpreterMenu } from './interpreterMenu';
 
-const bindingColumns = ['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity'] as const;
+const bindingColumns = ['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity', 'priceMode'] as const;
 
 const restoreBindings = (projected: ReturnType<typeof projectCustomerInterpreterMenu>) => projected.bindings.rows.map(row => ({
   serviceId: projected.bindings.serviceIds[row[0]],
@@ -11,6 +11,7 @@ const restoreBindings = (projected: ReturnType<typeof projectCustomerInterpreter
   required: row[2],
   defaultQuantity: row[3],
   maxQuantity: row[4],
+  priceMode: row[5],
 }));
 
 describe('customer interpreter menu projection', () => {
@@ -39,11 +40,11 @@ describe('customer interpreter menu projection', () => {
     expect(projected.bindings.serviceIds).toEqual(['service-a', 'service-b']);
     expect(projected.bindings.addOnIds).toEqual(['addon-a', 'addon-b', 'addon-c']);
     expect(projected.bindings.rows).toEqual([
-      [0, 0, false, 0, 0],
-      [0, 1, true, 1, 7],
-      [1, 2, false, 3, 12],
+      [0, 0, false, 0, 0, 'catalog_priced'],
+      [0, 1, true, 1, 7, 'catalog_priced'],
+      [1, 2, false, 3, 12, 'catalog_priced'],
     ]);
-    expect(restoreBindings(projected)).toEqual(originalBindings);
+    expect(restoreBindings(projected)).toEqual(originalBindings.map(binding => ({ ...binding, priceMode: 'catalog_priced' })));
     expect(menu.bindings).toEqual(originalBindings);
     expect(projected.services).toBe(menu.services);
     expect(projected.addOns).toBe(menu.addOns);
@@ -61,7 +62,7 @@ describe('customer interpreter menu projection', () => {
     })) };
     const projected = projectCustomerInterpreterMenu(menu);
 
-    expect(restoreBindings(projected)).toEqual(menu.bindings);
+    expect(restoreBindings(projected)).toEqual(menu.bindings.map(binding => ({ ...binding, priceMode: 'catalog_priced' })));
     expect(projected.bindings.rows).toHaveLength(160);
     expect(Buffer.byteLength(JSON.stringify(projected.bindings))).toBeLessThan(Buffer.byteLength(JSON.stringify(menu.bindings)) / 2);
   });

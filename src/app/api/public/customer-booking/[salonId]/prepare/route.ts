@@ -6,7 +6,7 @@ import { normalizeCustomerContact } from '@/libs/customerAssistant/contact';
 import { CUSTOMER_NO_STORE, isCustomerSameOrigin, readCustomerJson } from '@/libs/customerAssistant/http.server';
 import { normalBookingPrepareSchema } from '@/libs/customerAssistant/normalBookingContracts';
 import { verifyNormalConfirmHandoff } from '@/libs/customerAssistant/normalConfirmHandoff.server';
-import { CustomerBookingOperationError, customerBookingOperationReference, prepareCustomerBookingOperation } from '@/libs/customerAssistant/operationStore.server';
+import { CustomerBookingOperationError, customerBookingOperationReference, prepareCustomerBookingOperation, readCustomerBookingOperation } from '@/libs/customerAssistant/operationStore.server';
 import { prepareCustomerBookingQuote } from '@/libs/customerAssistant/prepareQuote.server';
 import { resolveNextVisitOfferPreview } from '@/libs/nextVisitOffer.server';
 import { checkPublicBookingRateLimit, getPublicBookingClientIp } from '@/libs/publicBookingRateLimit.server';
@@ -32,7 +32,7 @@ export async function POST(request: Request, context: { params: Promise<{ salonI
   if (!secret) {
     return fail('unavailable', 503);
   }
-  const { booking, flowToken, expectedRevision, displayed } = parsed.data;
+  const { booking, flowToken, expectedRevision, displayed, sourceCapability } = parsed.data;
   const contact = normalizeCustomerContact({ name: booking.clientName, email: booking.clientEmail, phone: booking.clientPhone });
   if (!contact) {
     return fail('invalid_details', 400);
@@ -74,7 +74,7 @@ export async function POST(request: Request, context: { params: Promise<{ salonI
     }
   }
   try {
-    const material = await prepareCustomerBookingQuote({
+    const preparedMaterial = await prepareCustomerBookingQuote({
       salon,
       features: salon.features as SalonFeatures | null,
       selection: { baseServiceId: booking.baseServiceId, selectedAddOns: booking.selectedAddOns },
@@ -86,9 +86,25 @@ export async function POST(request: Request, context: { params: Promise<{ salonI
       smsConsent: booking.smsConsent,
       campaignToken: booking.campaignToken,
     });
-    if (!material) {
+    if (!preparedMaterial) {
       return fail('slot_unavailable');
     }
+    let manualConfirmationContext = flow.manualConfirmationContext;
+    if (!manualConfirmationContext && sourceCapability && preparedMaterial.review.manualConfirmationItems?.length) {
+      const source = await readCustomerBookingOperation({ capability: sourceCapability, salonId, secret });
+      if (!source || source.sessionId !== flow.flowId) {
+        return fail('review_changed');
+      }
+      manualConfirmationContext = source.material.manualConfirmationContext;
+    }
+    if (preparedMaterial.review.manualConfirmationItems?.length) {
+      const expectedIds = preparedMaterial.review.manualConfirmationItems.map(item => item.id).sort();
+      const contextIds = manualConfirmationContext?.itemIds.slice().sort();
+      if (!contextIds || !isDeepStrictEqual(contextIds, expectedIds)) {
+        return fail('review_changed');
+      }
+    }
+    const material = manualConfirmationContext ? { ...preparedMaterial, manualConfirmationContext } : preparedMaterial;
     // The click may confirm only the terms already rendered by the normal page.
     const review = material.review;
     const shownTechnician = review.technician.kind === 'specific' ? { id: review.technician.id, name: review.technician.name } : null;
@@ -98,6 +114,7 @@ export async function POST(request: Request, context: { params: Promise<{ salonI
       || (review.bookingPolicy.required ? review.bookingPolicy.version : null) !== displayed.policyVersion
       || !isDeepStrictEqual(shownTechnician, displayed.technician) || !isDeepStrictEqual(review.location, displayed.location)
       || !isDeepStrictEqual(review.services, displayed.services) || !isDeepStrictEqual(review.addOns, displayed.addOns)
+      || !isDeepStrictEqual(review.manualConfirmationItems ?? [], displayed.manualConfirmationItems)
       || material.review.financial.totalDueCents !== displayed.totalCents || material.review.durationMinutes !== displayed.durationMinutes
 
       || !isDeepStrictEqual(material.catalogAcknowledgment ?? null, booking.catalogAcknowledgment ?? null)

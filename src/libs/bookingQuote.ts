@@ -15,6 +15,7 @@ import {
   type AddOnPricingType,
   addOnSchema,
   type Service,
+  type ServiceAddOnPriceMode,
   serviceAddOnSchema,
   type ServiceCategory,
   serviceSchema,
@@ -93,6 +94,17 @@ export type BookingQuote = {
     lineTotalCents: number;
     unitDurationMinutes: number;
     lineDurationMinutes: number;
+    priceMode: ServiceAddOnPriceMode;
+  }>;
+  /** Supported selected items whose price the salon has chosen to confirm manually. */
+  manualConfirmationItems: Array<{
+    addOnId: string;
+    name: string;
+    category: AddOnCategory;
+    quantity: number;
+    unitDurationMinutes: number;
+    lineDurationMinutes: number;
+    priceStatus: 'to_be_confirmed';
   }>;
   subtotalCents: number;
   baseDurationMinutes: number;
@@ -116,6 +128,7 @@ type ValidatedSelectionResult = {
   baseService: ReturnType<typeof mapServiceToCatalogSummary>;
   addOns: Array<ReturnType<typeof mapAddOnToCatalogSummary> & {
     quantity: number;
+    priceMode?: ServiceAddOnPriceMode;
     lineTotalCents: number;
     lineDurationMinutes: number;
   }>;
@@ -283,13 +296,15 @@ export function buildBookingQuote(args: {
   baseService: ReturnType<typeof mapServiceToCatalogSummary>;
   addOns: Array<ReturnType<typeof mapAddOnToCatalogSummary> & {
     quantity: number;
+    priceMode?: ServiceAddOnPriceMode;
   }>;
   bufferMinutes: number;
   resolvedIntroPriceLabel: string | null;
 }): BookingQuote {
   const normalizedAddOns = args.addOns.map((addOn) => {
     const quantity = addOn.quantity;
-    const lineTotalCents = addOn.priceCents * quantity;
+    const priceMode = addOn.priceMode ?? 'catalog_priced';
+    const lineTotalCents = priceMode === 'catalog_priced' ? addOn.priceCents * quantity : 0;
     const lineDurationMinutes = addOn.durationMinutes * quantity;
 
     return {
@@ -298,10 +313,11 @@ export function buildBookingQuote(args: {
       category: addOn.category,
       pricingType: addOn.pricingType,
       quantity,
-      unitPriceCents: addOn.priceCents,
+      unitPriceCents: priceMode === 'catalog_priced' ? addOn.priceCents : 0,
       lineTotalCents,
       unitDurationMinutes: addOn.durationMinutes,
       lineDurationMinutes,
+      priceMode,
     };
   });
 
@@ -315,6 +331,17 @@ export function buildBookingQuote(args: {
     basePriceCents: args.baseService.priceCents,
     addOns: normalizedAddOns,
   });
+  const manualConfirmationItems = normalizedAddOns
+    .filter(addOn => addOn.priceMode === 'manual_confirmation')
+    .map(addOn => ({
+      addOnId: addOn.addOnId,
+      name: addOn.name,
+      category: addOn.category,
+      quantity: addOn.quantity,
+      unitDurationMinutes: addOn.unitDurationMinutes,
+      lineDurationMinutes: addOn.lineDurationMinutes,
+      priceStatus: 'to_be_confirmed' as const,
+    }));
   const blockedDurationMinutes = visibleDurationMinutes + args.bufferMinutes;
 
   return {
@@ -327,6 +354,7 @@ export function buildBookingQuote(args: {
       resolvedIntroPriceLabel: args.resolvedIntroPriceLabel,
     },
     addOns: normalizedAddOns,
+    manualConfirmationItems,
     subtotalCents,
     baseDurationMinutes,
     addOnsDurationMinutes,
@@ -447,7 +475,7 @@ export async function validatePublicBookingSelection(args: {
     const summary = mapServiceToCatalogSummary(baseService);
     const lines = l1.resolution.addOns.map((line) => {
       const record = records.find(item => item.id === line.addOnId)!;
-      return { addOnId: line.addOnId, name: record.name, category: record.category, pricingType: record.pricingType, quantity: line.quantity, unitPriceCents: line.unitPriceCents, lineTotalCents: line.lineTotalCents, unitDurationMinutes: line.unitDurationMinutes, lineDurationMinutes: line.lineDurationMinutes };
+      return { addOnId: line.addOnId, name: record.name, category: record.category, pricingType: record.pricingType, quantity: line.quantity, unitPriceCents: line.priceMode === 'catalog_priced' ? line.unitPriceCents : 0, lineTotalCents: line.priceMode === 'catalog_priced' ? line.lineTotalCents : 0, unitDurationMinutes: line.unitDurationMinutes, lineDurationMinutes: line.lineDurationMinutes, priceMode: line.priceMode };
     });
     return {
       baseServiceRecord: baseService,
@@ -460,6 +488,7 @@ export async function validatePublicBookingSelection(args: {
       quote: {
         baseService: { id: baseService.id, name: baseService.name, category: baseService.category, priceCents: l1.resolution.basePriceCents, durationMinutes: l1.resolution.baseDurationMinutes, resolvedIntroPriceLabel: resolveIntroPriceLabel({ ...baseService, bookingConfig: config }) },
         addOns: lines,
+        manualConfirmationItems: lines.filter(line => line.priceMode === 'manual_confirmation').map(line => ({ addOnId: line.addOnId, name: line.name, category: line.category, quantity: line.quantity, unitDurationMinutes: line.unitDurationMinutes, lineDurationMinutes: line.lineDurationMinutes, priceStatus: 'to_be_confirmed' as const })),
         subtotalCents: l1.resolution.subtotalCents,
         baseDurationMinutes: l1.resolution.baseDurationMinutes,
         addOnsDurationMinutes: l1.resolution.totalDurationMinutes - l1.resolution.baseDurationMinutes,
@@ -569,6 +598,7 @@ export async function validatePublicBookingSelection(args: {
     return {
       ...mapAddOnToCatalogSummary(addOn),
       quantity,
+      priceMode: rule.priceMode,
       lineTotalCents: addOn.priceCents * quantity,
       lineDurationMinutes: addOn.durationMinutes * quantity,
     };

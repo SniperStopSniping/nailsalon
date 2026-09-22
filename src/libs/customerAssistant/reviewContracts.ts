@@ -25,6 +25,7 @@ export type CustomerReviewLocation = {
 
 export type CustomerReviewService = { id: string; name: string; priceCents: number };
 export type CustomerReviewAddOn = { id: string; name: string; quantity: number; priceCents: number };
+export type CustomerReviewManualConfirmationItem = { id: string; name: string; quantity: number; durationMinutes: number; priceStatus: 'to_be_confirmed' };
 
 export type CustomerReviewDeposit =
   | { status: 'required'; amountCents: number; currency: string; label: string }
@@ -47,6 +48,7 @@ export type CustomerReviewSnapshot = {
   location: CustomerReviewLocation | null;
   services: CustomerReviewService[];
   addOns: CustomerReviewAddOn[];
+  manualConfirmationItems?: CustomerReviewManualConfirmationItem[];
   technician: { kind: 'any_artist' };
   date: string;
   time: string;

@@ -39,6 +39,7 @@ export type AddOnSummary = {
   quantity: number;
   price: number;
   duration: number;
+  priceMode?: 'catalog_priced' | 'manual_confirmation';
 };
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
@@ -218,6 +219,7 @@ export function BookTechClient({
           serviceNames={serviceNames}
           totalDuration={totalDuration}
           totalPrice={totalPrice}
+          hasManualConfirmationItems={addOns.some(addOn => addOn.priceMode === 'manual_confirmation')}
           locationName={locationName}
         />
 

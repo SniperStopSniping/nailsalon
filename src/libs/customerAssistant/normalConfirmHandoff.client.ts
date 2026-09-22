@@ -15,7 +15,7 @@ export function readNormalConfirmHandoff(salonId: string): NormalConfirmHandoffS
     return null;
   }
   const value = JSON.parse(raw) as NormalConfirmHandoffStorage;
-  if (typeof value.flowToken !== 'string' || !/^v1\.[0-9a-f-]{36}\.\d+\.[\w-]+$/i.test(value.flowToken)
+  if (typeof value.flowToken !== 'string' || !/^v1\.[0-9a-f-]{36}\.\d+\.(?:[\w-]+\.)?[\w-]+$/i.test(value.flowToken)
     || typeof value.expiresAt !== 'string' || !Number.isFinite(Date.parse(value.expiresAt))) {
     throw new Error('HANDOFF_STORAGE_INVALID');
   }

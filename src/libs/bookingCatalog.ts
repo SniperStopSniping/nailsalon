@@ -7,6 +7,7 @@ import type {
   AddOnPricingType,
   Service,
   ServiceAddOn,
+  ServiceAddOnPriceMode,
   ServiceAddOnSelectionMode,
   ServiceCategory,
 } from '@/models/Schema';
@@ -86,6 +87,7 @@ export type ServiceAddOnRuleSummary = {
   serviceId: string;
   addOnId: string;
   selectionMode: ServiceAddOnSelectionMode;
+  priceMode: ServiceAddOnPriceMode;
   defaultQuantity: number | null;
   maxQuantityOverride: number | null;
   displayOrder: number | null;
@@ -134,6 +136,7 @@ export function mapServiceAddOnRule(rule: ServiceAddOn): ServiceAddOnRuleSummary
     serviceId: rule.serviceId,
     addOnId: rule.addOnId,
     selectionMode: rule.selectionMode,
+    priceMode: rule.priceMode,
     defaultQuantity: rule.defaultQuantity ?? null,
     maxQuantityOverride: rule.maxQuantityOverride ?? null,
     displayOrder: rule.displayOrder ?? 0,

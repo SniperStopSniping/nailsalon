@@ -18,6 +18,8 @@ const copy = {
     privateLocation: 'Location details are not shown here.',
     services: 'Services',
     addOns: 'Add-ons',
+    manualItems: 'Additional item',
+    manualPrice: 'Price to be confirmed by the nail tech. This is not included in the current subtotal or total.',
     technician: 'Technician',
     anyArtist: 'Any available artist',
     date: 'Date and time',
@@ -45,6 +47,8 @@ const copy = {
     privateLocation: 'Les détails du lieu ne sont pas affichés ici.',
     services: 'Services',
     addOns: 'Suppléments',
+    manualItems: 'Élément supplémentaire',
+    manualPrice: 'Prix à confirmer par la prothésiste. Il n’est pas inclus dans le sous-total ni le total actuels.',
     technician: 'Artiste',
     anyArtist: 'Toute artiste disponible',
     date: 'Date et heure',
@@ -99,10 +103,19 @@ export function CustomerBookingReviewCard({ review, locale }: { review: Customer
         <Detail label={text.location}>{locationParts.length ? locationParts.join(', ') : text.privateLocation}</Detail>
         <Detail label={text.services}>{review.services.map(service => <div key={service.id}>{service.name}</div>)}</Detail>
         {review.addOns.length > 0 && <Detail label={text.addOns}>{review.addOns.map(addOn => <div key={addOn.id}>{`${addOn.quantity > 1 ? `${addOn.quantity} × ` : ''}${addOn.name}`}</div>)}</Detail>}
+        {(review.manualConfirmationItems?.length ?? 0) > 0 && (
+          <Detail label={text.manualItems}>
+            {review.manualConfirmationItems?.map(item => <div key={item.id}>{`${item.quantity > 1 ? `${item.quantity} × ` : ''}${item.name}`}</div>)}
+            <p className="mt-1 text-xs text-amber-700">{text.manualPrice}</p>
+          </Detail>
+        )}
         <Detail label={text.technician}>{text.anyArtist}</Detail>
         <Detail label={text.date}>{`${date}, ${review.time} (${review.timeZone})`}</Detail>
         <Detail label={text.duration}>{formatDuration(review.durationMinutes)}</Detail>
-        <Detail label={text.subtotal}>{money(review.financial.subtotalCents)}</Detail>
+        <Detail label={text.subtotal}>
+          {money(review.financial.subtotalCents)}
+          {(review.manualConfirmationItems?.length ?? 0) > 0 && <p className="mt-1 text-xs text-neutral-600">{text.manualPrice}</p>}
+        </Detail>
         {review.status === 'READY' && review.financial.discountAmountCents > 0 && <Detail label={review.financial.discountLabel ?? (locale === 'fr' ? 'Rabais' : 'Discount')}>{money(-review.financial.discountAmountCents)}</Detail>}
         <Detail label={review.status === 'READY' ? (locale === 'fr' ? 'Taxe' : 'Tax') : text.tax}>{money(review.status === 'READY' ? review.financial.taxAmountCents : review.financial.estimatedTaxCents)}</Detail>
         <Detail label={review.status === 'READY' ? 'Total' : text.total}>

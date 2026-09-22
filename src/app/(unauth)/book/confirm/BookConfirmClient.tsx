@@ -92,6 +92,7 @@ export type AddOnSummary = {
   quantity: number;
   price: number;
   duration: number;
+  priceMode?: 'catalog_priced' | 'manual_confirmation';
 };
 
 export type TechnicianSummary = {
@@ -663,7 +664,7 @@ const BookingCard = ({
         actions={(
           <div className="text-right">
             <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-              Estimated total
+              {addOns.some(addOn => addOn.priceMode === 'manual_confirmation') ? 'Current booking subtotal' : 'Estimated total'}
             </p>
             <p className="font-heading mt-1 text-2xl font-bold text-[var(--n5-accent)]">
               {totalPriceDisplay ?? `$${totalPrice}`}
@@ -672,6 +673,11 @@ const BookingCard = ({
         )}
         contentClassName="space-y-3"
       >
+        {addOns.some(addOn => addOn.priceMode === 'manual_confirmation') && (
+          <p data-testid="booking-manual-price-note" className="rounded-xl bg-[var(--n5-bg-muted)] px-3 py-2 text-xs font-semibold text-[var(--n5-ink-main)]">
+            Additional item: price to be confirmed by your nail tech. It is not included in this subtotal.
+          </p>
+        )}
         <div className="booking-artist-row flex items-center gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: 'var(--n5-border-muted)' }}>
           {technician
             ? (
@@ -2714,7 +2720,8 @@ export function BookConfirmClient({
           technician: techId !== 'any' && technician ? { id: technician.id, name: technician.name } : null,
           location: location ? { name: location.name, address: location.address, city: location.city, state: location.state, zipCode: location.zipCode } : null,
           services: services.map(item => ({ id: item.id, name: item.name, priceCents: Math.round(item.price * 100) })),
-          addOns: addOns.map(item => ({ id: item.id, name: item.name, quantity: item.quantity, priceCents: Math.round(item.price * 100) })),
+          addOns: addOns.filter(item => item.priceMode !== 'manual_confirmation').map(item => ({ id: item.id, name: item.name, quantity: item.quantity, priceCents: Math.round(item.price * 100) })),
+          manualConfirmationItems: addOns.filter(item => item.priceMode === 'manual_confirmation').map(item => ({ id: item.id, name: item.name, quantity: item.quantity, durationMinutes: item.duration, priceStatus: 'to_be_confirmed' as const })),
           confirmationMode: displayedConfirmationMode,
           reminderMode: smsBookingDefault,
           policyVersion: acknowledgmentRequired ? displayedPolicy.version ?? null : null,
@@ -3101,13 +3108,13 @@ export function BookConfirmClient({
             price: service.priceCents / 100,
             duration: 0,
           }))}
-          addOns={review.addOns.map(addOn => ({
+          addOns={[...review.addOns.map(addOn => ({
             id: addOn.id,
             name: addOn.name,
             quantity: addOn.quantity,
             price: addOn.priceCents / 100,
             duration: 0,
-          }))}
+          })), ...(review.manualConfirmationItems ?? []).map(item => ({ id: item.id, name: item.name, quantity: item.quantity, price: 0, duration: item.durationMinutes, priceMode: 'manual_confirmation' as const }))]}
           technician={review.technician.kind === 'specific'
             ? { id: review.technician.id, name: review.technician.name, imageUrl: null }
             : durableStatus.appointment?.technicianName

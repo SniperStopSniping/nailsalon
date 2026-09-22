@@ -119,6 +119,12 @@ export const serviceAddOnSelectionModeEnum = pgEnum('service_add_on_selection_mo
   'conditional',
 ]);
 
+/** Price authority belongs to the salon's service/add-on binding. */
+export const serviceAddOnPriceModeEnum = pgEnum('service_add_on_price_mode', [
+  'catalog_priced',
+  'manual_confirmation',
+]);
+
 export const organizationSchema = pgTable(
   'organization',
   {
@@ -1040,6 +1046,7 @@ export const serviceAddOnSchema = pgTable(
       .notNull()
       .references(() => addOnSchema.id, { onDelete: 'cascade' }),
     selectionMode: serviceAddOnSelectionModeEnum('selection_mode').notNull().default('optional'),
+    priceMode: serviceAddOnPriceModeEnum('price_mode').notNull().default('catalog_priced'),
     conditions: jsonb('conditions').$type<Record<string, unknown> | null>().default(null),
     defaultQuantity: integer('default_quantity'),
     maxQuantityOverride: integer('max_quantity_override'),
@@ -1072,6 +1079,9 @@ export const appointmentAddOnSchema = pgTable(
     nameSnapshot: text('name_snapshot').notNull(),
     categorySnapshot: text('category_snapshot').notNull(),
     pricingTypeSnapshot: text('pricing_type_snapshot').notNull(),
+    // Captures the binding-level authority used for this booking. A manual
+    // line has a deliberate zero quoted amount, never a free removal.
+    priceModeSnapshot: serviceAddOnPriceModeEnum('price_mode_snapshot').notNull().default('catalog_priced'),
     unitPriceCentsSnapshot: integer('unit_price_cents_snapshot').notNull(),
     durationMinutesSnapshot: integer('duration_minutes_snapshot').notNull(),
     lineTotalCentsSnapshot: integer('line_total_cents_snapshot').notNull(),
@@ -2769,6 +2779,9 @@ export type AddOnPricingType = (typeof ADD_ON_PRICING_TYPES)[number];
 
 export const SERVICE_ADD_ON_SELECTION_MODES = ['optional', 'required', 'conditional'] as const;
 export type ServiceAddOnSelectionMode = (typeof SERVICE_ADD_ON_SELECTION_MODES)[number];
+
+export const SERVICE_ADD_ON_PRICE_MODES = ['catalog_priced', 'manual_confirmation'] as const;
+export type ServiceAddOnPriceMode = (typeof SERVICE_ADD_ON_PRICE_MODES)[number];
 
 export const APPOINTMENT_STATUSES = [
   'pending',

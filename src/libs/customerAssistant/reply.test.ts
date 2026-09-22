@@ -67,6 +67,27 @@ describe('grounded receptionist reply boundary', () => {
     expect(parseReceptionistReply(output('I have noted your preferred length. [[required_question]]'), facts, menu).message).toBe('I have noted your preferred length. What product is currently on your nails?');
   });
 
+  it('requires the receptionist to explain a salon-authorized manual-price item without inventing an amount', () => {
+    const proposal = {
+      selection: { baseServiceId: 'gel', selectedAddOns: [{ addOnId: 'removal', quantity: 1 }] },
+      fingerprint: 'x',
+      service: { id: 'gel', name: 'Gel Manicure', priceCents: 4000 },
+      addOns: [],
+      manualConfirmationItems: [{ id: 'removal', name: 'Builder Gel Removal', quantity: 1, durationMinutes: 30, priceStatus: 'to_be_confirmed' as const }],
+      currency: 'CAD',
+      subtotalCents: 4000,
+      durationMinutes: 90,
+      expiresAt: '',
+    };
+    const input: ReplyInput = { ...args, result: { kind: 'proposal', proposal }, currentProposal: proposal, message: 'I have BIAB that needs removal' };
+    const { facts, requiredFactKeys } = buildReplyInput(input);
+
+    expect(requiredFactKeys).toContain('manual_confirmation_0');
+    expect(facts.manual_confirmation_0).toContain('price, which is not included in the current subtotal');
+    expect(() => parseReceptionistReply(output('No problem, we can continue.'), facts, menu, requiredFactKeys)).toThrow('CUSTOMER_REPLY_MISSING_REQUIREMENT');
+    expect(parseReceptionistReply(output('No problem 💅 [[manual_confirmation_0]]'), facts, menu, requiredFactKeys).message).toContain('the nail tech will confirm its price');
+  });
+
   it('retains French explanation while rendering the localized required question once', () => {
     const facts = { required_question: 'Quel produit avez-vous sur les ongles ?' };
 

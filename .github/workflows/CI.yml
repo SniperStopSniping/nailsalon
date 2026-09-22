@@ -451,6 +451,7 @@ jobs:
               migrations/0086_next_visit_offer.sql) ;;
               migrations/0087_network_no_show_protection.sql) ;;
               migrations/0088_network_no_show_platform_control.sql) ;;
+              migrations/0089_service_add_on_manual_confirmation.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -460,6 +461,7 @@ jobs:
               migrations/meta/0086_snapshot.json) ;;
               migrations/meta/0087_snapshot.json) ;;
               migrations/meta/0088_snapshot.json) ;;
+              migrations/meta/0089_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -668,6 +670,42 @@ jobs:
             exit 1
           fi
 
+          # 0089 is a reviewed two-artifact migration packet. It may be
+          # introduced once, with these exact SQL and snapshot postimages; once
+          # main contains either artifact, both are immutable.
+          if ! git diff --quiet "$base" -- migrations/0089_service_add_on_manual_confirmation.sql migrations/meta/0089_snapshot.json; then
+            if git cat-file -e "$base:migrations/0089_service_add_on_manual_confirmation.sql" 2>/dev/null \
+              || git cat-file -e "$base:migrations/meta/0089_snapshot.json" 2>/dev/null; then
+              echo "::error::Migration 0089 and its snapshot are already shipped and immutable."
+              exit 1
+            fi
+            migration_0089_sql_status="$(git diff --name-status "$base" -- migrations/0089_service_add_on_manual_confirmation.sql)"
+            migration_0089_snapshot_status="$(git diff --name-status "$base" -- migrations/meta/0089_snapshot.json)"
+            if [ "$migration_0089_sql_status" != $'A\tmigrations/0089_service_add_on_manual_confirmation.sql' ] \
+              || [ "$migration_0089_snapshot_status" != $'A\tmigrations/meta/0089_snapshot.json' ]; then
+              echo "::error::Migration 0089 must introduce exactly one SQL file and one snapshot."
+              printf 'SQL status: %s\nSnapshot status: %s\n' "$migration_0089_sql_status" "$migration_0089_snapshot_status"
+              exit 1
+            fi
+            migration_0089_sql_sha256="$(sha256sum migrations/0089_service_add_on_manual_confirmation.sql | awk '{print $1}')"
+            migration_0089_snapshot_sha256="$(sha256sum migrations/meta/0089_snapshot.json | awk '{print $1}')"
+            if [ "$migration_0089_sql_sha256" != "5cde8cc56543ccc0454063bc0fdd703e923ac13253d074f84ece356f66af826a" ] \
+              || [ "$migration_0089_snapshot_sha256" != "8602d6db0daa8be73abbed32b614693bcdbfd4e141601998563709c37b9e104b" ]; then
+              echo "::error::Migration 0089 artifacts do not match the reviewed manual-confirmation postimage."
+              printf 'SQL SHA256: %s\nSnapshot SHA256: %s\n' "$migration_0089_sql_sha256" "$migration_0089_snapshot_sha256"
+              exit 1
+            fi
+          fi
+
+          # Check even on journal-only changes: missing or duplicate 0089 entries
+          # must never pass the general append-only tag allowlist.
+          expected_0089_journal='{"breakpoints":true,"idx":88,"tag":"0089_service_add_on_manual_confirmation","version":"7","when":1790041987139}'
+          actual_0089_journal="$(jq -cS '.entries[] | select(.tag == "0089_service_add_on_manual_confirmation")' migrations/meta/_journal.json)"
+          if [ "$actual_0089_journal" != "$expected_0089_journal" ]; then
+            echo "::error::Migration 0089 journal entry does not match the reviewed postimage."
+            exit 1
+          fi
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -724,6 +762,7 @@ jobs:
               0086_next_visit_offer) ;;
               0087_network_no_show_protection) ;;
               0088_network_no_show_platform_control) ;;
+              0089_service_add_on_manual_confirmation) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1430,7 +1469,7 @@ jobs:
             src/libs/appointmentCreation.customerOperation.concurrency.integration.test.ts \
             | tee customer-booking-postgres.log
           grep -Fqx 'CUSTOMER_OPERATION_POSTGRES_TESTS_EXECUTED=12 CUSTOMER_OPERATION_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
-          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=34 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
+          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=35 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
 
       - name: Verify calendar block and booking fence races on real PostgreSQL with zero skips
         shell: bash

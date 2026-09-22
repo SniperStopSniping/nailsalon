@@ -102,7 +102,7 @@ export type SalonNotificationContext = {
   };
   technicianName: string | null;
   services: Array<{ name: string; priceCents: number; durationMinutes: number }>;
-  addOns: Array<{ name: string; quantity: number; lineTotalCents: number }>;
+  addOns: Array<{ name: string; quantity: number; lineTotalCents: number; priceMode: 'catalog_priced' | 'manual_confirmation' }>;
   timeZone: string;
   currency: string | null;
   financialSummary: BookingEmailFinancialSummary | null;
@@ -240,6 +240,7 @@ async function loadSalonNotificationContext(
         name: appointmentAddOnSchema.nameSnapshot,
         quantity: appointmentAddOnSchema.quantitySnapshot,
         lineTotalCents: appointmentAddOnSchema.lineTotalCentsSnapshot,
+        priceMode: appointmentAddOnSchema.priceModeSnapshot,
       })
       .from(appointmentAddOnSchema)
       .where(eq(appointmentAddOnSchema.appointmentId, appointmentId)),
@@ -270,6 +271,7 @@ async function loadSalonNotificationContext(
       name: addOn.name,
       quantity: addOn.quantity,
       lineTotalCents: addOn.lineTotalCents,
+      priceMode: addOn.priceMode,
     })),
     timeZone: bookingConfig.timezone,
     currency: financialSummary?.currency ?? row.appointment.invoiceCurrency ?? null,
@@ -421,7 +423,9 @@ function buildServiceLines(context: SalonNotificationContext): Line[] {
 function buildAddOnLines(context: SalonNotificationContext): Line[] {
   return context.addOns.map(addOn => ({
     label: addOn.quantity > 1 ? `${addOn.name} ×${addOn.quantity}` : addOn.name,
-    value: formatKnownMoney(addOn.lineTotalCents, context.currency),
+    value: addOn.priceMode === 'manual_confirmation'
+      ? 'Price to be confirmed'
+      : formatKnownMoney(addOn.lineTotalCents, context.currency),
   }));
 }
 

@@ -14,13 +14,14 @@ export function projectCustomerInterpreterMenu(menu: CustomerMenu) {
     bindings: {
       serviceIds,
       addOnIds,
-      columns: ['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity'] as const,
+      columns: ['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity', 'priceMode'] as const,
       rows: menu.bindings.map(binding => [
         serviceIndices.get(binding.serviceId)!,
         addOnIndices.get(binding.addOnId)!,
         binding.required,
         binding.defaultQuantity,
         binding.maxQuantity,
+        binding.priceMode ?? 'catalog_priced',
       ] as const),
     },
   };

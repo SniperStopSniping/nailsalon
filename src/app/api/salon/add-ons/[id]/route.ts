@@ -36,6 +36,8 @@ const updateAddOnSchema = z.object({
    * exactly as they are; an explicit [] clears them.
    */
   serviceIds: z.array(z.string().min(1)).max(200).optional(),
+  /** A strict subset of the compatible services. Omitted preserves all modes. */
+  manualConfirmationServiceIds: z.array(z.string().min(1)).max(200).optional(),
   /**
    * `add_on_group` membership. Omitted ⇒ left exactly as stored; an
    * explicit `null` un-groups the add-on; a string is validated same-salon
@@ -71,7 +73,7 @@ export async function PATCH(
       { status: 400 },
     );
   }
-  const { salonSlug, serviceIds, ...input } = parsed.data;
+  const { salonSlug, serviceIds, manualConfirmationServiceIds, ...input } = parsed.data;
   const { salon, error } = await requireAdminSalon(salonSlug);
   if (error || !salon) {
     return error!;
@@ -112,7 +114,7 @@ export async function PATCH(
         .returning();
 
       if (!updated) {
-        return { addOn: null, compatibleServiceIds: [] as string[] };
+        return { addOn: null, compatibleServiceIds: [] as string[], manualConfirmationServiceIds: [] as string[] };
       }
 
       if (serviceIds) {
@@ -167,8 +169,43 @@ export async function PATCH(
         }
       }
 
+      if (manualConfirmationServiceIds !== undefined) {
+        const manualIds = [...new Set(manualConfirmationServiceIds)];
+        const currentLinks = await tx
+          .select({ serviceId: serviceAddOnSchema.serviceId })
+          .from(serviceAddOnSchema)
+          .where(and(
+            eq(serviceAddOnSchema.salonId, salon.id),
+            eq(serviceAddOnSchema.addOnId, addOnId),
+          ));
+        const currentServiceIds = currentLinks.map(link => link.serviceId);
+        if (manualIds.some(id => !currentServiceIds.includes(id))) {
+          throw new ForeignServiceError();
+        }
+
+        // This explicit field is the only path that changes an existing
+        // binding's mode. A normal add-on edit leaves it untouched.
+        await tx
+          .update(serviceAddOnSchema)
+          .set({ priceMode: 'catalog_priced', updatedAt: new Date() })
+          .where(and(
+            eq(serviceAddOnSchema.salonId, salon.id),
+            eq(serviceAddOnSchema.addOnId, addOnId),
+          ));
+        if (manualIds.length) {
+          await tx
+            .update(serviceAddOnSchema)
+            .set({ priceMode: 'manual_confirmation', updatedAt: new Date() })
+            .where(and(
+              eq(serviceAddOnSchema.salonId, salon.id),
+              eq(serviceAddOnSchema.addOnId, addOnId),
+              inArray(serviceAddOnSchema.serviceId, manualIds),
+            ));
+        }
+      }
+
       const links = await tx
-        .select({ serviceId: serviceAddOnSchema.serviceId })
+        .select({ serviceId: serviceAddOnSchema.serviceId, priceMode: serviceAddOnSchema.priceMode })
         .from(serviceAddOnSchema)
         .where(
           and(
@@ -180,6 +217,7 @@ export async function PATCH(
       return {
         addOn: updated,
         compatibleServiceIds: links.map(link => link.serviceId),
+        manualConfirmationServiceIds: links.filter(link => link.priceMode === 'manual_confirmation').map(link => link.serviceId),
       };
     });
 
@@ -192,7 +230,7 @@ export async function PATCH(
 
     return Response.json({
       data: {
-        addOn: buildAddOnPayload(result.addOn, result.compatibleServiceIds),
+        addOn: buildAddOnPayload(result.addOn, result.compatibleServiceIds, result.manualConfirmationServiceIds),
       },
     });
   } catch (updateError) {

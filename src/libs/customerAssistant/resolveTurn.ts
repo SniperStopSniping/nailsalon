@@ -355,7 +355,7 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       // choice that contradicts the facts after that authoritative resolution.
       if (selectionConflictsWithExplicitFacts(menu, facts, {
         baseServiceId: proposal.service.id,
-        selectedAddOns: proposal.addOns.map(item => ({ addOnId: item.id, quantity: item.quantity })),
+        selectedAddOns: [...proposal.addOns, ...(proposal.manualConfirmationItems ?? [])].map(item => ({ addOnId: item.id, quantity: item.quantity })),
       })) {
         result = { kind: 'unavailable', reason: 'selection_changed' };
       } else {

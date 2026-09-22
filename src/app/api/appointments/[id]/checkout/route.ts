@@ -241,6 +241,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
         unitPriceCents: row.unitPriceCentsSnapshot,
         lineTotalCents: row.lineTotalCentsSnapshot,
         durationMinutes: row.lineDurationMinutesSnapshot,
+        priceMode: row.priceModeSnapshot,
       })),
     ];
 

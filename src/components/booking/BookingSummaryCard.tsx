@@ -14,6 +14,7 @@ type BookingSummaryCardProps = {
     imageUrl: string | null;
   } | null;
   label?: string;
+  hasManualConfirmationItems?: boolean;
 };
 
 export function BookingSummaryCard({
@@ -24,6 +25,7 @@ export function BookingSummaryCard({
   locationName = null,
   technician,
   label = 'Your appointment',
+  hasManualConfirmationItems = false,
 }: BookingSummaryCardProps) {
   return (
     <Card
@@ -57,6 +59,11 @@ export function BookingSummaryCard({
               {technician ? `with ${technician.name} · ` : ''}
               {formatDuration(totalDuration)}
             </div>
+            {hasManualConfirmationItems && (
+              <div data-testid="booking-summary-manual-price" className="mt-0.5 text-xs font-semibold">
+                Additional item price to be confirmed by your nail tech
+              </div>
+            )}
             {locationName && (
               <div data-testid="booking-summary-location" className="mt-0.5 break-words text-sm">
                 {locationName}

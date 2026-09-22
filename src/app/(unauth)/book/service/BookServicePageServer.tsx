@@ -260,6 +260,7 @@ export async function renderBookServicePage({
     defaultQuantity: rule.defaultQuantity ?? null,
     maxQuantityOverride: rule.maxQuantityOverride ?? null,
     displayOrder: rule.displayOrder ?? 0,
+    priceMode: rule.priceMode,
   }));
 
   // S5 (Stage 1): this used to be a second, hand-maintained copy of

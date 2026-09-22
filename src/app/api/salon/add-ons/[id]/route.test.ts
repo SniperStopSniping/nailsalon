@@ -195,6 +195,33 @@ describe('PATCH /api/salon/add-ons/[id]', () => {
     expect(await linkedServiceIds(ADD_ON_ID)).toEqual([SERVICE_A]);
   });
 
+  it('updates manual confirmation only for an existing same-salon compatible binding', async () => {
+    const response = await PATCH(...patchRequest(ADD_ON_ID, {
+      ...VALID_BODY,
+      manualConfirmationServiceIds: [SERVICE_A],
+    }));
+    const [link] = await db.select().from(schema.serviceAddOnSchema).where(eq(schema.serviceAddOnSchema.addOnId, ADD_ON_ID));
+
+    expect(response.status).toBe(200);
+    expect(link?.priceMode).toBe('manual_confirmation');
+
+    // An unrelated edit preserves the explicit owner decision.
+    await PATCH(...patchRequest(ADD_ON_ID, { ...VALID_BODY, name: 'Chrome updated' }));
+    const [preserved] = await db.select().from(schema.serviceAddOnSchema).where(eq(schema.serviceAddOnSchema.addOnId, ADD_ON_ID));
+
+    expect(preserved?.priceMode).toBe('manual_confirmation');
+  });
+
+  it('refuses manual confirmation for a non-compatible or foreign service', async () => {
+    const response = await PATCH(...patchRequest(ADD_ON_ID, {
+      ...VALID_BODY,
+      manualConfirmationServiceIds: [FOREIGN_SERVICE],
+    }));
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe('INVALID_SERVICE_SELECTION');
+  });
+
   it('reconciles compatible services without duplicating rows', async () => {
     const response = await PATCH(...patchRequest(ADD_ON_ID, {
       ...VALID_BODY,

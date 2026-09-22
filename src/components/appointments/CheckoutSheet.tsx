@@ -34,6 +34,8 @@ type CheckoutItem = {
   unitPriceCents: number;
   durationMinutes: number | null;
   taxable: boolean;
+  priceMode?: 'catalog_priced' | 'manual_confirmation';
+  manualPriceConfirmed?: boolean;
 };
 
 type DepositCreditSummary = {
@@ -441,6 +443,8 @@ export function CheckoutSheet({
       quantity: item.quantity,
       unitPriceCents: item.unitPriceCents,
       durationMinutes: item.durationMinutes,
+      priceMode: item.priceMode,
+      manualPriceConfirmed: item.priceMode !== 'manual_confirmation',
       taxable: 'taxable' in item && typeof item.taxable === 'boolean'
         ? item.taxable
         : item.kind === 'service'
@@ -798,6 +802,9 @@ export function CheckoutSheet({
         issues.push({ path: 'actualEndAt', message: duration < 0 ? 'Actual finish cannot be before actual start.' : 'Actual duration cannot exceed 24 hours.' });
       }
     }
+    if (items.some(item => item.priceMode === 'manual_confirmation' && !item.manualPriceConfirmed)) {
+      issues.push({ path: 'finalItems', message: 'Confirm the price for each tech-confirmed item before completing this appointment.' });
+    }
     if (!hasAfterPhoto && photoPolicyMode === 'required') {
       issues.push({ path: 'photos', message: 'Add an after photo before completing this appointment. Your salon requires one.' });
     }
@@ -808,7 +815,7 @@ export function CheckoutSheet({
     setValidationIssues([]);
     setError(null);
     return true;
-  }, [completionPayload, hasAfterPhoto, photoPolicyMode, revealValidation]);
+  }, [completionPayload, hasAfterPhoto, items, photoPolicyMode, revealValidation]);
 
   const submitCompletion = useCallback(async (options: { skipPhoto?: boolean } = {}) => {
     if (!appointmentId || !context || !totals) {
@@ -1649,16 +1656,21 @@ export function CheckoutSheet({
                               <Plus className="size-3.5" />
                             </button>
                           </div>
-                          <div className="relative">
-                            <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-xs text-neutral-400">$</span>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              aria-label={`Price for ${item.name || 'item'}`}
-                              value={centsToInput(item.unitPriceCents)}
-                              onChange={event => updateItem(item.key, { unitPriceCents: inputToCents(event.target.value) })}
-                              className="min-h-11 w-24 rounded-lg border border-neutral-200 bg-white p-2 pl-6 text-sm text-neutral-900"
-                            />
+                          <div>
+                            {item.priceMode === 'manual_confirmation' && !item.manualPriceConfirmed && (
+                              <div className="mb-1 text-[11px] font-semibold text-amber-700">Price must be confirmed</div>
+                            )}
+                            <div className="relative">
+                              <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-xs text-neutral-400">$</span>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                aria-label={`Price for ${item.name || 'item'}`}
+                                value={centsToInput(item.unitPriceCents)}
+                                onChange={event => updateItem(item.key, { unitPriceCents: inputToCents(event.target.value), manualPriceConfirmed: true })}
+                                className="min-h-11 w-24 rounded-lg border border-neutral-200 bg-white p-2 pl-6 text-sm text-neutral-900"
+                              />
+                            </div>
                           </div>
                           {context.taxConfig.enabled && (
                             <label className="flex min-h-11 items-center gap-1.5 text-xs text-neutral-500">

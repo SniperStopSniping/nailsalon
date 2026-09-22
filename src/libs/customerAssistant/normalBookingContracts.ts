@@ -4,8 +4,9 @@ import { customerReviewRequestSchema } from './reviewContracts';
 
 /** Exact normal-screen submission; no model or conversation facts enter this boundary. */
 export const normalBookingPrepareSchema = z.object({
-  flowToken: z.string().min(1).max(300),
+  flowToken: z.string().min(1).max(2_048),
   expectedRevision: z.number().int().min(0),
+  sourceCapability: z.string().min(1).max(200).optional(),
   booking: z.object({
     salonSlug: z.string().min(1).max(160),
     baseServiceId: z.string().min(1).max(100),
@@ -40,6 +41,7 @@ export const normalBookingPrepareSchema = z.object({
     location: z.object({ name: z.string(), address: z.string().nullable(), city: z.string().nullable(), state: z.string().nullable(), zipCode: z.string().nullable() }).strict().nullable(),
     services: z.array(z.object({ id: z.string(), name: z.string(), priceCents: z.number().int() }).strict()),
     addOns: z.array(z.object({ id: z.string(), name: z.string(), quantity: z.number().int(), priceCents: z.number().int() }).strict()),
+    manualConfirmationItems: z.array(z.object({ id: z.string(), name: z.string(), quantity: z.number().int(), durationMinutes: z.number().int().nonnegative(), priceStatus: z.literal('to_be_confirmed') }).strict()).max(20).default([]),
     confirmationMode: z.enum(['instant', 'request_approval']),
     reminderMode: z.enum(['default_on', 'default_off', 'disabled']),
     policyVersion: z.string().nullable(),

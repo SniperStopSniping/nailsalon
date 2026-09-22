@@ -119,6 +119,7 @@ export function makeFixtureBinding(overrides: Partial<ServiceAddOn> = {}): Servi
     serviceId: 'svc_fixture',
     addOnId: 'addon_fixture',
     selectionMode: 'optional',
+    priceMode: 'catalog_priced',
     conditions: null,
     defaultQuantity: null,
     maxQuantityOverride: null,

@@ -7,6 +7,7 @@ import type { EffectiveConfirmationMode } from '@/libs/confirmationMode';
 import type {
   AddOnCategory,
   AddOnPricingType,
+  ServiceAddOnPriceMode,
   ServiceAddOnSelectionMode,
   ServiceCategory,
 } from '@/models/Schema';
@@ -286,6 +287,8 @@ export type PublicServiceAddOnBinding = {
   /** Deterministic — see the tiebreak note in `catalogResolverCore.ts`; never a bare positional index. */
   displayOrder: number;
   selectionMode: ServiceAddOnSelectionMode;
+  /** Owner-controlled price authority for this service/add-on combination. */
+  priceMode: ServiceAddOnPriceMode;
   defaultQuantity: number | null;
   effectiveMaxQuantity: number;
 };
@@ -458,6 +461,7 @@ export type ResolvedCatalogAddOnLine = {
   lineTotalCents: number;
   unitDurationMinutes: number;
   lineDurationMinutes: number;
+  priceMode: ServiceAddOnPriceMode;
   /** True when this line was not in the client's own selection and was added by an `include` rule with `autoAdd: true`. */
   autoAdded: boolean;
 };
@@ -492,7 +496,7 @@ export type CatalogSnapshotResult =
  * so a fingerprint computed under an older shape can never be compared —
  * and mistaken as equal or unequal — against one computed under a newer one.
  */
-export const CATALOG_RESOLUTION_FINGERPRINT_SCHEMA_VERSION = 1;
+export const CATALOG_RESOLUTION_FINGERPRINT_SCHEMA_VERSION = 2;
 
 export type CatalogResolutionFingerprintAddOnLine = {
   addOnId: string;
@@ -501,6 +505,7 @@ export type CatalogResolutionFingerprintAddOnLine = {
   lineTotalCents: number;
   unitDurationMinutes: number;
   lineDurationMinutes: number;
+  priceMode: ServiceAddOnPriceMode;
 };
 
 /**

@@ -109,6 +109,7 @@ export type ServiceAddOnRule = {
   defaultQuantity: number | null;
   maxQuantityOverride: number | null;
   displayOrder: number;
+  priceMode?: 'catalog_priced' | 'manual_confirmation';
 };
 
 export type LocationData = {
@@ -974,6 +975,7 @@ export function BookServiceClient({
           defaultQuantity: binding.defaultQuantity,
           maxQuantityOverride: binding.effectiveMaxQuantity,
           displayOrder: binding.displayOrder,
+          priceMode: binding.priceMode,
         }))
         : serviceAddOnRules)
         .filter(rule => rule.serviceId === selectedBaseServiceId)
@@ -1131,7 +1133,7 @@ export function BookServiceClient({
           if (!item || item.quantity <= 0) {
             return sum;
           }
-          return sum + (item.addOn.priceCents * item.quantity);
+          return sum + (('priceMode' in item.rule && item.rule.priceMode === 'manual_confirmation') ? 0 : item.addOn.priceCents * item.quantity);
         },
         0,
       ));
@@ -2084,7 +2086,8 @@ export function BookServiceClient({
                                               const isSelected = quantity > 0;
                                               const isRequired = rule.selectionMode === 'required';
                                               const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
-                                              const lineTotalCents = addOn.priceCents * Math.max(quantity, 1);
+                                              const manualConfirmation = 'priceMode' in rule && rule.priceMode === 'manual_confirmation';
+                                              const lineTotalCents = manualConfirmation ? 0 : addOn.priceCents * Math.max(quantity, 1);
                                               const lineDurationMinutes = addOn.durationMinutes * Math.max(quantity, 1);
 
                                               return (
@@ -2121,13 +2124,13 @@ export function BookServiceClient({
                                                         </div>
                                                       )}
                                                       <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
-                                                        <span>{addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
+                                                        <span>{manualConfirmation ? 'Price to be confirmed' : addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
                                                         <span>{formatDuration(addOn.durationMinutes)}</span>
                                                         {isSelected && (
                                                           <span>
                                                             Selected:
                                                             {' '}
-                                                            {formatMoney(lineTotalCents, currency)}
+                                                            {manualConfirmation ? 'Price to be confirmed' : formatMoney(lineTotalCents, currency)}
                                                             {' '}
                                                             ·
                                                             {' '}
