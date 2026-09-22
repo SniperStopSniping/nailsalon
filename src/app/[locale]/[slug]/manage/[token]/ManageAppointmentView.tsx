@@ -41,11 +41,11 @@ type ManageLinkFailure = 'invalid' | 'expired' | 'not_found';
 const FAILURE_COPY: Record<ManageLinkFailure, { title: string; body: string }> = {
   invalid: {
     title: 'This link is not valid',
-    body: 'The link may have been copied incompletely, or it has already been replaced by a newer one. Request a fresh private link and we will email it to the address on file.',
+    body: 'The link may have been copied incompletely, or it has already been replaced by a newer one. Request a fresh private link using your booking email or mobile phone.',
   },
   expired: {
     title: 'This link has expired',
-    body: 'Private appointment links stop working a while after the appointment. Request a fresh one and we will email it to the address on file.',
+    body: 'Private appointment links stop working a while after the appointment. Request a fresh one using your booking email or mobile phone.',
   },
   not_found: {
     title: 'We could not find that appointment',
