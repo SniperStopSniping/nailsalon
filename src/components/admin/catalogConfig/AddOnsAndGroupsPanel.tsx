@@ -783,25 +783,35 @@ function AddOnPriceConfirmationDialog({
   return (
     <DialogShell isOpen onClose={saving ? () => {} : onClose} closeOnBackdrop={!saving} closeOnEscape={!saving} maxWidthClassName="max-w-md" contentClassName={DIALOG_CONTENT} alignClassName={DIALOG_ALIGN}>
       <div className="space-y-4" data-testid="addon-price-confirmation-dialog">
-        <h2 className="text-lg font-semibold text-[#1C1C1E]">Price confirmation for “{addOn.name}”</h2>
+        <h2 className="text-lg font-semibold text-[#1C1C1E]">
+          Price confirmation for “
+          {addOn.name}
+          ”
+        </h2>
         <p className="text-sm text-[#6B7280]">
-          For selected services, clients can still book this add-on. The nail tech confirms its price, and the configured {formatDuration(addOn.durationMinutes)} still reserves time.
+          For selected services, clients can still book this add-on. The nail tech confirms its price, and the configured
+          {' '}
+          {formatDuration(addOn.durationMinutes)}
+          {' '}
+          still reserves time.
         </p>
         {compatibleServices.length === 0
           ? <p className="rounded-xl border border-gray-200 p-3 text-sm text-[#6B7280]">Choose compatible services before enabling price confirmation.</p>
-          : <fieldset disabled={saving} className="space-y-2">
-              <legend className="text-sm font-medium text-[#1C1C1E]">Confirm price with nail tech for</legend>
-              {compatibleServices.map(service => (
-                <label key={service.id} className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 p-3">
-                  <span className="text-sm text-[#1C1C1E]">{service.name}</span>
-                  <input
-                    type="checkbox"
-                    checked={manualServiceIds.includes(service.id)}
-                    onChange={event => setManualServiceIds(current => event.target.checked ? [...current, service.id] : current.filter(id => id !== service.id))}
-                  />
-                </label>
-              ))}
-            </fieldset>}
+          : (
+              <fieldset disabled={saving} className="space-y-2">
+                <legend className="text-sm font-medium text-[#1C1C1E]">Confirm price with nail tech for</legend>
+                {compatibleServices.map(service => (
+                  <label key={service.id} className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 p-3">
+                    <span className="text-sm text-[#1C1C1E]">{service.name}</span>
+                    <input
+                      type="checkbox"
+                      checked={manualServiceIds.includes(service.id)}
+                      onChange={event => setManualServiceIds(current => event.target.checked ? [...current, service.id] : current.filter(id => id !== service.id))}
+                    />
+                  </label>
+                ))}
+              </fieldset>
+            )}
         {error && <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="brandSoft" size="pillSm" onClick={onClose} disabled={saving}>Cancel</Button>

@@ -201,12 +201,14 @@ describe('PATCH /api/salon/add-ons/[id]', () => {
       manualConfirmationServiceIds: [SERVICE_A],
     }));
     const [link] = await db.select().from(schema.serviceAddOnSchema).where(eq(schema.serviceAddOnSchema.addOnId, ADD_ON_ID));
+
     expect(response.status).toBe(200);
     expect(link?.priceMode).toBe('manual_confirmation');
 
     // An unrelated edit preserves the explicit owner decision.
     await PATCH(...patchRequest(ADD_ON_ID, { ...VALID_BODY, name: 'Chrome updated' }));
     const [preserved] = await db.select().from(schema.serviceAddOnSchema).where(eq(schema.serviceAddOnSchema.addOnId, ADD_ON_ID));
+
     expect(preserved?.priceMode).toBe('manual_confirmation');
   });
 
@@ -215,6 +217,7 @@ describe('PATCH /api/salon/add-ons/[id]', () => {
       ...VALID_BODY,
       manualConfirmationServiceIds: [FOREIGN_SERVICE],
     }));
+
     expect(response.status).toBe(400);
     expect((await response.json()).error.code).toBe('INVALID_SERVICE_SELECTION');
   });

@@ -223,12 +223,15 @@ describe('AddOnsAndGroupsPanel', () => {
 
     fireEvent.click(screen.getByTestId('catalog-addon-price-confirmation-addon_1'));
     const dialog = screen.getByTestId('addon-price-confirmation-dialog');
+
     expect(within(dialog).getByText(/configured 10 min still reserves time/i)).toBeInTheDocument();
+
     fireEvent.click(within(dialog).getByLabelText('Gel Manicure'));
     fireEvent.click(within(dialog).getByTestId('addon-price-confirmation-save'));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [, init] = fetchMock.mock.calls[0]!;
+
     expect(JSON.parse(String(init.body))).toMatchObject({ manualConfirmationServiceIds: ['svc_1'] });
   });
 });

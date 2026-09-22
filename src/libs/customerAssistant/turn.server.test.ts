@@ -253,7 +253,7 @@ describe('customer assistant bounded turn', () => {
       serviceIds: string[];
       addOnIds: string[];
       columns: string[];
-      rows: Array<[number, number, boolean, number, number]>;
+      rows: Array<[number, number, boolean, number, number, 'catalog_priced' | 'manual_confirmation']>;
     };
     const reconstructedBindings = bindingProjection.rows.map(row => ({
       serviceId: bindingProjection.serviceIds[row[0]],
@@ -261,6 +261,7 @@ describe('customer assistant bounded turn', () => {
       required: row[2],
       defaultQuantity: row[3],
       maxQuantity: row[4],
+      priceMode: row[5],
     }));
     const oldProjectionPayload = {
       ...payload,
@@ -277,8 +278,8 @@ describe('customer assistant bounded turn', () => {
     expect(model.createResponse).toHaveBeenCalledTimes(1);
     expect(combinedBytes(payload)).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
     expect(combinedBytes(oldProjectionPayload)).toBeGreaterThan(40_000);
-    expect(bindingProjection.columns).toEqual(['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity']);
-    expect(reconstructedBindings).toEqual(REALISTIC_OPAQUE_MENU.bindings);
+    expect(bindingProjection.columns).toEqual(['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity', 'priceMode']);
+    expect(reconstructedBindings).toEqual(REALISTIC_OPAQUE_MENU.bindings.map(binding => ({ ...binding, priceMode: 'catalog_priced' })));
     expect(response.result).toMatchObject({ kind: 'proposal', proposal: { selection: REALISTIC_OPAQUE_SELECTION } });
     expect(mocks.proposal).toHaveBeenCalledWith('salon-a', null, REALISTIC_OPAQUE_SELECTION);
 
@@ -348,14 +349,15 @@ describe('customer assistant bounded turn', () => {
     expect(model.createResponse).toHaveBeenCalledTimes(1);
     expect(Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(fullBindingPayload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeGreaterThan(40_000);
     expect(Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(payload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
-    expect(payload.menu.bindings.columns).toEqual(['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity']);
-    expect(payload.menu.bindings.rows.map((row: [number, number, boolean, number, number]) => ({
+    expect(payload.menu.bindings.columns).toEqual(['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity', 'priceMode']);
+    expect(payload.menu.bindings.rows.map((row: [number, number, boolean, number, number, 'catalog_priced' | 'manual_confirmation']) => ({
       serviceId: payload.menu.bindings.serviceIds[row[0]],
       addOnId: payload.menu.bindings.addOnIds[row[1]],
       required: row[2],
       defaultQuantity: row[3],
       maxQuantity: row[4],
-    }))).toEqual(bindings);
+      priceMode: row[5],
+    }))).toEqual(bindings.map(binding => ({ ...binding, priceMode: 'catalog_priced' })));
     expect(payload.bookingState.offeredSlots).toHaveLength(8);
     expect(response.result).toEqual({ kind: 'clarification', question: 'finish', options: [target.name] });
     expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).context?.selection).toEqual(selection);

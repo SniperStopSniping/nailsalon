@@ -47,9 +47,13 @@ export function verifyNormalConfirmHandoff(args: { salonId: string; flowToken: s
   if (contextText) {
     try {
       const candidate = JSON.parse(Buffer.from(contextText, 'base64url').toString('utf8')) as ManualContext;
-      if (!['gel_x', 'builder_gel', 'acrylic', 'gel_polish', 'unknown'].includes(candidate.currentProduct) || !Array.isArray(candidate.itemIds) || candidate.itemIds.length > 20 || candidate.itemIds.some(id => typeof id !== 'string' || id.length > 100)) throw new Error();
+      if (!['gel_x', 'builder_gel', 'acrylic', 'gel_polish', 'unknown'].includes(candidate.currentProduct) || !Array.isArray(candidate.itemIds) || candidate.itemIds.length > 20 || candidate.itemIds.some(id => typeof id !== 'string' || id.length > 100)) {
+        throw new Error('NORMAL_CONFIRM_HANDOFF_CONTEXT_INVALID');
+      }
       manualConfirmationContext = candidate;
-    } catch { throw new Error('NORMAL_CONFIRM_HANDOFF_INVALID'); }
+    } catch {
+      throw new Error('NORMAL_CONFIRM_HANDOFF_INVALID');
+    }
   }
   const issuedAt = Number(issuedAtText);
   if (version !== 'v1' || !UUID.test(flowId ?? '') || !Number.isSafeInteger(issuedAt) || !mac || (parts.length !== 4 && parts.length !== 5)) {
