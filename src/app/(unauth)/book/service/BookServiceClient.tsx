@@ -1077,6 +1077,20 @@ export function BookServiceClient({
         .sort((a, b) => a.displayOrder - b.displayOrder)
     : [];
   const addOnsById = new Map(addOns.map(addOn => [addOn.id, addOn]));
+  const autoIncludedQuantity = (serviceId: string, selectedAddOns: SelectedAddOnParam[], addOnId: string): number => {
+    if (!l1Snapshot) {
+      return 0;
+    }
+
+    const resolved = resolveCatalogSelection(l1Snapshot, {
+      serviceId,
+      selectedAddOns: selectedAddOns.filter(item => item.addOnId !== addOnId),
+    });
+
+    return resolved.ok
+      ? resolved.selection.addOns.find(line => line.addOnId === addOnId && line.autoAdded)?.quantity ?? 0
+      : 0;
+  };
   const selectedAddOnsById = new Map(selectedAddOnsState.map(item => [item.addOnId, item.quantity ?? 1]));
   const allowedAddOns = selectedRules
     .map((rule) => {
@@ -1093,6 +1107,14 @@ export function BookServiceClient({
     })
     .filter(Boolean);
   const hasVisibleAddOns = Boolean(selectedService && allowedAddOns.length > 0);
+  const autoIncludedQuantities = new Map<string, number>();
+  if (selectedBaseServiceId) {
+    for (const item of allowedAddOns) {
+      if (item) {
+        autoIncludedQuantities.set(item.addOn.id, autoIncludedQuantity(selectedBaseServiceId, selectedAddOnsState, item.addOn.id));
+      }
+    }
+  }
   const removalOptions = allowedAddOns.filter(item => item?.addOn.category === 'removal');
   const otherOptions = allowedAddOns.filter(item => item?.addOn.category !== 'removal');
   const basketReview = selectedBasket.map((item) => {
@@ -1105,14 +1127,8 @@ export function BookServiceClient({
       service: service && [service.priceCents, service.priceDisplayText, service.durationMinutes],
       rules: visibleRules.map(rule => ({ rule, addOn: addOnsById.get(rule.addOnId) })),
     });
-    const resolved = l1Snapshot && resolveCatalogSelection(l1Snapshot, {
-      serviceId: item.serviceId,
-      selectedAddOns: item.selectedAddOns,
-    });
-    const autoIncludedRemovalIds = new Set(resolved && resolved.ok
-      ? resolved.selection.addOns.filter(line => line.autoAdded && addOnsById.get(line.addOnId)?.category === 'removal').map(line => line.addOnId)
-      : []);
-    const hasRemoval = visibleRules.some(rule => addOnsById.get(rule.addOnId)?.category === 'removal' && !autoIncludedRemovalIds.has(rule.addOnId));
+    const hasRemoval = visibleRules.some(rule => addOnsById.get(rule.addOnId)?.category === 'removal'
+      && autoIncludedQuantity(item.serviceId, item.selectedAddOns, rule.addOnId) === 0);
     const preparationDone = !hasRemoval || optionsReview.preparation[item.serviceId] === key;
     return {
       serviceId: item.serviceId,
@@ -2338,9 +2354,9 @@ export function BookServiceClient({
                                             ].filter(group => group.items.length > 0).map(group => (
                                               <div key={group.title} className="space-y-1.5">
                                                 <h5 className="text-sm font-semibold text-neutral-900">{group.title}</h5>
-                                                {group.preparation && group.items.some(item => item && !l1Selection?.addOns.some(line => line.addOnId === item.addOn.id && line.autoAdded)) && (
+                                                {group.preparation && group.items.some(item => item && !autoIncludedQuantities.get(item.addOn.id)) && (
                                                   <p className="text-xs text-neutral-600">
-                                                    {group.items.some(item => item && l1Selection?.addOns.some(line => line.addOnId === item.addOn.id && line.autoAdded))
+                                                    {group.items.some(item => item && autoIncludedQuantities.get(item.addOn.id))
                                                       ? 'Choose any additional removal you need, or tell us you do not need more.'
                                                       : 'Choose any removal you need, or tell us you do not need removal.'}
                                                   </p>
@@ -2351,10 +2367,10 @@ export function BookServiceClient({
                                                   }
 
                                                   const { addOn, rule, quantity } = item;
-                                                  const autoAddedLine = l1Selection?.addOns.find(line => line.addOnId === addOn.id && line.autoAdded);
-                                                  const effectiveQuantity = quantity > 0 ? quantity : autoAddedLine?.quantity ?? 0;
+                                                  const automaticQuantity = autoIncludedQuantities.get(addOn.id) ?? 0;
+                                                  const effectiveQuantity = quantity > 0 ? quantity : automaticQuantity;
                                                   const isSelected = effectiveQuantity > 0;
-                                                  const isRequired = rule.selectionMode === 'required' || Boolean(autoAddedLine);
+                                                  const isRequired = rule.selectionMode === 'required' || automaticQuantity > 0;
                                                   const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
                                                   const manualConfirmation = 'priceMode' in rule && rule.priceMode === 'manual_confirmation';
                                                   const lineTotalCents = manualConfirmation ? 0 : addOn.priceCents * Math.max(effectiveQuantity, 1);
@@ -2420,20 +2436,20 @@ export function BookServiceClient({
                                                                 <button
                                                                   type="button"
                                                                   aria-label={`Decrease ${addOn.name} quantity`}
-                                                                  onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, quantity - 1) : Math.max(0, quantity - 1))}
-                                                                  disabled={isRequired ? quantity <= 1 : quantity <= 0}
+                                                                  onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, effectiveQuantity - 1) : Math.max(0, effectiveQuantity - 1))}
+                                                                  disabled={isRequired ? effectiveQuantity <= 1 : effectiveQuantity <= 0}
                                                                   className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
                                                                 >
                                                                   -
                                                                 </button>
                                                                 <div className="min-w-6 text-center text-sm font-semibold text-neutral-900">
-                                                                  {quantity}
+                                                                  {effectiveQuantity}
                                                                 </div>
                                                                 <button
                                                                   type="button"
                                                                   aria-label={`Increase ${addOn.name} quantity`}
-                                                                  onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, Math.max(quantity, 0) + 1))}
-                                                                  disabled={quantity >= maxQuantity}
+                                                                  onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, effectiveQuantity + 1))}
+                                                                  disabled={effectiveQuantity >= maxQuantity}
                                                                   className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
                                                                 >
                                                                   +
@@ -2467,7 +2483,7 @@ export function BookServiceClient({
                                                     </div>
                                                   );
                                                 })}
-                                                {group.preparation && group.items.some(item => item && item.quantity > 0) && !preparationAcknowledged && (
+                                                {group.preparation && group.items.some(item => item && item.quantity > 0 && !autoIncludedQuantities.get(item.addOn.id)) && !preparationAcknowledged && (
                                                   <button
                                                     type="button"
                                                     data-testid="service-confirm-removal-button"
@@ -2480,14 +2496,15 @@ export function BookServiceClient({
                                                     Yes, I need the selected removal
                                                   </button>
                                                 )}
-                                                {group.preparation && group.items.some(item => item && item.rule.selectionMode !== 'required' && !l1Selection?.addOns.some(line => line.addOnId === item.addOn.id && line.autoAdded)) && !group.items.some(item => item?.rule.selectionMode === 'required') && (
+                                                {group.preparation && group.items.some(item => item && item.rule.selectionMode !== 'required' && !autoIncludedQuantities.get(item.addOn.id)) && !group.items.some(item => item?.rule.selectionMode === 'required') && (
                                                   <button
                                                     type="button"
                                                     data-testid="service-no-removal-button"
-                                                    aria-pressed={preparationAcknowledged && !group.items.some(item => item && item.quantity > 0)}
+                                                    aria-pressed={preparationAcknowledged && !group.items.some(item => item && item.quantity > 0 && !autoIncludedQuantities.get(item.addOn.id))}
                                                     onClick={() => {
                                                       const nextSelected = selectedAddOnsState.filter(item => (
                                                         addOnsById.get(item.addOnId)?.category !== 'removal'
+                                                        || (autoIncludedQuantities.get(item.addOnId) ?? 0) > 0
                                                       ));
                                                       setSelectedAddOnsState(nextSelected);
                                                       setSelectedBasket(current => current.map(item => item.serviceId === selectedService.id
@@ -2501,7 +2518,7 @@ export function BookServiceClient({
                                                     }}
                                                     className="min-h-11 rounded-lg px-3 text-sm font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                                                   >
-                                                    {group.items.some(item => item && l1Selection?.addOns.some(line => line.addOnId === item.addOn.id && line.autoAdded))
+                                                    {group.items.some(item => item && autoIncludedQuantities.get(item.addOn.id))
                                                       ? 'I don’t need additional removal'
                                                       : 'I don’t need removal'}
                                                   </button>

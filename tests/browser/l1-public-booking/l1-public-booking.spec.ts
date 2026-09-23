@@ -14,6 +14,7 @@ const TECH = 'synthetic-l1-public-e2e-tech';
 const SERVICE = 'synthetic-l1-public-e2e-service';
 const AUTO = 'synthetic-l1-public-e2e-auto';
 const OPTIONAL = 'synthetic-l1-public-e2e-optional';
+const OPTIONAL_REMOVAL = 'synthetic-l1-public-e2e-optional-removal';
 let database: Client;
 
 test.beforeAll(async () => {
@@ -29,12 +30,16 @@ test.beforeAll(async () => {
     ON CONFLICT (id) DO UPDATE SET features = EXCLUDED.features, settings = EXCLUDED.settings`, [SALON, SLUG, JSON.stringify({ catalog: { variantsV1: true, addOnGroupsV1: false, bookingModesV1: false } }), JSON.stringify({ booking: { timezone: 'America/Toronto', currency: 'CAD', bufferMinutes: 0, slotIntervalMinutes: 15 }, bookingExperience: { policy: { enabled: false } } })]);
   await database.query(`INSERT INTO technician (id, salon_id, name, is_active, weekly_schedule) VALUES ($1, $2, 'Synthetic L1 Tech', true, $3::jsonb) ON CONFLICT (id) DO UPDATE SET is_active = true, weekly_schedule = EXCLUDED.weekly_schedule`, [TECH, SALON, JSON.stringify(Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day, { start: '00:00', end: '23:45' }])))]);
   await database.query(`INSERT INTO service (id, salon_id, name, category, price, duration_minutes, is_active) VALUES ($1, $2, 'Synthetic 45 minute L1 service', 'manicure', 5000, 45, true) ON CONFLICT (id) DO UPDATE SET price = 5000, duration_minutes = 45, is_active = true`, [SERVICE, SALON]);
-  await database.query(`INSERT INTO add_on (id, salon_id, name, slug, category, price_cents, duration_minutes, is_active) VALUES
-    ($1, $2, 'Synthetic automatic prep', 'synthetic-auto', 'removal', 0, 5, true),
-    ($3, $2, 'Synthetic optional French', 'synthetic-french', 'nail_art', 500, 0, true)
-    ON CONFLICT (id) DO UPDATE SET is_active = true`, [AUTO, SALON, OPTIONAL]);
-  await database.query(`INSERT INTO service_add_on (id, salon_id, service_id, add_on_id, selection_mode) VALUES
-    ('synthetic-l1-auto-binding', $1, $2, $3, 'optional'), ('synthetic-l1-optional-binding', $1, $2, $4, 'optional') ON CONFLICT (id) DO NOTHING`, [SALON, SERVICE, AUTO, OPTIONAL]);
+  await database.query(`INSERT INTO add_on (id, salon_id, name, slug, category, price_cents, duration_minutes, pricing_type, max_quantity, is_active) VALUES
+    ($1, $2, 'Synthetic automatic prep', 'synthetic-auto', 'removal', 0, 5, 'per_unit', 10, true),
+    ($3, $2, 'Synthetic optional French', 'synthetic-french', 'nail_art', 500, 0, 'fixed', NULL, true),
+    ($4, $2, 'Synthetic optional removal', 'synthetic-optional-removal', 'removal', 700, 10, 'fixed', NULL, true)
+    ON CONFLICT (id) DO UPDATE SET pricing_type = EXCLUDED.pricing_type, max_quantity = EXCLUDED.max_quantity, is_active = true`, [AUTO, SALON, OPTIONAL, OPTIONAL_REMOVAL]);
+  await database.query(`INSERT INTO service_add_on (id, salon_id, service_id, add_on_id, selection_mode, default_quantity) VALUES
+    ('synthetic-l1-auto-binding', $1, $2, $3, 'optional', 3),
+    ('synthetic-l1-optional-binding', $1, $2, $4, 'optional', NULL),
+    ('synthetic-l1-optional-removal-binding', $1, $2, $5, 'optional', NULL)
+    ON CONFLICT (id) DO UPDATE SET default_quantity = EXCLUDED.default_quantity`, [SALON, SERVICE, AUTO, OPTIONAL, OPTIONAL_REMOVAL]);
   await database.query(`INSERT INTO catalog_rule (id, salon_id, service_id, rule_type, subject_service_id, object_add_on_id, params, priority, is_active) VALUES ('synthetic-l1-auto-rule', $1, $2, 'include', $2, $3, '{"autoAdd":true}'::jsonb, 0, true) ON CONFLICT (id) DO UPDATE SET is_active = true`, [SALON, SERVICE, AUTO]);
   await database.query(`INSERT INTO technician_services (technician_id, service_id, enabled) VALUES ($1, $2, true) ON CONFLICT (technician_id, service_id) DO UPDATE SET enabled = true`, [TECH, SERVICE]);
   await database.query('COMMIT');
@@ -42,7 +47,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => database?.end());
 
-test('actual L1 public booking keeps automatic duration and exactly one appointment', async ({ page }, testInfo) => {
+test('actual L1 public booking keeps automatic preparation quantity and exactly one appointment', async ({ page }, testInfo) => {
   await page.goto(`/book/service?salonSlug=${SLUG}`);
   const card = page.getByTestId(`service-card-${SERVICE}`);
 
@@ -51,8 +56,28 @@ test('actual L1 public booking keeps automatic duration and exactly one appointm
   await card.click();
   await page.getByRole('button', { name: 'Add Synthetic optional French', exact: true }).click();
 
-  await expect(page.getByRole('button', { name: 'Synthetic automatic prep included' })).toBeDisabled();
-  await expect(page.getByTestId('service-no-removal-button')).toHaveCount(0);
+  const preparation = page.getByTestId(`service-addon-row-${AUTO}`);
+
+  await expect(preparation.getByText('3', { exact: true })).toBeVisible();
+  await expect(preparation).toContainText('15 min');
+
+  await preparation.getByRole('button', { name: 'Increase Synthetic automatic prep quantity' }).click();
+
+  await expect(preparation.getByText('4', { exact: true })).toBeVisible();
+  await expect(preparation).toContainText('20 min');
+
+  for (let quantity = 3; quantity >= 1; quantity -= 1) {
+    await preparation.getByRole('button', { name: 'Decrease Synthetic automatic prep quantity' }).click();
+
+    await expect(preparation.getByText(String(quantity), { exact: true })).toBeVisible();
+  }
+
+  await expect(preparation.getByRole('button', { name: 'Decrease Synthetic automatic prep quantity' })).toBeDisabled();
+
+  await page.getByTestId('service-no-removal-button').click();
+
+  await expect(page.getByTestId('service-no-removal-button')).toHaveAttribute('aria-pressed', 'true');
+  await expect(preparation.getByText('1', { exact: true })).toBeVisible();
 
   await page.getByTestId('service-options-done-button').click();
   await page.getByTestId('service-continue-button').click();
