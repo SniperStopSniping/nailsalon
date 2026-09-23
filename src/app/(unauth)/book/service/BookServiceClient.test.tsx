@@ -2158,6 +2158,7 @@ describe('BookServiceClient', () => {
 
     expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'true');
     expect(screen.getByTestId('service-inline-addons-panel')).toHaveTextContent('Add-ons');
+    expect(screen.getByRole('heading', { name: 'Add-ons' })).toHaveAttribute('aria-live', 'polite');
     expect(screen.getByRole('button', { name: 'Add French Tip' })).toBeEnabled();
     expect(screen.queryByTestId('service-selection-summary')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-add-button-svc-1')).not.toBeInTheDocument();
@@ -2169,6 +2170,16 @@ describe('BookServiceClient', () => {
     expect(url.pathname).toBe('/en/salon-a/book/time');
     expect(url.searchParams.get('baseServiceId')).toBe('svc-1');
     expect(url.searchParams.has('selectedAddOns')).toBe(false);
+  });
+
+  it('announces revealed add-ons without making the heading a keyboard stop', () => {
+    render(<BookServiceClient services={services} addOns={addOns} serviceAddOnRules={serviceAddOnRules} bookingFlow={['service', 'time', 'confirm']} locations={[]} />);
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+
+    const heading = screen.getByRole('heading', { name: 'Add-ons' });
+
+    expect(heading).toHaveAttribute('aria-live', 'polite');
+    expect(heading).not.toHaveAttribute('tabindex');
   });
 
   it('shows configured removal conditions, starting prices, and repair units on first tap', () => {
