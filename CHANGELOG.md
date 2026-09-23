@@ -1,3 +1,10 @@
+## [1.128.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.128.2...v1.128.3) (2026-09-23)
+
+
+### Bug Fixes
+
+* **booking:** select one service and show add-ons immediately ([#306](https://github.com/SniperStopSniping/nailsalon/issues/306)) ([df93bdf](https://github.com/SniperStopSniping/nailsalon/commit/df93bdfc7f75d9537a561be160f2b7ec6ff83e3b))
+
 ## [1.128.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.128.1...v1.128.2) (2026-09-23)
 
 
