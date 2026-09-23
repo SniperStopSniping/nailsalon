@@ -275,6 +275,7 @@ export function buildBookingUrl(
     locationId?: string | null;
     techId?: string | null;
     techError?: string | null;
+    rebookingFallback?: 'catalogue_changed' | null;
     originalAppointmentId?: string | null;
     manageToken?: string | null;
     campaignToken?: string | null;
@@ -334,6 +335,9 @@ export function buildBookingUrl(
 
   if (params.techError) {
     searchParams.set('techError', params.techError);
+  }
+  if (params.rebookingFallback) {
+    searchParams.set('rebooking', params.rebookingFallback);
   }
 
   // Optional: originalAppointmentId (for reschedule flow)

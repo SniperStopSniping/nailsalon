@@ -106,7 +106,11 @@ export function RebookingPromptSettings({
     () =>
       draft !== null
       && savedSettings !== null
-      && draft.enabled !== savedSettings.enabled,
+      && (
+        draft.enabled !== savedSettings.enabled
+        || draft.intervalWeeks !== savedSettings.intervalWeeks
+        || draft.message !== savedSettings.message
+      ),
     [draft, savedSettings],
   );
   const save = useCallback(async () => {
@@ -122,7 +126,7 @@ export function RebookingPromptSettings({
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: draft.enabled }),
+          body: JSON.stringify(draft),
         },
       );
       const payload = (await response
@@ -204,8 +208,9 @@ export function RebookingPromptSettings({
                 Encourage the next visit
               </h2>
               <p className="mt-1 text-[14px] leading-relaxed text-[var(--owner-muted)]">
-                After a completed appointment, clients can choose to book their
-                next visit. This does not create a discount or send a message.
+                Show a rebooking prompt on the confirmation page immediately
+                after a client confirms their booking. This does not create a
+                discount or send a message.
               </p>
             </div>
             <button
@@ -226,18 +231,80 @@ export function RebookingPromptSettings({
                 aria-hidden="true"
                 className={`relative h-8 w-14 rounded-full transition-colors motion-reduce:transition-none ${draft.enabled ? 'bg-[var(--owner-accent)]' : 'bg-[var(--owner-line-strong)]'}`}
               >
-                <span className={`absolute top-1 size-6 rounded-full bg-white shadow transition-transform motion-reduce:transition-none ${draft.enabled ? 'translate-x-7' : 'translate-x-1'}`} />
+                <span className={`absolute left-1 top-1 size-6 rounded-full bg-white shadow transition-transform motion-reduce:transition-none ${draft.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
               </span>
             </button>
           </div>
         </section>
         <section className="rounded-[18px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
-          <h2 className="text-[15px] font-semibold">What clients see</h2>
+          <label htmlFor="rebooking-interval" className="block text-[15px] font-semibold">
+            Recommended visit interval
+          </label>
+          <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">
+            Clients see this recommendation on their booking confirmation page.
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              id="rebooking-interval"
+              type="number"
+              min={1}
+              max={52}
+              step={1}
+              value={draft.intervalWeeks}
+              onChange={(event) => {
+                const value = event.currentTarget.valueAsNumber;
+                if (!Number.isFinite(value)) {
+                  return;
+                }
+                setDraft(current => (
+                  current
+                    ? {
+                        ...current,
+                        intervalWeeks: Math.min(52, Math.max(1, Math.trunc(value))),
+                      }
+                    : current
+                ));
+                setSaved(false);
+                setSaveError(null);
+              }}
+              className="min-h-11 w-20 rounded-xl border border-[var(--owner-line)] bg-white px-3 text-[15px] outline-none focus:ring-2 focus:ring-[var(--owner-focus)]"
+            />
+            <span className="text-[14px] text-[var(--owner-muted)]">weeks</span>
+          </div>
+          <label htmlFor="rebooking-message" className="mt-5 block text-[15px] font-semibold">
+            Encouragement message
+          </label>
+          <textarea
+            id="rebooking-message"
+            value={draft.message}
+            maxLength={300}
+            rows={3}
+            onChange={(event) => {
+              const message = event.currentTarget.value;
+              setDraft(current => (current ? { ...current, message } : current));
+              setSaved(false);
+              setSaveError(null);
+            }}
+            className="mt-2 w-full rounded-xl border border-[var(--owner-line)] bg-white px-3 py-2.5 text-[14px] outline-none focus:ring-2 focus:ring-[var(--owner-focus)]"
+          />
+          <p className="mt-1 text-right text-[12px] text-[var(--owner-muted)]">
+            {draft.message.length}
+            /300
+          </p>
+        </section>
+        <section className="rounded-[18px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
+          <h2 className="text-[15px] font-semibold">What clients see after confirming</h2>
           <p className="mt-2 text-[15px] font-medium">
-            Ready to book your next visit?
+            Why not book your next visit now?
           </p>
           <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">
-            Book something similar or choose a different service.
+            We recommend every
+            {' '}
+            {draft.intervalWeeks}
+            {draft.intervalWeeks === 1 ? ' week.' : ' weeks.'}
+          </p>
+          <p className="mt-1 whitespace-pre-line break-words text-[13px] leading-relaxed text-[var(--owner-muted)] [overflow-wrap:anywhere]">
+            {draft.message}
           </p>
           <p className="mt-3 text-[12px] leading-relaxed text-[var(--owner-muted)]">Next Visit Offer discounts stay separate and remain off unless you enable that feature.</p>
         </section>

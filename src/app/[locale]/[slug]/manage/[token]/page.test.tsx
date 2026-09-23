@@ -635,11 +635,11 @@ describe('post-visit prompt visibility', () => {
   });
 
   it.each([
-    { enabled: true, completedAt: new Date('2026-08-31T20:00:00Z'), deletedAt: null, expected: true },
+    { enabled: true, completedAt: new Date('2026-08-31T20:00:00Z'), deletedAt: null, expected: false },
     { enabled: true, completedAt: null, deletedAt: null, expected: false },
     { enabled: true, completedAt: new Date('2026-08-31T20:00:00Z'), deletedAt: new Date(), expected: false },
     { enabled: false, completedAt: new Date('2026-08-31T20:00:00Z'), deletedAt: null, expected: false },
-  ])('requires explicit completion and separate owner enablement: $expected', async ({ enabled, completedAt, deletedAt, expected }) => {
+  ])('keeps the retired prompt hidden after completion: $expected', async ({ enabled, completedAt, deletedAt, expected }) => {
     verifyAppointmentAccessToken.mockResolvedValue(capability({ salonSettings: { rebookingPrompt: { enabled } }, appointment: { status: 'completed', completedAt, deletedAt } }));
     render(await ManageAppointmentView({ token: TOKEN, locale: 'en', slug: 'isla-nail-studio1' }));
 

@@ -1126,7 +1126,7 @@ export function MarketingModal({
                         {homeRow({
                           testId: 'marketing-home-rebooking-prompt',
                           title: 'Rebooking Prompt',
-                          detail: 'Invite clients to book again after a completed visit. No discount required.',
+                          detail: 'Invite clients to reserve their next visit on the booking confirmation page.',
                           status: 'Manage',
                           onClick: () => openView('rebooking-prompt'),
                         })}

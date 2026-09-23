@@ -2,6 +2,7 @@
 
 import { Facebook, Info, Instagram, Music2, ShieldCheck } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
@@ -280,6 +281,15 @@ const SOCIAL_LINKS = [
   { key: 'facebook', label: 'Facebook', Icon: Facebook },
   { key: 'tiktok', label: 'TikTok', Icon: Music2 },
 ] as const;
+
+function RebookingCatalogueNotice() {
+  const t = useTranslations('BookingConfirmation');
+  return (
+    <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      {t('next_visit_catalogue_changed')}
+    </div>
+  );
+}
 
 export function BookServiceClient({
   l1Snapshot,
@@ -1539,6 +1549,9 @@ export function BookServiceClient({
                 <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                   This promotion link is no longer available. You can still book at the regular price.
                 </div>
+              )}
+              {searchParams.get('rebooking') === 'catalogue_changed' && (
+                <RebookingCatalogueNotice />
               )}
 
               <div

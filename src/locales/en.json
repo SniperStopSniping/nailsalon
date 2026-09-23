@@ -245,6 +245,13 @@
     "empty_description": "Photos from your visits will appear here"
   },
   "BookingConfirmation": {
+    "next_visit_title": "Why not book your next visit now?",
+    "next_visit_interval": "We recommend visiting every {weeks} weeks.",
+    "next_visit_interval_one": "We recommend visiting every week.",
+    "next_visit_action": "Book my next appointment",
+    "next_visit_opening": "Opening booking…",
+    "next_visit_error": "Unable to open your next booking. Please try again. Your confirmed appointment is unchanged.",
+    "next_visit_catalogue_changed": "Your previous service is no longer available in the current menu. Please choose a service for your next visit.",
     "recovering_booking": "Checking your booking status…",
     "contact_description": "Your confirmation and private booking link will arrive by email.",
     "sms_label": "Text me appointment confirmations and reminders",

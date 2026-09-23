@@ -504,6 +504,8 @@ export type SalonSettings = {
   // from Next Visit Offer discounts; missing remains OFF for existing salons.
   rebookingPrompt?: {
     enabled?: boolean;
+    intervalWeeks?: number;
+    message?: string;
   };
 
   // Booking-page merchandising (featured services, owner promos).

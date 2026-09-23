@@ -238,7 +238,10 @@ describe('POST /api/onboarding/luster', () => {
     }));
   });
 
-  it('claims an unowned salon in place without changing its id or slug', async () => {
+  it.each([
+    { enabled: false },
+    { enabled: true, intervalWeeks: 5, message: 'Reserve your next visit.' },
+  ])('claims an unowned salon without losing saved rebooking settings: %j', async (rebookingPrompt) => {
     queueSelectResults(
       [{
         id: 'invite_1',
@@ -255,7 +258,7 @@ describe('POST /api/onboarding/luster', () => {
         slug: 'best',
         ownerEmail: 'owner@example.com',
         ownerClerkUserId: null,
-        settings: { rebookingPrompt: { enabled: false } },
+        settings: { rebookingPrompt },
       }],
       [{ count: 0 }],
       [{ count: 0 }],
@@ -280,7 +283,7 @@ describe('POST /api/onboarding/luster', () => {
       settings: expect.not.objectContaining({ rebookingPrompt: { enabled: true } }),
     }));
     expect(setValues).toHaveBeenCalledWith(expect.objectContaining({
-      settings: expect.objectContaining({ rebookingPrompt: { enabled: false } }),
+      settings: expect.objectContaining({ rebookingPrompt }),
     }));
     expect(grantStarterCredits).toHaveBeenCalledOnce();
     expect(grantStarterCredits).toHaveBeenCalledWith(tx, {

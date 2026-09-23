@@ -22,7 +22,7 @@ describe('rebooking prompt settings API', () => {
     const response = await GET(request('GET'));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ data: { settings: { enabled: false } } });
+    expect(await response.json()).toEqual({ data: { settings: { enabled: false, intervalWeeks: 3, message: 'Secure your next spot now.' } } });
   });
 
   it('checks tenant authorization before accepting a mutation', async () => {
@@ -40,5 +40,16 @@ describe('rebooking prompt settings API', () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+  });
+
+  it('rejects out-of-range intervals and messages over 300 characters', async () => {
+    h.require.mockResolvedValue({ salon: { id: 'salon-a' } });
+    h.session.mockResolvedValue({ id: 'admin-a' });
+
+    const intervalResponse = await PATCH(request('PATCH', { enabled: true, intervalWeeks: 53 }));
+    const messageResponse = await PATCH(request('PATCH', { enabled: true, message: 'x'.repeat(301) }));
+
+    expect(intervalResponse.status).toBe(400);
+    expect(messageResponse.status).toBe(400);
   });
 });

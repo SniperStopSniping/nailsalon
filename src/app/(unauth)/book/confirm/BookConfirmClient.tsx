@@ -20,6 +20,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
+import { ConfirmationRebookingCard } from '@/components/booking/ConfirmationRebookingCard';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { BookingStatusCard } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import { useHoldCountdown } from '@/components/deposits/HoldCountdown';
@@ -32,6 +33,7 @@ import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
 import { computeCheckoutTotals, type ResolvedTaxConfig } from '@/libs/checkoutTotals';
 import type { CustomerBookingStatus } from '@/libs/customerAssistant/bookingOperationContracts';
 import { canStartAnotherBooking, startAnotherBooking } from '@/libs/customerAssistant/newBooking.client';
+import { captureNextBookingGuard } from '@/libs/customerAssistant/nextBookingGuard.client';
 import { confirmNormalHandoffBooking, normalBookingErrorMessage, NormalBookingRecoveryError, recoverNormalBooking } from '@/libs/customerAssistant/normalBooking.client';
 import { normalBookingPrepareSchema } from '@/libs/customerAssistant/normalBookingContracts';
 import { useNormalBookingFlowMarker } from '@/libs/customerAssistant/normalConfirmHandoff.client';
@@ -50,6 +52,7 @@ import {
   recoverPublicBookingAttempt,
   resolvePublicBookingAttempt,
 } from '@/libs/publicBookingRecovery.client';
+import { DEFAULT_REBOOKING_PROMPT_SETTINGS, type RebookingPromptSettings } from '@/libs/rebookingPromptSettings';
 import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
 import { resolveSectionDecisionPlan, shouldRenderSection } from '@/libs/sectionRegistry';
 import {
@@ -119,6 +122,7 @@ type SmsConsentSelection = Exclude<SmsBookingDefault, 'disabled'> | 'explicit_on
 const SMS_CONSENT_WORDING_VERSION = 'booking-sms-reminders-v1';
 
 type BookConfirmClientProps = {
+  rebookingSettings?: RebookingPromptSettings;
   catalogAcknowledgment?: { serviceId: string; resolutionFingerprint: string };
   services: ServiceSummary[];
   addOns?: AddOnSummary[];
@@ -1788,6 +1792,8 @@ const SuccessContent = ({
   policy,
   onManage,
   onStartAnother,
+  rebookingSettings,
+  onBookNext,
   recoveryError,
 }: {
   bookingStatus: BookingResultStatus;
@@ -1814,6 +1820,8 @@ const SuccessContent = ({
   policy: ConfirmationPolicy;
   onManage?: () => void;
   onStartAnother?: () => void;
+  rebookingSettings?: RebookingPromptSettings;
+  onBookNext?: () => Promise<void>;
   recoveryError?: string | null;
 }) => {
   const t = useTranslations('BookingConfirmation');
@@ -1889,6 +1897,10 @@ const SuccessContent = ({
             />
           </motion.div>
         </div>
+
+        {!isPending && rebookingSettings?.enabled && onBookNext && (
+          <ConfirmationRebookingCard settings={rebookingSettings} onBook={onBookNext} />
+        )}
 
         {!isPending && (
           <motion.div
@@ -2080,6 +2092,7 @@ const SuccessContent = ({
 // --- Main Component ---
 
 export function BookConfirmClient({
+  rebookingSettings = DEFAULT_REBOOKING_PROMPT_SETTINGS,
   catalogAcknowledgment,
   services,
   addOns = EMPTY_ADD_ONS,
@@ -2199,6 +2212,7 @@ export function BookConfirmClient({
   const [recoveringHandoff, setRecoveringHandoff] = useState(false);
   const [isBooking, setIsBooking] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
+  const [receiptConfirmed, setReceiptConfirmed] = useState(false);
   const [recoveredReceipt, setRecoveredReceipt] = useState<any>(null);
   const [bookingResultStatus, setBookingResultStatus]
     = useState<BookingResultStatus>('confirmed');
@@ -2317,6 +2331,7 @@ export function BookConfirmClient({
       setRecoveredReceipt(data);
     }
     const recoveredStatus = data?.data?.appointment?.status;
+    setReceiptConfirmed(recoveredStatus === 'confirmed');
     if (fromRecovery && recoveredStatus === 'awaiting_payment' && !data?.data?.deposit?.checkoutUrl) {
       setDepositHold({ expiresAt: null, resumeUrl: null });
       setHasExistingAppointment(true);
@@ -3190,6 +3205,65 @@ export function BookConfirmClient({
       setBookingError(normalBookingErrorMessage('recovery_unavailable'));
     }
   };
+  const nextBookingLifetime = useRef(0);
+  useEffect(() => {
+    nextBookingLifetime.current += 1;
+    return () => {
+      nextBookingLifetime.current += 1;
+    };
+  }, [salonId]);
+
+  const bookNextAppointment = async () => {
+    const lifetime = nextBookingLifetime.current;
+    if (!salonId || publicRecoveryPending) {
+      throw new Error('BOOKING_STILL_UNRESOLVED');
+    }
+    const before = readPublicBookingAttempt(salonId);
+    if (before?.state === 'pending') {
+      throw new Error('BOOKING_STILL_UNRESOLVED');
+    }
+    const assertUnchanged = captureNextBookingGuard(salonId, salonSlug, isAssistantHandoff ? durableStatus?.operation.capability : undefined);
+    let sourceManageUrl = manageUrl;
+    if (isAssistantHandoff && durableStatus) {
+      if (durableStatus.status !== 'confirmed') {
+        throw new Error('BOOKING_STILL_UNRESOLVED');
+      }
+      const response = await fetch(`/api/public/customer-booking/${encodeURIComponent(salonId)}/manage`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ capability: durableStatus.operation.capability }),
+      });
+      const body = await response.json();
+      sourceManageUrl = response.ok && typeof body?.url === 'string' ? customerBookingRecoveryUrl(body.url, 'manage') : null;
+    }
+    const token = sourceManageUrl ? new URL(sourceManageUrl, window.location.origin).pathname.match(/\/manage\/([\w-]+)$/)?.[1] : null;
+    if (!token) {
+      throw new Error('BOOKING_LINK_UNAVAILABLE');
+    }
+    const response = await fetch(`/api/public/appointments/manage/${encodeURIComponent(token)}/next-booking?locale=${encodeURIComponent(locale)}`, { cache: 'no-store' });
+    const body = await response.json();
+    const destination = body?.data?.bookingUrl;
+    if (!response.ok || typeof destination !== 'string' || !destination.startsWith('/') || destination.startsWith('//') || destination.includes('\\')) {
+      throw new Error('NEXT_BOOKING_UNAVAILABLE');
+    }
+    if (nextBookingLifetime.current !== lifetime) {
+      throw new Error('BOOKING_VIEW_CHANGED');
+    }
+    assertUnchanged();
+    // An intervening attempt must never be cleared by this earlier receipt.
+    const current = readPublicBookingAttempt(salonId);
+    if (current?.state === 'pending' || current?.attemptId !== before?.attemptId) {
+      throw new Error('BOOKING_RECOVERY_CHANGED');
+    }
+    if (isAssistantHandoff && durableStatus) {
+      startAnotherBooking(salonId, salonSlug, durableStatus.status);
+    }
+    if (current?.state === 'resolved') {
+      clearPublicBookingAttempt(salonId);
+    }
+    clearBookingState();
+    router.push(destination);
+  };
   if (isAssistantHandoff && durableStatus && !publicRecoveryPending && !bookingComplete) {
     if (
       (durableStatus.status === 'confirmed' || durableStatus.status === 'awaiting_approval')
@@ -3239,6 +3313,8 @@ export function BookConfirmClient({
           confirmationMessage={null}
           policy={review.bookingPolicy.required ? { enabled: true, title: review.bookingPolicy.title, text: review.bookingPolicy.text, showBeforeConfirmation: true, showAfterConfirmation: true } : { ...displayedPolicy, enabled: false }}
           recoveryError={bookingError}
+          rebookingSettings={rebookingSettings}
+          onBookNext={bookNextAppointment}
           onManage={() => void recoverBookingAction('manage')}
           onStartAnother={() => {
             try {
@@ -3388,6 +3464,8 @@ export function BookConfirmClient({
         confirmationMessage={recovered ? null : bookingExperience.confirmationMessage}
         policy={recovered ? { ...displayedPolicy, enabled: false } : displayedPolicy}
         onStartAnother={startAnotherManualBooking}
+        rebookingSettings={rebookingSettings}
+        onBookNext={receiptConfirmed && manageUrl ? bookNextAppointment : undefined}
       />
     );
   }
