@@ -1,3 +1,10 @@
+## [1.128.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.128.1...v1.128.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* **booking:** keep options readable with enlarged mobile text ([#305](https://github.com/SniperStopSniping/nailsalon/issues/305)) ([71886f4](https://github.com/SniperStopSniping/nailsalon/commit/71886f41def3acdda00ffe0322d0b400c6c7325e))
+
 ## [1.128.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.128.0...v1.128.1) (2026-09-23)
 
 
