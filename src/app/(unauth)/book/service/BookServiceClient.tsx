@@ -1105,7 +1105,14 @@ export function BookServiceClient({
       service: service && [service.priceCents, service.priceDisplayText, service.durationMinutes],
       rules: visibleRules.map(rule => ({ rule, addOn: addOnsById.get(rule.addOnId) })),
     });
-    const hasRemoval = visibleRules.some(rule => addOnsById.get(rule.addOnId)?.category === 'removal');
+    const resolved = l1Snapshot && resolveCatalogSelection(l1Snapshot, {
+      serviceId: item.serviceId,
+      selectedAddOns: item.selectedAddOns,
+    });
+    const autoIncludedRemovalIds = new Set(resolved && resolved.ok
+      ? resolved.selection.addOns.filter(line => line.autoAdded && addOnsById.get(line.addOnId)?.category === 'removal').map(line => line.addOnId)
+      : []);
+    const hasRemoval = visibleRules.some(rule => addOnsById.get(rule.addOnId)?.category === 'removal' && !autoIncludedRemovalIds.has(rule.addOnId));
     const preparationDone = !hasRemoval || optionsReview.preparation[item.serviceId] === key;
     return {
       serviceId: item.serviceId,
@@ -2331,8 +2338,12 @@ export function BookServiceClient({
                                             ].filter(group => group.items.length > 0).map(group => (
                                               <div key={group.title} className="space-y-1.5">
                                                 <h5 className="text-sm font-semibold text-neutral-900">{group.title}</h5>
-                                                {group.preparation && (
-                                                  <p className="text-xs text-neutral-600">Choose any removal you need, or tell us you do not need removal.</p>
+                                                {group.preparation && group.items.some(item => item && !l1Selection?.addOns.some(line => line.addOnId === item.addOn.id && line.autoAdded)) && (
+                                                  <p className="text-xs text-neutral-600">
+                                                    {group.items.some(item => item && l1Selection?.addOns.some(line => line.addOnId === item.addOn.id && line.autoAdded))
+                                                      ? 'Choose any additional removal you need, or tell us you do not need more.'
+                                                      : 'Choose any removal you need, or tell us you do not need removal.'}
+                                                  </p>
                                                 )}
                                                 {group.items.map((item) => {
                                                   if (!item) {
@@ -2340,12 +2351,14 @@ export function BookServiceClient({
                                                   }
 
                                                   const { addOn, rule, quantity } = item;
-                                                  const isSelected = quantity > 0;
-                                                  const isRequired = rule.selectionMode === 'required';
+                                                  const autoAddedLine = l1Selection?.addOns.find(line => line.addOnId === addOn.id && line.autoAdded);
+                                                  const effectiveQuantity = quantity > 0 ? quantity : autoAddedLine?.quantity ?? 0;
+                                                  const isSelected = effectiveQuantity > 0;
+                                                  const isRequired = rule.selectionMode === 'required' || Boolean(autoAddedLine);
                                                   const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
                                                   const manualConfirmation = 'priceMode' in rule && rule.priceMode === 'manual_confirmation';
-                                                  const lineTotalCents = manualConfirmation ? 0 : addOn.priceCents * Math.max(quantity, 1);
-                                                  const lineDurationMinutes = addOn.durationMinutes * Math.max(quantity, 1);
+                                                  const lineTotalCents = manualConfirmation ? 0 : addOn.priceCents * Math.max(effectiveQuantity, 1);
+                                                  const lineDurationMinutes = addOn.durationMinutes * Math.max(effectiveQuantity, 1);
 
                                                   return (
                                                     <div
@@ -2467,7 +2480,7 @@ export function BookServiceClient({
                                                     Yes, I need the selected removal
                                                   </button>
                                                 )}
-                                                {group.preparation && !group.items.some(item => item?.rule.selectionMode === 'required') && (
+                                                {group.preparation && group.items.some(item => item && item.rule.selectionMode !== 'required' && !l1Selection?.addOns.some(line => line.addOnId === item.addOn.id && line.autoAdded)) && !group.items.some(item => item?.rule.selectionMode === 'required') && (
                                                   <button
                                                     type="button"
                                                     data-testid="service-no-removal-button"
@@ -2488,7 +2501,9 @@ export function BookServiceClient({
                                                     }}
                                                     className="min-h-11 rounded-lg px-3 text-sm font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                                                   >
-                                                    I don’t need removal
+                                                    {group.items.some(item => item && l1Selection?.addOns.some(line => line.addOnId === item.addOn.id && line.autoAdded))
+                                                      ? 'I don’t need additional removal'
+                                                      : 'I don’t need removal'}
                                                   </button>
                                                 )}
                                               </div>

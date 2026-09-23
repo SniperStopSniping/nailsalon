@@ -50,6 +50,11 @@ test('actual L1 public booking keeps automatic duration and exactly one appointm
 
   await card.click();
   await page.getByRole('button', { name: 'Add Synthetic optional French', exact: true }).click();
+
+  await expect(page.getByRole('button', { name: 'Synthetic automatic prep included' })).toBeDisabled();
+  await expect(page.getByTestId('service-no-removal-button')).toHaveCount(0);
+
+  await page.getByTestId('service-options-done-button').click();
   await page.getByTestId('service-continue-button').click();
   await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
   if (new URL(page.url()).pathname.endsWith('/book/tech')) {
