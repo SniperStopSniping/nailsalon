@@ -267,14 +267,16 @@ describe('BookTimePage', () => {
         bookingFlow,
         baseServiceId: 'svc_combo',
         selectedAddOns: JSON.stringify([{ addOnId: 'addon_1' }]),
+        date: '2026-10-14',
       }),
     })).rejects.toThrow(
-      'REDIRECT:/book/time?salonSlug=salon-a&baseServiceId=svc_combo&selectedAddOns=%5B%7B%22addOnId%22%3A%22addon_1%22%7D%5D&techId=tech_1',
+      'REDIRECT:/book/time?salonSlug=salon-a&baseServiceId=svc_combo&selectedAddOns=%5B%7B%22addOnId%22%3A%22addon_1%22%7D%5D&techId=tech_1&date=2026-10-14',
     );
 
     const destination = new URL(redirectMock.mock.calls.at(-1)![0], 'https://example.test');
 
     expect(destination.searchParams.get('bookingFlow')).toBe(bookingFlow ?? null);
+    expect(destination.searchParams.get('date')).toBe('2026-10-14');
   });
 
   it('canonicalizes the auto-selected technician for a free-solo flow without an artist step', async () => {

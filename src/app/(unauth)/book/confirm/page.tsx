@@ -24,6 +24,7 @@ import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
 import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCampaign';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
+import { resolveRebookingPromptSettings } from '@/libs/rebookingPromptSettings';
 import { applyLocationDisplayMode } from '@/libs/salonContent';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled } from '@/libs/salonStatus';
 import {
@@ -488,6 +489,7 @@ export default async function BookConfirmPage(
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookConfirmClient
           salonId={salon.id}
+          rebookingSettings={resolveRebookingPromptSettings(salon.settings)}
           services={services}
           addOns={resolvedTechnicianContext.resolvedSelection.addOns.map(addOn => ({
             serviceId: addOn.serviceId,

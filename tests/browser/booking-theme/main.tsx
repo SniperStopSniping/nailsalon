@@ -22,8 +22,14 @@ const timeChoices = ['09:30', '10:15', '13:45', '14:00', '14:15', '16:15', '17:0
 const count = Number(query.get('count') ?? 3);
 const available = count === 1 ? ['13:45'] : count === 3 ? ['13:45', '14:00', '14:15'] : timeChoices.slice(0, count);
 window.fetch = async (input) => {
-  if (String(input).startsWith('/api/appointments/availability')) {
-    const requestedDate = new URL(String(input), window.location.origin).searchParams.get('date') ?? date;
+  const requestUrl = input instanceof Request ? input.url : String(input);
+  const requestPath = new URL(requestUrl, window.location.origin).pathname;
+  if (requestPath === '/api/public/appointments/manage/private-token/next-booking') {
+    document.documentElement.dataset.nextBookingRequest = requestUrl;
+    return Response.json({ data: { bookingUrl: '/en/theme-fixture/book/time?serviceIds=service-fixture&techId=tech-fixture' } });
+  }
+  if (requestPath === '/api/appointments/availability') {
+    const requestedDate = new URL(requestUrl, window.location.origin).searchParams.get('date') ?? date;
     return Response.json({
       slots: available.map(time => ({ time, startTime: `${requestedDate}T${time}:00-04:00`, availability: 'available' })),
       visibleSlots: [...available, '11:00', '11:15'],
@@ -32,8 +38,12 @@ window.fetch = async (input) => {
       visibleDurationMinutes: common.totalDuration,
     });
   }
-  if (String(input) === '/api/appointments') {
-    return Response.json({ data: { appointment: { id: 'synthetic-appointment', status: 'confirmed' } } }, { status: 201 });
+  if (requestPath === '/api/appointments') {
+    return Response.json({ data: {
+      appointmentId: 'synthetic-appointment',
+      appointment: { id: 'synthetic-appointment', status: 'confirmed' },
+      manageUrl: '/en/theme-fixture/manage/private-token',
+    } }, { status: 201 });
   }
   throw new Error(`Unexpected fixture request: ${String(input)}`);
 };
@@ -103,6 +113,6 @@ createRoot(document.getElementById('root')!).render(
     )}
     {step === 'time' && <BookTimeClient {...common} locationName="Primary location" minimumNoticeMinutes={120} salonTimeZone="America/Toronto" closedWeekdays={[0]} />}
     {step === 'tech' && <BookTechClient {...common} technicians={[{ ...technician, bookable: true, unavailableReason: null, specialties: [], rating: 0, reviewCount: 0 }]} />}
-    {step === 'confirm' && <BookConfirmClient {...common} subtotalBeforeDiscount={35} discountAmount={0} salonSlug="theme-fixture" dateStr={date} timeStr="13:45" location={null} />}
+    {step === 'confirm' && <BookConfirmClient {...common} subtotalBeforeDiscount={35} discountAmount={0} salonSlug="theme-fixture" salonId="synthetic-salon" dateStr={date} timeStr="13:45" location={null} rebookingSettings={query.has('rebooking') ? { enabled: true, intervalWeeks: 3, message: 'Secure your next spot now.' } : undefined} />}
   </PublicSalonPageShell>,
 );

@@ -788,6 +788,105 @@ describe('BookConfirmClient', () => {
     expect(screen.getByRole('link', { name: /manage this appointment/i })).toBeInTheDocument();
   });
 
+  it('shows configurable encouragement after confirmation and opens a server-validated next booking', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: {
+      appointment: { id: 'appt_confirmed', status: 'confirmed' },
+      manageUrl: 'https://salon-a.test/en/salon-a/manage/confirmed-token',
+    } }), { status: 201 }));
+    renderBasicConfirm({ salonId: 'salon_internal_a', rebookingSettings: { enabled: true, intervalWeeks: 4, message: 'Choose your next spot.' } });
+
+    expect(screen.queryByText('Why not book your next visit now?')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+    const heading = await screen.findByText('Why not book your next visit now?');
+
+    expect(screen.getByText('Appointment summary').compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('We recommend visiting every 4 weeks.')).toBeVisible();
+    expect(screen.getByText('Choose your next spot.')).toBeVisible();
+
+    publicRecoveryMock.read.mockReturnValue({ state: 'resolved', attemptId: 'finished-attempt' });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: { bookingUrl: '/en/salon-a/book/time?date=2026-04-17' } }), { status: 200 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Book my next appointment' }));
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/en/salon-a/book/time?date=2026-04-17'));
+
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/appointments/manage/confirmed-token/next-booking?locale=en', { cache: 'no-store' });
+    expect(clearBookingState).toHaveBeenCalled();
+  });
+
+  it.each(['pending', 'awaiting_payment'])('does not encourage a second booking for %s', async (status) => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: {
+      appointment: { id: 'appt_request', status },
+      manageUrl: 'https://salon-a.test/en/salon-a/manage/request-token',
+    } }), { status: 201 }));
+    renderBasicConfirm({ salonId: 'salon_internal_a', rebookingSettings: { enabled: true, intervalWeeks: 3, message: 'Secure your next spot now.' } });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    expect(screen.queryByRole('button', { name: 'Book my next appointment' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the confirmed receipt and attempt when next booking is unavailable', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: {
+      appointment: { id: 'appt_confirmed', status: 'confirmed' },
+      manageUrl: 'https://salon-a.test/en/salon-a/manage/confirmed-token',
+    } }), { status: 201 }));
+    renderBasicConfirm({ salonId: 'salon_internal_a', rebookingSettings: { enabled: true, intervalWeeks: 3, message: 'Secure your next spot now.' } });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+    await screen.findByText('Why not book your next visit now?');
+    publicRecoveryMock.read.mockReturnValue({ state: 'resolved', attemptId: 'finished-attempt' });
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 404 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Book my next appointment' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your confirmed appointment is unchanged');
+    expect(publicRecoveryMock.clear).not.toHaveBeenCalled();
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'Appointment confirmed' })).toBeVisible();
+  });
+
+  it('shows encouragement on a recovered confirmed receipt without submitting again', async () => {
+    publicRecoveryMock.read.mockReturnValue({
+      version: 1,
+      salonId: 'salon_internal_a',
+      attemptId: '11111111-1111-4111-8111-111111111111',
+      recoveryKey: '22222222-2222-4222-8222-222222222222',
+      confirmationPath: `${window.location.pathname}${window.location.search}`,
+      state: 'resolved',
+      response: { data: {
+        appointmentId: 'appt_receipt',
+        appointment: { id: 'appt_receipt', status: 'confirmed', startTime: '2030-01-02T15:00:00Z', totalDurationMinutes: 75, bookingTaxSnapshot: { invoiceTotalCents: 7345, currency: 'CAD' } },
+        services: [{ service: { id: 'booked-service', name: 'Original booked service' }, priceAtBooking: 6500, durationAtBooking: 75 }],
+        addOns: [],
+        manageUrl: 'https://example.test/manage/receipt',
+      } },
+    });
+    renderBasicConfirm({ salonId: 'salon_internal_a', rebookingSettings: { enabled: true, intervalWeeks: 3, message: 'Secure your next spot now.' } });
+
+    expect(await screen.findByRole('button', { name: 'Book my next appointment' })).toBeVisible();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not clear an intervening pending attempt when the handoff returns', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: {
+      appointment: { id: 'appt_confirmed', status: 'confirmed' },
+      manageUrl: 'https://salon-a.test/en/salon-a/manage/confirmed-token',
+    } }), { status: 201 }));
+    renderBasicConfirm({ salonId: 'salon_internal_a', rebookingSettings: { enabled: true, intervalWeeks: 3, message: 'Secure your next spot now.' } });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+    await screen.findByText('Why not book your next visit now?');
+    publicRecoveryMock.read.mockReturnValue({ state: 'resolved', attemptId: 'finished-attempt' });
+    let finish!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => {
+      finish = resolve;
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Book my next appointment' }));
+    publicRecoveryMock.read.mockReturnValue({ state: 'pending', attemptId: 'new-attempt' });
+    await act(async () => finish(new Response(JSON.stringify({ data: { bookingUrl: '/en/salon-a/book/time?date=2026-04-10' } }), { status: 200 })));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your confirmed appointment is unchanged');
+    expect(publicRecoveryMock.clear).not.toHaveBeenCalled();
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
   it('submits the checked default without mislabeling it as an explicit opt-in', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: { appointment: { id: 'appt_confirmed', status: 'confirmed' } },

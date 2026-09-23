@@ -36,6 +36,7 @@ export default async function BookTechPage(
       manageToken?: string;
       campaign?: string;
       bookingFlow?: string;
+      date?: string;
     }>;
     params?: Promise<{ locale?: string; slug?: string }>;
   },
@@ -126,6 +127,7 @@ export default async function BookTechPage(
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
       manageToken: searchParams.manageToken ?? null,
       campaignToken: searchParams.campaign ?? null,
+      date: searchParams.date ?? null,
       bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
     }, {
       routeSalonSlug: params?.slug,
@@ -144,6 +146,7 @@ export default async function BookTechPage(
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
       manageToken: searchParams.manageToken ?? null,
       campaignToken: searchParams.campaign ?? null,
+      date: searchParams.date ?? null,
       bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
     }, {
       routeSalonSlug: params?.slug,
@@ -167,6 +170,7 @@ export default async function BookTechPage(
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
       manageToken: searchParams.manageToken ?? null,
       campaignToken: searchParams.campaign ?? null,
+      date: searchParams.date ?? null,
       bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
     }, {
       routeSalonSlug: params?.slug,
@@ -231,6 +235,7 @@ export default async function BookTechPage(
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
       manageToken: searchParams.manageToken ?? null,
       campaignToken: searchParams.campaign ?? null,
+      date: searchParams.date ?? null,
       bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
     }, {
       routeSalonSlug: params?.slug,

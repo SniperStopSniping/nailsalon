@@ -275,8 +275,9 @@ describe('BookTechPage', () => {
       searchParams: Promise.resolve({
         salonSlug: 'isla-nail-studio',
         baseServiceId: 'svc_1',
+        date: '2026-10-14',
       }),
-    })).rejects.toThrow('REDIRECT:/book/time?salonSlug=isla-nail-studio&baseServiceId=svc_1&techId=tech_1');
+    })).rejects.toThrow('REDIRECT:/book/time?salonSlug=isla-nail-studio&baseServiceId=svc_1&techId=tech_1&date=2026-10-14');
   });
 
   it('resolves a basket-only technician selection without dropping either service', async () => {

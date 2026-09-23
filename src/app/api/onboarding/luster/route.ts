@@ -11,6 +11,7 @@ import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
 import { db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
 import { buildSalonTenantPublicUrl, getCanonicalAppOrigin } from '@/libs/publicUrl';
+import { resolveRebookingPromptSettings } from '@/libs/rebookingPromptSettings';
 import { seedStarterMenuForSalon } from '@/libs/starterMenu';
 import { isValidSalonSlug } from '@/libs/tenantSlug';
 import {
@@ -331,7 +332,11 @@ export async function POST(request: Request) {
         && typeof storedPrompt === 'object'
         && !Array.isArray(storedPrompt)
         && typeof (storedPrompt as Record<string, unknown>).enabled === 'boolean'
-          ? { enabled: (storedPrompt as Record<string, boolean>).enabled }
+          ? {
+              enabled: (storedPrompt as Record<string, boolean>).enabled,
+              ...('intervalWeeks' in storedPrompt ? { intervalWeeks: resolveRebookingPromptSettings({ rebookingPrompt: storedPrompt }).intervalWeeks } : {}),
+              ...('message' in storedPrompt ? { message: resolveRebookingPromptSettings({ rebookingPrompt: storedPrompt }).message } : {}),
+            }
           : undefined;
       } else {
         const [duplicateSalon] = await tx.select({ id: salonSchema.id }).from(salonSchema).where(eq(salonSchema.slug, input.slug)).limit(1);

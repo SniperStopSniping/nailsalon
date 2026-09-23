@@ -85,6 +85,7 @@ export function BookTechClient({
   const locationId = searchParams.get('locationId') || '';
   const manageToken = searchParams.get('manageToken') || '';
   const campaignToken = searchParams.get('campaign') || '';
+  const date = searchParams.get('date') || '';
   const bookingFlowMarker = useNormalBookingFlowMarker(salonId, searchParams.get('bookingFlow'));
 
   // Use global booking state for technician persistence
@@ -142,6 +143,7 @@ export function BookTechClient({
       manageToken,
       campaignToken,
       locationId,
+      date,
       bookingFlow: bookingFlowMarker,
     }, {
       routeSalonSlug,
@@ -181,6 +183,7 @@ export function BookTechClient({
         manageToken,
         campaignToken,
         locationId,
+        date,
         bookingFlow: bookingFlowMarker,
       }, {
         routeSalonSlug,

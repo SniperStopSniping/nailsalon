@@ -4,7 +4,10 @@ import { z } from 'zod';
 import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
 import { db } from '@/libs/DB';
-import { resolveRebookingPromptSettings } from '@/libs/rebookingPromptSettings';
+import {
+  REBOOKING_PROMPT_LIMITS,
+  resolveRebookingPromptSettings,
+} from '@/libs/rebookingPromptSettings';
 import { salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -12,6 +15,8 @@ export const dynamic = 'force-dynamic';
 const updateSchema = z
   .object({
     enabled: z.boolean(),
+    intervalWeeks: z.number().int().min(REBOOKING_PROMPT_LIMITS.intervalWeeks.min).max(REBOOKING_PROMPT_LIMITS.intervalWeeks.max).optional(),
+    message: z.string().max(REBOOKING_PROMPT_LIMITS.messageMaxLength).optional(),
   })
   .strict();
 
@@ -67,6 +72,11 @@ export async function PATCH(request: Request): Promise<Response> {
     );
   }
 
+  const settings = {
+    ...resolveRebookingPromptSettings(salon.settings),
+    ...parsed.data,
+  };
+
   // Own only this top-level JSONB key. This avoids a stale settings card
   // replacing unrelated booking, communication, or payment configuration.
   const settingsExpression = sql`
@@ -76,7 +86,7 @@ export async function PATCH(request: Request): Promise<Response> {
         ELSE '{}'::jsonb
       END,
       '{rebookingPrompt}',
-      ${JSON.stringify({ enabled: parsed.data.enabled })}::jsonb,
+      ${JSON.stringify(settings)}::jsonb,
       true
     )
   `;
@@ -93,7 +103,7 @@ export async function PATCH(request: Request): Promise<Response> {
     action: 'settings_updated',
     entityType: 'salon',
     entityId: salon.id,
-    metadata: { feature: 'rebooking_prompt', enabled: parsed.data.enabled },
+    metadata: { feature: 'rebooking_prompt', enabled: settings.enabled },
   });
 
   return Response.json(

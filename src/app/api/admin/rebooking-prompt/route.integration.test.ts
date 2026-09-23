@@ -57,9 +57,9 @@ afterAll(async () => {
 
 describe('rebooking prompt settings integration', () => {
   it('defaults existing salons off and atomically changes only its own JSONB key', async () => {
-    expect((await (await GET(request('GET'))).json()).data.settings).toEqual({ enabled: false });
+    expect((await (await GET(request('GET'))).json()).data.settings).toEqual({ enabled: false, intervalWeeks: 3, message: 'Secure your next spot now.' });
 
-    const response = await PATCH(request('PATCH', { enabled: true }));
+    const response = await PATCH(request('PATCH', { enabled: true, intervalWeeks: 4, message: 'Reserve your preferred time.' }));
 
     expect(response.status).toBe(200);
 
@@ -70,7 +70,7 @@ describe('rebooking prompt settings integration', () => {
     expect(stored?.settings).toMatchObject({
       booking: { timezone: 'America/Toronto' },
       communications: { sms: { enabled: true } },
-      rebookingPrompt: { enabled: true },
+      rebookingPrompt: { enabled: true, intervalWeeks: 4, message: 'Reserve your preferred time.' },
     });
   });
 });

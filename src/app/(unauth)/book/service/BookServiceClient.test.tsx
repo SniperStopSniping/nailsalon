@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { NextIntlClientProvider } from 'next-intl';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingExperienceCssVariables } from '@/libs/bookingExperience';
+import messages from '@/locales/en.json';
 import type { BookingExperience } from '@/types/salonPolicy';
 
 import { BookServiceClient } from './BookServiceClient';
@@ -577,6 +579,18 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('catalog-changed-notice')).toHaveTextContent(
       'Booking options changed. Review your service and options, then choose a new time.',
     );
+  });
+
+  it('explains changed selections when starting a recommended next visit', () => {
+    navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&rebooking=catalogue_changed');
+
+    render(
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <BookServiceClient services={services} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />
+      </NextIntlClientProvider>,
+    );
+
+    expect(screen.getByText(messages.BookingConfirmation.next_visit_catalogue_changed)).toBeVisible();
   });
 
   it('shows a clear empty state when the salon has no active services', () => {

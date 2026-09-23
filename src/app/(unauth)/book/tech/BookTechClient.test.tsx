@@ -98,7 +98,7 @@ vi.mock('@/providers/SalonProvider', () => ({
 describe('BookTechClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    navigationMock.searchParams = new URLSearchParams('baseServiceId=svc_1');
+    navigationMock.searchParams = new URLSearchParams('baseServiceId=svc_1&date=2026-10-14');
     vi.stubGlobal('fetch', legacyAuthFetch);
   });
 
@@ -272,6 +272,7 @@ describe('BookTechClient', () => {
     expect(setTechnicianId).toHaveBeenNthCalledWith(2, 'tech_1', 'explicit');
     expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('/book/service'));
     expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('techId=tech_1'));
+    expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('date=2026-10-14'));
     expect(legacyAuthFetch).not.toHaveBeenCalled();
   });
 

@@ -35,6 +35,7 @@ const EXPECTED_NON_CONTENT_SURFACES = [
   'selectedServiceContinueBar',
   'appointmentSummaryCard',
   'bookingProgressHeader',
+  'confirmationRebookingPrompt',
   'serviceSelectionControls',
   'timeSelectionControls',
   'smartFitAvailabilitySection',

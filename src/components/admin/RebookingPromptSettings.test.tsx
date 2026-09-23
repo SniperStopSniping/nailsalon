@@ -15,7 +15,7 @@ afterEach(() => fetchMock.mockReset());
 describe('RebookingPromptSettings', () => {
   it('loads missing-safe off state and only saves a deliberate toggle', async () => {
     fetchMock.mockResolvedValueOnce(response({ data: { settings: { enabled: false } } }))
-      .mockResolvedValueOnce(response({ data: { settings: { enabled: true } } }));
+      .mockResolvedValueOnce(response({ data: { settings: { enabled: true, intervalWeeks: 3, message: 'Secure your next spot now.' } } }));
     render(<RebookingPromptSettings salonSlug="isla" />);
 
     const toggle = await screen.findByRole('switch', { name: 'Turn on Rebooking Prompt' });
@@ -30,7 +30,7 @@ describe('RebookingPromptSettings', () => {
 
     expect(fetchMock).toHaveBeenLastCalledWith('/api/admin/rebooking-prompt?salonSlug=isla', expect.objectContaining({
       method: 'PATCH',
-      body: JSON.stringify({ enabled: true }),
+      body: JSON.stringify({ enabled: true, intervalWeeks: 3, message: 'Secure your next spot now.' }),
     }));
     expect(await screen.findByRole('status')).toHaveTextContent('Rebooking Prompt saved.');
   });
@@ -45,5 +45,24 @@ describe('RebookingPromptSettings', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Temporarily unavailable');
     expect(screen.getByRole('switch', { name: 'Turn on Rebooking Prompt' })).toBeChecked();
     expect(screen.getByRole('button', { name: 'Save Rebooking Prompt' })).toBeEnabled();
+  });
+
+  it('edits the confirmation-page recommendation and message', async () => {
+    fetchMock.mockResolvedValueOnce(response({ data: { settings: { enabled: true } } }))
+      .mockResolvedValueOnce(response({ data: { settings: { enabled: true, intervalWeeks: 4, message: 'Reserve your preferred time.' } } }));
+    render(<RebookingPromptSettings salonSlug="isla" />);
+
+    const interval = await screen.findByLabelText('Recommended visit interval');
+    fireEvent.change(interval, { target: { value: '4', valueAsNumber: 4 } });
+    fireEvent.change(screen.getByLabelText('Encouragement message'), { target: { value: 'Reserve your preferred time.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Rebooking Prompt' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/admin/rebooking-prompt?salonSlug=isla', expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ enabled: true, intervalWeeks: 4, message: 'Reserve your preferred time.' }),
+    }));
+    expect(screen.getByText('We recommend every 4 weeks.')).toBeInTheDocument();
   });
 });
