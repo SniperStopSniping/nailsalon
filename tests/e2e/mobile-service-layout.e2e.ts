@@ -1100,7 +1100,9 @@ test.describe('selected service options on mobile', () => {
 
       await expect(page.getByTestId(`service-card-${e2eConfig.serviceId}`)).toHaveAttribute('data-selected', 'true');
       await expect(page.getByTestId('service-inline-addons-panel')).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Add-ons' })).toBeFocused();
+      // Keep keyboard focus on the selected service; the Add-ons heading is a
+      // live announcement, not an artificial focus target.
+      await expect(card).toBeFocused();
       await expect(page.getByTestId('service-continue-button')).toBeVisible();
       await expect(page.locator(`[data-testid="service-add-button-${e2eConfig.serviceId}"]`)).toHaveCount(0);
       await expect.poll(() => new URL(page.url()).searchParams.get('baseServiceId')).toBe(e2eConfig.serviceId);
