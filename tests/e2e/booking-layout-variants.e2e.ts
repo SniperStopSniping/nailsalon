@@ -1750,13 +1750,8 @@ async function expectSelectedServiceSummary({
 
   await expect(stickyBar).toHaveCount(0);
 
-  // Opening details must keep the marketing CTA until Add service is explicit.
+  // A tap immediately selects the main service and hands over to Continue.
   await serviceCard.evaluate(element => (element as HTMLButtonElement).click());
-
-  await expect(stickyBar).toHaveCount(0);
-
-  await page.getByTestId(`service-add-button-${service.id}`)
-    .evaluate(element => (element as HTMLButtonElement).click());
 
   await expect(page.getByTestId('editorial-sticky-cta')).toHaveCount(0);
   await expect(stickyBar).toBeVisible();

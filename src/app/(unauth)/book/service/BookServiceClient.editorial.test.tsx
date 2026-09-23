@@ -558,7 +558,6 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
     expect(screen.queryByTestId('service-category-scroll')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId(`service-card-${pedicureService.id}`));
-    fireEvent.click(screen.getByTestId(`service-add-button-${pedicureService.id}`));
 
     expect(screen.getByTestId(`service-card-${pedicureService.id}`)).toHaveAttribute('data-selected', 'true');
 
@@ -1174,7 +1173,6 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
         // Selection happens while the services anchor is still below the
         // handoff threshold: no observer callback has fired in this test.
         fireEvent.click(screen.getByTestId(`service-card-${service.id}`));
-        fireEvent.click(screen.getByTestId(`service-add-button-${service.id}`));
 
         const selectedSummary = screen.getByTestId('service-sticky-bar');
 
@@ -1182,7 +1180,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
         expect(within(selectedSummary).getByText('1 service')).toBeInTheDocument();
         expect(within(selectedSummary).getByText('$90')).toBeInTheDocument();
         expect(within(selectedSummary).getByText('1h 30m')).toBeInTheDocument();
-        expect(within(selectedSummary).getByRole('button', { name: /Review options/i })).toBeInTheDocument();
+        expect(within(selectedSummary).getByRole('button', { name: /Continue/i })).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Add Chrome Finish' }));
 
@@ -1192,8 +1190,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
           expect(within(selectedSummary).getByText('1h 40m')).toBeInTheDocument();
         });
 
-        fireEvent.click(screen.getByTestId('service-options-done-button'));
-        fireEvent.click(within(selectedSummary).getByRole('button', { name: /Continue to Time/i }));
+        fireEvent.click(within(selectedSummary).getByRole('button', { name: /Continue/i }));
 
         const nextUrl = new URL(
           navigationMock.routerPush.mock.calls.at(-1)?.[0] as string,

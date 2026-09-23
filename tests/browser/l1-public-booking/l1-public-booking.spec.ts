@@ -54,7 +54,6 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
   await expect(card).toBeVisible();
 
   await card.click();
-  await page.getByTestId(`service-add-button-${SERVICE}`).click();
   await page.getByRole('button', { name: 'Add Synthetic optional French', exact: true }).click();
 
   const preparation = page.getByTestId(`service-addon-row-${AUTO}`);
@@ -77,7 +76,6 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
 
   await expect(preparation.getByText('1', { exact: true })).toBeVisible();
 
-  await page.getByTestId('service-options-done-button').click();
   await page.getByTestId('service-continue-button').click();
   await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
   if (new URL(page.url()).pathname.endsWith('/book/tech')) {

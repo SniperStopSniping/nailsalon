@@ -19,7 +19,7 @@ import { BOOKING_CATEGORY_META } from '@/libs/bookingCategory';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { getFeaturedServices, sortServicesForCategory } from '@/libs/bookingMerchandising';
 import type { SectionId } from '@/libs/bookingPageConfig';
-import { type BookingBasketItem, buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, type SelectedAddOnParam, serializeBookingBasket, serializeSelectedAddOns } from '@/libs/bookingParams';
+import { buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
 import type { PublicCatalogSnapshot } from '@/libs/catalogDomain';
 import { resolveCatalogSelection } from '@/libs/catalogResolverCore';
 import { useNormalBookingFlowMarker } from '@/libs/customerAssistant/normalConfirmHandoff.client';
@@ -432,6 +432,7 @@ export function BookServiceClient({
   const urlSelectedAddOns = parseSelectedAddOnsParam(searchParams.get('selectedAddOns'));
   const catalogChanged = searchParams.get('catalogChanged') === '1';
   const legacyServiceIds = searchParams.get('serviceIds')?.split(',').filter(Boolean) ?? [];
+  const incomingMultipleServices = (urlBasket?.items.length ?? legacyServiceIds.length) > 1;
 
   const {
     technicianId = null,
@@ -458,7 +459,9 @@ export function BookServiceClient({
   });
   const [showLocationFallbackToast, setShowLocationFallbackToast] = useState(hadInvalidLocation);
 
-  const urlDrivenBaseServiceId = urlBasket?.items[0]?.serviceId ?? urlBaseServiceId ?? legacyServiceIds[0] ?? null;
+  const urlDrivenBaseServiceId = incomingMultipleServices
+    ? null
+    : urlBasket?.items[0]?.serviceId ?? urlBaseServiceId ?? legacyServiceIds[0] ?? null;
   const initialBaseServiceId = urlDrivenBaseServiceId ?? null;
   const initialSelectedService = services.find(service => service.id === initialBaseServiceId) ?? null;
   // Manicure is the default tab, unless the salon offers nothing under it —
@@ -470,7 +473,7 @@ export function BookServiceClient({
   // L1 keeps the URL's explicit customer picks verbatim. The resolver owns
   // inherited bindings and auto additions; applying legacy defaults here would
   // turn a customer choice into a synthetic explicit pick before review.
-  const initialSelectedAddOns = urlBasket?.items[0]?.selectedAddOns ?? (initialBaseServiceId
+  const initialSelectedAddOns = (incomingMultipleServices ? null : urlBasket?.items[0]?.selectedAddOns) ?? (initialBaseServiceId
     ? l1Snapshot
       ? urlSelectedAddOns
       : buildDefaultSelectedAddOns(
@@ -482,21 +485,15 @@ export function BookServiceClient({
     : []);
 
   const [selectedCategory, setSelectedCategory] = useState<BookingCategory>(initialCategory);
+  const [showLegacyBasketNotice, setShowLegacyBasketNotice] = useState(incomingMultipleServices);
   const [selectedBaseServiceId, setSelectedBaseServiceIdState] = useState<string | null>(initialBaseServiceId);
   const [selectedAddOnsState, setSelectedAddOnsState] = useState<SelectedAddOnParam[]>(initialSelectedAddOns);
-  const [selectedBasket, setSelectedBasket] = useState<BookingBasketItem[]>(
-    urlBasket?.items ?? (initialBaseServiceId
-      ? [{ serviceId: initialBaseServiceId, selectedAddOns: initialSelectedAddOns }]
-      : []),
-  );
-  const [inspectedServiceId, setInspectedServiceId] = useState<string | null>(null);
-  const [optionsReview, setOptionsReview] = useState<{
-    reviewed: Record<string, string>;
-    preparation: Record<string, string>;
-  }>({ reviewed: {}, preparation: {} });
-  const [optionsReviewHydrated, setOptionsReviewHydrated] = useState(false);
+  // One main service is the manual booking contract. A legacy multi-service
+  // link requires an explicit new choice so its other items are never lost silently.
+  const selectedItems = selectedBaseServiceId
+    ? [{ serviceId: selectedBaseServiceId, selectedAddOns: selectedAddOnsState }]
+    : [];
   const [addOnAnnouncement, setAddOnAnnouncement] = useState('');
-  const [assistantMultiServiceMessage, setAssistantMultiServiceMessage] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [mounted, setMounted] = useState(false);
   // Display-only readiness for the view-only, script-blocked builder iframe.
@@ -515,39 +512,7 @@ export function BookServiceClient({
   const searchCardRef = useRef<HTMLDivElement>(null);
   const optionsPanelRef = useRef<HTMLDivElement>(null);
   const optionsHeadingRef = useRef<HTMLHeadingElement>(null);
-  const serviceDetailsRef = useRef<HTMLDivElement>(null);
-  const serviceDetailsHeadingRef = useRef<HTMLHeadingElement>(null);
   const continueButtonRef = useRef<HTMLButtonElement>(null);
-  const focusContinueAfterReviewRef = useRef(false);
-  const optionsReviewStorageKey = `booking_options_review:v1:${salonSlug}`;
-
-  useEffect(() => {
-    try {
-      const stored = sessionStorage.getItem(optionsReviewStorageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored) as typeof optionsReview;
-        if (parsed && parsed.reviewed && typeof parsed.reviewed === 'object'
-          && parsed.preparation && typeof parsed.preparation === 'object') {
-          setOptionsReview(parsed);
-        }
-      }
-    } catch {
-      // Review is a presentation cue; storage failure must not block booking.
-    }
-    setOptionsReviewHydrated(true);
-    // Each tenant gets an independent review record.
-  }, [optionsReviewStorageKey]);
-
-  useEffect(() => {
-    if (!optionsReviewHydrated) {
-      return;
-    }
-    try {
-      sessionStorage.setItem(optionsReviewStorageKey, JSON.stringify(optionsReview));
-    } catch {
-      // The current page still retains the review state.
-    }
-  }, [optionsReview, optionsReviewHydrated, optionsReviewStorageKey]);
   // Editorial's sticky-CTA handoff (Rev 3 plan section 6): "the sticky Book
   // CTA scrolls to #services then hands over to the sticky Continue bar —
   // the two must never both be visible." `servicesAnchorRef` is the #services
@@ -884,21 +849,13 @@ export function BookServiceClient({
     }
 
     const newParams = new URLSearchParams(searchParams.toString());
-    const serializedBasket = selectedBasket.length > 1
-      ? serializeBookingBasket({ version: 2, items: selectedBasket })
-      : null;
-    const serializedAddOns = selectedBaseServiceId && !serializedBasket
+    const serializedAddOns = selectedBaseServiceId
       ? serializeSelectedAddOns(selectedAddOnsState)
       : null;
+    newParams.delete('bookingBasket');
+    newParams.delete('serviceIds');
 
-    if (serializedBasket) {
-      newParams.set('bookingBasket', serializedBasket);
-      newParams.delete('serviceIds');
-    } else {
-      newParams.delete('bookingBasket');
-    }
-
-    if (selectedBaseServiceId && !serializedBasket) {
+    if (selectedBaseServiceId) {
       newParams.set('baseServiceId', selectedBaseServiceId);
     } else {
       newParams.delete('baseServiceId');
@@ -918,16 +875,16 @@ export function BookServiceClient({
     }
 
     window.history.replaceState(null, '', `?${nextQuery}`);
-  }, [mounted, searchParams, selectedAddOnsState, selectedBaseServiceId, selectedBasket]);
+  }, [mounted, searchParams, selectedAddOnsState, selectedBaseServiceId]);
 
   useEffect(() => {
     if (urlBasket || urlBaseServiceId || legacyServiceIds[0] || urlTechId) {
       syncFromUrl({
         techId: urlTechId,
         technicianSelectionSource: urlTechId && urlTechId !== 'any' ? 'explicit' : null,
-        baseServiceId: urlBasket ? null : urlBaseServiceId ?? legacyServiceIds[0] ?? null,
+        baseServiceId: incomingMultipleServices || urlBasket ? null : urlBaseServiceId ?? legacyServiceIds[0] ?? null,
         selectedAddOns: urlBasket ? [] : urlSelectedAddOns,
-        serviceIds: urlBasket?.items.map(item => item.serviceId) ?? legacyServiceIds,
+        serviceIds: incomingMultipleServices ? [] : urlBasket?.items.slice(0, 1).map(item => item.serviceId) ?? legacyServiceIds.slice(0, 1),
         locationId: selectedLocationId,
       });
     }
@@ -944,7 +901,7 @@ export function BookServiceClient({
         setSelectedAddOnsState([]);
       }
       setBaseServiceId(null);
-      setServiceIds(selectedBasket.map(item => item.serviceId));
+      setServiceIds([]);
       setSelectedAddOns([]);
       return;
     }
@@ -968,10 +925,10 @@ export function BookServiceClient({
       setSelectedAddOnsState(normalized);
     }
 
-    setBaseServiceId(selectedBasket.length === 1 ? selectedBaseServiceId : null);
-    setServiceIds(selectedBasket.map(item => item.serviceId));
-    setSelectedAddOns(selectedBasket.length === 1 ? normalized : []);
-  }, [l1Snapshot, addOns, isHydrated, selectedAddOnsState, selectedBaseServiceId, selectedBasket, serviceAddOnRules, setBaseServiceId, setSelectedAddOns, setServiceIds]);
+    setBaseServiceId(selectedBaseServiceId);
+    setServiceIds([selectedBaseServiceId]);
+    setSelectedAddOns(normalized);
+  }, [l1Snapshot, addOns, isHydrated, selectedAddOnsState, selectedBaseServiceId, serviceAddOnRules, setBaseServiceId, setSelectedAddOns, setServiceIds]);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -982,87 +939,29 @@ export function BookServiceClient({
   }, [isHydrated, selectedLocationId, setLocationId]);
 
   const handleServiceSelection = (service: ServiceData) => {
-    setInspectedServiceId(null);
     hasUserChangedSelectionRef.current = true;
-    if (!selectedBasket.some(item => item.serviceId === service.id)) {
-      if (bookingFlowMarker === 'assistant' && selectedBasket.length > 0) {
-        // The durable assistant handoff is scoped to one service. Do not let
-        // an unsupported basket reach Confirm and strand a pending operation.
-        setAssistantMultiServiceMessage(true);
-        return;
-      }
-      if (selectedBasket.length >= 10) {
-        return;
-      }
-      setAssistantMultiServiceMessage(false);
-      const selectedAddOns = l1Snapshot
-        ? []
-        : buildDefaultSelectedAddOns(service.id, serviceAddOnRules, addOns, []);
-      setSelectedBasket(current => [...current, { serviceId: service.id, selectedAddOns }]);
+    setShowLegacyBasketNotice(false);
+    if (selectedBaseServiceId !== service.id) {
+      const selectedAddOns = l1Snapshot ? [] : buildDefaultSelectedAddOns(service.id, serviceAddOnRules, addOns, []);
       setSelectedAddOnsState(selectedAddOns);
       if (technicianSelectionSource === 'auto') {
         setTechnicianId(null, null);
       }
-    } else {
-      setSelectedAddOnsState(selectedBasket.find(item => item.serviceId === service.id)?.selectedAddOns ?? []);
     }
     setSelectedBaseServiceIdState(service.id);
     setSelectedCategory(service.bookingCategory);
-
-    const hasRelevantOptions = (l1Snapshot
-      ? l1Snapshot.serviceAddOnBindings
-      : serviceAddOnRules).some(rule => rule.serviceId === service.id && addOns.some(addOn =>
-      addOn.id === rule.addOnId && addOn.isActive));
-    if (hasRelevantOptions) {
-      // The customer's click is the only automatic scroll trigger. Changing an
-      // add-on or its quantity must not pull the viewport away from the row.
-      requestAnimationFrame(() => {
-        optionsPanelRef.current?.scrollIntoView?.({
-          block: 'start',
-          behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-        });
-        optionsHeadingRef.current?.focus({ preventScroll: true });
-      });
-    } else {
-      requestAnimationFrame(() => continueButtonRef.current?.focus({ preventScroll: true }));
-    }
-
-    triggerHaptic('select');
-  };
-
-  const handleInspectService = (service: ServiceData) => {
-    if (selectedBasket.some(item => item.serviceId === service.id)) {
-      handleServiceSelection(service);
-      return;
-    }
-
-    const opening = inspectedServiceId !== service.id;
-    setInspectedServiceId(opening ? service.id : null);
     setSearchQuery('');
-    setSelectedCategory(service.bookingCategory);
-    if (opening) {
-      requestAnimationFrame(() => {
-        serviceDetailsRef.current?.scrollIntoView?.({
-          block: 'start',
-          behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-        });
-        serviceDetailsHeadingRef.current?.focus({ preventScroll: true });
-      });
-    }
-  };
-
-  const handleRemoveService = (serviceId: string) => {
-    const remaining = selectedBasket.filter(item => item.serviceId !== serviceId);
-    setSelectedBasket(remaining);
-    if (selectedBaseServiceId === serviceId) {
-      const nextItem = remaining[0] ?? null;
-      setSelectedBaseServiceIdState(nextItem?.serviceId ?? null);
-      setSelectedAddOnsState(nextItem?.selectedAddOns ?? []);
-    }
-    if (technicianSelectionSource === 'auto') {
-      setTechnicianId(null, null);
-    }
-    hasUserChangedSelectionRef.current = true;
+    const hasOptions = (l1Snapshot?.serviceAddOnBindings ?? serviceAddOnRules).some(rule =>
+      rule.serviceId === service.id && addOns.some(addOn => addOn.id === rule.addOnId && addOn.isActive));
+    requestAnimationFrame(() => {
+      if (hasOptions) {
+        document.querySelector('[data-selected-service-row]')?.scrollIntoView?.({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+        optionsHeadingRef.current?.focus({ preventScroll: true });
+      } else {
+        continueButtonRef.current?.focus({ preventScroll: true });
+      }
+    });
+    triggerHaptic('select');
   };
 
   // An active search collapses the category chrome and searches every category at
@@ -1087,7 +986,6 @@ export function BookServiceClient({
     );
 
   const selectedService = services.find(service => service.id === selectedBaseServiceId) ?? null;
-  const inspectedService = services.find(service => service.id === inspectedServiceId) ?? null;
   // L1 binding fields are already effective after inherited/default/rule
   // resolution. Adapt them only to the legacy control shape; do not repeat
   // precedence or pricing logic in the browser.
@@ -1107,13 +1005,6 @@ export function BookServiceClient({
     .filter(rule => rule.serviceId === selectedBaseServiceId)
     .sort((a, b) => a.displayOrder - b.displayOrder);
   const addOnsById = new Map(addOns.map(addOn => [addOn.id, addOn]));
-  const inspectedAddOns = effectiveServiceAddOnRules
-    .filter(rule => rule.serviceId === inspectedServiceId)
-    .sort((a, b) => a.displayOrder - b.displayOrder)
-    .flatMap((rule) => {
-      const addOn = addOnsById.get(rule.addOnId);
-      return addOn?.isActive ? [{ rule, addOn }] : [];
-    });
   const autoIncludedQuantity = (serviceId: string, selectedAddOns: SelectedAddOnParam[], addOnId: string): number => {
     if (!l1Snapshot) {
       return 0;
@@ -1152,67 +1043,22 @@ export function BookServiceClient({
       }
     }
   }
-  const removalOptions = allowedAddOns.filter(item => item?.addOn.category === 'removal');
-  const otherOptions = allowedAddOns.filter(item => item?.addOn.category !== 'removal');
-  const basketReview = selectedBasket.map((item) => {
-    const service = services.find(candidate => candidate.id === item.serviceId);
-    const rules = (l1Snapshot
-      ? l1Snapshot.serviceAddOnBindings.filter(rule => rule.serviceId === item.serviceId)
-      : serviceAddOnRules.filter(rule => rule.serviceId === item.serviceId));
-    const visibleRules = rules.filter(rule => addOnsById.get(rule.addOnId)?.isActive);
-    const key = JSON.stringify({
-      service: service && [service.priceCents, service.priceDisplayText, service.durationMinutes],
-      rules: visibleRules.map(rule => ({ rule, addOn: addOnsById.get(rule.addOnId) })),
-    });
-    const hasRemoval = visibleRules.some(rule => addOnsById.get(rule.addOnId)?.category === 'removal'
-      && autoIncludedQuantity(item.serviceId, item.selectedAddOns, rule.addOnId) === 0);
-    const preparationDone = !hasRemoval || optionsReview.preparation[item.serviceId] === key;
-    return {
-      serviceId: item.serviceId,
-      key,
-      preparationDone,
-      reviewed: visibleRules.length === 0 || (optionsReview.reviewed[item.serviceId] === key && preparationDone),
-    };
-  });
-  const activeReview = basketReview.find(item => item.serviceId === selectedBaseServiceId);
-  const optionsKey = activeReview?.key ?? '';
-  const firstUnreviewedItem = basketReview.find(item => !item.reviewed);
-  const needsOptionsReview = Boolean(firstUnreviewedItem);
-  useEffect(() => {
-    if (!focusContinueAfterReviewRef.current || !activeReview?.reviewed) {
-      return;
-    }
-    focusContinueAfterReviewRef.current = false;
-    continueButtonRef.current?.focus({ preventScroll: true });
-  }, [activeReview?.reviewed]);
-  const hasRequiredAddOns = allowedAddOns.some(item => item?.rule.selectionMode === 'required');
-  const hasOptionalAddOns = allowedAddOns.some(item => item?.rule.selectionMode === 'optional');
-  const addOnCompositionLabel = hasRequiredAddOns && hasOptionalAddOns
-    ? 'Required and optional add-ons'
-    : hasRequiredAddOns
-      ? 'Required add-ons'
-      : 'Optional add-ons';
-  const addOnStickyLabel = hasRequiredAddOns && hasOptionalAddOns
-    ? 'Required and optional add-ons'
-    : hasRequiredAddOns
-      ? 'Required add-ons included'
-      : 'Optional add-ons available';
   const locationCompatiblePreviewTechnicians = technicians.filter(technician =>
     technicianSupportsPublicLocation({
       technician,
       locationId: selectedLocationId,
     }),
   );
-  const selectedBasketServices = selectedBasket.flatMap((item) => {
+  const selectedItemsServices = selectedItems.flatMap((item) => {
     const service = services.find(candidate => candidate.id === item.serviceId);
     return service ? [service] : [];
   });
-  const compatiblePreviewTechnicians = selectedBasketServices.length > 0
+  const compatiblePreviewTechnicians = selectedItemsServices.length > 0
     ? locationCompatiblePreviewTechnicians.filter(technician =>
       getPublicTechnicianCompatibility({
         selectionMode: 'base-service',
         technician,
-        requestedServices: selectedBasketServices.map(service => ({
+        requestedServices: selectedItemsServices.map(service => ({
           id: service.id,
           name: service.name,
           category: service.category,
@@ -1220,7 +1066,7 @@ export function BookServiceClient({
       }).bookable,
     )
     : [];
-  const hasSingleTechnicianSalonPreview = selectedBasketServices.length === 0 && locationCompatiblePreviewTechnicians.length === 1;
+  const hasSingleTechnicianSalonPreview = selectedItemsServices.length === 0 && locationCompatiblePreviewTechnicians.length === 1;
   const soleCompatiblePreviewTechnician = compatiblePreviewTechnicians.length === 1
     ? compatiblePreviewTechnicians[0] ?? null
     : null;
@@ -1320,7 +1166,7 @@ export function BookServiceClient({
     })
     : null;
   const l1Selection = l1Result?.ok ? l1Result.selection : null;
-  const basketQuotes = selectedBasket.map((item) => {
+  const basketQuotes = selectedItems.map((item) => {
     if (l1Snapshot) {
       const result = resolveCatalogSelection(l1Snapshot, {
         serviceId: item.serviceId,
@@ -1363,7 +1209,7 @@ export function BookServiceClient({
   const l1Blocked = basketQuotes.some(quote => quote.blocked);
   const totalPriceCents = basketQuotes.reduce((sum, quote) => sum + quote.priceCents, 0);
   const totalDurationMinutes = basketQuotes.reduce((sum, quote) => sum + quote.durationMinutes, 0);
-  const selectedAddOnCount = selectedBasket.reduce((sum, item) => sum + item.selectedAddOns.length, 0);
+  const selectedAddOnCount = selectedItems.reduce((sum, item) => sum + item.selectedAddOns.length, 0);
   const hasStartingPrice = basketQuotes.some(quote => quote.startingPrice);
   const hasManualConfirmation = basketQuotes.some(quote => quote.manualConfirmation);
   const totalPriceLabel = `${hasStartingPrice ? 'From ' : ''}${formatMoney(totalPriceCents, currency)}${hasManualConfirmation ? ' + confirmation' : ''}`;
@@ -1386,15 +1232,27 @@ export function BookServiceClient({
     content: quickBookContent,
     announcement: bookingExperience.bookingMessage,
   });
-  const serviceRows = buildServiceRows(filteredServices, serviceMenuPresentation.columns);
-  const groupedServiceRows = BOOKING_CATEGORIES.flatMap((category) => {
+  const selectedFirstRows = (items: ServiceData[], includeSelected = true) => {
+    // Keep the booked service visible while a customer browses another tab or
+    // searches. Continue must never refer to a service hidden by the filter.
+    const selected = includeSelected ? selectedService : null;
+    const remaining = items.filter(service => service.id !== selectedBaseServiceId);
+    return selected
+      ? [[selected], ...buildServiceRows(remaining, serviceMenuPresentation.columns)]
+      : buildServiceRows(remaining, serviceMenuPresentation.columns);
+  };
+  const serviceRows = selectedFirstRows(filteredServices);
+  const orderedCategories = selectedService
+    ? [selectedService.bookingCategory, ...BOOKING_CATEGORIES.filter(category => category !== selectedService.bookingCategory)]
+    : BOOKING_CATEGORIES;
+  const groupedServiceRows = orderedCategories.flatMap((category) => {
     const categoryServices = sortServicesForCategory(
       (isSearching ? filteredServices : services).filter(
         service => service.bookingCategory === category,
       ),
       category,
     );
-    const rows = buildServiceRows(categoryServices, serviceMenuPresentation.columns);
+    const rows = selectedFirstRows(categoryServices, category === selectedService?.bookingCategory);
 
     return rows.length > 0 ? [{ category, rows }] : [];
   });
@@ -1436,9 +1294,8 @@ export function BookServiceClient({
 
     router.push(buildBookingUrl(`/${locale}/book/${nextStep}`, {
       salonSlug,
-      ...(selectedBasket.length > 1
-        ? { bookingBasket: { version: 2 as const, items: selectedBasket } }
-        : { baseServiceId: baseServiceIdValue, selectedAddOns: selectedAddOnsValue }),
+      baseServiceId: baseServiceIdValue,
+      selectedAddOns: selectedAddOnsValue,
       techId: effectiveContinueTechnicianId,
       originalAppointmentId,
       manageToken,
@@ -1456,9 +1313,8 @@ export function BookServiceClient({
     if (prevStep) {
       router.push(buildBookingUrl(`/${locale}/book/${prevStep}`, {
         salonSlug,
-        ...(selectedBasket.length > 1
-          ? { bookingBasket: { version: 2 as const, items: selectedBasket } }
-          : { baseServiceId: selectedBaseServiceId, selectedAddOns: selectedAddOnsState }),
+        baseServiceId: selectedBaseServiceId,
+        selectedAddOns: selectedAddOnsState,
         originalAppointmentId,
         manageToken,
         campaignToken,
@@ -1474,28 +1330,6 @@ export function BookServiceClient({
   };
 
   const handleContinue = () => {
-    if (bookingFlowMarker === 'assistant' && selectedBasket.length > 1) {
-      setAssistantMultiServiceMessage(true);
-      return;
-    }
-    if (needsOptionsReview) {
-      const reviewService = services.find(service => service.id === firstUnreviewedItem?.serviceId);
-      setInspectedServiceId(null);
-      setSearchQuery('');
-      if (reviewService) {
-        setSelectedBaseServiceIdState(reviewService.id);
-        setSelectedAddOnsState(selectedBasket.find(item => item.serviceId === reviewService.id)?.selectedAddOns ?? []);
-        setSelectedCategory(reviewService.bookingCategory);
-      }
-      requestAnimationFrame(() => {
-        optionsPanelRef.current?.scrollIntoView?.({
-          block: 'start',
-          behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-        });
-        optionsHeadingRef.current?.focus({ preventScroll: true });
-      });
-      return;
-    }
     if (l1Blocked || !selectedBaseServiceId) {
       return;
     }
@@ -1552,19 +1386,7 @@ export function BookServiceClient({
 
     hasUserChangedSelectionRef.current = true;
     hasPendingAddOnAnnouncementRef.current = true;
-    if (addOn.category === 'removal') {
-      setOptionsReview(current => ({
-        ...current,
-        preparation: {
-          ...current.preparation,
-          [selectedBaseServiceId]: optionsKey,
-        },
-      }));
-    }
     setSelectedAddOnsState(normalized);
-    setSelectedBasket(current => current.map(item => item.serviceId === selectedBaseServiceId
-      ? { ...item, selectedAddOns: normalized }
-      : item));
     setSelectedAddOns(normalized);
     triggerHaptic('select');
   };
@@ -1740,7 +1562,6 @@ export function BookServiceClient({
                     type="text"
                     value={searchQuery}
                     onChange={(e) => {
-                      setInspectedServiceId(null);
                       setSearchQuery(e.target.value);
                     }}
                     onFocus={handleSearchFocus}
@@ -1751,7 +1572,6 @@ export function BookServiceClient({
                     <button
                       type="button"
                       onClick={() => {
-                        setInspectedServiceId(null);
                         setSearchQuery('');
                       }}
                       aria-label="Clear search"
@@ -1995,7 +1815,6 @@ export function BookServiceClient({
                                   aria-pressed={active}
                                   onClick={() => {
                                     if (category !== selectedCategory) {
-                                      setInspectedServiceId(null);
                                       setSelectedCategory(category);
                                       triggerHaptic('select');
                                     }
@@ -2048,59 +1867,9 @@ export function BookServiceClient({
                           ? 'service-menu-grouped-categories'
                           : 'service-menu-list'}
                       >
-                        {selectedBasket.length > 0 && (
-                          <section
-                            data-public-surface="serviceSelectionControls"
-                            data-testid="service-selection-summary"
-                            aria-label="Your selected services"
-                            className="space-y-2 rounded-2xl border bg-white p-3"
-                            style={{ borderColor: themeVars.cardBorder }}
-                          >
-                            <h3 className="text-sm font-bold text-neutral-900">Your services</h3>
-                            {selectedBasket.map((item) => {
-                              const service = services.find(candidate => candidate.id === item.serviceId);
-                              const review = basketReview.find(candidate => candidate.serviceId === item.serviceId);
-                              return (
-                                <div key={item.serviceId} className="flex items-start justify-between gap-2 rounded-xl bg-neutral-50 p-2.5 max-[360px]:flex-col max-[360px]:items-stretch">
-                                  <div className="min-w-0">
-                                    <div className="break-words text-sm font-semibold text-neutral-900">{service?.name ?? 'Unavailable service'}</div>
-                                    <div className="mt-0.5 break-words text-xs text-neutral-600">
-                                      {item.selectedAddOns.length > 0
-                                        ? item.selectedAddOns.map((addOn) => {
-                                          const name = addOnsById.get(addOn.addOnId)?.name ?? 'Unavailable option';
-                                          return `${name}${(addOn.quantity ?? 1) > 1 ? ` ×${addOn.quantity}` : ''}`;
-                                        }).join(' · ')
-                                        : review?.reviewed ? 'No optional extras' : 'Options to review'}
-                                    </div>
-                                  </div>
-                                  <div className="flex shrink-0 gap-1 max-[360px]:flex-wrap max-[360px]:justify-end">
-                                    {service && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleServiceSelection(service)}
-                                        className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
-                                        aria-label={`Edit options for ${service.name}`}
-                                      >
-                                        Edit
-                                      </button>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveService(item.serviceId)}
-                                      className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-600 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
-                                      aria-label={`Remove ${service?.name ?? 'unavailable service'}`}
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </section>
-                        )}
-                        {assistantMultiServiceMessage && (
-                          <p role="status" className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                            This assistant booking supports one service. Remove the extra service, then finish this booking before starting another.
+                        {showLegacyBasketNotice && !selectedService && (
+                          <p role="status" className="rounded-xl border bg-white px-3 py-2 text-sm text-neutral-700" style={{ borderColor: themeVars.cardBorder }}>
+                            This older booking included more than one service. Choose one service or a combo to continue.
                           </p>
                         )}
                         {/*
@@ -2149,7 +1918,7 @@ export function BookServiceClient({
                             style={{ borderColor: themeVars.cardBorder }}
                           >
                             <div className="text-sm font-semibold text-neutral-700">
-                              No services found
+                              {selectedService ? 'No other services found' : 'No services found'}
                             </div>
                             <div className="mt-1 text-[13px] text-neutral-500">
                               Try a different name, or clear the search to browse the full menu.
@@ -2191,15 +1960,14 @@ export function BookServiceClient({
                                   const rowContainsSelectedService = row.some(service => service.id === selectedBaseServiceId);
 
                                   return (
-                                    <div key={`service-row-${row.map(service => service.id).join('-')}`} className="space-y-2">
-                                      <div className={serviceMenuPresentation.columns === 2
+                                    <div key={`service-row-${row.map(service => service.id).join('-')}`} data-selected-service-row={rowContainsSelectedService ? true : undefined} className="scroll-mt-4 space-y-2">
+                                      <div className={serviceMenuPresentation.columns === 2 && !rowContainsSelectedService
                                         ? 'grid grid-cols-2 gap-3'
                                         : 'grid grid-cols-1 gap-2'}
                                       >
                                         {row.map((service, serviceIndex) => {
-                                          const isSelected = selectedBasket.some(item => item.serviceId === service.id);
-                                          const isExpanded = inspectedServiceId === service.id
-                                            || (isSelected && selectedBaseServiceId === service.id && hasVisibleAddOns && !inspectedService);
+                                          const isSelected = selectedItems.some(item => item.serviceId === service.id);
+                                          const isExpanded = isSelected && hasVisibleAddOns;
                                           const hasServiceOptions = effectiveServiceAddOnRules.some(rule => (
                                             rule.serviceId === service.id && addOnsById.get(rule.addOnId)?.isActive
                                           ));
@@ -2211,7 +1979,7 @@ export function BookServiceClient({
                                               key={service.id}
                                               type="button"
                                               disabled={!isHydrated}
-                                              onClick={() => handleInspectService(service)}
+                                              onClick={() => handleServiceSelection(service)}
                                               data-testid={`service-card-${service.id}`}
                                               data-selected={isSelected ? 'true' : 'false'}
                                               aria-expanded={isExpanded}
@@ -2257,7 +2025,6 @@ export function BookServiceClient({
                                             >
                                               {showServiceImages
                                               && !isSelected
-                                              && inspectedServiceId !== service.id
                                               && serviceMenuPresentation.image !== 'hidden' && (
                                                 <div
                                                   data-testid={`service-card-image-${service.id}`}
@@ -2338,19 +2105,6 @@ export function BookServiceClient({
                                                     {previewDescription}
                                                   </div>
                                                 )}
-                                                {isSelected && hasVisibleAddOns && (
-                                                  <div
-                                                    data-testid={`service-card-addon-cue-${service.id}`}
-                                                    className="mt-1 inline-flex items-center text-[8px] font-medium tracking-[0.01em]"
-                                                    style={{
-                                                      color: hasBookingBrandColor
-                                                        ? '#525252'
-                                                        : `color-mix(in srgb, ${themeVars.primaryDark} 62%, #9b7a35)`,
-                                                    }}
-                                                  >
-                                                    Add-ons available
-                                                  </div>
-                                                )}
                                                 <div
                                                   data-testid={`service-card-meta-row-${service.id}`}
                                                   className={`mt-auto flex items-end justify-between gap-3 ${
@@ -2376,11 +2130,7 @@ export function BookServiceClient({
                                                 </div>
                                                 {!isSelected && (
                                                   <span className="mt-2 text-[11px] font-semibold text-neutral-700">
-                                                    {inspectedServiceId === service.id
-                                                      ? 'Hide details'
-                                                      : hasServiceOptions
-                                                        ? 'View details and options'
-                                                        : 'View details'}
+                                                    {hasServiceOptions ? 'Select and see add-ons' : 'Select service'}
                                                   </span>
                                                 )}
                                               </div>
@@ -2389,81 +2139,7 @@ export function BookServiceClient({
                                         })}
                                       </div>
 
-                                      {inspectedService && row.some(service => service.id === inspectedService.id) && (
-                                        <div
-                                          id={`service-details-${inspectedService.id}`}
-                                          ref={serviceDetailsRef}
-                                          data-testid={`service-details-${inspectedService.id}`}
-                                          className="w-full rounded-[24px] border bg-white p-4 shadow-[0_8px_22px_rgba(0,0,0,0.04)]"
-                                          style={{ borderColor: themeVars.cardBorder, scrollMarginBlock: '4rem' }}
-                                        >
-                                          <h4 ref={serviceDetailsHeadingRef} tabIndex={-1} className="text-base font-semibold text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
-                                            {inspectedService.name}
-                                          </h4>
-                                          <p className="mt-1 text-sm text-neutral-600">
-                                            {inspectedService.descriptionItems.length > 0
-                                              ? inspectedService.descriptionItems.join(' ')
-                                              : inspectedService.description || 'Book this service to choose a time.'}
-                                          </p>
-                                          {inspectedAddOns.length > 0 && (
-                                            <div className="mt-4 space-y-3">
-                                              {[
-                                                { title: 'Before your appointment', items: inspectedAddOns.filter(item => item.addOn.category === 'removal') },
-                                                { title: 'Customize your look ✨', items: inspectedAddOns.filter(item => item.addOn.category !== 'removal') },
-                                              ].filter(group => group.items.length > 0).map(group => (
-                                                <div key={group.title}>
-                                                  <h5 className="text-sm font-semibold text-neutral-900">{group.title}</h5>
-                                                  <div role="list" className="mt-1 divide-y divide-neutral-100">
-                                                    {group.items.map(({ rule, addOn }) => (
-                                                      <div key={addOn.id} role="listitem" className="flex items-start justify-between gap-3 py-2 text-sm max-[360px]:flex-col max-[360px]:gap-1">
-                                                        <span className="min-w-0 text-neutral-800">
-                                                          {addOn.name}
-                                                          {rule.selectionMode === 'required' && <span className="ml-1 text-xs text-neutral-500">Required</span>}
-                                                          {addOn.descriptionItems[0] && (
-                                                            <span className="mt-0.5 block text-xs font-normal text-neutral-600">
-                                                              {addOn.descriptionItems[0]}
-                                                            </span>
-                                                          )}
-                                                        </span>
-                                                        <span className="shrink-0 text-right font-semibold text-neutral-800 max-[360px]:text-left">
-                                                          {rule.priceMode === 'manual_confirmation'
-                                                            ? 'Price to confirm'
-                                                            : addOn.priceDisplayText || (addOn.priceCents > 0 ? `+${formatMoney(addOn.priceCents, currency)}` : 'Free')}
-                                                          {addOn.pricingType === 'per_unit' && addOn.unitLabel && (
-                                                            <span className="font-normal">
-                                                              {' / '}
-                                                              {addOn.unitLabel}
-                                                            </span>
-                                                          )}
-                                                          {addOn.durationMinutes > 0 && (
-                                                            <span className="block text-xs font-normal text-neutral-500">
-                                                              +
-                                                              {formatDuration(addOn.durationMinutes)}
-                                                            </span>
-                                                          )}
-                                                        </span>
-                                                      </div>
-                                                    ))}
-                                                  </div>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          )}
-                                          <button
-                                            type="button"
-                                            data-testid={`service-add-button-${inspectedService.id}`}
-                                            onClick={() => handleServiceSelection(inspectedService)}
-                                            className="mt-4 min-h-11 w-full rounded-xl px-4 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                                            style={{ backgroundColor: themeVars.primaryDark, color: bookingBrandForeground ?? '#fff' }}
-                                          >
-                                            Add
-                                            {' '}
-                                            {inspectedService.name}
-                                          </button>
-                                        </div>
-                                      )}
-
-                                      {rowContainsSelectedService && hasVisibleAddOns && selectedService && !inspectedService && (
+                                      {rowContainsSelectedService && hasVisibleAddOns && selectedService && (
                                         <div
                                           id={`service-details-${selectedService.id}`}
                                           data-testid="service-inline-addons-panel"
@@ -2478,179 +2154,142 @@ export function BookServiceClient({
                                         >
                                           <div className="mb-2 max-[360px]:mb-[8px]">
                                             <h4 ref={optionsHeadingRef} tabIndex={-1} className="text-[15px] font-semibold text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
-                                              Customize your
-                                              {' '}
-                                              {selectedService.name}
+                                              Add-ons
                                             </h4>
-                                            <div className={`mt-0.5 text-[11px] leading-4 text-neutral-500 ${hasRequiredAddOns ? '' : 'max-[360px]:hidden'}`}>
-                                              {addOnCompositionLabel}
-                                            </div>
                                           </div>
 
                                           <div className="space-y-4 max-[360px]:space-y-[10px]">
-                                            {[
-                                              { title: `Before your ${selectedService.name}`, items: removalOptions, preparation: true },
-                                              { title: 'Make it yours ✨', items: otherOptions, preparation: false },
-                                            ].filter(group => group.items.length > 0).map(group => (
-                                              <div key={group.title} className="space-y-1.5 max-[360px]:space-y-[6px]">
-                                                <h5 className={`text-sm font-semibold text-neutral-900 ${!group.preparation && removalOptions.length === 0 ? 'max-[360px]:sr-only' : ''}`}>{group.title}</h5>
-                                                {group.preparation && group.items.some(item => item && !autoIncludedQuantities.get(item.addOn.id)) && (
-                                                  <p className="text-xs text-neutral-600">
-                                                    {group.items.some(item => item && autoIncludedQuantities.get(item.addOn.id))
-                                                      ? 'Choose any additional removal you need.'
-                                                      : 'Choose a removal only if you need one.'}
-                                                  </p>
-                                                )}
-                                                {group.items.map((item) => {
-                                                  if (!item) {
-                                                    return null;
-                                                  }
+                                            {allowedAddOns.map((item) => {
+                                              if (!item) {
+                                                return null;
+                                              }
 
-                                                  const { addOn, rule, quantity } = item;
-                                                  const automaticQuantity = autoIncludedQuantities.get(addOn.id) ?? 0;
-                                                  const effectiveQuantity = quantity > 0 ? quantity : automaticQuantity;
-                                                  const isSelected = effectiveQuantity > 0;
-                                                  const isRequired = rule.selectionMode === 'required' || automaticQuantity > 0;
-                                                  const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
-                                                  const manualConfirmation = 'priceMode' in rule && rule.priceMode === 'manual_confirmation';
-                                                  const lineTotalCents = manualConfirmation ? 0 : addOn.priceCents * Math.max(effectiveQuantity, 1);
-                                                  const lineDurationMinutes = addOn.durationMinutes * Math.max(effectiveQuantity, 1);
+                                              const { addOn, rule, quantity } = item;
+                                              const automaticQuantity = autoIncludedQuantities.get(addOn.id) ?? 0;
+                                              const effectiveQuantity = quantity > 0 ? quantity : automaticQuantity;
+                                              const isSelected = effectiveQuantity > 0;
+                                              const isRequired = rule.selectionMode === 'required' || automaticQuantity > 0;
+                                              const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
+                                              const manualConfirmation = 'priceMode' in rule && rule.priceMode === 'manual_confirmation';
+                                              const lineTotalCents = manualConfirmation ? 0 : addOn.priceCents * Math.max(effectiveQuantity, 1);
+                                              const lineDurationMinutes = addOn.durationMinutes * Math.max(effectiveQuantity, 1);
 
-                                                  return (
-                                                    <div
-                                                      key={addOn.id}
-                                                      data-testid={`service-addon-row-${addOn.id}`}
-                                                      className="rounded-[18px] border px-3 py-2 max-[360px]:px-[10px] max-[360px]:py-[8px] sm:px-3.5 sm:py-2.5"
-                                                      style={{
-                                                        borderColor: isSelected
-                                                          ? hasBookingBrandColor
-                                                            ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                                                            : themeVars.primary
-                                                          : themeVars.cardBorder,
-                                                        backgroundColor: isSelected
-                                                          ? hasBookingBrandColor
-                                                            ? 'var(--booking-brand-selection-background, white)'
-                                                            : `color-mix(in srgb, ${themeVars.primary} 5%, white)`
-                                                          : 'white',
-                                                      }}
-                                                    >
-                                                      <div className="flex items-center justify-between gap-2.5 max-[360px]:flex-wrap max-[360px]:gap-[6px]">
-                                                        <div className="min-w-0 flex-1 max-[360px]:basis-full">
-                                                          <div className="flex items-center gap-2">
-                                                            <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
-                                                            {isRequired && (
-                                                              <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
-                                                                Required
-                                                              </span>
-                                                            )}
-                                                          </div>
-                                                          {addOn.descriptionItems[0] && (
-                                                            <div className="mt-0.5 text-[12px] leading-4 text-neutral-500">
-                                                              {addOn.descriptionItems[0]}
-                                                            </div>
-                                                          )}
-                                                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500 max-[360px]:mt-[4px] max-[360px]:gap-[8px]">
-                                                            <span>{manualConfirmation ? 'Price to be confirmed' : addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
-                                                            <span>{formatDuration(addOn.durationMinutes)}</span>
-                                                            {isSelected && (
-                                                              <span>
-                                                                Selected:
-                                                                {' '}
-                                                                {manualConfirmation
-                                                                  ? 'Price to be confirmed'
-                                                                  : addOn.priceDisplayText?.trim().endsWith('+')
-                                                                    ? addOn.priceDisplayText
-                                                                    : formatMoney(lineTotalCents, currency)}
-                                                                {' '}
-                                                                ·
-                                                                {' '}
-                                                                {formatDuration(lineDurationMinutes)}
-                                                              </span>
-                                                            )}
-                                                          </div>
+                                              return (
+                                                <div
+                                                  key={addOn.id}
+                                                  data-testid={`service-addon-row-${addOn.id}`}
+                                                  className="rounded-[18px] border px-3 py-2 max-[360px]:px-[10px] max-[360px]:py-[8px] sm:px-3.5 sm:py-2.5"
+                                                  style={{
+                                                    borderColor: isSelected
+                                                      ? hasBookingBrandColor
+                                                        ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                                                        : themeVars.primary
+                                                      : themeVars.cardBorder,
+                                                    backgroundColor: isSelected
+                                                      ? hasBookingBrandColor
+                                                        ? 'var(--booking-brand-selection-background, white)'
+                                                        : `color-mix(in srgb, ${themeVars.primary} 5%, white)`
+                                                      : 'white',
+                                                  }}
+                                                >
+                                                  <div className="flex items-center justify-between gap-2.5 max-[360px]:flex-wrap max-[360px]:gap-[6px]">
+                                                    <div className="min-w-0 flex-1 max-[360px]:basis-full">
+                                                      <div className="flex items-center gap-2">
+                                                        <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
+                                                        {isRequired && (
+                                                          <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                                            Required
+                                                          </span>
+                                                        )}
+                                                      </div>
+                                                      {addOn.descriptionItems[0] && (
+                                                        <div className="mt-0.5 text-[12px] leading-4 text-neutral-500">
+                                                          {addOn.descriptionItems[0]}
                                                         </div>
-
-                                                        {addOn.pricingType === 'per_unit'
-                                                          ? (
-                                                              <div className="flex items-center gap-1 max-[360px]:ml-auto">
-                                                                <button
-                                                                  type="button"
-                                                                  aria-label={`Decrease ${addOn.name} quantity`}
-                                                                  onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, effectiveQuantity - 1) : Math.max(0, effectiveQuantity - 1))}
-                                                                  disabled={isRequired ? effectiveQuantity <= 1 : effectiveQuantity <= 0}
-                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
-                                                                >
-                                                                  -
-                                                                </button>
-                                                                <div className="min-w-6 text-center text-sm font-semibold text-neutral-900">
-                                                                  {effectiveQuantity}
-                                                                </div>
-                                                                <button
-                                                                  type="button"
-                                                                  aria-label={`Increase ${addOn.name} quantity`}
-                                                                  onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, effectiveQuantity + 1))}
-                                                                  disabled={effectiveQuantity >= maxQuantity}
-                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
-                                                                >
-                                                                  +
-                                                                </button>
-                                                              </div>
-                                                            )
-                                                          : (
-                                                              <button
-                                                                type="button"
-                                                                aria-label={isRequired && isSelected
-                                                                  ? `${addOn.name} included`
-                                                                  : `${isSelected ? 'Remove' : 'Add'} ${addOn.name}`}
-                                                                onClick={() => handleAddOnToggle(addOn.id)}
-                                                                disabled={isRequired && isSelected}
-                                                                className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none max-[360px]:ml-auto max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
-                                                                style={{
-                                                                  backgroundColor: isSelected
-                                                                    ? hasBookingBrandColor
-                                                                      ? 'var(--booking-brand-primary)'
-                                                                      : themeVars.primary
-                                                                    : '#f5f5f5',
-                                                                  color: isSelected
-                                                                    ? bookingBrandForeground ?? '#171717'
-                                                                    : '#404040',
-                                                                }}
-                                                              >
-                                                                {isRequired && isSelected ? 'Included' : isSelected ? 'Added' : 'Add'}
-                                                              </button>
-                                                            )}
+                                                      )}
+                                                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500 max-[360px]:mt-[4px] max-[360px]:gap-[8px]">
+                                                        <span>
+                                                          {manualConfirmation
+                                                            ? 'Price to be confirmed'
+                                                            : addOn.priceDisplayText || (addOn.priceCents > 0 ? `+${formatMoney(addOn.priceCents, currency)}` : 'Free')}
+                                                          {addOn.pricingType === 'per_unit' && addOn.unitLabel ? ` per ${addOn.unitLabel}` : ''}
+                                                        </span>
+                                                        <span>
+                                                          +
+                                                          {formatDuration(addOn.durationMinutes)}
+                                                        </span>
+                                                        {isSelected && (
+                                                          <span>
+                                                            Selected:
+                                                            {' '}
+                                                            {manualConfirmation
+                                                              ? 'Price to be confirmed'
+                                                              : addOn.priceDisplayText?.trim().endsWith('+')
+                                                                ? addOn.priceDisplayText
+                                                                : formatMoney(lineTotalCents, currency)}
+                                                            {' '}
+                                                            ·
+                                                            {' '}
+                                                            {formatDuration(lineDurationMinutes)}
+                                                          </span>
+                                                        )}
                                                       </div>
                                                     </div>
-                                                  );
-                                                })}
-                                              </div>
-                                            ))}
+
+                                                    {addOn.pricingType === 'per_unit'
+                                                      ? (
+                                                          <div className="flex items-center gap-1 max-[360px]:ml-auto">
+                                                            <button
+                                                              type="button"
+                                                              aria-label={`Decrease ${addOn.name} quantity`}
+                                                              onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, effectiveQuantity - 1) : Math.max(0, effectiveQuantity - 1))}
+                                                              disabled={isRequired ? effectiveQuantity <= 1 : effectiveQuantity <= 0}
+                                                              className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
+                                                            >
+                                                              -
+                                                            </button>
+                                                            <div className="min-w-6 text-center text-sm font-semibold text-neutral-900">
+                                                              {effectiveQuantity}
+                                                            </div>
+                                                            <button
+                                                              type="button"
+                                                              aria-label={`Increase ${addOn.name} quantity`}
+                                                              onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, effectiveQuantity + 1))}
+                                                              disabled={effectiveQuantity >= maxQuantity}
+                                                              className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
+                                                            >
+                                                              +
+                                                            </button>
+                                                          </div>
+                                                        )
+                                                      : (
+                                                          <button
+                                                            type="button"
+                                                            aria-label={isRequired && isSelected
+                                                              ? `${addOn.name} included`
+                                                              : `${isSelected ? 'Remove' : 'Add'} ${addOn.name}`}
+                                                            onClick={() => handleAddOnToggle(addOn.id)}
+                                                            disabled={isRequired && isSelected}
+                                                            className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none max-[360px]:ml-auto max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
+                                                            style={{
+                                                              backgroundColor: isSelected
+                                                                ? hasBookingBrandColor
+                                                                  ? 'var(--booking-brand-primary)'
+                                                                  : themeVars.primary
+                                                                : '#f5f5f5',
+                                                              color: isSelected
+                                                                ? bookingBrandForeground ?? '#171717'
+                                                                : '#404040',
+                                                            }}
+                                                          >
+                                                            {isRequired && isSelected ? 'Included' : isSelected ? 'Added' : 'Add'}
+                                                          </button>
+                                                        )}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
                                           </div>
-                                          {!activeReview?.reviewed && (
-                                            <button
-                                              type="button"
-                                              data-testid="service-options-done-button"
-                                              aria-label={selectedAddOnsState.some(item => selectedRules.some(rule => rule.addOnId === item.addOnId && rule.selectionMode !== 'required'))
-                                                ? 'Done reviewing options'
-                                                : 'No extras — continue without optional extras'}
-                                              disabled={l1Blocked}
-                                              onClick={() => {
-                                                focusContinueAfterReviewRef.current = true;
-                                                setOptionsReview(current => ({
-                                                  ...current,
-                                                  reviewed: { ...current.reviewed, [selectedService.id]: optionsKey },
-                                                  preparation: { ...current.preparation, [selectedService.id]: optionsKey },
-                                                }));
-                                                triggerHaptic('confirm');
-                                              }}
-                                              className="mt-3 min-h-11 w-full rounded-xl px-3 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                              style={{ backgroundColor: themeVars.primaryDark }}
-                                            >
-                                              {selectedAddOnsState.some(item => selectedRules.some(rule => rule.addOnId === item.addOnId && rule.selectionMode !== 'required'))
-                                                ? 'Done'
-                                                : 'No extras'}
-                                            </button>
-                                          )}
                                         </div>
                                       )}
                                     </div>
@@ -2928,7 +2567,7 @@ export function BookServiceClient({
                         >
                           <div className="flex min-w-max gap-2">
                             {featuredServices.map((service, featuredIndex) => {
-                              const isSelected = selectedBasket.some(item => item.serviceId === service.id);
+                              const isSelected = selectedItems.some(item => item.serviceId === service.id);
                               const featuredBadgeLabel = featuredIndex === 0 && service.bookingCategory === 'combo'
                                 ? 'Best value'
                                 : BOOKING_CATEGORY_META[service.bookingCategory].label;
@@ -2937,11 +2576,11 @@ export function BookServiceClient({
                                   key={`featured-${service.id}`}
                                   type="button"
                                   disabled={!isHydrated}
-                                  onClick={() => handleInspectService(service)}
+                                  onClick={() => handleServiceSelection(service)}
                                   data-testid={`featured-service-card-${service.id}`}
-                                  aria-expanded={inspectedServiceId === service.id}
-                                  aria-controls={inspectedServiceId === service.id ? `service-details-${service.id}` : undefined}
-                                  aria-label={`View ${service.name} details, ${formatDuration(service.durationMinutes)}, ${service.priceDisplayText || formatMoney(service.priceCents, currency)}`}
+                                  aria-expanded={isSelected && hasVisibleAddOns}
+                                  aria-controls={isSelected && hasVisibleAddOns ? `service-details-${service.id}` : undefined}
+                                  aria-label={`Select ${service.name}, ${formatDuration(service.durationMinutes)}, ${service.priceDisplayText || formatMoney(service.priceCents, currency)}`}
                                   className={`relative w-[min(272px,calc(100vw-4rem))] shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
                                     service.bookingCategory === 'combo' ? 'sm:w-[320px]' : 'sm:w-[280px]'
                                   }`}
@@ -2961,7 +2600,7 @@ export function BookServiceClient({
                                       : themeVars.cardBorder,
                                   }}
                                 >
-                                  {showServiceImages && !isSelected && inspectedServiceId !== service.id && (
+                                  {showServiceImages && !isSelected && (
                                     <div
                                       data-testid={`featured-service-card-image-container-${service.id}`}
                                       className="relative h-[80px] overflow-hidden sm:h-[96px]"
@@ -3338,25 +2977,16 @@ export function BookServiceClient({
           <div className="mx-auto flex max-w-[430px] flex-nowrap items-center justify-between gap-3 px-4 py-1.5 max-[360px]:flex-col max-[360px]:items-stretch max-[360px]:gap-[8px] max-[360px]:px-[12px] sm:py-2">
             <div className="flex min-w-0 flex-col gap-0.5 max-[360px]:w-full max-[360px]:flex-row max-[360px]:flex-wrap max-[360px]:items-baseline max-[360px]:justify-between max-[360px]:gap-x-[8px] max-[360px]:gap-y-[2px]">
               <div className="truncate text-[11px] leading-none text-neutral-500">
-                {`${selectedBasket.length} service${selectedBasket.length === 1 ? '' : 's'}`}
+                {`${selectedItems.length} service${selectedItems.length === 1 ? '' : 's'}`}
                 {selectedAddOnCount > 0
                   ? ` + ${selectedAddOnCount} add-on${selectedAddOnCount === 1 ? '' : 's'}`
                   : ''}
               </div>
-              {hasVisibleAddOns && (
-                <div
-                  data-testid="service-sticky-addon-note"
-                  className="truncate text-[9px] font-medium leading-none max-[360px]:hidden"
-                  style={{ color: themeVars.accent }}
-                >
-                  {needsOptionsReview ? 'Options to review' : addOnStickyLabel}
-                </div>
-              )}
               <div className="flex items-baseline gap-2 pt-0.5">
-                <div className="text-[17px] font-bold leading-none text-neutral-900">
+                <div data-testid="service-sticky-price" className="text-[17px] font-bold leading-none text-neutral-900">
                   {totalPriceLabel}
                 </div>
-                <div className="text-[11px] leading-none text-neutral-500">
+                <div data-testid="service-sticky-duration" className="text-[11px] leading-none text-neutral-500">
                   {totalDurationLabel}
                 </div>
               </div>
@@ -3366,7 +2996,7 @@ export function BookServiceClient({
               ref={continueButtonRef}
               onClick={handleContinue}
               data-testid="service-continue-button"
-              disabled={!needsOptionsReview && l1Blocked}
+              disabled={l1Blocked}
               className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none max-[360px]:min-h-[44px] max-[360px]:w-full max-[360px]:justify-center max-[360px]:px-[12px] sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
                 hasBookingBrandColor
                   ? 'text-[var(--booking-brand-foreground)]'
@@ -3379,7 +3009,7 @@ export function BookServiceClient({
                 color: bookingBrandForeground,
               }}
             >
-              {needsOptionsReview ? 'Review options' : 'Continue to Time'}
+              Continue
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>

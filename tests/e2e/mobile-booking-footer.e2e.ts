@@ -40,7 +40,6 @@ async function verifyNaturalFooterClearance(page: Page): Promise<string> {
   if (!cardTestId?.startsWith('service-card-')) {
     throw new Error('Expected a canonical service card.');
   }
-  await page.getByTestId(`service-add-button-${cardTestId.slice('service-card-'.length)}`).click();
   const stickyBar = page.getByTestId('service-sticky-bar');
 
   await expect(stickyBar).toBeVisible();
