@@ -277,8 +277,8 @@ jobs:
               # (GHSA-m99w-x7hq-7vfj), with compatible intl/UI/test dependencies.
               2566f6f2a1cb093ce512627a1568265c57aa8895:8d44f4449583e8d5d8bcc3cf6e844d9f47610578) ;;
               # Voice receptionist: ws runtime sideband + matching TypeScript
-              # types only; existing payment dependencies remain unchanged.
-              2a590571356b139c9f6ea6ab15b29d53c008c141:989b81dadd00781e8633bb9b518bd05566951dea) ;;
+              # types on the current main manifests; payment dependencies unchanged.
+              f7c4952389da41ef8ad7a16fc3c71ccd785140f3:75eb90cb75b577a9b9ea9b9f84a1ec928ad20e34) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -1551,7 +1551,7 @@ jobs:
             src/libs/appointmentCreation.customerOperation.concurrency.integration.test.ts \
             | tee customer-booking-postgres.log
           grep -Fqx 'CUSTOMER_OPERATION_POSTGRES_TESTS_EXECUTED=12 CUSTOMER_OPERATION_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
-          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=38 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
+          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=41 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
 
       - name: Verify calendar block and booking fence races on real PostgreSQL with zero skips
         shell: bash
