@@ -1,3 +1,10 @@
+# [1.129.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.128.3...v1.129.0) (2026-09-23)
+
+
+### Features
+
+* **booking:** prompt clients to reserve their next visit ([#308](https://github.com/SniperStopSniping/nailsalon/issues/308)) ([c351592](https://github.com/SniperStopSniping/nailsalon/commit/c3515922bb0ddc81b009a71427bf0f3c5b174998))
+
 ## [1.128.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.128.2...v1.128.3) (2026-09-23)
 
 
