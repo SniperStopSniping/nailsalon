@@ -518,6 +518,7 @@ export function BookServiceClient({
   const serviceDetailsRef = useRef<HTMLDivElement>(null);
   const serviceDetailsHeadingRef = useRef<HTMLHeadingElement>(null);
   const continueButtonRef = useRef<HTMLButtonElement>(null);
+  const focusContinueAfterReviewRef = useRef(false);
   const optionsReviewStorageKey = `booking_options_review:v1:${salonSlug}`;
 
   useEffect(() => {
@@ -1177,6 +1178,13 @@ export function BookServiceClient({
   const optionsKey = activeReview?.key ?? '';
   const firstUnreviewedItem = basketReview.find(item => !item.reviewed);
   const needsOptionsReview = Boolean(firstUnreviewedItem);
+  useEffect(() => {
+    if (!focusContinueAfterReviewRef.current || !activeReview?.reviewed) {
+      return;
+    }
+    focusContinueAfterReviewRef.current = false;
+    continueButtonRef.current?.focus({ preventScroll: true });
+  }, [activeReview?.reviewed]);
   const hasRequiredAddOns = allowedAddOns.some(item => item?.rule.selectionMode === 'required');
   const hasOptionalAddOns = allowedAddOns.some(item => item?.rule.selectionMode === 'optional');
   const addOnCompositionLabel = hasRequiredAddOns && hasOptionalAddOns
@@ -2468,24 +2476,24 @@ export function BookServiceClient({
                                             scrollMarginTop: '1rem',
                                           }}
                                         >
-                                          <div className="mb-2">
+                                          <div className="mb-2 max-[360px]:mb-[8px]">
                                             <h4 ref={optionsHeadingRef} tabIndex={-1} className="text-[15px] font-semibold text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
                                               Customize your
                                               {' '}
                                               {selectedService.name}
                                             </h4>
-                                            <div className="mt-0.5 text-[11px] leading-4 text-neutral-500">
+                                            <div className={`mt-0.5 text-[11px] leading-4 text-neutral-500 ${hasRequiredAddOns ? '' : 'max-[360px]:hidden'}`}>
                                               {addOnCompositionLabel}
                                             </div>
                                           </div>
 
-                                          <div className="space-y-4">
+                                          <div className="space-y-4 max-[360px]:space-y-[10px]">
                                             {[
                                               { title: `Before your ${selectedService.name}`, items: removalOptions, preparation: true },
                                               { title: 'Make it yours ✨', items: otherOptions, preparation: false },
                                             ].filter(group => group.items.length > 0).map(group => (
-                                              <div key={group.title} className="space-y-1.5">
-                                                <h5 className="text-sm font-semibold text-neutral-900">{group.title}</h5>
+                                              <div key={group.title} className="space-y-1.5 max-[360px]:space-y-[6px]">
+                                                <h5 className={`text-sm font-semibold text-neutral-900 ${!group.preparation && removalOptions.length === 0 ? 'max-[360px]:sr-only' : ''}`}>{group.title}</h5>
                                                 {group.preparation && group.items.some(item => item && !autoIncludedQuantities.get(item.addOn.id)) && (
                                                   <p className="text-xs text-neutral-600">
                                                     {group.items.some(item => item && autoIncludedQuantities.get(item.addOn.id))
@@ -2512,7 +2520,7 @@ export function BookServiceClient({
                                                     <div
                                                       key={addOn.id}
                                                       data-testid={`service-addon-row-${addOn.id}`}
-                                                      className="rounded-[18px] border px-3 py-2 sm:px-3.5 sm:py-2.5"
+                                                      className="rounded-[18px] border px-3 py-2 max-[360px]:px-[10px] max-[360px]:py-[8px] sm:px-3.5 sm:py-2.5"
                                                       style={{
                                                         borderColor: isSelected
                                                           ? hasBookingBrandColor
@@ -2526,7 +2534,7 @@ export function BookServiceClient({
                                                           : 'white',
                                                       }}
                                                     >
-                                                      <div className="flex items-center justify-between gap-2.5 max-[360px]:flex-wrap">
+                                                      <div className="flex items-center justify-between gap-2.5 max-[360px]:flex-wrap max-[360px]:gap-[6px]">
                                                         <div className="min-w-0 flex-1 max-[360px]:basis-full">
                                                           <div className="flex items-center gap-2">
                                                             <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
@@ -2541,7 +2549,7 @@ export function BookServiceClient({
                                                               {addOn.descriptionItems[0]}
                                                             </div>
                                                           )}
-                                                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
+                                                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500 max-[360px]:mt-[4px] max-[360px]:gap-[8px]">
                                                             <span>{manualConfirmation ? 'Price to be confirmed' : addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
                                                             <span>{formatDuration(addOn.durationMinutes)}</span>
                                                             {isSelected && (
@@ -2618,25 +2626,31 @@ export function BookServiceClient({
                                               </div>
                                             ))}
                                           </div>
-                                          <button
-                                            type="button"
-                                            data-testid="service-options-done-button"
-                                            disabled={l1Blocked}
-                                            onClick={() => {
-                                              setOptionsReview(current => ({
-                                                ...current,
-                                                reviewed: { ...current.reviewed, [selectedService.id]: optionsKey },
-                                                preparation: { ...current.preparation, [selectedService.id]: optionsKey },
-                                              }));
-                                              triggerHaptic('confirm');
-                                            }}
-                                            className="mt-3 min-h-11 w-full rounded-xl px-3 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                            style={{ backgroundColor: themeVars.primaryDark }}
-                                          >
-                                            {selectedAddOnsState.some(item => selectedRules.some(rule => rule.addOnId === item.addOnId && rule.selectionMode !== 'required'))
-                                              ? 'Done reviewing options'
-                                              : 'Continue without optional extras'}
-                                          </button>
+                                          {!activeReview?.reviewed && (
+                                            <button
+                                              type="button"
+                                              data-testid="service-options-done-button"
+                                              aria-label={selectedAddOnsState.some(item => selectedRules.some(rule => rule.addOnId === item.addOnId && rule.selectionMode !== 'required'))
+                                                ? 'Done reviewing options'
+                                                : 'No extras — continue without optional extras'}
+                                              disabled={l1Blocked}
+                                              onClick={() => {
+                                                focusContinueAfterReviewRef.current = true;
+                                                setOptionsReview(current => ({
+                                                  ...current,
+                                                  reviewed: { ...current.reviewed, [selectedService.id]: optionsKey },
+                                                  preparation: { ...current.preparation, [selectedService.id]: optionsKey },
+                                                }));
+                                                triggerHaptic('confirm');
+                                              }}
+                                              className="mt-3 min-h-11 w-full rounded-xl px-3 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                              style={{ backgroundColor: themeVars.primaryDark }}
+                                            >
+                                              {selectedAddOnsState.some(item => selectedRules.some(rule => rule.addOnId === item.addOnId && rule.selectionMode !== 'required'))
+                                                ? 'Done'
+                                                : 'No extras'}
+                                            </button>
+                                          )}
                                         </div>
                                       )}
                                     </div>
@@ -3322,7 +3336,7 @@ export function BookServiceClient({
             `}
           </style>
           <div className="mx-auto flex max-w-[430px] flex-nowrap items-center justify-between gap-3 px-4 py-1.5 max-[360px]:flex-col max-[360px]:items-stretch max-[360px]:gap-[8px] max-[360px]:px-[12px] sm:py-2">
-            <div className="flex min-w-0 flex-col gap-0.5 max-[360px]:w-full">
+            <div className="flex min-w-0 flex-col gap-0.5 max-[360px]:w-full max-[360px]:flex-row max-[360px]:flex-wrap max-[360px]:items-baseline max-[360px]:justify-between max-[360px]:gap-x-[8px] max-[360px]:gap-y-[2px]">
               <div className="truncate text-[11px] leading-none text-neutral-500">
                 {`${selectedBasket.length} service${selectedBasket.length === 1 ? '' : 's'}`}
                 {selectedAddOnCount > 0
@@ -3332,7 +3346,7 @@ export function BookServiceClient({
               {hasVisibleAddOns && (
                 <div
                   data-testid="service-sticky-addon-note"
-                  className="truncate text-[9px] font-medium leading-none"
+                  className="truncate text-[9px] font-medium leading-none max-[360px]:hidden"
                   style={{ color: themeVars.accent }}
                 >
                   {needsOptionsReview ? 'Options to review' : addOnStickyLabel}

@@ -2499,6 +2499,8 @@ describe('BookServiceClient', () => {
     fireEvent.click(screen.getByTestId('service-options-done-button'));
 
     expect(screen.getByTestId('service-continue-button')).toHaveTextContent('Continue to Time');
+    expect(screen.queryByTestId('service-options-done-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-continue-button')).toHaveFocus();
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Removal From Another Salon' }));
 

@@ -1218,6 +1218,8 @@ test.describe('selected service options on mobile', () => {
       const continueButton = page.getByTestId('service-continue-button');
 
       await expect(continueButton).toContainText('Continue to Time');
+      await expect(page.getByTestId('service-options-done-button')).toHaveCount(0);
+      await expect(continueButton).toBeFocused();
 
       // Browser text-only zoom also enlarges labels whose CSS sizes use px.
       await sticky.getByText('1 service', { exact: true }).evaluate((element) => {
