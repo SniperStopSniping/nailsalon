@@ -103,10 +103,11 @@ export async function updateVoiceSettings(salonId: string, input: VoiceReception
   return saved!;
 }
 
-export async function resolveVoiceNumber(accountSid: string, phoneNumber: string) {
+export async function resolveVoiceNumber(accountSid: string, phoneNumber: string, forwardedFrom: string) {
   const [route] = await db.select().from(voiceNumberRouteSchema).where(and(
     eq(voiceNumberRouteSchema.accountSid, accountSid),
     eq(voiceNumberRouteSchema.phoneNumber, phoneNumber),
+    eq(voiceNumberRouteSchema.forwardedFrom, forwardedFrom),
   )).limit(1);
   return route ?? null;
 }

@@ -203,7 +203,11 @@ export async function resolvePublicBookingSelection(args: {
         };
       })),
       manualConfirmationItems: validatedBasket.items.flatMap(({ serviceId, validated }) =>
-        validated.quote.manualConfirmationItems.map(item => ({ ...item, serviceId }))),
+        validated.quote.manualConfirmationItems.map(item => ({
+          ...item,
+          serviceId,
+          priceDisplayText: validated.addOnRecords.find(addOn => addOn.id === item.addOnId)?.priceDisplayText ?? null,
+        }))),
       subtotalBeforeDiscountCents: pricing.subtotalBeforeDiscountCents,
       discountAmountCents: pricing.discountAmountCents,
       totalPriceCents: pricing.finalTotalCents,

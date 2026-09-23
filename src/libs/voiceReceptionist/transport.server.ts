@@ -28,3 +28,11 @@ export function twimlUnavailable(): Response {
     headers: { 'Content-Type': 'text/xml; charset=utf-8', 'Cache-Control': 'no-store' },
   });
 }
+
+/** Deliberate pre-answer rejection must not invoke Twilio's failure fallback URL. */
+export function twimlRejected(): Response {
+  return new Response('<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="rejected"/></Response>', {
+    status: 200,
+    headers: { 'Content-Type': 'text/xml; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+}

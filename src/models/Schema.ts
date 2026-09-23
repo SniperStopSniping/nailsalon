@@ -2584,6 +2584,7 @@ export const voiceNumberRouteSchema = pgTable('voice_number_route', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountSid: text('account_sid').notNull(),
   phoneNumber: text('phone_number').notNull(),
+  forwardedFrom: text('forwarded_from').notNull(),
   salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),

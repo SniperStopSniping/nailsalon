@@ -753,6 +753,37 @@ jobs:
             exit 1
           fi
 
+          # The unreleased voice packet is pinned to the reviewed forwarding-route
+          # schema. A later release must append a new migration, never rewrite it.
+          if ! git diff --quiet "$base" -- migrations/0092_voice_receptionist.sql migrations/meta/0092_snapshot.json; then
+            if git cat-file -e "$base:migrations/0092_voice_receptionist.sql" 2>/dev/null \
+              || git cat-file -e "$base:migrations/meta/0092_snapshot.json" 2>/dev/null; then
+              echo "::error::Migration 0092 and its snapshot are already shipped and immutable."
+              exit 1
+            fi
+            migration_0092_sql_status="$(git diff --name-status "$base" -- migrations/0092_voice_receptionist.sql)"
+            migration_0092_snapshot_status="$(git diff --name-status "$base" -- migrations/meta/0092_snapshot.json)"
+            if [ "$migration_0092_sql_status" != $'A\tmigrations/0092_voice_receptionist.sql' ] \
+              || [ "$migration_0092_snapshot_status" != $'A\tmigrations/meta/0092_snapshot.json' ]; then
+              echo "::error::Migration 0092 must introduce exactly one SQL file and one snapshot."
+              exit 1
+            fi
+            migration_0092_sql_sha256="$(sha256sum migrations/0092_voice_receptionist.sql | awk '{print $1}')"
+            migration_0092_snapshot_sha256="$(sha256sum migrations/meta/0092_snapshot.json | awk '{print $1}')"
+            if [ "$migration_0092_sql_sha256" != "5bc5408671d18deacffa1848527410c322e76fe7f15fa0e866654ae2e91e4a73" ] \
+              || [ "$migration_0092_snapshot_sha256" != "b55b422d3fd79d75f469eb71403af1aa26ab540f4be1ec66e75065bb73cf046a" ]; then
+              echo "::error::Migration 0092 artifacts do not match the reviewed voice postimage."
+              exit 1
+            fi
+          fi
+
+          expected_0092_journal='{"breakpoints":true,"idx":91,"tag":"0092_voice_receptionist","version":"7","when":1790201476984}'
+          actual_0092_journal="$(jq -cS '.entries[] | select(.tag == "0092_voice_receptionist")' migrations/meta/_journal.json)"
+          if [ "$actual_0092_journal" != "$expected_0092_journal" ]; then
+            echo "::error::Migration 0092 journal entry does not match the reviewed postimage."
+            exit 1
+          fi
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or

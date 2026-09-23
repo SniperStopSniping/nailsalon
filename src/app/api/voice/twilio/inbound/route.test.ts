@@ -26,10 +26,10 @@ vi.mock('@/libs/voiceReceptionist/config.server', () => ({ getVoiceRuntimeConfig
 vi.mock('@/libs/voiceReceptionist/security.server', () => ({ readVoiceForm, verifyVoiceTwilio, voiceRouteToken: vi.fn(() => '00000000-0000-4000-8000-000000000000.signature'), voiceTokenHash: vi.fn(() => 'hash') }));
 vi.mock('@/libs/voiceReceptionist/storage.server', () => ({ createVoiceCall, getVoiceSettings, resolveVoiceNumber }));
 vi.mock('@/libs/queries', () => ({ getSalonById }));
-vi.mock('@/libs/voiceReceptionist/transport.server', () => ({ voiceDialTwiml: vi.fn(() => '<Response/>'), twimlUnavailable: vi.fn(() => new Response(null, { status: 503 })) }));
+vi.mock('@/libs/voiceReceptionist/transport.server', () => ({ voiceDialTwiml: vi.fn(() => '<Response/>'), twimlRejected: vi.fn(() => new Response('<Response><Reject reason="rejected"/></Response>', { status: 200 })), twimlUnavailable: vi.fn(() => new Response(null, { status: 503 })) }));
 
 const config = { signingSecret: 'x'.repeat(32), origin: 'https://voice.test', projectId: 'proj_voice' };
-const body = new URLSearchParams({ AccountSid: 'AC11111111111111111111111111111111', CallSid: 'CA11111111111111111111111111111111', Direction: 'inbound', To: '+14165551234', From: '+14165550000' });
+const body = new URLSearchParams({ AccountSid: 'AC11111111111111111111111111111111', CallSid: 'CA11111111111111111111111111111111', Direction: 'inbound', To: '+14165551234', From: '+14165550000', ForwardedFrom: '+14165550123' });
 
 describe('/api/voice/twilio/inbound', () => {
   beforeEach(() => {
@@ -47,7 +47,8 @@ describe('/api/voice/twilio/inbound', () => {
     getVoiceRuntimeConfig.mockReturnValue(null);
     const response = await POST(new Request('https://voice.test/api/voice/twilio/inbound', { method: 'POST', body }));
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('<Reject');
     expect(resolveVoiceNumber).not.toHaveBeenCalled();
     expect(createVoiceCall).not.toHaveBeenCalled();
   });
@@ -61,12 +62,67 @@ describe('/api/voice/twilio/inbound', () => {
     expect(createVoiceCall).not.toHaveBeenCalled();
   });
 
-  it('uses only the verified account and destination route for the salon', async () => {
+  it('uses the verified account, destination, and listed forwarding number for Isla', async () => {
     const response = await POST(new Request('https://voice.test/api/voice/twilio/inbound', { method: 'POST', body }));
 
     expect(response.status).toBe(200);
-    expect(resolveVoiceNumber).toHaveBeenCalledWith(body.get('AccountSid'), body.get('To'));
+    expect(resolveVoiceNumber).toHaveBeenCalledWith(body.get('AccountSid'), body.get('To'), body.get('ForwardedFrom'));
     expect(createVoiceCall).toHaveBeenCalledWith(expect.objectContaining({ salonId: 'salon_a', provider: 'twilio' }));
+  });
+
+  it.each([null, '+14165550999', '4165550123', '+14165550123,+14165550999'])(
+    'rejects unlisted or unusable forwarding metadata %s before creating a call',
+    async (forwardedFrom) => {
+      const form = Object.fromEntries(body);
+      if (forwardedFrom === null) {
+        delete form.ForwardedFrom;
+      } else {
+        form.ForwardedFrom = forwardedFrom;
+      }
+      readVoiceForm.mockResolvedValue(form);
+      if (forwardedFrom === '+14165550999') {
+        resolveVoiceNumber.mockResolvedValue(null);
+      }
+      const response = await POST(new Request('https://voice.test/api/voice/twilio/inbound', { method: 'POST', body }));
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('<Reject');
+      expect(createVoiceCall).not.toHaveBeenCalled();
+
+      if (forwardedFrom !== '+14165550999') {
+        expect(resolveVoiceNumber).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it('does not use caller ID as a forwarding fallback', async () => {
+    const form = Object.fromEntries(body);
+    form.From = '+14165550123';
+    delete form.ForwardedFrom;
+    readVoiceForm.mockResolvedValue(form);
+
+    const response = await POST(new Request('https://voice.test/api/voice/twilio/inbound', { method: 'POST', body }));
+
+    expect(await response.text()).toContain('<Reject');
+    expect(resolveVoiceNumber).not.toHaveBeenCalled();
+  });
+
+  it('rejects a listed forwarding number when the destination route is absent', async () => {
+    resolveVoiceNumber.mockResolvedValue(null);
+
+    const response = await POST(new Request('https://voice.test/api/voice/twilio/inbound', { method: 'POST', body }));
+
+    expect(await response.text()).toContain('<Reject');
+    expect(createVoiceCall).not.toHaveBeenCalled();
+  });
+
+  it('rejects when Daniela turns phone answering off', async () => {
+    getVoiceSettings.mockResolvedValue({ enabled: false, answerMode: 'always' });
+
+    const response = await POST(new Request('https://voice.test/api/voice/twilio/inbound', { method: 'POST', body }));
+
+    expect(await response.text()).toContain('<Reject');
+    expect(createVoiceCall).not.toHaveBeenCalled();
   });
 
   it('answers an explicitly closed published weekday in after-hours mode', async () => {

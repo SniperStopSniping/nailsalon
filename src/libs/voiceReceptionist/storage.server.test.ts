@@ -43,6 +43,20 @@ function input(salonId: string, sequence: string) {
 }
 
 describe('voice receptionist storage', () => {
+  it('resolves only an operator-listed forwarding number on the assigned Twilio destination', async () => {
+    const { resolveVoiceNumber } = await import('./storage.server');
+    const accountSid = 'AC11111111111111111111111111111111';
+    const destination = '+14165559444';
+    const forwardedFrom = '+14165550123';
+    await db.insert(schema.voiceNumberRouteSchema).values({ accountSid, phoneNumber: destination, forwardedFrom, salonId: 'voice-a' });
+
+    await expect(resolveVoiceNumber(accountSid, destination, forwardedFrom)).resolves.toMatchObject({ salonId: 'voice-a' });
+    await expect(resolveVoiceNumber(accountSid, destination, '+14165550999')).resolves.toBeNull();
+    await expect(resolveVoiceNumber(accountSid, '+14165559999', forwardedFrom)).resolves.toBeNull();
+    await expect(resolveVoiceNumber('AC22222222222222222222222222222222', destination, forwardedFrom)).resolves.toBeNull();
+    await expect(db.insert(schema.voiceNumberRouteSchema).values({ accountSid, phoneNumber: destination, forwardedFrom: '+14165550999', salonId: 'voice-b' })).rejects.toThrow();
+  });
+
   it('scopes calls by salon and makes a provider retry idempotent', async () => {
     const { createVoiceCall, getVoiceCall } = await import('./storage.server');
     const first = await createVoiceCall(input('voice-a', '1'));

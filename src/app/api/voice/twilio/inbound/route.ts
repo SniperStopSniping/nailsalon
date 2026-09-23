@@ -6,7 +6,7 @@ import { getSalonById } from '@/libs/queries';
 import { getVoiceRuntimeConfig } from '@/libs/voiceReceptionist/config.server';
 import { readVoiceForm, verifyVoiceTwilio, voiceRouteToken, voiceTokenHash } from '@/libs/voiceReceptionist/security.server';
 import { createVoiceCall, getVoiceSettings, resolveVoiceNumber } from '@/libs/voiceReceptionist/storage.server';
-import { twimlUnavailable, voiceDialTwiml } from '@/libs/voiceReceptionist/transport.server';
+import { twimlRejected, twimlUnavailable, voiceDialTwiml } from '@/libs/voiceReceptionist/transport.server';
 import type { SalonSettings } from '@/types/salonPolicy';
 
 export const runtime = 'nodejs';
@@ -45,23 +45,28 @@ function salonIsOpenNow(salon: { businessHours: Parameters<typeof getBusinessHou
 export async function POST(request: Request) {
   const config = getVoiceRuntimeConfig('phone');
   if (!config) {
-    return twimlUnavailable();
+    return twimlRejected();
   }
   const form = await readVoiceForm(request);
   if (!form || !verifyVoiceTwilio(request, form, config) || form.Direction !== 'inbound' || !CALL_SID.test(form.CallSid ?? '') || !E164.test(form.To ?? '')) {
     return new Response(null, { status: 403 });
   }
-  const route = await resolveVoiceNumber(form.AccountSid!, form.To!);
+  // ForwardedFrom is carrier-supplied admission metadata, not proof of identity.
+  // Never fall back to From: it is the caller's number on many forwarded calls.
+  if (!E164.test(form.ForwardedFrom ?? '')) {
+    return twimlRejected();
+  }
+  const route = await resolveVoiceNumber(form.AccountSid!, form.To!, form.ForwardedFrom!);
   if (!route) {
-    return new Response(null, { status: 404 });
+    return twimlRejected();
   }
   const salon = await getSalonById(route.salonId);
   if (!salon || salon.publicationStatus !== 'published' || !salon.onlineBookingEnabled) {
-    return twimlUnavailable();
+    return twimlRejected();
   }
   const settings = await getVoiceSettings(salon.id);
   if (!settings.enabled || (settings.answerMode === 'after_hours' && salonIsOpenNow(salon) !== false)) {
-    return twimlUnavailable();
+    return twimlRejected();
   }
   const id = randomUUID();
   const routeExpiresAt = new Date(Date.now() + 180_000);

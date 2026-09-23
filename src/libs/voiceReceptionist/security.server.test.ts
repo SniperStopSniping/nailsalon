@@ -35,6 +35,16 @@ describe('voice provider authentication', () => {
     expect(verifyVoiceTwilio(new Request(`${config.origin}/api/voice/twilio/confirm?call=a&token=c`, { headers: request.headers }), params, config)).toBe(false);
   });
 
+  it('rejects forwarding metadata changed after Twilio signed the request', () => {
+    const path = '/api/voice/twilio/inbound';
+    const params = { AccountSid: config.twilioAccountSid, CallSid: 'CAcall', ForwardedFrom: '+14165550123' };
+    const signature = twilio.getExpectedTwilioSignature(config.twilioAuthToken, `${config.origin}${path}`, params);
+    const request = new Request(`${config.origin}${path}`, { headers: { 'x-twilio-signature': signature } });
+
+    expect(verifyVoiceTwilio(request, params, config)).toBe(true);
+    expect(verifyVoiceTwilio(request, { ...params, ForwardedFrom: '+14165550999' }, config)).toBe(false);
+  });
+
   it('rejects duplicate SIP capabilities and rotates them with the trusted routing deadline', () => {
     const call = { id: 'b883cdd1-f08e-41c4-a9f0-90fa5c946630', salonId: 'salon-a', providerCallId: 'CAcall', routeExpiresAt: new Date('2026-09-22T12:03:00Z') };
     const token = voiceRouteToken(call, config.signingSecret);
@@ -52,6 +62,7 @@ describe('voice provider authentication', () => {
 
   it('rejects ambiguous Twilio form keys before signature verification', async () => {
     await expect(readVoiceForm(new Request('https://voice.example.test', { method: 'POST', body: 'CallSid=CAone&CallSid=CAtwo' }))).resolves.toBeNull();
+    await expect(readVoiceForm(new Request('https://voice.example.test', { method: 'POST', body: 'ForwardedFrom=%2B14165550123&ForwardedFrom=%2B14374289999' }))).resolves.toBeNull();
     await expect(readVoiceForm(new Request('https://voice.example.test', { method: 'POST', body: 'CallSid=CAone&AccountSid=ACone' }))).resolves.toEqual({ CallSid: 'CAone', AccountSid: 'ACone' });
   });
 });
