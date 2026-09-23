@@ -1965,7 +1965,7 @@ export function BookServiceClient({
                         menuVariant,
                       ) && !isSearching && (
                         <div
-                          className="scrollbar-hide -mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 md:mx-0 md:w-full md:overflow-visible md:px-0"
+                          className="scrollbar-hide -mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 max-[360px]:mx-[-12px] max-[360px]:w-[calc(100%+24px)] max-[360px]:px-[12px] md:mx-0 md:w-full md:overflow-visible md:px-0"
                           style={{
                             opacity: previewContentReady ? 1 : 0,
                             transition: 'opacity 300ms ease-out 150ms',
@@ -2891,7 +2891,7 @@ export function BookServiceClient({
                   {!isSearching && featuredServices.length > 0 && (
                     <div
                       data-public-surface="featuredServices"
-                      className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
+                      className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 max-[360px]:mx-[-12px] max-[360px]:w-[calc(100%+24px)] max-[360px]:px-[12px] sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
                       style={{
                         opacity: previewContentReady ? 1 : 0,
                         transition: 'opacity 300ms ease-out 150ms',

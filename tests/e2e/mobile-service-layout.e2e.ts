@@ -1236,15 +1236,19 @@ test.describe('selected service options on mobile', () => {
         element.style.fontSize = '28px';
       });
 
-      const priceBounds = await sticky.getByText('$65', { exact: true }).boundingBox();
-      const continueBounds = await continueButton.boundingBox();
+      await expect.poll(async () => {
+        const priceBounds = await sticky.getByText('$65', { exact: true }).boundingBox();
+        const continueBounds = await continueButton.boundingBox();
 
-      expect(priceBounds).not.toBeNull();
-      expect(continueBounds).not.toBeNull();
-      expect(priceBounds!.x + priceBounds!.width <= continueBounds!.x
-        || continueBounds!.x + continueBounds!.width <= priceBounds!.x
-        || priceBounds!.y + priceBounds!.height <= continueBounds!.y
-        || continueBounds!.y + continueBounds!.height <= priceBounds!.y).toBe(true);
+        if (!priceBounds || !continueBounds) {
+          return false;
+        }
+
+        return priceBounds.x + priceBounds.width <= continueBounds.x
+          || continueBounds.x + continueBounds.width <= priceBounds.x
+          || priceBounds.y + priceBounds.height <= continueBounds.y
+          || continueBounds.y + continueBounds.height <= priceBounds.y;
+      }).toBe(true);
       await expect.poll(() => sticky.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(220);
 
       await page.screenshot({ path: testInfo.outputPath('selected-service-sticky-320-200-percent-text.png'), animations: 'disabled' });
