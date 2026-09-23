@@ -30,6 +30,7 @@ import {
   resolveCustomerSiteStylePreset,
 } from '@/libs/customerSitePresentation';
 import { triggerHaptic } from '@/libs/haptics';
+import { clearResolvedPublicBookingAttempt } from '@/libs/publicBookingRecovery.client';
 import {
   getPublicTechnicianCompatibility,
   type PublicTechnicianPreview,
@@ -316,6 +317,17 @@ export function BookServiceClient({
   // A non-secret marker keeps the normal Confirm step on the assistant's
   // durable flow after a customer revisits and edits this normal service UI.
   const bookingFlowMarker = useNormalBookingFlowMarker(salonId, searchParams.get('bookingFlow'));
+  useEffect(() => {
+    if (!salonId) {
+      return;
+    }
+    try {
+      clearResolvedPublicBookingAttempt(salonId);
+    } catch {
+      // A malformed or unavailable recovery record must not be silently
+      // discarded; confirmation will keep its existing recovery guard.
+    }
+  }, [salonId]);
   // Luster UI/UX plan rev 3, PR 4: iterate the resolved Quick Book section
   // order rather than re-deciding it here. `bookingPage`/`salonContent` are
   // only undefined in test doubles that mock `useSalon()` with a partial

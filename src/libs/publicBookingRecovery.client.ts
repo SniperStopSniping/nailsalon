@@ -69,6 +69,15 @@ export function clearPublicBookingAttempt(salonId: string): void {
   sessionStorage.removeItem(key(salonId));
 }
 
+/** A new service selection supersedes a completed receipt, even if it later
+ * reaches the exact same confirmation URL. Pending attempts still need recovery. */
+export function clearResolvedPublicBookingAttempt(salonId: string): void {
+  const attempt = readPublicBookingAttempt(salonId);
+  if (attempt?.state === 'resolved') {
+    clearPublicBookingAttempt(salonId);
+  }
+}
+
 export async function recoverPublicBookingAttempt(salonId: string): Promise<any | null> {
   const attempt = readPublicBookingAttempt(salonId);
   if (!attempt) {

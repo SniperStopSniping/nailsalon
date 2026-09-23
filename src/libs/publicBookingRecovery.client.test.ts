@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { beginPublicBookingAttempt, clearPublicBookingAttempt, readPublicBookingAttempt, recoverPublicBookingAttempt, resolvePublicBookingAttempt } from './publicBookingRecovery.client';
+import { beginPublicBookingAttempt, clearPublicBookingAttempt, clearResolvedPublicBookingAttempt, readPublicBookingAttempt, recoverPublicBookingAttempt, resolvePublicBookingAttempt } from './publicBookingRecovery.client';
 
 const attemptId = '123e4567-e89b-12d3-a456-426614174000';
 const receipt = { data: { appointmentId: 'appointment-a', appointment: { id: 'appointment-a', status: 'confirmed' } } };
@@ -68,6 +68,22 @@ describe('manual booking receipt recovery', () => {
     clearPublicBookingAttempt('a');
 
     expect(readPublicBookingAttempt('a')).toBeNull();
+  });
+
+  it('clears a completed receipt for a new selection at the same confirmation URL but preserves pending attempts', () => {
+    const confirmationPath = '/book/confirm?time=10';
+    beginPublicBookingAttempt({ salonId: 'a', attemptId, confirmationPath });
+    clearResolvedPublicBookingAttempt('a');
+    expect(readPublicBookingAttempt('a')?.state).toBe('pending');
+
+    resolvePublicBookingAttempt('a', receipt);
+    clearResolvedPublicBookingAttempt('b');
+    expect(readPublicBookingAttempt('a')?.state).toBe('resolved');
+
+    clearResolvedPublicBookingAttempt('a');
+    expect(readPublicBookingAttempt('a')).toBeNull();
+    const next = beginPublicBookingAttempt({ salonId: 'a', attemptId: crypto.randomUUID(), confirmationPath });
+    expect(next.attemptId).not.toBe(attemptId);
   });
 
   it('fails closed on malformed storage or failed persistence', () => {
