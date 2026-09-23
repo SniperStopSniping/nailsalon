@@ -558,8 +558,9 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
     expect(screen.queryByTestId('service-category-scroll')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId(`service-card-${pedicureService.id}`));
+    fireEvent.click(screen.getByTestId(`service-add-button-${pedicureService.id}`));
 
-    expect(screen.getByTestId(`service-card-${pedicureService.id}`)).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId(`service-card-${pedicureService.id}`)).toHaveAttribute('data-selected', 'true');
 
     fireEvent.change(screen.getByPlaceholderText('Search services...'), {
       target: { value: 'Spa Pedicure' },
@@ -1173,6 +1174,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
         // Selection happens while the services anchor is still below the
         // handoff threshold: no observer callback has fired in this test.
         fireEvent.click(screen.getByTestId(`service-card-${service.id}`));
+        fireEvent.click(screen.getByTestId(`service-add-button-${service.id}`));
 
         const selectedSummary = screen.getByTestId('service-sticky-bar');
 

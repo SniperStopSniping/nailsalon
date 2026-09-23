@@ -1,7 +1,15 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { acknowledgeBookingPolicy, selectBookableSlotFromApi } from './support/booking';
 import { appPath, appPathPattern, e2eConfig, uniqueCustomerPhone } from './support/config';
+
+async function continueFromService(page: Page) {
+  const optionsDone = page.getByTestId('service-options-done-button');
+  if (await optionsDone.isVisible().catch(() => false)) {
+    await optionsDone.click();
+  }
+  await page.getByTestId('service-continue-button').click();
+}
 
 test('guest can book without OTP and receive an appointment management link', async ({ page }) => {
   test.slow();
@@ -11,11 +19,12 @@ test('guest can book without OTP and receive an appointment management link', as
     waitUntil: 'domcontentloaded',
   });
 
-  await expect(page.getByRole('heading', { name: /choose your service/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /book an appointment|choose your service/i })).toBeVisible();
   await expect(page.getByTestId('booking-login-phone')).toHaveCount(0);
 
   await page.getByTestId(`service-card-${e2eConfig.serviceId}`).click();
-  await page.getByTestId('service-continue-button').click();
+  await page.getByTestId(`service-add-button-${e2eConfig.serviceId}`).click();
+  await continueFromService(page);
   await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
 
   if (appPathPattern('/book/tech').test(page.url())) {
@@ -68,7 +77,7 @@ test('guest can book without OTP and receive an appointment management link', as
   expect(manageUrl).toBeTruthy();
 
   await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /manage this appointment/i })).toBeVisible();
+  await expect(page.getByRole('link', { name: /manage this appointment/i })).toBeVisible();
 
   const token = new URL(manageUrl!, page.url()).pathname.split('/').filter(Boolean).at(-1);
   const cancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(token!)}`, {
@@ -78,7 +87,7 @@ test('guest can book without OTP and receive an appointment management link', as
   expect(cancellation.ok(), await cancellation.text()).toBeTruthy();
 });
 
-test('duplicate booking offers recovery options and a server-verified retry path', async ({ page }) => {
+test('a guest can manage multiple upcoming appointments', async ({ page }) => {
   test.slow();
 
   const phone = uniqueCustomerPhone();
@@ -98,9 +107,10 @@ test('duplicate booking offers recovery options and a server-verified retry path
         break;
       }
       await serviceCard.click();
+      await page.getByTestId(`service-add-button-${e2eConfig.serviceId}`).click();
       await continueButton.waitFor({ timeout: 3000 }).catch(() => {});
     }
-    await continueButton.click();
+    await continueFromService(page);
     await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
     if (appPathPattern('/book/tech').test(page.url())) {
       await page.getByRole('button', { name: new RegExp(e2eConfig.staffTechnicianName, 'i') }).click();
@@ -138,62 +148,45 @@ test('duplicate booking offers recovery options and a server-verified retry path
 
   expect(firstManageUrl).toBeTruthy();
 
-  // Second attempt with the same phone hits the duplicate gate and shows options.
+  // A second appointment for the same guest remains a separate booking.
   await walkToConfirm();
   await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
   await page.getByLabel('Customer email').fill(email);
   await page.getByLabel('Customer phone').fill(phone);
-  const duplicateResponse = page.waitForResponse(response => (
-    response.url().includes('/api/appointments')
-    && response.request().method() === 'POST'
-    && response.status() === 409
-  ));
-  await acknowledgeBookingPolicy(page);
-  await page.getByRole('button', { name: /confirm appointment/i }).click();
-  const duplicateBody = await (await duplicateResponse).json();
-
-  // Anti-enumeration: the 409 body carries no appointment id or date.
-  expect(JSON.stringify(duplicateBody)).not.toContain('existingAppointment');
-
-  await expect(page.getByText('You already have a booking')).toBeVisible();
-
-  // Self-serve link recovery from the options screen.
-  await page.getByTestId('existing-appointment-send-link').click();
-
-  await expect(page.getByTestId('existing-appointment-sent')).toContainText('Request received');
-
-  // Editing contact info returns to the form with details preserved.
-  await page.getByTestId('existing-appointment-edit-contact').click();
-
-  await expect(page.getByRole('heading', { name: /review your appointment/i })).toBeVisible();
-  await expect(page.getByLabel('Customer phone')).toHaveValue(phone);
-
-  // Free the phone by cancelling the first appointment, then retry: the
-  // server re-verifies and lets the booking through.
-  const firstToken = new URL(firstManageUrl!, page.url()).pathname.split('/').filter(Boolean).at(-1);
-  const firstCancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(firstToken!)}`, {
-    data: { action: 'cancel', reason: 'client_request' },
-  });
-
-  expect(firstCancellation.ok(), await firstCancellation.text()).toBeTruthy();
-
-  const retryResponse = page.waitForResponse(response => (
+  const secondBookingResponse = page.waitForResponse(response => (
     response.url().includes('/api/appointments')
     && response.request().method() === 'POST'
     && response.status() === 201
   ));
   await acknowledgeBookingPolicy(page);
   await page.getByRole('button', { name: /confirm appointment/i }).click();
-  const retryBody = await (await retryResponse).json();
+  const secondBody = await (await secondBookingResponse).json();
+  const secondManageUrl = secondBody?.data?.manageUrl as string | undefined;
 
+  expect(secondManageUrl).toBeTruthy();
+  expect(secondManageUrl).not.toBe(firstManageUrl);
   await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
 
-  // Clean up the appointment created by the retry.
-  const retryManageUrl = retryBody?.data?.manageUrl as string | undefined;
-  const retryToken = new URL(retryManageUrl!, page.url()).pathname.split('/').filter(Boolean).at(-1);
-  const cleanup = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(retryToken!)}`, {
+  // Both private links stay usable; clean up the disposable appointments.
+  const firstToken = new URL(firstManageUrl!, page.url()).pathname.split('/').filter(Boolean).at(-1);
+  const secondToken = new URL(secondManageUrl!, page.url()).pathname.split('/').filter(Boolean).at(-1);
+  const [firstManage, secondManage] = await Promise.all([
+    page.request.get(`/api/public/appointments/manage/${encodeURIComponent(firstToken!)}`),
+    page.request.get(`/api/public/appointments/manage/${encodeURIComponent(secondToken!)}`),
+  ]);
+
+  expect(firstManage.ok(), await firstManage.text()).toBeTruthy();
+  expect(secondManage.ok(), await secondManage.text()).toBeTruthy();
+
+  const firstCancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(firstToken!)}`, {
     data: { action: 'cancel', reason: 'client_request' },
   });
 
-  expect(cleanup.ok(), await cleanup.text()).toBeTruthy();
+  expect(firstCancellation.ok(), await firstCancellation.text()).toBeTruthy();
+
+  const secondCancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(secondToken!)}`, {
+    data: { action: 'cancel', reason: 'client_request' },
+  });
+
+  expect(secondCancellation.ok(), await secondCancellation.text()).toBeTruthy();
 });

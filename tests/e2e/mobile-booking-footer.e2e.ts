@@ -9,6 +9,7 @@ const IPHONE_CHROME_USER_AGENT
 test.skip(!e2eConfig.freeSolo, 'The Free Luster footer only exists in the free-solo profile.');
 
 async function verifyNaturalFooterClearance(page: Page): Promise<string> {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(appPath(`/${e2eConfig.salonSlug}/book/service`), {
     waitUntil: 'domcontentloaded',
   });
@@ -34,10 +35,17 @@ async function verifyNaturalFooterClearance(page: Page): Promise<string> {
   // check to a specific fixture id (seeded ids differ between environments).
   const serviceCard = page.locator(`[data-testid="service-card-${e2eConfig.serviceId}"], [data-testid^="service-card-"]`).first();
   await serviceCard.click();
+  const cardTestId = await serviceCard.getAttribute('data-testid');
+
+  if (!cardTestId?.startsWith('service-card-')) {
+    throw new Error('Expected a canonical service card.');
+  }
+  await page.getByTestId(`service-add-button-${cardTestId.slice('service-card-'.length)}`).click();
   const stickyBar = page.getByTestId('service-sticky-bar');
 
   await expect(stickyBar).toBeVisible();
 
+  await footer.scrollIntoViewIfNeeded();
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
 
   await expect(footer).toBeInViewport();

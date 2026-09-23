@@ -1750,10 +1750,13 @@ async function expectSelectedServiceSummary({
 
   await expect(stickyBar).toHaveCount(0);
 
-  // Trigger the real hydrated service-card handler without scrolling the
-  // Editorial anchor into its handoff position. This discriminates the Fable
-  // regression: selection itself must outrank the marketing jump CTA.
+  // Opening details must keep the marketing CTA until Add service is explicit.
   await serviceCard.evaluate(element => (element as HTMLButtonElement).click());
+
+  await expect(stickyBar).toHaveCount(0);
+
+  await page.getByTestId(`service-add-button-${service.id}`)
+    .evaluate(element => (element as HTMLButtonElement).click());
 
   await expect(page.getByTestId('editorial-sticky-cta')).toHaveCount(0);
   await expect(stickyBar).toBeVisible();
