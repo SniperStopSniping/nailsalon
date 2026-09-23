@@ -1,3 +1,10 @@
+## [1.128.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.128.0...v1.128.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **booking:** open service details before explicit Add ([#304](https://github.com/SniperStopSniping/nailsalon/issues/304)) ([4681e30](https://github.com/SniperStopSniping/nailsalon/commit/4681e30d27ece86cdcd25f35355e63506c645418))
+
 # [1.128.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.127.2...v1.128.0) (2026-09-23)
 
 
