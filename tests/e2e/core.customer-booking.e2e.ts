@@ -4,12 +4,59 @@ import { acknowledgeBookingPolicy, selectBookableSlotFromApi } from './support/b
 import { appPath, appPathPattern, e2eConfig, uniqueCustomerPhone } from './support/config';
 
 async function continueFromService(page: Page) {
-  const optionsDone = page.getByTestId('service-options-done-button');
-  if (await optionsDone.isVisible().catch(() => false)) {
-    await optionsDone.click();
-  }
   await page.getByTestId('service-continue-button').click();
 }
+
+test('a selected add-on keeps its price and duration through Time and Confirm', async ({ page }) => {
+  test.slow();
+
+  await page.goto(`${appPath('/book/service')}?salonSlug=${e2eConfig.salonSlug}`, { waitUntil: 'domcontentloaded' });
+  const serviceCard = page.getByTestId(`service-card-${e2eConfig.serviceId}`);
+
+  await expect(serviceCard).toBeEnabled();
+
+  await serviceCard.click();
+  await page.getByRole('button', { name: 'Increase Nail Repair quantity' }).click();
+
+  const sticky = page.getByTestId('service-sticky-bar');
+  const reviewedPrice = (await sticky.getByTestId('service-sticky-price').textContent())?.trim();
+  const reviewedDuration = (await sticky.getByTestId('service-sticky-duration').textContent())?.trim();
+
+  expect(reviewedPrice).toBeTruthy();
+  expect(reviewedDuration).toBeTruthy();
+  await expect(sticky).toContainText('1 service + 1 add-on');
+
+  await continueFromService(page);
+  await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
+
+  if (appPathPattern('/book/tech').test(page.url())) {
+    await page.getByRole('button', { name: new RegExp(e2eConfig.staffTechnicianName, 'i') }).click();
+  }
+
+  await expect(page).toHaveURL(appPathPattern('/book/time'));
+
+  const timeUrl = new URL(page.url());
+  const selected = JSON.parse(timeUrl.searchParams.get('selectedAddOns') ?? 'null');
+
+  expect(selected).toEqual([{ addOnId: expect.any(String), quantity: 1 }]);
+  await expect(page.getByTestId('booking-summary-price')).toContainText(reviewedPrice!);
+  await expect(page.getByTestId('booking-summary-duration')).toContainText(reviewedDuration!);
+
+  const technicianId = timeUrl.searchParams.get('techId');
+
+  await selectBookableSlotFromApi(page, {
+    technicianId: technicianId && technicianId !== 'any' ? technicianId : null,
+    startDayOffset: 3,
+    baseServiceId: timeUrl.searchParams.get('baseServiceId'),
+    locationId: timeUrl.searchParams.get('locationId'),
+    selectedAddOns: timeUrl.searchParams.get('selectedAddOns'),
+  });
+
+  await expect(page).toHaveURL(appPathPattern('/book/confirm'));
+  await expect(page.locator('.booking-review-summary')).toContainText('Nail Repair');
+  await expect(page.locator('.booking-review-summary')).toContainText(reviewedPrice!);
+  await expect(page.locator('.booking-review-summary')).toContainText(reviewedDuration!);
+});
 
 test('guest can book without OTP and receive an appointment management link', async ({ page }) => {
   test.slow();
@@ -23,7 +70,6 @@ test('guest can book without OTP and receive an appointment management link', as
   await expect(page.getByTestId('booking-login-phone')).toHaveCount(0);
 
   await page.getByTestId(`service-card-${e2eConfig.serviceId}`).click();
-  await page.getByTestId(`service-add-button-${e2eConfig.serviceId}`).click();
   await continueFromService(page);
   await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
 
@@ -107,7 +153,6 @@ test('a guest can manage multiple upcoming appointments', async ({ page }) => {
         break;
       }
       await serviceCard.click();
-      await page.getByTestId(`service-add-button-${e2eConfig.serviceId}`).click();
       await continueButton.waitFor({ timeout: 3000 }).catch(() => {});
     }
     await continueFromService(page);

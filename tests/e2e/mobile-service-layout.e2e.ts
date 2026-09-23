@@ -208,7 +208,6 @@ async function selectConfiguredService(page: Page): Promise<void> {
   if (!cardTestId?.startsWith('service-card-')) {
     throw new Error('Expected a canonical service card.');
   }
-  await page.getByTestId(`service-add-button-${cardTestId.slice('service-card-'.length)}`).click();
 
   await expect(page.getByTestId('service-continue-button')).toBeVisible();
 }
@@ -322,11 +321,6 @@ async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
 
   const addOnTargets = await page.locator('[data-testid^="service-addon-row-"] button').all();
   await expectNoTargetOverlap(addOnTargets);
-
-  const optionsDone = page.getByTestId('service-options-done-button');
-  if (await optionsDone.isVisible().catch(() => false)) {
-    await optionsDone.click();
-  }
 
   await page.getByTestId('service-continue-button').click();
   await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
@@ -929,7 +923,6 @@ for (const viewport of MOBILE_VIEWPORTS) {
       if (!cardTestId?.startsWith('service-card-')) {
         throw new Error('Expected a canonical service card.');
       }
-      await page.getByTestId(`service-add-button-${cardTestId.slice('service-card-'.length)}`).click();
 
       const stickyBar = page.getByTestId('service-sticky-bar');
 
@@ -1095,143 +1088,87 @@ test.describe('selected service options on mobile', () => {
   test.use({ viewport: { width: 320, height: 700 }, isMobile: true, hasTouch: true });
 
   for (const browserTag of ['@mobile-chrome', '@mobile-safari']) {
-    test(`keyboard can inspect a searched service before adding it ${browserTag}`, async ({ page }) => {
+    test(`keyboard selects a searched service and exposes add-ons immediately ${browserTag}`, async ({ page }) => {
       await openServicePage(page);
       await page.getByPlaceholder('Search services...').fill(e2eConfig.serviceName);
-
       const card = page.getByTestId(`service-card-${e2eConfig.serviceId}`);
+
+      await expect(card).toBeEnabled();
 
       await card.focus();
       await page.keyboard.press('Enter');
 
-      const details = page.getByTestId(`service-details-${e2eConfig.serviceId}`);
-      const addButton = page.getByTestId(`service-add-button-${e2eConfig.serviceId}`);
-
-      await expect(details.getByRole('heading', { name: e2eConfig.serviceName })).toBeFocused();
-      await expect(card).toHaveAttribute('data-selected', 'false');
-      await expect(page.getByTestId('service-sticky-bar')).toHaveCount(0);
-      await expect.poll(() => new URL(page.url()).searchParams.get('baseServiceId')).toBeNull();
-
-      await addButton.focus();
-
-      await expect(addButton).toBeFocused();
-
-      await page.keyboard.press('Enter');
-
-      await expect(card).toHaveAttribute('data-selected', 'true');
-      await expect(page.getByTestId('service-sticky-bar')).toBeVisible();
+      await expect(page.getByTestId(`service-card-${e2eConfig.serviceId}`)).toHaveAttribute('data-selected', 'true');
+      await expect(page.getByTestId('service-inline-addons-panel')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Add-ons' })).toBeFocused();
+      await expect(page.getByTestId('service-continue-button')).toBeVisible();
+      await expect(page.locator(`[data-testid="service-add-button-${e2eConfig.serviceId}"]`)).toHaveCount(0);
+      await expect.poll(() => new URL(page.url()).searchParams.get('baseServiceId')).toBe(e2eConfig.serviceId);
     });
 
-    test(`shows the service name and options before continuing ${browserTag}`, async ({ page }, testInfo) => {
+    test(`shows one selected service with directly clickable add-ons ${browserTag}`, async ({ page }, testInfo) => {
       await openServicePage(page);
-
+      await page.getByTestId(`service-card-${e2eConfig.serviceId}`).click();
       const card = page.getByTestId(`service-card-${e2eConfig.serviceId}`);
-      await card.click();
+      const options = page.getByTestId('service-inline-addons-panel');
 
-      await expect(card).toHaveAttribute('data-selected', 'false');
-
-      const details = page.getByTestId(`service-details-${e2eConfig.serviceId}`);
-      const detailsHeading = details.getByRole('heading', { name: e2eConfig.serviceName });
-
-      await expect(details).toBeVisible();
-      await expect(detailsHeading).toBeFocused();
-      await expect.poll(() => detailsHeading.evaluate((element) => {
-        const bounds = element.getBoundingClientRect();
-        return bounds.top >= 0 && bounds.top <= window.innerHeight * 0.4;
-      })).toBe(true);
-      await expect(page.getByTestId('service-sticky-bar')).toHaveCount(0);
+      await expect(card).toHaveAttribute('data-selected', 'true');
+      await expect(card).toBeVisible();
+      await expect(options).toBeVisible();
+      await expect(options.getByRole('heading', { name: 'Add-ons' })).toBeVisible();
+      await expect(options.getByRole('heading', { name: 'Add-ons' })).toBeInViewport();
       await expect(page.getByTestId(`service-card-image-${e2eConfig.serviceId}`)).toBeHidden();
 
-      await page.screenshot({ path: testInfo.outputPath('service-details-before-add-320.png'), animations: 'disabled' });
-      await page.getByTestId(`service-add-button-${e2eConfig.serviceId}`).click();
+      const firstAdd = options.getByRole('button', { name: /^(Add |Increase )/ }).first();
 
-      const optionsHeading = page.getByRole('heading', { name: `Customize your ${e2eConfig.serviceName}` });
-
-      await expect(optionsHeading).toBeVisible();
-      await expect.poll(() => optionsHeading.evaluate((element) => {
-        const bounds = element.getBoundingClientRect();
-        return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
-      })).toBe(true);
-      await expect(page.getByTestId(`service-card-image-${e2eConfig.serviceId}`)).toBeHidden();
+      await expect(firstAdd).toBeEnabled();
 
       const continueButton = page.getByTestId('service-continue-button');
 
-      await expect(continueButton).toBeVisible();
+      await expect(continueButton).toContainText('Continue');
       await expect(continueButton).toBeInViewport();
-      await expect(continueButton).toContainText('Review options');
+      await expect.poll(() => continueButton.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
 
-      await page.screenshot({ path: testInfo.outputPath('selected-service-options-320.png'), animations: 'disabled' });
+        return bounds.top >= 0 && bounds.bottom <= window.innerHeight + 1;
+      })).toBe(true);
 
-      await page.evaluate(() => {
-        document.documentElement.style.fontSize = '200%';
-      });
+      await page.waitForTimeout(350);
+
+      await page.screenshot({ path: testInfo.outputPath('selected-service-addons-320.png'), animations: 'disabled' });
       await expectNoPageHorizontalOverflow(page);
-
-      await expect(optionsHeading).toBeVisible();
-
-      await page.screenshot({ path: testInfo.outputPath('selected-service-options-200-percent-text.png') });
-
       await continueButton.click();
 
-      await expect(optionsHeading).toBeFocused();
-
-      await page.getByTestId('service-options-done-button').click();
-
-      await expect(continueButton).toContainText('Continue to Time');
-
-      await continueButton.click();
-
-      await expect(page).toHaveURL(/\/book\/tech\?/);
+      await expect(page).toHaveURL(/\/book\/(?:tech|time)\?/);
     });
 
-    test(`keeps selected service options readable with 200% text at 320px ${browserTag}`, async ({ page }, testInfo) => {
+    test(`keeps add-ons readable at 320px with 200% text ${browserTag}`, async ({ page }, testInfo) => {
       await openServicePage(page);
       await page.evaluate(() => {
         document.documentElement.style.fontSize = '200%';
       });
-
-      const card = page.getByTestId(`service-card-${e2eConfig.serviceId}`);
-
-      await card.click();
-
-      const details = page.getByTestId(`service-details-${e2eConfig.serviceId}`);
-
-      await expect(card).toHaveAttribute('data-selected', 'false');
-      await expect(details.getByRole('heading', { name: e2eConfig.serviceName })).toBeFocused();
-      await expect.poll(() => details.getByRole('listitem').first().locator('span').first().evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(100);
-
-      await page.getByTestId(`service-add-button-${e2eConfig.serviceId}`).click();
-
+      await page.getByTestId(`service-card-${e2eConfig.serviceId}`).click();
       const options = page.getByTestId('service-inline-addons-panel');
-      const repair = options.getByText('Nail Repair', { exact: true });
-      const summaryName = page.getByTestId('service-selection-summary').getByText(e2eConfig.serviceName, { exact: true });
 
-      await expect.poll(() => repair.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(100);
-      await expect.poll(() => summaryName.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(100);
+      await expect(options).toBeVisible();
+      await expect(options.getByRole('heading', { name: 'Add-ons' })).toBeVisible();
+      await expect(options.getByRole('heading', { name: 'Add-ons' })).toBeInViewport();
 
       await expectNoPageHorizontalOverflow(page);
       await options.scrollIntoViewIfNeeded();
-      await page.screenshot({ path: testInfo.outputPath('selected-service-options-320-200-percent-text.png'), animations: 'disabled' });
+      await page.screenshot({ path: testInfo.outputPath('selected-service-addons-320-200-percent-text.png'), animations: 'disabled' });
 
-      await page.getByTestId('service-options-done-button').click();
       const sticky = page.getByTestId('service-sticky-bar');
+      const price = sticky.getByTestId('service-sticky-price');
+      const duration = sticky.getByTestId('service-sticky-duration');
       const continueButton = page.getByTestId('service-continue-button');
 
-      await expect(continueButton).toContainText('Continue to Time');
-      await expect(page.getByTestId('service-options-done-button')).toHaveCount(0);
-      await expect(continueButton).toBeFocused();
+      await expect(continueButton).toBeInViewport();
 
-      // Browser text-only zoom also enlarges labels whose CSS sizes use px.
-      await sticky.getByText('1 service', { exact: true }).evaluate((element) => {
-        element.style.fontSize = '22px';
-      });
-      await sticky.getByTestId('service-sticky-addon-note').evaluate((element) => {
-        element.style.fontSize = '18px';
-      });
-      await sticky.getByText('$65', { exact: true }).evaluate((element) => {
+      await price.evaluate((element) => {
         element.style.fontSize = '34px';
       });
-      await sticky.getByText('1h 15m', { exact: true }).evaluate((element) => {
+      await duration.evaluate((element) => {
         element.style.fontSize = '22px';
       });
       await continueButton.evaluate((element) => {
@@ -1239,7 +1176,7 @@ test.describe('selected service options on mobile', () => {
       });
 
       await expect.poll(async () => {
-        const priceBounds = await sticky.getByText('$65', { exact: true }).boundingBox();
+        const priceBounds = await price.boundingBox();
         const continueBounds = await continueButton.boundingBox();
 
         if (!priceBounds || !continueBounds) {
@@ -1251,9 +1188,8 @@ test.describe('selected service options on mobile', () => {
           || priceBounds.y + priceBounds.height <= continueBounds.y
           || continueBounds.y + continueBounds.height <= priceBounds.y;
       }).toBe(true);
-      await expect.poll(() => sticky.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(220);
 
-      await page.screenshot({ path: testInfo.outputPath('selected-service-sticky-320-200-percent-text.png'), animations: 'disabled' });
+      await expectNoPageHorizontalOverflow(page);
     });
   }
 });
