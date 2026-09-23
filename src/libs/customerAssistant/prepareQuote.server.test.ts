@@ -100,9 +100,9 @@ describe('prepareCustomerBookingQuote', () => {
 
   it('keeps a manually priced item outside financial totals while retaining it in review and duration', async () => {
     mocks.selection.mockResolvedValue({
-      services: [{ id: 'svc', name: 'Gel Manicure', priceCents: 4000 }],
-      addOns: [{ id: 'removal', name: 'Builder Gel Removal', quantity: 1, lineTotalCents: 0, priceMode: 'manual_confirmation' }],
-      manualConfirmationItems: [{ addOnId: 'removal', name: 'Builder Gel Removal', quantity: 1, lineDurationMinutes: 30, priceStatus: 'to_be_confirmed' }],
+      services: [{ id: 'svc', name: 'Gel Manicure', priceCents: 4000, priceDisplayText: 'From $40' }],
+      addOns: [{ id: 'removal', name: 'Builder Gel Removal', quantity: 1, lineTotalCents: 0, priceMode: 'manual_confirmation', priceDisplayText: '$15+' }],
+      manualConfirmationItems: [{ addOnId: 'removal', name: 'Builder Gel Removal', quantity: 1, lineDurationMinutes: 30, priceStatus: 'to_be_confirmed', priceDisplayText: '$15+' }],
       subtotalBeforeDiscountCents: 4000,
       visibleDurationMinutes: 90,
       automaticDiscount: { kind: 'none', subtotalBeforeDiscountCents: 4000, discountAmountCents: 0, finalTotalCents: 4000, reward: null, firstVisit: null },
@@ -113,7 +113,8 @@ describe('prepareCustomerBookingQuote', () => {
     expect(material?.review).toMatchObject({
       durationMinutes: 90,
       addOns: [],
-      manualConfirmationItems: [{ id: 'removal', name: 'Builder Gel Removal', priceStatus: 'to_be_confirmed' }],
+      services: [{ id: 'svc', name: 'Gel Manicure', priceDisplayText: 'From $40' }],
+      manualConfirmationItems: [{ id: 'removal', name: 'Builder Gel Removal', priceStatus: 'to_be_confirmed', priceDisplayText: '$15+' }],
       financial: { subtotalCents: 4000, taxAmountCents: 520, totalDueCents: 4520 },
     });
   });

@@ -5,7 +5,7 @@ import { createAppointmentFromRequest } from '@/libs/appointmentCreation.server'
 import type { CustomerBookingStatus } from './bookingOperationContracts';
 import { readCustomerBookingStatus } from './bookingStatus.server';
 import type { CustomerContact } from './contact';
-import { CustomerBookingOperationError, readCustomerBookingOperation, recordCustomerBookingFailure } from './operationStore.server';
+import { CustomerBookingOperationError, type CustomerBookingTransaction, readCustomerBookingOperation, recordCustomerBookingFailure } from './operationStore.server';
 
 /** Explicit-action adapter. The model cannot select any creation arguments. */
 export async function confirmCustomerBooking(args: {
@@ -17,6 +17,8 @@ export async function confirmCustomerBooking(args: {
   fingerprint: string;
   contact: CustomerContact;
   policyAccepted: boolean;
+  /** Trusted transport fence, executed inside the canonical booking transaction. */
+  executionGuard?: (tx: CustomerBookingTransaction) => Promise<void>;
 }): Promise<CustomerBookingStatus> {
   const identity = { salonId: args.salon.id, capability: args.capability, secret: args.secret };
   const prior = await readCustomerBookingOperation(identity);
@@ -79,6 +81,7 @@ export async function confirmCustomerBooking(args: {
       salon: args.salon,
       contact: args.contact,
       operation: { capability: args.capability, revision: args.revision, fingerprint: args.fingerprint, secret: args.secret },
+      ...(args.executionGuard ? { executionGuard: args.executionGuard } : {}),
       ...(material.nextVisitOffer ? { nextVisitOffer: material.nextVisitOffer } : {}),
     });
   } catch (error) {

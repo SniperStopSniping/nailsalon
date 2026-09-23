@@ -2555,6 +2555,78 @@ export const salonTwilioConnectionSchema = pgTable(
   }),
 );
 
+// Voice receptionist data is deliberately separate from messaging connection
+// configuration. A phone-number route is provisioned by a trusted integration
+// flow; salon owners can only control their own receptionist settings.
+export const voiceReceptionistSettingsSchema = pgTable('voice_receptionist_settings', {
+  salonId: text('salon_id')
+    .primaryKey()
+    .references(() => salonSchema.id, { onDelete: 'cascade' }),
+  enabled: boolean('enabled').default(false).notNull(),
+  bookingEnabled: boolean('booking_enabled').default(false).notNull(),
+  greeting: text('greeting'),
+  voice: text('voice').default('marin').notNull(),
+  language: text('language').default('auto').notNull(),
+  answerMode: text('answer_mode').default('always').notNull(),
+  callbackEnabled: boolean('callback_enabled').default(true).notNull(),
+  summaryRetentionDays: integer('summary_retention_days').default(30).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, table => ({
+  greetingLength: check('voice_receptionist_greeting_length', sql`char_length(${table.greeting}) <= 300`),
+  voiceValid: check('voice_receptionist_voice_valid', sql`${table.voice} in ('marin', 'cedar')`),
+  languageValid: check('voice_receptionist_language_valid', sql`${table.language} in ('auto', 'en', 'es')`),
+  answerModeValid: check('voice_receptionist_answer_mode_valid', sql`${table.answerMode} in ('always', 'after_hours')`),
+  retentionFixed: check('voice_receptionist_retention_fixed', sql`${table.summaryRetentionDays} = 30`),
+}));
+
+export const voiceNumberRouteSchema = pgTable('voice_number_route', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountSid: text('account_sid').notNull(),
+  phoneNumber: text('phone_number').notNull(),
+  forwardedFrom: text('forwarded_from').notNull(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, table => ({
+  accountPhoneUnique: uniqueIndex('voice_number_route_account_phone_unique').on(table.accountSid, table.phoneNumber),
+  salonIdx: index('voice_number_route_salon_idx').on(table.salonId),
+}));
+
+export const voiceCallSchema = pgTable('voice_call', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  providerCallId: text('provider_call_id').notNull(),
+  providerAccountSid: text('provider_account_sid'),
+  liveSessionId: text('live_session_id'),
+  callerNumber: text('caller_number'),
+  routeTokenHash: text('route_token_hash').notNull(),
+  routeExpiresAt: timestamp('route_expires_at', { mode: 'date', withTimezone: true }).notNull(),
+  status: text('status').default('created').notNull(),
+  outcome: text('outcome'),
+  draft: jsonb('draft').$type<unknown>(),
+  summary: text('summary'),
+  appointmentId: text('appointment_id'),
+  callbackRequested: boolean('callback_requested').default(false).notNull(),
+  durationSeconds: integer('duration_seconds').default(0).notNull(),
+  voiceSeconds: integer('voice_seconds').default(0).notNull(),
+  metrics: jsonb('metrics').$type<Record<string, unknown>>(),
+  leaseToken: text('lease_token'),
+  leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date', withTimezone: true }),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  endedAt: timestamp('ended_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  providerValid: check('voice_call_provider_valid', sql`${table.provider} in ('twilio', 'browser')`),
+  summaryLength: check('voice_call_summary_length', sql`char_length(${table.summary}) <= 1000`),
+  providerCallUnique: uniqueIndex('voice_call_provider_call_unique').on(table.provider, table.providerCallId),
+  liveSessionUnique: uniqueIndex('voice_call_live_session_unique').on(table.liveSessionId),
+  routeTokenUnique: uniqueIndex('voice_call_route_token_unique').on(table.routeTokenHash),
+  salonCreatedIdx: index('voice_call_salon_created_idx').on(table.salonId, table.createdAt),
+  appointmentFk: foreignKey({ name: 'voice_call_salon_appointment_fk', columns: [table.salonId, table.appointmentId], foreignColumns: [appointmentSchema.salonId, appointmentSchema.id] }),
+}));
+
 export const communicationConsentSchema = pgTable(
   'communication_consent',
   {
@@ -2811,6 +2883,9 @@ export type SalonSignupInvite = typeof salonSignupInviteSchema.$inferSelect;
 export type NewSalonSignupInvite = typeof salonSignupInviteSchema.$inferInsert;
 export type SalonGoogleCalendarConnection = typeof salonGoogleCalendarConnectionSchema.$inferSelect;
 export type SalonTwilioConnection = typeof salonTwilioConnectionSchema.$inferSelect;
+export type VoiceReceptionistSettings = typeof voiceReceptionistSettingsSchema.$inferSelect;
+export type VoiceNumberRoute = typeof voiceNumberRouteSchema.$inferSelect;
+export type VoiceCall = typeof voiceCallSchema.$inferSelect;
 export type CommunicationConsent = typeof communicationConsentSchema.$inferSelect;
 export type AppointmentAccessToken = typeof appointmentAccessTokenSchema.$inferSelect;
 export type IntegrationOutboxJob = typeof integrationOutboxSchema.$inferSelect;

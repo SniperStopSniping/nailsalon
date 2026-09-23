@@ -69,6 +69,7 @@ const SETTINGS_VIEW_IDS = [
   'notifications',
   'communications',
   'review-requests',
+  'phone-receptionist',
   'features',
   'visibility',
 ] as const;

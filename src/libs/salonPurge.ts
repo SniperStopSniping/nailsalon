@@ -73,6 +73,7 @@ import {
   technicianSchema,
   technicianServicesSchema,
   technicianTimeOffSchema,
+  voiceCallSchema,
 } from '@/models/Schema';
 
 /**
@@ -469,6 +470,13 @@ export const SALON_PURGE_PLAN: PurgeStep[] = [
     target: nextVisitOfferSchema,
     reason: 'Source/reserved appointment and client references are tenant-scoped NO ACTION dependencies.',
     where: (_tx, salonId) => eq(nextVisitOfferSchema.salonId, salonId),
+  }),
+  deleteStep({
+    table: 'voice_call',
+    group: 'appointments',
+    target: voiceCallSchema,
+    reason: 'Linked voice call history has a tenant-scoped NO ACTION appointment foreign key. Unlinked callback and inquiry history survives appointment-only reset.',
+    where: (_tx, salonId) => and(eq(voiceCallSchema.salonId, salonId), isNotNull(voiceCallSchema.appointmentId)),
   }),
   deleteStep({
     table: 'appointment',

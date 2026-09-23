@@ -131,6 +131,17 @@ async function seedSalon(salonId: string, suffix: string, dayOffset: number): Pr
     totalPrice: 60,
     totalDurationMinutes: 60,
   });
+  await db.insert(schema.voiceCallSchema).values({
+    salonId,
+    provider: 'browser',
+    providerCallId: id('voice_provider'),
+    routeTokenHash: id('voice_route_hash'),
+    routeExpiresAt: end,
+    appointmentId: id('appt'),
+    status: 'completed',
+    outcome: 'booked',
+    endedAt: end,
+  });
   await db.insert(schema.nextVisitOfferSchema).values({
     id: id('next_offer'),
     salonId,
@@ -630,6 +641,7 @@ describe('purgeSalonData', () => {
 
 describe('Next Visit purge dependencies', () => {
   it('resets appointments without deleting unrelated win-back links or another salon offers', async () => {
+    await db.insert(schema.voiceCallSchema).values({ salonId: SALON, provider: 'browser', providerCallId: 'unlinked-callback', routeTokenHash: 'unlinked-callback-hash', routeExpiresAt: new Date('2026-09-01T04:00:00Z'), status: 'completed', callbackRequested: true });
     await db.insert(schema.retentionCampaignSchema).values({ id: 'winback-preserved', salonId: SALON, salonClientId: 'sclient_target', tokenHash: 'winback-preserved-hash', stage: 'promo_6w', promotionSnapshot: { enabled: true, name: 'Welcome back', discountType: 'percent', value: 5, eligibleServiceIds: [], code: null, messageTemplate: '', expiryDays: 30, singleUse: true }, expiresAt: new Date('2026-09-01T04:00:00Z') });
     const otherBefore = await snapshot(OTHER_SALON);
     const result = await db.transaction(tx => purgeSalonGroups(tx as unknown as PurgeTx, SALON, ['appointments']));
@@ -637,6 +649,8 @@ describe('Next Visit purge dependencies', () => {
     expect(result.counts.next_visit_offer).toBe(1);
     expect(result.counts.next_visit_offer_event).toBe(1);
     expect(result.counts.retention_campaign).toBe(1);
+    expect(result.counts.voice_call).toBe(1);
+    expect(await db.select().from(schema.voiceCallSchema).where(eq(schema.voiceCallSchema.providerCallId, 'unlinked-callback'))).toHaveLength(1);
     expect(await db.select().from(schema.retentionCampaignSchema).where(eq(schema.retentionCampaignSchema.id, 'winback-preserved'))).toHaveLength(1);
     expect(await snapshot(OTHER_SALON)).toEqual(otherBefore);
   });

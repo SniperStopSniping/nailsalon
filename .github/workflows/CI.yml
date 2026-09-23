@@ -276,6 +276,9 @@ jobs:
               # Next 15.5.25 / React 19.2.8: patched App Router request handling
               # (GHSA-m99w-x7hq-7vfj), with compatible intl/UI/test dependencies.
               2566f6f2a1cb093ce512627a1568265c57aa8895:8d44f4449583e8d5d8bcc3cf6e844d9f47610578) ;;
+              # Voice receptionist: ws runtime sideband + matching TypeScript
+              # types on the current main manifests; payment dependencies unchanged.
+              f7c4952389da41ef8ad7a16fc3c71ccd785140f3:75eb90cb75b577a9b9ea9b9f84a1ec928ad20e34) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -400,6 +403,8 @@ jobs:
               27fd38cdd3e1ae7dbb0b5ec5f4180febb6a50584) ;;
               # Next Visit: tenant-scoped child-before-parent offer cleanup.
               857caed5cee8ee8eabebc820b33ca5d322c6faa5) ;;
+              # Voice call history: tenant-scoped child before appointment.
+              06b93e306c1f007d86fa29aaaf9cf511d8493a7b) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -456,6 +461,8 @@ jobs:
               migrations/0090_misty_sprite.sql) ;;
               # Service-owned booked add-on snapshots; additive only.
               migrations/0091_appointment_add_on_service_snapshot.sql) ;;
+              # Shared-authority voice receptionist; additive only.
+              migrations/0092_voice_receptionist.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -468,6 +475,7 @@ jobs:
               migrations/meta/0089_snapshot.json) ;;
               migrations/meta/0090_snapshot.json) ;;
               migrations/meta/0091_snapshot.json) ;;
+              migrations/meta/0092_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -745,6 +753,37 @@ jobs:
             exit 1
           fi
 
+          # The unreleased voice packet is pinned to the reviewed forwarding-route
+          # schema. A later release must append a new migration, never rewrite it.
+          if ! git diff --quiet "$base" -- migrations/0092_voice_receptionist.sql migrations/meta/0092_snapshot.json; then
+            if git cat-file -e "$base:migrations/0092_voice_receptionist.sql" 2>/dev/null \
+              || git cat-file -e "$base:migrations/meta/0092_snapshot.json" 2>/dev/null; then
+              echo "::error::Migration 0092 and its snapshot are already shipped and immutable."
+              exit 1
+            fi
+            migration_0092_sql_status="$(git diff --name-status "$base" -- migrations/0092_voice_receptionist.sql)"
+            migration_0092_snapshot_status="$(git diff --name-status "$base" -- migrations/meta/0092_snapshot.json)"
+            if [ "$migration_0092_sql_status" != $'A\tmigrations/0092_voice_receptionist.sql' ] \
+              || [ "$migration_0092_snapshot_status" != $'A\tmigrations/meta/0092_snapshot.json' ]; then
+              echo "::error::Migration 0092 must introduce exactly one SQL file and one snapshot."
+              exit 1
+            fi
+            migration_0092_sql_sha256="$(sha256sum migrations/0092_voice_receptionist.sql | awk '{print $1}')"
+            migration_0092_snapshot_sha256="$(sha256sum migrations/meta/0092_snapshot.json | awk '{print $1}')"
+            if [ "$migration_0092_sql_sha256" != "5bc5408671d18deacffa1848527410c322e76fe7f15fa0e866654ae2e91e4a73" ] \
+              || [ "$migration_0092_snapshot_sha256" != "b55b422d3fd79d75f469eb71403af1aa26ab540f4be1ec66e75065bb73cf046a" ]; then
+              echo "::error::Migration 0092 artifacts do not match the reviewed voice postimage."
+              exit 1
+            fi
+          fi
+
+          expected_0092_journal='{"breakpoints":true,"idx":91,"tag":"0092_voice_receptionist","version":"7","when":1790201476984}'
+          actual_0092_journal="$(jq -cS '.entries[] | select(.tag == "0092_voice_receptionist")' migrations/meta/_journal.json)"
+          if [ "$actual_0092_journal" != "$expected_0092_journal" ]; then
+            echo "::error::Migration 0092 journal entry does not match the reviewed postimage."
+            exit 1
+          fi
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -804,6 +843,7 @@ jobs:
               0089_service_add_on_manual_confirmation) ;;
               0090_misty_sprite) ;;
               0091_appointment_add_on_service_snapshot) ;;
+              0092_voice_receptionist) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -824,6 +864,7 @@ jobs:
               /api/deposits/holds/reap) ;;
               /api/deposits/reconcile) ;;
               /api/communications/dispatch) ;;
+              /api/voice/maintenance) ;;
               # D3 (2026-09-14): billing crons, dark until BILLING_* switches flip
               /api/billing/windows/evaluate) ;;
               /api/billing/reconcile) ;;
@@ -1510,7 +1551,7 @@ jobs:
             src/libs/appointmentCreation.customerOperation.concurrency.integration.test.ts \
             | tee customer-booking-postgres.log
           grep -Fqx 'CUSTOMER_OPERATION_POSTGRES_TESTS_EXECUTED=12 CUSTOMER_OPERATION_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
-          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=38 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
+          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=41 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
 
       - name: Verify calendar block and booking fence races on real PostgreSQL with zero skips
         shell: bash
