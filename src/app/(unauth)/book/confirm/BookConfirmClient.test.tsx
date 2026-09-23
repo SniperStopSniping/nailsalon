@@ -1212,6 +1212,18 @@ describe('BookConfirmClient', () => {
       expected: 'This booking attempt changed. Please confirm the appointment again.',
     },
     {
+      code: 'CONTACT_IDENTITY_CONFLICT',
+      status: 409,
+      body: {
+        error: {
+          code: 'CONTACT_IDENTITY_CONFLICT',
+          message: HOSTILE_SERVER_MESSAGE_FOR_TEST,
+        },
+        bookingAttemptOutcome: 'resolved_failure',
+      },
+      expected: 'Check that the phone number and email belong together for this booking.',
+    },
+    {
       code: 'EXISTING_APPOINTMENT',
       status: 409,
       body: {
@@ -1219,8 +1231,9 @@ describe('BookConfirmClient', () => {
           code: 'EXISTING_APPOINTMENT',
           message: HOSTILE_SERVER_MESSAGE_FOR_TEST,
         },
+        bookingAttemptOutcome: 'resolved_failure',
       },
-      expected: 'You already have an upcoming appointment',
+      expected: 'We could not verify these contact details.',
     },
     {
       code: 'DEPOSIT_HOLD_ACTIVE',
@@ -1268,13 +1281,14 @@ describe('BookConfirmClient', () => {
     expect(document.body).not.toHaveTextContent('/api/appointments');
   });
 
-  it('transitions an existing-appointment response to safe management options', async () => {
+  it('keeps legacy existing-appointment errors inline instead of replacing Confirm with a dead end', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       error: {
         code: 'EXISTING_APPOINTMENT',
         message: 'You already have an upcoming appointment.',
       },
+      bookingAttemptOutcome: 'resolved_failure',
     }), { status: 409 }));
 
     render(
@@ -1295,33 +1309,19 @@ describe('BookConfirmClient', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
-    expect(await screen.findByText('You already have an upcoming appointment')).toBeInTheDocument();
-    expect(screen.getByTestId('existing-appointment-send-link')).toBeInTheDocument();
-    expect(screen.getByTestId('existing-appointment-manage')).toBeInTheDocument();
-    expect(screen.queryByTestId('existing-appointment-edit-contact')).not.toBeInTheDocument();
-    expect(screen.getByTestId('existing-appointment-retry')).toBeInTheDocument();
-    expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('existing-appointment-manage'));
-
-    expect(routerPush).toHaveBeenCalledWith('/en/salon-a/find-booking');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Book another appointment' }));
-
+    expect(await screen.findByRole('alert')).toHaveTextContent('We could not verify these contact details.');
+    expect(screen.queryByTestId('existing-appointment-send-link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: 'Existing appointment options' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Review your appointment' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('offers private appointment management without an identifying lookup and lets the customer continue', () => {
+  it('does not show an upcoming-appointment prompt during normal confirmation', () => {
     renderBasicConfirm();
 
-    expect(screen.getByRole('link', { name: 'View my appointments' })).toHaveAttribute('href', '/en/salon-a/find-booking');
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Book another appointment' }));
-
+    expect(screen.queryByRole('link', { name: 'View my appointments' })).not.toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: 'Existing appointment options' })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Review your appointment' })).toHaveFocus();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
   });

@@ -1155,7 +1155,6 @@ const ConfirmContent = ({
   isSubmitting,
   isRecoveringBooking,
   recoveryUnresolved = false,
-  findBookingUrl,
   location,
   subtotalBeforeDiscount,
   discountAmount,
@@ -1201,7 +1200,6 @@ const ConfirmContent = ({
   isSubmitting: boolean;
   isRecoveringBooking: boolean;
   recoveryUnresolved?: boolean;
-  findBookingUrl?: string;
   location: LocationSummary;
   subtotalBeforeDiscount: number;
   discountAmount: number;
@@ -1248,8 +1246,6 @@ const ConfirmContent = ({
   // actions unmount the banner (and the focused button with it), so focus
   // moves to the confirm button and a polite live region states the outcome.
   const confirmActionRef = useRef<HTMLButtonElement>(null);
-  const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
-  const [showAppointmentChoice, setShowAppointmentChoice] = useState(true);
   const acknowledgmentHelpId = useId();
   const [smartFitOutcomeAnnouncement, setSmartFitOutcomeAnnouncement] = useState<string | null>(null);
 
@@ -1337,7 +1333,7 @@ const ConfirmContent = ({
           animate={{ opacity: 1, y: 0 }}
           className="text-center"
         >
-          <h1 ref={reviewHeadingRef} tabIndex={-1} className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
+          <h1 className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
             Review your appointment
           </h1>
           <p className="font-body mx-auto max-w-sm text-sm leading-relaxed text-[var(--n5-ink-muted)]">
@@ -1352,27 +1348,6 @@ const ConfirmContent = ({
                   : 'Not booked yet. Confirm below to reserve your time.'}
           </p>
         </motion.div>
-
-        {findBookingUrl && showAppointmentChoice && !isReschedule && !isSubmitting && !recoveryUnresolved && (
-          <aside className="space-y-3 rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-sm leading-6" aria-label="Existing appointment options">
-            <p className="font-semibold">Already have an upcoming appointment?</p>
-            <p>You can manage your appointments or book another appointment.</p>
-            <div className="grid gap-2">
-              <a href={findBookingUrl} className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--n5-border)] p-3 text-center font-semibold">View my appointments</a>
-              <p className="text-center text-xs">Use a secure link to view, change or cancel.</p>
-              <button
-                type="button"
-                className="min-h-11 rounded-xl border border-[var(--n5-border)] p-3 font-semibold"
-                onClick={() => {
-                  setShowAppointmentChoice(false);
-                  reviewHeadingRef.current?.focus();
-                }}
-              >
-                Book another appointment
-              </button>
-            </div>
-          </aside>
-        )}
 
         {isSubmitting && !recoveryUnresolved && (
           <div
@@ -2923,6 +2898,7 @@ export function BookConfirmClient({
           INVALID_START_TIME: 'Choose a valid appointment time before confirming again.',
           INVALID_SELECTION: 'Review your selected services before confirming again.',
           RATE_LIMIT_EXCEEDED: 'Please wait a few minutes before trying to confirm again.',
+          CONTACT_IDENTITY_CONFLICT: 'Check that the phone number and email belong together for this booking. If both details are correct, contact the salon for help.',
         };
         if (response.status < 500 && typeof errorCode === 'string' && definitiveValidationMessages[errorCode]) {
           releasePublicAttempt();
@@ -3038,8 +3014,7 @@ export function BookConfirmClient({
 
         if (errorCode === 'EXISTING_APPOINTMENT') {
           releasePublicAttempt();
-          setHasExistingAppointment(true);
-          setBookingError('You already have an upcoming appointment.');
+          setBookingError('We could not verify these contact details. Check your phone number and email, or contact the salon for help.');
           bookingInitiatedRef.current = false;
           return;
         }
@@ -3482,7 +3457,6 @@ export function BookConfirmClient({
         isSubmitting={isBooking || publicRecoveryPending}
         isRecoveringBooking={recoveringHandoff || checkingPublicRecovery}
         recoveryUnresolved={publicRecoveryPending}
-        findBookingUrl={!isAssistantHandoff ? appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug, locale }) : undefined}
         location={location}
         rewardsEnabled={rewardsEnabled}
         isReschedule={Boolean(originalAppointmentId)}

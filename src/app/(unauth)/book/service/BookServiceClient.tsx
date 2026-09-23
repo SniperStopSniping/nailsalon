@@ -2153,7 +2153,7 @@ export function BookServiceClient({
                                           }}
                                         >
                                           <div className="mb-2 max-[360px]:mb-[8px]">
-                                            <h4 ref={optionsHeadingRef} tabIndex={-1} className="text-[15px] font-semibold text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                                            <h4 ref={optionsHeadingRef} tabIndex={-1} className="text-[15px] font-semibold text-neutral-900 focus:outline-none">
                                               Add-ons
                                             </h4>
                                           </div>

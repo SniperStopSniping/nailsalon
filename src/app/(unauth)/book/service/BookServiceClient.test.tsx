@@ -2158,6 +2158,7 @@ describe('BookServiceClient', () => {
 
     expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'true');
     expect(screen.getByTestId('service-inline-addons-panel')).toHaveTextContent('Add-ons');
+    expect(screen.getByRole('heading', { name: 'Add-ons' })).toHaveClass('focus:outline-none');
     expect(screen.getByRole('button', { name: 'Add French Tip' })).toBeEnabled();
     expect(screen.queryByTestId('service-selection-summary')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-add-button-svc-1')).not.toBeInTheDocument();
