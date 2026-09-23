@@ -317,6 +317,15 @@ async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
   const addOnTargets = await page.locator('[data-testid^="service-addon-row-"] button').all();
   await expectNoTargetOverlap(addOnTargets);
 
+  const optionsDone = page.getByTestId('service-options-done-button');
+  if (await optionsDone.isVisible().catch(() => false)) {
+    const noRemoval = page.getByTestId('service-no-removal-button');
+    if (await noRemoval.isVisible().catch(() => false)) {
+      await noRemoval.click();
+    }
+    await optionsDone.click();
+  }
+
   await page.getByTestId('service-continue-button').click();
   await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
 

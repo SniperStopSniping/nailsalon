@@ -2007,7 +2007,7 @@ export function BookServiceClient({
                                       <button
                                         type="button"
                                         onClick={() => handleServiceSelection(service)}
-                                        className="min-h-11 rounded-lg px-2 text-xs font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                        className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                                         aria-label={`Edit options for ${service.name}`}
                                       >
                                         Edit
@@ -2016,7 +2016,7 @@ export function BookServiceClient({
                                     <button
                                       type="button"
                                       onClick={() => handleRemoveService(item.serviceId)}
-                                      className="min-h-11 rounded-lg px-2 text-xs font-semibold text-neutral-600 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                      className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-600 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                                       aria-label={`Remove ${service?.name ?? 'unavailable service'}`}
                                     >
                                       Remove
