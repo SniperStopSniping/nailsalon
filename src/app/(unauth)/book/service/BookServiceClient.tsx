@@ -518,6 +518,7 @@ export function BookServiceClient({
   const serviceDetailsRef = useRef<HTMLDivElement>(null);
   const serviceDetailsHeadingRef = useRef<HTMLHeadingElement>(null);
   const continueButtonRef = useRef<HTMLButtonElement>(null);
+  const focusContinueAfterReviewRef = useRef(false);
   const optionsReviewStorageKey = `booking_options_review:v1:${salonSlug}`;
 
   useEffect(() => {
@@ -1177,6 +1178,13 @@ export function BookServiceClient({
   const optionsKey = activeReview?.key ?? '';
   const firstUnreviewedItem = basketReview.find(item => !item.reviewed);
   const needsOptionsReview = Boolean(firstUnreviewedItem);
+  useEffect(() => {
+    if (!focusContinueAfterReviewRef.current || !activeReview?.reviewed) {
+      return;
+    }
+    focusContinueAfterReviewRef.current = false;
+    continueButtonRef.current?.focus({ preventScroll: true });
+  }, [activeReview?.reviewed]);
   const hasRequiredAddOns = allowedAddOns.some(item => item?.rule.selectionMode === 'required');
   const hasOptionalAddOns = allowedAddOns.some(item => item?.rule.selectionMode === 'optional');
   const addOnCompositionLabel = hasRequiredAddOns && hasOptionalAddOns
@@ -1594,9 +1602,10 @@ export function BookServiceClient({
           // PR's redesign. This is presentation-plan chrome, not a second
           // conditional booking-engine body.
           sectionPresentation.pageFrame === 'editorial'
-            ? 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 lg:max-w-5xl lg:px-10'
-            : 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10'
+            ? 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px] lg:max-w-5xl lg:px-10'
+            : 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px]'
         }
+        style={{ paddingBottom: selectedService ? 'calc(7rem + env(safe-area-inset-bottom, 0px))' : undefined }}
       >
         {/*
           Stage 4 keeps one service-selection engine and gives the canonical
@@ -1964,7 +1973,7 @@ export function BookServiceClient({
                         menuVariant,
                       ) && !isSearching && (
                         <div
-                          className="scrollbar-hide -mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 md:mx-0 md:w-full md:overflow-visible md:px-0"
+                          className="scrollbar-hide -mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 max-[360px]:mx-[-12px] max-[360px]:w-[calc(100%+24px)] max-[360px]:px-[12px] md:mx-0 md:w-full md:overflow-visible md:px-0"
                           style={{
                             opacity: previewContentReady ? 1 : 0,
                             transition: 'opacity 300ms ease-out 150ms',
@@ -2052,7 +2061,7 @@ export function BookServiceClient({
                               const service = services.find(candidate => candidate.id === item.serviceId);
                               const review = basketReview.find(candidate => candidate.serviceId === item.serviceId);
                               return (
-                                <div key={item.serviceId} className="flex items-start justify-between gap-2 rounded-xl bg-neutral-50 p-2.5">
+                                <div key={item.serviceId} className="flex items-start justify-between gap-2 rounded-xl bg-neutral-50 p-2.5 max-[360px]:flex-col max-[360px]:items-stretch">
                                   <div className="min-w-0">
                                     <div className="break-words text-sm font-semibold text-neutral-900">{service?.name ?? 'Unavailable service'}</div>
                                     <div className="mt-0.5 break-words text-xs text-neutral-600">
@@ -2064,12 +2073,12 @@ export function BookServiceClient({
                                         : review?.reviewed ? 'No optional extras' : 'Options to review'}
                                     </div>
                                   </div>
-                                  <div className="flex shrink-0 gap-1">
+                                  <div className="flex shrink-0 gap-1 max-[360px]:flex-wrap max-[360px]:justify-end">
                                     {service && (
                                       <button
                                         type="button"
                                         onClick={() => handleServiceSelection(service)}
-                                        className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                        className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
                                         aria-label={`Edit options for ${service.name}`}
                                       >
                                         Edit
@@ -2078,7 +2087,7 @@ export function BookServiceClient({
                                     <button
                                       type="button"
                                       onClick={() => handleRemoveService(item.serviceId)}
-                                      className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-600 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                      className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-600 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
                                       aria-label={`Remove ${service?.name ?? 'unavailable service'}`}
                                     >
                                       Remove
@@ -2406,7 +2415,7 @@ export function BookServiceClient({
                                                   <h5 className="text-sm font-semibold text-neutral-900">{group.title}</h5>
                                                   <div role="list" className="mt-1 divide-y divide-neutral-100">
                                                     {group.items.map(({ rule, addOn }) => (
-                                                      <div key={addOn.id} role="listitem" className="flex items-start justify-between gap-3 py-2 text-sm">
+                                                      <div key={addOn.id} role="listitem" className="flex items-start justify-between gap-3 py-2 text-sm max-[360px]:flex-col max-[360px]:gap-1">
                                                         <span className="min-w-0 text-neutral-800">
                                                           {addOn.name}
                                                           {rule.selectionMode === 'required' && <span className="ml-1 text-xs text-neutral-500">Required</span>}
@@ -2416,7 +2425,7 @@ export function BookServiceClient({
                                                             </span>
                                                           )}
                                                         </span>
-                                                        <span className="shrink-0 text-right font-semibold text-neutral-800">
+                                                        <span className="shrink-0 text-right font-semibold text-neutral-800 max-[360px]:text-left">
                                                           {rule.priceMode === 'manual_confirmation'
                                                             ? 'Price to confirm'
                                                             : addOn.priceDisplayText || (addOn.priceCents > 0 ? `+${formatMoney(addOn.priceCents, currency)}` : 'Free')}
@@ -2467,24 +2476,24 @@ export function BookServiceClient({
                                             scrollMarginTop: '1rem',
                                           }}
                                         >
-                                          <div className="mb-2">
+                                          <div className="mb-2 max-[360px]:mb-[8px]">
                                             <h4 ref={optionsHeadingRef} tabIndex={-1} className="text-[15px] font-semibold text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
                                               Customize your
                                               {' '}
                                               {selectedService.name}
                                             </h4>
-                                            <div className="mt-0.5 text-[11px] leading-4 text-neutral-500">
+                                            <div className={`mt-0.5 text-[11px] leading-4 text-neutral-500 ${hasRequiredAddOns ? '' : 'max-[360px]:hidden'}`}>
                                               {addOnCompositionLabel}
                                             </div>
                                           </div>
 
-                                          <div className="space-y-4">
+                                          <div className="space-y-4 max-[360px]:space-y-[10px]">
                                             {[
                                               { title: `Before your ${selectedService.name}`, items: removalOptions, preparation: true },
                                               { title: 'Make it yours ✨', items: otherOptions, preparation: false },
                                             ].filter(group => group.items.length > 0).map(group => (
-                                              <div key={group.title} className="space-y-1.5">
-                                                <h5 className="text-sm font-semibold text-neutral-900">{group.title}</h5>
+                                              <div key={group.title} className="space-y-1.5 max-[360px]:space-y-[6px]">
+                                                <h5 className={`text-sm font-semibold text-neutral-900 ${!group.preparation && removalOptions.length === 0 ? 'max-[360px]:sr-only' : ''}`}>{group.title}</h5>
                                                 {group.preparation && group.items.some(item => item && !autoIncludedQuantities.get(item.addOn.id)) && (
                                                   <p className="text-xs text-neutral-600">
                                                     {group.items.some(item => item && autoIncludedQuantities.get(item.addOn.id))
@@ -2511,7 +2520,7 @@ export function BookServiceClient({
                                                     <div
                                                       key={addOn.id}
                                                       data-testid={`service-addon-row-${addOn.id}`}
-                                                      className="rounded-[18px] border px-3 py-2 sm:px-3.5 sm:py-2.5"
+                                                      className="rounded-[18px] border px-3 py-2 max-[360px]:px-[10px] max-[360px]:py-[8px] sm:px-3.5 sm:py-2.5"
                                                       style={{
                                                         borderColor: isSelected
                                                           ? hasBookingBrandColor
@@ -2525,8 +2534,8 @@ export function BookServiceClient({
                                                           : 'white',
                                                       }}
                                                     >
-                                                      <div className="flex items-center justify-between gap-2.5">
-                                                        <div className="min-w-0 flex-1">
+                                                      <div className="flex items-center justify-between gap-2.5 max-[360px]:flex-wrap max-[360px]:gap-[6px]">
+                                                        <div className="min-w-0 flex-1 max-[360px]:basis-full">
                                                           <div className="flex items-center gap-2">
                                                             <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
                                                             {isRequired && (
@@ -2540,7 +2549,7 @@ export function BookServiceClient({
                                                               {addOn.descriptionItems[0]}
                                                             </div>
                                                           )}
-                                                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
+                                                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500 max-[360px]:mt-[4px] max-[360px]:gap-[8px]">
                                                             <span>{manualConfirmation ? 'Price to be confirmed' : addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
                                                             <span>{formatDuration(addOn.durationMinutes)}</span>
                                                             {isSelected && (
@@ -2563,13 +2572,13 @@ export function BookServiceClient({
 
                                                         {addOn.pricingType === 'per_unit'
                                                           ? (
-                                                              <div className="flex items-center gap-1">
+                                                              <div className="flex items-center gap-1 max-[360px]:ml-auto">
                                                                 <button
                                                                   type="button"
                                                                   aria-label={`Decrease ${addOn.name} quantity`}
                                                                   onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, effectiveQuantity - 1) : Math.max(0, effectiveQuantity - 1))}
                                                                   disabled={isRequired ? effectiveQuantity <= 1 : effectiveQuantity <= 0}
-                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
                                                                 >
                                                                   -
                                                                 </button>
@@ -2581,7 +2590,7 @@ export function BookServiceClient({
                                                                   aria-label={`Increase ${addOn.name} quantity`}
                                                                   onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, effectiveQuantity + 1))}
                                                                   disabled={effectiveQuantity >= maxQuantity}
-                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
                                                                 >
                                                                   +
                                                                 </button>
@@ -2595,7 +2604,7 @@ export function BookServiceClient({
                                                                   : `${isSelected ? 'Remove' : 'Add'} ${addOn.name}`}
                                                                 onClick={() => handleAddOnToggle(addOn.id)}
                                                                 disabled={isRequired && isSelected}
-                                                                className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none"
+                                                                className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none max-[360px]:ml-auto max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
                                                                 style={{
                                                                   backgroundColor: isSelected
                                                                     ? hasBookingBrandColor
@@ -2617,25 +2626,31 @@ export function BookServiceClient({
                                               </div>
                                             ))}
                                           </div>
-                                          <button
-                                            type="button"
-                                            data-testid="service-options-done-button"
-                                            disabled={l1Blocked}
-                                            onClick={() => {
-                                              setOptionsReview(current => ({
-                                                ...current,
-                                                reviewed: { ...current.reviewed, [selectedService.id]: optionsKey },
-                                                preparation: { ...current.preparation, [selectedService.id]: optionsKey },
-                                              }));
-                                              triggerHaptic('confirm');
-                                            }}
-                                            className="mt-3 min-h-11 w-full rounded-xl px-3 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                            style={{ backgroundColor: themeVars.primaryDark }}
-                                          >
-                                            {selectedAddOnsState.some(item => selectedRules.some(rule => rule.addOnId === item.addOnId && rule.selectionMode !== 'required'))
-                                              ? 'Done reviewing options'
-                                              : 'Continue without optional extras'}
-                                          </button>
+                                          {!activeReview?.reviewed && (
+                                            <button
+                                              type="button"
+                                              data-testid="service-options-done-button"
+                                              aria-label={selectedAddOnsState.some(item => selectedRules.some(rule => rule.addOnId === item.addOnId && rule.selectionMode !== 'required'))
+                                                ? 'Done reviewing options'
+                                                : 'No extras — continue without optional extras'}
+                                              disabled={l1Blocked}
+                                              onClick={() => {
+                                                focusContinueAfterReviewRef.current = true;
+                                                setOptionsReview(current => ({
+                                                  ...current,
+                                                  reviewed: { ...current.reviewed, [selectedService.id]: optionsKey },
+                                                  preparation: { ...current.preparation, [selectedService.id]: optionsKey },
+                                                }));
+                                                triggerHaptic('confirm');
+                                              }}
+                                              className="mt-3 min-h-11 w-full rounded-xl px-3 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                              style={{ backgroundColor: themeVars.primaryDark }}
+                                            >
+                                              {selectedAddOnsState.some(item => selectedRules.some(rule => rule.addOnId === item.addOnId && rule.selectionMode !== 'required'))
+                                                ? 'Done'
+                                                : 'No extras'}
+                                            </button>
+                                          )}
                                         </div>
                                       )}
                                     </div>
@@ -2890,7 +2905,7 @@ export function BookServiceClient({
                   {!isSearching && featuredServices.length > 0 && (
                     <div
                       data-public-surface="featuredServices"
-                      className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
+                      className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 max-[360px]:mx-[-12px] max-[360px]:w-[calc(100%+24px)] max-[360px]:px-[12px] sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
                       style={{
                         opacity: previewContentReady ? 1 : 0,
                         transition: 'opacity 300ms ease-out 150ms',
@@ -3320,8 +3335,8 @@ export function BookServiceClient({
               }
             `}
           </style>
-          <div className="mx-auto flex max-w-[430px] flex-nowrap items-center justify-between gap-3 px-4 py-1.5 sm:py-2">
-            <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="mx-auto flex max-w-[430px] flex-nowrap items-center justify-between gap-3 px-4 py-1.5 max-[360px]:flex-col max-[360px]:items-stretch max-[360px]:gap-[8px] max-[360px]:px-[12px] sm:py-2">
+            <div className="flex min-w-0 flex-col gap-0.5 max-[360px]:w-full max-[360px]:flex-row max-[360px]:flex-wrap max-[360px]:items-baseline max-[360px]:justify-between max-[360px]:gap-x-[8px] max-[360px]:gap-y-[2px]">
               <div className="truncate text-[11px] leading-none text-neutral-500">
                 {`${selectedBasket.length} service${selectedBasket.length === 1 ? '' : 's'}`}
                 {selectedAddOnCount > 0
@@ -3331,7 +3346,7 @@ export function BookServiceClient({
               {hasVisibleAddOns && (
                 <div
                   data-testid="service-sticky-addon-note"
-                  className="truncate text-[9px] font-medium leading-none"
+                  className="truncate text-[9px] font-medium leading-none max-[360px]:hidden"
                   style={{ color: themeVars.accent }}
                 >
                   {needsOptionsReview ? 'Options to review' : addOnStickyLabel}
@@ -3352,7 +3367,7 @@ export function BookServiceClient({
               onClick={handleContinue}
               data-testid="service-continue-button"
               disabled={!needsOptionsReview && l1Blocked}
-              className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
+              className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none max-[360px]:min-h-[44px] max-[360px]:w-full max-[360px]:justify-center max-[360px]:px-[12px] sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
                 hasBookingBrandColor
                   ? 'text-[var(--booking-brand-foreground)]'
                   : 'text-neutral-900'
