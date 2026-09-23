@@ -41,6 +41,7 @@ export const PUBLIC_SURFACE_INVENTORY = {
   editorialStickyBookingCta: { classification: 'systemAffordance', reason: 'Viewport-fixed booking access governed by scroll and booking state.' },
   selectedServiceContinueBar: { classification: 'systemAffordance', reason: 'Viewport-fixed booking access governed by selection state.' },
   appointmentSummaryCard: { classification: 'bookingFlowControl', reason: 'Appointment summary on technician and time steps, governed by selected booking state.' },
+  confirmationRebookingPrompt: { classification: 'bookingFlowControl', reason: 'Optional salon-configured next-booking action shown only after a confirmed receipt.' },
   bookingProgressHeader: { classification: 'bookingFlowControl', reason: 'Progress/back controls governed by booking flow.' },
   serviceSelectionControls: { classification: 'bookingFlowControl', reason: 'Search, category and selection controls inside the protected service engine.' },
   timeSelectionControls: { classification: 'bookingFlowControl', reason: 'Canonical availability choices and empty-state recovery governed by time-selection state.' },

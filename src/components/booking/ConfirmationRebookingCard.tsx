@@ -32,7 +32,7 @@ export function ConfirmationRebookingCard({ settings, onBook }: {
   }
 
   return (
-    <section aria-label={t('next_visit_title')} className="min-w-0 rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-[var(--n5-ink-main)]">
+    <section data-public-surface="confirmationRebookingPrompt" aria-label={t('next_visit_title')} className="min-w-0 rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-[var(--n5-ink-main)]">
       <h2 className="font-heading break-words text-lg font-semibold">{t('next_visit_title')}</h2>
       <p className="mt-2 text-sm text-[var(--n5-ink-muted)]">
         {t(settings.intervalWeeks === 1 ? 'next_visit_interval_one' : 'next_visit_interval', { weeks: settings.intervalWeeks })}
