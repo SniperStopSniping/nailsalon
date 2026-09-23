@@ -54,6 +54,7 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
   await expect(card).toBeVisible();
 
   await card.click();
+  await page.getByTestId(`service-add-button-${SERVICE}`).click();
   await page.getByRole('button', { name: 'Add Synthetic optional French', exact: true }).click();
 
   const preparation = page.getByTestId(`service-addon-row-${AUTO}`);
@@ -74,9 +75,6 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
 
   await expect(preparation.getByRole('button', { name: 'Decrease Synthetic automatic prep quantity' })).toBeDisabled();
 
-  await page.getByTestId('service-no-removal-button').click();
-
-  await expect(page.getByTestId('service-no-removal-button')).toHaveAttribute('aria-pressed', 'true');
   await expect(preparation.getByText('1', { exact: true })).toBeVisible();
 
   await page.getByTestId('service-options-done-button').click();

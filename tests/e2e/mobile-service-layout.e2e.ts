@@ -203,6 +203,12 @@ async function selectConfiguredService(page: Page): Promise<void> {
   await expect(card).toBeVisible();
 
   await card.click();
+  const cardTestId = await card.getAttribute('data-testid');
+
+  if (!cardTestId?.startsWith('service-card-')) {
+    throw new Error('Expected a canonical service card.');
+  }
+  await page.getByTestId(`service-add-button-${cardTestId.slice('service-card-'.length)}`).click();
 
   await expect(page.getByTestId('service-continue-button')).toBeVisible();
 }
@@ -319,10 +325,6 @@ async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
 
   const optionsDone = page.getByTestId('service-options-done-button');
   if (await optionsDone.isVisible().catch(() => false)) {
-    const noRemoval = page.getByTestId('service-no-removal-button');
-    if (await noRemoval.isVisible().catch(() => false)) {
-      await noRemoval.click();
-    }
     await optionsDone.click();
   }
 
@@ -916,12 +918,18 @@ for (const viewport of MOBILE_VIEWPORTS) {
 
       await expectNoPageHorizontalOverflow(page);
 
-      // Selecting the LAST card raises the sticky bar; the reserved bottom
+      // Adding the LAST card raises the sticky bar; the reserved bottom
       // clearance must keep that card fully above the bar at scroll end.
       const cards = page.locator('[data-testid^="service-card-"]:not([data-testid*="image"]):not([data-testid*="content"]):not([data-testid*="meta"]):not([data-testid*="price"]):not([data-testid*="addon"])');
       const lastCard = cards.last();
       await lastCard.scrollIntoViewIfNeeded();
       await lastCard.click();
+      const cardTestId = await lastCard.getAttribute('data-testid');
+
+      if (!cardTestId?.startsWith('service-card-')) {
+        throw new Error('Expected a canonical service card.');
+      }
+      await page.getByTestId(`service-add-button-${cardTestId.slice('service-card-'.length)}`).click();
 
       const stickyBar = page.getByTestId('service-sticky-bar');
 
@@ -1087,11 +1095,55 @@ test.describe('selected service options on mobile', () => {
   test.use({ viewport: { width: 320, height: 700 }, isMobile: true, hasTouch: true });
 
   for (const browserTag of ['@mobile-chrome', '@mobile-safari']) {
+    test(`keyboard can inspect a searched service before adding it ${browserTag}`, async ({ page }) => {
+      await openServicePage(page);
+      await page.getByPlaceholder('Search services...').fill(e2eConfig.serviceName);
+
+      const card = page.getByTestId(`service-card-${e2eConfig.serviceId}`);
+
+      await card.focus();
+      await page.keyboard.press('Enter');
+
+      const details = page.getByTestId(`service-details-${e2eConfig.serviceId}`);
+      const addButton = page.getByTestId(`service-add-button-${e2eConfig.serviceId}`);
+
+      await expect(details.getByRole('heading', { name: e2eConfig.serviceName })).toBeFocused();
+      await expect(card).toHaveAttribute('data-selected', 'false');
+      await expect(page.getByTestId('service-sticky-bar')).toHaveCount(0);
+      await expect.poll(() => new URL(page.url()).searchParams.get('baseServiceId')).toBeNull();
+
+      await addButton.focus();
+
+      await expect(addButton).toBeFocused();
+
+      await page.keyboard.press('Enter');
+
+      await expect(card).toHaveAttribute('data-selected', 'true');
+      await expect(page.getByTestId('service-sticky-bar')).toBeVisible();
+    });
+
     test(`shows the service name and options before continuing ${browserTag}`, async ({ page }, testInfo) => {
       await openServicePage(page);
 
       const card = page.getByTestId(`service-card-${e2eConfig.serviceId}`);
       await card.click();
+
+      await expect(card).toHaveAttribute('data-selected', 'false');
+
+      const details = page.getByTestId(`service-details-${e2eConfig.serviceId}`);
+      const detailsHeading = details.getByRole('heading', { name: e2eConfig.serviceName });
+
+      await expect(details).toBeVisible();
+      await expect(detailsHeading).toBeFocused();
+      await expect.poll(() => detailsHeading.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.top >= 0 && bounds.top <= window.innerHeight * 0.4;
+      })).toBe(true);
+      await expect(page.getByTestId('service-sticky-bar')).toHaveCount(0);
+      await expect(page.getByTestId(`service-card-image-${e2eConfig.serviceId}`)).toBeHidden();
+
+      await page.screenshot({ path: testInfo.outputPath('service-details-before-add-320.png'), animations: 'disabled' });
+      await page.getByTestId(`service-add-button-${e2eConfig.serviceId}`).click();
 
       const optionsHeading = page.getByRole('heading', { name: `Customize your ${e2eConfig.serviceName}` });
 
@@ -1104,9 +1156,11 @@ test.describe('selected service options on mobile', () => {
 
       const continueButton = page.getByTestId('service-continue-button');
 
+      await expect(continueButton).toBeVisible();
+      await expect(continueButton).toBeInViewport();
       await expect(continueButton).toContainText('Review options');
 
-      await page.screenshot({ path: testInfo.outputPath('selected-service-options-320.png') });
+      await page.screenshot({ path: testInfo.outputPath('selected-service-options-320.png'), animations: 'disabled' });
 
       await page.evaluate(() => {
         document.documentElement.style.fontSize = '200%';

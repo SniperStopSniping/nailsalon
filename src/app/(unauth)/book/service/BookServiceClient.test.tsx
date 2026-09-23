@@ -356,6 +356,11 @@ function getRenderedBookingSteps(): string[] {
   ));
 }
 
+function addServiceFromCard(serviceId: string): void {
+  fireEvent.click(screen.getByTestId(`service-card-${serviceId}`));
+  fireEvent.click(screen.getByTestId(`service-add-button-${serviceId}`));
+}
+
 function buildPublicShellSalon(
   settings: unknown,
   options: {
@@ -633,6 +638,7 @@ describe('BookServiceClient', () => {
     }
 
     fireEvent.click(serviceCard);
+    fireEvent.click(screen.getByTestId('service-add-button-svc-1'));
 
     expect(serviceCard).toHaveAttribute('data-selected', 'true');
     expect(screen.getByTestId('service-inline-addons-panel')).toBeInTheDocument();
@@ -889,6 +895,7 @@ describe('BookServiceClient', () => {
 
     const serviceCard = screen.getByTestId('service-card-svc-1');
     fireEvent.click(serviceCard);
+    fireEvent.click(screen.getByTestId('service-add-button-svc-1'));
 
     const socialLinks = screen.getByTestId('booking-social-links');
     const stickySpacer = screen.getByTestId('service-sticky-spacer');
@@ -1626,6 +1633,7 @@ describe('BookServiceClient', () => {
     expect(serviceCard).toBeEnabled();
 
     fireEvent.click(serviceCard);
+    fireEvent.click(screen.getByTestId('service-add-button-svc-1'));
 
     expect(screen.getByTestId('service-continue-button')).toBeVisible();
   });
@@ -2040,6 +2048,11 @@ describe('BookServiceClient', () => {
     const featuredCard = screen.getByTestId('featured-service-card-svc-combo');
     fireEvent.click(featuredCard);
 
+    expect(screen.getByTestId('service-details-svc-combo')).toHaveTextContent('BIAB + Classic Pedicure');
+    expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('service-add-button-svc-combo'));
+
     expect(featuredCard).toHaveStyle('box-shadow: 0 14px 28px rgba(0,0,0,0.14)');
     expect(featuredCard).toHaveStyle('border-width: 1px');
     expect(featuredCard).not.toHaveAttribute('style', expect.stringContaining('outline'));
@@ -2115,6 +2128,7 @@ describe('BookServiceClient', () => {
     expect(regularCard.parentElement).toHaveClass('grid', 'grid-cols-2');
 
     fireEvent.click(regularCard);
+    fireEvent.click(screen.getByTestId('service-add-button-svc-1'));
 
     expect(screen.getByTestId('service-inline-addons-panel')).toBeInTheDocument();
     expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
@@ -2143,6 +2157,113 @@ describe('BookServiceClient', () => {
     expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-spacer')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-card-addon-cue-svc-1')).not.toBeInTheDocument();
+  });
+
+  it('opens service details and catalogue options without adding anything to the booking', () => {
+    render(
+      <BookServiceClient
+        services={[...services, noAddOnService]}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const colourCard = screen.getByTestId('service-card-svc-1');
+
+    fireEvent.click(colourCard);
+
+    expect(colourCard).toHaveAttribute('data-selected', 'false');
+    expect(colourCard).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.queryByTestId('service-card-image-svc-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-details-svc-1')).toHaveTextContent('Colour Change');
+    expect(screen.getByTestId('service-details-svc-1')).toHaveTextContent('French Tip');
+    expect(screen.getByTestId('service-details-svc-1')).toHaveTextContent('Classic white tip');
+    expect(screen.getByTestId('service-details-svc-1')).toHaveTextContent('+$10');
+    expect(screen.queryByTestId('service-selection-summary')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('service-card-svc-3'));
+
+    expect(screen.queryByTestId('service-details-svc-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-details-svc-3')).toHaveTextContent('Classic Manicure');
+    expect(screen.getByTestId('service-details-svc-3')).not.toHaveTextContent('French Tip');
+    expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('service-add-button-svc-3'));
+
+    expect(screen.getByTestId('service-card-svc-3')).toHaveAttribute('data-selected', 'true');
+    expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('service-continue-button')).toHaveTextContent('Continue to Time');
+  });
+
+  it('shows configured removal conditions, starting prices, and repair units before selection', () => {
+    const removal = {
+      ...addOns[0]!,
+      id: 'own-work-removal',
+      name: 'Own-work removal',
+      category: 'removal' as const,
+      descriptionItems: ['Free for sets completed here'],
+      priceCents: 0,
+      priceDisplayText: null,
+    };
+    const repair = {
+      ...addOns[0]!,
+      id: 'repair-per-nail',
+      name: 'Nail repair',
+      category: 'repair' as const,
+      pricingType: 'per_unit' as const,
+      unitLabel: 'nail',
+      priceCents: 500,
+      priceDisplayText: '$5+',
+    };
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={[removal, repair]}
+        serviceAddOnRules={[
+          { id: 'own-removal-rule', serviceId: 'svc-1', addOnId: removal.id, selectionMode: 'optional', defaultQuantity: null, maxQuantityOverride: null, displayOrder: 1 },
+          { id: 'repair-rule', serviceId: 'svc-1', addOnId: repair.id, selectionMode: 'optional', defaultQuantity: null, maxQuantityOverride: null, displayOrder: 2 },
+        ]}
+        bookingFlow={['service', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+
+    const details = screen.getByTestId('service-details-svc-1');
+
+    expect(details).toHaveTextContent('Before your appointment');
+    expect(details).toHaveTextContent('Free for sets completed here');
+    expect(details).toHaveTextContent('$5+ / nail');
+    expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+  });
+
+  it('returns from another service preview to the selected service when reviewing options', () => {
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    addServiceFromCard('svc-1');
+    fireEvent.click(screen.getByTestId('service-card-svc-2'));
+
+    expect(screen.getByTestId('service-details-svc-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-selection-summary')).toHaveTextContent('Colour Change');
+
+    fireEvent.click(screen.getByTestId('service-continue-button'));
+
+    expect(screen.queryByTestId('service-details-svc-2')).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-inline-addons-panel')).toHaveTextContent('Customize your Colour Change');
+    expect(screen.getByTestId('service-selection-summary')).not.toHaveTextContent('Gel X');
   });
 
   it('starts with a three-step header on a fresh visit when the salon has exactly one location-compatible technician', () => {
@@ -2177,7 +2298,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
 
     expect(screen.getByTestId('service-auto-technician-preview')).toBeInTheDocument();
     expect(screen.getByText('Mila')).toBeInTheDocument();
@@ -2208,7 +2329,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
     fireEvent.click(screen.getByTestId('service-options-done-button'));
     fireEvent.click(screen.getByTestId('service-continue-button'));
 
@@ -2229,12 +2350,12 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
 
     expect(screen.getByTestId('service-auto-technician-preview')).toBeInTheDocument();
     expect(getRenderedBookingSteps()).toEqual(['service', 'time', 'confirm']);
 
-    fireEvent.click(screen.getByTestId('service-card-svc-2'));
+    addServiceFromCard('svc-2');
 
     await waitFor(() => {
       expect(screen.queryByTestId('service-auto-technician-preview')).not.toBeInTheDocument();
@@ -2255,7 +2376,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
 
     expect(screen.queryByTestId('service-auto-technician-preview')).not.toBeInTheDocument();
     expect(getRenderedBookingSteps()).toEqual(['service', 'tech', 'time', 'confirm']);
@@ -2273,7 +2394,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
 
     const panel = screen.getByTestId('service-inline-addons-panel');
     const stickyBar = screen.getByTestId('service-sticky-bar');
@@ -2332,7 +2453,7 @@ describe('BookServiceClient', () => {
     expect(screen.queryByTestId('service-card-addon-cue-svc-2')).not.toBeInTheDocument();
   });
 
-  it('requires an explicit removal choice or skip before continuing, while preserving starting-price copy', () => {
+  it('lets a customer skip optional removal with the main options button while preserving starting-price copy', () => {
     const removalAddOn = {
       ...addOns[0]!,
       id: 'removal-foreign',
@@ -2361,33 +2482,36 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
 
     expect(screen.getByText('Before your Colour Change')).toBeInTheDocument();
-    expect(screen.getByTestId('service-options-done-button')).toBeDisabled();
+    expect(screen.getByTestId('service-options-done-button')).toBeEnabled();
     expect(screen.getByTestId('service-continue-button')).toHaveTextContent('Review options');
 
     fireEvent.click(screen.getByTestId('service-continue-button'));
 
     expect(navigationMock.routerPush).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add Removal From Another Salon' }));
-
     expect(screen.getByTestId('service-addon-row-removal-foreign')).toHaveTextContent('$15+');
-    expect(screen.getByTestId('service-addon-row-removal-foreign')).toHaveTextContent('Selected: $15+');
-    expect(screen.getByTestId('service-options-done-button')).toBeEnabled();
-
-    fireEvent.click(screen.getByTestId('service-no-removal-button'));
-
-    expect(screen.getByTestId('service-no-removal-button')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('service-no-removal-button')).not.toBeInTheDocument();
     expect(screen.getByTestId('service-addon-row-removal-foreign')).not.toHaveTextContent('Selected:');
 
     fireEvent.click(screen.getByTestId('service-options-done-button'));
 
     expect(screen.getByTestId('service-continue-button')).toHaveTextContent('Continue to Time');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Removal From Another Salon' }));
+
+    expect(screen.getByTestId('service-addon-row-removal-foreign')).toHaveTextContent('Selected: $15+');
+    expect(screen.getByTestId('service-continue-button')).toHaveTextContent('Continue to Time');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Removal From Another Salon' }));
+
+    expect(screen.getByTestId('service-addon-row-removal-foreign')).not.toHaveTextContent('Selected:');
+    expect(screen.getByTestId('service-continue-button')).toHaveTextContent('Continue to Time');
   });
 
-  it('lets a customer acknowledge a preselected required removal', () => {
+  it('lets a customer review preselected required removal without a second confirmation', () => {
     const removalAddOn = {
       ...addOns[0]!,
       id: 'required-removal',
@@ -2412,14 +2536,14 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
-
-    expect(screen.getByTestId('service-options-done-button')).toBeDisabled();
-    expect(screen.queryByTestId('service-no-removal-button')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('service-confirm-removal-button'));
+    addServiceFromCard('svc-1');
 
     expect(screen.getByTestId('service-options-done-button')).toBeEnabled();
+    expect(screen.queryByTestId('service-no-removal-button')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('service-options-done-button'));
+
+    expect(screen.getByTestId('service-continue-button')).toHaveTextContent('Continue to Time');
   });
 
   it('keeps the same add-on independent for two selected services and sends a grouped basket', () => {
@@ -2437,11 +2561,16 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
     fireEvent.click(screen.getByRole('button', { name: 'Add Chrome Finish' }));
     fireEvent.click(screen.getByTestId('service-options-done-button'));
 
     fireEvent.click(screen.getByTestId('service-card-svc-2'));
+
+    expect(screen.getByTestId('service-selection-summary')).not.toHaveTextContent('Gel X');
+    expect(screen.getByTestId('service-continue-button')).toHaveTextContent('Continue to Time');
+
+    fireEvent.click(screen.getByTestId('service-add-button-svc-2'));
 
     expect(screen.getByTestId('service-selection-summary')).toHaveTextContent('Colour Change');
     expect(screen.getByTestId('service-selection-summary')).toHaveTextContent('Gel X');
@@ -2529,7 +2658,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
 
     const requiredOnlyPanel = screen.getByTestId('service-inline-addons-panel');
 
@@ -2623,7 +2752,7 @@ describe('BookServiceClient', () => {
     expect(announcement).toHaveAttribute('aria-atomic', 'true');
     expect(announcement).toBeEmptyDOMElement();
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
 
     expect(announcement).toBeEmptyDOMElement();
 
@@ -2699,7 +2828,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
 
     expect(document.documentElement).toHaveStyle('--ios-chrome-viewport-bottom: 144px');
     expect(screen.getByTestId('service-sticky-spacer')).toHaveStyle({
@@ -2745,7 +2874,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
 
     expect(document.documentElement.style.getPropertyValue('--ios-chrome-viewport-bottom')).toBe('');
     expect(visualViewport.addEventListener).not.toHaveBeenCalled();
@@ -2777,6 +2906,7 @@ describe('BookServiceClient', () => {
     const selectedCard = screen.getByTestId('service-card-svc-1');
 
     fireEvent.click(selectedCard);
+    fireEvent.click(screen.getByTestId('service-add-button-svc-1'));
     await waitFor(() => {
       expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
     });
@@ -2856,7 +2986,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-3'));
+    addServiceFromCard('svc-3');
 
     expect(screen.queryByTestId('service-card-addon-cue-svc-3')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
@@ -2877,12 +3007,12 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
 
     expect(screen.getByTestId('service-card-addon-cue-svc-1')).toBeInTheDocument();
     expect(screen.getByText('Customize your Colour Change')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('service-card-svc-3'));
+    addServiceFromCard('svc-3');
 
     await waitFor(() => {
       expect(screen.queryByTestId('service-card-addon-cue-svc-1')).not.toBeInTheDocument();
@@ -2891,7 +3021,7 @@ describe('BookServiceClient', () => {
     expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-addon-note')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('service-card-svc-2'));
+    addServiceFromCard('svc-2');
 
     await waitFor(() => {
       expect(screen.getByTestId('service-card-addon-cue-svc-2')).toBeInTheDocument();
@@ -2997,7 +3127,7 @@ describe('BookServiceClient', () => {
     // A blank landing must not touch the URL.
     expect(replaceStateSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+    addServiceFromCard('svc-1');
 
     await waitFor(() => {
       expect(replaceStateSpy).toHaveBeenCalled();
@@ -3204,6 +3334,7 @@ describe('BookServiceClient — Luster Manicure price consistency', () => {
     expect(within(regularCard).getByText('Intro price')).toBeInTheDocument();
 
     fireEvent.click(regularCard);
+    fireEvent.click(screen.getByTestId('service-add-button-svc-luster'));
 
     const stickyBar = screen.getByTestId('service-sticky-bar');
 
@@ -3236,7 +3367,7 @@ describe('BookServiceClient — Luster Manicure price consistency', () => {
     expect(within(featuredCard).getByText('$75+')).toBeInTheDocument();
     expect(screen.getByTestId('service-card-price-svc-stale')).toHaveTextContent('$75+');
 
-    fireEvent.click(screen.getByTestId('service-card-svc-stale'));
+    addServiceFromCard('svc-stale');
 
     const stickyBar = screen.getByTestId('service-sticky-bar');
 
@@ -3290,7 +3421,7 @@ describe('BookServiceClient — Luster Manicure price consistency', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('service-card-svc-luster'));
+    addServiceFromCard('svc-luster');
 
     const stickyBar = screen.getByTestId('service-sticky-bar');
     const innerRow = stickyBar.querySelector('.mx-auto');

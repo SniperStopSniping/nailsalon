@@ -489,6 +489,7 @@ export function BookServiceClient({
       ? [{ serviceId: initialBaseServiceId, selectedAddOns: initialSelectedAddOns }]
       : []),
   );
+  const [inspectedServiceId, setInspectedServiceId] = useState<string | null>(null);
   const [optionsReview, setOptionsReview] = useState<{
     reviewed: Record<string, string>;
     preparation: Record<string, string>;
@@ -514,6 +515,9 @@ export function BookServiceClient({
   const searchCardRef = useRef<HTMLDivElement>(null);
   const optionsPanelRef = useRef<HTMLDivElement>(null);
   const optionsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const serviceDetailsRef = useRef<HTMLDivElement>(null);
+  const serviceDetailsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const continueButtonRef = useRef<HTMLButtonElement>(null);
   const optionsReviewStorageKey = `booking_options_review:v1:${salonSlug}`;
 
   useEffect(() => {
@@ -977,6 +981,7 @@ export function BookServiceClient({
   }, [isHydrated, selectedLocationId, setLocationId]);
 
   const handleServiceSelection = (service: ServiceData) => {
+    setInspectedServiceId(null);
     hasUserChangedSelectionRef.current = true;
     if (!selectedBasket.some(item => item.serviceId === service.id)) {
       if (bookingFlowMarker === 'assistant' && selectedBasket.length > 0) {
@@ -1015,10 +1020,34 @@ export function BookServiceClient({
           block: 'start',
           behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
         });
+        optionsHeadingRef.current?.focus({ preventScroll: true });
       });
+    } else {
+      requestAnimationFrame(() => continueButtonRef.current?.focus({ preventScroll: true }));
     }
 
     triggerHaptic('select');
+  };
+
+  const handleInspectService = (service: ServiceData) => {
+    if (selectedBasket.some(item => item.serviceId === service.id)) {
+      handleServiceSelection(service);
+      return;
+    }
+
+    const opening = inspectedServiceId !== service.id;
+    setInspectedServiceId(opening ? service.id : null);
+    setSearchQuery('');
+    setSelectedCategory(service.bookingCategory);
+    if (opening) {
+      requestAnimationFrame(() => {
+        serviceDetailsRef.current?.scrollIntoView?.({
+          block: 'start',
+          behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+        });
+        serviceDetailsHeadingRef.current?.focus({ preventScroll: true });
+      });
+    }
   };
 
   const handleRemoveService = (serviceId: string) => {
@@ -1057,26 +1086,33 @@ export function BookServiceClient({
     );
 
   const selectedService = services.find(service => service.id === selectedBaseServiceId) ?? null;
+  const inspectedService = services.find(service => service.id === inspectedServiceId) ?? null;
   // L1 binding fields are already effective after inherited/default/rule
   // resolution. Adapt them only to the legacy control shape; do not repeat
   // precedence or pricing logic in the browser.
-  const selectedRules = selectedBaseServiceId
-    ? (l1Snapshot
-        ? l1Snapshot.serviceAddOnBindings.map(binding => ({
-          id: `l1:${binding.serviceId}:${binding.addOnId}`,
-          serviceId: binding.serviceId,
-          addOnId: binding.addOnId,
-          selectionMode: binding.selectionMode,
-          defaultQuantity: binding.defaultQuantity,
-          maxQuantityOverride: binding.effectiveMaxQuantity,
-          displayOrder: binding.displayOrder,
-          priceMode: binding.priceMode,
-        }))
-        : serviceAddOnRules)
-        .filter(rule => rule.serviceId === selectedBaseServiceId)
-        .sort((a, b) => a.displayOrder - b.displayOrder)
-    : [];
+  const effectiveServiceAddOnRules = l1Snapshot
+    ? l1Snapshot.serviceAddOnBindings.map(binding => ({
+      id: `l1:${binding.serviceId}:${binding.addOnId}`,
+      serviceId: binding.serviceId,
+      addOnId: binding.addOnId,
+      selectionMode: binding.selectionMode,
+      defaultQuantity: binding.defaultQuantity,
+      maxQuantityOverride: binding.effectiveMaxQuantity,
+      displayOrder: binding.displayOrder,
+      priceMode: binding.priceMode,
+    }))
+    : serviceAddOnRules;
+  const selectedRules = effectiveServiceAddOnRules
+    .filter(rule => rule.serviceId === selectedBaseServiceId)
+    .sort((a, b) => a.displayOrder - b.displayOrder);
   const addOnsById = new Map(addOns.map(addOn => [addOn.id, addOn]));
+  const inspectedAddOns = effectiveServiceAddOnRules
+    .filter(rule => rule.serviceId === inspectedServiceId)
+    .sort((a, b) => a.displayOrder - b.displayOrder)
+    .flatMap((rule) => {
+      const addOn = addOnsById.get(rule.addOnId);
+      return addOn?.isActive ? [{ rule, addOn }] : [];
+    });
   const autoIncludedQuantity = (serviceId: string, selectedAddOns: SelectedAddOnParam[], addOnId: string): number => {
     if (!l1Snapshot) {
       return 0;
@@ -1139,7 +1175,6 @@ export function BookServiceClient({
   });
   const activeReview = basketReview.find(item => item.serviceId === selectedBaseServiceId);
   const optionsKey = activeReview?.key ?? '';
-  const preparationAcknowledged = activeReview?.preparationDone ?? true;
   const firstUnreviewedItem = basketReview.find(item => !item.reviewed);
   const needsOptionsReview = Boolean(firstUnreviewedItem);
   const hasRequiredAddOns = allowedAddOns.some(item => item?.rule.selectionMode === 'required');
@@ -1437,6 +1472,7 @@ export function BookServiceClient({
     }
     if (needsOptionsReview) {
       const reviewService = services.find(service => service.id === firstUnreviewedItem?.serviceId);
+      setInspectedServiceId(null);
       setSearchQuery('');
       if (reviewService) {
         setSelectedBaseServiceIdState(reviewService.id);
@@ -1513,11 +1549,7 @@ export function BookServiceClient({
         ...current,
         preparation: {
           ...current.preparation,
-          [selectedBaseServiceId]: nextSelected.some(item => (
-            addOnsById.get(item.addOnId)?.category === 'removal'
-          ))
-            ? optionsKey
-            : '',
+          [selectedBaseServiceId]: optionsKey,
         },
       }));
     }
@@ -1698,7 +1730,10 @@ export function BookServiceClient({
                   <Input
                     type="text"
                     value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      setInspectedServiceId(null);
+                      setSearchQuery(e.target.value);
+                    }}
                     onFocus={handleSearchFocus}
                     placeholder="Search services..."
                     className="h-11 flex-1 border-0 bg-transparent p-0 text-base text-neutral-800 shadow-none focus-visible:ring-0"
@@ -1706,7 +1741,10 @@ export function BookServiceClient({
                   {searchQuery && (
                     <button
                       type="button"
-                      onClick={() => setSearchQuery('')}
+                      onClick={() => {
+                        setInspectedServiceId(null);
+                        setSearchQuery('');
+                      }}
                       aria-label="Clear search"
                       className="ml-2 flex size-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 transition-colors hover:bg-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none"
                     >
@@ -1948,6 +1986,7 @@ export function BookServiceClient({
                                   aria-pressed={active}
                                   onClick={() => {
                                     if (category !== selectedCategory) {
+                                      setInspectedServiceId(null);
                                       setSelectedCategory(category);
                                       triggerHaptic('select');
                                     }
@@ -2150,6 +2189,11 @@ export function BookServiceClient({
                                       >
                                         {row.map((service, serviceIndex) => {
                                           const isSelected = selectedBasket.some(item => item.serviceId === service.id);
+                                          const isExpanded = inspectedServiceId === service.id
+                                            || (isSelected && selectedBaseServiceId === service.id && hasVisibleAddOns && !inspectedService);
+                                          const hasServiceOptions = effectiveServiceAddOnRules.some(rule => (
+                                            rule.serviceId === service.id && addOnsById.get(rule.addOnId)?.isActive
+                                          ));
                                           const previewDescription = service.descriptionItems[0] ?? service.description ?? 'Bookable base service';
                                           const animationIndex = groupIndex * 2 + rowIndex * 2 + serviceIndex;
 
@@ -2158,10 +2202,11 @@ export function BookServiceClient({
                                               key={service.id}
                                               type="button"
                                               disabled={!isHydrated}
-                                              onClick={() => handleServiceSelection(service)}
+                                              onClick={() => handleInspectService(service)}
                                               data-testid={`service-card-${service.id}`}
                                               data-selected={isSelected ? 'true' : 'false'}
-                                              aria-pressed={isSelected}
+                                              aria-expanded={isExpanded}
+                                              aria-controls={isExpanded ? `service-details-${service.id}` : undefined}
                                               className={`relative flex h-full overflow-hidden text-left transition-all duration-200 ${
                                                 serviceMenuPresentation.layout === 'visual_grid'
                                                   ? 'flex-col rounded-2xl'
@@ -2203,6 +2248,7 @@ export function BookServiceClient({
                                             >
                                               {showServiceImages
                                               && !isSelected
+                                              && inspectedServiceId !== service.id
                                               && serviceMenuPresentation.image !== 'hidden' && (
                                                 <div
                                                   data-testid={`service-card-image-${service.id}`}
@@ -2274,6 +2320,7 @@ export function BookServiceClient({
                                                 >
                                                   {service.name}
                                                 </div>
+                                                {isSelected && <span className="sr-only">Added to your booking</span>}
                                                 {serviceMenuPresentation.description !== 'hidden' && (
                                                   <div className={serviceMenuPresentation.description === 'editorial'
                                                     ? 'mt-1 line-clamp-3 text-[13px] leading-5 text-neutral-600'
@@ -2318,14 +2365,98 @@ export function BookServiceClient({
                                                     {service.priceDisplayText || formatMoney(service.priceCents, currency)}
                                                   </span>
                                                 </div>
+                                                {!isSelected && (
+                                                  <span className="mt-2 text-[11px] font-semibold text-neutral-700">
+                                                    {inspectedServiceId === service.id
+                                                      ? 'Hide details'
+                                                      : hasServiceOptions
+                                                        ? 'View details and options'
+                                                        : 'View details'}
+                                                  </span>
+                                                )}
                                               </div>
                                             </button>
                                           );
                                         })}
                                       </div>
 
-                                      {rowContainsSelectedService && hasVisibleAddOns && selectedService && (
+                                      {inspectedService && row.some(service => service.id === inspectedService.id) && (
                                         <div
+                                          id={`service-details-${inspectedService.id}`}
+                                          ref={serviceDetailsRef}
+                                          data-testid={`service-details-${inspectedService.id}`}
+                                          className="w-full rounded-[24px] border bg-white p-4 shadow-[0_8px_22px_rgba(0,0,0,0.04)]"
+                                          style={{ borderColor: themeVars.cardBorder, scrollMarginBlock: '4rem' }}
+                                        >
+                                          <h4 ref={serviceDetailsHeadingRef} tabIndex={-1} className="text-base font-semibold text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                                            {inspectedService.name}
+                                          </h4>
+                                          <p className="mt-1 text-sm text-neutral-600">
+                                            {inspectedService.descriptionItems.length > 0
+                                              ? inspectedService.descriptionItems.join(' ')
+                                              : inspectedService.description || 'Book this service to choose a time.'}
+                                          </p>
+                                          {inspectedAddOns.length > 0 && (
+                                            <div className="mt-4 space-y-3">
+                                              {[
+                                                { title: 'Before your appointment', items: inspectedAddOns.filter(item => item.addOn.category === 'removal') },
+                                                { title: 'Customize your look ✨', items: inspectedAddOns.filter(item => item.addOn.category !== 'removal') },
+                                              ].filter(group => group.items.length > 0).map(group => (
+                                                <div key={group.title}>
+                                                  <h5 className="text-sm font-semibold text-neutral-900">{group.title}</h5>
+                                                  <div role="list" className="mt-1 divide-y divide-neutral-100">
+                                                    {group.items.map(({ rule, addOn }) => (
+                                                      <div key={addOn.id} role="listitem" className="flex items-start justify-between gap-3 py-2 text-sm">
+                                                        <span className="min-w-0 text-neutral-800">
+                                                          {addOn.name}
+                                                          {rule.selectionMode === 'required' && <span className="ml-1 text-xs text-neutral-500">Required</span>}
+                                                          {addOn.descriptionItems[0] && (
+                                                            <span className="mt-0.5 block text-xs font-normal text-neutral-600">
+                                                              {addOn.descriptionItems[0]}
+                                                            </span>
+                                                          )}
+                                                        </span>
+                                                        <span className="shrink-0 text-right font-semibold text-neutral-800">
+                                                          {rule.priceMode === 'manual_confirmation'
+                                                            ? 'Price to confirm'
+                                                            : addOn.priceDisplayText || (addOn.priceCents > 0 ? `+${formatMoney(addOn.priceCents, currency)}` : 'Free')}
+                                                          {addOn.pricingType === 'per_unit' && addOn.unitLabel && (
+                                                            <span className="font-normal">
+                                                              {' / '}
+                                                              {addOn.unitLabel}
+                                                            </span>
+                                                          )}
+                                                          {addOn.durationMinutes > 0 && (
+                                                            <span className="block text-xs font-normal text-neutral-500">
+                                                              +
+                                                              {formatDuration(addOn.durationMinutes)}
+                                                            </span>
+                                                          )}
+                                                        </span>
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                          <button
+                                            type="button"
+                                            data-testid={`service-add-button-${inspectedService.id}`}
+                                            onClick={() => handleServiceSelection(inspectedService)}
+                                            className="mt-4 min-h-11 w-full rounded-xl px-4 py-2 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                            style={{ backgroundColor: themeVars.primaryDark, color: bookingBrandForeground ?? '#fff' }}
+                                          >
+                                            Add
+                                            {' '}
+                                            {inspectedService.name}
+                                          </button>
+                                        </div>
+                                      )}
+
+                                      {rowContainsSelectedService && hasVisibleAddOns && selectedService && !inspectedService && (
+                                        <div
+                                          id={`service-details-${selectedService.id}`}
                                           data-testid="service-inline-addons-panel"
                                           ref={optionsPanelRef}
                                           className="w-full rounded-[24px] bg-white px-3.5 py-3 shadow-[0_8px_22px_rgba(0,0,0,0.04)] sm:px-4 sm:py-3.5"
@@ -2357,8 +2488,8 @@ export function BookServiceClient({
                                                 {group.preparation && group.items.some(item => item && !autoIncludedQuantities.get(item.addOn.id)) && (
                                                   <p className="text-xs text-neutral-600">
                                                     {group.items.some(item => item && autoIncludedQuantities.get(item.addOn.id))
-                                                      ? 'Choose any additional removal you need, or tell us you do not need more.'
-                                                      : 'Choose any removal you need, or tell us you do not need removal.'}
+                                                      ? 'Choose any additional removal you need.'
+                                                      : 'Choose a removal only if you need one.'}
                                                   </p>
                                                 )}
                                                 {group.items.map((item) => {
@@ -2483,57 +2614,18 @@ export function BookServiceClient({
                                                     </div>
                                                   );
                                                 })}
-                                                {group.preparation && group.items.some(item => item && item.quantity > 0 && !autoIncludedQuantities.get(item.addOn.id)) && !preparationAcknowledged && (
-                                                  <button
-                                                    type="button"
-                                                    data-testid="service-confirm-removal-button"
-                                                    onClick={() => setOptionsReview(current => ({
-                                                      ...current,
-                                                      preparation: { ...current.preparation, [selectedService.id]: optionsKey },
-                                                    }))}
-                                                    className="min-h-11 rounded-lg px-3 text-sm font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                                                  >
-                                                    Yes, I need the selected removal
-                                                  </button>
-                                                )}
-                                                {group.preparation && group.items.some(item => item && item.rule.selectionMode !== 'required' && !autoIncludedQuantities.get(item.addOn.id)) && !group.items.some(item => item?.rule.selectionMode === 'required') && (
-                                                  <button
-                                                    type="button"
-                                                    data-testid="service-no-removal-button"
-                                                    aria-pressed={preparationAcknowledged && !group.items.some(item => item && item.quantity > 0 && !autoIncludedQuantities.get(item.addOn.id))}
-                                                    onClick={() => {
-                                                      const nextSelected = selectedAddOnsState.filter(item => (
-                                                        addOnsById.get(item.addOnId)?.category !== 'removal'
-                                                        || (autoIncludedQuantities.get(item.addOnId) ?? 0) > 0
-                                                      ));
-                                                      setSelectedAddOnsState(nextSelected);
-                                                      setSelectedBasket(current => current.map(item => item.serviceId === selectedService.id
-                                                        ? { ...item, selectedAddOns: nextSelected }
-                                                        : item));
-                                                      setSelectedAddOns(nextSelected);
-                                                      setOptionsReview(current => ({
-                                                        ...current,
-                                                        preparation: { ...current.preparation, [selectedService.id]: optionsKey },
-                                                      }));
-                                                    }}
-                                                    className="min-h-11 rounded-lg px-3 text-sm font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                                                  >
-                                                    {group.items.some(item => item && autoIncludedQuantities.get(item.addOn.id))
-                                                      ? 'I don’t need additional removal'
-                                                      : 'I don’t need removal'}
-                                                  </button>
-                                                )}
                                               </div>
                                             ))}
                                           </div>
                                           <button
                                             type="button"
                                             data-testid="service-options-done-button"
-                                            disabled={!preparationAcknowledged || l1Blocked}
+                                            disabled={l1Blocked}
                                             onClick={() => {
                                               setOptionsReview(current => ({
                                                 ...current,
                                                 reviewed: { ...current.reviewed, [selectedService.id]: optionsKey },
+                                                preparation: { ...current.preparation, [selectedService.id]: optionsKey },
                                               }));
                                               triggerHaptic('confirm');
                                             }}
@@ -2830,10 +2922,11 @@ export function BookServiceClient({
                                   key={`featured-${service.id}`}
                                   type="button"
                                   disabled={!isHydrated}
-                                  onClick={() => handleServiceSelection(service)}
+                                  onClick={() => handleInspectService(service)}
                                   data-testid={`featured-service-card-${service.id}`}
-                                  aria-pressed={isSelected}
-                                  aria-label={`${service.name}, ${formatDuration(service.durationMinutes)}, ${service.priceDisplayText || formatMoney(service.priceCents, currency)}`}
+                                  aria-expanded={inspectedServiceId === service.id}
+                                  aria-controls={inspectedServiceId === service.id ? `service-details-${service.id}` : undefined}
+                                  aria-label={`View ${service.name} details, ${formatDuration(service.durationMinutes)}, ${service.priceDisplayText || formatMoney(service.priceCents, currency)}`}
                                   className={`relative w-[min(272px,calc(100vw-4rem))] shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
                                     service.bookingCategory === 'combo' ? 'sm:w-[320px]' : 'sm:w-[280px]'
                                   }`}
@@ -2853,7 +2946,7 @@ export function BookServiceClient({
                                       : themeVars.cardBorder,
                                   }}
                                 >
-                                  {showServiceImages && !isSelected && (
+                                  {showServiceImages && !isSelected && inspectedServiceId !== service.id && (
                                     <div
                                       data-testid={`featured-service-card-image-container-${service.id}`}
                                       className="relative h-[80px] overflow-hidden sm:h-[96px]"
@@ -3255,6 +3348,7 @@ export function BookServiceClient({
             </div>
             <button
               type="button"
+              ref={continueButtonRef}
               onClick={handleContinue}
               data-testid="service-continue-button"
               disabled={!needsOptionsReview && l1Blocked}
