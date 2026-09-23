@@ -36,7 +36,11 @@ import type { ResolvedSmartFitConfig } from '@/libs/smartFitConfig';
 export type ReschedulePricingInputs = {
   subtotalBeforeDiscountCents: number;
   serviceIds: string[];
-  addOns: Array<{ addOnId: string | null; quantity: number }>;
+  /**
+   * The parent booked service is part of the input: the same add-on can be
+   * validly selected for two different services with different meaning.
+   */
+  addOns: Array<{ serviceId?: string | null; addOnId: string | null; quantity: number }>;
 };
 
 /** The discount fields as persisted on the appointment row being moved. */
@@ -74,8 +78,13 @@ export type SmartFitRescheduleDecision = {
 
 function normalizePricingInputs(inputs: ReschedulePricingInputs): string {
   const services = [...inputs.serviceIds].sort();
+  // Pre-0091 appointment add-ons have no parent id. The old writer could only
+  // create one service with add-ons, so a single stored service is sufficient
+  // evidence to recover that association. Multi-service legacy rows stay
+  // unassociated and therefore cannot accidentally preserve a discount.
+  const legacySingleServiceId = services.length === 1 ? services[0] : null;
   const addOns = inputs.addOns
-    .map(addOn => `${addOn.addOnId ?? 'custom'}x${addOn.quantity}`)
+    .map(addOn => `${addOn.serviceId ?? legacySingleServiceId ?? 'legacy'}:${addOn.addOnId ?? 'custom'}x${addOn.quantity}`)
     .sort();
   return JSON.stringify({
     subtotal: inputs.subtotalBeforeDiscountCents,

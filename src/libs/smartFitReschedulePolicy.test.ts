@@ -72,6 +72,26 @@ describe('isPricingUnchangedForReschedule', () => {
     )).toBe(true);
   });
 
+  it('treats moving the same add-on between selected services as a change', () => {
+    expect(isPricingUnchangedForReschedule(
+      pricing({
+        serviceIds: ['svc_manicure', 'svc_pedicure'],
+        addOns: [{ serviceId: 'svc_manicure', addOnId: 'addon_chrome', quantity: 1 }],
+      }),
+      pricing({
+        serviceIds: ['svc_manicure', 'svc_pedicure'],
+        addOns: [{ serviceId: 'svc_pedicure', addOnId: 'addon_chrome', quantity: 1 }],
+      }),
+    )).toBe(false);
+  });
+
+  it('preserves a historical unlinked add-on for a single-service reschedule', () => {
+    expect(isPricingUnchangedForReschedule(
+      pricing({ addOns: [{ addOnId: 'addon_chrome', quantity: 1 }] }),
+      pricing({ addOns: [{ serviceId: 'svc_gel', addOnId: 'addon_chrome', quantity: 1 }] }),
+    )).toBe(true);
+  });
+
   it.each([
     ['a swapped service', pricing({ serviceIds: ['svc_other'] })],
     ['an added add-on', pricing({ addOns: [{ addOnId: 'addon_chrome', quantity: 1 }, { addOnId: 'addon_art', quantity: 1 }] })],

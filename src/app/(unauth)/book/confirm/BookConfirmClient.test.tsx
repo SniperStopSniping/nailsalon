@@ -248,6 +248,118 @@ describe('BookConfirmClient', () => {
     />,
   );
 
+  it('submits a versioned basket without falling back to the legacy selection fields', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: { appointment: { id: 'appt_basket', status: 'confirmed' } },
+    }), { status: 201 }));
+
+    renderBasicConfirm({
+      baseServiceId: 'srv_1',
+      selectedAddOns: [{ addOnId: 'legacy-addon', quantity: 1 }],
+      basketReviewFingerprint: 'a'.repeat(64),
+      bookingBasket: {
+        version: 2,
+        items: [
+          { serviceId: 'srv_1', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] },
+          { serviceId: 'srv_2', selectedAddOns: [{ addOnId: 'chrome', quantity: 1 }] },
+        ],
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+    expect(body.bookingBasket).toEqual({
+      version: 2,
+      items: [
+        { serviceId: 'srv_1', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] },
+        { serviceId: 'srv_2', selectedAddOns: [{ addOnId: 'chrome', quantity: 1 }] },
+      ],
+    });
+    expect(body.baseServiceId).toBeUndefined();
+    expect(body.selectedAddOns).toBeUndefined();
+    expect(body.expectedBasketReviewFingerprint).toBe('a'.repeat(64));
+  });
+
+  it('returns a stale basket to service review with its exact selections intact', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      error: { code: 'BASKET_REVIEW_CHANGED' },
+      bookingAttemptOutcome: 'resolved_failure',
+    }), { status: 409 }));
+    const basket = {
+      version: 2 as const,
+      items: [
+        { serviceId: 'srv_1', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] },
+        { serviceId: 'srv_2', selectedAddOns: [{ addOnId: 'chrome', quantity: 1 }] },
+      ],
+    };
+    renderBasicConfirm({ bookingBasket: basket, basketReviewFingerprint: 'a'.repeat(64) });
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await waitFor(() => expect(routerPush).toHaveBeenCalledTimes(1));
+    const url = new URL(String(routerPush.mock.calls[0]?.[0]), 'https://example.test');
+
+    expect(url.pathname).toContain('/book/service');
+    expect(url.searchParams.get('catalogChanged')).toBe('1');
+    expect(JSON.parse(url.searchParams.get('bookingBasket') ?? 'null')).toEqual(basket);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith('Booking API error:', expect.objectContaining({ status: 409 }));
+
+    consoleError.mockRestore();
+  });
+
+  it('labels basket add-ons with their service, configured price text, and quantity', () => {
+    renderBasicConfirm({
+      services: [
+        { id: 'srv_manicure', name: 'Gel Manicure', price: 45, duration: 45 },
+        { id: 'srv_pedicure', name: 'Gel Pedicure', price: 55, duration: 55 },
+      ],
+      addOns: [
+        {
+          serviceId: 'srv_manicure',
+          serviceName: 'Gel Manicure',
+          id: 'french',
+          name: 'French Tips',
+          quantity: 2,
+          price: 20,
+          duration: 20,
+          priceDisplayText: '$10',
+        },
+        {
+          serviceId: 'srv_pedicure',
+          serviceName: 'Gel Pedicure',
+          id: 'removal',
+          name: 'Removal from another salon',
+          quantity: 1,
+          price: 15,
+          duration: 15,
+          priceDisplayText: '$15+',
+        },
+        {
+          serviceId: 'srv_pedicure',
+          serviceName: 'Gel Pedicure',
+          id: 'repair',
+          name: 'Nail repair',
+          quantity: 1,
+          price: 0,
+          duration: 10,
+          priceMode: 'manual_confirmation',
+        },
+      ],
+      totalPrice: 135,
+      totalDuration: 145,
+    });
+
+    expect(screen.getByText(/Gel Manicure: French Tips x2 · \$10/)).toBeInTheDocument();
+    expect(screen.getByText(/Gel Pedicure: Removal from another salon · \$15\+/)).toBeInTheDocument();
+    expect(screen.getByText(/Gel Pedicure: Nail repair · price to be confirmed/)).toBeInTheDocument();
+  });
+
   it('shows the shared salon message only after unchanged confirmed appointment details', async () => {
     bookingExperienceMock.confirmationMessage = 'Please arrive 10 minutes early.\nWe look forward to seeing you.';
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
@@ -279,8 +391,8 @@ describe('BookConfirmClient', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
-    const details = await screen.findByText('Appointment summary');
-    const message = screen.getByTestId('booking-confirmation-message');
+    const message = await screen.findByTestId('booking-confirmation-message');
+    const details = screen.getByText('Appointment summary');
 
     expect(message).toHaveTextContent('Please arrive 10 minutes early. We look forward to seeing you.');
     expect(message).toHaveClass('break-words', 'whitespace-pre-line');

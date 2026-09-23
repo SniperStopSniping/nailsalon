@@ -235,6 +235,34 @@ describe('GET /api/appointments/availability', () => {
     expect(verifyAppointmentAccessToken).not.toHaveBeenCalled();
   });
 
+  it('rejects a malformed booking basket before reading salon data', async () => {
+    const response = await GET(new Request(
+      'http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&bookingBasket=not-json',
+    ));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: { code: 'INVALID_REQUEST', message: 'Choose services using one booking selection format.' },
+    });
+    expect(getSalonBySlug).not.toHaveBeenCalled();
+  });
+
+  it('rejects mixed legacy and basket selections before reading salon data', async () => {
+    const bookingBasket = encodeURIComponent(JSON.stringify({
+      version: 2,
+      items: [{ serviceId: 'svc_1', selectedAddOns: [] }],
+    }));
+    const response = await GET(new Request(
+      `http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&baseServiceId=svc_1&bookingBasket=${bookingBasket}`,
+    ));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: { code: 'INVALID_REQUEST', message: 'Choose services using one booking selection format.' },
+    });
+    expect(getSalonBySlug).not.toHaveBeenCalled();
+  });
+
   it('blocks late-day slots when the requested service duration no longer fits the schedule', async () => {
     selectResults.push(
       [],

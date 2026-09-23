@@ -8,7 +8,7 @@ import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
-import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
+import { buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import { useNormalBookingFlowMarker } from '@/libs/customerAssistant/normalConfirmHandoff.client';
 import { formatMoney } from '@/libs/formatMoney';
 import {
@@ -45,12 +45,15 @@ export type TechnicianSummary = {
 } | null;
 
 export type AddOnSummary = {
+  serviceId?: string;
+  serviceName?: string;
   id: string;
   name: string;
   quantity: number;
   price: number;
   duration: number;
   priceMode?: 'catalog_priced' | 'manual_confirmation';
+  priceDisplayText?: string | null;
 };
 
 type BookTimeClientProps = {
@@ -324,6 +327,10 @@ export function BookTimeClient({
     () => parseSelectedAddOnsParam(selectedAddOnsParam),
     [selectedAddOnsParam],
   );
+  const bookingBasket = useMemo(
+    () => parseBookingBasketParam(searchParams.get('bookingBasket')),
+    [searchParams],
+  );
   const techId = searchParams.get('techId') || '';
   const locationId = searchParams.get('locationId') || '';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
@@ -349,7 +356,7 @@ export function BookTimeClient({
 
   const serviceNames = [
     ...services.map(s => s.name),
-    ...addOns.map(addOn => addOn.quantity > 1 ? `${addOn.name} x${addOn.quantity}` : addOn.name),
+    ...addOns.map(addOn => `${addOn.serviceName ? `${addOn.serviceName}: ` : ''}${addOn.name}${addOn.quantity > 1 ? ` x${addOn.quantity}` : ''}`),
   ].join(' + ');
 
   // "Today" is defined by the salon's timezone, not the visitor's device.
@@ -468,15 +475,16 @@ export function BookTimeClient({
   const buildAvailabilityUrl = useCallback((date: Date) => {
     const dateStr = getDateKey(date);
     const techParam = effectiveTechId && effectiveTechId !== 'any' ? `&technicianId=${effectiveTechId}` : '';
-    const durationParam = !baseServiceId ? `&durationMinutes=${totalDuration}` : '';
+    const durationParam = !baseServiceId && !bookingBasket ? `&durationMinutes=${totalDuration}` : '';
     const serviceParam = serviceIdsParam ? `&serviceIds=${encodeURIComponent(serviceIdsParam)}` : '';
     const baseServiceParam = baseServiceId ? `&baseServiceId=${encodeURIComponent(baseServiceId)}` : '';
     const addOnsParam = selectedAddOns.length > 0 ? `&selectedAddOns=${encodeURIComponent(JSON.stringify(selectedAddOns))}` : '';
+    const basketParam = bookingBasket ? `&bookingBasket=${encodeURIComponent(JSON.stringify(bookingBasket))}` : '';
     const locationParam = locationId ? `&locationId=${encodeURIComponent(locationId)}` : '';
     const rescheduleParam = originalAppointmentId ? `&originalAppointmentId=${encodeURIComponent(originalAppointmentId)}` : '';
     const manageTokenParam = manageToken ? `&manageToken=${encodeURIComponent(manageToken)}` : '';
-    return `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${baseServiceParam}${addOnsParam}${locationParam}${rescheduleParam}${manageTokenParam}`;
-  }, [baseServiceId, effectiveTechId, locationId, manageToken, originalAppointmentId, salonSlug, selectedAddOns, serviceIdsParam, totalDuration]);
+    return `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${baseServiceParam}${addOnsParam}${basketParam}${locationParam}${rescheduleParam}${manageTokenParam}`;
+  }, [baseServiceId, bookingBasket, effectiveTechId, locationId, manageToken, originalAppointmentId, salonSlug, selectedAddOns, serviceIdsParam, totalDuration]);
 
   // Fetch booked slots for selected date and technician
   const fetchBookedSlots = useCallback(async (date: Date) => {
@@ -950,6 +958,7 @@ export function BookTimeClient({
       serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
       baseServiceId,
       selectedAddOns,
+      bookingBasket,
       techId: effectiveTechId,
       date: dateStr,
       time: slot.time,
@@ -979,6 +988,7 @@ export function BookTimeClient({
         serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
         baseServiceId,
         selectedAddOns,
+        bookingBasket,
         techId: effectiveTechId,
         locationId,
         originalAppointmentId,
@@ -1000,6 +1010,7 @@ export function BookTimeClient({
       serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
       baseServiceId,
       selectedAddOns,
+      bookingBasket,
       locationId,
       originalAppointmentId,
       manageToken,

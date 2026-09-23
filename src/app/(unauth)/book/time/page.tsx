@@ -8,7 +8,7 @@ import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { resolveBookingHoursCeiling } from '@/libs/bookingHoursCeiling';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
-import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isCustomerAssistantEnabledForSalon } from '@/libs/customerAssistant/access.server';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
@@ -46,6 +46,7 @@ export default async function BookTimePage(
       serviceIds?: string;
       baseServiceId?: string;
       selectedAddOns?: string;
+      bookingBasket?: string;
       techId?: string;
       locationId?: string;
       salonSlug?: string;
@@ -65,6 +66,11 @@ export default async function BookTimePage(
   const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];
   const baseServiceId = searchParams.baseServiceId || null;
   const selectedAddOns = parseSelectedAddOnsParam(searchParams.selectedAddOns || null);
+  const bookingBasket = parseBookingBasketParam(searchParams.bookingBasket || null);
+  const hasBookingBasketParameter = searchParams.bookingBasket !== undefined;
+  const hasLegacySelectionParameters = searchParams.baseServiceId !== undefined
+    || searchParams.selectedAddOns !== undefined
+    || searchParams.serviceIds !== undefined;
   const techId = searchParams.techId || '';
 
   const { salon } = context;
@@ -130,11 +136,30 @@ export default async function BookTimePage(
     redirect(featureRedirectPath);
   }
 
-  if (!baseServiceId && serviceIdList.length === 0) {
+  // A basket is an exclusive selection format. A malformed or mixed link is
+  // never downgraded to a legacy service selection, because that could book a
+  // different set of services than the customer reviewed.
+  if ((hasBookingBasketParameter && !bookingBasket) || (bookingBasket && hasLegacySelectionParameters)) {
+    redirect(buildBookingUrl('/book/service', {
+      salonSlug: searchParams.salonSlug ?? salon.slug,
+      locationId: searchParams.locationId ?? null,
+      techId: searchParams.techId ?? null,
+      originalAppointmentId: searchParams.originalAppointmentId ?? null,
+      manageToken: searchParams.manageToken ?? null,
+      campaignToken: searchParams.campaign ?? null,
+      bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
+    }, {
+      routeSalonSlug: params?.slug,
+      locale: params?.locale,
+    }));
+  }
+
+  if (!bookingBasket && !baseServiceId && serviceIdList.length === 0) {
     redirect(buildBookingUrl('/book/service', {
       salonSlug: searchParams.salonSlug ?? salon.slug,
       baseServiceId,
       selectedAddOns,
+      bookingBasket,
       locationId: searchParams.locationId ?? null,
       techId: searchParams.techId ?? null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
@@ -184,6 +209,7 @@ export default async function BookTimePage(
       salonId: salon.id,
       baseServiceId,
       selectedAddOns,
+      bookingBasket,
       serviceIds: serviceIdList,
       technicianId: techId || null,
       locationId: resolvedLocationId,
@@ -196,6 +222,7 @@ export default async function BookTimePage(
       salonSlug: searchParams.salonSlug ?? salon.slug,
       baseServiceId: null,
       selectedAddOns: [],
+      bookingBasket: null,
       locationId: searchParams.locationId ?? null,
       techId: searchParams.techId ?? null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
@@ -215,6 +242,7 @@ export default async function BookTimePage(
         serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
         baseServiceId,
         selectedAddOns,
+        bookingBasket,
         techId: resolvedTechnicianContext.soleCompatibleTechnician.id,
         locationId: resolvedLocationId,
         originalAppointmentId: searchParams.originalAppointmentId ?? null,
@@ -236,6 +264,7 @@ export default async function BookTimePage(
         serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
         baseServiceId,
         selectedAddOns,
+        bookingBasket,
         locationId: resolvedLocationId,
         techId: null,
         techError: 'unsupported',
@@ -255,6 +284,7 @@ export default async function BookTimePage(
         serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
         baseServiceId,
         selectedAddOns,
+        bookingBasket,
         locationId: resolvedLocationId,
         techId: null,
         originalAppointmentId: searchParams.originalAppointmentId ?? null,
@@ -325,12 +355,15 @@ export default async function BookTimePage(
         <BookTimeClient
           services={services}
           addOns={resolvedTechnicianContext.resolvedSelection.addOns.map(addOn => ({
+            serviceId: addOn.serviceId,
+            serviceName: services.find(service => service.id === addOn.serviceId)?.name,
             id: addOn.id,
             name: addOn.name,
             quantity: addOn.quantity,
             price: addOn.lineTotalCents / 100,
             duration: addOn.lineDurationMinutes,
             priceMode: addOn.priceMode,
+            priceDisplayText: addOn.priceDisplayText,
           }))}
           totalPrice={resolvedTechnicianContext.resolvedSelection.totalPriceCents / 100}
           totalDuration={resolvedTechnicianContext.resolvedSelection.visibleDurationMinutes}

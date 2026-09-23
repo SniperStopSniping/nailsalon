@@ -7,7 +7,12 @@ import type { AnnotateSlot } from '@/libs/availability/engine.server';
 import { computeDaySlots, preflightDayAvailability } from '@/libs/availability/engine.server';
 import { resolveCatalogDomainView } from '@/libs/bookingCatalog';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
-import { parseSelectedAddOnsParam } from '@/libs/bookingParams';
+import {
+  type BookingBasket,
+  parseBookingBasketParam,
+  parseSelectedAddOnsParam,
+  serializeBookingBasket,
+} from '@/libs/bookingParams';
 import type { RequestedService } from '@/libs/bookingPolicy';
 import {
   loadBookingPolicy,
@@ -18,6 +23,7 @@ import {
   BookingSelectionError,
   getPublicBookingSelectionMessage,
   getPublicTechnicianCompatibility,
+  validatePublicBookingBasket,
   validatePublicBookingSelection,
 } from '@/libs/bookingQuote';
 import { getClientSession } from '@/libs/clientAuth';
@@ -126,6 +132,7 @@ export type AnonymousCustomerAvailabilityInput = {
   serviceIds?: string[];
   baseServiceId?: string;
   selectedAddOns?: string;
+  bookingBasket?: BookingBasket;
   durationMinutes?: number;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -153,16 +160,25 @@ export async function getAnonymousCustomerBookingAvailability(
   if (input.locationId) {
     searchParams.set('locationId', input.locationId);
   }
-  if (input.serviceIds?.length) {
+  if (input.bookingBasket) {
+    const serializedBasket = serializeBookingBasket(input.bookingBasket);
+    if (!serializedBasket) {
+      return Response.json(
+        { error: { code: 'INVALID_REQUEST', message: 'The selected services are invalid.' } },
+        { status: 400 },
+      );
+    }
+    searchParams.set('bookingBasket', serializedBasket);
+  } else if (input.serviceIds?.length) {
     searchParams.set('serviceIds', input.serviceIds.join(','));
   }
-  if (input.baseServiceId) {
+  if (!input.bookingBasket && input.baseServiceId) {
     searchParams.set('baseServiceId', input.baseServiceId);
   }
-  if (input.selectedAddOns) {
+  if (!input.bookingBasket && input.selectedAddOns) {
     searchParams.set('selectedAddOns', input.selectedAddOns);
   }
-  if (input.durationMinutes !== undefined) {
+  if (!input.bookingBasket && input.durationMinutes !== undefined) {
     searchParams.set('durationMinutes', String(input.durationMinutes));
   }
 
@@ -202,6 +218,19 @@ export async function getPublicBookingAvailability(
   const serviceIdList = searchParams.get('serviceIds')?.split(',').filter(Boolean) ?? [];
   const baseServiceId = searchParams.get('baseServiceId');
   const selectedAddOns = parseSelectedAddOnsParam(searchParams.get('selectedAddOns'));
+  const bookingBasketRaw = searchParams.get('bookingBasket');
+  const bookingBasket = parseBookingBasketParam(bookingBasketRaw);
+
+  const hasLegacySelection = Boolean(baseServiceId)
+    || serviceIdList.length > 0
+    || searchParams.has('selectedAddOns')
+    || searchParams.has('durationMinutes');
+  if (bookingBasketRaw !== null && (!bookingBasket || hasLegacySelection)) {
+    return Response.json(
+      { error: { code: 'INVALID_REQUEST', message: 'Choose services using one booking selection format.' } },
+      { status: 400 },
+    );
+  }
 
   if (!date || !salonSlug) {
     return Response.json(
@@ -243,7 +272,7 @@ export async function getPublicBookingAvailability(
       );
     }
 
-    if (!baseServiceId && !originalAppointmentId && resolveCatalogDomainView(salon.features) === 'l1') {
+    if (!baseServiceId && !bookingBasket && !originalAppointmentId && resolveCatalogDomainView(salon.features) === 'l1') {
       return Response.json({ error: { code: 'INVALID_SERVICE', message: 'Choose a service and its options before selecting a time.' } }, { status: 400 });
     }
     const statusGuard = await guardSalonApiRoute(salon.id);
@@ -292,7 +321,35 @@ export async function getPublicBookingAvailability(
     let bufferMinutes = bookingConfig.bufferMinutes;
     let subtotalBeforeDiscountCents = 0;
 
-    if (baseServiceId) {
+    if (bookingBasket) {
+      try {
+        const validatedBasket = await validatePublicBookingBasket({
+          salonId: salon.id,
+          basket: bookingBasket,
+          technicianId: technicianId && technicianId !== 'any' ? technicianId : null,
+        });
+        const l1EligibilitySets = validatedBasket.items
+          .map(item => item.validated.l1?.eligibleTechnicianIds)
+          .filter((eligibleIds): eligibleIds is string[] => eligibleIds !== undefined);
+        l1EligibleTechnicianIds = l1EligibilitySets.length > 0
+          ? [...l1EligibilitySets.slice(1).reduce(
+              (eligibleIds, nextEligibleIds) => eligibleIds.filter(id => nextEligibleIds.includes(id)),
+              l1EligibilitySets[0]!,
+            )]
+          : undefined;
+        requestedServices = validatedBasket.items.map(item => item.validated.baseServiceRecord);
+        pricedRequestedServices = validatedBasket.items.map(item => item.validated.baseServiceRecord);
+        visibleDurationMinutes = validatedBasket.visibleDurationMinutes;
+        bufferMinutes = validatedBasket.bufferMinutes;
+        subtotalBeforeDiscountCents = validatedBasket.subtotalCents;
+      } catch (error) {
+        const publicError = buildPublicAvailabilityError({ error });
+        if (publicError) {
+          return Response.json({ error: publicError }, { status: 400 });
+        }
+        throw error;
+      }
+    } else if (baseServiceId) {
       try {
         const validatedSelection = await validatePublicBookingSelection({
           salonId: salon.id,
@@ -404,7 +461,7 @@ export async function getPublicBookingAvailability(
       technicians,
       compatibility: tech =>
         (!l1EligibleTechnicianIds || l1EligibleTechnicianIds.includes(tech.id)) && getPublicTechnicianCompatibility({
-          selectionMode: baseServiceId ? 'base-service' : 'legacy',
+          selectionMode: baseServiceId || bookingBasket ? 'base-service' : 'legacy',
           technician: tech,
           requestedServices: requestedServices as RequestedService[],
         }).bookable,

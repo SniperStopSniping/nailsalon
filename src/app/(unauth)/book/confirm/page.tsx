@@ -8,7 +8,7 @@ import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
-import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isCustomerAssistantEnabledForSalon } from '@/libs/customerAssistant/access.server';
 import {
@@ -52,6 +52,7 @@ export default async function BookConfirmPage(
       serviceIds?: string;
       baseServiceId?: string;
       selectedAddOns?: string;
+      bookingBasket?: string;
       techId?: string;
       date?: string;
       time?: string;
@@ -75,6 +76,11 @@ export default async function BookConfirmPage(
   const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];
   const baseServiceId = searchParams.baseServiceId || null;
   const selectedAddOns = parseSelectedAddOnsParam(searchParams.selectedAddOns || null);
+  const bookingBasket = parseBookingBasketParam(searchParams.bookingBasket || null);
+  const hasBookingBasketParameter = searchParams.bookingBasket !== undefined;
+  const hasLegacySelectionParameters = searchParams.baseServiceId !== undefined
+    || searchParams.selectedAddOns !== undefined
+    || searchParams.serviceIds !== undefined;
   const techId = searchParams.techId || '';
   const dateStr = searchParams.date || '';
   const timeStr = searchParams.time || '';
@@ -179,6 +185,23 @@ export default async function BookConfirmPage(
     redirect(featureRedirectPath);
   }
 
+  // Never allow a malformed or mixed basket URL to fall through to legacy
+  // selection handling: it could otherwise submit a different booking.
+  if ((hasBookingBasketParameter && !bookingBasket) || (bookingBasket && hasLegacySelectionParameters)) {
+    redirect(buildBookingUrl('/book/service', {
+      salonSlug: searchParams.salonSlug ?? salon.slug,
+      locationId: locationId || null,
+      techId: techId || null,
+      originalAppointmentId,
+      manageToken: searchParams.manageToken ?? null,
+      campaignToken: searchParams.campaign ?? null,
+      bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
+    }, {
+      routeSalonSlug: params?.slug,
+      locale: params?.locale,
+    }));
+  }
+
   // Deep-link repair: validate locationId and redirect if missing or invalid
   // Uses shouldRepairBookingUrl() to prevent redirect loops
   // getLocationById validates: exists + belongs to salonId + isActive (explicit filter)
@@ -211,6 +234,7 @@ export default async function BookConfirmPage(
     salonId: salon.id,
     baseServiceId,
     selectedAddOns,
+    bookingBasket,
     serviceIds: serviceIdList,
     technicianId: techId || null,
     locationId: locationId || primaryLocation?.id || null,
@@ -226,6 +250,7 @@ export default async function BookConfirmPage(
         serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
         baseServiceId,
         selectedAddOns,
+        bookingBasket,
         techId: resolvedTechnicianContext.soleCompatibleTechnician.id,
         date: dateStr,
         time: timeStr,
@@ -250,6 +275,7 @@ export default async function BookConfirmPage(
         serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
         baseServiceId,
         selectedAddOns,
+        bookingBasket,
         locationId: locationId || primaryLocation?.id || null,
         techId: null,
         techError: 'unsupported',
@@ -269,6 +295,7 @@ export default async function BookConfirmPage(
         serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
         baseServiceId,
         selectedAddOns,
+        bookingBasket,
         locationId: locationId || primaryLocation?.id || null,
         techId: null,
         originalAppointmentId,
@@ -463,15 +490,20 @@ export default async function BookConfirmPage(
           salonId={salon.id}
           services={services}
           addOns={resolvedTechnicianContext.resolvedSelection.addOns.map(addOn => ({
+            serviceId: addOn.serviceId,
+            serviceName: services.find(service => service.id === addOn.serviceId)?.name,
             id: addOn.id,
             name: addOn.name,
             quantity: addOn.quantity,
             price: addOn.lineTotalCents / 100,
             duration: addOn.lineDurationMinutes,
             priceMode: addOn.priceMode,
+            priceDisplayText: addOn.priceDisplayText,
           }))}
           baseServiceId={resolvedTechnicianContext.resolvedSelection.baseServiceId}
           selectedAddOns={resolvedTechnicianContext.resolvedSelection.requestedSelectedAddOns ?? resolvedTechnicianContext.resolvedSelection.selectedAddOns}
+          bookingBasket={resolvedTechnicianContext.resolvedSelection.bookingBasket}
+          basketReviewFingerprint={resolvedTechnicianContext.resolvedSelection.basketReviewFingerprint}
           catalogAcknowledgment={resolvedTechnicianContext.resolvedSelection.catalogAcknowledgment}
           subtotalBeforeDiscount={subtotalBeforeDiscountCents / 100}
           discountAmount={discountAmountCents / 100}
