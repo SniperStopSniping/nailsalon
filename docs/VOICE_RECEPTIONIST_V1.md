@@ -4,7 +4,7 @@ This implementation adds a phone channel to Luster's existing Customer Assistant
 
 ## Architecture and existing work
 
-The branch starts at protected main `68d34d28a76ea93a01ecef7fc4670454af166514`, including the newer Customer AI manual-price/removal work. The historical phone assessment identified an n8n greeting/hangup flow and generic follow-up messaging, not a booking receptionist. This implementation replaces that path only after the target number/account is verified and the operator authorizes its routing change.
+The branch includes the current Customer AI manual-price/removal work from main. The historical phone assessment identified an n8n greeting/hangup flow and generic follow-up messaging, not a booking receptionist. This implementation replaces that path only after the target number/account is verified and the operator authorizes its routing change.
 
 ```mermaid
 flowchart TD
