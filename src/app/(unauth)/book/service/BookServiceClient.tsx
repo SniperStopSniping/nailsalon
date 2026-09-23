@@ -1594,9 +1594,10 @@ export function BookServiceClient({
           // PR's redesign. This is presentation-plan chrome, not a second
           // conditional booking-engine body.
           sectionPresentation.pageFrame === 'editorial'
-            ? 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 lg:max-w-5xl lg:px-10'
-            : 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10'
+            ? 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px] lg:max-w-5xl lg:px-10'
+            : 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px]'
         }
+        style={{ paddingBottom: selectedService ? 'calc(7rem + env(safe-area-inset-bottom, 0px))' : undefined }}
       >
         {/*
           Stage 4 keeps one service-selection engine and gives the canonical
@@ -2052,7 +2053,7 @@ export function BookServiceClient({
                               const service = services.find(candidate => candidate.id === item.serviceId);
                               const review = basketReview.find(candidate => candidate.serviceId === item.serviceId);
                               return (
-                                <div key={item.serviceId} className="flex items-start justify-between gap-2 rounded-xl bg-neutral-50 p-2.5">
+                                <div key={item.serviceId} className="flex items-start justify-between gap-2 rounded-xl bg-neutral-50 p-2.5 max-[360px]:flex-col max-[360px]:items-stretch">
                                   <div className="min-w-0">
                                     <div className="break-words text-sm font-semibold text-neutral-900">{service?.name ?? 'Unavailable service'}</div>
                                     <div className="mt-0.5 break-words text-xs text-neutral-600">
@@ -2064,12 +2065,12 @@ export function BookServiceClient({
                                         : review?.reviewed ? 'No optional extras' : 'Options to review'}
                                     </div>
                                   </div>
-                                  <div className="flex shrink-0 gap-1">
+                                  <div className="flex shrink-0 gap-1 max-[360px]:flex-wrap max-[360px]:justify-end">
                                     {service && (
                                       <button
                                         type="button"
                                         onClick={() => handleServiceSelection(service)}
-                                        className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                        className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
                                         aria-label={`Edit options for ${service.name}`}
                                       >
                                         Edit
@@ -2078,7 +2079,7 @@ export function BookServiceClient({
                                     <button
                                       type="button"
                                       onClick={() => handleRemoveService(item.serviceId)}
-                                      className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-600 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                      className="min-h-11 min-w-11 rounded-lg px-2 text-xs font-semibold text-neutral-600 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
                                       aria-label={`Remove ${service?.name ?? 'unavailable service'}`}
                                     >
                                       Remove
@@ -2406,7 +2407,7 @@ export function BookServiceClient({
                                                   <h5 className="text-sm font-semibold text-neutral-900">{group.title}</h5>
                                                   <div role="list" className="mt-1 divide-y divide-neutral-100">
                                                     {group.items.map(({ rule, addOn }) => (
-                                                      <div key={addOn.id} role="listitem" className="flex items-start justify-between gap-3 py-2 text-sm">
+                                                      <div key={addOn.id} role="listitem" className="flex items-start justify-between gap-3 py-2 text-sm max-[360px]:flex-col max-[360px]:gap-1">
                                                         <span className="min-w-0 text-neutral-800">
                                                           {addOn.name}
                                                           {rule.selectionMode === 'required' && <span className="ml-1 text-xs text-neutral-500">Required</span>}
@@ -2416,7 +2417,7 @@ export function BookServiceClient({
                                                             </span>
                                                           )}
                                                         </span>
-                                                        <span className="shrink-0 text-right font-semibold text-neutral-800">
+                                                        <span className="shrink-0 text-right font-semibold text-neutral-800 max-[360px]:text-left">
                                                           {rule.priceMode === 'manual_confirmation'
                                                             ? 'Price to confirm'
                                                             : addOn.priceDisplayText || (addOn.priceCents > 0 ? `+${formatMoney(addOn.priceCents, currency)}` : 'Free')}
@@ -2525,8 +2526,8 @@ export function BookServiceClient({
                                                           : 'white',
                                                       }}
                                                     >
-                                                      <div className="flex items-center justify-between gap-2.5">
-                                                        <div className="min-w-0 flex-1">
+                                                      <div className="flex items-center justify-between gap-2.5 max-[360px]:flex-wrap">
+                                                        <div className="min-w-0 flex-1 max-[360px]:basis-full">
                                                           <div className="flex items-center gap-2">
                                                             <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
                                                             {isRequired && (
@@ -2563,13 +2564,13 @@ export function BookServiceClient({
 
                                                         {addOn.pricingType === 'per_unit'
                                                           ? (
-                                                              <div className="flex items-center gap-1">
+                                                              <div className="flex items-center gap-1 max-[360px]:ml-auto">
                                                                 <button
                                                                   type="button"
                                                                   aria-label={`Decrease ${addOn.name} quantity`}
                                                                   onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, effectiveQuantity - 1) : Math.max(0, effectiveQuantity - 1))}
                                                                   disabled={isRequired ? effectiveQuantity <= 1 : effectiveQuantity <= 0}
-                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
                                                                 >
                                                                   -
                                                                 </button>
@@ -2581,7 +2582,7 @@ export function BookServiceClient({
                                                                   aria-label={`Increase ${addOn.name} quantity`}
                                                                   onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, effectiveQuantity + 1))}
                                                                   disabled={effectiveQuantity >= maxQuantity}
-                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
                                                                 >
                                                                   +
                                                                 </button>
@@ -2595,7 +2596,7 @@ export function BookServiceClient({
                                                                   : `${isSelected ? 'Remove' : 'Add'} ${addOn.name}`}
                                                                 onClick={() => handleAddOnToggle(addOn.id)}
                                                                 disabled={isRequired && isSelected}
-                                                                className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none"
+                                                                className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none max-[360px]:ml-auto max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
                                                                 style={{
                                                                   backgroundColor: isSelected
                                                                     ? hasBookingBrandColor
@@ -3320,8 +3321,8 @@ export function BookServiceClient({
               }
             `}
           </style>
-          <div className="mx-auto flex max-w-[430px] flex-nowrap items-center justify-between gap-3 px-4 py-1.5 sm:py-2">
-            <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="mx-auto flex max-w-[430px] flex-nowrap items-center justify-between gap-3 px-4 py-1.5 max-[360px]:flex-col max-[360px]:items-stretch max-[360px]:gap-[8px] max-[360px]:px-[12px] sm:py-2">
+            <div className="flex min-w-0 flex-col gap-0.5 max-[360px]:w-full">
               <div className="truncate text-[11px] leading-none text-neutral-500">
                 {`${selectedBasket.length} service${selectedBasket.length === 1 ? '' : 's'}`}
                 {selectedAddOnCount > 0
@@ -3352,7 +3353,7 @@ export function BookServiceClient({
               onClick={handleContinue}
               data-testid="service-continue-button"
               disabled={!needsOptionsReview && l1Blocked}
-              className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
+              className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none max-[360px]:min-h-[44px] max-[360px]:w-full max-[360px]:justify-center max-[360px]:px-[12px] sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
                 hasBookingBrandColor
                   ? 'text-[var(--booking-brand-foreground)]'
                   : 'text-neutral-900'

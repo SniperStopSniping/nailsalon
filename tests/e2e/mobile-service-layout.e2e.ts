@@ -1183,5 +1183,71 @@ test.describe('selected service options on mobile', () => {
 
       await expect(page).toHaveURL(/\/book\/tech\?/);
     });
+
+    test(`keeps selected service options readable with 200% text at 320px ${browserTag}`, async ({ page }, testInfo) => {
+      await openServicePage(page);
+      await page.evaluate(() => {
+        document.documentElement.style.fontSize = '200%';
+      });
+
+      const card = page.getByTestId(`service-card-${e2eConfig.serviceId}`);
+
+      await card.click();
+
+      const details = page.getByTestId(`service-details-${e2eConfig.serviceId}`);
+
+      await expect(card).toHaveAttribute('data-selected', 'false');
+      await expect(details.getByRole('heading', { name: e2eConfig.serviceName })).toBeFocused();
+      await expect.poll(() => details.getByRole('listitem').first().locator('span').first().evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(100);
+
+      await page.getByTestId(`service-add-button-${e2eConfig.serviceId}`).click();
+
+      const options = page.getByTestId('service-inline-addons-panel');
+      const repair = options.getByText('Nail Repair', { exact: true });
+      const summaryName = page.getByTestId('service-selection-summary').getByText(e2eConfig.serviceName, { exact: true });
+
+      await expect.poll(() => repair.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(100);
+      await expect.poll(() => summaryName.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(100);
+
+      await expectNoPageHorizontalOverflow(page);
+      await options.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath('selected-service-options-320-200-percent-text.png'), animations: 'disabled' });
+
+      await page.getByTestId('service-options-done-button').click();
+      const sticky = page.getByTestId('service-sticky-bar');
+      const continueButton = page.getByTestId('service-continue-button');
+
+      await expect(continueButton).toContainText('Continue to Time');
+
+      // Browser text-only zoom also enlarges labels whose CSS sizes use px.
+      await sticky.getByText('1 service', { exact: true }).evaluate((element) => {
+        element.style.fontSize = '22px';
+      });
+      await sticky.getByTestId('service-sticky-addon-note').evaluate((element) => {
+        element.style.fontSize = '18px';
+      });
+      await sticky.getByText('$65', { exact: true }).evaluate((element) => {
+        element.style.fontSize = '34px';
+      });
+      await sticky.getByText('1h 15m', { exact: true }).evaluate((element) => {
+        element.style.fontSize = '22px';
+      });
+      await continueButton.evaluate((element) => {
+        element.style.fontSize = '28px';
+      });
+
+      const priceBounds = await sticky.getByText('$65', { exact: true }).boundingBox();
+      const continueBounds = await continueButton.boundingBox();
+
+      expect(priceBounds).not.toBeNull();
+      expect(continueBounds).not.toBeNull();
+      expect(priceBounds!.x + priceBounds!.width <= continueBounds!.x
+        || continueBounds!.x + continueBounds!.width <= priceBounds!.x
+        || priceBounds!.y + priceBounds!.height <= continueBounds!.y
+        || continueBounds!.y + continueBounds!.height <= priceBounds!.y).toBe(true);
+      await expect.poll(() => sticky.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(220);
+
+      await page.screenshot({ path: testInfo.outputPath('selected-service-sticky-320-200-percent-text.png'), animations: 'disabled' });
+    });
   }
 });
