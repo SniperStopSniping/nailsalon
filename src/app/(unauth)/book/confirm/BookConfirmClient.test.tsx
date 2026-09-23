@@ -391,8 +391,8 @@ describe('BookConfirmClient', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
-    const details = await screen.findByText('Appointment summary');
-    const message = screen.getByTestId('booking-confirmation-message');
+    const message = await screen.findByTestId('booking-confirmation-message');
+    const details = screen.getByText('Appointment summary');
 
     expect(message).toHaveTextContent('Please arrive 10 minutes early. We look forward to seeing you.');
     expect(message).toHaveClass('break-words', 'whitespace-pre-line');
