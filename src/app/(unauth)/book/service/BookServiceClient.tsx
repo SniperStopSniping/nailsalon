@@ -2404,9 +2404,9 @@ export function BookServiceClient({
                                               ].filter(group => group.items.length > 0).map(group => (
                                                 <div key={group.title}>
                                                   <h5 className="text-sm font-semibold text-neutral-900">{group.title}</h5>
-                                                  <ul className="mt-1 divide-y divide-neutral-100">
+                                                  <div role="list" className="mt-1 divide-y divide-neutral-100">
                                                     {group.items.map(({ rule, addOn }) => (
-                                                      <li key={addOn.id} className="flex items-start justify-between gap-3 py-2 text-sm">
+                                                      <div key={addOn.id} role="listitem" className="flex items-start justify-between gap-3 py-2 text-sm">
                                                         <span className="min-w-0 text-neutral-800">
                                                           {addOn.name}
                                                           {rule.selectionMode === 'required' && <span className="ml-1 text-xs text-neutral-500">Required</span>}
@@ -2433,9 +2433,9 @@ export function BookServiceClient({
                                                             </span>
                                                           )}
                                                         </span>
-                                                      </li>
+                                                      </div>
                                                     ))}
-                                                  </ul>
+                                                  </div>
                                                 </div>
                                               ))}
                                             </div>
