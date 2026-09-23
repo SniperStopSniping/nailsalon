@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/voice/maintenance",
+      "schedule": "*/1 * * * *"
+    },
+    {
       "path": "/api/reminders/process",
       "schedule": "*/15 * * * *"
     },
@@ -31,10 +35,6 @@
     {
       "path": "/api/communications/dispatch",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/voice/maintenance",
-      "schedule": "*/1 * * * *"
     }
   ]
 }
