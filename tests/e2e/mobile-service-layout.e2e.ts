@@ -918,12 +918,18 @@ for (const viewport of MOBILE_VIEWPORTS) {
 
       await expectNoPageHorizontalOverflow(page);
 
-      // Selecting the LAST card raises the sticky bar; the reserved bottom
+      // Adding the LAST card raises the sticky bar; the reserved bottom
       // clearance must keep that card fully above the bar at scroll end.
       const cards = page.locator('[data-testid^="service-card-"]:not([data-testid*="image"]):not([data-testid*="content"]):not([data-testid*="meta"]):not([data-testid*="price"]):not([data-testid*="addon"])');
       const lastCard = cards.last();
       await lastCard.scrollIntoViewIfNeeded();
       await lastCard.click();
+      const cardTestId = await lastCard.getAttribute('data-testid');
+
+      if (!cardTestId?.startsWith('service-card-')) {
+        throw new Error('Expected a canonical service card.');
+      }
+      await page.getByTestId(`service-add-button-${cardTestId.slice('service-card-'.length)}`).click();
 
       const stickyBar = page.getByTestId('service-sticky-bar');
 
