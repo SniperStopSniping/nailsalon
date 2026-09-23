@@ -74,15 +74,20 @@ describe('manual booking receipt recovery', () => {
     const confirmationPath = '/book/confirm?time=10';
     beginPublicBookingAttempt({ salonId: 'a', attemptId, confirmationPath });
     clearResolvedPublicBookingAttempt('a');
+
     expect(readPublicBookingAttempt('a')?.state).toBe('pending');
 
     resolvePublicBookingAttempt('a', receipt);
     clearResolvedPublicBookingAttempt('b');
+
     expect(readPublicBookingAttempt('a')?.state).toBe('resolved');
 
     clearResolvedPublicBookingAttempt('a');
+
     expect(readPublicBookingAttempt('a')).toBeNull();
+
     const next = beginPublicBookingAttempt({ salonId: 'a', attemptId: crypto.randomUUID(), confirmationPath });
+
     expect(next.attemptId).not.toBe(attemptId);
   });
 
