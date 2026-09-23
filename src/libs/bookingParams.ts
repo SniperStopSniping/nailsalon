@@ -14,6 +14,99 @@ export type SelectedAddOnParam = {
   quantity?: number;
 };
 
+/**
+ * Versioned public-booking selection. Add-ons deliberately live with the
+ * service they customize: the same catalogue add-on can therefore be chosen
+ * independently for a manicure and a pedicure.
+ */
+export type BookingBasketItem = {
+  serviceId: string;
+  selectedAddOns: SelectedAddOnParam[];
+};
+
+export type BookingBasket = {
+  version: 2;
+  items: BookingBasketItem[];
+};
+
+const MAX_BOOKING_BASKET_ITEMS = 10;
+const MAX_BOOKING_BASKET_ADD_ONS_PER_ITEM = 50;
+
+function isSelectedAddOnParam(value: unknown): value is SelectedAddOnParam {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return Object.keys(candidate).every(key => key === 'addOnId' || key === 'quantity')
+    && typeof candidate.addOnId === 'string'
+    && candidate.addOnId.length > 0
+    && (candidate.quantity === undefined
+      || (typeof candidate.quantity === 'number'
+        && Number.isInteger(candidate.quantity)
+        && candidate.quantity >= 1
+        && candidate.quantity <= 20));
+}
+
+/** Returns null for malformed, duplicate, or out-of-bounds basket input. */
+export function validateBookingBasket(value: unknown): BookingBasket | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const basket = value as Record<string, unknown>;
+  if (
+    Object.keys(basket).some(key => key !== 'version' && key !== 'items')
+    || basket.version !== 2
+    || !Array.isArray(basket.items)
+    || basket.items.length < 1
+    || basket.items.length > MAX_BOOKING_BASKET_ITEMS
+  ) {
+    return null;
+  }
+
+  const serviceIds = new Set<string>();
+  const items: BookingBasketItem[] = [];
+  for (const rawItem of basket.items) {
+    if (typeof rawItem !== 'object' || rawItem === null || Array.isArray(rawItem)) {
+      return null;
+    }
+    const item = rawItem as Record<string, unknown>;
+    if (
+      Object.keys(item).some(key => key !== 'serviceId' && key !== 'selectedAddOns')
+      || typeof item.serviceId !== 'string'
+      || item.serviceId.length === 0
+      || !Array.isArray(item.selectedAddOns)
+      || item.selectedAddOns.length > MAX_BOOKING_BASKET_ADD_ONS_PER_ITEM
+      || !item.selectedAddOns.every(isSelectedAddOnParam)
+      || new Set(item.selectedAddOns.map(addOn => addOn.addOnId)).size !== item.selectedAddOns.length
+      || serviceIds.has(item.serviceId)
+    ) {
+      return null;
+    }
+    serviceIds.add(item.serviceId);
+    items.push({
+      serviceId: item.serviceId,
+      selectedAddOns: item.selectedAddOns.map(addOn => ({ ...addOn })),
+    });
+  }
+  return { version: 2, items };
+}
+
+export function serializeBookingBasket(basket: BookingBasket): string | null {
+  const valid = validateBookingBasket(basket);
+  return valid ? JSON.stringify(valid) : null;
+}
+
+export function parseBookingBasketParam(raw: string | null): BookingBasket | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    return validateBookingBasket(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
 type TenantRouteOptions = {
   routeSalonSlug?: string | null;
   locale?: string | null;
@@ -178,6 +271,7 @@ export function buildBookingUrl(
     serviceIds?: string[];
     baseServiceId?: string | null;
     selectedAddOns?: SelectedAddOnParam[];
+    bookingBasket?: BookingBasket | null;
     locationId?: string | null;
     techId?: string | null;
     techError?: string | null;
@@ -208,15 +302,20 @@ export function buildBookingUrl(
     searchParams.set('salonSlug', params.salonSlug);
   }
 
-  if (params.serviceIds && params.serviceIds.length > 0) {
+  const serializedBasket = params.bookingBasket
+    ? serializeBookingBasket(params.bookingBasket)
+    : null;
+  if (serializedBasket) {
+    searchParams.set('bookingBasket', serializedBasket);
+  } else if (params.serviceIds && params.serviceIds.length > 0) {
     searchParams.set('serviceIds', params.serviceIds.join(','));
   }
 
-  if (params.baseServiceId) {
+  if (!serializedBasket && params.baseServiceId) {
     searchParams.set('baseServiceId', params.baseServiceId);
   }
 
-  const serializedAddOns = params.selectedAddOns
+  const serializedAddOns = !serializedBasket && params.selectedAddOns
     ? serializeSelectedAddOns(params.selectedAddOns)
     : null;
   if (serializedAddOns) {
@@ -298,6 +397,7 @@ export function parseBookingParams(searchParams: URLSearchParams): {
   serviceIds: string[];
   baseServiceId: string | null;
   selectedAddOns: SelectedAddOnParam[];
+  bookingBasket: BookingBasket | null;
   locationId: string | null;
   techId: string | null;
   techError: string | null;
@@ -317,6 +417,7 @@ export function parseBookingParams(searchParams: URLSearchParams): {
     serviceIds,
     baseServiceId: searchParams.get('baseServiceId') || null,
     selectedAddOns: parseSelectedAddOnsParam(searchParams.get('selectedAddOns')),
+    bookingBasket: parseBookingBasketParam(searchParams.get('bookingBasket')),
     locationId: searchParams.get('locationId') || null,
     techId: searchParams.get('techId') || null,
     techError: searchParams.get('techError') || null,

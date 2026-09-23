@@ -47,6 +47,7 @@ import {
   classifyDuplicateBooking,
   resolveBookingSubject,
 } from '@/libs/bookingIdentity';
+import { type BookingBasket, validateBookingBasket } from '@/libs/bookingParams';
 import {
   canTechnicianTakeAppointment,
   getTorontoDateString,
@@ -69,8 +70,10 @@ import {
 } from '@/libs/bookingPolicyAcknowledgment';
 import {
   BookingSelectionError,
+  fingerprintBookingBasketReview,
   getPublicBookingSelectionMessage,
   getPublicTechnicianCompatibility,
+  validatePublicBookingBasket,
   validatePublicBookingSelection,
 } from '@/libs/bookingQuote';
 import {
@@ -329,6 +332,10 @@ const catalogAcknowledgmentRequestSchema = z.object({
 
 const createAppointmentSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
+  // Parsed with validateBookingBasket below. Keeping this unknown here lets the
+  // shared URL and request validator remain the single strict wire authority.
+  bookingBasket: z.unknown().optional(),
+  expectedBasketReviewFingerprint: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
   serviceIds: z.array(z.string()).min(1, 'At least one service is required').optional(),
   baseServiceId: z.string().min(1, 'Base service is required').optional(),
   selectedAddOns: z.array(z.object({
@@ -1102,6 +1109,10 @@ async function createAppointmentFromRequestCore(
     const normalizedBaseServiceId = data.baseServiceId?.trim() || null;
     const normalizedSelectedAddOns = data.selectedAddOns ?? [];
     const normalizedLegacyServiceIds = data.serviceIds ?? [];
+    const normalizedBookingBasket: BookingBasket | null = data.bookingBasket === undefined
+      ? null
+      : validateBookingBasket(data.bookingBasket);
+    const expectedBasketReviewFingerprint = data.expectedBasketReviewFingerprint ?? null;
     const normalizedNotes = data.notes?.trim() || null;
     const normalizedCampaignToken = data.campaignToken?.trim() || null;
     let nextVisitReference: NextVisitOfferReference | null = access.kind === 'anonymous_customer' ? access.nextVisitOffer ?? null : null;
@@ -1178,7 +1189,32 @@ async function createAppointmentFromRequestCore(
       );
     }
 
-    if (!normalizedBaseServiceId && normalizedLegacyServiceIds.length === 0) {
+    if (data.bookingBasket !== undefined && !normalizedBookingBasket) {
+      return Response.json({
+        error: { code: 'INVALID_SELECTION', message: 'The selected services are invalid. Please review and try again.' },
+      } satisfies ErrorResponse, { status: 400 });
+    }
+
+    // A basket is an authoritative replacement for the old single-service and
+    // legacy serviceIds formats. Accepting a mixture would make request hashes
+    // and price authority ambiguous, so reject it before any catalogue read.
+    if (normalizedBookingBasket && (normalizedBaseServiceId || normalizedLegacyServiceIds.length > 0 || normalizedSelectedAddOns.length > 0)) {
+      return Response.json({
+        error: { code: 'INVALID_SELECTION', message: 'Choose services using one booking format.' },
+      } satisfies ErrorResponse, { status: 400 });
+    }
+    if (normalizedBookingBasket && !expectedBasketReviewFingerprint) {
+      return Response.json({
+        error: { code: 'BASKET_REVIEW_CHANGED', message: 'Review the selected services and options before booking.' },
+      } satisfies ErrorResponse, { status: 409 });
+    }
+    if (!normalizedBookingBasket && expectedBasketReviewFingerprint) {
+      return Response.json({
+        error: { code: 'INVALID_SELECTION', message: 'The booking review did not match the selected service.' },
+      } satisfies ErrorResponse, { status: 400 });
+    }
+
+    if (!normalizedBookingBasket && !normalizedBaseServiceId && normalizedLegacyServiceIds.length === 0) {
       return Response.json(
         {
           error: {
@@ -1440,6 +1476,14 @@ async function createAppointmentFromRequestCore(
     const requestBodyHash = hashCanonicalBookingRequest({
       salonId: salon.id,
       serviceIds: [...normalizedLegacyServiceIds].sort(),
+      ...(normalizedBookingBasket
+        ? { bookingBasket: normalizedBookingBasket.items.map(item => ({
+            serviceId: item.serviceId,
+            selectedAddOns: item.selectedAddOns
+              .map(addOn => ({ addOnId: addOn.addOnId, quantity: addOn.quantity ?? 1 }))
+              .sort((left, right) => left.addOnId.localeCompare(right.addOnId) || left.quantity - right.quantity),
+          })).sort((left, right) => left.serviceId.localeCompare(right.serviceId)), expectedBasketReviewFingerprint }
+        : {}),
       baseServiceId: normalizedBaseServiceId,
       selectedAddOns: normalizedSelectedAddOns
         .map(addOn => ({
@@ -1666,10 +1710,10 @@ async function createAppointmentFromRequestCore(
       selection: catalogSelectionInput,
       clientAcknowledgment: requestedCatalogAcknowledgment,
     });
-    if (catalogOutcome.status === 'conflict') {
+    if (!normalizedBookingBasket && catalogOutcome.status === 'conflict') {
       return catalogSelectionChangedResponse(catalogOutcome.payload);
     }
-    if (catalogOutcome.status === 'unavailable') {
+    if (!normalizedBookingBasket && catalogOutcome.status === 'unavailable') {
       if (catalogOutcome.failure === 'L1_SELECTION_REQUIRED') {
         return Response.json({ error: { code: 'CATALOG_SELECTION_CHANGED', message: 'Choose a service and review its options before booking.', details: { refreshCatalog: true } } }, { status: 409 });
       }
@@ -1739,6 +1783,8 @@ async function createAppointmentFromRequestCore(
     // 3. Resolve booking selection
     let services: Service[] = [];
     let selectedAddOnsForBooking: Array<{
+      /** The booked service whose catalogue binding authorized this line. */
+      serviceId: string;
       addOnId: string;
       name: string;
       quantity: number;
@@ -1749,6 +1795,7 @@ async function createAppointmentFromRequestCore(
       unitDurationMinutes: number;
       lineTotalCents: number;
       lineDurationMinutes: number;
+      priceDisplayText: string | null;
     }> = [];
     let basePriceCents = 0;
     let addOnsPriceCents = 0;
@@ -1760,6 +1807,8 @@ async function createAppointmentFromRequestCore(
     let blockedDurationMinutes = 0;
     let resolvedIntroPriceLabel: string | null = null;
     let l1SelectionFingerprint: string | null = null;
+    let basketRequiresRequestApproval = false;
+    let basketEligibleTechnicianIds: Set<string> | null = null;
     let subtotalBeforeDiscountCents = 0;
     let discountAmountCents = 0;
     let appointmentDiscountType: string | null = null;
@@ -1767,7 +1816,70 @@ async function createAppointmentFromRequestCore(
     let appointmentDiscountPercent: number | null = null;
     let discountAppliedAt: Date | null = null;
 
-    if (normalizedBaseServiceId) {
+    if (normalizedBookingBasket) {
+      try {
+        const validatedBasket = await validatePublicBookingBasket({
+          salonId: salon.id,
+          basket: normalizedBookingBasket,
+          technicianId: normalizedTechnicianId,
+        });
+        if (fingerprintBookingBasketReview(validatedBasket) !== expectedBasketReviewFingerprint) {
+          return Response.json({
+            error: { code: 'BASKET_REVIEW_CHANGED', message: 'Your selected services or options changed. Review them before booking.' },
+          } satisfies ErrorResponse, { status: 409 });
+        }
+        services = validatedBasket.items.map(item => item.validated.baseServiceRecord);
+        basketRequiresRequestApproval = validatedBasket.items.some(
+          item => item.validated.l1?.confirmationMode === 'request_approval',
+        );
+        // Every L1 item supplies its own authoritative technician set. An
+        // appointment needs one artist who can perform the entire basket, so
+        // intersect rather than union those sets before Any-tech selection.
+        for (const item of validatedBasket.items) {
+          const eligibleIds = item.validated.l1?.eligibleTechnicianIds;
+          if (!eligibleIds) {
+            continue;
+          }
+          const previousEligibleIds = basketEligibleTechnicianIds as Set<string> | null;
+          basketEligibleTechnicianIds = previousEligibleIds === null
+            ? new Set(eligibleIds)
+            : new Set([...previousEligibleIds].filter(id => eligibleIds.includes(id)));
+        }
+        selectedAddOnsForBooking = validatedBasket.items.flatMap(({ serviceId, validated }) =>
+          validated.quote.addOns.map(addOn => ({
+            serviceId,
+            addOnId: addOn.addOnId,
+            name: addOn.name,
+            quantity: addOn.quantity,
+            category: addOn.category,
+            pricingType: addOn.pricingType,
+            priceMode: addOn.priceMode,
+            unitPriceCents: addOn.unitPriceCents,
+            unitDurationMinutes: addOn.unitDurationMinutes,
+            lineTotalCents: addOn.lineTotalCents,
+            lineDurationMinutes: addOn.lineDurationMinutes,
+            priceDisplayText: validated.addOnRecords.find(record => record.id === addOn.addOnId)?.priceDisplayText ?? null,
+          })),
+        );
+        basePriceCents = validatedBasket.items.reduce((sum, item) => sum + item.validated.quote.baseService.priceCents, 0);
+        addOnsPriceCents = selectedAddOnsForBooking.reduce((sum, addOn) => sum + addOn.lineTotalCents, 0);
+        baseDurationMinutes = validatedBasket.items.reduce((sum, item) => sum + item.validated.quote.baseDurationMinutes, 0);
+        addOnsDurationMinutes = selectedAddOnsForBooking.reduce((sum, addOn) => sum + addOn.lineDurationMinutes, 0);
+        totalPrice = validatedBasket.subtotalCents;
+        totalDurationMinutes = validatedBasket.visibleDurationMinutes;
+        bufferMinutes = validatedBasket.bufferMinutes;
+        blockedDurationMinutes = validatedBasket.blockedDurationMinutes;
+      } catch (error) {
+        return Response.json({
+          error: {
+            code: 'INVALID_SELECTION',
+            message: error instanceof BookingSelectionError
+              ? getPublicBookingSelectionMessage(error)
+              : 'Unable to validate the selected services right now.',
+          },
+        } satisfies ErrorResponse, { status: 400 });
+      }
+    } else if (normalizedBaseServiceId) {
       try {
         const validatedSelection = await validatePublicBookingSelection({
           salonId: salon.id,
@@ -1780,6 +1892,7 @@ async function createAppointmentFromRequestCore(
 
         services = [validatedSelection.baseServiceRecord];
         selectedAddOnsForBooking = validatedSelection.quote.addOns.map(addOn => ({
+          serviceId: validatedSelection.baseServiceRecord.id,
           addOnId: addOn.addOnId,
           name: addOn.name,
           quantity: addOn.quantity,
@@ -1790,6 +1903,7 @@ async function createAppointmentFromRequestCore(
           unitDurationMinutes: addOn.unitDurationMinutes,
           lineTotalCents: addOn.lineTotalCents,
           lineDurationMinutes: addOn.lineDurationMinutes,
+          priceDisplayText: validatedSelection.addOnRecords.find(record => record.id === addOn.addOnId)?.priceDisplayText ?? null,
         }));
         basePriceCents = validatedSelection.quote.baseService.priceCents;
         addOnsPriceCents = validatedSelection.quote.addOns.reduce((sum, addOn) => sum + addOn.lineTotalCents, 0);
@@ -2233,6 +2347,7 @@ async function createAppointmentFromRequestCore(
       subtotalBeforeDiscountCents,
       serviceIds: services.map(service => service.id),
       addOns: selectedAddOnsForBooking.map(addOn => ({
+        serviceId: addOn.serviceId,
         addOnId: addOn.addOnId,
         quantity: addOn.quantity,
       })),
@@ -2240,21 +2355,38 @@ async function createAppointmentFromRequestCore(
     let originalPricingInputs: ReschedulePricingInputs | null = null;
     if (originalAppointment && hasCommittedSmartFitDiscount(originalAppointment)) {
       const [originalServiceRows, originalAddOnRows] = await Promise.all([
-        db.select({ serviceId: appointmentServicesSchema.serviceId })
+        db.select({ id: appointmentServicesSchema.id, serviceId: appointmentServicesSchema.serviceId })
           .from(appointmentServicesSchema)
           .where(eq(appointmentServicesSchema.appointmentId, originalAppointment.id)),
         db.select({
+          appointmentServiceId: appointmentAddOnSchema.appointmentServiceId,
           addOnId: appointmentAddOnSchema.addOnId,
           quantity: appointmentAddOnSchema.quantitySnapshot,
         })
           .from(appointmentAddOnSchema)
           .where(eq(appointmentAddOnSchema.appointmentId, originalAppointment.id)),
       ]);
+      const serviceIdByAppointmentServiceId = new Map(
+        originalServiceRows.map(row => [row.id, row.serviceId]),
+      );
+      // Migration 0091 deliberately leaves historical rows unlinked. Those
+      // rows came from the only shape the old writer could create: one booked
+      // service. Preserve its Smart Fit comparison semantics while retaining
+      // fail-closed null association for every historical multi-service row.
+      const legacySingleServiceId = originalServiceRows.length === 1
+        ? originalServiceRows[0]?.serviceId ?? null
+        : null;
       originalPricingInputs = {
         subtotalBeforeDiscountCents: originalAppointment.subtotalBeforeDiscountCents
           ?? originalAppointment.totalPrice + (originalAppointment.discountAmountCents ?? 0),
         serviceIds: originalServiceRows.map(row => row.serviceId).filter((id): id is string => Boolean(id)),
-        addOns: originalAddOnRows.map(row => ({ addOnId: row.addOnId, quantity: row.quantity })),
+        addOns: originalAddOnRows.map(row => ({
+          serviceId: row.appointmentServiceId
+            ? serviceIdByAppointmentServiceId.get(row.appointmentServiceId) ?? null
+            : legacySingleServiceId,
+          addOnId: row.addOnId,
+          quantity: row.quantity,
+        })),
       };
     }
     const preservedSmartFitDecision = originalAppointment
@@ -2402,7 +2534,10 @@ async function createAppointmentFromRequestCore(
     if (catalogOutcome.status === 'ok') {
       candidateTechnicians = candidateTechnicians.filter(tech => catalogOutcome.eligibleTechnicianIds.includes(tech.id));
     }
-    if (normalizedBaseServiceId) {
+    if (basketEligibleTechnicianIds !== null) {
+      candidateTechnicians = candidateTechnicians.filter(tech => basketEligibleTechnicianIds!.has(tech.id));
+    }
+    if (normalizedBaseServiceId || normalizedBookingBasket) {
       candidateTechnicians = candidateTechnicians.filter(tech =>
         getPublicTechnicianCompatibility({
           selectionMode: 'base-service',
@@ -2424,7 +2559,7 @@ async function createAppointmentFromRequestCore(
       );
     }
 
-    const capabilityMode = normalizedBaseServiceId
+    const capabilityMode = normalizedBaseServiceId || normalizedBookingBasket
       ? 'service_assignments'
       : resolveTechnicianCapabilityMode(candidateTechnicians, services);
 
@@ -2821,7 +2956,9 @@ async function createAppointmentFromRequestCore(
       confirmationModeSnapshot: 'request_approval';
       selectionModeSnapshot: 'direct' | 'guided' | null;
     } | null = null;
-    if (resolvedCatalogService?.explicitConfirmationMode === 'request_approval' && !bypassAvailabilityGate) {
+    const requiresRequestApproval = basketRequiresRequestApproval
+      || resolvedCatalogService?.explicitConfirmationMode === 'request_approval';
+    if (requiresRequestApproval && !bypassAvailabilityGate) {
       const activation = resolveExplicitRequestApprovalActivation({
         startTime,
         endTime: blockedEndTime,
@@ -2860,7 +2997,9 @@ async function createAppointmentFromRequestCore(
       explicitRequestApproval = {
         requestExpiresAt: activation.deadline,
         confirmationModeSnapshot: 'request_approval',
-        selectionModeSnapshot: resolvedCatalogService.selectionMode,
+        selectionModeSnapshot: normalizedBookingBasket
+          ? null
+          : (resolvedCatalogService?.selectionMode ?? null),
       };
     }
 
@@ -3620,7 +3759,7 @@ async function createAppointmentFromRequestCore(
         throw new CustomerBookingOperationError('slot_unavailable');
       }
       services = [selection.baseServiceRecord];
-      selectedAddOnsForBooking = selection.quote.addOns.map(addOn => ({ addOnId: addOn.addOnId, name: addOn.name, quantity: addOn.quantity, category: addOn.category, pricingType: addOn.pricingType, priceMode: addOn.priceMode, unitPriceCents: addOn.unitPriceCents, unitDurationMinutes: addOn.unitDurationMinutes, lineTotalCents: addOn.lineTotalCents, lineDurationMinutes: addOn.lineDurationMinutes }));
+      selectedAddOnsForBooking = selection.quote.addOns.map(addOn => ({ serviceId: selection.baseServiceRecord.id, addOnId: addOn.addOnId, name: addOn.name, quantity: addOn.quantity, category: addOn.category, pricingType: addOn.pricingType, priceMode: addOn.priceMode, unitPriceCents: addOn.unitPriceCents, unitDurationMinutes: addOn.unitDurationMinutes, lineTotalCents: addOn.lineTotalCents, lineDurationMinutes: addOn.lineDurationMinutes, priceDisplayText: selection.addOnRecords.find(record => record.id === addOn.addOnId)?.priceDisplayText ?? null }));
       basePriceCents = selection.quote.baseService.priceCents;
       addOnsPriceCents = selection.quote.addOns.reduce((sum, addOn) => sum + addOn.lineTotalCents, 0);
       baseDurationMinutes = selection.quote.baseDurationMinutes;
@@ -3633,6 +3772,73 @@ async function createAppointmentFromRequestCore(
       subtotalBeforeDiscountCents = selection.quote.subtotalCents;
       applyAutomaticDiscount(await resolveAutomaticBookingDiscount({ salonId: salon.id, services, subtotalBeforeDiscountCents, clientPhone: normalizedPhone, readContext: { database: tx, salonId: salon.id, bookingConfig: lockedBookingConfig, now: configuration.capturedAt, salonClientId: lockedSalonClient.id } }));
       // Final Smart Fit and tax assertions run after the existing slot finalizer.
+    };
+
+    /**
+     * Basket requests have no single-service L1 reconciliation object. Re-read
+     * every binding under the transaction snapshot instead, then require the
+     * committed quote to match the review the customer accepted. This keeps a
+     * price, duration, compatibility, or required-option change from becoming
+     * an accidental write between the public preflight and INSERT.
+     */
+    const revalidateBookingBasketInTx = async (
+      tx: BookingTx,
+      lockedSalonClient: OperationalSalonClientContact,
+      configuration: LockedBookingFinancialConfiguration,
+    ): Promise<void> => {
+      if (!normalizedBookingBasket || !technician) {
+        return;
+      }
+      let fresh;
+      try {
+        fresh = await validatePublicBookingBasket({
+          salonId: salon.id,
+          basket: normalizedBookingBasket,
+          technicianId: technician.id,
+          readContext: {
+            database: tx,
+            salonId: salon.id,
+            bookingConfig: resolveBookingConfigFromSettings(configuration.settings),
+            now: configuration.capturedAt,
+            salonClientId: lockedSalonClient.id,
+          },
+        });
+      } catch (error) {
+        if (error instanceof BookingSelectionError) {
+          throw new L1SelectionChangedError(null);
+        }
+        throw error;
+      }
+      if (
+        fresh.subtotalCents !== subtotalBeforeDiscountCents
+        || fresh.visibleDurationMinutes !== totalDurationMinutes
+        || fresh.bufferMinutes !== bufferMinutes
+        || fresh.blockedDurationMinutes !== blockedDurationMinutes
+      ) {
+        throw new L1SelectionChangedError(null);
+      }
+      if (fingerprintBookingBasketReview(fresh) !== expectedBasketReviewFingerprint) {
+        throw new L1SelectionChangedError(null);
+      }
+      if (fresh.items.some(item => item.validated.l1?.confirmationMode === 'request_approval') !== basketRequiresRequestApproval) {
+        throw new L1SelectionChangedError(null);
+      }
+      // Recompute the aggregate discount once from the same locked catalogue
+      // basket. It must never be applied separately to individual services.
+      applyAutomaticDiscount(await resolveAutomaticBookingDiscount({
+        salonId: salon.id,
+        services: fresh.items.map(item => item.validated.baseServiceRecord),
+        subtotalBeforeDiscountCents: fresh.subtotalCents,
+        clientPhone: normalizedPhone,
+        originalAppointmentId: normalizedOriginalApptId,
+        readContext: {
+          database: tx,
+          salonId: salon.id,
+          bookingConfig: resolveBookingConfigFromSettings(configuration.settings),
+          now: configuration.capturedAt,
+          salonClientId: lockedSalonClient.id,
+        },
+      }));
     };
 
     const runSerializedBookingTransaction = async <T>(
@@ -3727,6 +3933,10 @@ async function createAppointmentFromRequestCore(
                   throw new L1SelectionChangedError(projectL1ConflictPayload({ reason: 'material_change', recovery: 'reload_catalog_and_reselect', snapshot: current.snapshot, resolution: current.resolution, resolutionFingerprint: current.resolutionFingerprint }));
                 }
               }
+              if (normalizedBookingBasket) {
+                const configuration = await lockAndResolveRequiredBookingPolicyInTx(tx);
+                await revalidateBookingBasketInTx(tx, salonClient, configuration);
+              }
               if (access.kind === 'anonymous_customer') {
                 const configuration = await lockAndResolveRequiredBookingPolicyInTx(tx);
                 await revalidateAnonymousMaterialInTx(tx, salonClient, configuration);
@@ -3755,7 +3965,7 @@ async function createAppointmentFromRequestCore(
               }
               return result;
             };
-            return access.kind === 'anonymous_customer' || catalogOutcome.status === 'ok'
+            return access.kind === 'anonymous_customer' || normalizedBookingBasket !== null || catalogOutcome.status === 'ok'
               ? db.transaction(transaction, { isolationLevel: 'serializable' })
               : db.transaction(transaction);
           });
@@ -4190,11 +4400,18 @@ async function createAppointmentFromRequestCore(
 
             const insertedAddOns: typeof appointmentAddOns = [];
             for (const addOn of selectedAddOnsForBooking) {
+              const appointmentService = insertedServices.find(
+                service => service.serviceId === addOn.serviceId,
+              );
+              if (!appointmentService) {
+                throw new Error('FAILED_TO_ASSOCIATE_RESCHEDULE_APPOINTMENT_ADD_ON');
+              }
               await tx
                 .insert(appointmentAddOnSchema)
                 .values({
                   id: `apptAddon_${crypto.randomUUID()}`,
                   appointmentId: createdAppointment.id,
+                  appointmentServiceId: appointmentService.id,
                   addOnId: addOn.addOnId,
                   quantitySnapshot: addOn.quantity,
                   nameSnapshot: addOn.name,
@@ -4205,6 +4422,7 @@ async function createAppointmentFromRequestCore(
                   durationMinutesSnapshot: addOn.unitDurationMinutes,
                   lineTotalCentsSnapshot: addOn.lineTotalCents,
                   lineDurationMinutesSnapshot: addOn.lineDurationMinutes,
+                  priceDisplayTextSnapshot: addOn.priceDisplayText,
                 });
 
               insertedAddOns.push({
@@ -4719,9 +4937,16 @@ async function createAppointmentFromRequestCore(
 
             const insertedAddOns: typeof appointmentAddOns = [];
             for (const addOn of selectedAddOnsForBooking) {
+              const appointmentService = insertedServices.find(
+                service => service.serviceId === addOn.serviceId,
+              );
+              if (!appointmentService) {
+                throw new Error('FAILED_TO_ASSOCIATE_APPOINTMENT_ADD_ON');
+              }
               await tx.insert(appointmentAddOnSchema).values({
                 id: `apptAddon_${crypto.randomUUID()}`,
                 appointmentId: createdAppointment.id,
+                appointmentServiceId: appointmentService.id,
                 addOnId: addOn.addOnId,
                 quantitySnapshot: addOn.quantity,
                 nameSnapshot: addOn.name,
@@ -4732,6 +4957,7 @@ async function createAppointmentFromRequestCore(
                 durationMinutesSnapshot: addOn.unitDurationMinutes,
                 lineTotalCentsSnapshot: addOn.lineTotalCents,
                 lineDurationMinutesSnapshot: addOn.lineDurationMinutes,
+                priceDisplayTextSnapshot: addOn.priceDisplayText,
               });
 
               insertedAddOns.push({

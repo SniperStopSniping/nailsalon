@@ -1057,6 +1057,12 @@ export const appointmentServicesSchema = pgTable(
       table.appointmentId,
       table.serviceId,
     ),
+    // Supports the composite appointment_add_on foreign key. The association
+    // must always point to a service snapshot owned by the same appointment.
+    appointmentServiceIdentity: uniqueIndex('appointment_services_appointment_id_id_unique').on(
+      table.appointmentId,
+      table.id,
+    ),
   }),
 );
 
@@ -1105,6 +1111,10 @@ export const appointmentAddOnSchema = pgTable(
     appointmentId: text('appointment_id')
       .notNull()
       .references(() => appointmentSchema.id, { onDelete: 'cascade' }),
+    // Added after the original snapshot table shipped. Nullable rows are
+    // historical appointments whose add-ons were not associated with a
+    // specific booked service.
+    appointmentServiceId: text('appointment_service_id'),
     addOnId: text('add_on_id').references(() => addOnSchema.id),
     quantitySnapshot: integer('quantity_snapshot').notNull().default(1),
     nameSnapshot: text('name_snapshot').notNull(),
@@ -1117,11 +1127,25 @@ export const appointmentAddOnSchema = pgTable(
     durationMinutesSnapshot: integer('duration_minutes_snapshot').notNull(),
     lineTotalCentsSnapshot: integer('line_total_cents_snapshot').notNull(),
     lineDurationMinutesSnapshot: integer('line_duration_minutes_snapshot').notNull(),
+    // Keeps configured starting-price copy after the live catalogue changes.
+    priceDisplayTextSnapshot: text('price_display_text_snapshot'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => ({
     appointmentIdx: index('appointment_add_on_appointment_idx').on(table.appointmentId),
+    appointmentServiceIdx: index('appointment_add_on_appointment_service_idx').on(table.appointmentServiceId),
     addOnIdx: index('appointment_add_on_add_on_idx').on(table.addOnId),
+    // A configured add-on may be chosen once for each booked service, but not
+    // twice for the same service snapshot.
+    uniqueAppointmentServiceAddOn: uniqueIndex('appointment_add_on_service_add_on_unique_idx').on(
+      table.appointmentServiceId,
+      table.addOnId,
+    ).where(sql`${table.appointmentServiceId} is not null`),
+    appointmentServiceFk: foreignKey({
+      columns: [table.appointmentId, table.appointmentServiceId],
+      foreignColumns: [appointmentServicesSchema.appointmentId, appointmentServicesSchema.id],
+      name: 'appointment_add_on_appointment_service_fk',
+    }).onDelete('cascade'),
   }),
 );
 

@@ -30,6 +30,7 @@ vi.mock('@/libs/DB', () => ({
 import {
   BookingSelectionError,
   type BookingSelectionReadContext,
+  validatePublicBookingBasket,
   validatePublicBookingSelection,
 } from './bookingQuote';
 import { resolvePublicBookingSelection } from './publicBookingSelection';
@@ -167,5 +168,26 @@ describe('validatePublicBookingSelection — add-on gating', () => {
     // An add-on id is not a service id: there is no standalone path in.
     await expect(validatePublicBookingSelection(select(LINKED_ADD_ON, [])))
       .rejects.toThrow(BookingSelectionError);
+  });
+
+  it('keeps each basket item bound to its own catalogue options and aggregates once', async () => {
+    const result = await validatePublicBookingBasket({
+      salonId: SALON_ID,
+      basket: {
+        version: 2,
+        items: [
+          { serviceId: MANICURE_ID, selectedAddOns: [{ addOnId: LINKED_ADD_ON }] },
+          { serviceId: PEDICURE_ID, selectedAddOns: [] },
+        ],
+      },
+      readContext: readContext(),
+    });
+
+    expect(result.items.map(item => item.serviceId)).toEqual([MANICURE_ID, PEDICURE_ID]);
+    expect(result.items[0]!.validated.quote.subtotalCents).toBe(5500);
+    expect(result.items[1]!.validated.quote.subtotalCents).toBe(5500);
+    expect(result.subtotalCents).toBe(11000);
+    expect(result.visibleDurationMinutes).toBe(135);
+    expect(result.blockedDurationMinutes).toBe(145);
   });
 });

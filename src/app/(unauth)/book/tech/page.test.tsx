@@ -278,6 +278,91 @@ describe('BookTechPage', () => {
       }),
     })).rejects.toThrow('REDIRECT:/book/time?salonSlug=isla-nail-studio&baseServiceId=svc_1&techId=tech_1');
   });
+
+  it('resolves a basket-only technician selection without dropping either service', async () => {
+    vi.clearAllMocks();
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'isla-nail-studio',
+        bookingFlow: ['service', 'tech', 'time', 'confirm'],
+      },
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+    getClientSession.mockResolvedValue(null);
+    getPrimaryLocation.mockResolvedValue(null);
+    resolvePublicBookingTechnicianContext.mockResolvedValue({
+      resolvedSelection: {
+        mode: 'base-service',
+        requestedServices: [],
+        services: [
+          { id: 'svc_manicure', name: 'Gel Manicure', priceCents: 4500, durationMinutes: 45 },
+          { id: 'svc_pedicure', name: 'Gel Pedicure', priceCents: 5500, durationMinutes: 55 },
+        ],
+        addOns: [],
+        selectedAddOns: [],
+        totalPriceCents: 10000,
+        visibleDurationMinutes: 100,
+      },
+      activeTechnicians: [],
+      compatibleTechnicians: [],
+      compatibleCount: 0,
+      compatibleTechnicianIds: [],
+      soleCompatibleTechnician: null,
+      requestedTechnicianId: null,
+      hasValidExplicitTechnician: false,
+      validExplicitTechnician: null,
+      effectiveTechnicianId: null,
+      effectiveTechnician: null,
+      effectiveTechnicianSelectionSource: null,
+      shouldAutoSkipTech: false,
+    });
+    const basket = {
+      version: 2 as const,
+      items: [
+        { serviceId: 'svc_manicure', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] },
+        { serviceId: 'svc_pedicure', selectedAddOns: [{ addOnId: 'chrome', quantity: 1 }] },
+      ],
+    };
+
+    render(await BookTechPage({
+      searchParams: Promise.resolve({
+        salonSlug: 'isla-nail-studio',
+        bookingBasket: JSON.stringify(basket),
+      }),
+    }));
+
+    expect(resolvePublicBookingTechnicianContext).toHaveBeenCalledWith(expect.objectContaining({
+      bookingBasket: basket,
+      serviceIds: [],
+    }));
+    expect(bookTechClientMock).toHaveBeenCalled();
+  });
+
+  it('rejects a mixed basket and legacy technician link before resolving availability', async () => {
+    vi.clearAllMocks();
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: { id: 'salon_1', slug: 'isla-nail-studio', bookingFlow: ['service', 'tech', 'time', 'confirm'] },
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+
+    await expect(BookTechPage({
+      searchParams: Promise.resolve({
+        salonSlug: 'isla-nail-studio',
+        baseServiceId: 'svc_legacy',
+        bookingBasket: JSON.stringify({
+          version: 2,
+          items: [{ serviceId: 'svc_basket', selectedAddOns: [] }],
+        }),
+      }),
+    })).rejects.toThrow('REDIRECT:/book/service?salonSlug=isla-nail-studio');
+
+    expect(resolvePublicBookingTechnicianContext).not.toHaveBeenCalled();
+  });
 });
 
 describe('BookTechPage owner-preview gate', () => {

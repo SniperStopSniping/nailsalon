@@ -1,8 +1,8 @@
 import { and, eq, inArray } from 'drizzle-orm';
 
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
-import type { SelectedAddOnParam } from '@/libs/bookingParams';
-import { type BookingSelectionReadContext, validatePublicBookingSelection } from '@/libs/bookingQuote';
+import type { BookingBasket, SelectedAddOnParam } from '@/libs/bookingParams';
+import { type BookingSelectionReadContext, fingerprintBookingBasketReview, validatePublicBookingBasket, validatePublicBookingSelection } from '@/libs/bookingQuote';
 import {
   type AutomaticBookingDiscountResult,
   type BookingDiscountReadContext,
@@ -26,6 +26,8 @@ export type PublicBookingServiceSummary = {
 };
 
 export type PublicBookingAddOnSummary = {
+  /** Service this option was validated against; required for basket selections. */
+  serviceId?: string;
   id: string;
   name: string;
   descriptionItems: string[];
@@ -44,6 +46,7 @@ export type PublicBookingAddOnSummary = {
 };
 
 export type PublicBookingManualConfirmationItem = {
+  serviceId?: string;
   addOnId: string;
   name: string;
   quantity: number;
@@ -57,6 +60,9 @@ export type ResolvedPublicBookingSelection = {
   catalogAcknowledgment?: { serviceId: string; resolutionFingerprint: string };
   eligibleTechnicianIds?: string[];
   requestedSelectedAddOns?: SelectedAddOnParam[];
+  /** Present for versioned multi-service selections. */
+  bookingBasket?: BookingBasket;
+  basketReviewFingerprint?: string;
   baseServiceId: string | null;
   selectedAddOns: SelectedAddOnParam[];
   requestedServices: Service[];
@@ -100,6 +106,7 @@ export async function resolvePublicBookingSelection(args: {
   salonId: string;
   baseServiceId?: string | null;
   selectedAddOns?: SelectedAddOnParam[];
+  bookingBasket?: BookingBasket | null;
   serviceIds?: string[];
   technicianId?: string | null;
   clientPhone?: string | null;
@@ -113,6 +120,100 @@ export async function resolvePublicBookingSelection(args: {
   const bookingConfig = readContext?.bookingConfig ?? await getBookingConfigForSalon(args.salonId);
   const baseServiceId = args.baseServiceId ?? null;
   const selectedAddOns = args.selectedAddOns ?? [];
+  const bookingBasket = args.bookingBasket ?? null;
+
+  if (bookingBasket) {
+    const validatedBasket = await validatePublicBookingBasket({
+      salonId: args.salonId,
+      basket: bookingBasket,
+      technicianId: args.technicianId ?? null,
+      readContext,
+    });
+    const requestedServices = validatedBasket.items.map(item => item.validated.baseServiceRecord);
+    const pricing = await resolveAutomaticBookingDiscount({
+      salonId: args.salonId,
+      services: requestedServices,
+      subtotalBeforeDiscountCents: validatedBasket.subtotalCents,
+      clientPhone: args.clientPhone ?? null,
+      originalAppointmentId: args.originalAppointmentId ?? null,
+      readContext,
+    });
+
+    return {
+      // Exact service assignment is required for every basket item, the same
+      // compatibility policy the single base-service path already uses.
+      mode: 'base-service',
+      bookingBasket: validatedBasket.basket,
+      basketReviewFingerprint: fingerprintBookingBasketReview(validatedBasket),
+      l1ConfirmationMode: validatedBasket.items.some(item => item.validated.l1?.confirmationMode === 'request_approval')
+        ? 'request_approval'
+        : validatedBasket.items.some(item => item.validated.l1?.confirmationMode === 'consultation')
+          ? 'consultation'
+          : validatedBasket.items.some(item => item.validated.l1)
+            ? 'instant'
+            : null,
+      eligibleTechnicianIds: validatedBasket.items.reduce<string[] | undefined>((eligible, item) => {
+        const current = item.validated.l1?.eligibleTechnicianIds;
+        if (!current) {
+          return eligible;
+        }
+        return eligible === undefined ? current : eligible.filter(id => current.includes(id));
+      }, undefined),
+      baseServiceId: validatedBasket.basket.items[0]!.serviceId,
+      selectedAddOns: [],
+      requestedServices,
+      services: validatedBasket.items.map(({ validated }) => ({
+        id: validated.baseServiceRecord.id,
+        name: validated.baseServiceRecord.name,
+        description: validated.baseServiceRecord.description ?? null,
+        descriptionItems: mapDescriptionItems(
+          validated.baseServiceRecord.descriptionItems ?? null,
+          validated.baseServiceRecord.description ?? null,
+        ),
+        priceCents: validated.quote.baseService.priceCents,
+        priceDisplayText: validated.baseServiceRecord.priceDisplayText ?? null,
+        durationMinutes: validated.quote.baseService.durationMinutes,
+        category: validated.baseServiceRecord.category,
+        imageUrl: validated.baseServiceRecord.imageUrl ?? null,
+        resolvedIntroPriceLabel: validated.quote.baseService.resolvedIntroPriceLabel,
+      })),
+      addOns: validatedBasket.items.flatMap(({ serviceId, validated }) => validated.addOnRecords.map((addOnRecord) => {
+        const quoteAddOn = validated.quote.addOns.find(item => item.addOnId === addOnRecord.id);
+        if (!quoteAddOn) {
+          throw new Error(`MISSING_QUOTE_ADD_ON:${serviceId}:${addOnRecord.id}`);
+        }
+        return {
+          serviceId,
+          id: addOnRecord.id,
+          name: addOnRecord.name,
+          descriptionItems: addOnRecord.descriptionItems ?? [],
+          category: addOnRecord.category,
+          pricingType: addOnRecord.pricingType,
+          unitLabel: addOnRecord.unitLabel ?? null,
+          maxQuantity: addOnRecord.maxQuantity ?? null,
+          quantity: quoteAddOn.quantity,
+          unitPriceCents: quoteAddOn.unitPriceCents,
+          lineTotalCents: quoteAddOn.lineTotalCents,
+          unitDurationMinutes: quoteAddOn.unitDurationMinutes,
+          lineDurationMinutes: quoteAddOn.lineDurationMinutes,
+          priceMode: quoteAddOn.priceMode,
+          priceDisplayText: addOnRecord.priceDisplayText ?? null,
+        };
+      })),
+      manualConfirmationItems: validatedBasket.items.flatMap(({ serviceId, validated }) =>
+        validated.quote.manualConfirmationItems.map(item => ({ ...item, serviceId }))),
+      subtotalBeforeDiscountCents: pricing.subtotalBeforeDiscountCents,
+      discountAmountCents: pricing.discountAmountCents,
+      totalPriceCents: pricing.finalTotalCents,
+      firstVisitDiscountPreview: pricing.kind === 'first_visit'
+        ? { label: FIRST_VISIT_DISCOUNT_LABEL, percent: FIRST_VISIT_DISCOUNT_PERCENT, amountCents: pricing.discountAmountCents }
+        : null,
+      visibleDurationMinutes: validatedBasket.visibleDurationMinutes,
+      blockedDurationMinutes: validatedBasket.blockedDurationMinutes,
+      bufferMinutes: validatedBasket.bufferMinutes,
+      automaticDiscount: pricing,
+    };
+  }
 
   if (baseServiceId) {
     const validated = await validatePublicBookingSelection({
@@ -164,6 +265,7 @@ export async function resolvePublicBookingSelection(args: {
         }
 
         return {
+          serviceId: validated.baseServiceRecord.id,
           id: addOnRecord.id,
           name: addOnRecord.name,
           descriptionItems: addOnRecord.descriptionItems ?? [],
@@ -181,6 +283,7 @@ export async function resolvePublicBookingSelection(args: {
         };
       }),
       manualConfirmationItems: validated.quote.manualConfirmationItems.map(item => ({
+        serviceId: validated.baseServiceRecord.id,
         addOnId: item.addOnId,
         name: item.name,
         quantity: item.quantity,

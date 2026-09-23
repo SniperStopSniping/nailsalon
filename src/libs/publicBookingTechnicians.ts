@@ -1,5 +1,6 @@
 import 'server-only';
 
+import type { BookingBasket, SelectedAddOnParam } from '@/libs/bookingParams';
 import { type ResolvedPublicBookingSelection, resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
 import {
   getPublicTechnicianCompatibility,
@@ -63,7 +64,8 @@ export function mapPublicTechnician(technician: Awaited<ReturnType<typeof getTec
 export async function resolvePublicBookingTechnicianContext(args: {
   salonId: string;
   baseServiceId?: string | null;
-  selectedAddOns?: Array<{ addOnId: string; quantity?: number }>;
+  selectedAddOns?: SelectedAddOnParam[];
+  bookingBasket?: BookingBasket | null;
   serviceIds?: string[];
   technicianId?: string | null;
   locationId?: string | null;
@@ -80,6 +82,7 @@ export async function resolvePublicBookingTechnicianContext(args: {
       salonId: args.salonId,
       baseServiceId: args.baseServiceId ?? null,
       selectedAddOns: args.selectedAddOns ?? [],
+      bookingBasket: args.bookingBasket ?? null,
       serviceIds: args.serviceIds ?? [],
       clientPhone: args.clientPhone ?? null,
       originalAppointmentId: args.originalAppointmentId ?? null,

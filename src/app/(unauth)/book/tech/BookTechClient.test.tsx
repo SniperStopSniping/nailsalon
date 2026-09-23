@@ -13,6 +13,7 @@ const {
   blockingLoginModalRender,
   bookingPhoneLoginRender,
   legacyAuthFetch,
+  navigationMock,
 } = vi.hoisted(() => ({
   routerBack: vi.fn(),
   routerPush: vi.fn(),
@@ -22,6 +23,7 @@ const {
   blockingLoginModalRender: vi.fn(),
   bookingPhoneLoginRender: vi.fn(),
   legacyAuthFetch: vi.fn(),
+  navigationMock: { searchParams: new URLSearchParams('baseServiceId=svc_1') },
 }));
 
 vi.mock('next/image', () => ({
@@ -40,7 +42,7 @@ vi.mock('next/navigation', () => ({
     push: routerPush,
   }),
   useParams: () => ({ locale: 'en', slug: 'isla-nail-studio' }),
-  useSearchParams: () => new URLSearchParams('baseServiceId=svc_1'),
+  useSearchParams: () => navigationMock.searchParams,
 }));
 
 vi.mock('@/components/BlockingLoginModal', () => ({
@@ -96,6 +98,7 @@ vi.mock('@/providers/SalonProvider', () => ({
 describe('BookTechClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigationMock.searchParams = new URLSearchParams('baseServiceId=svc_1');
     vi.stubGlobal('fetch', legacyAuthFetch);
   });
 
@@ -311,6 +314,58 @@ describe('BookTechClient', () => {
     expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('/book/time'));
     expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('techId=any'));
     expect(legacyAuthFetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the versioned basket when selecting an eligible technician', () => {
+    vi.useFakeTimers();
+    navigationMock.searchParams = new URLSearchParams({
+      bookingBasket: JSON.stringify({
+        version: 2,
+        items: [
+          { serviceId: 'svc_manicure', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] },
+          { serviceId: 'svc_pedicure', selectedAddOns: [{ addOnId: 'chrome', quantity: 1 }] },
+        ],
+      }),
+    });
+
+    render(
+      <BookTechClient
+        technicians={[{
+          id: 'tech_1',
+          name: 'Taylor',
+          imageUrl: null,
+          specialties: [],
+          rating: null,
+          reviewCount: 0,
+          bookable: true,
+          unavailableReason: null,
+        }]}
+        services={[
+          { id: 'svc_manicure', name: 'Gel Manicure', price: 45, duration: 45 },
+          { id: 'svc_pedicure', name: 'Gel Pedicure', price: 55, duration: 55 },
+        ]}
+        totalPrice={110}
+        totalDuration={110}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Taylor/i }));
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    const nextUrl = new URL(String(routerPush.mock.calls[0]?.[0]), 'https://example.invalid');
+
+    expect(JSON.parse(nextUrl.searchParams.get('bookingBasket') ?? 'null')).toEqual({
+      version: 2,
+      items: [
+        { serviceId: 'svc_manicure', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] },
+        { serviceId: 'svc_pedicure', selectedAddOns: [{ addOnId: 'chrome', quantity: 1 }] },
+      ],
+    });
+    expect(nextUrl.searchParams.has('baseServiceId')).toBe(false);
+    expect(nextUrl.searchParams.has('selectedAddOns')).toBe(false);
   });
 
   it('provides one non-nested main landmark for the technician step', () => {

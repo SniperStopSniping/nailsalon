@@ -8,7 +8,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { validatePublicBookingSelection } from '@/libs/bookingQuote';
+import { fingerprintBookingBasketReview, validatePublicBookingBasket, validatePublicBookingSelection } from '@/libs/bookingQuote';
 import { buildDepositDisclosure } from '@/libs/depositPolicy';
 import { attestDisposableDatabaseSession, requireDisposableDatabaseTarget, resolveDisposableDatabaseServerExpectation } from '@/libs/disposableDatabaseTarget';
 import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
@@ -112,6 +112,7 @@ const TECH = 'synthetic-customer-creator-tech';
 const OTHER_SALON = 'synthetic-customer-creator-other-salon';
 const OTHER_TECH = 'synthetic-customer-creator-other-tech';
 const SERVICE = 'synthetic-customer-creator-service';
+const SERVICE_TWO = 'synthetic-customer-creator-service-two';
 const ADDON = 'synthetic-customer-creator-addon';
 const L1_CAPABILITY = 'synthetic-customer-creator-l1-capability';
 const L1_SORTED_ADDON = 'aaa-synthetic-customer-creator-addon';
@@ -270,17 +271,24 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     await database.insert(schema.technicianSchema).values({ id: TECH, salonId: SALON, name: 'Synthetic Technician', isActive: true, weeklySchedule: Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day, { start: '00:00', end: '23:45' }])) }).onConflictDoNothing();
     await database.insert(schema.technicianSchema).values({ id: OTHER_TECH, salonId: OTHER_SALON, name: 'Synthetic Other Technician', isActive: true, weeklySchedule: Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day, { start: '00:00', end: '23:45' }])) }).onConflictDoNothing();
     await database.insert(schema.serviceSchema).values({ id: SERVICE, salonId: SALON, name: 'Synthetic Creator Service', category: 'manicure', price: 6500, durationMinutes: 60, isActive: true }).onConflictDoNothing();
+    await database.insert(schema.serviceSchema).values({ id: SERVICE_TWO, salonId: SALON, name: 'Synthetic Creator Service Two', category: 'pedicure', price: 6500, durationMinutes: 60, isActive: true }).onConflictDoNothing();
     await database.insert(schema.addOnSchema).values({ id: ADDON, salonId: SALON, name: 'Synthetic Art', slug: 'synthetic-art', category: 'nail_art', priceCents: 500, durationMinutes: 10, pricingType: 'per_unit', maxQuantity: 5 }).onConflictDoNothing();
     await database.insert(schema.serviceAddOnSchema).values({ id: 'synthetic-creator-addon-binding', salonId: SALON, serviceId: SERVICE, addOnId: ADDON, selectionMode: 'optional' }).onConflictDoNothing();
+    await database.insert(schema.serviceAddOnSchema).values({ id: 'synthetic-creator-addon-binding-two', salonId: SALON, serviceId: SERVICE_TWO, addOnId: ADDON, selectionMode: 'optional' }).onConflictDoNothing();
     await database.insert(schema.technicianServicesSchema).values({ technicianId: TECH, serviceId: SERVICE, enabled: true }).onConflictDoNothing();
+    await database.insert(schema.technicianServicesSchema).values({ technicianId: TECH, serviceId: SERVICE_TWO, enabled: true }).onConflictDoNothing();
   }, 120_000);
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    requireStaffSession.mockResolvedValue({ ok: false });
+    requireAdmin.mockResolvedValue({ ok: false });
+    requireClientApiSession.mockResolvedValue({ ok: false });
     __setDepositStripeClientForTests({ checkout: { sessions: provider } });
     provider.create.mockRejectedValue(new Error('Unexpected provider request'));
-    await database.update(schema.salonSchema).set({ settings: SETTINGS, features: null }).where(eq(schema.salonSchema.id, SALON));
-    await database.update(schema.serviceSchema).set({ price: 6500, durationMinutes: 60 }).where(eq(schema.serviceSchema.id, SERVICE));
+    await database.update(schema.salonSchema).set({ settings: SETTINGS, features: null, businessHours: null }).where(eq(schema.salonSchema.id, SALON));
+    await database.update(schema.serviceSchema).set({ price: 6500, durationMinutes: 60, confirmationMode: null, selectionMode: null }).where(eq(schema.serviceSchema.id, SERVICE));
+    await database.update(schema.serviceSchema).set({ price: 6500, durationMinutes: 60, confirmationMode: null, selectionMode: null }).where(eq(schema.serviceSchema.id, SERVICE_TWO));
     await database.update(schema.addOnSchema).set({ priceCents: 500, durationMinutes: 10 }).where(eq(schema.addOnSchema.id, ADDON));
     await database.update(schema.serviceAddOnSchema).set({ priceMode: 'catalog_priced' }).where(eq(schema.serviceAddOnSchema.id, 'synthetic-creator-addon-binding'));
     await database.delete(schema.salonStripeAccountSchema).where(eq(schema.salonStripeAccountSchema.salonId, SALON));
@@ -305,7 +313,7 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
   afterAll(async () => {
     await pool?.end();
 
-    expect(executed).toBe(35);
+    expect(executed).toBe(38);
 
     process.stdout.write(`CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=${executed} CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0\n`);
   });
@@ -679,7 +687,156 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     const [appointment] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
 
     expect(appointment).toMatchObject({ totalPrice: 7500, totalDurationMinutes: 80 });
-    expect(await database.select().from(schema.appointmentAddOnSchema).where(eq(schema.appointmentAddOnSchema.appointmentId, appointment!.id))).toEqual([expect.objectContaining({ quantitySnapshot: 2, lineTotalCentsSnapshot: 1000, lineDurationMinutesSnapshot: 20 })]);
+
+    const [appointmentService] = await database
+      .select()
+      .from(schema.appointmentServicesSchema)
+      .where(eq(schema.appointmentServicesSchema.appointmentId, appointment!.id));
+
+    expect(await database.select().from(schema.appointmentAddOnSchema).where(eq(schema.appointmentAddOnSchema.appointmentId, appointment!.id))).toEqual([
+      expect.objectContaining({
+        appointmentServiceId: appointmentService!.id,
+        quantitySnapshot: 2,
+        lineTotalCentsSnapshot: 1000,
+        lineDurationMinutesSnapshot: 20,
+        priceDisplayTextSnapshot: null,
+      }),
+    ]);
+  });
+
+  it('keeps identical add-ons scoped to their selected services in one basket', async () => {
+    const person = contact('8');
+    const bookingBasket = {
+      version: 2 as const,
+      items: [
+        { serviceId: SERVICE, selectedAddOns: [{ addOnId: ADDON, quantity: 1 }] },
+        { serviceId: SERVICE_TWO, selectedAddOns: [{ addOnId: ADDON, quantity: 1 }] },
+      ],
+    };
+    const expectedBasketReviewFingerprint = fingerprintBookingBasketReview(
+      await validatePublicBookingBasket({ salonId: SALON, basket: bookingBasket, technicianId: TECH }),
+    );
+    const response = await createAppointmentFromRequest(new Request('https://app.luster.test/api/appointments', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': randomUUID() },
+      body: JSON.stringify({
+        salonSlug: SALON,
+        bookingBasket,
+        expectedBasketReviewFingerprint,
+        technicianId: TECH,
+        startTime: START,
+        clientName: person.name,
+        clientPhone: person.phone,
+        clientEmail: person.email,
+      }),
+    }));
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+
+    const [appointment] = await database.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.salonId, SALON));
+
+    expect(appointment).toMatchObject({ totalPrice: 14000, totalDurationMinutes: 140, subtotalBeforeDiscountCents: 14000 });
+
+    const services = await database.select().from(schema.appointmentServicesSchema)
+      .where(eq(schema.appointmentServicesSchema.appointmentId, appointment!.id));
+    const serviceIdByRowId = new Map(services.map(service => [service.id, service.serviceId]));
+    const addOns = await database.select().from(schema.appointmentAddOnSchema)
+      .where(eq(schema.appointmentAddOnSchema.appointmentId, appointment!.id));
+
+    expect(addOns).toHaveLength(2);
+    expect(addOns.map(addOn => ({
+      serviceId: serviceIdByRowId.get(addOn.appointmentServiceId!),
+      addOnId: addOn.addOnId,
+      lineTotalCents: addOn.lineTotalCentsSnapshot,
+      lineDurationMinutes: addOn.lineDurationMinutesSnapshot,
+    })).sort((left, right) => (left.serviceId ?? '').localeCompare(right.serviceId ?? ''))).toEqual([
+      { serviceId: SERVICE, addOnId: ADDON, lineTotalCents: 500, lineDurationMinutes: 10 },
+      { serviceId: SERVICE_TWO, addOnId: ADDON, lineTotalCents: 500, lineDurationMinutes: 10 },
+    ]);
+  });
+
+  it('rejects a duration-only basket change after review without writing an appointment', async () => {
+    const person = contact('9');
+    const bookingBasket = {
+      version: 2 as const,
+      items: [
+        { serviceId: SERVICE, selectedAddOns: [{ addOnId: ADDON, quantity: 1 }] },
+        { serviceId: SERVICE_TWO, selectedAddOns: [] },
+      ],
+    };
+    const expectedBasketReviewFingerprint = fingerprintBookingBasketReview(
+      await validatePublicBookingBasket({ salonId: SALON, basket: bookingBasket, technicianId: TECH }),
+    );
+    await database.update(schema.addOnSchema).set({ durationMinutes: 11 }).where(eq(schema.addOnSchema.id, ADDON));
+
+    const response = await createAppointmentFromRequest(new Request('https://app.luster.test/api/appointments', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': randomUUID() },
+      body: JSON.stringify({
+        salonSlug: SALON,
+        bookingBasket,
+        expectedBasketReviewFingerprint,
+        technicianId: TECH,
+        startTime: START,
+        clientName: person.name,
+        clientPhone: person.phone,
+        clientEmail: person.email,
+      }),
+    }));
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('BASKET_REVIEW_CHANGED');
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+  });
+
+  it('creates one approval request when any basket service requires approval', async () => {
+    const person = contact('7');
+    const reviewableStart = `${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}T15:00:00.000Z`;
+    await database.update(schema.salonSchema).set({
+      features: L1_FEATURES,
+      businessHours: {
+        monday: { open: '09:00', close: '17:00' },
+        tuesday: { open: '09:00', close: '17:00' },
+        wednesday: { open: '09:00', close: '17:00' },
+        thursday: { open: '09:00', close: '17:00' },
+        friday: { open: '09:00', close: '17:00' },
+        saturday: { open: '09:00', close: '17:00' },
+        sunday: { open: '09:00', close: '17:00' },
+      },
+    }).where(eq(schema.salonSchema.id, SALON));
+    await database.update(schema.serviceSchema).set({ confirmationMode: 'request_approval', selectionMode: 'direct' }).where(eq(schema.serviceSchema.id, SERVICE_TWO));
+    const bookingBasket = {
+      version: 2 as const,
+      items: [
+        { serviceId: SERVICE, selectedAddOns: [] },
+        { serviceId: SERVICE_TWO, selectedAddOns: [] },
+      ],
+    };
+    const expectedBasketReviewFingerprint = fingerprintBookingBasketReview(
+      await validatePublicBookingBasket({ salonId: SALON, basket: bookingBasket, technicianId: TECH }),
+    );
+    const response = await createAppointmentFromRequest(new Request('https://app.luster.test/api/appointments', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': randomUUID() },
+      body: JSON.stringify({
+        salonSlug: SALON,
+        bookingBasket,
+        expectedBasketReviewFingerprint,
+        technicianId: TECH,
+        startTime: reviewableStart,
+        clientName: person.name,
+        clientPhone: person.phone,
+        clientEmail: person.email,
+      }),
+    }));
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+
+    const [appointment] = await database.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.salonId, SALON));
+
+    expect(appointment).toMatchObject({ status: 'pending', confirmationModeSnapshot: 'request_approval', selectionModeSnapshot: null });
   });
 
   it('commits a salon-authorized manual-price add-on with duration but without inventing a charge', async () => {

@@ -1,8 +1,11 @@
+import { createHash } from 'node:crypto';
+
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { mapAddOnToCatalogSummary, mapServiceAddOnRule, mapServiceToCatalogSummary } from '@/libs/bookingCatalog';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import { type BookingBasket, validateBookingBasket } from '@/libs/bookingParams';
 import type { BookingDiscountReadContext } from '@/libs/firstVisitDiscount';
 import {
   getPublicTechnicianCompatibility as resolveSharedPublicTechnicianCompatibility,
@@ -148,6 +151,49 @@ type ValidatedSelectionResult = {
   l1?: { confirmationMode: 'instant' | 'request_approval' | 'consultation' | null; fingerprint: string; eligibleTechnicianIds: string[]; requestedSelection: PublicBookingSelection };
 
 };
+
+export type ValidatedBookingBasket = {
+  basket: BookingBasket;
+  items: Array<{
+    serviceId: string;
+    selectedAddOns: SelectedAddOnInput[];
+    validated: ValidatedSelectionResult;
+  }>;
+  subtotalCents: number;
+  visibleDurationMinutes: number;
+  bufferMinutes: number;
+  blockedDurationMinutes: number;
+};
+
+/** Material quote identity for the basket the customer actually reviewed. */
+export function fingerprintBookingBasketReview(basket: ValidatedBookingBasket): string {
+  const material = basket.items.map(({ serviceId, validated }) => ({
+    serviceId,
+    basePriceCents: validated.quote.baseService.priceCents,
+    baseDurationMinutes: validated.quote.baseService.durationMinutes,
+    basePriceDisplayText: validated.baseServiceRecord.priceDisplayText ?? null,
+    confirmationMode: validated.l1?.confirmationMode ?? null,
+    l1Fingerprint: validated.l1?.fingerprint ?? null,
+    addOns: validated.quote.addOns.map(addOn => ({
+      addOnId: addOn.addOnId,
+      quantity: addOn.quantity,
+      priceMode: addOn.priceMode,
+      unitPriceCents: addOn.unitPriceCents,
+      lineTotalCents: addOn.lineTotalCents,
+      unitDurationMinutes: addOn.unitDurationMinutes,
+      lineDurationMinutes: addOn.lineDurationMinutes,
+      priceDisplayText: validated.addOnRecords.find(record => record.id === addOn.addOnId)?.priceDisplayText ?? null,
+    })).sort((left, right) => left.addOnId.localeCompare(right.addOnId)),
+  })).sort((left, right) => left.serviceId.localeCompare(right.serviceId));
+
+  return createHash('sha256').update(JSON.stringify({
+    version: 1,
+    material,
+    subtotalCents: basket.subtotalCents,
+    visibleDurationMinutes: basket.visibleDurationMinutes,
+    bufferMinutes: basket.bufferMinutes,
+  })).digest('hex');
+}
 
 export function mergeSelectedAddOns(selectedAddOns: SelectedAddOnInput[]): SelectedAddOnInput[] {
   const merged = new Map<string, number>();
@@ -638,6 +684,57 @@ export async function validatePublicBookingSelection(args: {
     addOns: resolvedAddOns,
     quote,
     observedRequiredAddOnGaps: requiredAddOnEvaluation.missingRequiredAddOnIds,
+  };
+}
+
+/**
+ * Validates each service against its own catalogue relationships, then combines
+ * the resulting authoritative line totals for one continuous appointment.
+ * Discounting remains outside this helper so callers apply it exactly once to
+ * the aggregate subtotal.
+ */
+export async function validatePublicBookingBasket(args: {
+  salonId: string;
+  basket: BookingBasket;
+  technicianId?: string | null;
+  readContext?: BookingSelectionReadContext;
+}): Promise<ValidatedBookingBasket> {
+  const basket = validateBookingBasket(args.basket);
+  if (!basket) {
+    throw new BookingSelectionError('invalid_service');
+  }
+  assertReadContextSalon(args.salonId, args.readContext);
+
+  const items: ValidatedBookingBasket['items'] = [];
+  for (const item of basket.items) {
+    items.push({
+      serviceId: item.serviceId,
+      selectedAddOns: item.selectedAddOns,
+      validated: await validatePublicBookingSelection({
+        salonId: args.salonId,
+        selection: { baseServiceId: item.serviceId, selectedAddOns: item.selectedAddOns },
+        technicianId: args.technicianId,
+        readContext: args.readContext,
+      }),
+    });
+  }
+
+  const visibleDurationMinutes = items.reduce(
+    (sum, item) => sum + item.validated.quote.visibleDurationMinutes,
+    0,
+  );
+  const bufferMinutes = items.reduce(
+    (maximum, item) => Math.max(maximum, item.validated.quote.bufferMinutes),
+    0,
+  );
+
+  return {
+    basket,
+    items,
+    subtotalCents: items.reduce((sum, item) => sum + item.validated.quote.subtotalCents, 0),
+    visibleDurationMinutes,
+    bufferMinutes,
+    blockedDurationMinutes: visibleDurationMinutes + bufferMinutes,
   };
 }
 

@@ -27,6 +27,7 @@ import { SectionCard } from '@/components/ui/section-card';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import type { BookingStep } from '@/libs/bookingFlow';
+import type { BookingBasket } from '@/libs/bookingParams';
 import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
 import { computeCheckoutTotals, type ResolvedTaxConfig } from '@/libs/checkoutTotals';
 import type { CustomerBookingStatus } from '@/libs/customerAssistant/bookingOperationContracts';
@@ -87,12 +88,15 @@ export type ServiceSummary = {
 };
 
 export type AddOnSummary = {
+  serviceId?: string;
+  serviceName?: string;
   id: string;
   name: string;
   quantity: number;
   price: number;
   duration: number;
   priceMode?: 'catalog_priced' | 'manual_confirmation';
+  priceDisplayText?: string | null;
 };
 
 export type TechnicianSummary = {
@@ -123,6 +127,9 @@ type BookConfirmClientProps = {
     addOnId: string;
     quantity?: number;
   }>;
+  bookingBasket?: BookingBasket | null;
+  /** Server-owned quote fingerprint for a reviewed multi-service basket. */
+  basketReviewFingerprint?: string | null;
   subtotalBeforeDiscount: number;
   discountAmount: number;
   firstVisitDiscountPreview?: {
@@ -626,7 +633,13 @@ const BookingCard = ({
 }) => {
   const serviceNames = [
     ...services.map(s => s.name),
-    ...addOns.map(addOn => addOn.quantity > 1 ? `${addOn.name} x${addOn.quantity}` : addOn.name),
+    ...addOns.map((addOn) => {
+      const quantity = addOn.quantity > 1 ? ` x${addOn.quantity}` : '';
+      const price = addOn.priceMode === 'manual_confirmation'
+        ? 'price to be confirmed'
+        : addOn.priceDisplayText ?? `$${addOn.price}`;
+      return `${addOn.serviceName ? `${addOn.serviceName}: ` : ''}${addOn.name}${quantity} · ${price}`;
+    }),
   ].join(' + ');
 
   const formatDate = (dateString: string) => {
@@ -2097,6 +2110,8 @@ export function BookConfirmClient({
   addOns = EMPTY_ADD_ONS,
   baseServiceId = null,
   selectedAddOns = EMPTY_SELECTED_ADD_ONS,
+  bookingBasket = null,
+  basketReviewFingerprint = null,
   subtotalBeforeDiscount,
   discountAmount = 0,
   firstVisitDiscountPreview = null,
@@ -2602,6 +2617,8 @@ export function BookConfirmClient({
     salonSlug,
     baseServiceId,
     selectedAddOns,
+    bookingBasket,
+    basketReviewFingerprint,
     serviceIds: services.map(service => service.id),
     technicianId: techId === 'any' ? null : techId,
     publicActor: 'guest',
@@ -2663,6 +2680,7 @@ export function BookConfirmClient({
       serviceIds: urlServiceIds.length > 0 ? urlServiceIds : undefined,
       baseServiceId,
       selectedAddOns,
+      bookingBasket,
       techId: techId || 'any',
       date: dateStr,
       time: smartFitSuggestion.time,
@@ -2688,6 +2706,10 @@ export function BookConfirmClient({
 
   const createBooking = useCallback(async () => {
     if (bookingInitiatedRef.current || recoveringHandoff || publicRecoveryPending) {
+      return;
+    }
+    if (isAssistantHandoff && bookingBasket) {
+      setBookingError('This assistant booking supports one service. Return to Services and remove the extra service before confirming.');
       return;
     }
     if (salonId) {
@@ -2719,15 +2741,20 @@ export function BookConfirmClient({
 
       const requestBody = {
         salonSlug,
-        ...(baseServiceId
+        ...(bookingBasket
           ? {
-              baseServiceId,
-              selectedAddOns,
-              catalogAcknowledgment,
+              bookingBasket,
+              ...(basketReviewFingerprint ? { expectedBasketReviewFingerprint: basketReviewFingerprint } : {}),
             }
-          : {
-              serviceIds: services.map(s => s.id),
-            }),
+          : baseServiceId
+            ? {
+                baseServiceId,
+                selectedAddOns,
+                catalogAcknowledgment,
+              }
+            : {
+                serviceIds: services.map(s => s.id),
+              }),
         technicianId: techId === 'any' ? null : techId,
         clientName: guestName.trim(),
         bookingSubject: 'guest' as const,
@@ -2903,9 +2930,19 @@ export function BookConfirmClient({
           bookingInitiatedRef.current = false;
           return;
         }
-        if (errorCode === 'CATALOG_SELECTION_CHANGED') {
+        if (errorCode === 'CATALOG_SELECTION_CHANGED' || errorCode === 'BASKET_REVIEW_CHANGED') {
           releasePublicAttempt();
-          const serviceUrl = appendSalonSlug('/book/service', salonSlug, { routeSalonSlug, locale });
+          const serviceUrl = bookingBasket
+            ? buildBookingUrl('/book/service', {
+              salonSlug,
+              bookingBasket,
+              originalAppointmentId,
+              manageToken,
+              campaignToken,
+              locationId: location?.id ?? null,
+              bookingFlow: bookingFlowMarker,
+            }, { routeSalonSlug, locale })
+            : appendSalonSlug('/book/service', salonSlug, { routeSalonSlug, locale });
           router.push(`${serviceUrl}${serviceUrl.includes('?') ? '&' : '?'}catalogChanged=1`);
           bookingInitiatedRef.current = false;
           return;
@@ -3156,7 +3193,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [addOns, salonName, salonTimeZone, technician, displayedConfirmationMode, isAssistantHandoff, salonId, recoveringHandoff, publicRecoveryPending, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, nextVisitQuoteExpectation, canonicalStartTime, checkPublicRecovery, completeManualBooking, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
+  }, [addOns, salonName, salonTimeZone, technician, displayedConfirmationMode, isAssistantHandoff, salonId, recoveringHandoff, publicRecoveryPending, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingBasket, basketReviewFingerprint, bookingTotals, campaignPromotionPreview, campaignToken, nextVisitQuoteExpectation, canonicalStartTime, checkPublicRecovery, completeManualBooking, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);

@@ -5,7 +5,7 @@ import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { type BookingStep, getNextStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
-import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
@@ -28,6 +28,7 @@ export default async function BookTechPage(
       serviceIds?: string;
       baseServiceId?: string;
       selectedAddOns?: string;
+      bookingBasket?: string;
       techId?: string;
       locationId?: string;
       salonSlug?: string;
@@ -46,6 +47,11 @@ export default async function BookTechPage(
   const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];
   const baseServiceId = searchParams.baseServiceId || null;
   const selectedAddOns = parseSelectedAddOnsParam(searchParams.selectedAddOns || null);
+  const bookingBasket = parseBookingBasketParam(searchParams.bookingBasket || null);
+  const hasBookingBasketParameter = searchParams.bookingBasket !== undefined;
+  const hasLegacySelectionParameters = searchParams.baseServiceId !== undefined
+    || searchParams.selectedAddOns !== undefined
+    || searchParams.serviceIds !== undefined;
 
   const { salon } = context;
   const tenantRoute = {
@@ -110,11 +116,29 @@ export default async function BookTechPage(
     redirect(featureRedirectPath);
   }
 
-  if (!baseServiceId && serviceIdList.length === 0) {
+  // A basket is an exclusive selection format. Never silently replace a
+  // malformed or mixed basket with a legacy selection.
+  if ((hasBookingBasketParameter && !bookingBasket) || (bookingBasket && hasLegacySelectionParameters)) {
+    redirect(buildBookingUrl('/book/service', {
+      salonSlug: searchParams.salonSlug ?? salon.slug,
+      locationId: searchParams.locationId ?? null,
+      techId: null,
+      originalAppointmentId: searchParams.originalAppointmentId ?? null,
+      manageToken: searchParams.manageToken ?? null,
+      campaignToken: searchParams.campaign ?? null,
+      bookingFlow: searchParams.bookingFlow === 'assistant' ? 'assistant' : null,
+    }, {
+      routeSalonSlug: params?.slug,
+      locale: params?.locale,
+    }));
+  }
+
+  if (!bookingBasket && !baseServiceId && serviceIdList.length === 0) {
     redirect(buildBookingUrl('/book/service', {
       salonSlug: searchParams.salonSlug ?? salon.slug,
       baseServiceId,
       selectedAddOns,
+      bookingBasket,
       locationId: searchParams.locationId ?? null,
       techId: null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
@@ -138,6 +162,7 @@ export default async function BookTechPage(
       serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
       baseServiceId,
       selectedAddOns,
+      bookingBasket,
       locationId: searchParams.locationId ?? null,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
       manageToken: searchParams.manageToken ?? null,
@@ -181,6 +206,7 @@ export default async function BookTechPage(
     salonId: salon.id,
     baseServiceId,
     selectedAddOns,
+    bookingBasket,
     serviceIds: serviceIdList,
     technicianId: searchParams.techId ?? null,
     locationId: resolvedLocationId,
@@ -199,6 +225,7 @@ export default async function BookTechPage(
       serviceIds: serviceIdList.length > 0 ? serviceIdList : undefined,
       baseServiceId,
       selectedAddOns,
+      bookingBasket,
       locationId: resolvedLocationId,
       techId: resolvedTechnicianContext.soleCompatibleTechnician.id,
       originalAppointmentId: searchParams.originalAppointmentId ?? null,
@@ -253,12 +280,15 @@ export default async function BookTechPage(
         <BookTechClient
           services={services}
           addOns={resolvedTechnicianContext.resolvedSelection.addOns.map(addOn => ({
+            serviceId: addOn.serviceId,
+            serviceName: services.find(service => service.id === addOn.serviceId)?.name,
             id: addOn.id,
             name: addOn.name,
             quantity: addOn.quantity,
             price: addOn.lineTotalCents / 100,
             duration: addOn.lineDurationMinutes,
             priceMode: addOn.priceMode,
+            priceDisplayText: addOn.priceDisplayText,
           }))}
           totalPrice={resolvedTechnicianContext.resolvedSelection.totalPriceCents / 100}
           totalDuration={resolvedTechnicianContext.resolvedSelection.visibleDurationMinutes}

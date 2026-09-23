@@ -19,7 +19,7 @@ import { BOOKING_CATEGORY_META } from '@/libs/bookingCategory';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { getFeaturedServices, sortServicesForCategory } from '@/libs/bookingMerchandising';
 import type { SectionId } from '@/libs/bookingPageConfig';
-import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
+import { type BookingBasketItem, buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, type SelectedAddOnParam, serializeBookingBasket, serializeSelectedAddOns } from '@/libs/bookingParams';
 import type { PublicCatalogSnapshot } from '@/libs/catalogDomain';
 import { resolveCatalogSelection } from '@/libs/catalogResolverCore';
 import { useNormalBookingFlowMarker } from '@/libs/customerAssistant/normalConfirmHandoff.client';
@@ -427,6 +427,7 @@ export function BookServiceClient({
   const campaignToken = searchParams.get('campaign') || '';
   const urlLocationId = searchParams.get('locationId') || '';
   const urlBaseServiceId = searchParams.get('baseServiceId');
+  const urlBasket = parseBookingBasketParam(searchParams.get('bookingBasket'));
   const urlTechId = searchParams.get('techId');
   const urlSelectedAddOns = parseSelectedAddOnsParam(searchParams.get('selectedAddOns'));
   const catalogChanged = searchParams.get('catalogChanged') === '1';
@@ -457,7 +458,7 @@ export function BookServiceClient({
   });
   const [showLocationFallbackToast, setShowLocationFallbackToast] = useState(hadInvalidLocation);
 
-  const urlDrivenBaseServiceId = urlBaseServiceId ?? legacyServiceIds[0] ?? null;
+  const urlDrivenBaseServiceId = urlBasket?.items[0]?.serviceId ?? urlBaseServiceId ?? legacyServiceIds[0] ?? null;
   const initialBaseServiceId = urlDrivenBaseServiceId ?? null;
   const initialSelectedService = services.find(service => service.id === initialBaseServiceId) ?? null;
   // Manicure is the default tab, unless the salon offers nothing under it —
@@ -469,7 +470,7 @@ export function BookServiceClient({
   // L1 keeps the URL's explicit customer picks verbatim. The resolver owns
   // inherited bindings and auto additions; applying legacy defaults here would
   // turn a customer choice into a synthetic explicit pick before review.
-  const initialSelectedAddOns = initialBaseServiceId
+  const initialSelectedAddOns = urlBasket?.items[0]?.selectedAddOns ?? (initialBaseServiceId
     ? l1Snapshot
       ? urlSelectedAddOns
       : buildDefaultSelectedAddOns(
@@ -478,12 +479,23 @@ export function BookServiceClient({
         addOns,
         urlSelectedAddOns,
       )
-    : [];
+    : []);
 
   const [selectedCategory, setSelectedCategory] = useState<BookingCategory>(initialCategory);
   const [selectedBaseServiceId, setSelectedBaseServiceIdState] = useState<string | null>(initialBaseServiceId);
   const [selectedAddOnsState, setSelectedAddOnsState] = useState<SelectedAddOnParam[]>(initialSelectedAddOns);
+  const [selectedBasket, setSelectedBasket] = useState<BookingBasketItem[]>(
+    urlBasket?.items ?? (initialBaseServiceId
+      ? [{ serviceId: initialBaseServiceId, selectedAddOns: initialSelectedAddOns }]
+      : []),
+  );
+  const [optionsReview, setOptionsReview] = useState<{
+    reviewed: Record<string, string>;
+    preparation: Record<string, string>;
+  }>({ reviewed: {}, preparation: {} });
+  const [optionsReviewHydrated, setOptionsReviewHydrated] = useState(false);
   const [addOnAnnouncement, setAddOnAnnouncement] = useState('');
+  const [assistantMultiServiceMessage, setAssistantMultiServiceMessage] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [mounted, setMounted] = useState(false);
   // Display-only readiness for the view-only, script-blocked builder iframe.
@@ -500,6 +512,37 @@ export function BookServiceClient({
   const hasAppliedHydratedBookingStateRef = useRef(false);
   const hasPendingAddOnAnnouncementRef = useRef(false);
   const searchCardRef = useRef<HTMLDivElement>(null);
+  const optionsPanelRef = useRef<HTMLDivElement>(null);
+  const optionsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const optionsReviewStorageKey = `booking_options_review:v1:${salonSlug}`;
+
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(optionsReviewStorageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored) as typeof optionsReview;
+        if (parsed && parsed.reviewed && typeof parsed.reviewed === 'object'
+          && parsed.preparation && typeof parsed.preparation === 'object') {
+          setOptionsReview(parsed);
+        }
+      }
+    } catch {
+      // Review is a presentation cue; storage failure must not block booking.
+    }
+    setOptionsReviewHydrated(true);
+    // Each tenant gets an independent review record.
+  }, [optionsReviewStorageKey]);
+
+  useEffect(() => {
+    if (!optionsReviewHydrated) {
+      return;
+    }
+    try {
+      sessionStorage.setItem(optionsReviewStorageKey, JSON.stringify(optionsReview));
+    } catch {
+      // The current page still retains the review state.
+    }
+  }, [optionsReview, optionsReviewHydrated, optionsReviewStorageKey]);
   // Editorial's sticky-CTA handoff (Rev 3 plan section 6): "the sticky Book
   // CTA scrolls to #services then hands over to the sticky Continue bar —
   // the two must never both be visible." `servicesAnchorRef` is the #services
@@ -836,11 +879,21 @@ export function BookServiceClient({
     }
 
     const newParams = new URLSearchParams(searchParams.toString());
-    const serializedAddOns = selectedBaseServiceId
+    const serializedBasket = selectedBasket.length > 1
+      ? serializeBookingBasket({ version: 2, items: selectedBasket })
+      : null;
+    const serializedAddOns = selectedBaseServiceId && !serializedBasket
       ? serializeSelectedAddOns(selectedAddOnsState)
       : null;
 
-    if (selectedBaseServiceId) {
+    if (serializedBasket) {
+      newParams.set('bookingBasket', serializedBasket);
+      newParams.delete('serviceIds');
+    } else {
+      newParams.delete('bookingBasket');
+    }
+
+    if (selectedBaseServiceId && !serializedBasket) {
       newParams.set('baseServiceId', selectedBaseServiceId);
     } else {
       newParams.delete('baseServiceId');
@@ -860,16 +913,16 @@ export function BookServiceClient({
     }
 
     window.history.replaceState(null, '', `?${nextQuery}`);
-  }, [mounted, searchParams, selectedAddOnsState, selectedBaseServiceId]);
+  }, [mounted, searchParams, selectedAddOnsState, selectedBaseServiceId, selectedBasket]);
 
   useEffect(() => {
-    if (urlBaseServiceId || legacyServiceIds[0] || urlTechId) {
+    if (urlBasket || urlBaseServiceId || legacyServiceIds[0] || urlTechId) {
       syncFromUrl({
         techId: urlTechId,
         technicianSelectionSource: urlTechId && urlTechId !== 'any' ? 'explicit' : null,
-        baseServiceId: urlBaseServiceId ?? legacyServiceIds[0] ?? null,
-        selectedAddOns: urlSelectedAddOns,
-        serviceIds: legacyServiceIds,
+        baseServiceId: urlBasket ? null : urlBaseServiceId ?? legacyServiceIds[0] ?? null,
+        selectedAddOns: urlBasket ? [] : urlSelectedAddOns,
+        serviceIds: urlBasket?.items.map(item => item.serviceId) ?? legacyServiceIds,
         locationId: selectedLocationId,
       });
     }
@@ -886,7 +939,7 @@ export function BookServiceClient({
         setSelectedAddOnsState([]);
       }
       setBaseServiceId(null);
-      setServiceIds([]);
+      setServiceIds(selectedBasket.map(item => item.serviceId));
       setSelectedAddOns([]);
       return;
     }
@@ -910,10 +963,10 @@ export function BookServiceClient({
       setSelectedAddOnsState(normalized);
     }
 
-    setBaseServiceId(selectedBaseServiceId);
-    setServiceIds([selectedBaseServiceId]);
-    setSelectedAddOns(normalized);
-  }, [l1Snapshot, addOns, isHydrated, selectedAddOnsState, selectedBaseServiceId, serviceAddOnRules, setBaseServiceId, setSelectedAddOns, setServiceIds]);
+    setBaseServiceId(selectedBasket.length === 1 ? selectedBaseServiceId : null);
+    setServiceIds(selectedBasket.map(item => item.serviceId));
+    setSelectedAddOns(selectedBasket.length === 1 ? normalized : []);
+  }, [l1Snapshot, addOns, isHydrated, selectedAddOnsState, selectedBaseServiceId, selectedBasket, serviceAddOnRules, setBaseServiceId, setSelectedAddOns, setServiceIds]);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -925,19 +978,61 @@ export function BookServiceClient({
 
   const handleServiceSelection = (service: ServiceData) => {
     hasUserChangedSelectionRef.current = true;
-
-    if (selectedBaseServiceId === service.id) {
-      setSelectedBaseServiceIdState(null);
-      setSelectedAddOnsState([]);
+    if (!selectedBasket.some(item => item.serviceId === service.id)) {
+      if (bookingFlowMarker === 'assistant' && selectedBasket.length > 0) {
+        // The durable assistant handoff is scoped to one service. Do not let
+        // an unsupported basket reach Confirm and strand a pending operation.
+        setAssistantMultiServiceMessage(true);
+        return;
+      }
+      if (selectedBasket.length >= 10) {
+        return;
+      }
+      setAssistantMultiServiceMessage(false);
+      const selectedAddOns = l1Snapshot
+        ? []
+        : buildDefaultSelectedAddOns(service.id, serviceAddOnRules, addOns, []);
+      setSelectedBasket(current => [...current, { serviceId: service.id, selectedAddOns }]);
+      setSelectedAddOnsState(selectedAddOns);
       if (technicianSelectionSource === 'auto') {
         setTechnicianId(null, null);
       }
     } else {
-      setSelectedBaseServiceIdState(service.id);
-      setSelectedCategory(service.bookingCategory);
+      setSelectedAddOnsState(selectedBasket.find(item => item.serviceId === service.id)?.selectedAddOns ?? []);
+    }
+    setSelectedBaseServiceIdState(service.id);
+    setSelectedCategory(service.bookingCategory);
+
+    const hasRelevantOptions = (l1Snapshot
+      ? l1Snapshot.serviceAddOnBindings
+      : serviceAddOnRules).some(rule => rule.serviceId === service.id && addOns.some(addOn =>
+      addOn.id === rule.addOnId && addOn.isActive));
+    if (hasRelevantOptions) {
+      // The customer's click is the only automatic scroll trigger. Changing an
+      // add-on or its quantity must not pull the viewport away from the row.
+      requestAnimationFrame(() => {
+        optionsPanelRef.current?.scrollIntoView?.({
+          block: 'start',
+          behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+        });
+      });
     }
 
     triggerHaptic('select');
+  };
+
+  const handleRemoveService = (serviceId: string) => {
+    const remaining = selectedBasket.filter(item => item.serviceId !== serviceId);
+    setSelectedBasket(remaining);
+    if (selectedBaseServiceId === serviceId) {
+      const nextItem = remaining[0] ?? null;
+      setSelectedBaseServiceIdState(nextItem?.serviceId ?? null);
+      setSelectedAddOnsState(nextItem?.selectedAddOns ?? []);
+    }
+    if (technicianSelectionSource === 'auto') {
+      setTechnicianId(null, null);
+    }
+    hasUserChangedSelectionRef.current = true;
   };
 
   // An active search collapses the category chrome and searches every category at
@@ -998,6 +1093,32 @@ export function BookServiceClient({
     })
     .filter(Boolean);
   const hasVisibleAddOns = Boolean(selectedService && allowedAddOns.length > 0);
+  const removalOptions = allowedAddOns.filter(item => item?.addOn.category === 'removal');
+  const otherOptions = allowedAddOns.filter(item => item?.addOn.category !== 'removal');
+  const basketReview = selectedBasket.map((item) => {
+    const service = services.find(candidate => candidate.id === item.serviceId);
+    const rules = (l1Snapshot
+      ? l1Snapshot.serviceAddOnBindings.filter(rule => rule.serviceId === item.serviceId)
+      : serviceAddOnRules.filter(rule => rule.serviceId === item.serviceId));
+    const visibleRules = rules.filter(rule => addOnsById.get(rule.addOnId)?.isActive);
+    const key = JSON.stringify({
+      service: service && [service.priceCents, service.priceDisplayText, service.durationMinutes],
+      rules: visibleRules.map(rule => ({ rule, addOn: addOnsById.get(rule.addOnId) })),
+    });
+    const hasRemoval = visibleRules.some(rule => addOnsById.get(rule.addOnId)?.category === 'removal');
+    const preparationDone = !hasRemoval || optionsReview.preparation[item.serviceId] === key;
+    return {
+      serviceId: item.serviceId,
+      key,
+      preparationDone,
+      reviewed: visibleRules.length === 0 || (optionsReview.reviewed[item.serviceId] === key && preparationDone),
+    };
+  });
+  const activeReview = basketReview.find(item => item.serviceId === selectedBaseServiceId);
+  const optionsKey = activeReview?.key ?? '';
+  const preparationAcknowledged = activeReview?.preparationDone ?? true;
+  const firstUnreviewedItem = basketReview.find(item => !item.reviewed);
+  const needsOptionsReview = Boolean(firstUnreviewedItem);
   const hasRequiredAddOns = allowedAddOns.some(item => item?.rule.selectionMode === 'required');
   const hasOptionalAddOns = allowedAddOns.some(item => item?.rule.selectionMode === 'optional');
   const addOnCompositionLabel = hasRequiredAddOns && hasOptionalAddOns
@@ -1016,16 +1137,24 @@ export function BookServiceClient({
       locationId: selectedLocationId,
     }),
   );
-  const compatiblePreviewTechnicians = selectedService
+  const selectedBasketServices = selectedBasket.flatMap((item) => {
+    const service = services.find(candidate => candidate.id === item.serviceId);
+    return service ? [service] : [];
+  });
+  const compatiblePreviewTechnicians = selectedBasketServices.length > 0
     ? locationCompatiblePreviewTechnicians.filter(technician =>
       getPublicTechnicianCompatibility({
         selectionMode: 'base-service',
         technician,
-        requestedServices: [{ id: selectedService.id, name: selectedService.name, category: selectedService.category }],
+        requestedServices: selectedBasketServices.map(service => ({
+          id: service.id,
+          name: service.name,
+          category: service.category,
+        })),
       }).bookable,
     )
     : [];
-  const hasSingleTechnicianSalonPreview = !selectedService && locationCompatiblePreviewTechnicians.length === 1;
+  const hasSingleTechnicianSalonPreview = selectedBasketServices.length === 0 && locationCompatiblePreviewTechnicians.length === 1;
   const soleCompatiblePreviewTechnician = compatiblePreviewTechnicians.length === 1
     ? compatiblePreviewTechnicians[0] ?? null
     : null;
@@ -1125,30 +1254,53 @@ export function BookServiceClient({
     })
     : null;
   const l1Selection = l1Result?.ok ? l1Result.selection : null;
-  const l1Blocked = Boolean(l1Snapshot && (!l1Selection || l1Selection.blocksContinue || (enforceRequiredAddOns && selectedRules.some(rule => rule.selectionMode === 'required' && !l1Selection.addOns.some(addOn => addOn.addOnId === rule.addOnId)))));
-  const totalPriceCents = l1Snapshot
-    ? l1Selection?.subtotalCents ?? 0
-    : ((selectedService?.priceCents ?? 0) + allowedAddOns.reduce(
-        (sum, item) => {
-          if (!item || item.quantity <= 0) {
-            return sum;
-          }
-          return sum + (('priceMode' in item.rule && item.rule.priceMode === 'manual_confirmation') ? 0 : item.addOn.priceCents * item.quantity);
-        },
-        0,
+  const basketQuotes = selectedBasket.map((item) => {
+    if (l1Snapshot) {
+      const result = resolveCatalogSelection(l1Snapshot, {
+        serviceId: item.serviceId,
+        selectedAddOns: item.selectedAddOns,
+      });
+      const selection = result.ok ? result.selection : null;
+      const requiredRules = l1Snapshot.serviceAddOnBindings.filter(rule => (
+        rule.serviceId === item.serviceId && rule.selectionMode === 'required'
       ));
-  const totalDurationMinutes = l1Snapshot
-    ? l1Selection?.totalDurationMinutes ?? 0
-    : ((selectedService?.durationMinutes ?? 0) + allowedAddOns.reduce(
-        (sum, item) => {
-          if (!item || item.quantity <= 0) {
-            return sum;
-          }
-          return sum + (item.addOn.durationMinutes * item.quantity);
-        },
-        0,
-      ));
-  const totalPriceLabel = formatMoney(totalPriceCents, currency);
+      return {
+        blocked: !selection || selection.blocksContinue || (enforceRequiredAddOns && requiredRules.some(rule =>
+          !selection.addOns.some(addOn => addOn.addOnId === rule.addOnId))),
+        priceCents: selection?.subtotalCents ?? 0,
+        durationMinutes: selection?.totalDurationMinutes ?? 0,
+        startingPrice: Boolean(services.find(service => service.id === item.serviceId)?.priceDisplayText?.trim().endsWith('+'))
+          || Boolean(selection?.addOns.some(line => addOnsById.get(line.addOnId)?.priceDisplayText?.trim().endsWith('+'))),
+        manualConfirmation: Boolean(selection?.addOns.some(line => line.priceMode === 'manual_confirmation')),
+      };
+    }
+    const service = services.find(candidate => candidate.id === item.serviceId);
+    const selectedRulesForItem = serviceAddOnRules.filter(rule => rule.serviceId === item.serviceId);
+    const selectedLines = item.selectedAddOns.flatMap((selectedAddOn) => {
+      const rule = selectedRulesForItem.find(candidate => candidate.addOnId === selectedAddOn.addOnId);
+      const addOn = addOnsById.get(selectedAddOn.addOnId);
+      return rule && addOn && addOn.isActive
+        ? [{ rule, addOn, quantity: selectedAddOn.quantity ?? 1 }]
+        : [];
+    });
+    return {
+      blocked: !service,
+      priceCents: (service?.priceCents ?? 0) + selectedLines.reduce((sum, line) =>
+        sum + (line.rule.priceMode === 'manual_confirmation' ? 0 : line.addOn.priceCents * line.quantity), 0),
+      durationMinutes: (service?.durationMinutes ?? 0) + selectedLines.reduce((sum, line) =>
+        sum + line.addOn.durationMinutes * line.quantity, 0),
+      startingPrice: Boolean(service?.priceDisplayText?.trim().endsWith('+'))
+        || selectedLines.some(line => line.addOn.priceDisplayText?.trim().endsWith('+')),
+      manualConfirmation: selectedLines.some(line => line.rule.priceMode === 'manual_confirmation'),
+    };
+  });
+  const l1Blocked = basketQuotes.some(quote => quote.blocked);
+  const totalPriceCents = basketQuotes.reduce((sum, quote) => sum + quote.priceCents, 0);
+  const totalDurationMinutes = basketQuotes.reduce((sum, quote) => sum + quote.durationMinutes, 0);
+  const selectedAddOnCount = selectedBasket.reduce((sum, item) => sum + item.selectedAddOns.length, 0);
+  const hasStartingPrice = basketQuotes.some(quote => quote.startingPrice);
+  const hasManualConfirmation = basketQuotes.some(quote => quote.manualConfirmation);
+  const totalPriceLabel = `${hasStartingPrice ? 'From ' : ''}${formatMoney(totalPriceCents, currency)}${hasManualConfirmation ? ' + confirmation' : ''}`;
   const totalDurationLabel = formatDuration(totalDurationMinutes);
 
   useEffect(() => {
@@ -1218,8 +1370,9 @@ export function BookServiceClient({
 
     router.push(buildBookingUrl(`/${locale}/book/${nextStep}`, {
       salonSlug,
-      baseServiceId: baseServiceIdValue,
-      selectedAddOns: selectedAddOnsValue,
+      ...(selectedBasket.length > 1
+        ? { bookingBasket: { version: 2 as const, items: selectedBasket } }
+        : { baseServiceId: baseServiceIdValue, selectedAddOns: selectedAddOnsValue }),
       techId: effectiveContinueTechnicianId,
       originalAppointmentId,
       manageToken,
@@ -1237,8 +1390,9 @@ export function BookServiceClient({
     if (prevStep) {
       router.push(buildBookingUrl(`/${locale}/book/${prevStep}`, {
         salonSlug,
-        baseServiceId: selectedBaseServiceId,
-        selectedAddOns: selectedAddOnsState,
+        ...(selectedBasket.length > 1
+          ? { bookingBasket: { version: 2 as const, items: selectedBasket } }
+          : { baseServiceId: selectedBaseServiceId, selectedAddOns: selectedAddOnsState }),
         originalAppointmentId,
         manageToken,
         campaignToken,
@@ -1254,6 +1408,27 @@ export function BookServiceClient({
   };
 
   const handleContinue = () => {
+    if (bookingFlowMarker === 'assistant' && selectedBasket.length > 1) {
+      setAssistantMultiServiceMessage(true);
+      return;
+    }
+    if (needsOptionsReview) {
+      const reviewService = services.find(service => service.id === firstUnreviewedItem?.serviceId);
+      setSearchQuery('');
+      if (reviewService) {
+        setSelectedBaseServiceIdState(reviewService.id);
+        setSelectedAddOnsState(selectedBasket.find(item => item.serviceId === reviewService.id)?.selectedAddOns ?? []);
+        setSelectedCategory(reviewService.bookingCategory);
+      }
+      requestAnimationFrame(() => {
+        optionsPanelRef.current?.scrollIntoView?.({
+          block: 'start',
+          behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+        });
+        optionsHeadingRef.current?.focus({ preventScroll: true });
+      });
+      return;
+    }
     if (l1Blocked || !selectedBaseServiceId) {
       return;
     }
@@ -1310,7 +1485,23 @@ export function BookServiceClient({
 
     hasUserChangedSelectionRef.current = true;
     hasPendingAddOnAnnouncementRef.current = true;
+    if (addOn.category === 'removal') {
+      setOptionsReview(current => ({
+        ...current,
+        preparation: {
+          ...current.preparation,
+          [selectedBaseServiceId]: nextSelected.some(item => (
+            addOnsById.get(item.addOnId)?.category === 'removal'
+          ))
+            ? optionsKey
+            : '',
+        },
+      }));
+    }
     setSelectedAddOnsState(normalized);
+    setSelectedBasket(current => current.map(item => item.serviceId === selectedBaseServiceId
+      ? { ...item, selectedAddOns: normalized }
+      : item));
     setSelectedAddOns(normalized);
     triggerHaptic('select');
   };
@@ -1786,6 +1977,61 @@ export function BookServiceClient({
                           ? 'service-menu-grouped-categories'
                           : 'service-menu-list'}
                       >
+                        {selectedBasket.length > 0 && (
+                          <section
+                            data-public-surface="serviceSelectionControls"
+                            data-testid="service-selection-summary"
+                            aria-label="Your selected services"
+                            className="space-y-2 rounded-2xl border bg-white p-3"
+                            style={{ borderColor: themeVars.cardBorder }}
+                          >
+                            <h3 className="text-sm font-bold text-neutral-900">Your services</h3>
+                            {selectedBasket.map((item) => {
+                              const service = services.find(candidate => candidate.id === item.serviceId);
+                              const review = basketReview.find(candidate => candidate.serviceId === item.serviceId);
+                              return (
+                                <div key={item.serviceId} className="flex items-start justify-between gap-2 rounded-xl bg-neutral-50 p-2.5">
+                                  <div className="min-w-0">
+                                    <div className="break-words text-sm font-semibold text-neutral-900">{service?.name ?? 'Unavailable service'}</div>
+                                    <div className="mt-0.5 break-words text-xs text-neutral-600">
+                                      {item.selectedAddOns.length > 0
+                                        ? item.selectedAddOns.map((addOn) => {
+                                          const name = addOnsById.get(addOn.addOnId)?.name ?? 'Unavailable option';
+                                          return `${name}${(addOn.quantity ?? 1) > 1 ? ` ×${addOn.quantity}` : ''}`;
+                                        }).join(' · ')
+                                        : review?.reviewed ? 'No optional extras' : 'Options to review'}
+                                    </div>
+                                  </div>
+                                  <div className="flex shrink-0 gap-1">
+                                    {service && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleServiceSelection(service)}
+                                        className="min-h-11 rounded-lg px-2 text-xs font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                        aria-label={`Edit options for ${service.name}`}
+                                      >
+                                        Edit
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveService(item.serviceId)}
+                                      className="min-h-11 rounded-lg px-2 text-xs font-semibold text-neutral-600 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                      aria-label={`Remove ${service?.name ?? 'unavailable service'}`}
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </section>
+                        )}
+                        {assistantMultiServiceMessage && (
+                          <p role="status" className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                            This assistant booking supports one service. Remove the extra service, then finish this booking before starting another.
+                          </p>
+                        )}
                         {/*
                           Test hook only. The layout token must never reach the
                           accessibility tree — screen readers were announcing
@@ -1880,7 +2126,7 @@ export function BookServiceClient({
                                         : 'grid grid-cols-1 gap-2'}
                                       >
                                         {row.map((service, serviceIndex) => {
-                                          const isSelected = selectedBaseServiceId === service.id;
+                                          const isSelected = selectedBasket.some(item => item.serviceId === service.id);
                                           const previewDescription = service.descriptionItems[0] ?? service.description ?? 'Bookable base service';
                                           const animationIndex = groupIndex * 2 + rowIndex * 2 + serviceIndex;
 
@@ -1933,6 +2179,7 @@ export function BookServiceClient({
                                               }}
                                             >
                                               {showServiceImages
+                                              && !isSelected
                                               && serviceMenuPresentation.image !== 'hidden' && (
                                                 <div
                                                   data-testid={`service-card-image-${service.id}`}
@@ -1984,6 +2231,7 @@ export function BookServiceClient({
                                                 }`}
                                               >
                                                 {(!showServiceImages
+                                                  || isSelected
                                                   || serviceMenuPresentation.image === 'hidden')
                                                   && service.resolvedIntroPriceLabel && (
                                                   <div
@@ -2056,144 +2304,214 @@ export function BookServiceClient({
                                       {rowContainsSelectedService && hasVisibleAddOns && selectedService && (
                                         <div
                                           data-testid="service-inline-addons-panel"
+                                          ref={optionsPanelRef}
                                           className="w-full rounded-[24px] bg-white px-3.5 py-3 shadow-[0_8px_22px_rgba(0,0,0,0.04)] sm:px-4 sm:py-3.5"
                                           style={{
                                             borderWidth: '1px',
                                             borderStyle: 'solid',
                                             borderColor: themeVars.cardBorder,
+                                            scrollMarginTop: '1rem',
                                           }}
                                         >
                                           <div className="mb-2">
-                                            <div className="text-[15px] font-semibold text-neutral-900">
-                                              Customize your service
-                                            </div>
-                                            <div className="mt-0.5 text-[11px] leading-4 text-neutral-500">
-                                              {addOnCompositionLabel}
-                                              {' '}
-                                              for
+                                            <h4 ref={optionsHeadingRef} tabIndex={-1} className="text-[15px] font-semibold text-neutral-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                                              Customize your
                                               {' '}
                                               {selectedService.name}
+                                            </h4>
+                                            <div className="mt-0.5 text-[11px] leading-4 text-neutral-500">
+                                              {addOnCompositionLabel}
                                             </div>
                                           </div>
 
-                                          <div className="space-y-1.5">
-                                            {allowedAddOns.map((item) => {
-                                              if (!item) {
-                                                return null;
-                                              }
+                                          <div className="space-y-4">
+                                            {[
+                                              { title: `Before your ${selectedService.name}`, items: removalOptions, preparation: true },
+                                              { title: 'Make it yours ✨', items: otherOptions, preparation: false },
+                                            ].filter(group => group.items.length > 0).map(group => (
+                                              <div key={group.title} className="space-y-1.5">
+                                                <h5 className="text-sm font-semibold text-neutral-900">{group.title}</h5>
+                                                {group.preparation && (
+                                                  <p className="text-xs text-neutral-600">Choose any removal you need, or tell us you do not need removal.</p>
+                                                )}
+                                                {group.items.map((item) => {
+                                                  if (!item) {
+                                                    return null;
+                                                  }
 
-                                              const { addOn, rule, quantity } = item;
-                                              const isSelected = quantity > 0;
-                                              const isRequired = rule.selectionMode === 'required';
-                                              const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
-                                              const manualConfirmation = 'priceMode' in rule && rule.priceMode === 'manual_confirmation';
-                                              const lineTotalCents = manualConfirmation ? 0 : addOn.priceCents * Math.max(quantity, 1);
-                                              const lineDurationMinutes = addOn.durationMinutes * Math.max(quantity, 1);
+                                                  const { addOn, rule, quantity } = item;
+                                                  const isSelected = quantity > 0;
+                                                  const isRequired = rule.selectionMode === 'required';
+                                                  const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
+                                                  const manualConfirmation = 'priceMode' in rule && rule.priceMode === 'manual_confirmation';
+                                                  const lineTotalCents = manualConfirmation ? 0 : addOn.priceCents * Math.max(quantity, 1);
+                                                  const lineDurationMinutes = addOn.durationMinutes * Math.max(quantity, 1);
 
-                                              return (
-                                                <div
-                                                  key={addOn.id}
-                                                  data-testid={`service-addon-row-${addOn.id}`}
-                                                  className="rounded-[18px] border px-3 py-2 sm:px-3.5 sm:py-2.5"
-                                                  style={{
-                                                    borderColor: isSelected
-                                                      ? hasBookingBrandColor
-                                                        ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                                                        : themeVars.primary
-                                                      : themeVars.cardBorder,
-                                                    backgroundColor: isSelected
-                                                      ? hasBookingBrandColor
-                                                        ? 'var(--booking-brand-selection-background, white)'
-                                                        : `color-mix(in srgb, ${themeVars.primary} 5%, white)`
-                                                      : 'white',
-                                                  }}
-                                                >
-                                                  <div className="flex items-center justify-between gap-2.5">
-                                                    <div className="min-w-0 flex-1">
-                                                      <div className="flex items-center gap-2">
-                                                        <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
-                                                        {isRequired && (
-                                                          <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
-                                                            Required
-                                                          </span>
-                                                        )}
-                                                      </div>
-                                                      {addOn.descriptionItems[0] && (
-                                                        <div className="mt-0.5 text-[12px] leading-4 text-neutral-500">
-                                                          {addOn.descriptionItems[0]}
+                                                  return (
+                                                    <div
+                                                      key={addOn.id}
+                                                      data-testid={`service-addon-row-${addOn.id}`}
+                                                      className="rounded-[18px] border px-3 py-2 sm:px-3.5 sm:py-2.5"
+                                                      style={{
+                                                        borderColor: isSelected
+                                                          ? hasBookingBrandColor
+                                                            ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                                                            : themeVars.primary
+                                                          : themeVars.cardBorder,
+                                                        backgroundColor: isSelected
+                                                          ? hasBookingBrandColor
+                                                            ? 'var(--booking-brand-selection-background, white)'
+                                                            : `color-mix(in srgb, ${themeVars.primary} 5%, white)`
+                                                          : 'white',
+                                                      }}
+                                                    >
+                                                      <div className="flex items-center justify-between gap-2.5">
+                                                        <div className="min-w-0 flex-1">
+                                                          <div className="flex items-center gap-2">
+                                                            <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
+                                                            {isRequired && (
+                                                              <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                                                Required
+                                                              </span>
+                                                            )}
+                                                          </div>
+                                                          {addOn.descriptionItems[0] && (
+                                                            <div className="mt-0.5 text-[12px] leading-4 text-neutral-500">
+                                                              {addOn.descriptionItems[0]}
+                                                            </div>
+                                                          )}
+                                                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
+                                                            <span>{manualConfirmation ? 'Price to be confirmed' : addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
+                                                            <span>{formatDuration(addOn.durationMinutes)}</span>
+                                                            {isSelected && (
+                                                              <span>
+                                                                Selected:
+                                                                {' '}
+                                                                {manualConfirmation
+                                                                  ? 'Price to be confirmed'
+                                                                  : addOn.priceDisplayText?.trim().endsWith('+')
+                                                                    ? addOn.priceDisplayText
+                                                                    : formatMoney(lineTotalCents, currency)}
+                                                                {' '}
+                                                                ·
+                                                                {' '}
+                                                                {formatDuration(lineDurationMinutes)}
+                                                              </span>
+                                                            )}
+                                                          </div>
                                                         </div>
-                                                      )}
-                                                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
-                                                        <span>{manualConfirmation ? 'Price to be confirmed' : addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
-                                                        <span>{formatDuration(addOn.durationMinutes)}</span>
-                                                        {isSelected && (
-                                                          <span>
-                                                            Selected:
-                                                            {' '}
-                                                            {manualConfirmation ? 'Price to be confirmed' : formatMoney(lineTotalCents, currency)}
-                                                            {' '}
-                                                            ·
-                                                            {' '}
-                                                            {formatDuration(lineDurationMinutes)}
-                                                          </span>
-                                                        )}
+
+                                                        {addOn.pricingType === 'per_unit'
+                                                          ? (
+                                                              <div className="flex items-center gap-1">
+                                                                <button
+                                                                  type="button"
+                                                                  aria-label={`Decrease ${addOn.name} quantity`}
+                                                                  onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, quantity - 1) : Math.max(0, quantity - 1))}
+                                                                  disabled={isRequired ? quantity <= 1 : quantity <= 0}
+                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+                                                                >
+                                                                  -
+                                                                </button>
+                                                                <div className="min-w-6 text-center text-sm font-semibold text-neutral-900">
+                                                                  {quantity}
+                                                                </div>
+                                                                <button
+                                                                  type="button"
+                                                                  aria-label={`Increase ${addOn.name} quantity`}
+                                                                  onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, Math.max(quantity, 0) + 1))}
+                                                                  disabled={quantity >= maxQuantity}
+                                                                  className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+                                                                >
+                                                                  +
+                                                                </button>
+                                                              </div>
+                                                            )
+                                                          : (
+                                                              <button
+                                                                type="button"
+                                                                aria-label={isRequired && isSelected
+                                                                  ? `${addOn.name} included`
+                                                                  : `${isSelected ? 'Remove' : 'Add'} ${addOn.name}`}
+                                                                onClick={() => handleAddOnToggle(addOn.id)}
+                                                                disabled={isRequired && isSelected}
+                                                                className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none"
+                                                                style={{
+                                                                  backgroundColor: isSelected
+                                                                    ? hasBookingBrandColor
+                                                                      ? 'var(--booking-brand-primary)'
+                                                                      : themeVars.primary
+                                                                    : '#f5f5f5',
+                                                                  color: isSelected
+                                                                    ? bookingBrandForeground ?? '#171717'
+                                                                    : '#404040',
+                                                                }}
+                                                              >
+                                                                {isRequired && isSelected ? 'Included' : isSelected ? 'Added' : 'Add'}
+                                                              </button>
+                                                            )}
                                                       </div>
                                                     </div>
-
-                                                    {addOn.pricingType === 'per_unit'
-                                                      ? (
-                                                          <div className="flex items-center gap-1">
-                                                            <button
-                                                              type="button"
-                                                              aria-label={`Decrease ${addOn.name} quantity`}
-                                                              onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, quantity - 1) : Math.max(0, quantity - 1))}
-                                                              disabled={isRequired ? quantity <= 1 : quantity <= 0}
-                                                              className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
-                                                            >
-                                                              -
-                                                            </button>
-                                                            <div className="min-w-6 text-center text-sm font-semibold text-neutral-900">
-                                                              {quantity}
-                                                            </div>
-                                                            <button
-                                                              type="button"
-                                                              aria-label={`Increase ${addOn.name} quantity`}
-                                                              onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, Math.max(quantity, 0) + 1))}
-                                                              disabled={quantity >= maxQuantity}
-                                                              className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
-                                                            >
-                                                              +
-                                                            </button>
-                                                          </div>
-                                                        )
-                                                      : (
-                                                          <button
-                                                            type="button"
-                                                            aria-label={isRequired && isSelected
-                                                              ? `${addOn.name} included`
-                                                              : `${isSelected ? 'Remove' : 'Add'} ${addOn.name}`}
-                                                            onClick={() => handleAddOnToggle(addOn.id)}
-                                                            disabled={isRequired && isSelected}
-                                                            className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none"
-                                                            style={{
-                                                              backgroundColor: isSelected
-                                                                ? hasBookingBrandColor
-                                                                  ? 'var(--booking-brand-primary)'
-                                                                  : themeVars.primary
-                                                                : '#f5f5f5',
-                                                              color: isSelected
-                                                                ? bookingBrandForeground ?? '#171717'
-                                                                : '#404040',
-                                                            }}
-                                                          >
-                                                            {isRequired && isSelected ? 'Included' : isSelected ? 'Added' : 'Add'}
-                                                          </button>
-                                                        )}
-                                                  </div>
-                                                </div>
-                                              );
-                                            })}
+                                                  );
+                                                })}
+                                                {group.preparation && group.items.some(item => item && item.quantity > 0) && !preparationAcknowledged && (
+                                                  <button
+                                                    type="button"
+                                                    data-testid="service-confirm-removal-button"
+                                                    onClick={() => setOptionsReview(current => ({
+                                                      ...current,
+                                                      preparation: { ...current.preparation, [selectedService.id]: optionsKey },
+                                                    }))}
+                                                    className="min-h-11 rounded-lg px-3 text-sm font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                                  >
+                                                    Yes, I need the selected removal
+                                                  </button>
+                                                )}
+                                                {group.preparation && !group.items.some(item => item?.rule.selectionMode === 'required') && (
+                                                  <button
+                                                    type="button"
+                                                    data-testid="service-no-removal-button"
+                                                    aria-pressed={preparationAcknowledged && !group.items.some(item => item && item.quantity > 0)}
+                                                    onClick={() => {
+                                                      const nextSelected = selectedAddOnsState.filter(item => (
+                                                        addOnsById.get(item.addOnId)?.category !== 'removal'
+                                                      ));
+                                                      setSelectedAddOnsState(nextSelected);
+                                                      setSelectedBasket(current => current.map(item => item.serviceId === selectedService.id
+                                                        ? { ...item, selectedAddOns: nextSelected }
+                                                        : item));
+                                                      setSelectedAddOns(nextSelected);
+                                                      setOptionsReview(current => ({
+                                                        ...current,
+                                                        preparation: { ...current.preparation, [selectedService.id]: optionsKey },
+                                                      }));
+                                                    }}
+                                                    className="min-h-11 rounded-lg px-3 text-sm font-semibold text-neutral-800 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                                  >
+                                                    I don’t need removal
+                                                  </button>
+                                                )}
+                                              </div>
+                                            ))}
                                           </div>
+                                          <button
+                                            type="button"
+                                            data-testid="service-options-done-button"
+                                            disabled={!preparationAcknowledged || l1Blocked}
+                                            onClick={() => {
+                                              setOptionsReview(current => ({
+                                                ...current,
+                                                reviewed: { ...current.reviewed, [selectedService.id]: optionsKey },
+                                              }));
+                                              triggerHaptic('confirm');
+                                            }}
+                                            className="mt-3 min-h-11 w-full rounded-xl px-3 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                            style={{ backgroundColor: themeVars.primaryDark }}
+                                          >
+                                            {selectedAddOnsState.some(item => selectedRules.some(rule => rule.addOnId === item.addOnId && rule.selectionMode !== 'required'))
+                                              ? 'Done reviewing options'
+                                              : 'Continue without optional extras'}
+                                          </button>
                                         </div>
                                       )}
                                     </div>
@@ -2471,7 +2789,7 @@ export function BookServiceClient({
                         >
                           <div className="flex min-w-max gap-2">
                             {featuredServices.map((service, featuredIndex) => {
-                              const isSelected = selectedBaseServiceId === service.id;
+                              const isSelected = selectedBasket.some(item => item.serviceId === service.id);
                               const featuredBadgeLabel = featuredIndex === 0 && service.bookingCategory === 'combo'
                                 ? 'Best value'
                                 : BOOKING_CATEGORY_META[service.bookingCategory].label;
@@ -2503,7 +2821,7 @@ export function BookServiceClient({
                                       : themeVars.cardBorder,
                                   }}
                                 >
-                                  {showServiceImages && (
+                                  {showServiceImages && !isSelected && (
                                     <div
                                       data-testid={`featured-service-card-image-container-${service.id}`}
                                       className="relative h-[80px] overflow-hidden sm:h-[96px]"
@@ -2524,7 +2842,7 @@ export function BookServiceClient({
                                     </div>
                                   )}
                                   <div className="p-2">
-                                    {!showServiceImages && (
+                                    {(!showServiceImages || isSelected) && (
                                       <div
                                         data-testid={`featured-service-card-badge-${service.id}`}
                                         className="mb-1 w-fit max-w-full whitespace-normal break-words rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-neutral-800"
@@ -2880,9 +3198,10 @@ export function BookServiceClient({
           <div className="mx-auto flex max-w-[430px] flex-nowrap items-center justify-between gap-3 px-4 py-1.5 sm:py-2">
             <div className="flex min-w-0 flex-col gap-0.5">
               <div className="truncate text-[11px] leading-none text-neutral-500">
-                {selectedAddOnsState.length > 0
-                  ? `1 service + ${selectedAddOnsState.length} add-on${selectedAddOnsState.length === 1 ? '' : 's'}`
-                  : '1 service'}
+                {`${selectedBasket.length} service${selectedBasket.length === 1 ? '' : 's'}`}
+                {selectedAddOnCount > 0
+                  ? ` + ${selectedAddOnCount} add-on${selectedAddOnCount === 1 ? '' : 's'}`
+                  : ''}
               </div>
               {hasVisibleAddOns && (
                 <div
@@ -2890,7 +3209,7 @@ export function BookServiceClient({
                   className="truncate text-[9px] font-medium leading-none"
                   style={{ color: themeVars.accent }}
                 >
-                  {addOnStickyLabel}
+                  {needsOptionsReview ? 'Options to review' : addOnStickyLabel}
                 </div>
               )}
               <div className="flex items-baseline gap-2 pt-0.5">
@@ -2906,7 +3225,7 @@ export function BookServiceClient({
               type="button"
               onClick={handleContinue}
               data-testid="service-continue-button"
-              disabled={l1Blocked}
+              disabled={!needsOptionsReview && l1Blocked}
               className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
                 hasBookingBrandColor
                   ? 'text-[var(--booking-brand-foreground)]'
@@ -2919,7 +3238,7 @@ export function BookServiceClient({
                 color: bookingBrandForeground,
               }}
             >
-              Continue
+              {needsOptionsReview ? 'Review options' : 'Continue to Time'}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>

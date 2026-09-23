@@ -4,9 +4,51 @@ import {
   appendSalonSlug,
   buildBookingUrl,
   buildChangeAppointmentUrl,
+  parseBookingBasketParam,
+  serializeBookingBasket,
 } from './bookingParams';
 
 describe('bookingParams helpers', () => {
+  it('round-trips a versioned basket without duplicating legacy selection params', () => {
+    const basket = {
+      version: 2 as const,
+      items: [
+        { serviceId: 'gel-manicure', selectedAddOns: [{ addOnId: 'chrome' }] },
+        { serviceId: 'gel-pedicure', selectedAddOns: [{ addOnId: 'repair', quantity: 2 }] },
+      ],
+    };
+    const url = buildBookingUrl('/book/time', {
+      salonSlug: 'salon-a',
+      bookingBasket: basket,
+      baseServiceId: 'ignored-legacy-service',
+      selectedAddOns: [{ addOnId: 'ignored-legacy-addon' }],
+    });
+    const query = new URL(url, 'https://example.test').searchParams;
+
+    expect(parseBookingBasketParam(query.get('bookingBasket'))).toEqual(basket);
+    expect(query.has('baseServiceId')).toBe(false);
+    expect(query.has('selectedAddOns')).toBe(false);
+  });
+
+  it('rejects malformed, duplicate, and out-of-bounds basket input', () => {
+    expect(parseBookingBasketParam('{bad json')).toBeNull();
+    expect(parseBookingBasketParam(JSON.stringify({
+      version: 2,
+      items: [
+        { serviceId: 'gel', selectedAddOns: [] },
+        { serviceId: 'gel', selectedAddOns: [] },
+      ],
+    }))).toBeNull();
+    expect(parseBookingBasketParam(JSON.stringify({
+      version: 2,
+      items: [{ serviceId: 'gel', selectedAddOns: [{ addOnId: 'chrome' }, { addOnId: 'chrome' }] }],
+    }))).toBeNull();
+    expect(serializeBookingBasket({
+      version: 2,
+      items: [{ serviceId: 'gel', selectedAddOns: [{ addOnId: 'repair', quantity: 21 }] }],
+    })).toBeNull();
+  });
+
   it('preserves tenant and location context in booking step URLs without leaking clientPhone', () => {
     const url = buildBookingUrl('/en/book/confirm', {
       salonSlug: 'salon-a',

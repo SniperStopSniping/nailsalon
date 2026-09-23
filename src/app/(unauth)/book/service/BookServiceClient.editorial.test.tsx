@@ -319,6 +319,7 @@ const TECHNICIAN_DANIELA = {
 describe('BookServiceClient — Editorial Luxury layout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     observerCallback = null;
     resizeObserverCallback = null;
     navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a');
@@ -1179,7 +1180,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
         expect(within(selectedSummary).getByText('1 service')).toBeInTheDocument();
         expect(within(selectedSummary).getByText('$90')).toBeInTheDocument();
         expect(within(selectedSummary).getByText('1h 30m')).toBeInTheDocument();
-        expect(within(selectedSummary).getByRole('button', { name: /Continue/i })).toBeInTheDocument();
+        expect(within(selectedSummary).getByRole('button', { name: /Review options/i })).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Add Chrome Finish' }));
 
@@ -1189,7 +1190,8 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
           expect(within(selectedSummary).getByText('1h 40m')).toBeInTheDocument();
         });
 
-        fireEvent.click(within(selectedSummary).getByRole('button', { name: /Continue/i }));
+        fireEvent.click(screen.getByTestId('service-options-done-button'));
+        fireEvent.click(within(selectedSummary).getByRole('button', { name: /Continue to Time/i }));
 
         const nextUrl = new URL(
           navigationMock.routerPush.mock.calls.at(-1)?.[0] as string,

@@ -9,7 +9,7 @@ import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
-import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
+import { buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import { useNormalBookingFlowMarker } from '@/libs/customerAssistant/normalConfirmHandoff.client';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { useSalon } from '@/providers/SalonProvider';
@@ -34,12 +34,15 @@ export type ServiceSummary = {
 };
 
 export type AddOnSummary = {
+  serviceId?: string;
+  serviceName?: string;
   id: string;
   name: string;
   quantity: number;
   price: number;
   duration: number;
   priceMode?: 'catalog_priced' | 'manual_confirmation';
+  priceDisplayText?: string | null;
 };
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
@@ -72,6 +75,7 @@ export function BookTechClient({
   const serviceIds = searchParams.get('serviceIds')?.split(',').filter(Boolean) || [];
   const baseServiceId = searchParams.get('baseServiceId');
   const selectedAddOns = parseSelectedAddOnsParam(searchParams.get('selectedAddOns'));
+  const bookingBasket = parseBookingBasketParam(searchParams.get('bookingBasket'));
   const techError = searchParams.get('techError');
   const hasBookableTechnicians = technicians.some(tech => tech.bookable);
 
@@ -90,7 +94,7 @@ export function BookTechClient({
   const [mounted, setMounted] = useState(false);
   const serviceNames = [
     ...services.map(service => service.name),
-    ...addOns.map(addOn => addOn.quantity > 1 ? `${addOn.name} x${addOn.quantity}` : addOn.name),
+    ...addOns.map(addOn => `${addOn.serviceName ? `${addOn.serviceName}: ` : ''}${addOn.name}${addOn.quantity > 1 ? ` x${addOn.quantity}` : ''}`),
   ].join(' + ');
 
   // Initialize mounted and sync from URL params/state on mount
@@ -132,6 +136,7 @@ export function BookTechClient({
       serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
       baseServiceId,
       selectedAddOns,
+      bookingBasket,
       techId,
       originalAppointmentId,
       manageToken,
@@ -171,6 +176,7 @@ export function BookTechClient({
         serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
         baseServiceId,
         selectedAddOns,
+        bookingBasket,
         originalAppointmentId,
         manageToken,
         campaignToken,

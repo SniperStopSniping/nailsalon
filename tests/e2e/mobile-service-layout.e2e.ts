@@ -730,6 +730,7 @@ test('Smart Fit recovery fits an actual 320px booking viewport @mobile-layout', 
       }
 
       expect(route.request().headers()['x-booking-attempt-version']).toBe('2');
+
       await route.fulfill({
         status: 409,
         contentType: 'application/json',
@@ -810,6 +811,7 @@ for (const scenario of [
         }
 
         expect(route.request().headers()['x-booking-attempt-version']).toBe('2');
+
         await route.fulfill({
           status: 409,
           contentType: 'application/json',
@@ -1068,6 +1070,55 @@ test.describe('compact booking agreement and receipt', () => {
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 
       await page.screenshot({ path: testInfo.outputPath('receipt.png'), fullPage: true });
+    });
+  }
+});
+
+test.describe('selected service options on mobile', () => {
+  test.use({ viewport: { width: 320, height: 700 }, isMobile: true, hasTouch: true });
+
+  for (const browserTag of ['@mobile-chrome', '@mobile-safari']) {
+    test(`shows the service name and options before continuing ${browserTag}`, async ({ page }, testInfo) => {
+      await openServicePage(page);
+
+      const card = page.getByTestId(`service-card-${e2eConfig.serviceId}`);
+      await card.click();
+
+      const optionsHeading = page.getByRole('heading', { name: `Customize your ${e2eConfig.serviceName}` });
+
+      await expect(optionsHeading).toBeVisible();
+      await expect.poll(() => optionsHeading.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
+      })).toBe(true);
+      await expect(page.getByTestId(`service-card-image-${e2eConfig.serviceId}`)).toBeHidden();
+
+      const continueButton = page.getByTestId('service-continue-button');
+
+      await expect(continueButton).toContainText('Review options');
+
+      await page.screenshot({ path: testInfo.outputPath('selected-service-options-320.png') });
+
+      await page.evaluate(() => {
+        document.documentElement.style.fontSize = '200%';
+      });
+      await expectNoPageHorizontalOverflow(page);
+
+      await expect(optionsHeading).toBeVisible();
+
+      await page.screenshot({ path: testInfo.outputPath('selected-service-options-200-percent-text.png') });
+
+      await continueButton.click();
+
+      await expect(optionsHeading).toBeFocused();
+
+      await page.getByTestId('service-options-done-button').click();
+
+      await expect(continueButton).toContainText('Continue to Time');
+
+      await continueButton.click();
+
+      await expect(page).toHaveURL(/\/book\/tech\?/);
     });
   }
 });
