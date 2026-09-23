@@ -511,7 +511,6 @@ export function BookServiceClient({
   const hasPendingAddOnAnnouncementRef = useRef(false);
   const searchCardRef = useRef<HTMLDivElement>(null);
   const optionsPanelRef = useRef<HTMLDivElement>(null);
-  const optionsHeadingRef = useRef<HTMLHeadingElement>(null);
   const continueButtonRef = useRef<HTMLButtonElement>(null);
   // Editorial's sticky-CTA handoff (Rev 3 plan section 6): "the sticky Book
   // CTA scrolls to #services then hands over to the sticky Continue bar —
@@ -956,7 +955,6 @@ export function BookServiceClient({
     requestAnimationFrame(() => {
       if (hasOptions) {
         document.querySelector('[data-selected-service-row]')?.scrollIntoView?.({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-        optionsHeadingRef.current?.focus({ preventScroll: true });
       } else {
         continueButtonRef.current?.focus({ preventScroll: true });
       }
@@ -2153,7 +2151,7 @@ export function BookServiceClient({
                                           }}
                                         >
                                           <div className="mb-2 max-[360px]:mb-[8px]">
-                                            <h4 ref={optionsHeadingRef} tabIndex={-1} className="text-[15px] font-semibold text-neutral-900 focus:outline-none">
+                                            <h4 aria-live="polite" className="text-[15px] font-semibold text-neutral-900">
                                               Add-ons
                                             </h4>
                                           </div>
