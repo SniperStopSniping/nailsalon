@@ -1,3 +1,10 @@
+## [1.131.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.3...v1.131.4) (2026-09-24)
+
+
+### Bug Fixes
+
+* **voice:** send requested booking link to caller ID without repeat confirmation ([#319](https://github.com/SniperStopSniping/nailsalon/issues/319)) ([d7110eb](https://github.com/SniperStopSniping/nailsalon/commit/d7110eb037907aba62ec8817c7207a28321ae871))
+
 ## [1.131.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.2...v1.131.3) (2026-09-24)
 
 
