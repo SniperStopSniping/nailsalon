@@ -95,6 +95,19 @@ describe('voice conversation safety', () => {
     expect(advanceVoiceContact({ ...verified, step: 'sms' }, 'yes').smsConsent).toBeUndefined();
   });
 
+  it('accepts natural caller-ID assent once and proceeds directly to the final review', () => {
+    const contact = { step: 'phone' as const, name: 'Ava', email: 'ava@example.test', phone: '4165550100' };
+
+    for (const assent of ['yes', 'yeah', 'yep', 'sure', 'okay']) {
+      const accepted = advanceVoiceContact(contact, assent);
+
+      expect(accepted, assent).toMatchObject({ step: 'complete', phone: '4165550100' });
+    }
+
+    expect(advanceVoiceContact(contact, 'no')).toMatchObject({ step: 'phone' });
+    expect(advanceVoiceContact(contact, '4165550101')).toMatchObject({ step: 'complete', phone: '4165550101' });
+  });
+
   it('clears a prior SMS choice for invalid and re-entered callback-number corrections', () => {
     const contact = {
       step: 'complete' as const,

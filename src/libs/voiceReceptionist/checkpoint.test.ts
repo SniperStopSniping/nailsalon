@@ -12,7 +12,7 @@ describe('voice checkpoint proof', () => {
   it('requires finalized high-confidence speech and rejects mixed DTMF/speech', () => {
     expect(isFinalizedVoiceConsent({ SpeechResult: 'yes, book it', Confidence: '0.9' })).toBe(true);
 
-    const rejected: Record<string, string>[] = [{ SpeechResult: 'yes', Confidence: '0.99' }, { SpeechResult: 'yes, book it', Confidence: '0.79' }, { Digits: '1', SpeechResult: 'yes, book it' }, { Digits: '2' }];
+    const rejected: Record<string, string>[] = [{ SpeechResult: 'yes', Confidence: '0.99' }, { SpeechResult: 'yeah', Confidence: '0.99' }, { SpeechResult: 'yes, book it', Confidence: '0.79' }, { Digits: '1', SpeechResult: 'yes, book it' }, { Digits: '2' }];
     for (const params of rejected) {
       expect(isFinalizedVoiceConsent(params)).toBe(false);
     }

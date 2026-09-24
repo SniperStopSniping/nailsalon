@@ -22,7 +22,7 @@ export function isExplicitVoiceBookingConsent(text: string): boolean {
 }
 
 export function isVoiceContactAffirmation(text: string): boolean {
-  return /^(?:yes|yes please|yes that'?s (?:right|correct|my number)|that'?s (?:right|correct|my number)|correct|si|si correcto|si es correcto|es correcto)$/.test(normalizedSpeech(text));
+  return /^(?:yes|yeah|yep|sure|okay|ok|yes please|yeah please|yes that'?s (?:right|correct|my number)|yeah that'?s (?:right|correct|my number)|that'?s (?:right|correct|my number)|correct|si|si correcto|si es correcto|es correcto)$/.test(normalizedSpeech(text));
 }
 
 export function isVoiceNo(text: string): boolean {
@@ -176,7 +176,7 @@ export function contactPrompt(state: VoiceContactState): string {
     case 'name': return 'Ask for the name for this appointment. Do not infer it from caller ID.';
     case 'email': return `Name received: ${state.name}. Ask for the email address for the normal appointment confirmation. Ask them to spell ambiguous parts.`;
     case 'phone': return state.phone ? `Ask whether ${state.phone.split('').join(' ')} is the correct callback number. Caller ID is unverified; they can provide a different number.` : 'Ask for the callback phone number, with area code.';
-    case 'verify': return `Carefully read back the complete contact: name ${state.name}; email ${state.email.replace(/@/g, ' at ').replace(/\./g, ' dot ')}; callback ${state.phone.split('').join(' ')}. Ask whether these are correct. Do not proceed until they confirm.`;
+    case 'verify': return `Confirm the corrected contact once: name ${state.name}; email ${state.email.replace(/@/g, ' at ').replace(/\./g, ' dot ')}; callback ending ${state.phone.slice(-4).split('').join(' ')}. Do not ask for the full number again. Ask whether these are correct. Do not proceed until they confirm.`;
     case 'sms': return 'The legacy text-preference step is complete. Prepare the authoritative review using the salon’s normal reminder setting.';
     case 'complete': return 'Contact details are complete. Prepare the authoritative review using the salon’s normal reminder setting.';
   }
@@ -203,7 +203,10 @@ export function advanceVoiceContact(state: VoiceContactState, text: string): Voi
       if (phone !== state.phone) {
         delete next.smsConsent;
       }
-      next.step = 'verify';
+      // The phone was either supplied by the caller or explicitly accepted
+      // after one caller-ID readback. The signed final review gives them a
+      // separate chance to correct contact details before booking.
+      next.step = 'complete';
     }
   } else if (state.step === 'verify') {
     if (isVoiceContactAffirmation(text)) {
