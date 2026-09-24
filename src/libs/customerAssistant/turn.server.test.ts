@@ -63,6 +63,22 @@ beforeEach(() => {
 });
 
 describe('customer assistant bounded turn', () => {
+  it('moves a known gel-polish refresh to a normal Gel Manicure proposal without a removal question', async () => {
+    mocks.menu.mockResolvedValue(SEMANTIC_L1_MENU);
+    const serviceId = SEMANTIC_L1_MENU.services.find(item => item.name === 'Gel Manicure')!.id;
+    const selection = { baseServiceId: serviceId, selectedAddOns: [] };
+    mocks.proposal.mockResolvedValue({ selection, fingerprint: acceptedFingerprint, service: { id: serviceId, name: 'Gel Manicure', priceCents: 4000 }, addOns: [], subtotalCents: 4000, durationMinutes: 60, currency: 'CAD', expiresAt: '2026-09-18T00:00:00Z' });
+    const result = await runCustomerAssistantTurn({ ...input(), message: 'I have gel polish and want a plain Gel Manicure' }, provider({
+      ...interpretation,
+      serviceId,
+      addOns: [],
+      factUpdates: { ...noFactUpdates, treatment: 'gel_polish', desiredApplication: 'natural_nails', existingProduct: 'gel_polish', designPreference: 'plain' },
+    }));
+
+    expect(result.result).toMatchObject({ kind: 'proposal', proposal: { durationMinutes: 60 } });
+    expect(verifyCustomerConversation(result.conversation, 'salon-a', secret).facts).toMatchObject({ existingProduct: 'gel_polish', removal: 'unknown' });
+  });
+
   it('uses one Terra receptionist call without tools and only the authoritative proposal', async () => {
     const model = provider();
     const result = await runCustomerAssistantTurn(input(), model);

@@ -9,7 +9,7 @@ import type { CustomerAssistantLocale, CustomerAssistantResult } from './contrac
 import type { CustomerConversation } from './conversation.server';
 import type { customerInterpretationSchema } from './interpretation';
 import { applyTimingFeedback, clarificationChoices, mergeCatalogChoices, receptionistAnswer, transitionFailure } from './receptionist';
-import { emptyFacts, hasKnownClarificationAnswer, mergeFacts } from './semanticFacts';
+import { emptyFacts, hasKnownClarificationAnswer, isGelPolishRefresh, mergeFacts } from './semanticFacts';
 import { resolveSemanticSelection, selectionConflictsWithExplicitFacts, semanticCatalog } from './semanticSelection';
 
 type Authorities = {
@@ -150,6 +150,12 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
         return selected ? semanticCatalog.serviceApplication(selected) : 'unknown';
       })(),
     });
+  if (!informationalOnly && facts.currentProductUncertain && facts.existingProduct === 'unknown') {
+    // A prior product-specific removal answer cannot authorize a treatment
+    // while the starting product is now explicitly unknown. The configured
+    // assessment line carries the uncertainty into the appointment instead.
+    facts = { ...facts, removal: 'unknown' };
+  }
   if (!informationalOnly && intent.addOnUpdates) {
     const chosen = new Set(facts.designChoiceIds ?? []);
     for (const id of intent.addOnUpdates.remove) {
@@ -270,6 +276,7 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
     // quote. Ask for the pre-visit starting condition instead of adding a
     // removal or assuming the existing product is absent.
     && facts.removal === 'unknown'
+    && !isGelPolishRefresh(facts)
     // A known refill is a different operational path. Never infer that an
     // outside set is a refill, but do not interrupt a verified refill with a
     // removal question.
@@ -313,8 +320,6 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
     }
   } else if (transition) {
     result = { kind: 'unavailable', reason: transition };
-  } else if (facts.currentProductUncertain && facts.existingProduct === 'unknown' && resolveServiceIntent) {
-    result = { kind: 'unavailable', reason: 'unknown_product' };
   } else if (resolveServiceIntent) {
     let resolved = resolveSemanticSelection({
       menu,
@@ -342,7 +347,7 @@ export async function resolveCustomerTurn(args: { salonId: string; salonSlug: st
       // A known public service with an unresolved combination is not an
       // unknown service. Preserve explicit facts without inventing a rule.
       const knownService = candidate && menu.services.some(service => service.id === candidate.baseServiceId);
-      result = { kind: 'unavailable', reason: knownService ? 'unsupported_combination' : 'no_match' };
+      result = { kind: 'unavailable', reason: facts.currentProductUncertain ? 'unknown_product' : knownService ? 'unsupported_combination' : 'no_match' };
     } else if (resolved.kind === 'clarification') {
       const labels = resolved.optionIds.map(id => [...menu.services, ...menu.addOns].find(item => item.id === id)?.name);
       if (labels.includes(undefined)) {

@@ -128,6 +128,11 @@ function isRemoval(addOn: PublicAddOn): boolean {
   return /\bremoval\b|\bremove\b/.test(textFor(addOn));
 }
 
+/** Owner opt-in: the real catalog line must reserve exactly twenty minutes. */
+function isUnknownProductAssessment(addOn: PublicAddOn): boolean {
+  return textFor(addOn) === 'existing product assessment' && addOn.durationMinutes === 20;
+}
+
 function isForeignRemoval(addOn: PublicAddOn): boolean {
   return /\banother salon\b|\bother salon\b|\bforeign\b|\boutside\b/.test(textFor(addOn));
 }
@@ -174,6 +179,7 @@ export const semanticCatalog = {
   lengthFor,
   isRepair,
   isRemoval,
+  isUnknownProductAssessment,
   isForeignRemoval,
   productMatches,
   namesSpecificProduct,
@@ -262,6 +268,18 @@ export function resolveSemanticSelection(args: {
       return clarification('details');
     }
     choices.set(choice.addOnId, choice.quantity);
+  }
+
+  if (facts.currentProductUncertain && facts.existingProduct === 'unknown') {
+    replaceSemanticChoice(choices, isRemoval, null, menu);
+    const assessment = unique(allowed.filter(addOn => isUnknownProductAssessment(addOn)
+      && menu.bindings.some(binding => binding.serviceId === service.id && binding.addOnId === addOn.id && binding.priceMode === 'manual_confirmation')));
+    if (!assessment) {
+      return { kind: 'no_match' };
+    }
+    replaceSemanticChoice(choices, isUnknownProductAssessment, assessment, menu);
+  } else {
+    replaceSemanticChoice(choices, isUnknownProductAssessment, null, menu);
   }
 
   if (facts.designPreference === 'plain') {
@@ -374,6 +392,9 @@ export function selectionConflictsWithExplicitFacts(
   }
   const choices = authoritativeAddOns ?? selection.selectedAddOns.map(choice => ({ id: choice.addOnId, quantity: choice.quantity }));
   const selected = choices.map(choice => ({ addOn: menu.addOns.find(item => item.id === choice.id), quantity: choice.quantity })).filter((item): item is { addOn: PublicAddOn; quantity: number } => Boolean(item.addOn));
+  if (facts.currentProductUncertain && selected.some(item => isRemoval(item.addOn))) {
+    return true;
+  }
   if (facts.designPreference === 'plain' && selected.some(item => isDesign(item.addOn))) {
     return true;
   }

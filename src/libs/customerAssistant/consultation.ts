@@ -5,7 +5,7 @@ import type { CustomerMenu } from './catalogue.server';
 import { planCustomerClarification } from './clarification';
 import type { CustomerAssistantLocale, CustomerConsultationChoice, CustomerProposal, CustomerSelection } from './contracts';
 import { mergeCatalogChoices, transitionFailure } from './receptionist';
-import type { Facts } from './semanticFacts';
+import { type Facts, isGelPolishRefresh } from './semanticFacts';
 import { resolveSemanticSelection, semanticCatalog as vocabulary, type SemanticSelectionResult } from './semanticSelection';
 
 type ConsultationInput = {
@@ -46,13 +46,14 @@ export function assessCustomerConsultation(args: ConsultationInput): SemanticSel
   const selection = initial.selection;
   const service = menu.services.find(item => item.id === selection.baseServiceId)!;
   const resolved = resolveCatalogSelection(snapshot, { serviceId: selection.baseServiceId, selectedAddOns: selection.selectedAddOns });
-  if (!resolved.ok || resolved.selection.blocksContinue || facts.currentProductUncertain) {
+  const hasAssessment = selection.selectedAddOns.some(line => menu.addOns.some(item => item.id === line.addOnId && vocabulary.isUnknownProductAssessment(item)));
+  if (!resolved.ok || resolved.selection.blocksContinue || (facts.currentProductUncertain && !hasAssessment)) {
     return { kind: 'no_match' };
   }
-  if (facts.existingProduct === 'unknown' && vocabulary.serviceApplication(service) !== 'unknown') {
+  if (facts.existingProduct === 'unknown' && !hasAssessment && vocabulary.serviceApplication(service) !== 'unknown') {
     return { kind: 'clarification', question: 'product', optionIds: [], selection };
   }
-  if (facts.existingProduct !== 'unknown' && facts.existingProduct !== 'none' && facts.maintenance !== 'refill') {
+  if (facts.existingProduct !== 'unknown' && facts.existingProduct !== 'none' && facts.maintenance !== 'refill' && !isGelPolishRefresh(facts)) {
     if (facts.origin === 'unknown' && facts.removal !== 'no') {
       return { kind: 'clarification', question: 'origin', optionIds: [], selection };
     }

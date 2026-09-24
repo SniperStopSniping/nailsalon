@@ -78,6 +78,12 @@ export const patchJSONSchema = {
 export type Facts = z.infer<typeof factsSchema>;
 export type Patch = z.input<typeof patchSchema>;
 
+/** A same-system polish refresh needs no extra removal decision from the caller. */
+export function isGelPolishRefresh(facts: Facts): boolean {
+  return facts.treatment === 'gel_polish' && facts.existingProduct === 'gel_polish'
+    && facts.maintenance !== 'refill' && facts.removal === 'unknown';
+}
+
 export const emptyFacts = (): Facts => ({
   schemaVersion: 1,
   treatment: 'unknown',

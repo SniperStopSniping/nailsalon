@@ -129,7 +129,7 @@ describe('voice receptionist shared authority adapter', () => {
       result: { kind: 'unavailable', reason: 'unavailable' },
       publicFacts: { salon: { name: salon.name } },
     });
-    expect(provider.createResponse).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.6-luna', tools: [], toolChoice: 'none' }));
+    expect(provider.createResponse).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.6-terra', reasoningEffort: 'low', tools: [], toolChoice: 'none', maxOutputTokens: 1_800, timeoutMs: 15_000 }));
   });
 
   it('handles an exact current service clarification choice without a model call', async () => {

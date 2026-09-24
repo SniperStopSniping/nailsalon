@@ -38,6 +38,22 @@ const menu: CustomerMenu = {
 const facts = (patch: Partial<ReturnType<typeof emptyFacts>>) => ({ ...emptyFacts(), ...patch });
 
 describe('customer assistant semantic selection', () => {
+  it('adds only a configured twenty-minute manual assessment for an explicitly unknown current product', () => {
+    const assessment = { id: 'assessment', name: 'Existing product assessment', description: '', category: 'removal', pricingType: 'fixed', maxQuantity: 1, durationMinutes: 20 };
+    const configured: CustomerMenu = { ...menu, addOns: [...menu.addOns, assessment], bindings: [...menu.bindings, { serviceId: 'gel-manicure', addOnId: assessment.id, required: false, defaultQuantity: 1, maxQuantity: 1, priceMode: 'manual_confirmation' }] };
+    const starting = facts({ treatment: 'gel_polish', desiredApplication: 'natural_nails', existingProduct: 'unknown', currentProductUncertain: true, designPreference: 'plain' });
+    const candidate = { baseServiceId: 'gel-manicure', selectedAddOns: [] };
+
+    expect(resolveSemanticSelection({ menu: configured, facts: starting, candidate })).toEqual({ kind: 'selection', selection: { baseServiceId: 'gel-manicure', selectedAddOns: [{ addOnId: assessment.id, quantity: 1 }] } });
+
+    const withOldRemoval: CustomerMenu = { ...configured, bindings: [...configured.bindings, { serviceId: 'gel-manicure', addOnId: 'gelx-removal', required: false, defaultQuantity: 1, maxQuantity: 1 }] };
+
+    expect(resolveSemanticSelection({ menu: withOldRemoval, facts: starting, candidate: { ...candidate, selectedAddOns: [{ addOnId: 'gelx-removal', quantity: 1 }] } })).toEqual({ kind: 'selection', selection: { baseServiceId: 'gel-manicure', selectedAddOns: [{ addOnId: assessment.id, quantity: 1 }] } });
+    expect(resolveSemanticSelection({ menu, facts: starting, candidate }).kind).toBe('no_match');
+    expect(resolveSemanticSelection({ menu: { ...configured, bindings: configured.bindings.map(item => item.addOnId === assessment.id ? { ...item, priceMode: 'catalog_priced' } : item) }, facts: starting, candidate }).kind).toBe('no_match');
+    expect(resolveSemanticSelection({ menu: configured, facts: facts({ ...starting, existingProduct: 'gel_polish', currentProductUncertain: false, removal: 'no' }), candidate: { ...candidate, selectedAddOns: [{ addOnId: assessment.id, quantity: 1 }] } })).toEqual({ kind: 'selection', selection: candidate });
+  });
+
   it('preserves the Gel-X, short, French and Isla-origin removal facts from the pilot failure', () => {
     const result = resolveSemanticSelection({ menu, facts: facts({ treatment: 'gel_x', desiredApplication: 'extensions', maintenance: 'new_set', length: 'short', french: 'yes', existingProduct: 'gel_x', origin: 'this_salon', removal: 'yes' }), candidate: { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'medium', quantity: 1 }, { addOnId: 'foreign-extension-removal', quantity: 1 }] } });
 
@@ -122,5 +138,12 @@ describe('customer assistant semantic selection', () => {
     expect(selectionConflictsWithExplicitFacts(menu, facts({ treatment: 'gel_x', french: 'no', length: 'short' }), { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'medium', quantity: 1 }, { addOnId: 'french', quantity: 1 }] })).toBe(true);
     expect(selectionConflictsWithExplicitFacts(menu, facts({ treatment: 'gel_x', french: 'yes', length: 'short' }), { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'short', quantity: 1 }, { addOnId: 'french', quantity: 1 }] })).toBe(false);
     expect(selectionConflictsWithExplicitFacts(menu, facts({ treatment: 'gel_x', french: 'no', length: 'short' }), { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'short', quantity: 1 }] }, [{ id: 'short', quantity: 1 }, { id: 'french', quantity: 1 }])).toBe(true);
+
+    const unknownProduct = facts({ treatment: 'gel_polish', existingProduct: 'unknown', currentProductUncertain: true });
+    const requested = { baseServiceId: 'gel-manicure', selectedAddOns: [{ addOnId: 'assessment', quantity: 1 }] };
+    const withAssessment: CustomerMenu = { ...menu, addOns: [...menu.addOns, { id: 'assessment', name: 'Existing product assessment', description: '', category: 'removal', pricingType: 'fixed', maxQuantity: 1, durationMinutes: 20 }] };
+
+    expect(selectionConflictsWithExplicitFacts(withAssessment, unknownProduct, requested, [{ id: 'assessment', quantity: 1 }, { id: 'gelx-removal', quantity: 1 }])).toBe(true);
+    expect(selectionConflictsWithExplicitFacts(withAssessment, unknownProduct, requested, [{ id: 'assessment', quantity: 1 }])).toBe(false);
   });
 });

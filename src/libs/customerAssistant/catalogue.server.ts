@@ -27,7 +27,7 @@ export type CustomerMenu = {
     ruleProjections: PublicCatalogSnapshot['ruleProjections'];
   };
   services: { id: string; name: string; description: string; category: string }[];
-  addOns: { id: string; name: string; description: string; category: string; pricingType: string; maxQuantity: number }[];
+  addOns: { id: string; name: string; description: string; category: string; pricingType: string; maxQuantity: number; durationMinutes?: number }[];
   bindings: { serviceId: string; addOnId: string; required: boolean; defaultQuantity: number; maxQuantity: number; priceMode?: 'catalog_priced' | 'manual_confirmation' }[];
 };
 
@@ -56,7 +56,7 @@ export async function loadCustomerMenu(salonId: string, features: SalonFeatures 
         ruleProjections: l1.ruleProjections,
       },
       services: l1.services.map(service => ({ id: service.id, name: service.parentServiceId ? `${l1.services.find(parent => parent.id === service.parentServiceId)?.name ?? ''} · ${service.variantLabel ?? service.name}` : service.name, description: (service.descriptionItems ?? []).join('\n').slice(0, 600), category: service.category })),
-      addOns: l1.addOns.map(addOn => ({ id: addOn.id, name: addOn.name, description: (addOn.descriptionItems ?? []).join('\n').slice(0, 400), category: addOn.category, pricingType: addOn.pricingType, maxQuantity: addOn.baseMaxQuantity })),
+      addOns: l1.addOns.map(addOn => ({ id: addOn.id, name: addOn.name, description: (addOn.descriptionItems ?? []).join('\n').slice(0, 400), category: addOn.category, pricingType: addOn.pricingType, maxQuantity: addOn.baseMaxQuantity, durationMinutes: addOn.durationMinutes })),
       bindings: l1.serviceAddOnBindings.map(binding => ({ serviceId: binding.serviceId, addOnId: binding.addOnId, required: binding.selectionMode === 'required', defaultQuantity: binding.defaultQuantity ?? 1, maxQuantity: binding.effectiveMaxQuantity, priceMode: binding.priceMode })),
     };
   }
@@ -90,6 +90,7 @@ export async function loadCustomerMenu(salonId: string, features: SalonFeatures 
       category: item.category,
       pricingType: item.pricingType,
       maxQuantity: item.maxQuantity ?? 10,
+      durationMinutes: item.durationMinutes,
     })),
     bindings: publicRules.filter(rule => byAddOnId.has(rule.addOnId)).map(rule => ({
       serviceId: rule.serviceId,

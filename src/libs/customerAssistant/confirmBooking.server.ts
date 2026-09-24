@@ -61,6 +61,10 @@ export async function confirmCustomerBooking(args: {
               ...(material.review.manualConfirmationItems?.length ? ['Manual confirmation required:', ...material.review.manualConfirmationItems.map(item => `- ${item.name}: price to be confirmed`)] : []),
               ...(material.manualConfirmationContext.removalRequired ? ['Removal required'] : []),
               `Current product: ${({ gel_x: 'Gel-X', builder_gel: 'BIAB / Builder Gel', acrylic: 'Acrylic', gel_polish: 'Gel polish', unknown: 'Unknown' } as const)[material.manualConfirmationContext.currentProduct]}`,
+              ...(material.manualConfirmationContext.currentProduct === 'unknown'
+                && material.review.manualConfirmationItems?.some(item => item.name === 'Existing product assessment')
+                ? ['Existing product unknown — technician to assess before service.']
+                : []),
             ].join('\n').slice(0, 2000),
           }
         : {}),

@@ -54,7 +54,7 @@ export type VoiceSalon = {
 /** Per-turn interpreter count for latency/cost telemetry; no transcript is retained. */
 export type VoiceConsultationResponse = { draft: VoiceDraft; result: CustomerAssistantResult; publicFacts: CustomerPublicFacts | null; modelCalls?: 0 | 1 };
 
-const VOICE_INTERPRETER_MODEL = 'gpt-5.6-luna';
+const VOICE_INTERPRETER_MODEL = 'gpt-5.6-terra';
 const MAX_VOICE_MESSAGE_CHARS = 1_200;
 
 function voiceSmsConsent(settings: unknown, choice: BookingSmsConsentInput | undefined): BookingSmsConsentInput | undefined {
@@ -103,7 +103,7 @@ function exactClarificationIntent(message: string, conversation: CustomerConvers
     return null;
   }
   // This accepts only a complete, current-question answer after harmless
-  // speech punctuation/politeness. Any compound request remains with Luna so
+  // speech punctuation/politeness. Any compound request remains with Terra so
   // Luster never drops a correction such as a design or a date.
   const normalized = normalizeClarificationText(message);
   const polite = normalized
@@ -244,11 +244,11 @@ export async function runVoiceConsultation(args: {
         ],
         tools: [],
         toolChoice: 'none',
-        reasoningEffort: 'none',
+        reasoningEffort: 'low',
         jsonMode: 'schema',
         jsonSchema: CUSTOMER_INTERPRETATION_JSON_SCHEMA,
-        maxOutputTokens: 900,
-        timeoutMs: 12_000,
+        maxOutputTokens: 1_800,
+        timeoutMs: 15_000,
       });
       const text = response.items.filter(item => item.type === 'message').map(item => item.text).join('');
       if (response.status !== 'completed' || response.items.some(item => item.type === 'function_call' || item.type === 'refusal') || text.length > 12_000) {
