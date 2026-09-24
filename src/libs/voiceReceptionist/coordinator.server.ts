@@ -7,7 +7,7 @@ import WebSocket from 'ws';
 import type { CustomerBookingStatus } from '@/libs/customerAssistant/bookingOperationContracts';
 import { readCustomerBookingStatus } from '@/libs/customerAssistant/bookingStatus.server';
 import { readCustomerBookingOperation } from '@/libs/customerAssistant/operationStore.server';
-import { loadCustomerPublicFacts } from '@/libs/customerAssistant/publicFacts.server';
+import { type CustomerPublicFacts, loadCustomerPublicFacts } from '@/libs/customerAssistant/publicFacts.server';
 import { getSalonById } from '@/libs/queries';
 
 import { chooseVoiceSlot, createVoiceDraft, prepareVoiceReview, runVoiceConsultation, type VoiceSalon } from './authority.server';
@@ -126,6 +126,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
   let handshakeStatus = 0;
   let closeCode = 0;
   let providerErrors = 0;
+  let factsFailure = 'none';
   let epoch = 0;
   let lastOutputEnd = 0;
   let lastInputEnd = 0;
@@ -406,8 +407,21 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
               state.bookingStatus = await readCustomerBookingStatus(operation, config.signingSecret);
             }
           }
-          const facts = await loadCustomerPublicFacts({ salonId: salon.id, salonSlug: salon.slug, features: salon.features as VoiceSalon['features'], locale: 'en' });
-          send('session.thinking.append', `Verified public salon facts. Base prices are not booking quotes: ${JSON.stringify(facts)}`);
+          let facts: CustomerPublicFacts | null = null;
+          try {
+            facts = await loadCustomerPublicFacts({ salonId: salon.id, salonSlug: salon.slug, features: salon.features as VoiceSalon['features'], locale: 'en' });
+          } catch (error) {
+            // This optional profile preload is not booking authority. The same
+            // Customer AI consultation path already tolerates unavailable facts
+            // while requiring its authoritative catalogue and booking checks.
+            factsFailure = error instanceof Error && error.message === 'CUSTOMER_PUBLIC_FACTS_UNAVAILABLE'
+              ? 'unavailable'
+              : error instanceof TypeError ? 'type_error' : 'load_error';
+          }
+          connectionStage = 'sending_context';
+          send('session.thinking.append', facts
+            ? `Verified public salon facts. Base prices are not booking quotes: ${JSON.stringify(facts)}`
+            : 'Public salon information could not be preloaded. Do not invent services, prices, hours, policies, or contact details. Delegate requests for salon information to the backend; if it cannot supply a fact, say it is unavailable.');
           connectionStage = 'saving_state';
           await persist({ status: 'connected' });
           if (call.draft) {
@@ -507,10 +521,10 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       clearTimeout(timer);
     }
     socket.terminate();
-    Object.assign(metrics, { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, reconnectAttempt });
+    Object.assign(metrics, { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, reconnectAttempt, factsFailure });
     // Fixed labels and numbers only: never log provider bodies, socket errors,
     // close reasons, identifiers, transcripts, or authentication headers.
-    console.warn('[voice-sideband]', { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, reconnectAttempt, sessionClosed: ended, attached: metrics.attachMs !== undefined });
+    console.warn('[voice-sideband]', { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, reconnectAttempt, factsFailure, sessionClosed: ended, attached: metrics.attachMs !== undefined });
     const current = await getVoiceCall(call.id, call.salonId).catch(() => null);
     const transferred = handedOff || current?.status === 'awaiting_confirmation' || (current?.liveSessionId && current.liveSessionId !== call.liveSessionId) || (current?.leaseToken && current.leaseToken !== leaseToken);
     if (!transferred && !ended && reconnectAttempt < 2 && Date.now() < deadline - 15_000 && current && !current.endedAt) {
