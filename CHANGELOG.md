@@ -1,3 +1,10 @@
+## [1.131.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.0...v1.131.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **voice:** preserve link after harmless hangup reply ([bb89cf2](https://github.com/SniperStopSniping/nailsalon/commit/bb89cf2f28c647fa0a151d9363f65d4f93d04f14))
+
 # [1.131.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.130.4...v1.131.0) (2026-09-24)
 
 
