@@ -15,7 +15,7 @@ import { queueVoiceBookingLink, revokeVoiceBookingLinkAuthority, voiceBookingLin
 import { formatVoiceCheckpointReview } from './checkpoint';
 import { requestVoiceCheckpoint } from './checkpoint.server';
 import { VOICE_CALL_LIMIT_SECONDS, type VoiceRuntimeConfig } from './config.server';
-import { advanceVoiceContact, completedVoiceContact, contactPrompt, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, isVoiceContactAffirmation, isVoiceNo, matchVoiceOfferedSlot, normalizedSpeech, spokenPhone, spokenPhoneCorrection, VoiceConsentGate, voiceReviewText } from './conversation';
+import { advanceVoiceContact, completedVoiceContact, contactPrompt, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkHarmlessAcknowledgment, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, isVoiceContactAffirmation, isVoiceNo, matchVoiceOfferedSlot, normalizedSpeech, spokenPhone, spokenPhoneCorrection, VoiceConsentGate, voiceReviewText } from './conversation';
 import { liveSessionPath, voiceLiveRequest } from './live.server';
 import type { VoiceCallState } from './state';
 import { claimVoiceLease, getVoiceCall, getVoiceSettings, releaseVoiceLease, renewVoiceLease, saveVoiceCall } from './storage.server';
@@ -600,10 +600,11 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       clearTimeout(timer);
     }
     socket.terminate();
-    // The provider can close before the delegation debounce runs. Any unheard
-    // caller input after a link was queued may be a cancellation or correction;
-    // withdraw authority before completing the call and releasing the SMS gate.
-    if (input && state.bookingLinkAuthority) {
+    // The provider can close before the delegation debounce runs. Only a
+    // complete, harmless acknowledgment can leave queued SMS authority intact;
+    // any other unprocessed speech may change or withdraw the request.
+    const unprocessedInput = input as Input | null;
+    if (unprocessedInput && state.bookingLinkAuthority && !isVoiceBookingLinkHarmlessAcknowledgment(unprocessedInput.text)) {
       const intentId = state.bookingLinkAuthority.intentId;
       state.bookingLinkAuthority = null;
       state.bookingLinkAttempted = true;

@@ -129,18 +129,32 @@ describe('voice sideband consultation and interruption', () => {
     await run;
   });
 
-  it('revokes a queued link when cancellation is followed by immediate hangup', async () => {
+  it.each(['Don\'t send that text', 'Hold on a second', 'Please use 416 555 0101'])('revokes a queued link when "%s" is followed by immediate hangup', async (speech) => {
     const state = { ...callState(), bookingLinkAuthority: { intentId: 'intent-a', recipientHash: 'hash-a' }, bookingLinkAttempted: true };
     const call = await mocks.claim();
     mocks.claim.mockResolvedValue({ ...call, draft: state });
     const run = coordinateVoiceCall('call-a', config);
     await open();
-    input('Don\'t send that text');
+    input(speech);
     close();
     await run;
 
     expect(mocks.revokeLink).toHaveBeenCalledWith(expect.objectContaining({ intentId: 'intent-a' }));
     expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ status: 'completed', draft: expect.objectContaining({ bookingLinkAuthority: null }) }));
+  });
+
+  it('keeps a confirmed link when a harmless thanks is followed by immediate hangup', async () => {
+    const state = { ...callState(), bookingLinkAuthority: { intentId: 'intent-a', recipientHash: 'hash-a' }, bookingLinkAttempted: true };
+    const call = await mocks.claim();
+    mocks.claim.mockResolvedValue({ ...call, draft: state });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('Thanks');
+    close();
+    await run;
+
+    expect(mocks.revokeLink).not.toHaveBeenCalled();
+    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ status: 'completed', draft: expect.objectContaining({ bookingLinkAuthority: { intentId: 'intent-a', recipientHash: 'hash-a' } }) }));
   });
 
   it('revokes an intent if the caller interrupts while the queue transaction is finishing', async () => {

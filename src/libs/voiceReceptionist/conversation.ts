@@ -67,7 +67,12 @@ export function isVoiceBookingLinkRevocation(text: string): boolean {
     || /\b(?:wrong|different|change|changed|correct|actually|not my)\b.+\b(?:phone|number|mobile)\b/.test(speech)
     || /\b(?:phone|number|mobile)\b.+\b(?:wrong|different|change|changed)\b/.test(speech)
     || /\b(?:my|the)\s+(?:phone|number|mobile)\s+(?:is|should be)\b/.test(speech)
-    || speech === 'cancel it';
+    || /^(?:cancel it|never mind|forget it|wait|hold on)$/.test(speech);
+}
+
+/** Only these complete acknowledgments cannot change the queued text request. */
+export function isVoiceBookingLinkHarmlessAcknowledgment(text: string): boolean {
+  return /^(?:ok|okay|thanks|thank you|thanks so much|thank you so much|bye|goodbye|good bye|ok thanks|okay thanks|perfect thanks|perfect thank you|great thanks|great thank you|sounds good thanks|alright thanks|all right thanks|thanks bye|thank you bye|thanks goodbye|thank you goodbye)$/.test(normalizedSpeech(text));
 }
 
 /** Matches only one of Luster's offered slots, preserving ambiguity. */
