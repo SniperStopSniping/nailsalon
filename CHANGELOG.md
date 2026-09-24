@@ -1,3 +1,19 @@
+# [1.130.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.129.0...v1.130.0) (2026-09-24)
+
+
+### Bug Fixes
+
+* **ci:** align voice rebase security and PostgreSQL gates ([c0b8c6c](https://github.com/SniperStopSniping/nailsalon/commit/c0b8c6c50ae202c3c765305734c5fdef76a48085))
+* **ci:** keep voice cron addition strictly additive ([a469e2f](https://github.com/SniperStopSniping/nailsalon/commit/a469e2f7c8f0543e49e96ea23e317e02ffcb0d7b))
+* **ci:** retain migration journal newline ([0da33b2](https://github.com/SniperStopSniping/nailsalon/commit/0da33b248067961098c0e16d741301a255f4f5e2))
+* **voice:** gate shared destination on forwarded salon number ([cf818e1](https://github.com/SniperStopSniping/nailsalon/commit/cf818e113da62b98e3aab6dd31f1e8357ffc993b))
+* **voice:** preserve checkpoint language across Live fragments ([661026f](https://github.com/SniperStopSniping/nailsalon/commit/661026f5075233f561184696265fe3af2d932a47))
+
+
+### Features
+
+* **voice:** add shared-authority AI receptionist with guarded phone booking ([d249651](https://github.com/SniperStopSniping/nailsalon/commit/d249651b65cae88ac46a663e81bfa3c992c79ade))
+
 # [1.129.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.128.3...v1.129.0) (2026-09-23)
 
 
