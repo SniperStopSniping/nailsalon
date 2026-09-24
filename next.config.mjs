@@ -100,7 +100,9 @@ const baseNextConfig = bundleAnalyzer(
     poweredByHeader: false,
     outputFileTracingRoot: fileURLToPath(new URL('.', import.meta.url)),
     reactStrictMode: true,
-    serverExternalPackages: ['@electric-sql/pglite'],
+    // Keep ws in Node: bundling its optional native helpers can turn a missing
+    // bufferutil module into an empty stub and crash the first masked send.
+    serverExternalPackages: ['@electric-sql/pglite', 'ws'],
   }),
 );
 const nextConfig = shouldEnableSentryPlugin ? baseNextConfig : applyScopedPrismaOtelIgnoreWarnings(baseNextConfig);

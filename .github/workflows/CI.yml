@@ -74,6 +74,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Verify deployed voice WebSocket packaging and masked send
+        run: node scripts/verify-voice-websocket-build.mjs
       - name: Scan production client bundles and runtime credentials
         run: npm run security:check-secrets -- --tree
 

@@ -407,6 +407,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
             }
           }
           const facts = await loadCustomerPublicFacts({ salonId: salon.id, salonSlug: salon.slug, features: salon.features as VoiceSalon['features'], locale: 'en' });
+          connectionStage = 'sending_context';
           send('session.thinking.append', `Verified public salon facts. Base prices are not booking quotes: ${JSON.stringify(facts)}`);
           connectionStage = 'saving_state';
           await persist({ status: 'connected' });
