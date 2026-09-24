@@ -17,7 +17,7 @@ for (const route of routes) {
   const external = files.find(file => file.endsWith('/node_modules/ws/index.js'));
   assert.ok(external, `${route}: ws must be traced as a Node package`);
   const serverFiles = [entry, ...files.filter(file => file.includes('/.next/server/') && file.endsWith('.js'))];
-  assert.ok(serverFiles.some(file => /require\(["']ws["']\)/u.test(readFileSync(file, 'utf8'))), `${route}: expected an external ws import`);
+  assert.ok(serverFiles.some(file => /(?:require|import)\(["']ws["']\)/u.test(readFileSync(file, 'utf8'))), `${route}: expected an external ws import`);
   assert.ok(!serverFiles.some(file => readFileSync(file, 'utf8').includes('WS_NO_BUFFER_UTIL')), `${route}: ws native-helper loader must not be bundled`);
   websocketEntry = external;
 }
