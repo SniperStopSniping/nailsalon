@@ -117,7 +117,7 @@ describe('voice sideband consultation and interruption', () => {
 
     expect(mocks.sockets[0]!.send).toHaveBeenCalledWith(expect.stringContaining('Ask for the name'));
 
-    for (const [index, speech] of ['Ava Test', 'ava at example dot test', 'yes', 'yes'].entries()) {
+    for (const [index, speech] of ['Ava Test', 'ava at example dot test', 'yeah'].entries()) {
       input(speech, 1000 + index * 1000, 1500 + index * 1000);
       delegate(`contact-${index}`);
       await vi.advanceTimersByTimeAsync(700);
