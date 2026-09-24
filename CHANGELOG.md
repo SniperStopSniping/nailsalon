@@ -1,3 +1,10 @@
+## [1.131.6](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.5...v1.131.6) (2026-09-24)
+
+
+### Bug Fixes
+
+* **voice:** accept natural callback confirmation once ([#321](https://github.com/SniperStopSniping/nailsalon/issues/321)) ([cdf6e20](https://github.com/SniperStopSniping/nailsalon/commit/cdf6e20f5872a74ccb8dc57001e2a51aa0947348))
+
 ## [1.131.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.4...v1.131.5) (2026-09-24)
 
 
