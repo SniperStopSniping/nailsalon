@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { z } from 'zod';
+
 import { createOpenAiResponsesProvider } from '@/libs/ai/openaiResponses.server';
 import type { OwnerAssistantModelProvider } from '@/libs/ai/provider';
 import { type BookingSmsConsentInput, resolveBookingSmsMode } from '@/libs/bookingSmsConsent';
@@ -56,6 +58,8 @@ export type VoiceConsultationResponse = { draft: VoiceDraft; result: CustomerAss
 
 const VOICE_INTERPRETER_MODEL = 'gpt-5.6-terra';
 const MAX_VOICE_MESSAGE_CHARS = 1_200;
+const voiceInterpretationSchema = customerInterpretationSchema.extend({ selectedOfferedSlot: z.string().max(100).nullable().default(null) });
+const VOICE_INTERPRETATION_PROMPT = `${CUSTOMER_INTERPRETATION_PROMPT}\nFor this phone adapter, selectedOfferedSlot identifies a caller's choice of a previously offered opening, never booking consent. When lastResultKind is slots and the latest caller message clearly accepts one of bookingState.offeredSlots (for example, that would be great, let's do that one, or can you book that for me), return that exact startTime. A general yes can select only a single current recommendation. Otherwise return null. Return null for questions, uncertainty, rejection, or a simultaneous service, date, time, or contact correction. Selecting an opening is not a service change: selectionChangeExplicitThisTurn is false and factUpdates remain null. Luster will recheck availability, collect contact information, and obtain a separate final booking confirmation.`;
 
 function voiceSmsConsent(settings: unknown, choice: BookingSmsConsentInput | undefined): BookingSmsConsentInput | undefined {
   const mode = resolveBookingSmsMode(settings);
@@ -210,7 +214,7 @@ export async function runVoiceConsultation(args: {
       dialogue: [...(prior.dialogue ?? []), { role: 'user' as const, content: message }].slice(-16),
     };
     const context = compactCustomerModelContext({
-      prompt: CUSTOMER_INTERPRETATION_PROMPT,
+      prompt: VOICE_INTERPRETATION_PROMPT,
       additionalInput: message,
       maxBytes: 64_000,
       context: {
@@ -222,6 +226,7 @@ export async function runVoiceConsultation(args: {
         dialogue: prior.dialogue ?? [],
         lastShown: prior.context ?? null,
         bookingState: prior.booking ?? null,
+        lastResultKind: args.draft.lastResult?.kind ?? null,
         availabilitySearch: prior.availabilitySearch ?? null,
         ...availability,
       },
@@ -238,7 +243,7 @@ export async function runVoiceConsultation(args: {
       const response = await model.createResponse({
         model: VOICE_INTERPRETER_MODEL,
         input: [
-          { role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT },
+          { role: 'system', content: VOICE_INTERPRETATION_PROMPT },
           { role: 'user', content: context.data },
           { role: 'user', content: message },
         ],
@@ -246,7 +251,14 @@ export async function runVoiceConsultation(args: {
         toolChoice: 'none',
         reasoningEffort: 'low',
         jsonMode: 'schema',
-        jsonSchema: CUSTOMER_INTERPRETATION_JSON_SCHEMA,
+        jsonSchema: {
+          ...CUSTOMER_INTERPRETATION_JSON_SCHEMA,
+          required: [...CUSTOMER_INTERPRETATION_JSON_SCHEMA.required, 'selectedOfferedSlot'],
+          properties: {
+            ...CUSTOMER_INTERPRETATION_JSON_SCHEMA.properties,
+            selectedOfferedSlot: { type: ['string', 'null'], enum: [null, ...(args.draft.lastResult?.kind === 'slots' ? prior.booking?.offeredSlots.map(slot => slot.startTime) ?? [] : [])] },
+          },
+        },
         maxOutputTokens: 1_800,
         timeoutMs: 15_000,
       });
@@ -254,7 +266,20 @@ export async function runVoiceConsultation(args: {
       if (response.status !== 'completed' || response.items.some(item => item.type === 'function_call' || item.type === 'refusal') || text.length > 12_000) {
         return { ...unavailable(args.draft, 'unavailable'), publicFacts };
       }
-      intent = customerInterpretationSchema.parse(JSON.parse(text));
+      const { selectedOfferedSlot, ...interpreted } = voiceInterpretationSchema.parse(JSON.parse(text));
+      intent = customerInterpretationSchema.parse(interpreted);
+      if (selectedOfferedSlot) {
+        if (args.draft.lastResult?.kind !== 'slots' || !prior.booking?.offeredSlots.some(slot => slot.startTime === selectedOfferedSlot)) {
+          return { ...unavailable(args.draft, 'selection_changed'), publicFacts, modelCalls: 1 };
+        }
+        const hasCorrection = intent.selectionChangeExplicitThisTurn || intent.dateExplicitThisTurn || intent.timeWindowExplicitThisTurn
+          || intent.timeDirection !== 'none' || intent.timingFeedback !== 'none'
+          || Object.entries(intent.factUpdates).some(([key, value]) => key !== 'schemaVersion' && value !== null)
+          || !!intent.addOnUpdates?.add.length || !!intent.addOnUpdates?.remove.length;
+        if (!hasCorrection) {
+          return { ...await chooseVoiceSlot({ salon: args.salon, draft: args.draft, startTime: selectedOfferedSlot, now }), publicFacts, modelCalls: 1 };
+        }
+      }
     }
     let snapshot: ReturnType<typeof loadCustomerClarificationSnapshot> | undefined;
     let result = await resolveCustomerTurn({ salonId: args.salon.id, salonSlug: args.salon.slug, features: args.salon.features, locale: 'en' }, menu, intent, prior, next, {
@@ -336,7 +361,7 @@ export async function chooseVoiceSlot(args: { salon: VoiceSalon; draft: VoiceDra
   const prior = args.draft.conversation;
   const selection = prior.context?.selection;
   const preference = prior.booking?.datePreference;
-  if (!selection || !preference || !prior.booking?.offeredSlots.some(slot => slot.startTime === args.startTime)) {
+  if (prior.salonId !== args.salon.id || !selection || !preference || !prior.booking?.offeredSlots.some(slot => slot.startTime === args.startTime)) {
     return unavailable(args.draft, 'selection_changed');
   }
   try {

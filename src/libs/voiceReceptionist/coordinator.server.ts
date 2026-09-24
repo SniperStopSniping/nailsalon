@@ -21,7 +21,7 @@ import type { VoiceCallState } from './state';
 import { claimVoiceLease, getVoiceCall, getVoiceSettings, releaseVoiceLease, renewVoiceLease, saveVoiceCall } from './storage.server';
 
 type CallState = VoiceCallState;
-type ProviderEvent = { type?: string; event_id?: string; delta?: string; start_ms?: number; end_ms?: number; offset_ms?: number; delegation?: { id?: string; target?: string }; usage?: { seconds?: number }; reason?: string };
+type ProviderEvent = { error?: { type?: unknown; param?: unknown; client_event_id?: unknown }; type?: string; event_id?: string; delta?: string; start_ms?: number; end_ms?: number; offset_ms?: number; delegation?: { id?: string; target?: string }; usage?: { seconds?: number }; reason?: string };
 type Input = { text: string; start: number; end: number };
 
 const SPANISH_CONVERSATION_PHRASES = [
@@ -130,6 +130,9 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
   let handshakeStatus = 0;
   let closeCode = 0;
   let providerErrors = 0;
+  let lastProviderErrorType = 'none';
+  let lastProviderErrorEvent = 'none';
+  let lastProviderErrorParam = 'none';
   let epoch = 0;
   let lastOutputEnd = 0;
   let lastInputEnd = 0;
@@ -146,7 +149,9 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
   let bookingLinkOfferOutput = '';
   let bookingLinkOfferEnd = -1;
   let pendingPhoneSpeech = '';
-  let lastDirectLinkReply: { inputEnd: number; guidance: string } | null = null;
+  let lastDirectReply: { inputEnd: number; guidance: string } | null = null;
+  let lastReplyGuidance = '';
+  const sentEventTypes = new Map<string, string>();
   let voiceSeconds = call.voiceSeconds ?? 0;
   let outcome = call.outcome ?? 'inquiry';
   let summary = call.summary ?? 'Call connected to the AI receptionist.';
@@ -164,6 +169,9 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
     if (socket.readyState !== WebSocket.OPEN || stopped) {
       return;
     }
+    if (type === 'session.commentary.append') {
+      lastReplyGuidance = content;
+    }
     // A token contains at least one UTF-8 byte. A 400-byte content budget is
     // conservative even for non-Latin languages, without splitting a codepoint.
     const chunks: string[] = [];
@@ -180,7 +188,15 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       bytes += size;
     }
     chunks.push(chunk);
-    chunks.forEach((chunk, index) => socket.send(JSON.stringify({ type: index < chunks.length - 1 ? 'session.thinking.append' : type === 'session.commentary.append' && !delegationId ? 'session.instructions.append' : type, event_id: randomUUID(), delegation_id: delegationId, content: chunk })));
+    chunks.forEach((chunk, index) => {
+      const eventType = index < chunks.length - 1 ? 'session.thinking.append' : type === 'session.commentary.append' && !delegationId ? 'session.instructions.append' : type;
+      const eventId = randomUUID();
+      sentEventTypes.set(eventId, eventType);
+      if (sentEventTypes.size > 512) {
+        sentEventTypes.delete(sentEventTypes.keys().next().value!);
+      }
+      socket.send(JSON.stringify({ type: eventType, event_id: eventId, delegation_id: delegationId, content: chunk }));
+    });
   };
   const persist = async (patch: Parameters<typeof saveVoiceCall>[3] = {}) => {
     const saved = await saveVoiceCall(call.id, call.salonId, leaseToken, { draft: state, metrics, summary: summary.slice(0, 1000), outcome, voiceSeconds: Math.ceil(voiceSeconds), ...patch });
@@ -207,11 +223,12 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
         : 'Ask for the complete Canadian mobile number with area code, read it back, and ask whether to text the verified booking page there. No text has been requested yet.';
     }
     return state.bookingLinkAuthority
-      ? 'The booking-link text was queued for the requested number. It may arrive later; do not claim delivery.'
+      ? 'The booking-link text was queued for the requested number. It is processed after this call ends and may take a few minutes; do not claim delivery.'
       : 'No booking-link text was requested. Continue helping the caller.';
   };
   const requestLink = async (phone: string, expected: number, delegationId: string | null, pendingId?: string) => {
     assertEpoch(expected);
+    metrics.lastStep = 'booking_link';
     try {
       const result = await queueVoiceBookingLink({
         salonId: call.salonId,
@@ -228,16 +245,18 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       state.bookingLinkAttempted = true;
       summary = 'Caller requested a public booking link by text; no appointment was created.';
       outcome = 'booking_link_requested';
+      metrics.lastResult = 'booking_link_queued';
       if (stopped || epoch !== expected || Date.now() >= deadline) {
         state.bookingLinkAuthority = null;
         await revokeVoiceBookingLinkAuthority({ salonId: call.salonId, callId: call.id, liveSessionId: call.liveSessionId!, intentId: result.intentId });
       }
       assertEpoch(expected);
-      send('session.commentary.append', 'The public booking-link text was queued for the requested Canadian mobile number. It may arrive later; do not claim it was delivered or that an appointment was booked.', delegationId);
+      send('session.commentary.append', 'The public booking-link text was queued for the requested Canadian mobile number. It is processed after this call ends and may take a few minutes; do not claim it was delivered or that an appointment was booked.', delegationId);
     } catch (error) {
       if (stopped || epoch !== expected || Date.now() >= deadline) {
         throw error;
       }
+      metrics.lastFailure = 'booking_link_unavailable';
       state.bookingLinkPending = null;
       state.bookingLinkAuthority = null;
       state.bookingLinkAttempted = true;
@@ -250,6 +269,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
     if (delegationId) {
       metrics.delegations = Number(metrics.delegations) + 1;
     }
+    metrics.lastStep = 'processing_input';
     const text = current.text.trim();
     const acceptedLinkOffer = bookingLinkOfferEnd >= 0 && current.start >= bookingLinkOfferEnd && isVoiceBookingLinkAffirmation(text);
     bookingLinkOfferEnd = -1;
@@ -270,7 +290,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
     if (state.bookingLinkPending) {
       const pending = state.bookingLinkPending;
       if (pending.phone && isVoiceBookingLinkAffirmation(text) && lastOutputEnd > pending.afterMs && current.start >= lastOutputEnd && containsVoicePhoneReadback(bookingLinkOutput, pending.phone)) {
-        if (sandbox || !settings.enabled || state.booking.operation) {
+        if (sandbox || !settings.enabled) {
           state.bookingLinkPending = null;
           await persist();
           send('session.commentary.append', 'A text link is unavailable for this call. Give the caller the public booking page verbally. No text was sent.', delegationId);
@@ -335,7 +355,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
         send('session.commentary.append', 'A booking-link text was already requested on this call. Do not promise another send.', delegationId);
         return;
       }
-      if (sandbox || call.provider !== 'twilio' || !settings.enabled || state.booking.operation) {
+      if (sandbox || call.provider !== 'twilio' || !settings.enabled) {
         send('session.commentary.append', 'A text link is unavailable for this call. Offer the public booking page verbally. No text was sent.', delegationId);
         return;
       }
@@ -410,9 +430,11 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
     }
     const materialCorrection = /\b(?:actually|instead|change|short|medium|long|remove|removal|french|design|earlier|later|saturday|sunday|monday|tuesday|wednesday|thursday|friday|cambia|corto|cortas|largo|largas|diseno|antes|despues|sabado)\b/i.test(normalizedSpeech(text));
     if (state.contact && state.contact.step !== 'complete' && !materialCorrection) {
+      metrics.lastStep = 'contact';
       const nextContact = advanceVoiceContact(state.contact, text);
       const contact = completedVoiceContact(nextContact);
       if (contact) {
+        metrics.lastStep = 'review';
         const prepared = await prepareVoiceReview({ salon: boundSalon, draft: state.booking, contact, smsConsent: nextContact.smsConsent, secret: config.signingSecret });
         // Preparation can durably revise the operation before a caller
         // interrupts. Retain recovery identity even if this result is stale.
@@ -435,6 +457,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
             clearTimeout(wrapup);
             send('session.instructions.append', 'Luster is ready for the final review. Say briefly: I will confirm the final details now.');
             try {
+              metrics.lastStep = 'checkpoint';
               await requestVoiceCheckpoint({ call, state, config, leaseToken, language });
             } catch {
               await persist({ status: 'failed', outcome: 'confirmation_unavailable', endedAt: new Date() }).catch(() => undefined);
@@ -457,7 +480,8 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       }
       return;
     }
-    const selected = matchVoiceOfferedSlot(state.booking.conversation.booking?.offeredSlots ?? [], text);
+    const selected = matchVoiceOfferedSlot(state.booking.conversation.booking?.offeredSlots ?? [], text, state.booking.lastResult?.kind === 'slots');
+    metrics.lastStep = selected ? 'select_slot' : 'consultation';
     const toolStarted = performance.now();
     const response = selected
       ? await chooseVoiceSlot({ salon: boundSalon, draft: state.booking, startTime: selected })
@@ -469,6 +493,10 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       metrics.interpreterCalls = Number(metrics.interpreterCalls ?? 0) + Number(response.modelCalls ?? 0);
     }
     state.booking = response.draft;
+    metrics.lastResult = response.result.kind;
+    if (response.result.kind === 'unavailable') {
+      metrics.lastFailure = response.result.reason;
+    }
     state.consentHash = null;
     if ('proposal' in response.result) {
       const proposal = response.result.proposal;
@@ -483,7 +511,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       send('session.commentary.append', `Luster rechecked this offered slot; it is not held. ${contactPrompt(state.contact)}`, delegationId);
     } else {
       if ('availabilityIssue' in response && response.availabilityIssue === 'unverified') {
-        send('session.commentary.append', 'Luster could not verify an appointment time right now. You may state the checked service price below, but say you are having trouble checking times and offer to text the verified booking page after confirming the mobile number.', delegationId);
+        send('session.commentary.append', 'Luster could not verify an appointment time right now. You may state the checked service price below, but say you are having trouble checking times and offer to text the verified booking page using caller ID when available.', delegationId);
       }
       send('session.commentary.append', `Authoritative Luster result (use these facts, no invention): ${JSON.stringify(response.result)}`, delegationId);
       if ('publicFacts' in response && response.publicFacts) {
@@ -492,7 +520,9 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
     }
     await persist();
   };
-  const shouldHandleLinkDirectly = (current: Input): boolean => isVoiceBookingLinkRequest(current.text)
+  const shouldHandleDirectly = (current: Input): boolean => isVoiceBookingLinkRequest(current.text)
+    || (!!state.bookingLinkAuthority && (isVoiceBookingLinkRevocation(current.text) || !!spokenPhoneCorrection(current.text)))
+    || (!state.contact && state.booking.lastResult?.kind === 'slots' && !!matchVoiceOfferedSlot(state.booking.conversation.booking?.offeredSlots ?? [], current.text, true))
     || !!state.bookingLinkPending
     || (bookingLinkOfferEnd >= 0 && current.start >= bookingLinkOfferEnd && isVoiceBookingLinkAffirmation(current.text));
   const schedule = () => {
@@ -500,7 +530,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       clearTimeout(timer);
     }
     timer = setTimeout(() => {
-      if (busy || !input || stopped || (!pendingDelegation && !shouldHandleLinkDirectly(input))) {
+      if (busy || !input || stopped || (!pendingDelegation && !shouldHandleDirectly(input))) {
         return;
       }
       const current = input;
@@ -511,14 +541,15 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       const expected = epoch;
       void processInput(current, delegation, expected).then(() => {
         if (!delegation && !stopped && epoch === expected) {
-          lastDirectLinkReply = { inputEnd: current.end, guidance: currentLinkGuidance() };
+          lastDirectReply = { inputEnd: current.end, guidance: lastReplyGuidance || currentLinkGuidance() };
           if (pendingDelegation && !input && lastInputEnd === current.end) {
-            send('session.commentary.append', lastDirectLinkReply.guidance, pendingDelegation);
+            send('session.commentary.append', lastDirectReply.guidance, pendingDelegation);
             pendingDelegation = null;
-            lastDirectLinkReply = null;
+            lastDirectReply = null;
           }
         }
       }).catch(async () => {
+        metrics.lastFailure = epoch !== expected ? 'turn_superseded' : 'step_failed';
         if (epoch !== expected && !stopped) {
           input = input ? { text: (current.text + input.text).slice(-2400), start: current.start, end: input.end } : current;
           pendingDelegation ??= delegation;
@@ -540,7 +571,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
         }
       }).finally(() => {
         busy = false;
-        if (input && (pendingDelegation || shouldHandleLinkDirectly(input))) {
+        if (input && (pendingDelegation || shouldHandleDirectly(input))) {
           schedule();
         }
       });
@@ -608,28 +639,41 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
           }
         }
         if (event.type === 'error') {
-          // Provider messages may contain caller text or credentials. Count only.
+          // Only allowlisted categories and our own command types are logged.
+          // Never retain provider messages, values, or arbitrary error strings.
           providerErrors += 1;
+          const errorType = event.error?.type;
+          lastProviderErrorType = typeof errorType === 'string' && ['invalid_request_error', 'server_error', 'rate_limit_error'].includes(errorType) ? errorType : 'other';
+          const errorParam = event.error?.param;
+          lastProviderErrorParam = typeof errorParam === 'string' && ['content', 'delegation_id', 'event_id'].includes(errorParam) ? errorParam : 'other';
+          lastProviderErrorEvent = typeof event.error?.client_event_id === 'string' ? sentEventTypes.get(event.error.client_event_id) ?? 'unknown' : 'unknown';
         } else if (event.type === 'session.input_transcript.delta' && typeof event.delta === 'string' && Number.isFinite(event.start_ms) && Number.isFinite(event.end_ms)) {
           epoch += 1;
           const start = event.start_ms!;
           lastInputEnd = Math.max(lastInputEnd, event.end_ms!);
-          if (lastDirectLinkReply && lastInputEnd > lastDirectLinkReply.inputEnd) {
-            lastDirectLinkReply = null;
+          if (lastDirectReply && lastInputEnd > lastDirectReply.inputEnd) {
+            lastDirectReply = null;
           }
           if (start < lastOutputEnd) {
             metrics.interrupted = Number(metrics.interrupted) + 1;
             consent.invalidate();
           }
+          // Live may answer greetings/clarifications without delegation. A new
+          // caller turn after that answer must not inherit the old utterance.
+          if (input && !busy && !pendingDelegation && !pendingPhoneSpeech && !state.bookingLinkPending
+            && (!state.bookingLinkAuthority || isVoiceBookingLinkHarmlessAcknowledgment(input.text))
+            && lastOutputEnd > input.end && start >= lastOutputEnd) {
+            input = null;
+          }
           input = input ? { text: (input.text + event.delta).slice(-2400), start: Math.min(input.start, start), end: Math.max(input.end, event.end_ms!) } : { text: event.delta, start, end: event.end_ms! };
-          if (pendingDelegation || shouldHandleLinkDirectly(input)) {
+          if (pendingDelegation || shouldHandleDirectly(input)) {
             schedule();
           }
         } else if (event.type === 'session.output_transcript.delta' && typeof event.delta === 'string' && Number.isFinite(event.start_ms) && Number.isFinite(event.end_ms)) {
           lastOutputEnd = Math.max(lastOutputEnd, event.end_ms!);
           if (state.bookingLinkPending && event.start_ms! >= state.bookingLinkPending.afterMs) {
             bookingLinkOutput = `${bookingLinkOutput}${event.delta}`.slice(-500);
-          } else if (!state.bookingLinkAttempted && !state.booking.operation && !state.bookingStatus?.appointment) {
+          } else if (!state.bookingLinkAttempted && !state.bookingStatus?.appointment) {
             bookingLinkOfferOutput = `${bookingLinkOfferOutput}${event.delta}`.slice(-500);
             if (isVoiceBookingLinkRequest(bookingLinkOfferOutput)) {
               bookingLinkOfferEnd = event.end_ms!;
@@ -648,9 +692,9 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
             metrics.lastTranscriptResponseGapMs = event.start_ms! - lastInputEnd;
           }
         } else if (event.type === 'session.delegation.created' && event.delegation?.target === 'client' && event.delegation.id) {
-          if (!busy && !input && lastDirectLinkReply && lastDirectLinkReply.inputEnd === lastInputEnd) {
-            send('session.commentary.append', lastDirectLinkReply.guidance, event.delegation.id);
-            lastDirectLinkReply = null;
+          if (!busy && !input && lastDirectReply && lastDirectReply.inputEnd === lastInputEnd) {
+            send('session.commentary.append', lastDirectReply.guidance, event.delegation.id);
+            lastDirectReply = null;
           } else {
             pendingDelegation = event.delegation.id;
             schedule();
@@ -703,10 +747,10 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       state.bookingLinkAttempted = true;
       await revokeVoiceBookingLinkAuthority({ salonId: call.salonId, callId: call.id, liveSessionId: call.liveSessionId!, intentId }).catch(() => undefined);
     }
-    Object.assign(metrics, { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, reconnectAttempt });
+    Object.assign(metrics, { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, lastProviderErrorType, lastProviderErrorEvent, lastProviderErrorParam, reconnectAttempt });
     // Fixed labels and numbers only: never log provider bodies, socket errors,
     // close reasons, identifiers, transcripts, or authentication headers.
-    console.warn('[voice-sideband]', { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, reconnectAttempt, sessionClosed: ended, attached: metrics.attachMs !== undefined });
+    console.warn('[voice-sideband]', { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, lastProviderErrorType, lastProviderErrorEvent, lastProviderErrorParam, lastStep: metrics.lastStep, lastResult: metrics.lastResult, lastFailure: metrics.lastFailure, reconnectAttempt, sessionClosed: ended, attached: metrics.attachMs !== undefined });
     const current = await getVoiceCall(call.id, call.salonId).catch(() => null);
     const transferred = handedOff || current?.status === 'awaiting_confirmation' || (current?.liveSessionId && current.liveSessionId !== call.liveSessionId) || (current?.leaseToken && current.leaseToken !== leaseToken);
     if (!transferred && !ended && reconnectAttempt < 2 && Date.now() < deadline - 15_000 && current && !current.endedAt) {

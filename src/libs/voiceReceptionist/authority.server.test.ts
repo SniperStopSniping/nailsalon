@@ -107,6 +107,47 @@ describe('voice receptionist shared authority adapter', () => {
     expect(response.draft.conversation.booking?.offeredSlots).toEqual([{ time: '16:00', startTime: '2026-09-26T20:00:00.000Z' }]);
   });
 
+  it('rechecks a naturally worded offered-slot choice without preparing or confirming a booking', async () => {
+    const draft = selectedDraft();
+    const slot = draft.conversation.booking!.offeredSlots[0]!;
+    draft.lastResult = { kind: 'slots', slots: [slot] } as never;
+    const provider = { createResponse: vi.fn(async (_request: unknown) => ({ status: 'completed' as const, items: [{ type: 'message' as const, text: JSON.stringify({ ...interpreterFallback, selectedOfferedSlot: slot.startTime }) }], usage: null })) };
+
+    const response = await runVoiceConsultation({ salon, draft, message: 'That would be great, can we go ahead with that one?' }, provider);
+
+    expect(response.result.kind).toBe('slot_selected');
+    expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({ salon: { id: salon.id, slug: salon.slug }, requiredStartTime: slot.startTime }));
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    expect(provider.createResponse.mock.calls[0]?.[0]).toMatchObject({ jsonSchema: { properties: { selectedOfferedSlot: { enum: [null, slot.startTime] } } } });
+  });
+
+  it.each(['invented', 'old_result', 'wrong_tenant', 'changed_service', 'slot_taken'])('does not select a model-proposed slot with %s', async (reason) => {
+    const draft = selectedDraft();
+    const slot = draft.conversation.booking!.offeredSlots[0]!;
+    draft.lastResult = { kind: 'slots', slots: [slot] } as never;
+    if (reason === 'old_result') {
+      draft.lastResult = null;
+    }
+    if (reason === 'wrong_tenant') {
+      draft.conversation.salonId = 'other-salon';
+    }
+    if (reason === 'slot_taken') {
+      mocks.lookup.mockResolvedValue({ quoteChanged: false, selected: null });
+    }
+    const provider = { createResponse: vi.fn(async (_request: unknown) => ({ status: 'completed' as const, items: [{ type: 'message' as const, text: JSON.stringify({ ...interpreterFallback, selectedOfferedSlot: reason === 'invented' ? '2030-01-01T00:00:00Z' : slot.startTime, selectionChangeExplicitThisTurn: reason === 'changed_service' }) }], usage: null })) };
+
+    const response = await runVoiceConsultation({ salon, draft, message: 'Synthetic selection or correction' }, provider);
+
+    expect(response.result.kind).not.toBe('slot_selected');
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.confirm).not.toHaveBeenCalled();
+
+    if (reason !== 'slot_taken') {
+      expect(mocks.lookup).not.toHaveBeenCalled();
+    }
+  });
+
   it('checks and offers the earliest real opening after resolving a service', async () => {
     const proposal = { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: { id: 'gel-x', name: 'Gel-X', priceCents: 6000 }, addOns: [], currency: 'CAD', subtotalCents: 6000, durationMinutes: 90, expiresAt: '2030-01-01T00:00:00.000Z' };
     mocks.menu = { services: [{ id: 'gel-x', name: 'Gel-X', description: '', category: 'Extensions' }], addOns: [], bindings: [], l1: undefined };
@@ -143,7 +184,7 @@ describe('voice receptionist shared authority adapter', () => {
     mocks.lookup.mockResolvedValue({ proposal, timeZone: 'America/Toronto', quoteChanged: false, slots: [
       { time: '15:30', startTime: '2026-09-26T19:30:00.000Z' },
     ] });
-    const provider = { createResponse: vi.fn(async () => ({ status: 'completed' as const, items: [{ type: 'message' as const, text: JSON.stringify({ ...interpreterFallback, action: 'propose', availabilityScope: 'specific_window', dateExplicitThisTurn: true, datePreference: preference }) }], usage: null })) };
+    const provider = { createResponse: vi.fn(async (_request: unknown) => ({ status: 'completed' as const, items: [{ type: 'message' as const, text: JSON.stringify({ ...interpreterFallback, action: 'propose', availabilityScope: 'specific_window', dateExplicitThisTurn: true, datePreference: preference }) }], usage: null })) };
 
     const response = await runVoiceConsultation({ salon, draft: createVoiceDraft(salon.id, callId), message: 'Gel-X Saturday after two' }, provider);
 

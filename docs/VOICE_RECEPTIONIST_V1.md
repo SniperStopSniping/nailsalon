@@ -123,3 +123,14 @@ Inspect `[voice-sideband]` runtime diagnostics alongside the incoming OpenAI req
 `ws` must remain in Next.js `serverExternalPackages`. Bundling its optional `bufferutil` import can replace a missing native helper with an empty module: attachment succeeds, then the first masked client frame longer than 48 bytes throws. Run `node scripts/verify-voice-websocket-build.mjs` after a production build to check the traced native Node package and send a real masked frame over a loopback WebSocket. The check uses synthetic text, no provider credentials, and no database.
 
 For the reproduced bundled-helper incident, `WS_NO_BUFFER_UTIL=1` selects ws's JavaScript masking implementation. Set it as a Production Config variable and redeploy the protected-main release for it to take effect. The old bundled encoder was verified to fail without the setting and correctly mask/unmask the same synthetic message with it. This setting is compatible with external ws and does not change call admission or booking authorization.
+
+
+## Offered times and requested link fallback
+
+A caller can accept the current single recommendation with ordinary wording such as “yes, that works” or “can you book that for me.” The adapter selects only an offered slot, rechecks it through Customer AI availability, and then collects contact details. The existing signed final confirmation still owns appointment creation. Complex wording uses the existing voice interpreter with a bounded offered-slot reference; this cannot supply an invented time or bypass review.
+
+An explicit “send me the link” or acceptance of a spoken booking-link offer uses caller ID when available. A prepared, uncommitted review no longer blocks this fallback: the queue checks the canonical operation under the call lock, and dispatch checks it again. Checkpoint/consent state, a linked appointment, a mismatched operation, a changed number, or withdrawn permission still prevents sending. Requests for payment/cancellation links or a different channel do not become a booking-link SMS.
+
+The text is processed after call completion, with a 30-second finalization window and the existing dispatcher schedule. The voice explains that it may take a few minutes. A queued intent is not proof of provider acceptance or delivery.
+
+`[voice-sideband]` now includes the last backend step/result/failure plus allowlisted provider error type, parameter category, and our rejected command type. Unknown provider values are recorded as `other`; messages, provider codes, event IDs, phone numbers, and transcripts are not logged. These categories distinguish a failed slot selection, review, queue request, or rejected Live update on the next controlled call.

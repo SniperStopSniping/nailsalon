@@ -32,14 +32,19 @@ export function isVoiceNo(text: string): boolean {
 /** Only an explicit request can start a one-time public booking-link text. */
 export function isVoiceBookingLinkRequest(text: string): boolean {
   const words = normalizedSpeech(text).split(' ');
+  // This action can send only the public booking page by SMS. A request for
+  // another action/channel must stay with the consultation instead.
+  if (words.some(word => ['payment', 'deposit', 'cancel', 'cancellation', 'reschedule', 'rescheduling', 'manage', 'email', 'e-mail', 'whatsapp', 'instagram'].includes(word))) {
+    return false;
+  }
   const sendIndex = words.findIndex(word => ['text', 'send', 'sms', 'message'].includes(word));
-  const bookingIndex = words.findIndex(word => ['booking', 'book', 'appointment'].includes(word));
   const linkIndex = words.findIndex(word => ['link', 'page'].includes(word));
-  if (sendIndex < 0 || bookingIndex < 0 || linkIndex < 0
+  if (sendIndex < 0 || linkIndex < 0
     || words.slice(Math.max(0, sendIndex - 5), sendIndex).some(word => ['not', 'dont', 'don\'t', 'never', 'already'].includes(word))) {
     return false;
   }
-  return true;
+  return words.some(word => ['booking', 'book', 'appointment'].includes(word))
+    || /^(?:(?:can|could|would) you |please )?(?:text|send|sms|message)(?: me)? (?:the |a |that )?link(?: please)?(?: (?:by text|by sms|to .+))?$/.test(normalizedSpeech(text));
 }
 
 /** A destination named in the link request takes priority over caller ID. */
@@ -65,7 +70,8 @@ export function spokenVoiceLinkDestination(text: string): string | null {
 
 export function isVoiceBookingLinkAffirmation(text: string): boolean {
   return isVoiceContactAffirmation(text)
-    || /^(?:yes|yeah|yep|si)(?: please)? (?:text|send)(?: me)? (?:it|the link|the booking link)(?: please)?$/.test(normalizedSpeech(text));
+    || /^(?:yeah|yep|sure|okay|ok)(?: please)?$/.test(normalizedSpeech(text))
+    || /^(?:(?:yes|yeah|yep|sure|si)(?: please)? )?(?:text|send)(?: me)? (?:it|the link|the booking link)(?: to me)?(?: please)?$/.test(normalizedSpeech(text));
 }
 
 /** Confirm that the voice actually read back the same number the backend will text. */
@@ -103,15 +109,24 @@ export function isVoiceBookingLinkRevocation(text: string): boolean {
 
 /** Only these complete acknowledgments cannot change the queued text request. */
 export function isVoiceBookingLinkHarmlessAcknowledgment(text: string): boolean {
-  return /^(?:ok|okay|thanks|thank you|thanks so much|thank you so much|bye|goodbye|good bye|ok thanks|okay thanks|perfect thanks|perfect thank you|great thanks|great thank you|sounds good thanks|alright thanks|all right thanks|thanks bye|thank you bye|thanks goodbye|thank you goodbye)$/.test(normalizedSpeech(text));
+  return isVoiceBookingLinkAffirmation(text)
+    || /^(?:ok|okay|thanks|thank you|thanks so much|thank you so much|bye|goodbye|good bye|ok thanks|okay thanks|perfect thanks|perfect thank you|great thanks|great thank you|sounds good thanks|alright thanks|all right thanks|thanks bye|thank you bye|thanks goodbye|thank you goodbye)$/.test(normalizedSpeech(text));
 }
 
 /** Matches only one of Luster's offered slots, preserving ambiguity. */
-export function matchVoiceOfferedSlot(offered: { time: string; startTime: string }[], message: string): string | null {
+export function matchVoiceOfferedSlot(offered: { time: string; startTime: string }[], message: string, acceptRecommendation = false): string | null {
+  // Selecting a recommendation only starts contact collection and a fresh
+  // availability check. It never constitutes final booking consent.
+  const speech = normalizedSpeech(message).replace(/^(?:yes|yeah|okay|ok)[, ]+/, '').replace(/ please$/, '');
+  if (acceptRecommendation && offered.length === 1
+    && /^(?:yes|yeah|yep|sure|okay|ok|sounds good|that works(?: for me)?|that sounds good|book (?:it|that)|(?:can|could) you book (?:it|that)(?: for me)?|i'll take (?:it|that|that one)|i will take (?:it|that|that one))$/.test(speech)) {
+    return offered[0]!.startTime;
+  }
   const hours: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12 };
   const input = message.toLowerCase().replace(/[.!?,]/g, '').trim()
     .replace(/^(?:i'll take |i will take |let's do |at |a las |the )/, '')
     .replace(/(?: please| por favor)$/, '')
+    .replace(/ (?:works(?: for me)?|is (?:good|fine|perfect))$/, '')
     .replace(/\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)\b/g, word => String(hours[word]))
     .replace(/(?: thirty| y media)\b/g, ':30');
   const requested = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/.exec(input);
