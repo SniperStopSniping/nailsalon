@@ -32,8 +32,11 @@ try {
     const timeout = setTimeout(() => reject(new Error('Loopback WebSocket timed out')), 5000);
     const finish = (error) => {
       clearTimeout(timeout);
-      if (error) reject(error);
-      else resolveTest();
+      if (error) {
+        reject(error);
+      } else {
+        resolveTest();
+      }
     };
     server.on('error', finish);
     server.on('connection', (socket) => {
@@ -62,6 +65,8 @@ try {
   process.stdout.write('Voice build uses external ws; masked loopback send passed.\n');
 } finally {
   client?.terminate();
-  for (const socket of server.clients) socket.terminate();
+  for (const socket of server.clients) {
+    socket.terminate();
+  }
   await new Promise(resolveClose => server.close(resolveClose));
 }
