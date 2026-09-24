@@ -1,3 +1,10 @@
+## [1.130.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.130.1...v1.130.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **voice:** use Live server event selector objects ([45a1a06](https://github.com/SniperStopSniping/nailsalon/commit/45a1a06be3401be6288181eaaa5d5a7b8e4a6ed5))
+
 ## [1.130.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.130.0...v1.130.1) (2026-09-24)
 
 
