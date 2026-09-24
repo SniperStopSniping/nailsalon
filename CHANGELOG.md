@@ -1,3 +1,11 @@
+# [1.131.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.130.4...v1.131.0) (2026-09-24)
+
+
+### Features
+
+* **voice:** improve Isla booking consultation ([f4786f1](https://github.com/SniperStopSniping/nailsalon/commit/f4786f1db53c760ee15b7ae83500c14168452881))
+* **voice:** text booking link after unfinished calls ([#315](https://github.com/SniperStopSniping/nailsalon/issues/315)) ([ef664a4](https://github.com/SniperStopSniping/nailsalon/commit/ef664a425087e2a7dbdb50486e00f3bb73748d27))
+
 ## [1.130.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.130.3...v1.130.4) (2026-09-24)
 
 
