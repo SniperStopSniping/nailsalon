@@ -4559,6 +4559,7 @@ export const COMMUNICATION_EVENT_TYPES = [
   'manual_reminder',
   'manual_text',
   'booking_recovery',
+  'voice_booking_link',
   'review_request',
   'owner_new_booking',
   'owner_appointment_cancelled',

@@ -89,6 +89,39 @@ async function seedSalonWithConsent(): Promise<{ salonId: string; recipient: str
   return { salonId, recipient };
 }
 
+async function seedVoiceLinkWithoutBroadConsent() {
+  salonSeq += 1;
+  const salonId = `voice_link_${salonSeq}`;
+  const recipient = `416555${String(1000 + salonSeq)}`;
+  await db.insert(schema.salonSchema).values({
+    id: salonId,
+    name: 'Synthetic Isla',
+    slug: `synthetic-isla-${salonSeq}`,
+    settings: { communications: { sms: { enabled: true }, quietHours: { enabled: false, start: '21:00', end: '09:00' } } } as schema.Salon['settings'],
+  });
+  const callId = crypto.randomUUID();
+  await db.insert(schema.voiceCallSchema).values({
+    id: callId,
+    salonId,
+    provider: 'twilio',
+    providerCallId: `CAvoice-link-${callId}`,
+    routeTokenHash: `hash-${callId}`,
+    routeExpiresAt: new Date(NOW.getTime() + 60_000),
+    status: 'completed',
+    endedAt: new Date(NOW.getTime() - 60_000),
+  });
+  const queued = await enqueueSmsIntent(salonId, recipient, {
+    eventType: 'voice_booking_link',
+    templateKey: 'client_voice_booking_link',
+    templateVersion: 'v1',
+    variables: { bookingUrl: `https://www.lustergel.app/en/synthetic-isla-${salonSeq}/book/service`, callId },
+  });
+  const { voiceBookingLinkRecipientHash } = await import('./voiceReceptionist/bookingLink.server');
+  await db.update(schema.voiceCallSchema).set({ draft: { bookingLinkAuthority: { intentId: queued.intentId, recipientHash: voiceBookingLinkRecipientHash(recipient) } } })
+    .where(eq(schema.voiceCallSchema.id, callId));
+  return { salonId, recipient };
+}
+
 async function grantCredits(salonId: string, amount: number) {
   const { appendLotGrant, lockCreditAccount } = await import('./billing/creditLedger');
   await db.transaction(async (tx) => {
@@ -168,6 +201,76 @@ async function seedRecoveryAppointment(input: { salonId: string; recipient: stri
 }
 
 describe('dispatcher — dark by default, live only behind every switch', () => {
+  it('sends a requested voice link with one-time call authority and no broad appointment consent, while honoring STOP', async () => {
+    const previousSecret = process.env.VOICE_RECEPTIONIST_SIGNING_SECRET;
+    process.env.VOICE_RECEPTIONIST_SIGNING_SECRET = 's'.repeat(40);
+    try {
+      const first = await seedVoiceLinkWithoutBroadConsent();
+      await grantCredits(first.salonId, 10);
+      await enableControl(true);
+      const provider = vi.fn(async (_input: { to: string }) => ({ sid: 'SM_voice_link' }));
+      const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+      expect(await dispatchClaimedIntent(await claimOne(first.salonId), provider, NOW)).toBe('sent');
+      expect(provider).toHaveBeenCalledOnce();
+      expect(provider.mock.calls[0]![0]).toMatchObject({ to: `+1${first.recipient}` });
+
+      const second = await seedVoiceLinkWithoutBroadConsent();
+      await grantCredits(second.salonId, 10);
+      await db.insert(schema.communicationConsentSchema).values({
+        id: `voice-stop-${second.salonId}`,
+        salonId: second.salonId,
+        recipient: second.recipient,
+        channel: 'sms',
+        purpose: 'appointment_transactional',
+        status: 'revoked',
+        wordingVersion: 'provider-stop',
+        source: 'twilio_inbound',
+        revokedAt: NOW,
+      });
+
+      expect(await dispatchClaimedIntent(await claimOne(second.salonId), provider, NOW)).toBe('suppressed');
+      expect(provider).toHaveBeenCalledOnce();
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.VOICE_RECEPTIONIST_SIGNING_SECRET;
+      } else {
+        process.env.VOICE_RECEPTIONIST_SIGNING_SECRET = previousSecret;
+      }
+    }
+  });
+
+  it('waits for the call to end and suppresses a link whose authority was revoked', async () => {
+    const previousSecret = process.env.VOICE_RECEPTIONIST_SIGNING_SECRET;
+    process.env.VOICE_RECEPTIONIST_SIGNING_SECRET = 's'.repeat(40);
+    try {
+      const { salonId } = await seedVoiceLinkWithoutBroadConsent();
+      const [intent] = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.salonId, salonId));
+      const callId = intent!.variables.callId!;
+      await db.update(schema.voiceCallSchema).set({ status: 'connected', endedAt: null }).where(eq(schema.voiceCallSchema.id, callId));
+      await enableControl(true);
+      const provider = vi.fn();
+      const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+      expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('deferred');
+      expect(provider).not.toHaveBeenCalled();
+
+      await db.update(schema.voiceCallSchema).set({ status: 'completed', endedAt: new Date(NOW.getTime() - 60_000), draft: { bookingLinkAuthority: null } }).where(eq(schema.voiceCallSchema.id, callId));
+      const { claimDueIntents } = await import('./communicationIntent');
+      const retry = (await claimDueIntents({ workerId: 'voice-link-retry', batchLimit: 50, perSalonLimit: 1, now: new Date(NOW.getTime() + 61_000) })).find(row => row.salonId === salonId);
+
+      expect(retry).toBeDefined();
+      expect(await dispatchClaimedIntent(retry!, provider, new Date(NOW.getTime() + 61_000))).toBe('suppressed');
+      expect(provider).not.toHaveBeenCalled();
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.VOICE_RECEPTIONIST_SIGNING_SECRET;
+      } else {
+        process.env.VOICE_RECEPTIONIST_SIGNING_SECRET = previousSecret;
+      }
+    }
+  });
+
   it('defers (never sends, never destroys) when the platform control row is disabled', async () => {
     const { salonId, recipient } = await seedSalonWithConsent();
     await grantCredits(salonId, 10);

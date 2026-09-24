@@ -50,6 +50,7 @@ import {
   resolveSmsSenderMode,
 } from '@/libs/smsSender';
 import { ProviderOutcomeUnknownError } from '@/libs/twilioMessagingSend';
+import { voiceBookingLinkSendState } from '@/libs/voiceReceptionist/bookingLink.server';
 import {
   appointmentAccessTokenSchema,
   communicationConsentSchema,
@@ -369,6 +370,19 @@ export async function dispatchClaimedIntent(
     await transitionIntent(intent.id, { to: 'failed', lastError: 'UNKNOWN_TEMPLATE' }, now);
     return 'failed';
   }
+  if (intent.eventType === 'voice_booking_link') {
+    const state = intent.templateKey === 'client_voice_booking_link' && typeof intent.variables.callId === 'string'
+      ? await voiceBookingLinkSendState({ salonId: intent.salonId, intentId: intent.id, callId: intent.variables.callId, recipient: intent.recipient }, now)
+      : 'invalid';
+    if (state === 'pending') {
+      await deferIntent(intent.id, 'VOICE_CALL_NOT_FINAL', now, new Date(now.getTime() + 60_000));
+      return 'deferred';
+    }
+    if (state === 'invalid') {
+      await transitionIntent(intent.id, { to: 'suppressed', lastError: 'VOICE_LINK_AUTHORITY_REVOKED' }, now);
+      return 'suppressed';
+    }
+  }
   const salonRows = await db
     .select({ name: salonSchema.name, slug: salonSchema.slug, isActive: salonSchema.isActive, deletedAt: salonSchema.deletedAt, settings: salonSchema.settings, smsRemindersEnabled: salonSchema.smsRemindersEnabled })
     .from(salonSchema)
@@ -594,9 +608,14 @@ export async function dispatchClaimedIntent(
   const reminderPreference = appointmentReminder
     ? await getAppointmentSmsDeliveryPreference({ salonId: intent.salonId, phone: intent.recipient, appointmentId: intent.appointmentId! })
     : null;
-  const finalConsent = appointmentReminder
-    ? reminderPreference?.state === 'enabled'
-    : await hasSalonTransactionalConsent(intent.salonId, intent.recipient, intent.audience === 'client');
+  const finalConsent = intent.eventType === 'voice_booking_link'
+    ? intent.templateKey === 'client_voice_booking_link'
+    && typeof intent.variables.callId === 'string'
+    && await voiceBookingLinkSendState({ salonId: intent.salonId, intentId: intent.id, callId: intent.variables.callId, recipient: intent.recipient }, now) === 'authorized'
+    && await hasSalonTransactionalConsent(intent.salonId, intent.recipient, false)
+    : appointmentReminder
+      ? reminderPreference?.state === 'enabled'
+      : await hasSalonTransactionalConsent(intent.salonId, intent.recipient, intent.audience === 'client');
   const consentFailure = reminderPreference?.state === 'opted_out'
     ? 'PROVIDER_OPT_OUT'
     : reminderPreference?.state === 'customer_disabled'

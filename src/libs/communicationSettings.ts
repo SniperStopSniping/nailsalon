@@ -156,7 +156,7 @@ export const EVENTS_GOVERNED_ELSEWHERE: ReadonlySet<CommunicationEventType> = ne
  * DEFAULT_BOOKING_NOTIFICATION_SETTINGS technicianChannel.
  */
 function defaultChannelsFor(eventType: CommunicationEventType): CommunicationChannelMode {
-  if (eventType === 'manual_text' || eventType === 'review_request' || eventType === 'booking_recovery') {
+  if (eventType === 'manual_text' || eventType === 'review_request' || eventType === 'booking_recovery' || eventType === 'voice_booking_link') {
     return 'sms';
   }
   if (eventType.startsWith('owner_') || eventType.startsWith('tech_')) {

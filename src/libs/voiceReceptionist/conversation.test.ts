@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
-import { advanceVoiceContact, correctVoiceContact, isExplicitVoiceBookingConsent, matchVoiceOfferedSlot, voiceReviewText } from './conversation';
+import { advanceVoiceContact, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, matchVoiceOfferedSlot, voiceReviewText } from './conversation';
 
 describe('voice conversation safety', () => {
+  it('recognizes a requested booking-link text without treating general booking talk as a send request', () => {
+    expect(isVoiceBookingLinkRequest('Can you text me the booking link?')).toBe(true);
+    expect(isVoiceBookingLinkRequest('Please send the appointment page by text')).toBe(true);
+    expect(isVoiceBookingLinkRequest('Text me a link to book')).toBe(true);
+    expect(isVoiceBookingLinkRequest('Do you have a booking page?')).toBe(false);
+    expect(isVoiceBookingLinkRequest('Book me for Thursday')).toBe(false);
+    expect(isVoiceBookingLinkRequest('Do not text me the booking link')).toBe(false);
+    expect(isVoiceBookingLinkAffirmation('yes please send it')).toBe(true);
+    expect(isVoiceBookingLinkAffirmation('no thanks')).toBe(false);
+    expect(containsVoicePhoneReadback('Is four one six five five five zero one zero zero your number?', '4165550100')).toBe(true);
+    expect(containsVoicePhoneReadback('Is 416 555 0101 your number?', '4165550100')).toBe(false);
+    expect(isVoiceBookingLinkRevocation('Don\'t send that text')).toBe(true);
+    expect(isVoiceBookingLinkRevocation('Actually my phone number is different')).toBe(true);
+    expect(isVoiceBookingLinkRevocation('My phone is 416 555 0101')).toBe(true);
+    expect(isVoiceBookingLinkRevocation('Cancel it')).toBe(true);
+  });
+
   it('requires an exact booking command and rejects vague, negative, and correction speech', () => {
     expect(isExplicitVoiceBookingConsent('yes, book it')).toBe(true);
     expect(isExplicitVoiceBookingConsent('sí, reserva la cita')).toBe(true);
