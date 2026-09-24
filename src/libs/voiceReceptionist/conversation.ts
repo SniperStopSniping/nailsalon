@@ -42,6 +42,27 @@ export function isVoiceBookingLinkRequest(text: string): boolean {
   return true;
 }
 
+/** A destination named in the link request takes priority over caller ID. */
+export function spokenVoiceLinkDestination(text: string): string | null {
+  if (!isVoiceBookingLinkRequest(text)) {
+    return null;
+  }
+  const speech = normalizedSpeech(text);
+  const to = speech.lastIndexOf(' to ');
+  const at = speech.lastIndexOf(' at ');
+  const offset = Math.max(to, at);
+  if (offset < 0) {
+    return null;
+  }
+  let destination = speech.slice(offset + 4);
+  for (const prefix of ['my ', 'phone ', 'mobile ', 'number ', 'is ']) {
+    if (destination.startsWith(prefix)) {
+      destination = destination.slice(prefix.length);
+    }
+  }
+  return spokenPhone(destination.replace(/ please$/, ''));
+}
+
 export function isVoiceBookingLinkAffirmation(text: string): boolean {
   return isVoiceContactAffirmation(text)
     || /^(?:yes|yeah|yep|si)(?: please)? (?:text|send)(?: me)? (?:it|the link|the booking link)(?: please)?$/.test(normalizedSpeech(text));

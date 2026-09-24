@@ -95,7 +95,7 @@ afterEach(() => {
 });
 
 describe('voice sideband consultation and interruption', () => {
-  it('handles an explicit link request and read-back confirmation even without Live delegation', async () => {
+  it('queues an explicitly requested link to caller ID without another question', async () => {
     const call = await mocks.claim();
     mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });
     const run = coordinateVoiceCall('call-a', config);
@@ -103,16 +103,9 @@ describe('voice sideband consultation and interruption', () => {
     input('Please text me the booking link');
     await vi.advanceTimersByTimeAsync(700);
 
-    expect(mocks.queueLink).not.toHaveBeenCalled();
-    expect(mocks.sockets[0]!.send).toHaveBeenCalledWith(expect.stringContaining('"type":"session.instructions.append"'));
-    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ draft: expect.objectContaining({ bookingLinkPending: expect.objectContaining({ phone: '4165550100' }) }) }));
-
-    output('Is 4 1 6 5 5 5 0 1 0 0 your Canadian mobile number, and may I text you the link?', 410, 480);
-    input('yes', 500, 600);
-    await vi.advanceTimersByTimeAsync(700);
-
     expect(mocks.queueLink).toHaveBeenCalledOnce();
-    expect(mocks.queueLink).toHaveBeenCalledWith(expect.objectContaining({ phone: '4165550100' }));
+    expect(mocks.queueLink).toHaveBeenCalledWith(expect.objectContaining({ phone: '4165550100', callerId: true }));
+    expect(mocks.sockets[0]!.send).toHaveBeenCalledWith(expect.stringContaining('"type":"session.instructions.append"'));
 
     close();
     await run;
@@ -129,15 +122,13 @@ describe('voice sideband consultation and interruption', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(mocks.sockets[0]!.send).toHaveBeenCalledWith(expect.stringContaining('"delegation_id":"late-link-delegation"'));
-    expect(mocks.queueLink).not.toHaveBeenCalled();
+    expect(mocks.queueLink).toHaveBeenCalledOnce();
 
     close();
     await run;
   });
 
-  it('keeps the link request pending if yes arrives before the phone readback', async () => {
-    const call = await mocks.claim();
-    mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });
+  it('asks for a number only when caller ID is unavailable', async () => {
     const run = coordinateVoiceCall('call-a', config);
     await open();
     input('Please text me the booking link');
@@ -146,10 +137,12 @@ describe('voice sideband consultation and interruption', () => {
     await vi.advanceTimersByTimeAsync(700);
 
     expect(mocks.queueLink).not.toHaveBeenCalled();
-    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ draft: expect.objectContaining({ bookingLinkPending: expect.objectContaining({ phone: '4165550100' }) }) }));
+    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ draft: expect.objectContaining({ bookingLinkPending: expect.objectContaining({ phone: '' }) }) }));
 
-    output('Is 4 1 6 5 5 5 0 1 0 0 your Canadian mobile number, and may I text you the link?', 610, 690);
-    input('yes', 700, 800);
+    input('416 555 0100', 900, 990);
+    await vi.advanceTimersByTimeAsync(700);
+    output('Is 4 1 6 5 5 5 0 1 0 0 your Canadian mobile number, and may I text you the link?', 1000, 1090);
+    input('yes', 1100, 1200);
     await vi.advanceTimersByTimeAsync(700);
 
     expect(mocks.queueLink).toHaveBeenCalledOnce();
@@ -181,7 +174,7 @@ describe('voice sideband consultation and interruption', () => {
     await run;
   });
 
-  it('starts the number-confirmation flow when the caller accepts a spoken offer', async () => {
+  it('queues to caller ID when the caller accepts a spoken link offer', async () => {
     const call = await mocks.claim();
     mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });
     const run = coordinateVoiceCall('call-a', config);
@@ -191,8 +184,8 @@ describe('voice sideband consultation and interruption', () => {
     delegate();
     await vi.advanceTimersByTimeAsync(700);
 
-    expect(mocks.queueLink).not.toHaveBeenCalled();
-    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ draft: expect.objectContaining({ bookingLinkPending: expect.objectContaining({ phone: '4165550100' }) }) }));
+    expect(mocks.queueLink).toHaveBeenCalledOnce();
+    expect(mocks.queueLink).toHaveBeenCalledWith(expect.objectContaining({ phone: '4165550100', callerId: true }));
 
     close();
     await run;
@@ -255,10 +248,6 @@ describe('voice sideband consultation and interruption', () => {
     input('Text me the booking link');
     delegate();
     await vi.advanceTimersByTimeAsync(700);
-    output('Should I text the link to 4 1 6 5 5 5 0 1 0 0?', 410, 480);
-    input('yes', 500, 600);
-    delegate('delegation-b');
-    await vi.advanceTimersByTimeAsync(700);
 
     expect(mocks.queueLink).toHaveBeenCalledOnce();
 
@@ -272,19 +261,13 @@ describe('voice sideband consultation and interruption', () => {
     await run;
   });
 
-  it('requests one link only after the caller confirms the read-back mobile number', async () => {
+  it('uses a different number stated in the initial request only after readback', async () => {
     const call = await mocks.claim();
     mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });
     const run = coordinateVoiceCall('call-a', config);
     await open();
-    input('Can you text me the booking link?');
+    input('Can you text me the booking link to 416 555 0101?');
     delegate();
-    await vi.advanceTimersByTimeAsync(700);
-
-    expect(mocks.queueLink).not.toHaveBeenCalled();
-
-    input('No, use 416 555 0101', 500, 800);
-    delegate('delegation-b');
     await vi.advanceTimersByTimeAsync(700);
 
     expect(mocks.queueLink).not.toHaveBeenCalled();
@@ -295,7 +278,7 @@ describe('voice sideband consultation and interruption', () => {
     await vi.advanceTimersByTimeAsync(700);
 
     expect(mocks.queueLink).toHaveBeenCalledOnce();
-    expect(mocks.queueLink).toHaveBeenCalledWith(expect.objectContaining({ salonId: 'salon-a', callId: 'call-a', phone: '4165550101' }));
+    expect(mocks.queueLink).toHaveBeenCalledWith(expect.objectContaining({ salonId: 'salon-a', callId: 'call-a', phone: '4165550101', pendingId: expect.any(String) }));
 
     close();
     await run;

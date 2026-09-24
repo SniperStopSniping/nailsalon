@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { advanceVoiceContact, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkHarmlessAcknowledgment, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, isVoicePhoneFragment, matchVoiceOfferedSlot, voiceReviewText } from './conversation';
+import { advanceVoiceContact, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkHarmlessAcknowledgment, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, isVoicePhoneFragment, matchVoiceOfferedSlot, spokenVoiceLinkDestination, voiceReviewText } from './conversation';
 
 describe('voice conversation safety', () => {
   it('recognizes a requested booking-link text without treating general booking talk as a send request', () => {
@@ -10,6 +10,9 @@ describe('voice conversation safety', () => {
     expect(isVoiceBookingLinkRequest('Do you have a booking page?')).toBe(false);
     expect(isVoiceBookingLinkRequest('Book me for Thursday')).toBe(false);
     expect(isVoiceBookingLinkRequest('Do not text me the booking link')).toBe(false);
+    expect(spokenVoiceLinkDestination('Text me the booking link to 416 555 0101')).toBe('4165550101');
+    expect(spokenVoiceLinkDestination('Text the booking link to my number 416 555 0101 please')).toBe('4165550101');
+    expect(spokenVoiceLinkDestination('Text me the booking link')).toBeNull();
     expect(isVoiceBookingLinkAffirmation('yes please send it')).toBe(true);
     expect(isVoiceBookingLinkAffirmation('no thanks')).toBe(false);
     expect(containsVoicePhoneReadback('Is four one six five five five zero one zero zero your number?', '4165550100')).toBe(true);

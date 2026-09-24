@@ -66,6 +66,25 @@ async function liveCall(phone = '4165550100') {
 }
 
 describe('requested voice booking link', () => {
+  it('queues one public link directly to the caller ID only for the same leased call', async () => {
+    const { queueVoiceBookingLink } = await import('./bookingLink.server');
+    const input = await liveCall();
+    await db.update(schema.voiceCallSchema).set({
+      callerNumber: '+14165550100',
+      draft: { booking: { operation: null }, bookingStatus: null, bookingLinkPending: null, bookingLinkAttempted: false },
+    }).where(eq(schema.voiceCallSchema.id, input.callId));
+    const request = { salonId: input.salonId, callId: input.callId, leaseToken: input.leaseToken, liveSessionId: input.liveSessionId, callerId: true as const, phone: input.phone };
+
+    await expect(queueVoiceBookingLink({ ...request, phone: '4165550101' })).rejects.toThrow('VOICE_BOOKING_LINK_CALL_STALE');
+    await expect(queueVoiceBookingLink({ ...request, salonId: 'voice-link-b' })).rejects.toThrow('VOICE_BOOKING_LINK_CALL_STALE');
+
+    const queued = await queueVoiceBookingLink(request);
+    const [intent] = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.id, queued.intentId));
+
+    expect(intent).toMatchObject({ salonId: input.salonId, recipient: input.phone, eventType: 'voice_booking_link' });
+    await expect(queueVoiceBookingLink(request)).rejects.toThrow('VOICE_BOOKING_LINK_CALL_STALE');
+  });
+
   it('rolls back an interrupted request even when interruption arrives after the intent insert', async () => {
     const { queueVoiceBookingLink } = await import('./bookingLink.server');
     const input = await liveCall();
