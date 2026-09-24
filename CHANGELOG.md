@@ -1,3 +1,10 @@
+## [1.130.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.130.2...v1.130.3) (2026-09-24)
+
+
+### Bug Fixes
+
+* **voice:** return TwiML after SIP calls and diagnose disconnects ([#312](https://github.com/SniperStopSniping/nailsalon/issues/312)) ([53ec221](https://github.com/SniperStopSniping/nailsalon/commit/53ec221b4b3f1173927228cab226f272d6066c23))
+
 ## [1.130.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.130.1...v1.130.2) (2026-09-24)
 
 
