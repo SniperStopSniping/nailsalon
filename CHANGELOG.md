@@ -1,3 +1,10 @@
+## [1.131.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.4...v1.131.5) (2026-09-24)
+
+
+### Bug Fixes
+
+* **voice:** complete appointment selection and booking link fallback ([#320](https://github.com/SniperStopSniping/nailsalon/issues/320)) ([d407f43](https://github.com/SniperStopSniping/nailsalon/commit/d407f432500b4a3638a5b34bdba50c8a52eb20f6))
+
 ## [1.131.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.3...v1.131.4) (2026-09-24)
 
 
