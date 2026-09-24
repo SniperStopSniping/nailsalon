@@ -103,6 +103,24 @@ describe('explicit customer booking adapter', () => {
     expect(body.expectedTotalCents).toBe(7000);
   });
 
+  it('puts the unknown product and assessment instruction in the technician note', async () => {
+    const bufferedOperation = {
+      ...operation,
+      material: {
+        ...material,
+        manualConfirmationContext: { currentProduct: 'unknown', itemIds: ['assessment'], removalRequired: false },
+        review: { ...material.review, manualConfirmationItems: [{ id: 'assessment', name: 'Existing product assessment', quantity: 1, durationMinutes: 20, priceStatus: 'to_be_confirmed' }] },
+      },
+    };
+    mocks.read.mockResolvedValueOnce(bufferedOperation).mockResolvedValueOnce({ ...bufferedOperation, appointmentId: 'one' });
+
+    await confirmCustomerBooking(input());
+    const [request] = mocks.create.mock.calls[0]!;
+    const body = await request.json();
+
+    expect(body.notes).toBe('Manual confirmation required:\n- Existing product assessment: price to be confirmed\nCurrent product: Unknown\nExisting product unknown — technician to assess before service.');
+  });
+
   it('forwards only the server-stored next-visit reference through access, never through public JSON', async () => {
     const withOffer = { ...operation, material: { ...material, nextVisitOffer: { campaignId: 'campaign', entitlementId: 'offer' } } };
     mocks.read.mockResolvedValueOnce(withOffer).mockResolvedValueOnce({ ...withOffer, appointmentId: 'one' });

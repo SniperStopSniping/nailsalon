@@ -69,6 +69,17 @@ describe('bounded customer availability adapter', () => {
     expect(result).toBeNull();
   });
 
+  it('checks availability with the assessment add-on in the canonical selection', async () => {
+    const buffered = { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'assessment', quantity: 1 }] };
+    mocks.config.mockResolvedValue({ timezone: 'America/Toronto' });
+    mocks.proposal.mockResolvedValue({ ...proposal, selection: buffered, durationMinutes: 80 });
+    const lookup = vi.fn().mockResolvedValue(Response.json({ slots: [{ time: '15:00', startTime: '2026-09-20T19:00:00.000Z', availability: 'available' }] }));
+
+    await lookupCustomerSlots({ salon: { id: 'salon-a', slug: 'isla-nail-studio' }, features: null, selection: buffered, preference: { date: '2026-09-20', earliest: '00:00', latest: '23:59' }, now: new Date('2026-09-18T12:00:00Z'), lookup });
+
+    expect(lookup).toHaveBeenCalledWith(expect.objectContaining({ selectedAddOns: JSON.stringify(buffered.selectedAddOns) }));
+  });
+
   it('rechecks an offered slot outside the eight-slot display cap and discards slots after a quote change', async () => {
     mocks.config.mockResolvedValue({ timezone: 'America/Toronto' });
     const changedProposal = { ...proposal, fingerprint: 'b'.repeat(64) };

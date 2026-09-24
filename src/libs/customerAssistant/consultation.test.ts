@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveCatalogSelection } from '@/libs/catalogResolverCore';
+import { buildPublicCatalogSnapshot, resolveCatalogSelection } from '@/libs/catalogResolverCore';
+import { makeFixtureAddOn, makeFixtureBinding, makeFixtureRule, makeFixtureService } from '@/libs/catalogResolverFixtures';
+import { projectPublicBookingCatalog } from '@/libs/publicBookingCatalog';
 
 import { SEMANTIC_L1_MENU as menu, SEMANTIC_L1_SNAPSHOT as snapshot } from './__evals__/semanticCases';
 import { assessCustomerConsultation, customerConsultationChoices, customerPartialQuoteSelection } from './consultation';
@@ -74,6 +76,79 @@ describe('server-owned consultation completeness', () => {
     const manicure = menu.services.find(item => item.name === 'Gel Manicure')!.id;
 
     expect(assess({ ...emptyFacts(), treatment: 'gel_polish', desiredApplication: 'natural_nails', designPreference: 'plain' }, { baseServiceId: manicure, selectedAddOns: [] })).toMatchObject({ kind: 'clarification', question: 'product' });
+  });
+
+  it('can book a gel-polish refresh as the normal gel manicure without a removal add-on', () => {
+    const manicure = menu.services.find(item => item.name === 'Gel Manicure')!.id;
+    const facts: Facts = { ...emptyFacts(), treatment: 'gel_polish', desiredApplication: 'natural_nails', existingProduct: 'gel_polish', removal: 'unknown', designPreference: 'plain' };
+
+    expect(assess(facts, { baseServiceId: manicure, selectedAddOns: [] })).toEqual({ kind: 'selection', selection: { baseServiceId: manicure, selectedAddOns: [] } });
+  });
+
+  it('keeps a salon-automatic gel removal in the authoritative refresh quote', () => {
+    const serviceId = 'svc_refresh';
+    const addOnId = 'addon_required_removal';
+    const built = buildPublicCatalogSnapshot({
+      salonSettings: null,
+      services: [makeFixtureService({ id: serviceId, name: 'Gel Manicure', price: 4000, durationMinutes: 60 })],
+      addOns: [makeFixtureAddOn({ id: addOnId, name: 'Gel Polish Removal', priceCents: 1000, durationMinutes: 15, category: 'removal' })],
+      serviceAddOnBindings: [makeFixtureBinding({ id: 'binding_required_removal', serviceId, addOnId })],
+      addOnGroups: [],
+      rules: [makeFixtureRule({ id: 'rule_include_removal', ruleType: 'include', subjectServiceId: serviceId, objectAddOnId: addOnId, params: { autoAdd: true } })],
+    });
+
+    expect(built.ok).toBe(true);
+
+    if (!built.ok) {
+      return;
+    }
+    const catalogue = projectPublicBookingCatalog(built.snapshot, new Set([serviceId]));
+    const configuredMenu = {
+      services: [{ id: serviceId, name: 'Gel Manicure', description: '', category: 'manicure' }],
+      addOns: [{ id: addOnId, name: 'Gel Polish Removal', description: '', category: 'removal', pricingType: 'fixed', maxQuantity: 1, durationMinutes: 15 }],
+      bindings: [{ serviceId, addOnId, required: false, defaultQuantity: 1, maxQuantity: 1 }],
+    };
+    const currentFacts: Facts = { ...emptyFacts(), treatment: 'gel_polish', desiredApplication: 'natural_nails', existingProduct: 'gel_polish', designPreference: 'plain' };
+    const outcome = assessCustomerConsultation({ menu: configuredMenu, snapshot: catalogue, facts: currentFacts, candidate: { baseServiceId: serviceId, selectedAddOns: [] } });
+
+    expect(outcome.kind).toBe('selection');
+
+    if (outcome.kind === 'selection') {
+      expect(resolveCatalogSelection(catalogue, { serviceId, selectedAddOns: outcome.selection.selectedAddOns })).toMatchObject({ ok: true, selection: { totalDurationMinutes: 75, addOns: [{ addOnId }] } });
+    }
+  });
+
+  it('keeps an unknown-product assessment in the real selection and reserves its twenty minutes', () => {
+    const serviceId = 'svc_assessment_manicure';
+    const addOnId = 'addon_assessment';
+    const built = buildPublicCatalogSnapshot({
+      salonSettings: null,
+      services: [makeFixtureService({ id: serviceId, name: 'Gel Manicure', price: 4000, durationMinutes: 60 })],
+      addOns: [makeFixtureAddOn({ id: addOnId, name: 'Existing product assessment', priceCents: 0, durationMinutes: 20, category: 'removal' })],
+      serviceAddOnBindings: [makeFixtureBinding({ id: 'binding_assessment', serviceId, addOnId, priceMode: 'manual_confirmation' })],
+      addOnGroups: [],
+      rules: [],
+    });
+
+    expect(built.ok).toBe(true);
+
+    if (!built.ok) {
+      return;
+    }
+    const catalogue = projectPublicBookingCatalog(built.snapshot, new Set([serviceId]));
+    const configuredMenu = {
+      services: [{ id: serviceId, name: 'Gel Manicure', description: '', category: 'manicure' }],
+      addOns: [{ id: addOnId, name: 'Existing product assessment', description: '', category: 'removal', pricingType: 'fixed', maxQuantity: 1, durationMinutes: 20 }],
+      bindings: [{ serviceId, addOnId, required: false, defaultQuantity: 1, maxQuantity: 1, priceMode: 'manual_confirmation' as const }],
+    };
+    const currentFacts: Facts = { ...emptyFacts(), treatment: 'gel_polish', desiredApplication: 'natural_nails', existingProduct: 'unknown', currentProductUncertain: true, designPreference: 'plain' };
+    const outcome = assessCustomerConsultation({ menu: configuredMenu, snapshot: catalogue, facts: currentFacts, candidate: { baseServiceId: serviceId, selectedAddOns: [] } });
+
+    expect(outcome).toEqual({ kind: 'selection', selection: { baseServiceId: serviceId, selectedAddOns: [{ addOnId, quantity: 1 }] } });
+
+    if (outcome.kind === 'selection') {
+      expect(resolveCatalogSelection(catalogue, { serviceId, selectedAddOns: outcome.selection.selectedAddOns })).toMatchObject({ ok: true, selection: { totalDurationMinutes: 80, addOns: [{ addOnId, priceMode: 'manual_confirmation' }] } });
+    }
   });
 
   it('uses one salon-configured general other-salon removal without requiring the product name in the add-on', () => {
