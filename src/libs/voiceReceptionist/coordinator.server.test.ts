@@ -95,6 +95,22 @@ afterEach(() => {
 });
 
 describe('voice sideband consultation and interruption', () => {
+  it('does not describe an unresolved request as a full calendar', async () => {
+    mocks.consult.mockImplementation(async ({ draft }) => ({ draft, result: { kind: 'unavailable', reason: 'no_match' }, modelCalls: 1 }));
+    mocks.claim.mockResolvedValue({ ...await mocks.claim(), draft: { ...callState(), contact: null } });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('Do you have anything tomorrow?');
+    delegate('tomorrow-without-service');
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.sockets[0]!.send).toHaveBeenCalledWith(expect.stringContaining('No availability lookup succeeded'));
+    expect(mocks.choose).not.toHaveBeenCalled();
+
+    close();
+    await run;
+  });
+
   it('takes a natural acceptance through contact collection to the signed booking checkpoint', async () => {
     const slot = { time: '4:00 PM', startTime: '2030-01-01T21:00:00.000Z' };
     const proposal = { service: { name: 'Gel Manicure' }, addOns: [] };

@@ -288,6 +288,12 @@ export async function runVoiceConsultation(args: {
       lookupCustomerSlots: input => lookupCustomerSlots({ ...input, now }),
       lookupNextCustomerSlots: input => lookupNextCustomerSlots({ ...input, now }),
     });
+    if (intent.action === 'availability' && result.kind === 'unavailable' && result.reason === 'no_match' && !next.context?.selection) {
+      // A date without a resolved service never reached the calendar. Give
+      // Live a concrete service question instead of an unavailable result it
+      // could incorrectly describe as an empty day.
+      result = { kind: 'clarification', question: 'service', options: [], message: 'Which nail service would you like? I can check that day once I know the service.' };
+    }
     if (result.kind === 'slots') {
       // Voice says one recommendation. Retaining unseen slots would make
       // "later" anchor after the last hidden slot instead of the spoken one.

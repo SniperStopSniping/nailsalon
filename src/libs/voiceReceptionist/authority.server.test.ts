@@ -95,6 +95,18 @@ const interpreterFallback = {
 };
 
 describe('voice receptionist shared authority adapter', () => {
+  it('asks for a service when tomorrow was requested before any calendar lookup', async () => {
+    mocks.resolve.mockResolvedValueOnce({ kind: 'unavailable', reason: 'no_match' });
+    const provider = { createResponse: vi.fn(async () => ({ status: 'completed' as const, items: [{ type: 'message' as const, text: JSON.stringify({ ...interpreterFallback, action: 'availability', availabilityScope: 'specific_window', dateExplicitThisTurn: true, datePreference: { date: '2026-09-25', earliest: '00:00', latest: '23:59' } }) }], usage: null })) };
+
+    const response = await runVoiceConsultation({ salon, draft: createVoiceDraft(salon.id, callId), message: 'Do you have anything tomorrow?' }, provider);
+
+    expect(response.result).toMatchObject({ kind: 'clarification', question: 'service', message: expect.stringContaining('Which nail service') });
+    expect(mocks.resolve).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ action: 'availability' }), expect.anything(), expect.anything(), expect.anything());
+    expect(mocks.lookup).not.toHaveBeenCalled();
+    expect(mocks.next).not.toHaveBeenCalled();
+  });
+
   it('keeps only the spoken selected slot after rechecking it', async () => {
     const draft = selectedDraft();
     mocks.lookup.mockResolvedValue({ quoteChanged: false, selected: { time: '16:00', startTime: '2026-09-26T20:00:00.000Z' }, slots: [

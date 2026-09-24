@@ -29,6 +29,8 @@ GPT-Live handles natural speech and interruption. Its client-delegation event co
 
 Caller ID only suggests a callback number. The receptionist asks for a name and email, then reads the suggested caller-ID number once and accepts natural confirmation such as “yeah.” A caller can supply a different number. That completes initial contact collection; the interruptible final review repeats the contact and allows corrections before the separate explicit booking confirmation. Text reminders preserve Luster's existing salon default, which the final review discloses with STOP information when enabled. Only an exact, high-confidence, signed Twilio correction can record an explicit reminder preference; partial Live speech cannot opt a caller in. A callback-number change clears any prior explicit preference, and salon-level disabled messaging stays authoritative. Card details are rejected; the caller uses the existing secure checkout link. Deposit mail validates the actual canonical email recipient against the operation-bound confirmed contact.
 
+Availability requires a resolved bookable service. When the caller names a day before the service is clear, the receptionist asks one service question; `no_match` is never evidence that the day is full. Only checked slots from the shared public booking engine may be spoken as available.
+
 ## Booking consent and recovery
 
 Live transcript fragments are not reliable end-of-turn or playback-completion events. They never authorize a phone booking. The server switches the same parent call to a deterministic Twilio checkpoint:

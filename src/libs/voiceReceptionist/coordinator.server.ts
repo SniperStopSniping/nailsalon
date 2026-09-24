@@ -510,6 +510,9 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       state.contact = state.contact?.step === 'complete' ? { ...state.contact, step: 'verify' } : state.contact ?? { step: 'name', name: '', email: '', phone: spokenPhone(call.callerNumber ?? '') ?? '' };
       send('session.commentary.append', `Luster rechecked this offered slot; it is not held. ${contactPrompt(state.contact)}`, delegationId);
     } else {
+      if (response.result.kind === 'unavailable' && response.result.reason === 'no_match') {
+        send('session.commentary.append', 'No availability lookup succeeded for this request. Do not say the salon is full or has no openings. Ask one short question to identify the service or clarify the request.', delegationId);
+      }
       if ('availabilityIssue' in response && response.availabilityIssue === 'unverified') {
         send('session.commentary.append', 'Luster could not verify an appointment time right now. You may state the checked service price below, but say you are having trouble checking times and offer to text the verified booking page using caller ID when available.', delegationId);
       }
