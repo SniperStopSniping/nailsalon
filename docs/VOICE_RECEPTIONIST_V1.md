@@ -111,3 +111,9 @@ Latency fields distinguish sideband attachment, first observed output transcript
 Checked 2026-09-22: [GPT-Live-1](https://developers.openai.com/api/docs/models/gpt-live-1) costs US$0.05 per voice minute, billed per second, plus backend usage. [Twilio Canada](https://www.twilio.com/en-us/voice/pricing/ca) lists US$0.0085/min local inbound, US$0.0040/min SIP, US$0.02 per default speech Gather and US$1.15/month local number rental; TTS is additional.
 
 A conservative illustrative four-minute call with four Live minutes and two Gather uses is about US$0.29 before TTS, interpretation tokens, hosting, messaging, taxes and number rental: `4 × (0.05 + 0.0085 + 0.004) + 2 × 0.02`. Actual SIP/Live duration ends during the Twilio checkpoint, and carrier billing increments/provider invoices govern final cost. This is an estimate, not a measured pilot invoice.
+
+## Diagnosing a phone session that ends immediately
+
+The signed `/api/voice/twilio/dial-ended` endpoint is a Dial action: successful responses must be HTTP 200 with an XML TwiML document, including when a checkpoint owns the call. A 204 is appropriate for the separate parent status callback, but causes Twilio error 12300 when used for this action. Ending the SIP leg must not finalize an active booking checkpoint.
+
+Inspect `[voice-sideband]` runtime diagnostics alongside the incoming OpenAI request. They contain only fixed connection stages/failure categories, attach HTTP status, WebSocket close code, provider error count, retry index and booleans. They deliberately exclude provider response bodies, error text, close reasons, call identifiers, caller data and credentials. An accepted SIP session alone does not prove sideband attachment or spoken output.
