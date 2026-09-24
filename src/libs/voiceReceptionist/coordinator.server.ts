@@ -121,6 +121,11 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
   const sameLiveSession = savedMetrics?.liveSessionId === call.liveSessionId;
   const baseVoiceSeconds = sameLiveSession ? Number(savedMetrics?.baseVoiceSeconds ?? 0) : call.voiceSeconds ?? 0;
   const metrics: Record<string, number | boolean | string> = { interrupted: 0, delegations: 0, recovered: !!call.draft, finalUsageConfirmed: false, liveSessionId: call.liveSessionId, baseVoiceSeconds };
+  let connectionStage = 'connecting';
+  let connectionFailure = 'none';
+  let handshakeStatus = 0;
+  let closeCode = 0;
+  let providerErrors = 0;
   let epoch = 0;
   let lastOutputEnd = 0;
   let lastInputEnd = 0;
@@ -393,6 +398,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
     await new Promise<void>((resolve) => {
       socket.on('open', () => {
         metrics.attachMs = Date.now() - started;
+        connectionStage = 'loading_facts';
         void (async () => {
           if (state.booking.operation) {
             const operation = await readCustomerBookingOperation({ salonId: call.salonId, capability: state.booking.operation.capability, secret: config.signingSecret });
@@ -402,12 +408,15 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
           }
           const facts = await loadCustomerPublicFacts({ salonId: salon.id, salonSlug: salon.slug, features: salon.features as VoiceSalon['features'], locale: 'en' });
           send('session.thinking.append', `Verified public salon facts. Base prices are not booking quotes: ${JSON.stringify(facts)}`);
+          connectionStage = 'saving_state';
           await persist({ status: 'connected' });
           if (call.draft) {
             send('session.thinking.append', `Saved authoritative consultation: ${JSON.stringify(state.booking.lastResult)}. ${state.contact ? contactPrompt(state.contact) : ''}`);
           }
           send('session.instructions.append', call.draft ? `READY. The backend reconnected. Consent has been reset. ${state.bookingStatus ? statusFacts(state.bookingStatus) : 'Resume the saved consultation and obtain a new review and confirmation before booking.'}` : `READY. Greet the caller now: identify yourself as the AI receptionist for ${salon.name}. Ask how you can help. ${settings.greeting ?? ''}`);
+          connectionStage = 'ready';
         })().catch(() => {
+          connectionFailure = 'bootstrap';
           stopped = true;
           socket.close();
         });
@@ -428,7 +437,10 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
             seen.delete(seen.values().next().value!);
           }
         }
-        if (event.type === 'session.input_transcript.delta' && typeof event.delta === 'string' && Number.isFinite(event.start_ms) && Number.isFinite(event.end_ms)) {
+        if (event.type === 'error') {
+          // Provider messages may contain caller text or credentials. Count only.
+          providerErrors += 1;
+        } else if (event.type === 'session.input_transcript.delta' && typeof event.delta === 'string' && Number.isFinite(event.start_ms) && Number.isFinite(event.end_ms)) {
           epoch += 1;
           const start = event.start_ms!;
           lastInputEnd = Math.max(lastInputEnd, event.end_ms!);
@@ -470,8 +482,20 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
           resolve();
         }
       });
-      socket.on('error', () => resolve());
-      socket.on('close', () => resolve());
+      socket.on('unexpected-response', (_request, response) => {
+        handshakeStatus = response.statusCode ?? 0;
+        connectionFailure = 'handshake';
+        response.resume();
+        resolve();
+      });
+      socket.on('error', () => {
+        connectionFailure = connectionFailure === 'none' ? 'socket' : connectionFailure;
+        resolve();
+      });
+      socket.on('close', (code) => {
+        closeCode = Number.isInteger(code) ? code : closeCode;
+        resolve();
+      });
     });
   } finally {
     stopped = true;
@@ -483,6 +507,10 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       clearTimeout(timer);
     }
     socket.terminate();
+    Object.assign(metrics, { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, reconnectAttempt });
+    // Fixed labels and numbers only: never log provider bodies, socket errors,
+    // close reasons, identifiers, transcripts, or authentication headers.
+    console.warn('[voice-sideband]', { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, reconnectAttempt, sessionClosed: ended, attached: metrics.attachMs !== undefined });
     const current = await getVoiceCall(call.id, call.salonId).catch(() => null);
     const transferred = handedOff || current?.status === 'awaiting_confirmation' || (current?.liveSessionId && current.liveSessionId !== call.liveSessionId) || (current?.leaseToken && current.leaseToken !== leaseToken);
     if (!transferred && !ended && reconnectAttempt < 2 && Date.now() < deadline - 15_000 && current && !current.endedAt) {

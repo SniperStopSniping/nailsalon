@@ -5,19 +5,19 @@ const mocks = vi.hoisted(() => {
   class Socket {
     static OPEN = 1;
     readyState = 1;
-    events = new Map<string, ((data?: unknown) => void)[]>();
+    events = new Map<string, ((...data: unknown[]) => void)[]>();
     send = vi.fn();
     constructor() {
       sockets.push(this);
     }
 
-    on(name: string, handler: (data?: unknown) => void) {
+    on(name: string, handler: (...data: unknown[]) => void) {
       this.events.set(name, [...(this.events.get(name) ?? []), handler]);
     }
 
-    emit(name: string, data?: unknown) {
+    emit(name: string, ...data: unknown[]) {
       for (const handler of this.events.get(name) ?? []) {
-        handler(data);
+        handler(...data);
       }
     }
 
@@ -73,6 +73,7 @@ function close() {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   mocks.sockets.length = 0;
   mocks.claim.mockResolvedValue({ id: 'call-a', salonId: 'salon-a', provider: 'twilio', providerCallId: 'CAparent', createdAt: new Date(), liveSessionId: 'live-a', draft: callState(), voiceSeconds: 0 });
   mocks.get.mockResolvedValue(null);
@@ -86,9 +87,34 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('voice sideband consultation and interruption', () => {
+  it('records a failed attach status without logging the provider response or secrets', async () => {
+    const run = coordinateVoiceCall('call-a', config);
+    await vi.advanceTimersByTimeAsync(0);
+    const resume = vi.fn();
+    mocks.sockets[0]!.emit('unexpected-response', { headers: { Authorization: 'secret-token' } }, { statusCode: 403, resume, body: 'private caller text' });
+    await run;
+
+    expect(resume).toHaveBeenCalledOnce();
+    expect(console.warn).toHaveBeenCalledWith('[voice-sideband]', expect.objectContaining({ connectionStage: 'connecting', connectionFailure: 'handshake', handshakeStatus: 403, attached: false }));
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toMatch(/secret-token|private caller text/);
+    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ status: 'dropped', metrics: expect.objectContaining({ handshakeStatus: 403 }) }));
+  });
+
+  it('records provider error count and socket close code without retaining their text', async () => {
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    event({ type: 'error', error: { message: 'private caller text' } });
+    mocks.sockets[0]!.emit('close', 1008, 'secret-token');
+    await run;
+
+    expect(console.warn).toHaveBeenCalledWith('[voice-sideband]', expect.objectContaining({ connectionStage: 'ready', closeCode: 1008, providerErrors: 1, attached: true }));
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toMatch(/secret-token|private caller text/);
+  });
+
   it('hands a prepared phone review to the signed checkpoint and never books from Live transcript consent', async () => {
     const state = callState();
     const operation = { capability: 'operation-a', fingerprint: 'f'.repeat(64), revision: 1, expiresAt: new Date(Date.now() + 120_000).toISOString() };

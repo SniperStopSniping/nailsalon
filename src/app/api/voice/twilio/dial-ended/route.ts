@@ -6,6 +6,14 @@ export const runtime = 'nodejs';
 export const maxDuration = 800;
 
 const TERMINAL = new Set(['completed', 'canceled', 'failed', 'no-answer', 'busy']);
+// A Dial action requests the next TwiML document; it is not a status webhook.
+function dialEndedResponse() {
+  return new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
+    status: 200,
+    headers: { 'Content-Type': 'text/xml; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+}
+
 const CALL_SID = /^CA[0-9a-f]{32}$/i;
 
 export async function POST(request: Request) {
@@ -19,13 +27,13 @@ export async function POST(request: Request) {
     return new Response(null, { status: 403 });
   }
   if (!TERMINAL.has(dialStatus ?? '')) {
-    return new Response(null, { status: 204 });
+    return dialEndedResponse();
   }
   const existing = await getVoiceCallByProvider(form.AccountSid!, form.CallSid!);
   if (!existing || existing.status === 'awaiting_confirmation') {
-    return new Response(null, { status: 204 });
+    return dialEndedResponse();
   }
   const duration = Number.parseInt(form.DialCallDuration ?? form.CallDuration ?? '0', 10);
   await finishVoiceCallFromProvider(form.AccountSid!, form.CallSid!, Number.isFinite(duration) ? duration : 0);
-  return new Response(null, { status: 204 });
+  return dialEndedResponse();
 }
