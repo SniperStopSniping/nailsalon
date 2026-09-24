@@ -54,7 +54,8 @@ describe('controlled templates', () => {
         expect(body).toMatch(/^(?:.+ via Luster: |Luster: )/);
         expect(body.includes('Reply STOP to opt out.')).toBe(
           template.key === 'client_manual_text'
-          || template.key === 'client_booking_recovery_shortlink',
+          || template.key === 'client_booking_recovery_shortlink'
+          || template.key === 'client_voice_booking_link',
         );
       }
     }

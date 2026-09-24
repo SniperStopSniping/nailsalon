@@ -16,6 +16,9 @@ export type VoiceCallState = {
   booking: VoiceDraft;
   contact: VoiceContactState | null;
   callbackPending: boolean;
+  bookingLinkPending?: { id: string; phone: string; afterMs: number } | null;
+  bookingLinkAuthority?: { intentId: string; recipientHash: string } | null;
+  bookingLinkAttempted?: boolean;
   consentHash: string | null;
   bookingStatus: CustomerBookingStatus | null;
   depositDelivery?: 'accepted' | 'pending' | 'failed' | 'unavailable' | 'not_required';

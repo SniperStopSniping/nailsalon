@@ -29,6 +29,47 @@ export function isVoiceNo(text: string): boolean {
   return /^(?:no|no thanks|no thank you|no please|no gracias|no por favor)$/.test(normalizedSpeech(text));
 }
 
+/** Only an explicit request can start a one-time public booking-link text. */
+export function isVoiceBookingLinkRequest(text: string): boolean {
+  const words = normalizedSpeech(text).split(' ');
+  const sendIndex = words.findIndex(word => ['text', 'send', 'sms', 'message'].includes(word));
+  const bookingIndex = words.findIndex(word => ['booking', 'book', 'appointment'].includes(word));
+  const linkIndex = words.findIndex(word => ['link', 'page'].includes(word));
+  if (sendIndex < 0 || bookingIndex < 0 || linkIndex < 0
+    || words.slice(Math.max(0, sendIndex - 5), sendIndex).some(word => ['not', 'dont', 'don\'t', 'never', 'already'].includes(word))) {
+    return false;
+  }
+  return true;
+}
+
+export function isVoiceBookingLinkAffirmation(text: string): boolean {
+  return isVoiceContactAffirmation(text)
+    || /^(?:yes|yeah|yep|si)(?: please)? (?:text|send)(?: me)? (?:it|the link|the booking link)(?: please)?$/.test(normalizedSpeech(text));
+}
+
+/** Confirm that the voice actually read back the same number the backend will text. */
+export function containsVoicePhoneReadback(output: string, phone: string): boolean {
+  const digits: Record<string, string> = { zero: '0', oh: '0', one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9', cero: '0', uno: '1', dos: '2', tres: '3', cuatro: '4', cinco: '5', seis: '6', siete: '7', ocho: '8', nueve: '9' };
+  const rendered = normalizedSpeech(output).split(' ').map(word => digits[word] ?? word).join(' ').replace(/\D/g, '');
+  return /^\d{10}$/.test(phone) && rendered.includes(phone);
+}
+
+export function spokenPhoneCorrection(text: string): string | null {
+  const speech = normalizedSpeech(text)
+    .replace(/^no\s+/, '')
+    .replace(/^(?:use|its|it's|my number is|the number is|text it to|send it to)\s+/, '');
+  return spokenPhone(text) ?? spokenPhone(speech);
+}
+
+export function isVoiceBookingLinkRevocation(text: string): boolean {
+  const speech = normalizedSpeech(text);
+  return /\b(?:cancel|stop|dont|don't|do not|never)\b.+\b(?:text|sms|message|link|send)\b/.test(speech)
+    || /\b(?:wrong|different|change|changed|correct|actually|not my)\b.+\b(?:phone|number|mobile)\b/.test(speech)
+    || /\b(?:phone|number|mobile)\b.+\b(?:wrong|different|change|changed)\b/.test(speech)
+    || /\b(?:my|the)\s+(?:phone|number|mobile)\s+(?:is|should be)\b/.test(speech)
+    || speech === 'cancel it';
+}
+
 /** Matches only one of Luster's offered slots, preserving ambiguity. */
 export function matchVoiceOfferedSlot(offered: { time: string; startTime: string }[], message: string): string | null {
   const hours: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12 };

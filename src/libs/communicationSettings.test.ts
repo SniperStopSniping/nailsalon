@@ -22,6 +22,14 @@ const {
 const resolveDefaults = () => communicationSettingsSchema.parse({});
 
 describe('contract defaults (§9.4 step 3, §11.1, §11.4)', () => {
+  it('lets the salon disable voice booking-link texts independently of other SMS', () => {
+    const settings = resolveCommunicationSettingsFromSettings({ communications: { sms: { enabled: true }, events: { voice_booking_link: { enabled: false, channels: 'sms' } } } } as never);
+    const enabled = resolveCommunicationSettingsFromSettings({ communications: { sms: { enabled: true } } } as never);
+
+    expect(resolveEventChannels(settings, 'voice_booking_link')).toEqual([]);
+    expect(resolveEventChannels(enabled, 'voice_booking_link')).toEqual(['sms']);
+  });
+
   it('ships the shared SMS master DISABLED', () => {
     // Deploy-day silence must be structural, not configured.
     expect(resolveDefaults().sms.enabled).toBe(false);

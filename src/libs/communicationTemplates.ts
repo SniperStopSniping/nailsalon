@@ -169,6 +169,13 @@ const WORST_CASE_SALON_NAME = 'Twenty Four Septet Name Xy';
 const WORST_CASE_TIME = 'Wed Aug 26, 12:30 PM';
 
 export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
+  client_voice_booking_link: {
+    key: 'client_voice_booking_link',
+    version: 'v1',
+    audience: 'client',
+    render: variables => `${buildClientSmsPrefix(variables.salonName ?? '')}Book here: ${variables.bookingUrl ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [{ salonName: WORST_CASE_SALON_NAME, bookingUrl: 'https://www.lustergel.app/en/isla-nail-studio/book/service' }],
+  },
   client_manual_text: {
     key: 'client_manual_text',
     version: 'v1',

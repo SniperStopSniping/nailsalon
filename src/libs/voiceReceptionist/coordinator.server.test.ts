@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => {
       this.close();
     }
   }
-  return { Socket, sockets, claim: vi.fn(), get: vi.fn(), save: vi.fn(), release: vi.fn(), settings: vi.fn(), review: vi.fn(), consult: vi.fn(), checkpoint: vi.fn(), readOperation: vi.fn(), status: vi.fn(), live: vi.fn() };
+  return { Socket, sockets, claim: vi.fn(), get: vi.fn(), save: vi.fn(), release: vi.fn(), settings: vi.fn(), review: vi.fn(), consult: vi.fn(), checkpoint: vi.fn(), readOperation: vi.fn(), status: vi.fn(), live: vi.fn(), queueLink: vi.fn(), revokeLink: vi.fn(), recipientHash: vi.fn() };
 });
 vi.mock('server-only', () => ({}));
 vi.mock('ws', () => ({ default: mocks.Socket }));
@@ -39,6 +39,7 @@ vi.mock('@/libs/customerAssistant/operationStore.server', () => ({ readCustomerB
 vi.mock('@/libs/customerAssistant/bookingStatus.server', () => ({ readCustomerBookingStatus: mocks.status }));
 vi.mock('./authority.server', () => ({ createVoiceDraft: vi.fn(), prepareVoiceReview: mocks.review, runVoiceConsultation: mocks.consult, chooseVoiceSlot: vi.fn() }));
 vi.mock('./checkpoint.server', () => ({ requestVoiceCheckpoint: mocks.checkpoint }));
+vi.mock('./bookingLink.server', () => ({ queueVoiceBookingLink: mocks.queueLink, revokeVoiceBookingLinkAuthority: mocks.revokeLink, voiceBookingLinkRecipientHash: mocks.recipientHash }));
 vi.mock('./live.server', () => ({ liveSessionPath: (id: string) => `/${id}`, voiceLiveRequest: mocks.live }));
 vi.mock('./storage.server', () => ({ claimVoiceLease: mocks.claim, renewVoiceLease: mocks.claim, getVoiceCall: mocks.get, saveVoiceCall: mocks.save, releaseVoiceLease: mocks.release, getVoiceSettings: mocks.settings }));
 const { coordinateVoiceCall, voiceOutputLanguage } = await import('./coordinator.server');
@@ -82,6 +83,9 @@ beforeEach(() => {
   mocks.settings.mockResolvedValue({ enabled: true, bookingEnabled: true, language: 'auto', callbackEnabled: true });
   mocks.checkpoint.mockResolvedValue(undefined);
   mocks.live.mockResolvedValue(new Response(null));
+  mocks.queueLink.mockResolvedValue({ intentId: 'intent-a', created: true, authority: { intentId: 'intent-a', recipientHash: 'hash-a' } });
+  mocks.revokeLink.mockResolvedValue(true);
+  mocks.recipientHash.mockImplementation((phone: string) => phone === '4165550100' ? 'hash-a' : 'hash-other');
   mocks.consult.mockImplementation(async ({ draft }) => ({ draft, result: { kind: 'answer', topic: 'conversation', message: '', options: [] }, modelCalls: 0 }));
 });
 
@@ -91,6 +95,112 @@ afterEach(() => {
 });
 
 describe('voice sideband consultation and interruption', () => {
+  it('starts the number-confirmation flow when the caller accepts a spoken offer', async () => {
+    const call = await mocks.claim();
+    mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    output('Would you like me to text you the booking link?', 20, 80);
+    input('yes', 100, 200);
+    delegate();
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.queueLink).not.toHaveBeenCalled();
+    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ draft: expect.objectContaining({ bookingLinkPending: expect.objectContaining({ phone: '4165550100' }) }) }));
+
+    close();
+    await run;
+  });
+
+  it('revokes the queued link when the caller cancels or corrects the phone', async () => {
+    const state = { ...callState(), bookingLinkAuthority: { intentId: 'intent-a', recipientHash: 'hash-a' }, bookingLinkAttempted: true };
+    const call = await mocks.claim();
+    mocks.claim.mockResolvedValue({ ...call, draft: state });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('Actually my phone number is 416 555 0101');
+    delegate();
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.revokeLink).toHaveBeenCalledWith(expect.objectContaining({ intentId: 'intent-a' }));
+    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ draft: expect.objectContaining({ bookingLinkAuthority: null }) }));
+
+    close();
+    await run;
+  });
+
+  it('revokes a queued link when cancellation is followed by immediate hangup', async () => {
+    const state = { ...callState(), bookingLinkAuthority: { intentId: 'intent-a', recipientHash: 'hash-a' }, bookingLinkAttempted: true };
+    const call = await mocks.claim();
+    mocks.claim.mockResolvedValue({ ...call, draft: state });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('Don\'t send that text');
+    close();
+    await run;
+
+    expect(mocks.revokeLink).toHaveBeenCalledWith(expect.objectContaining({ intentId: 'intent-a' }));
+    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ status: 'completed', draft: expect.objectContaining({ bookingLinkAuthority: null }) }));
+  });
+
+  it('revokes an intent if the caller interrupts while the queue transaction is finishing', async () => {
+    const call = await mocks.claim();
+    mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });
+    let resolveQueue!: (value: unknown) => void;
+    mocks.queueLink.mockReturnValue(new Promise((resolve) => {
+      resolveQueue = resolve;
+    }));
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('Text me the booking link');
+    delegate();
+    await vi.advanceTimersByTimeAsync(700);
+    output('Should I text the link to 4 1 6 5 5 5 0 1 0 0?', 410, 480);
+    input('yes', 500, 600);
+    delegate('delegation-b');
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.queueLink).toHaveBeenCalledOnce();
+
+    input('Actually use a different number', 700, 900);
+    resolveQueue({ intentId: 'intent-a', created: true, authority: { intentId: 'intent-a', recipientHash: 'hash-a' } });
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.revokeLink).toHaveBeenCalledWith(expect.objectContaining({ intentId: 'intent-a' }));
+
+    close();
+    await run;
+  });
+
+  it('requests one link only after the caller confirms the read-back mobile number', async () => {
+    const call = await mocks.claim();
+    mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('Can you text me the booking link?');
+    delegate();
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.queueLink).not.toHaveBeenCalled();
+
+    input('No, use 416 555 0101', 500, 800);
+    delegate('delegation-b');
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.queueLink).not.toHaveBeenCalled();
+
+    output('Is 4 1 6 5 5 5 0 1 0 1 your Canadian mobile number and should I text the booking link?', 810, 880);
+    input('yes', 900, 1050);
+    delegate('delegation-c');
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.queueLink).toHaveBeenCalledOnce();
+    expect(mocks.queueLink).toHaveBeenCalledWith(expect.objectContaining({ salonId: 'salon-a', callId: 'call-a', phone: '4165550101' }));
+
+    close();
+    await run;
+  });
+
   it('records a failed attach status without logging the provider response or secrets', async () => {
     const run = coordinateVoiceCall('call-a', config);
     await vi.advanceTimersByTimeAsync(0);
