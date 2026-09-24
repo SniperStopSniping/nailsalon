@@ -1,3 +1,10 @@
+## [1.131.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.1...v1.131.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **booking:** allow same-slot booking after cancellation ([731957c](https://github.com/SniperStopSniping/nailsalon/commit/731957c099855452766b979353fb8a816f9ee54f))
+
 ## [1.131.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.0...v1.131.1) (2026-09-24)
 
 
