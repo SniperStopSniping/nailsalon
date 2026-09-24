@@ -1,3 +1,10 @@
+## [1.131.8](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.7...v1.131.8) (2026-09-24)
+
+
+### Bug Fixes
+
+* **voice:** accept final yes and shorten phone review ([#323](https://github.com/SniperStopSniping/nailsalon/issues/323)) ([73784ec](https://github.com/SniperStopSniping/nailsalon/commit/73784eca0df2d280e6d41c1d9057837d8d45e69b))
+
 ## [1.131.7](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.6...v1.131.7) (2026-09-24)
 
 
