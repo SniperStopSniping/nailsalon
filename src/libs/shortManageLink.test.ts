@@ -59,7 +59,7 @@ describe('shortManageLink', () => {
       mintShortManageToken(tx, { salonId: 'sl1', appointmentId: 'apt_sl1', expiresAt: FUTURE }));
 
     expect(minted.token).toMatch(/^[\w-]{22}$/);
-    expect(minted.url).toBe(`https://islanailsalon.com/a/${minted.token}`);
+    expect(minted.url).toBe(`https://lustergel.app/a/${minted.token}`);
 
     const raw = await db.execute(sql`
       SELECT COUNT(*)::int AS n FROM appointment_access_token WHERE token_hash = ${minted.token}
@@ -120,7 +120,7 @@ describe('shortManageLink', () => {
       const { GET } = await import('../app/a/[token]/route');
 
       const ok = await GET(
-        new Request('https://islanailsalon.com/a/x', { headers: { 'x-forwarded-for': '10.9.0.1' } }),
+        new Request('https://lustergel.app/a/x', { headers: { 'x-forwarded-for': '10.9.0.1' } }),
         { params: Promise.resolve({ token: minted.token }) },
       );
 
@@ -130,7 +130,7 @@ describe('shortManageLink', () => {
       expect(ok.headers.get('Referrer-Policy')).toBe('no-referrer');
 
       const unknown = await GET(
-        new Request('https://islanailsalon.com/a/x', { headers: { 'x-forwarded-for': '10.9.0.2' } }),
+        new Request('https://lustergel.app/a/x', { headers: { 'x-forwarded-for': '10.9.0.2' } }),
         { params: Promise.resolve({ token: 'B'.repeat(22) }) },
       );
 
