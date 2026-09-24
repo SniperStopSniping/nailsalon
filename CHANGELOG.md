@@ -1,3 +1,10 @@
+## [1.131.7](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.6...v1.131.7) (2026-09-24)
+
+
+### Bug Fixes
+
+* **voice:** clarify service before claiming no availability ([#322](https://github.com/SniperStopSniping/nailsalon/issues/322)) ([a0ecb59](https://github.com/SniperStopSniping/nailsalon/commit/a0ecb598cc867cca4ab3257ca7d214084fd1cfac))
+
 ## [1.131.6](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.5...v1.131.6) (2026-09-24)
 
 
