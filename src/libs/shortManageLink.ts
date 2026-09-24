@@ -52,7 +52,7 @@ export function resolveShortLinkOrigin(): string {
   if (configured && configured.length > 0) {
     return configured.replace(/\/$/, '');
   }
-  return 'https://islanailsalon.com';
+  return 'https://lustergel.app';
 }
 
 export function buildShortManageUrl(token: string): string {
