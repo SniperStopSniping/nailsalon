@@ -338,9 +338,12 @@ describe('dispatcher — dark by default, live only behind every switch', () => 
       const settings = resolveCommunicationSettingsFromSettings(salon!.settings);
       const rule = settings.reminders.rules[0]!;
       const startTime = new Date(NOW.getTime() + 24 * 60 * 60 * 1000);
+      const technicianId = `tech_${salonId}`;
+      await db.insert(schema.technicianSchema).values({ id: technicianId, salonId, name: 'Daniela Santos' });
       const [appointment] = await db.insert(schema.appointmentSchema).values({
         id: `exact_reminder_${salonId}`,
         salonId,
+        technicianId,
         clientName: 'Test Client',
         clientPhone: recipient,
         startTime,
@@ -358,7 +361,11 @@ describe('dispatcher — dark by default, live only behind every switch', () => 
     const provider = vi.fn(async (_input: { body: string }) => ({ sid: `SM_exact_${salonId}` }));
     const { COMMUNICATION_TEMPLATES } = await import('./communicationTemplates');
     const { prepareSmsBody } = await import('./smsSegments');
-    const prepared = prepareSmsBody(COMMUNICATION_TEMPLATES[templateKey]!.render({ ...variables, salonName: `Dispatch Salon ${salonSeq}` }));
+    const prepared = prepareSmsBody(COMMUNICATION_TEMPLATES[templateKey]!.render({
+      ...variables,
+      salonName: `Dispatch Salon ${salonSeq}`,
+      ...(eventType === 'appointment_reminder' ? { clientName: 'Test Client', technicianName: 'Daniela Santos' } : {}),
+    }));
     const { dispatchClaimedIntent } = await import('./communicationDispatcher');
 
     expect(await dispatchClaimedIntent(intent, provider, NOW)).toBe('sent');

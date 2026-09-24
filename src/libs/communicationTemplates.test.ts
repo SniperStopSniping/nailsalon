@@ -109,7 +109,7 @@ describe('controlled templates', () => {
 
   it.each([
     ['client_booking_confirmation_shortlink', 120],
-    ['client_appointment_reminder_shortlink', 119],
+    ['client_appointment_reminder_shortlink', 143],
     ['client_appointment_rescheduled_shortlink', 113],
     ['client_appointment_cancelled_shortlink', 109],
     ['client_booking_request_received_shortlink', 115],
@@ -133,6 +133,30 @@ describe('controlled templates', () => {
     expect(body).not.toContain('STOP');
     expect(calculateSmsSegments(template.render({ ...variables, salonName: 'ABCDEFGHIJKLMNOPQRSTUVWX', manageUrl: 'https://xxxxxxxxxxxxxxxxxxxxxxx/a/AbCdEfGhIjKlMnOpQrStUv' })))
       .toMatchObject({ encoding: 'gsm7', segments: 1 });
+  });
+
+  it('personalizes reminders and keeps long or Unicode names within one GSM segment', () => {
+    const template = COMMUNICATION_TEMPLATES.client_appointment_reminder_shortlink!;
+    const variables = {
+      salonName: 'Isla Nail Studio',
+      clientName: 'Ava Morgan',
+      technicianName: 'Daniela Santos',
+      startTime: 'Fri, Jul 17, 7:00 PM',
+      manageUrl: 'https://lustergel.app/a/AbCdEfGhIjKlMnOpQrStUv',
+    };
+    const body = template.render(variables);
+
+    expect(body).toContain('Hi Ava, your appt with Daniela');
+    expect(body).toContain('Need to cancel?');
+    expect(body).toContain(variables.manageUrl);
+    expect(calculateSmsSegments(body).segments).toBe(1);
+    expect(calculateSmsSegments(template.render({
+      ...variables,
+      salonName: 'Extraordinary Beauty Lounge and Nail Atelier',
+      clientName: 'Évangéline-Christopher 💅 Lastname',
+      technicianName: 'Christopherson-Maximilian 💅 Lastname',
+      manageUrl: 'https://xxxxxxxxxxxxxxxxxxxxxxx/a/AbCdEfGhIjKlMnOpQrStUv',
+    }))).toMatchObject({ encoding: 'gsm7', segments: 1 });
   });
 });
 

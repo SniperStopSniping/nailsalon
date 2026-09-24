@@ -53,12 +53,14 @@ import { ProviderOutcomeUnknownError } from '@/libs/twilioMessagingSend';
 import { voiceBookingLinkSendState } from '@/libs/voiceReceptionist/bookingLink.server';
 import {
   appointmentAccessTokenSchema,
+  appointmentSchema,
   communicationConsentSchema,
   type CommunicationIntent,
   communicationIntentSchema,
   notificationDeliverySchema,
   salonSchema,
   salonTwilioConnectionSchema,
+  technicianSchema,
 } from '@/models/Schema';
 
 const MAX_ACTIVE_RECOVERY_CAPABILITIES = 3;
@@ -505,7 +507,24 @@ export async function dispatchClaimedIntent(
       return nextVariables;
     });
   }
-  const { finalBody: body, segmentation } = prepareSmsBody(template.render({ ...variables, salonName: salon.name }));
+  let reminderNames: Record<string, string> = {};
+  if (intent.appointmentId && ['appointment_reminder', 'manual_reminder'].includes(intent.eventType)) {
+    const [appointment] = await db.select({
+      clientName: appointmentSchema.clientName,
+      technicianName: technicianSchema.name,
+    }).from(appointmentSchema).leftJoin(technicianSchema, and(
+      eq(appointmentSchema.technicianId, technicianSchema.id),
+      eq(appointmentSchema.salonId, technicianSchema.salonId),
+    )).where(and(
+      eq(appointmentSchema.id, intent.appointmentId),
+      eq(appointmentSchema.salonId, intent.salonId),
+    )).limit(1);
+    reminderNames = {
+      clientName: appointment?.clientName ?? '',
+      technicianName: appointment?.technicianName ?? '',
+    };
+  }
+  const { finalBody: body, segmentation } = prepareSmsBody(template.render({ ...variables, ...reminderNames, salonName: salon.name }));
 
   // TX1: reserve + delivery(settling) + intent→sending, committed BEFORE the
   // provider call (invariant I1).

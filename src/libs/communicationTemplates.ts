@@ -165,6 +165,25 @@ export const WORST_CASE_MANAGE_URL_SLUG_PATH
 export const WORST_CASE_SHORT_LINK
   = 'https://xxxxxxxxxxxxxxxxxxxxxxx/a/AbCdEfGhIjKlMnOpQrStUv';
 
+function reminderFirstName(value: string | undefined): string {
+  return sanitizeSalonNameForSms(value?.trim().split(/\s+/)[0] ?? '');
+}
+
+function renderShortReminder(variables: TemplateVariables): string {
+  const prefix = buildClientSmsPrefix(variables.salonName ?? '');
+  const client = reminderFirstName(variables.clientName);
+  const technician = reminderFirstName(variables.technicianName);
+  const time = variables.startTime ?? '';
+  const link = variables.manageUrl ?? '';
+  const candidates = [
+    ...(client && technician ? [`${prefix}Hi ${client}, your appt with ${technician} is ${time}. Need to cancel? ${link}`] : []),
+    ...(client && technician ? [`${prefix}${client}, appt with ${technician}: ${time}. Cancel: ${link}`] : []),
+    ...(client ? [`${prefix}${client}, your appt is ${time}. Cancel: ${link}`] : []),
+    `${prefix}Appt ${time}. Cancel: ${link}`,
+  ];
+  return candidates.find(body => calculateSmsSegments(body).segments === 1) ?? candidates.at(-1)!;
+}
+
 const WORST_CASE_SALON_NAME = 'Twenty Four Septet Name Xy';
 const WORST_CASE_TIME = 'Wed Aug 26, 12:30 PM';
 
@@ -232,13 +251,14 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
   },
   client_appointment_reminder_shortlink: {
     key: 'client_appointment_reminder_shortlink',
-    version: 'v2',
+    version: 'v3',
     audience: 'client',
-    render: variables =>
-      `${buildClientSmsPrefix(variables.salonName ?? '')}Reminder for ${variables.startTime ?? ''}. Manage: ${variables.manageUrl ?? ''}`,
+    render: renderShortReminder,
     worstCaseVariables: [
       {
         salonName: WORST_CASE_SALON_NAME,
+        clientName: 'Alexandria-Konstantina Papadopoulos',
+        technicianName: 'Christopherson-Maximilian Johnson',
         startTime: WORST_CASE_TIME,
         manageUrl: WORST_CASE_SHORT_LINK,
       },
