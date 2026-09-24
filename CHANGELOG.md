@@ -1,3 +1,10 @@
+## [1.131.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.2...v1.131.3) (2026-09-24)
+
+
+### Bug Fixes
+
+* **voice:** offer checked openings and reliable booking links ([#317](https://github.com/SniperStopSniping/nailsalon/issues/317)) ([5003e8f](https://github.com/SniperStopSniping/nailsalon/commit/5003e8fc73dbb901c6d756fe8f82e51562ac6434))
+
 ## [1.131.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.1...v1.131.2) (2026-09-24)
 
 
