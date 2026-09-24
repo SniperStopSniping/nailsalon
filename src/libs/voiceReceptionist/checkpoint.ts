@@ -21,6 +21,12 @@ export function verifyVoiceCheckpointToken(token: string, call: CheckpointCall, 
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
+export function isFinalVoiceBookingAffirmation(text: string): boolean {
+  const speech = normalizedSpeech(text);
+  return /^(?:(?:yes|yeah|yep)(?: please)?(?: book (?:it|that|the appointment))?|si(?: por favor)?)$/.test(speech)
+    || isExplicitVoiceBookingConsent(text);
+}
+
 export function isFinalizedVoiceConsent(params: Record<string, string>): boolean {
   // Digits and SpeechResult are finalized Twilio Gather results from a signed
   // callback, never Live fragments, model output or a client JSON boolean.
@@ -31,7 +37,13 @@ export function isFinalizedVoiceConsent(params: Record<string, string>): boolean
     return false;
   }
   const confidence = Number(params.Confidence);
-  return Number.isFinite(confidence) && confidence >= 0.8 && confidence <= 1 && isExplicitVoiceBookingConsent(params.SpeechResult);
+  if (!Number.isFinite(confidence) || confidence < 0.8 || confidence > 1) {
+    return false;
+  }
+  // The signed confirm Gather follows a completed, separate booking review and
+  // asks a direct yes/no question. A standalone affirmative is explicit here,
+  // but remains insufficient in Live speech or during the review Gather.
+  return isFinalVoiceBookingAffirmation(params.SpeechResult);
 }
 
 /** A signed, high-confidence Twilio correction is the only voice SMS choice. */
@@ -80,8 +92,8 @@ export function formatVoiceCheckpointReview(review: CustomerReadyReviewSnapshot,
     es ? `Confirmemos los detalles: ${items}. ${date}, a las ${review.time}. Duración: ${review.durationMinutes} minutos.` : `Let's confirm the details: ${items}. ${date} at ${review.time}. Duration: ${review.durationMinutes} minutes.`,
     review.location ? `${es ? 'Lugar' : 'Location'}: ${review.location.name}${review.location.address ? `, ${review.location.address}` : ''}.` : '',
     review.technician.kind === 'specific' ? `${es ? 'Profesional' : 'Technician'}: ${review.technician.name}.` : '',
-    contact ? es ? `Contacto de la cita: ${contact.name}; correo ${contact.email.replace(/@/g, ' arroba ').replace(/\./g, ' punto ')}; teléfono ${contact.phone.split('').join(' ')}.` : `Appointment contact: ${contact.name}; email ${contact.email.replace(/@/g, ' at ').replace(/\./g, ' dot ')}; callback number ${contact.phone.split('').join(' ')}.` : '',
-    es ? `Subtotal actual: ${money(review.financial.subtotalCents)}. Impuesto: ${money(review.financial.taxAmountCents)}. Total actual: ${money(review.financial.totalDueCents)}.` : `Current subtotal: ${money(review.financial.subtotalCents)}. Tax: ${money(review.financial.taxAmountCents)}. Current total: ${money(review.financial.totalDueCents)}.`,
+    contact ? es ? `Reserva para ${contact.name}; correo ${contact.email.replace(/@/g, ' arroba ').replace(/\./g, ' punto ')}.` : `Booking for ${contact.name}; email ${contact.email.replace(/@/g, ' at ').replace(/\./g, ' dot ')}.` : '',
+    es ? `Total actual con impuestos: ${money(review.financial.totalDueCents)}.` : `Current total including tax: ${money(review.financial.totalDueCents)}.`,
     review.financial.discountAmountCents > 0 ? `${es ? 'Descuento' : 'Discount'}: ${money(review.financial.discountAmountCents)}. ${review.financial.discountLabel ?? ''}.` : '',
     ...(review.manualConfirmationItems ?? []).map(item => es ? `${item.name}${item.priceDisplayText ? `, ${item.priceDisplayText}` : ''}: el precio lo confirmará la profesional y no está incluido en este total.` : `${item.name}${item.priceDisplayText ? `, ${item.priceDisplayText}` : ''}: the technician will confirm the price; it is not included in this total.`),
     review.deposit.status === 'required' ? es ? `Se requiere un depósito de ${money(review.deposit.amountCents)}. Te enviaremos el enlace de pago seguro por correo. La cita no está confirmada hasta completar el pago.` : `A deposit of ${money(review.deposit.amountCents)} is required. We will email the secure payment link. The appointment is not confirmed until payment is complete.` : '',
@@ -100,13 +112,13 @@ export function voiceCheckpointTwiml(call: CheckpointCall, checkpoint: VoiceChec
   const url = (phase: VoiceCheckpointPhase) => `${origin}/api/voice/twilio/${phase}?call=${encodeURIComponent(call.id)}&token=${voiceCheckpointToken(call, checkpoint, phase, secret)}`;
   const es = checkpoint.language === 'es';
   const language = es ? 'es-US' : 'en-US';
-  const voice = es ? 'Polly.Lupe' : 'Polly.Joanna';
+  const voice = es ? 'Polly.Lupe-Neural' : 'Polly.Joanna-Neural';
   // Interruptible review checkpoint. Its action CANNOT book. With no input,
   // Twilio completes the review and falls through to the separate confirmation.
   const reviewGather = response.gather({ input: ['speech', 'dtmf'], action: url('review-interrupted'), method: 'POST', timeout: 1, speechTimeout: 'auto', numDigits: 1, language, actionOnEmptyResult: false });
   reviewGather.say({ voice, language }, formatVoiceCheckpointReview(review, checkpoint.language, contact));
   const confirmation = response.gather({ input: ['speech', 'dtmf'], action: url('confirm'), method: 'POST', timeout: 8, speechTimeout: 'auto', numDigits: 1, language, actionOnEmptyResult: true });
-  confirmation.say({ voice, language }, es ? '¿Quieres reservar esta cita? Di sí, reserva la cita, o pulsa uno para confirmar. Si quieres cambiar algo, dímelo.' : 'Would you like me to book this appointment? Say yes, book it, or press one to confirm. To change anything, tell me what to change.');
+  confirmation.say({ voice, language }, es ? '¿Quieres reservar esta cita? Di sí o pulsa uno para confirmar. Si quieres cambiar algo, dímelo.' : 'Would you like me to book this appointment? Say yes or press one to confirm. To change anything, tell me what to change.');
   response.hangup();
   return response.toString();
 }

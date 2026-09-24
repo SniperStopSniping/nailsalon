@@ -143,8 +143,69 @@ describe('handleVoiceCheckpoint', () => {
     expect(mocks.commitVoiceBooking).not.toHaveBeenCalled();
   });
 
+  it('commits a signed final yes once without resuming the SIP conversation', async () => {
+    const draft = state();
+    mocks.readVoiceBody.mockResolvedValue('AccountSid=AC1&CallSid=CA1&SpeechResult=yeah&Confidence=0.99');
+    mocks.getVoiceCall.mockResolvedValue(call(draft));
+    mocks.claimVoiceLease.mockResolvedValue(call(state(), { leaseToken: 'lease', leaseExpiresAt: new Date(Date.now() + 90_000) }));
+    mocks.getSalonById.mockResolvedValue({ id: 'salon-a' });
+    mocks.commitVoiceBooking.mockResolvedValue({ status: 'confirmed', appointment: { id: 'appt-1' } });
+
+    const response = await handleVoiceCheckpoint(requestFor(draft, 'confirm', ''), 'confirm');
+
+    expect(response.status).toBe(200);
+    expect(mocks.saveVoiceCall).toHaveBeenCalledWith(callId, 'salon-a', expect.any(String), expect.objectContaining({ draft: expect.objectContaining({ confirmation: expect.objectContaining({ stage: 'committing' }) }) }));
+    expect(mocks.after).toHaveBeenCalledTimes(1);
+
+    const job = mocks.after.mock.calls[0]?.[0];
+
+    expect(job).toBeTypeOf('function');
+
+    await job();
+
+    expect(mocks.commitVoiceBooking).toHaveBeenCalledTimes(1);
+    expect(mocks.runVoiceConsultation).not.toHaveBeenCalled();
+    expect(mocks.saveVoiceCall).toHaveBeenCalledWith(callId, 'salon-a', expect.any(String), expect.objectContaining({ status: 'completed', appointmentId: 'appt-1', outcome: 'booked' }));
+  });
+
+  it('routes a changed final answer back for review without committing', async () => {
+    const draft = state();
+    mocks.readVoiceBody.mockResolvedValue('AccountSid=AC1&CallSid=CA1&SpeechResult=yes%2C+but+change+it+to+Friday&Confidence=0.99');
+    mocks.getVoiceCall.mockResolvedValue(call(draft));
+    mocks.claimVoiceLease.mockResolvedValue(call(state(), { leaseToken: 'lease', leaseExpiresAt: new Date(Date.now() + 90_000) }));
+
+    const response = await handleVoiceCheckpoint(requestFor(draft, 'confirm', ''), 'confirm');
+
+    expect(response.status).toBe(200);
+    expect(mocks.saveVoiceCall).toHaveBeenCalledWith(callId, 'salon-a', expect.any(String), expect.objectContaining({ draft: expect.objectContaining({ confirmation: expect.objectContaining({ stage: 'resuming' }) }) }));
+    expect(mocks.commitVoiceBooking).not.toHaveBeenCalled();
+  });
+
+  it('repeats only the final question once for uncertain assent, without re-dialing or booking', async () => {
+    const draft = state();
+    mocks.readVoiceBody.mockResolvedValue('AccountSid=AC1&CallSid=CA1&SpeechResult=yes&Confidence=0.60');
+    mocks.getVoiceCall.mockResolvedValue(call(draft));
+
+    const first = await handleVoiceCheckpoint(requestFor(draft, 'confirm', ''), 'confirm');
+    const firstXml = await first.text();
+
+    expect(firstXml).toContain('I did not catch a clear confirmation');
+    expect(firstXml).toContain('retry=1');
+    expect(firstXml).not.toContain('<Dial');
+    expect(mocks.claimVoiceLease).not.toHaveBeenCalled();
+    expect(mocks.after).not.toHaveBeenCalled();
+
+    const retryRequest = requestFor(draft, 'confirm', '');
+    const second = await handleVoiceCheckpoint(new Request(`${retryRequest.url}&retry=1`, { method: 'POST' }), 'confirm');
+
+    expect(await second.text()).toContain('No appointment was made');
+    expect(mocks.claimVoiceLease).not.toHaveBeenCalled();
+    expect(mocks.commitVoiceBooking).not.toHaveBeenCalled();
+  });
+
   it('treats review interruptions as corrections even when the words contain consent', async () => {
     const draft = state();
+    mocks.readVoiceBody.mockResolvedValue('AccountSid=AC1&CallSid=CA1&SpeechResult=yes&Confidence=0.99');
     mocks.getVoiceCall.mockResolvedValue(call(draft));
     mocks.claimVoiceLease.mockResolvedValue(call(state(), { leaseToken: 'lease', leaseExpiresAt: new Date(Date.now() + 90_000) }));
 

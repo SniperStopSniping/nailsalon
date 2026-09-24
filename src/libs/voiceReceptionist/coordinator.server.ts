@@ -617,7 +617,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
           if (call.draft) {
             send('session.thinking.append', `Saved authoritative consultation: ${JSON.stringify(state.booking.lastResult)}. ${state.contact ? contactPrompt(state.contact) : ''}`);
           }
-          send('session.instructions.append', call.draft ? `READY. The backend reconnected. Consent has been reset. ${state.bookingStatus ? statusFacts(state.bookingStatus) : 'Resume the saved consultation and obtain a new review and confirmation before booking.'}` : `READY. Greet the caller now: identify yourself as the AI receptionist for ${salon.name}. Ask how you can help. ${settings.greeting ?? ''}`);
+          send('session.instructions.append', call.draft ? `READY. The backend reconnected. Consent has been reset. ${state.bookingStatus ? statusFacts(state.bookingStatus) : 'Resume the saved consultation and obtain a new review and confirmation before booking.'}` : `READY. Greet the caller with hello: identify yourself as the AI receptionist for ${salon.name}. Ask how you can help. Avoid a time-of-day greeting. ${settings.greeting ?? ''}`);
           connectionStage = 'ready';
         })().catch(() => {
           connectionFailure = 'bootstrap';

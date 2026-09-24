@@ -13,9 +13,9 @@ import { getSalonById } from '@/libs/queries';
 import { voiceCallSchema, voiceReceptionistSettingsSchema } from '@/models/Schema';
 
 import { commitVoiceBooking, runVoiceConsultation, type VoiceSalon } from './authority.server';
-import { finalizedVoiceSmsChoice, formatVoiceCheckpointReview, isFinalizedVoiceConsent, verifyVoiceCheckpointToken, type VoiceCheckpointPhase, voiceCheckpointToken, voiceCheckpointTwiml } from './checkpoint';
+import { finalizedVoiceSmsChoice, formatVoiceCheckpointReview, isFinalizedVoiceConsent, isFinalVoiceBookingAffirmation, verifyVoiceCheckpointToken, type VoiceCheckpointPhase, voiceCheckpointToken, voiceCheckpointTwiml } from './checkpoint';
 import { getVoiceRuntimeConfig, VOICE_CALL_LIMIT_SECONDS, type VoiceRuntimeConfig } from './config.server';
-import { correctVoiceContact } from './conversation';
+import { correctVoiceContact, normalizedSpeech } from './conversation';
 import { sendVoiceDepositLink } from './depositDelivery.server';
 import { reconcileVoiceCallBooking } from './recovery.server';
 import { readVoiceBody, verifyVoiceTwilio, voiceRouteToken, voiceTokenHash } from './security.server';
@@ -31,7 +31,30 @@ function xml(body: string, status = 200) {
 
 function finish(message: string, language: 'en' | 'es' = 'en') {
   const response = new twilio.twiml.VoiceResponse();
-  response.say({ voice: language === 'es' ? 'Polly.Lupe' : 'Polly.Joanna', language: language === 'es' ? 'es-US' : 'en-US' }, message);
+  response.say({ voice: language === 'es' ? 'Polly.Lupe-Neural' : 'Polly.Joanna-Neural', language: language === 'es' ? 'es-US' : 'en-US' }, message);
+  response.hangup();
+  return xml(response.toString());
+}
+
+function shouldRetryConfirmation(params: Record<string, string>): boolean {
+  if (params.Digits) {
+    return true;
+  }
+  const speech = normalizedSpeech(params.SpeechResult ?? '');
+  return !speech || /^(?:ok|okay|sure|maybe)$/.test(speech)
+    || isFinalVoiceBookingAffirmation(params.SpeechResult ?? '');
+}
+
+function retryConfirmation(call: VoiceCall, state: VoiceCallState, config: VoiceRuntimeConfig): Response {
+  const checkpoint = state.confirmation!;
+  const es = checkpoint.language === 'es';
+  const voice = es ? 'Polly.Lupe-Neural' : 'Polly.Joanna-Neural';
+  const language = es ? 'es-US' : 'en-US';
+  const response = new twilio.twiml.VoiceResponse();
+  const action = `${config.origin}/api/voice/twilio/confirm?call=${encodeURIComponent(call.id)}&token=${voiceCheckpointToken(call, checkpoint, 'confirm', config.signingSecret)}&retry=1`;
+  const gather = response.gather({ input: ['speech', 'dtmf'], action, method: 'POST', timeout: 8, speechTimeout: 'auto', numDigits: 1, language, actionOnEmptyResult: true });
+  gather.say({ voice, language }, es ? 'No escuché una confirmación clara. Para reservar, di sí o pulsa uno.' : 'I did not catch a clear confirmation. To book, say yes or press one.');
+  response.say({ voice, language }, es ? 'No se hizo ninguna reserva. Puedes volver a llamar o usar la página de reservas.' : 'No booking was made. You can call again or use the booking page.');
   response.hangup();
   return xml(response.toString());
 }
@@ -83,7 +106,7 @@ function waiting(call: VoiceCall, state: VoiceCallState, config: VoiceRuntimeCon
     const message = checkpoint.stage === 'resuming'
       ? checkpoint.language === 'es' ? 'Revisemos ese cambio.' : 'Let\'s check that change.'
       : checkpoint.language === 'es' ? 'Estoy procesando tu reserva.' : 'I am processing your booking.';
-    response.say({ voice: checkpoint.language === 'es' ? 'Polly.Lupe' : 'Polly.Joanna', language: checkpoint.language === 'es' ? 'es-US' : 'en-US' }, message);
+    response.say({ voice: checkpoint.language === 'es' ? 'Polly.Lupe-Neural' : 'Polly.Joanna-Neural', language: checkpoint.language === 'es' ? 'es-US' : 'en-US' }, message);
   }
   response.pause({ length: 2 });
   response.redirect({ method: 'POST' }, `${config.origin}/api/voice/twilio/booking-status?call=${encodeURIComponent(call.id)}&token=${voiceCheckpointToken(call, checkpoint, 'booking-status', config.signingSecret)}`);
@@ -255,6 +278,11 @@ export async function handleVoiceCheckpoint(request: Request, phase: VoiceCheckp
   }
   if (phase === 'booking-status' || call.status !== 'awaiting_confirmation' || checkpoint.stage !== 'pending' || Date.parse(checkpoint.expiresAt) <= Date.now()) {
     return completed(state!);
+  }
+  if (phase === 'confirm' && !isFinalizedVoiceConsent(params) && !finalizedVoiceSmsChoice(params) && shouldRetryConfirmation(params)) {
+    return url.searchParams.get('retry') === '1'
+      ? finish(checkpoint.language === 'es' ? 'No pude confirmar la reserva. No se hizo ninguna cita.' : 'I could not confirm the booking. No appointment was made.', checkpoint.language)
+      : retryConfirmation(call, state!, config);
   }
   const leaseToken = randomUUID();
   const claimed = await claimVoiceLease(call.id, leaseToken, 90_000);
