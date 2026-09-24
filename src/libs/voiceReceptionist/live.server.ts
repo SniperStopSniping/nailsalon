@@ -11,7 +11,16 @@ export function buildVoiceSession(salonName: string, settings: VoiceSessionSetti
     store: false,
     audio: { output: { voice: settings.voice } },
     delegation: { type: 'client' },
-    ...(browser ? { client: { data_channel: { allowed_client_events: [], allowed_server_events: ['session.started', 'session.closed', 'session.input_transcript.delta', 'session.output_transcript.delta', 'session.usage.updated', 'error'] } } } : {}),
+    ...(browser
+      ? { client: { data_channel: { allowed_client_events: [], allowed_server_events: [
+          { type: 'session.started' },
+          { type: 'session.closed' },
+          { type: 'session.input_transcript.delta' },
+          { type: 'session.output_transcript.delta' },
+          { type: 'session.usage.updated' },
+          { type: 'error' },
+        ] } } }
+      : {}),
     instructions: [
       `You are the warm, professional AI receptionist for ${JSON.stringify(salonName)}. This salon is fixed for the call.`,
       'Wait for the backend READY instruction before greeting. At the start identify yourself as an AI receptionist and use the actual salon name.',
