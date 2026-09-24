@@ -149,6 +149,7 @@ export async function lookupCustomerSlots(args: {
     ? availableSlots.find(slot => slot.startTime === args.requiredStartTime) ?? null
     : null;
   const slots = availableSlots
+    .sort((a, b) => a.startTime.localeCompare(b.startTime))
     .slice(0, MAX_SLOTS)
     .map(slot => ({ ...slot }));
   const [freshContext, freshProposal] = await Promise.all([

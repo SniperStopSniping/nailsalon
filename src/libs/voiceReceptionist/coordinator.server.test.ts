@@ -95,6 +95,92 @@ afterEach(() => {
 });
 
 describe('voice sideband consultation and interruption', () => {
+  it('handles an explicit link request and read-back confirmation even without Live delegation', async () => {
+    const call = await mocks.claim();
+    mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('Please text me the booking link');
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.queueLink).not.toHaveBeenCalled();
+    expect(mocks.sockets[0]!.send).toHaveBeenCalledWith(expect.stringContaining('"type":"session.instructions.append"'));
+    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ draft: expect.objectContaining({ bookingLinkPending: expect.objectContaining({ phone: '4165550100' }) }) }));
+
+    output('Is 4 1 6 5 5 5 0 1 0 0 your Canadian mobile number, and may I text you the link?', 410, 480);
+    input('yes', 500, 600);
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.queueLink).toHaveBeenCalledOnce();
+    expect(mocks.queueLink).toHaveBeenCalledWith(expect.objectContaining({ phone: '4165550100' }));
+
+    close();
+    await run;
+  });
+
+  it('answers a late delegation after directly handling the same link request', async () => {
+    const call = await mocks.claim();
+    mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('Please text me the booking link');
+    await vi.advanceTimersByTimeAsync(700);
+    delegate('late-link-delegation');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.sockets[0]!.send).toHaveBeenCalledWith(expect.stringContaining('"delegation_id":"late-link-delegation"'));
+    expect(mocks.queueLink).not.toHaveBeenCalled();
+
+    close();
+    await run;
+  });
+
+  it('keeps the link request pending if yes arrives before the phone readback', async () => {
+    const call = await mocks.claim();
+    mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('Please text me the booking link');
+    await vi.advanceTimersByTimeAsync(700);
+    input('yes', 500, 600);
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.queueLink).not.toHaveBeenCalled();
+    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ draft: expect.objectContaining({ bookingLinkPending: expect.objectContaining({ phone: '4165550100' }) }) }));
+
+    output('Is 4 1 6 5 5 5 0 1 0 0 your Canadian mobile number, and may I text you the link?', 610, 690);
+    input('yes', 700, 800);
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.queueLink).toHaveBeenCalledOnce();
+
+    close();
+    await run;
+  });
+
+  it('keeps a link request open when a mobile number is spoken in separated fragments', async () => {
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('Please text me the booking link');
+    await vi.advanceTimersByTimeAsync(700);
+    input('four one six', 500, 600);
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.save).toHaveBeenCalledWith('call-a', 'salon-a', expect.any(String), expect.objectContaining({ draft: expect.objectContaining({ bookingLinkPending: expect.objectContaining({ phone: '' }) }) }));
+    expect(mocks.queueLink).not.toHaveBeenCalled();
+
+    input('five five five zero one zero zero', 700, 900);
+    await vi.advanceTimersByTimeAsync(700);
+    output('Is 4 1 6 5 5 5 0 1 0 0 your Canadian mobile number, and may I text you the link?', 910, 990);
+    input('yes', 1000, 1100);
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.queueLink).toHaveBeenCalledWith(expect.objectContaining({ phone: '4165550100' }));
+
+    close();
+    await run;
+  });
+
   it('starts the number-confirmation flow when the caller accepts a spoken offer', async () => {
     const call = await mocks.claim();
     mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });

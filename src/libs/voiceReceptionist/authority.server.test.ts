@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   apply: vi.fn(),
   model: vi.fn(),
   lookup: vi.fn(),
+  next: vi.fn(),
   readiness: vi.fn(),
   quote: vi.fn(),
   prepare: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock('../customerAssistant/catalogue.server', () => ({
 vi.mock('../customerAssistant/slots.server', () => ({
   getCustomerAvailabilityContext: vi.fn(async () => ({ today: '2026-09-22', timeZone: 'America/Toronto' })),
   lookupCustomerSlots: mocks.lookup,
-  lookupNextCustomerSlots: vi.fn(),
+  lookupNextCustomerSlots: mocks.next,
 }));
 vi.mock('../customerAssistant/publicFacts.server', () => ({ loadCustomerPublicFacts: vi.fn(async () => ({ salon: { name: 'Synthetic Isla' }, catalogue: { currency: 'CAD', services: [], addOns: [] } })) }));
 vi.mock('../customerAssistant/resolveTurn', () => ({ resolveCustomerTurn: mocks.resolve, applyCustomerTurnResult: mocks.apply }));
@@ -46,6 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.menu = { services: [], addOns: [], bindings: [], l1: undefined };
   mocks.resolve.mockResolvedValue({ kind: 'answer', topic: 'conversation', message: '', options: [] });
+  mocks.next.mockResolvedValue(null);
   mocks.readiness.mockResolvedValue({ proposal: { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64) } });
   mocks.lookup.mockResolvedValue({ quoteChanged: false, selected: { time: '4:00 PM', startTime: '2026-09-26T20:00:00.000Z' }, slots: [{ time: '4:00 PM', startTime: '2026-09-26T20:00:00.000Z' }], proposal: { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), currency: 'CAD' }, timeZone: 'America/Toronto' });
   mocks.quote.mockResolvedValue({ selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, preference: { date: '2026-09-26', earliest: '00:00', latest: '23:59' }, startTime: '2026-09-26T20:00:00.000Z', technicianSelection: 'any', review: { status: 'READY', timeZone: 'America/Toronto', financial: { currency: 'CAD' }, manualConfirmationItems: [{ id: 'removal', name: 'Removal', quantity: 1, durationMinutes: 20, priceStatus: 'to_be_confirmed' }] } });
@@ -93,6 +95,124 @@ const interpreterFallback = {
 };
 
 describe('voice receptionist shared authority adapter', () => {
+  it('keeps only the spoken selected slot after rechecking it', async () => {
+    const draft = selectedDraft();
+    mocks.lookup.mockResolvedValue({ quoteChanged: false, selected: { time: '16:00', startTime: '2026-09-26T20:00:00.000Z' }, slots: [
+      { time: '16:00', startTime: '2026-09-26T20:00:00.000Z' },
+      { time: '16:30', startTime: '2026-09-26T20:30:00.000Z' },
+    ], proposal: { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), currency: 'CAD' }, timeZone: 'America/Toronto' });
+
+    const response = await chooseVoiceSlot({ salon, draft, startTime: '2026-09-26T20:00:00.000Z' });
+
+    expect(response.draft.conversation.booking?.offeredSlots).toEqual([{ time: '16:00', startTime: '2026-09-26T20:00:00.000Z' }]);
+  });
+
+  it('checks and offers the earliest real opening after resolving a service', async () => {
+    const proposal = { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: { id: 'gel-x', name: 'Gel-X', priceCents: 6000 }, addOns: [], currency: 'CAD', subtotalCents: 6000, durationMinutes: 90, expiresAt: '2030-01-01T00:00:00.000Z' };
+    mocks.menu = { services: [{ id: 'gel-x', name: 'Gel-X', description: '', category: 'Extensions' }], addOns: [], bindings: [], l1: undefined };
+    mocks.resolve.mockResolvedValue({ kind: 'proposal', proposal });
+    mocks.next.mockResolvedValue({ proposal, preference: { date: '2026-09-26', earliest: '00:00', latest: '23:59' }, timeZone: 'America/Toronto', quoteChanged: false, slots: [
+      { time: '16:00', startTime: '2026-09-26T20:00:00.000Z' },
+      { time: '14:00', startTime: '2026-09-26T18:00:00.000Z' },
+    ] });
+
+    const draft = createVoiceDraft(salon.id, callId);
+    draft.conversation.context = { question: 'service', options: ['Gel-X'], selection: null };
+    const response = await runVoiceConsultation({ salon, draft, message: 'Gel-X' });
+
+    expect(mocks.next).toHaveBeenCalledWith(expect.objectContaining({ salon: { id: salon.id, slug: salon.slug }, selection: proposal.selection }));
+    expect(response.result).toMatchObject({ kind: 'slots', slots: [{ time: '14:00' }] });
+  });
+
+  it('offers the link when checked availability cannot be verified', async () => {
+    const proposal = { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: { id: 'gel-x', name: 'Gel-X', priceCents: 6000 }, addOns: [], currency: 'CAD', subtotalCents: 6000, durationMinutes: 90, expiresAt: '2030-01-01T00:00:00.000Z' };
+    mocks.menu = { services: [{ id: 'gel-x', name: 'Gel-X', description: '', category: 'Extensions' }], addOns: [], bindings: [], l1: undefined };
+    mocks.resolve.mockResolvedValue({ kind: 'proposal', proposal });
+
+    const draft = createVoiceDraft(salon.id, callId);
+    draft.conversation.context = { question: 'service', options: ['Gel-X'], selection: null };
+    const response = await runVoiceConsultation({ salon, draft, message: 'Gel-X' });
+
+    expect(response).toMatchObject({ result: { kind: 'proposal', proposal }, availabilityIssue: 'unverified' });
+  });
+
+  it('checks a requested day and later window before offering another date', async () => {
+    const proposal = { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: { id: 'gel-x', name: 'Gel-X', priceCents: 6000 }, addOns: [], currency: 'CAD', subtotalCents: 6000, durationMinutes: 90, expiresAt: '2030-01-01T00:00:00.000Z' };
+    const preference = { date: '2026-09-26', earliest: '14:00', latest: '23:59' };
+    mocks.resolve.mockResolvedValue({ kind: 'proposal', proposal });
+    mocks.lookup.mockResolvedValue({ proposal, timeZone: 'America/Toronto', quoteChanged: false, slots: [
+      { time: '15:30', startTime: '2026-09-26T19:30:00.000Z' },
+    ] });
+    const provider = { createResponse: vi.fn(async () => ({ status: 'completed' as const, items: [{ type: 'message' as const, text: JSON.stringify({ ...interpreterFallback, action: 'propose', availabilityScope: 'specific_window', dateExplicitThisTurn: true, datePreference: preference }) }], usage: null })) };
+
+    const response = await runVoiceConsultation({ salon, draft: createVoiceDraft(salon.id, callId), message: 'Gel-X Saturday after two' }, provider);
+
+    expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({ salon: { id: salon.id, slug: salon.slug }, preference }));
+    expect(mocks.next).not.toHaveBeenCalled();
+    expect(response.result).toMatchObject({ kind: 'slots', preference, slots: [{ time: '15:30' }] });
+  });
+
+  it('carries a requested later window into the next checked date', async () => {
+    const proposal = { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: { id: 'gel-x', name: 'Gel-X', priceCents: 6000 }, addOns: [], currency: 'CAD', subtotalCents: 6000, durationMinutes: 90, expiresAt: '2030-01-01T00:00:00.000Z' };
+    const requested = { date: '2026-09-26', earliest: '14:00', latest: '23:59' };
+    const alternative = { date: '2026-09-27', earliest: '14:00', latest: '23:59' };
+    mocks.menu = { services: [{ id: 'gel-x', name: 'Gel-X', description: '', category: 'Extensions' }], addOns: [], bindings: [], l1: undefined };
+    mocks.resolve.mockResolvedValue({ kind: 'proposal', proposal });
+    mocks.lookup.mockResolvedValue({ proposal, timeZone: 'America/Toronto', quoteChanged: false, slots: [] });
+    mocks.next.mockResolvedValue({ proposal, preference: alternative, timeZone: 'America/Toronto', quoteChanged: false, slots: [{ time: '15:30', startTime: '2026-09-27T19:30:00.000Z' }] });
+    const draft = createVoiceDraft(salon.id, callId);
+    draft.conversation.context = { question: 'service', options: ['Gel-X'], selection: null };
+    draft.conversation.availabilityPreference = requested;
+
+    const response = await runVoiceConsultation({ salon, draft, message: 'Gel-X' });
+
+    expect(mocks.next).toHaveBeenCalledWith(expect.objectContaining({ fromDate: '2026-09-27', earliest: '14:00', latest: '23:59' }));
+    expect(response.result).toMatchObject({ kind: 'slots', preference: alternative, search: { requestedPreference: requested, displayedPreference: alternative, fallback: true } });
+  });
+
+  it('keeps a previously requested day and time window through service clarification', async () => {
+    const proposal = { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: { id: 'gel-x', name: 'Gel-X', priceCents: 6000 }, addOns: [], currency: 'CAD', subtotalCents: 6000, durationMinutes: 90, expiresAt: '2030-01-01T00:00:00.000Z' };
+    const preference = { date: '2026-09-26', earliest: '14:00', latest: '23:59' };
+    mocks.menu = { services: [{ id: 'gel-x', name: 'Gel-X', description: '', category: 'Extensions' }], addOns: [], bindings: [], l1: undefined };
+    mocks.resolve.mockResolvedValue({ kind: 'proposal', proposal });
+    mocks.lookup.mockResolvedValue({ proposal, timeZone: 'America/Toronto', quoteChanged: false, slots: [{ time: '15:30', startTime: '2026-09-26T19:30:00.000Z' }] });
+    const draft = createVoiceDraft(salon.id, callId);
+    draft.conversation.context = { question: 'service', options: ['Gel-X'], selection: null };
+    draft.conversation.availabilityPreference = preference;
+
+    const response = await runVoiceConsultation({ salon, draft, message: 'Gel-X' });
+
+    expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({ preference }));
+    expect(response.result).toMatchObject({ kind: 'slots', preference });
+  });
+
+  it('checks openings when a final length clarification produces a proposal', async () => {
+    const proposal = { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: { id: 'gel-x', name: 'Gel-X', priceCents: 6000 }, addOns: [], currency: 'CAD', subtotalCents: 6000, durationMinutes: 90, expiresAt: '2030-01-01T00:00:00.000Z' };
+    mocks.resolve.mockResolvedValue({ kind: 'proposal', proposal });
+    mocks.next.mockResolvedValue({ proposal, preference: { date: '2026-09-26', earliest: '00:00', latest: '23:59' }, timeZone: 'America/Toronto', quoteChanged: false, slots: [{ time: '15:30', startTime: '2026-09-26T19:30:00.000Z' }] });
+
+    const response = await runVoiceConsultation({ salon, draft: clarificationDraft('length'), message: 'short' });
+
+    expect(mocks.next).toHaveBeenCalledOnce();
+    expect(response.result).toMatchObject({ kind: 'slots', slots: [{ time: '15:30' }] });
+  });
+
+  it('stores only the first spoken slot for relative later-time requests', async () => {
+    const proposal = { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: { id: 'gel-x', name: 'Gel-X', priceCents: 6000 }, addOns: [], currency: 'CAD', subtotalCents: 6000, durationMinutes: 90, expiresAt: '2030-01-01T00:00:00.000Z' };
+    mocks.resolve.mockResolvedValue({ kind: 'slots', proposal, preference: { date: '2026-09-26', earliest: '00:00', latest: '23:59' }, timeZone: 'America/Toronto', slots: [
+      { time: '16:00', startTime: '2026-09-26T20:00:00.000Z' },
+      { time: '14:00', startTime: '2026-09-26T18:00:00.000Z' },
+    ], checkedAt: '2026-09-24T12:00:00.000Z' });
+    mocks.menu = { services: [{ id: 'gel-x', name: 'Gel-X', description: '', category: 'Extensions' }], addOns: [], bindings: [], l1: undefined };
+    const draft = createVoiceDraft(salon.id, callId);
+    draft.conversation.context = { question: 'service', options: ['Gel-X'], selection: null };
+
+    const response = await runVoiceConsultation({ salon, draft, message: 'Gel-X' });
+
+    expect(response.result).toMatchObject({ kind: 'slots', slots: [{ time: '14:00' }] });
+    expect(mocks.apply).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ slots: [{ time: '14:00', startTime: '2026-09-26T18:00:00.000Z' }] }));
+  });
+
   it('binds the trusted telephony call ID as the customer-authority session', () => {
     const draft = createVoiceDraft(salon.id, callId, Date.parse('2026-09-22T12:00:00Z'));
 

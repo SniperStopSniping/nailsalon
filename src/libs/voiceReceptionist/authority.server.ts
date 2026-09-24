@@ -52,7 +52,7 @@ export type VoiceSalon = {
   zipCode: string | null;
 };
 /** Per-turn interpreter count for latency/cost telemetry; no transcript is retained. */
-export type VoiceConsultationResponse = { draft: VoiceDraft; result: CustomerAssistantResult; publicFacts: CustomerPublicFacts | null; modelCalls?: 0 | 1 };
+export type VoiceConsultationResponse = { draft: VoiceDraft; result: CustomerAssistantResult; publicFacts: CustomerPublicFacts | null; modelCalls?: 0 | 1; availabilityIssue?: 'unverified' };
 
 const VOICE_INTERPRETER_MODEL = 'gpt-5.6-terra';
 const MAX_VOICE_MESSAGE_CHARS = 1_200;
@@ -257,13 +257,67 @@ export async function runVoiceConsultation(args: {
       intent = customerInterpretationSchema.parse(JSON.parse(text));
     }
     let snapshot: ReturnType<typeof loadCustomerClarificationSnapshot> | undefined;
-    const result = await resolveCustomerTurn({ salonId: args.salon.id, salonSlug: args.salon.slug, features: args.salon.features, locale: 'en' }, menu, intent, prior, next, {
+    let result = await resolveCustomerTurn({ salonId: args.salon.id, salonSlug: args.salon.slug, features: args.salon.features, locale: 'en' }, menu, intent, prior, next, {
       buildCustomerProposal,
       loadCustomerClarificationSnapshot: () => snapshot ??= loadCustomerClarificationSnapshot(args.salon.id),
       lookupCustomerSlots: input => lookupCustomerSlots({ ...input, now }),
       lookupNextCustomerSlots: input => lookupNextCustomerSlots({ ...input, now }),
     });
+    if (result.kind === 'slots') {
+      // Voice says one recommendation. Retaining unseen slots would make
+      // "later" anchor after the last hidden slot instead of the spoken one.
+      result = { ...result, slots: [...result.slots].sort((a, b) => a.startTime.localeCompare(b.startTime)).slice(0, 1) };
+    }
     applyCustomerTurnResult(next, result);
+    let availabilityIssue: 'unverified' | undefined;
+    // A service proposal is enough to look for a real opening. Voice callers
+    // should hear a checked first slot without having to ask a second time.
+    if (result.kind === 'proposal') {
+      const selection = result.proposal.selection;
+      const boundSalon = { id: args.salon.id, slug: args.salon.slug };
+      const requested = ((intent.dateExplicitThisTurn || intent.timeWindowExplicitThisTurn)
+        ? intent.datePreference
+        : next.availabilityPreference) ?? null;
+      let nextAvailable: Awaited<ReturnType<typeof lookupNextCustomerSlots>> = null;
+      try {
+        const exact = requested ? await lookupCustomerSlots({ salon: boundSalon, features: args.salon.features, selection, preference: requested, now }) : null;
+        if (exact && !exact.quoteChanged && exact.slots.length) {
+          nextAvailable = { ...exact, preference: requested! };
+        } else if (!requested || (exact && !exact.quoteChanged)) {
+          nextAvailable = await lookupNextCustomerSlots({
+            salon: boundSalon,
+            features: args.salon.features,
+            selection,
+            now,
+            ...(requested
+              ? {
+                  fromDate: new Date(Date.parse(`${requested.date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10),
+                  earliest: requested.earliest,
+                  latest: requested.latest,
+                }
+              : {}),
+          });
+        }
+      } catch { /* Keep the trusted proposal and offer the booking page. */ }
+      if (nextAvailable && !nextAvailable.quoteChanged && nextAvailable.proposal.fingerprint === result.proposal.fingerprint) {
+        const preference = nextAvailable.preference;
+        result = {
+          kind: 'slots',
+          proposal: result.proposal,
+          preference,
+          timeZone: nextAvailable.timeZone,
+          slots: [...nextAvailable.slots].sort((a, b) => a.startTime.localeCompare(b.startTime)).slice(0, 1),
+          checkedAt: now.toISOString(),
+          search: { requestedPreference: requested ?? preference, displayedPreference: preference, fallback: !!requested && requested.date !== preference.date },
+        };
+        applyCustomerTurnResult(next, result);
+      } else {
+        // A bounded search cannot distinguish a closed week from a transient
+        // availability failure. Keep the quote and selection so the caller can
+        // still hear the real price while the voice explains the uncertainty.
+        availabilityIssue = 'unverified';
+      }
+    }
     const changed = materiallyChanged(prior, next);
     const draft: VoiceDraft = {
       ...args.draft,
@@ -271,7 +325,7 @@ export async function runVoiceConsultation(args: {
       lastResult: result,
       ...(changed ? { review: null, operation: null } : {}),
     };
-    return { draft, result, publicFacts, modelCalls: fastPath ? 0 : 1 };
+    return { draft, result, publicFacts, modelCalls: fastPath ? 0 : 1, ...(availabilityIssue ? { availabilityIssue } : {}) };
   } catch {
     return { ...unavailable(args.draft, 'unavailable'), publicFacts: null };
   }
@@ -294,7 +348,7 @@ export async function chooseVoiceSlot(args: { salon: VoiceSalon; draft: VoiceDra
       return unavailable(args.draft, fresh.quoteChanged ? 'selection_changed' : 'no_availability');
     }
     const next = advanceCustomerConversation(prior, args.now?.getTime());
-    next.booking = { acceptedFingerprint: fresh.proposal.fingerprint, datePreference: preference, offeredSlots: fresh.slots, selectedSlot: fresh.selected };
+    next.booking = { acceptedFingerprint: fresh.proposal.fingerprint, datePreference: preference, offeredSlots: [fresh.selected], selectedSlot: fresh.selected };
     next.context = { question: null, options: [], selection: fresh.proposal.selection };
     const result: CustomerAssistantResult = { kind: 'slot_selected', proposal: fresh.proposal, preference, timeZone: fresh.timeZone, slot: fresh.selected };
     return { draft: { ...args.draft, conversation: next, lastResult: result, review: null, operation: null }, result };

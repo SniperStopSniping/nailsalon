@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     call = (await createVoiceCall({ id, salonId: salon.id, provider: 'browser', providerCallId, routeTokenHash: voiceTokenHash(token), routeExpiresAt })).call;
     const settings = await getVoiceSettings(salon.id);
     const live = await voiceLiveRequest(config, '', {
-      session: buildVoiceSession(salon.name, { ...settings, bookingEnabled: false }, true),
+      session: buildVoiceSession(salon, { ...settings, bookingEnabled: false }, true),
       transport: { type: 'webrtc', sdp: parsed.data.sdp },
     });
     const response = await live.json() as { session?: { id?: unknown }; transport?: { sdp?: unknown } };

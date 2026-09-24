@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { advanceVoiceContact, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkHarmlessAcknowledgment, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, matchVoiceOfferedSlot, voiceReviewText } from './conversation';
+import { advanceVoiceContact, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkHarmlessAcknowledgment, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, isVoicePhoneFragment, matchVoiceOfferedSlot, voiceReviewText } from './conversation';
 
 describe('voice conversation safety', () => {
   it('recognizes a requested booking-link text without treating general booking talk as a send request', () => {
@@ -23,6 +23,9 @@ describe('voice conversation safety', () => {
     expect(isVoiceBookingLinkHarmlessAcknowledgment('Okay, thanks')).toBe(true);
     expect(isVoiceBookingLinkHarmlessAcknowledgment('Hold on a second')).toBe(false);
     expect(isVoiceBookingLinkHarmlessAcknowledgment('Please use 416 555 0101')).toBe(false);
+    expect(isVoicePhoneFragment('four one six')).toBe(true);
+    expect(isVoicePhoneFragment('No, use four one six')).toBe(true);
+    expect(isVoicePhoneFragment('book me for four')).toBe(false);
   });
 
   it('requires an exact booking command and rejects vague, negative, and correction speech', () => {
