@@ -99,6 +99,9 @@ test('guest can book without OTP and receive an appointment management link', as
   });
 
   await expect(page).toHaveURL(appPathPattern('/book/confirm'));
+
+  const originalConfirmationUrl = page.url();
+
   await expect(page.getByRole('heading', { name: /review your appointment/i })).toBeVisible();
 
   await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
@@ -119,8 +122,10 @@ test('guest can book without OTP and receive an appointment management link', as
   const bookingResponse = await bookingResponsePromise;
   const bookingBody = await bookingResponse.json();
   const manageUrl = bookingBody?.data?.manageUrl as string | undefined;
+  const originalAppointmentId = bookingBody?.data?.appointmentId as string | undefined;
 
   expect(manageUrl).toBeTruthy();
+  expect(originalAppointmentId).toBeTruthy();
 
   await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
   await expect(page.getByRole('link', { name: /manage this appointment/i })).toBeVisible();
@@ -131,6 +136,47 @@ test('guest can book without OTP and receive an appointment management link', as
   });
 
   expect(cancellation.ok(), await cancellation.text()).toBeTruthy();
+
+  // A completed receipt is kept for refresh recovery. Starting Services again
+  // must retire it even when the new selection reaches the identical URL.
+  await page.goto(`${appPath('/book/service')}?salonSlug=${e2eConfig.salonSlug}`, { waitUntil: 'domcontentloaded' });
+
+  await expect(page.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
+  await expect.poll(() => page.evaluate(() => Object.keys(sessionStorage)
+    .filter(key => key.startsWith('luster.public-booking-attempt.v1.')).length)).toBe(0);
+
+  await page.goto(originalConfirmationUrl, { waitUntil: 'domcontentloaded' });
+
+  await expect(page.getByRole('heading', { name: /review your appointment/i })).toBeVisible();
+
+  await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
+  await page.getByLabel('Customer email').fill(`guest+${Date.now()}@example.com`);
+  await page.getByLabel('Customer phone').fill(phone);
+  await acknowledgeBookingPolicy(page);
+
+  const rebookingResponsePromise = page.waitForResponse(response => (
+    response.url().includes('/api/appointments')
+    && response.request().method() === 'POST'
+    && response.status() === 201
+  ));
+  await page.getByRole('button', { name: /confirm appointment/i }).click();
+
+  const rebookingResponse = await rebookingResponsePromise;
+  const rebookingBody = await rebookingResponse.json();
+
+  expect(rebookingBody?.data?.appointmentId).toBeTruthy();
+  expect(rebookingBody.data.appointmentId).not.toBe(originalAppointmentId);
+
+  const rebookingManageUrl = rebookingBody?.data?.manageUrl as string | undefined;
+  const rebookingToken = rebookingManageUrl && new URL(rebookingManageUrl, page.url()).pathname.split('/').filter(Boolean).at(-1);
+
+  expect(rebookingToken).toBeTruthy();
+
+  const rebookingCancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(rebookingToken!)}`, {
+    data: { action: 'cancel', reason: 'client_request' },
+  });
+
+  expect(rebookingCancellation.ok(), await rebookingCancellation.text()).toBeTruthy();
 });
 
 test('a guest can manage multiple upcoming appointments', async ({ page }) => {

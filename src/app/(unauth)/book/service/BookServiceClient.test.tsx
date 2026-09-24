@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingExperienceCssVariables } from '@/libs/bookingExperience';
+import { beginPublicBookingAttempt, readPublicBookingAttempt, resolvePublicBookingAttempt } from '@/libs/publicBookingRecovery.client';
 import messages from '@/locales/en.json';
 import type { BookingExperience } from '@/types/salonPolicy';
 
@@ -297,6 +298,7 @@ vi.mock('@/providers/SalonProvider', () => ({
     bookingPage: salonContextMock.bookingPage,
     salonName: 'Salon A',
     salonSlug: 'salon-a',
+    salonId: 'salon-a-id',
   }),
 }));
 
@@ -563,6 +565,17 @@ describe('BookServiceClient', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('starts a new selection after a completed booking without restoring its old receipt', () => {
+    beginPublicBookingAttempt({ salonId: 'salon-a-id', attemptId: crypto.randomUUID(), confirmationPath: '/en/book/confirm?time=11' });
+    resolvePublicBookingAttempt('salon-a-id', {
+      data: { appointmentId: 'cancelled-later', appointment: { id: 'cancelled-later', status: 'confirmed' } },
+    });
+
+    render(<BookServiceClient services={services} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />);
+
+    expect(readPublicBookingAttempt('salon-a-id')).toBeNull();
   });
 
   it('tells a returning customer to review the catalog after a stale confirmation', () => {
