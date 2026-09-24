@@ -351,6 +351,22 @@ describe('MarketingModal', () => {
     }));
   });
 
+  it('opens the phone receptionist from Marketing & Messages without enabling calls', async () => {
+    installSuccessfulFetch();
+    await renderMarketing();
+
+    fireEvent.click(screen.getByTestId('marketing-home-phone-receptionist'));
+
+    expect(await screen.findByTestId('phone-receptionist-settings-modal')).toBeInTheDocument();
+    expect(settingsModalMock).toHaveBeenCalledWith(expect.objectContaining({
+      initialView: 'phone-receptionist',
+      leafOnly: true,
+      leafBackLabel: 'Marketing & Messages',
+      salonSlug: 'salon-a',
+    }));
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method && init.method !== 'GET')).toBe(false);
+  });
+
   it('keeps Smart Fit under Offers and reuses its existing Settings editor', async () => {
     installSuccessfulFetch();
     await renderMarketing();

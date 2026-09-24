@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { requireAdminSalon, requireRealSalonOwner } from '@/libs/adminAuth';
 import { getVoiceRuntimeConfig } from '@/libs/voiceReceptionist/config.server';
 import { coordinateVoiceCall } from '@/libs/voiceReceptionist/coordinator.server';
-import { buildVoiceSession, liveSessionPath, voiceLiveRequest } from '@/libs/voiceReceptionist/live.server';
+import { buildVoiceSession, liveSessionPath, voiceLiveRequest, VoiceProviderError } from '@/libs/voiceReceptionist/live.server';
 import { readVoiceBody, voiceRouteToken, voiceTokenHash } from '@/libs/voiceReceptionist/security.server';
 import { bindLiveSession, claimVoiceLease, createVoiceCall, getVoiceCall, getVoiceSettings, releaseVoiceLease } from '@/libs/voiceReceptionist/storage.server';
 
@@ -80,7 +80,11 @@ export async function POST(request: Request) {
     }
     after(() => coordinateVoiceCall(call!.id, config, leaseToken));
     return Response.json({ callId: call.id, sessionId, sdp: response.transport.sdp }, { headers: { 'Cache-Control': 'no-store' } });
-  } catch {
+  } catch (error) {
+    // A provider status is enough to diagnose setup; never log SDP, credentials, or caller data.
+    console.error(error instanceof VoiceProviderError
+      ? `VOICE_SANDBOX_PROVIDER_STATUS_${error.status}`
+      : 'VOICE_SANDBOX_SETUP_FAILED');
     return Response.json({ error: { message: 'Mic sandbox is unavailable. Start a new test to reconnect.' } }, { status: 503 });
   }
 }

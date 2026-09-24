@@ -4,7 +4,7 @@ import { POST } from './route';
 
 vi.mock('server-only', () => ({}));
 
-const { requireAdminSalon, requireRealSalonOwner, getVoiceRuntimeConfig, createVoiceCall, getVoiceSettings, voiceLiveRequest, bindLiveSession, claimVoiceLease } = vi.hoisted(() => ({
+const { requireAdminSalon, requireRealSalonOwner, getVoiceRuntimeConfig, createVoiceCall, getVoiceSettings, voiceLiveRequest, bindLiveSession, claimVoiceLease, VoiceProviderError } = vi.hoisted(() => ({
   requireAdminSalon: vi.fn(),
   requireRealSalonOwner: vi.fn(),
   getVoiceRuntimeConfig: vi.fn(),
@@ -13,13 +13,18 @@ const { requireAdminSalon, requireRealSalonOwner, getVoiceRuntimeConfig, createV
   voiceLiveRequest: vi.fn(),
   bindLiveSession: vi.fn(),
   claimVoiceLease: vi.fn(),
+  VoiceProviderError: class VoiceProviderError extends Error {
+    constructor(readonly status: number) {
+      super('secret provider response must not be logged');
+    }
+  },
 }));
 vi.mock('next/server', () => ({ after: vi.fn() }));
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon, requireRealSalonOwner }));
 vi.mock('@/libs/voiceReceptionist/config.server', () => ({ getVoiceRuntimeConfig }));
 vi.mock('@/libs/voiceReceptionist/security.server', () => ({ readVoiceBody: vi.fn(async request => request.text()), voiceRouteToken: vi.fn(() => 'route'), voiceTokenHash: vi.fn(() => 'hash') }));
 vi.mock('@/libs/voiceReceptionist/storage.server', () => ({ createVoiceCall, getVoiceSettings, bindLiveSession, claimVoiceLease, getVoiceCall: vi.fn(), releaseVoiceLease: vi.fn() }));
-vi.mock('@/libs/voiceReceptionist/live.server', () => ({ buildVoiceSession: vi.fn(() => ({ model: 'gpt-live-1' })), voiceLiveRequest, liveSessionPath: vi.fn() }));
+vi.mock('@/libs/voiceReceptionist/live.server', () => ({ buildVoiceSession: vi.fn(() => ({ model: 'gpt-live-1' })), voiceLiveRequest, VoiceProviderError, liveSessionPath: vi.fn() }));
 vi.mock('@/libs/voiceReceptionist/coordinator.server', () => ({ coordinateVoiceCall: vi.fn() }));
 
 describe('/api/admin/voice-receptionist/sandbox', () => {
@@ -41,5 +46,21 @@ describe('/api/admin/voice-receptionist/sandbox', () => {
     expect(response.status).toBe(200);
     expect(voiceLiveRequest).toHaveBeenCalledWith(expect.anything(), '', expect.objectContaining({ transport: { type: 'webrtc', sdp: 'offer-sdp' } }));
     expect(await response.json()).toEqual({ callId: '00000000-0000-4000-8000-000000000000', sessionId: 'session_1', sdp: 'answer-sdp' });
+  });
+
+  it('logs only the provider status when session creation fails', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    voiceLiveRequest.mockRejectedValueOnce(new VoiceProviderError(401));
+
+    try {
+      const response = await POST(new Request('https://app.test/api/admin/voice-receptionist/sandbox?salonSlug=isla', { method: 'POST', headers: { 'origin': 'https://app.test', 'content-type': 'application/json' }, body: JSON.stringify({ sdp: 'offer-sdp' }) }));
+
+      expect(response.status).toBe(503);
+      expect(errorLog).toHaveBeenCalledTimes(1);
+      expect(errorLog).toHaveBeenCalledWith('VOICE_SANDBOX_PROVIDER_STATUS_401');
+      expect(JSON.stringify(await response.json())).not.toContain('401');
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 });
