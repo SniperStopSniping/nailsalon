@@ -1,3 +1,10 @@
+## [1.130.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.130.3...v1.130.4) (2026-09-24)
+
+
+### Bug Fixes
+
+* **voice:** preserve WebSocket runtime in production builds ([#313](https://github.com/SniperStopSniping/nailsalon/issues/313)) ([1b5fa27](https://github.com/SniperStopSniping/nailsalon/commit/1b5fa27854421fee7a674369afcaff924041199c))
+
 ## [1.130.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.130.2...v1.130.3) (2026-09-24)
 
 
