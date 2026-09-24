@@ -15,7 +15,7 @@ import { queueVoiceBookingLink, revokeVoiceBookingLinkAuthority, voiceBookingLin
 import { formatVoiceCheckpointReview } from './checkpoint';
 import { requestVoiceCheckpoint } from './checkpoint.server';
 import { VOICE_CALL_LIMIT_SECONDS, type VoiceRuntimeConfig } from './config.server';
-import { advanceVoiceContact, completedVoiceContact, contactPrompt, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkHarmlessAcknowledgment, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, isVoiceContactAffirmation, isVoiceNo, matchVoiceOfferedSlot, normalizedSpeech, spokenPhone, spokenPhoneCorrection, VoiceConsentGate, voiceReviewText } from './conversation';
+import { advanceVoiceContact, completedVoiceContact, contactPrompt, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkHarmlessAcknowledgment, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, isVoiceContactAffirmation, isVoiceNo, isVoicePhoneFragment, matchVoiceOfferedSlot, normalizedSpeech, spokenPhone, spokenPhoneCorrection, VoiceConsentGate, voiceReviewText } from './conversation';
 import { liveSessionPath, voiceLiveRequest } from './live.server';
 import type { VoiceCallState } from './state';
 import { claimVoiceLease, getVoiceCall, getVoiceSettings, releaseVoiceLease, renewVoiceLease, saveVoiceCall } from './storage.server';
@@ -145,6 +145,8 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
   let bookingLinkOutput = '';
   let bookingLinkOfferOutput = '';
   let bookingLinkOfferEnd = -1;
+  let pendingPhoneSpeech = '';
+  let lastDirectLinkReply: { inputEnd: number; guidance: string } | null = null;
   let voiceSeconds = call.voiceSeconds ?? 0;
   let outcome = call.outcome ?? 'inquiry';
   let summary = call.summary ?? 'Call connected to the AI receptionist.';
@@ -178,7 +180,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       bytes += size;
     }
     chunks.push(chunk);
-    chunks.forEach((chunk, index) => socket.send(JSON.stringify({ type: index < chunks.length - 1 ? 'session.thinking.append' : type, event_id: randomUUID(), delegation_id: delegationId, content: chunk })));
+    chunks.forEach((chunk, index) => socket.send(JSON.stringify({ type: index < chunks.length - 1 ? 'session.thinking.append' : type === 'session.commentary.append' && !delegationId ? 'session.instructions.append' : type, event_id: randomUUID(), delegation_id: delegationId, content: chunk })));
   };
   const persist = async (patch: Parameters<typeof saveVoiceCall>[3] = {}) => {
     const saved = await saveVoiceCall(call.id, call.salonId, leaseToken, { draft: state, metrics, summary: summary.slice(0, 1000), outcome, voiceSeconds: Math.ceil(voiceSeconds), ...patch });
@@ -191,15 +193,27 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       throw new Error('VOICE_TURN_SUPERSEDED');
     }
   };
-  const emitReview = (delegationId: string) => {
+  const emitReview = (delegationId: string | null) => {
     if (!state.booking.review || !state.booking.operation) {
       return;
     }
     consent.arm(state.booking.operation.fingerprint, state.booking.operation.revision, state.booking.operation.expiresAt, Math.max(lastInputEnd, lastOutputEnd));
     send('session.commentary.append', voiceReviewText(state.booking.review), delegationId);
   };
-  const processInput = async (current: Input, delegationId: string, expected: number) => {
-    metrics.delegations = Number(metrics.delegations) + 1;
+  const currentLinkGuidance = (): string => {
+    if (state.bookingLinkPending) {
+      return state.bookingLinkPending.phone
+        ? `Read back ${state.bookingLinkPending.phone.split('').join(' ')} and ask whether this is the caller's Canadian mobile number and whether to text the verified booking page there. Require a clear yes.`
+        : 'Ask for the complete Canadian mobile number with area code, read it back, and ask whether to text the verified booking page there. No text has been requested yet.';
+    }
+    return state.bookingLinkAuthority
+      ? 'The booking-link text was queued for the confirmed number. It may arrive later; do not claim delivery.'
+      : 'No booking-link text was requested. Continue helping the caller.';
+  };
+  const processInput = async (current: Input, delegationId: string | null, expected: number) => {
+    if (delegationId) {
+      metrics.delegations = Number(metrics.delegations) + 1;
+    }
     const text = current.text.trim();
     const acceptedLinkOffer = bookingLinkOfferEnd >= 0 && current.start >= bookingLinkOfferEnd && isVoiceBookingLinkAffirmation(text);
     bookingLinkOfferEnd = -1;
@@ -229,6 +243,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
         }
         const result = await queueVoiceBookingLink({ salonId: call.salonId, callId: call.id, leaseToken, liveSessionId: call.liveSessionId!, pendingId: pending.id, phone: pending.phone, isCurrent: () => !stopped && epoch === expected && Date.now() < deadline });
         state.bookingLinkPending = null;
+        pendingPhoneSpeech = '';
         state.bookingLinkAuthority = result.authority;
         state.bookingLinkAttempted = true;
         summary = 'Caller requested a public booking link by text; no appointment was created.';
@@ -245,14 +260,31 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
         send('session.commentary.append', 'Ask the caller to say the Canadian mobile number first. Caller ID was unavailable, so no text has been requested.', delegationId);
         return;
       }
-      const corrected = spokenPhoneCorrection(text);
+      if (pending.phone && isVoiceBookingLinkAffirmation(text)) {
+        send('session.commentary.append', `No text has been requested yet. Read back ${pending.phone.split('').join(' ')} and ask whether that is the caller's Canadian mobile number and whether they want the public booking link texted there. Require a new clear yes after the readback.`, delegationId);
+        return;
+      }
+      const combinedPhoneSpeech = pendingPhoneSpeech ? `${pendingPhoneSpeech} ${text}` : text;
+      const corrected = spokenPhoneCorrection(text) ?? spokenPhoneCorrection(combinedPhoneSpeech);
       if (corrected) {
+        pendingPhoneSpeech = '';
         state.bookingLinkPending = { id: randomUUID(), phone: corrected, afterMs: current.end };
         bookingLinkOutput = '';
         await persist();
         send('session.commentary.append', `Read back ${corrected.split('').join(' ')} and ask whether that is the caller's Canadian mobile number and whether they want the public booking link texted there. Require a clear yes.`, delegationId);
         return;
       }
+      if (isVoicePhoneFragment(text) && combinedPhoneSpeech.length <= 120) {
+        pendingPhoneSpeech = combinedPhoneSpeech;
+        if (pending.phone) {
+          state.bookingLinkPending = { id: randomUUID(), phone: '', afterMs: current.end };
+          await persist();
+        }
+        // Do not prompt halfway through a dictated number. The next fragment
+        // can complete it, but no SMS authority exists until a full readback.
+        return;
+      }
+      pendingPhoneSpeech = '';
       state.bookingLinkPending = null;
       await persist();
       if (isVoiceNo(text)) {
@@ -284,6 +316,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       const phone = spokenPhone(call.callerNumber ?? '');
       state.callbackPending = false;
       state.bookingLinkPending = { id: randomUUID(), phone: phone ?? '', afterMs: current.end };
+      pendingPhoneSpeech = '';
       bookingLinkOutput = '';
       await persist();
       send('session.commentary.append', phone
@@ -412,6 +445,9 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       state.contact = state.contact?.step === 'complete' ? { ...state.contact, step: 'verify' } : state.contact ?? { step: 'name', name: '', email: '', phone: spokenPhone(call.callerNumber ?? '') ?? '' };
       send('session.commentary.append', `Luster rechecked this offered slot; it is not held. ${contactPrompt(state.contact)}`, delegationId);
     } else {
+      if ('availabilityIssue' in response && response.availabilityIssue === 'unverified') {
+        send('session.commentary.append', 'Luster could not verify an appointment time right now. You may state the checked service price below, but say you are having trouble checking times and offer to text the verified booking page after confirming the mobile number.', delegationId);
+      }
       send('session.commentary.append', `Authoritative Luster result (use these facts, no invention): ${JSON.stringify(response.result)}`, delegationId);
       if ('publicFacts' in response && response.publicFacts) {
         send('session.thinking.append', `Public salon facts: ${JSON.stringify(response.publicFacts)}`, delegationId);
@@ -419,12 +455,15 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
     }
     await persist();
   };
+  const shouldHandleLinkDirectly = (current: Input): boolean => isVoiceBookingLinkRequest(current.text)
+    || !!state.bookingLinkPending
+    || (bookingLinkOfferEnd >= 0 && current.start >= bookingLinkOfferEnd && isVoiceBookingLinkAffirmation(current.text));
   const schedule = () => {
     if (timer) {
       clearTimeout(timer);
     }
     timer = setTimeout(() => {
-      if (busy || !pendingDelegation || !input || stopped) {
+      if (busy || !input || stopped || (!pendingDelegation && !shouldHandleLinkDirectly(input))) {
         return;
       }
       const current = input;
@@ -433,7 +472,16 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       pendingDelegation = null;
       busy = true;
       const expected = epoch;
-      void processInput(current, delegation, expected).catch(async () => {
+      void processInput(current, delegation, expected).then(() => {
+        if (!delegation && !stopped && epoch === expected) {
+          lastDirectLinkReply = { inputEnd: current.end, guidance: currentLinkGuidance() };
+          if (pendingDelegation && !input && lastInputEnd === current.end) {
+            send('session.commentary.append', lastDirectLinkReply.guidance, pendingDelegation);
+            pendingDelegation = null;
+            lastDirectLinkReply = null;
+          }
+        }
+      }).catch(async () => {
         if (epoch !== expected && !stopped) {
           input = input ? { text: (current.text + input.text).slice(-2400), start: current.start, end: input.end } : current;
           pendingDelegation ??= delegation;
@@ -455,7 +503,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
         }
       }).finally(() => {
         busy = false;
-        if (input && pendingDelegation) {
+        if (input && (pendingDelegation || shouldHandleLinkDirectly(input))) {
           schedule();
         }
       });
@@ -529,12 +577,15 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
           epoch += 1;
           const start = event.start_ms!;
           lastInputEnd = Math.max(lastInputEnd, event.end_ms!);
+          if (lastDirectLinkReply && lastInputEnd > lastDirectLinkReply.inputEnd) {
+            lastDirectLinkReply = null;
+          }
           if (start < lastOutputEnd) {
             metrics.interrupted = Number(metrics.interrupted) + 1;
             consent.invalidate();
           }
           input = input ? { text: (input.text + event.delta).slice(-2400), start: Math.min(input.start, start), end: Math.max(input.end, event.end_ms!) } : { text: event.delta, start, end: event.end_ms! };
-          if (pendingDelegation) {
+          if (pendingDelegation || shouldHandleLinkDirectly(input)) {
             schedule();
           }
         } else if (event.type === 'session.output_transcript.delta' && typeof event.delta === 'string' && Number.isFinite(event.start_ms) && Number.isFinite(event.end_ms)) {
@@ -560,8 +611,13 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
             metrics.lastTranscriptResponseGapMs = event.start_ms! - lastInputEnd;
           }
         } else if (event.type === 'session.delegation.created' && event.delegation?.target === 'client' && event.delegation.id) {
-          pendingDelegation = event.delegation.id;
-          schedule();
+          if (!busy && !input && lastDirectLinkReply && lastDirectLinkReply.inputEnd === lastInputEnd) {
+            send('session.commentary.append', lastDirectLinkReply.guidance, event.delegation.id);
+            lastDirectLinkReply = null;
+          } else {
+            pendingDelegation = event.delegation.id;
+            schedule();
+          }
         } else if (event.type === 'session.usage.updated' && Number.isFinite(event.usage?.seconds)) {
           voiceSeconds = Math.max(voiceSeconds, baseVoiceSeconds + event.usage!.seconds!);
         } else if (event.type === 'session.closed') {

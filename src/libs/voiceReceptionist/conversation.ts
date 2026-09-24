@@ -61,6 +61,16 @@ export function spokenPhoneCorrection(text: string): string | null {
   return spokenPhone(text) ?? spokenPhone(speech);
 }
 
+/** Incomplete dictated digits must not cancel a pending text request. */
+export function isVoicePhoneFragment(text: string): boolean {
+  const speech = normalizedSpeech(text)
+    .replace(/^no\s+/, '')
+    .replace(/^(?:use|its|it's|my number is|the number is|text it to|send it to)\s+/, '');
+  const parts = speech.split(' ').filter(Boolean);
+  return parts.length > 0 && parts.every(part => /^\d+$/.test(part)
+    || /^(?:zero|oh|one|two|three|four|five|six|seven|eight|nine|cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)$/.test(part));
+}
+
 export function isVoiceBookingLinkRevocation(text: string): boolean {
   const speech = normalizedSpeech(text);
   return /\b(?:cancel|stop|dont|don't|do not|never)\b.+\b(?:text|sms|message|link|send)\b/.test(speech)

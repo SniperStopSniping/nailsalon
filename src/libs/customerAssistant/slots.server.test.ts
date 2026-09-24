@@ -54,6 +54,19 @@ describe('bounded customer availability adapter', () => {
     expect(JSON.stringify(result)).not.toContain('appointmentCount');
   });
 
+  it('offers the earliest checked slot first even when the provider returns later times first', async () => {
+    mocks.config.mockResolvedValue({ timezone: 'America/Toronto' });
+    mocks.proposal.mockResolvedValue(proposal);
+    const lookup = vi.fn().mockResolvedValue(Response.json({ slots: [
+      { time: '16:00', startTime: '2026-09-20T20:00:00.000Z', availability: 'available' },
+      { time: '14:00', startTime: '2026-09-20T18:00:00.000Z', availability: 'available' },
+    ] }));
+
+    const result = await lookupCustomerSlots({ salon: { id: 'salon-a', slug: 'isla-nail-studio' }, features: null, selection, preference: { date: '2026-09-20', earliest: '00:00', latest: '23:59' }, now: new Date('2026-09-18T12:00:00Z'), lookup });
+
+    expect(result?.slots.map(slot => slot.time)).toEqual(['14:00', '16:00']);
+  });
+
   it('fails closed when the availability authority is unavailable', async () => {
     mocks.config.mockResolvedValue({ timezone: 'America/Toronto' });
     mocks.proposal.mockResolvedValue(proposal);

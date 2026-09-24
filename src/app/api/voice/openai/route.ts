@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     return new Response(null, { status: 409 });
   }
   try {
-    await voiceLiveRequest(config, `${liveSessionPath(data.session_id)}/accept`, { session: buildVoiceSession(salon.name, settings, false) });
+    await voiceLiveRequest(config, `${liveSessionPath(data.session_id)}/accept`, { session: buildVoiceSession(salon, settings, false) });
   } catch {
     await voiceLiveRequest(config, `${liveSessionPath(data.session_id)}/hangup`).catch(() => undefined);
     await setVoiceCallTransportState(call.id, call.salonId, data.session_id, 'dropped');
