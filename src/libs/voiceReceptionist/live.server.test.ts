@@ -18,5 +18,6 @@ describe('voice live session boundaries', () => {
     ]);
     expect(session.instructions).toContain('/synthetic-isla/book/service');
     expect(session.instructions).toContain('Never mention or invent a third-party booking site');
+    expect(session.instructions).toContain('Do not guess the time of day');
   });
 });
