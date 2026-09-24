@@ -11,7 +11,7 @@ import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
 import { resolveSmsDestination } from '@/libs/smsDestination';
 import { calculateSmsSegments } from '@/libs/smsSegments';
-import { communicationIntentSchema, salonSchema, voiceCallSchema } from '@/models/Schema';
+import { communicationIntentSchema, customerBookingOperationSchema, salonSchema, voiceCallSchema } from '@/models/Schema';
 
 import type { VoiceCallState } from './state';
 import { redactVoiceDraft } from './storage.server';
@@ -60,9 +60,30 @@ export async function queueVoiceBookingLink(input: {
     if (!call || call.provider !== 'twilio' || call.liveSessionId !== input.liveSessionId
       || call.leaseToken !== input.leaseToken || !call.leaseExpiresAt || call.leaseExpiresAt <= now
       || call.endedAt || !['connected', 'in_progress'].includes(call.status)
-      || call.appointmentId || draft?.bookingStatus?.appointment || draft?.booking?.operation
+      || call.appointmentId || draft?.bookingStatus?.appointment || draft?.consentHash || draft?.confirmation
       || (!confirmedNumber && !requestedCallerId)) {
       throw new Error('VOICE_BOOKING_LINK_CALL_STALE');
+    }
+    const operation = draft?.booking?.operation;
+    if (operation) {
+      // Checkpoint commits lock this voice call row before creating or linking an
+      // appointment. Holding that same row means a concurrent commit either
+      // finishes before this read or cannot pass its execution guard. Do not
+      // lock the operation here: the commit path locks it first.
+      const [canonicalOperation] = await tx.select({
+        revision: customerBookingOperationSchema.revision,
+        requestHash: customerBookingOperationSchema.requestHash,
+        appointmentId: customerBookingOperationSchema.appointmentId,
+        committedAt: customerBookingOperationSchema.committedAt,
+      }).from(customerBookingOperationSchema).where(and(
+        eq(customerBookingOperationSchema.salonId, input.salonId),
+        eq(customerBookingOperationSchema.sessionId, call.id),
+      )).limit(1);
+      if (!canonicalOperation || canonicalOperation.revision !== operation.revision
+        || canonicalOperation.requestHash !== operation.fingerprint
+        || canonicalOperation.appointmentId || canonicalOperation.committedAt) {
+        throw new Error('VOICE_BOOKING_LINK_CALL_STALE');
+      }
     }
     const [salon] = await tx.select({ name: salonSchema.name, slug: salonSchema.slug, customDomain: salonSchema.customDomain, isActive: salonSchema.isActive, deletedAt: salonSchema.deletedAt })
       .from(salonSchema).where(eq(salonSchema.id, input.salonId)).limit(1);
@@ -148,9 +169,24 @@ export async function voiceBookingLinkSendState(input: {
   const [call] = await db.select({ provider: voiceCallSchema.provider, status: voiceCallSchema.status, endedAt: voiceCallSchema.endedAt, appointmentId: voiceCallSchema.appointmentId, draft: voiceCallSchema.draft })
     .from(voiceCallSchema).where(and(eq(voiceCallSchema.id, input.callId), eq(voiceCallSchema.salonId, input.salonId))).limit(1);
   const draft = call?.draft as VoiceCallState | null;
-  if (call?.provider !== 'twilio' || call.appointmentId || draft?.bookingStatus?.appointment
+  if (call?.provider !== 'twilio' || call.appointmentId || draft?.bookingStatus?.appointment || draft?.consentHash || draft?.confirmation
     || draft?.bookingLinkAuthority?.intentId !== input.intentId
     || draft.bookingLinkAuthority.recipientHash !== voiceBookingLinkRecipientHash(input.recipient)) {
+    return 'invalid';
+  }
+  const [canonicalOperation] = await db.select({
+    revision: customerBookingOperationSchema.revision,
+    requestHash: customerBookingOperationSchema.requestHash,
+    appointmentId: customerBookingOperationSchema.appointmentId,
+    committedAt: customerBookingOperationSchema.committedAt,
+  }).from(customerBookingOperationSchema).where(and(
+    eq(customerBookingOperationSchema.salonId, input.salonId),
+    eq(customerBookingOperationSchema.sessionId, input.callId),
+  )).limit(1);
+  const operation = draft?.booking?.operation;
+  if (canonicalOperation?.appointmentId || canonicalOperation?.committedAt
+    || (operation && (!canonicalOperation || canonicalOperation.revision !== operation.revision
+      || canonicalOperation.requestHash !== operation.fingerprint))) {
     return 'invalid';
   }
   if (call.status === 'completed' && call.endedAt) {

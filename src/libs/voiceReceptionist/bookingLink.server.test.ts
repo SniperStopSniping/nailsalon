@@ -65,6 +65,33 @@ async function liveCall(phone = '4165550100') {
   return { salonId: 'voice-link-a', callId: id, leaseToken: `lease-${sequence}`, liveSessionId: `live-${sequence}`, pendingId, phone };
 }
 
+async function attachPreparedOperation(input: Awaited<ReturnType<typeof liveCall>>) {
+  const id = `10000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`;
+  const fingerprint = `prepared-request-${sequence}`;
+  const expiresAt = new Date(Date.now() + 60_000);
+  await db.insert(schema.customerBookingOperationSchema).values({
+    id,
+    salonId: input.salonId,
+    sessionId: input.callId,
+    requestHash: fingerprint,
+    contactBinding: `prepared-contact-${sequence}`,
+    material: {} as never,
+    reviewExpiresAt: expiresAt,
+    recoveryExpiresAt: new Date(expiresAt.getTime() + 60_000),
+  });
+  const [call] = await db.select().from(schema.voiceCallSchema).where(eq(schema.voiceCallSchema.id, input.callId));
+  await db.update(schema.voiceCallSchema).set({
+    draft: {
+      ...(call!.draft as Record<string, unknown>),
+      booking: {
+        ...((call!.draft as { booking: Record<string, unknown> }).booking),
+        operation: { capability: 'opaque-prepared-operation', revision: 1, fingerprint, expiresAt: expiresAt.toISOString() },
+      },
+    },
+  }).where(eq(schema.voiceCallSchema.id, input.callId));
+  return { id, fingerprint };
+}
+
 describe('requested voice booking link', () => {
   it('queues one public link directly to the caller ID only for the same leased call', async () => {
     const { queueVoiceBookingLink } = await import('./bookingLink.server');
@@ -128,6 +155,82 @@ describe('requested voice booking link', () => {
     await db.update(schema.voiceCallSchema).set({ draft: { bookingLinkAuthority: null } }).where(eq(schema.voiceCallSchema.id, input.callId));
 
     expect(await hasVoiceBookingLinkAuthority({ salonId: input.salonId, intentId: queued.intentId, callId: input.callId, recipient: input.phone })).toBe(false);
+  });
+
+  it('falls back only from the matching, unlinked canonical prepared operation', async () => {
+    const { queueVoiceBookingLink } = await import('./bookingLink.server');
+    const input = await liveCall();
+    await attachPreparedOperation(input);
+
+    const queued = await queueVoiceBookingLink(input);
+
+    expect(queued.created).toBe(true);
+  });
+
+  it('fails closed when persisted consent or a checkpoint makes the prepared operation unresolved', async () => {
+    const { queueVoiceBookingLink, voiceBookingLinkSendState } = await import('./bookingLink.server');
+    const pending = await liveCall();
+    await attachPreparedOperation(pending);
+    const [pendingCall] = await db.select().from(schema.voiceCallSchema).where(eq(schema.voiceCallSchema.id, pending.callId));
+    await db.update(schema.voiceCallSchema).set({
+      draft: {
+        ...(pendingCall!.draft as Record<string, unknown>),
+        consentHash: 'finalized-consent',
+        confirmation: { id: 'checkpoint-pending', revision: 1, fingerprint: 'prepared-request', expiresAt: new Date(Date.now() + 60_000).toISOString(), language: 'en', stage: 'committing' },
+      },
+    }).where(eq(schema.voiceCallSchema.id, pending.callId));
+
+    await expect(queueVoiceBookingLink(pending)).rejects.toThrow('VOICE_BOOKING_LINK_CALL_STALE');
+
+    const dispatched = await liveCall();
+    await attachPreparedOperation(dispatched);
+    const queued = await queueVoiceBookingLink(dispatched);
+    const [dispatchedCall] = await db.select().from(schema.voiceCallSchema).where(eq(schema.voiceCallSchema.id, dispatched.callId));
+    await db.update(schema.voiceCallSchema).set({
+      status: 'completed',
+      endedAt: new Date(Date.now() - 60_000),
+      draft: {
+        ...(dispatchedCall!.draft as Record<string, unknown>),
+        consentHash: 'finalized-consent',
+        confirmation: { id: 'checkpoint-dispatch', revision: 1, fingerprint: 'prepared-request', expiresAt: new Date(Date.now() + 60_000).toISOString(), language: 'en', stage: 'committing' },
+      },
+    }).where(eq(schema.voiceCallSchema.id, dispatched.callId));
+
+    expect(await voiceBookingLinkSendState({ salonId: dispatched.salonId, intentId: queued.intentId, callId: dispatched.callId, recipient: dispatched.phone })).toBe('invalid');
+  });
+
+  it('rejects a stale prepared reference and suppresses a link when its operation later links an appointment', async () => {
+    const { queueVoiceBookingLink, voiceBookingLinkSendState } = await import('./bookingLink.server');
+    const stale = await liveCall();
+    await attachPreparedOperation(stale);
+    const [staleCall] = await db.select().from(schema.voiceCallSchema).where(eq(schema.voiceCallSchema.id, stale.callId));
+    await db.update(schema.voiceCallSchema).set({
+      draft: {
+        ...(staleCall!.draft as Record<string, unknown>),
+        booking: {
+          ...((staleCall!.draft as { booking: Record<string, unknown> }).booking),
+          operation: { ...((staleCall!.draft as { booking: { operation: Record<string, unknown> } }).booking.operation), fingerprint: 'different-request' },
+        },
+      },
+    }).where(eq(schema.voiceCallSchema.id, stale.callId));
+
+    await expect(queueVoiceBookingLink(stale)).rejects.toThrow('VOICE_BOOKING_LINK_CALL_STALE');
+
+    const committed = await liveCall();
+    const committedOperation = await attachPreparedOperation(committed);
+    await db.update(schema.customerBookingOperationSchema).set({ appointmentId: 'booked-before-link-queue', committedAt: new Date() })
+      .where(eq(schema.customerBookingOperationSchema.id, committedOperation.id));
+
+    await expect(queueVoiceBookingLink(committed)).rejects.toThrow('VOICE_BOOKING_LINK_CALL_STALE');
+
+    const input = await liveCall();
+    const operation = await attachPreparedOperation(input);
+    const queued = await queueVoiceBookingLink(input);
+    await db.update(schema.voiceCallSchema).set({ status: 'completed', endedAt: new Date(Date.now() - 60_000) }).where(eq(schema.voiceCallSchema.id, input.callId));
+    await db.update(schema.customerBookingOperationSchema).set({ appointmentId: 'booked-after-link-queue', committedAt: new Date() })
+      .where(eq(schema.customerBookingOperationSchema.id, operation.id));
+
+    expect(await voiceBookingLinkSendState({ salonId: input.salonId, intentId: queued.intentId, callId: input.callId, recipient: input.phone })).toBe('invalid');
   });
 
   it('fences a wrong tenant, stale lease, unsupported destination, and completed booking', async () => {

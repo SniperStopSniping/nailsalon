@@ -52,6 +52,32 @@ describe('voice conversation safety', () => {
     expect(matchVoiceOfferedSlot(offered, '4:00')).toBeNull();
   });
 
+  it('accepts ordinary replies to a single current offered slot without accepting corrections', () => {
+    const offered = [{ time: '4:00 PM', startTime: '2030-01-01T21:00:00.000Z' }];
+    for (const speech of ['yes', 'yeah that works', 'yes that works', 'sounds good', 'book it', 'can you book that for me', 'I\'ll take that one', 'four pm works for me']) {
+      expect(matchVoiceOfferedSlot(offered, speech, true), speech).toBe(offered[0]!.startTime);
+    }
+    for (const speech of ['no', 'yes but tomorrow', 'book it for Friday', 'four pm on Friday', 'maybe', 'yes send the link', 'not four pm']) {
+      expect(matchVoiceOfferedSlot(offered, speech, true), speech).toBeNull();
+    }
+
+    expect(matchVoiceOfferedSlot(offered, 'yes')).toBeNull();
+    expect(matchVoiceOfferedSlot([...offered, { time: '5:00 PM', startTime: '2030-01-01T22:00:00.000Z' }], 'yes', true)).toBeNull();
+  });
+
+  it('understands short explicit link requests and ordinary acceptance without accepting a withdrawal', () => {
+    for (const speech of ['Can you send me the link?', 'Text me the link please', 'Please text it to me', 'Send me the booking link']) {
+      expect(isVoiceBookingLinkRequest(speech), speech).toBe(speech !== 'Please text it to me');
+    }
+    for (const speech of ['yeah', 'sure', 'okay', 'yes please', 'yes send it', 'text it to me please']) {
+      expect(isVoiceBookingLinkAffirmation(speech), speech).toBe(true);
+    }
+    for (const speech of ['no send nothing', 'don\'t send me the link', 'yes but use another number', 'you already sent the link', 'Can you send me a payment link?', 'send me a cancellation link', 'send me the booking link by email', 'send me the Instagram link']) {
+      expect(isVoiceBookingLinkAffirmation(speech), speech).toBe(false);
+      expect(isVoiceBookingLinkRequest(speech), speech).toBe(false);
+    }
+  });
+
   it('corrects English and Spanish contact fields without caller-ID inference', () => {
     const state = { step: 'complete' as const, name: 'Ava', email: 'old@example.test', phone: '4165550100', smsConsent: { granted: true, selection: 'explicit_on' as const, wordingVersion: 'booking-sms-reminders-v1' as const } };
 

@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => {
       this.close();
     }
   }
-  return { Socket, sockets, claim: vi.fn(), get: vi.fn(), save: vi.fn(), release: vi.fn(), settings: vi.fn(), review: vi.fn(), consult: vi.fn(), checkpoint: vi.fn(), readOperation: vi.fn(), status: vi.fn(), live: vi.fn(), queueLink: vi.fn(), revokeLink: vi.fn(), recipientHash: vi.fn() };
+  return { Socket, sockets, claim: vi.fn(), get: vi.fn(), save: vi.fn(), release: vi.fn(), settings: vi.fn(), review: vi.fn(), choose: vi.fn(), consult: vi.fn(), checkpoint: vi.fn(), readOperation: vi.fn(), status: vi.fn(), live: vi.fn(), queueLink: vi.fn(), revokeLink: vi.fn(), recipientHash: vi.fn() };
 });
 vi.mock('server-only', () => ({}));
 vi.mock('ws', () => ({ default: mocks.Socket }));
@@ -37,7 +37,7 @@ vi.mock('@/libs/queries', () => ({ getSalonById: vi.fn(async () => ({ id: 'salon
 vi.mock('@/libs/customerAssistant/publicFacts.server', () => ({ loadCustomerPublicFacts: vi.fn(async () => ({ salon: { name: 'Synthetic Isla' } })) }));
 vi.mock('@/libs/customerAssistant/operationStore.server', () => ({ readCustomerBookingOperation: mocks.readOperation }));
 vi.mock('@/libs/customerAssistant/bookingStatus.server', () => ({ readCustomerBookingStatus: mocks.status }));
-vi.mock('./authority.server', () => ({ createVoiceDraft: vi.fn(), prepareVoiceReview: mocks.review, runVoiceConsultation: mocks.consult, chooseVoiceSlot: vi.fn() }));
+vi.mock('./authority.server', () => ({ createVoiceDraft: vi.fn(), prepareVoiceReview: mocks.review, runVoiceConsultation: mocks.consult, chooseVoiceSlot: mocks.choose }));
 vi.mock('./checkpoint.server', () => ({ requestVoiceCheckpoint: mocks.checkpoint }));
 vi.mock('./bookingLink.server', () => ({ queueVoiceBookingLink: mocks.queueLink, revokeVoiceBookingLinkAuthority: mocks.revokeLink, voiceBookingLinkRecipientHash: mocks.recipientHash }));
 vi.mock('./live.server', () => ({ liveSessionPath: (id: string) => `/${id}`, voiceLiveRequest: mocks.live }));
@@ -95,6 +95,109 @@ afterEach(() => {
 });
 
 describe('voice sideband consultation and interruption', () => {
+  it('takes a natural acceptance through contact collection to the signed booking checkpoint', async () => {
+    const slot = { time: '4:00 PM', startTime: '2030-01-01T21:00:00.000Z' };
+    const proposal = { service: { name: 'Gel Manicure' }, addOns: [] };
+    const state = { ...callState(), contact: null, booking: { ...callState().booking, lastResult: { kind: 'slots', slots: [slot] }, conversation: { ...callState().booking.conversation, booking: { offeredSlots: [slot] } } } };
+    mocks.claim.mockResolvedValue({ ...await mocks.claim(), callerNumber: '+14165550100', draft: state });
+    mocks.choose.mockResolvedValue({ draft: state.booking, result: { kind: 'slot_selected', proposal, preference: { date: '2030-01-01' }, slot } });
+    const operation = { capability: 'operation-a', fingerprint: 'f'.repeat(64), revision: 1, expiresAt: new Date(Date.now() + 120_000).toISOString() };
+    mocks.review.mockResolvedValue({ draft: { ...state.booking, operation, review }, review });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('yes that works');
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.choose).toHaveBeenCalledOnce();
+    expect(mocks.review).not.toHaveBeenCalled();
+    expect(mocks.checkpoint).not.toHaveBeenCalled();
+
+    delegate('late-choice');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.sockets[0]!.send).toHaveBeenCalledWith(expect.stringContaining('Ask for the name'));
+
+    for (const [index, speech] of ['Ava Test', 'ava at example dot test', 'yes', 'yes'].entries()) {
+      input(speech, 1000 + index * 1000, 1500 + index * 1000);
+      delegate(`contact-${index}`);
+      await vi.advanceTimersByTimeAsync(700);
+    }
+    await run;
+
+    expect(mocks.review).toHaveBeenCalledWith(expect.objectContaining({ contact: { name: 'Ava Test', email: 'ava@example.test', phone: '4165550100' } }));
+    expect(mocks.checkpoint).toHaveBeenCalledOnce();
+  });
+
+  it('does not attach an undelegated greeting to a later link-offer acceptance', async () => {
+    mocks.claim.mockResolvedValue({ ...await mocks.claim(), callerNumber: '+14165550100' });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('hello', 100, 200);
+    output('Would you like me to send the booking link?', 300, 500);
+    input('yeah', 600, 700);
+    await vi.advanceTimersByTimeAsync(700);
+
+    expect(mocks.queueLink).toHaveBeenCalledOnce();
+
+    close();
+    await run;
+  });
+
+  it('keeps a queued link after repeated acceptance and immediate hangup', async () => {
+    mocks.claim.mockResolvedValue({ ...await mocks.claim(), callerNumber: '+14165550100' });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('send me the link');
+    await vi.advanceTimersByTimeAsync(700);
+    input('yes send it', 500, 600);
+    close();
+    await run;
+
+    expect(mocks.queueLink).toHaveBeenCalledOnce();
+    expect(mocks.revokeLink).not.toHaveBeenCalled();
+  });
+
+  it('preserves a cancellation across an undelegated voice reply and final thanks', async () => {
+    mocks.claim.mockResolvedValue({ ...await mocks.claim(), callerNumber: '+14165550100' });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('send me the link', 100, 200);
+    await vi.advanceTimersByTimeAsync(700);
+    input('do not send the link', 300, 400);
+    output('Okay', 500, 600);
+    input('thanks', 700, 800);
+    close();
+    await run;
+
+    expect(mocks.revokeLink).toHaveBeenCalledOnce();
+  });
+
+  it('lets the server adjudicate link fallback after a prepared review', async () => {
+    const state = callState();
+    mocks.claim.mockResolvedValue({ ...await mocks.claim(), callerNumber: '+14165550100', draft: { ...state, booking: { ...state.booking, operation: { capability: 'op-a' } } } });
+    mocks.readOperation.mockResolvedValue({ appointmentId: null });
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('Can you send me the link?');
+    await vi.advanceTimersByTimeAsync(700);
+    close();
+    await run;
+
+    expect(mocks.queueLink).toHaveBeenCalledOnce();
+  });
+
+  it('logs only safe provider error categories and the rejected command type', async () => {
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    const sent = JSON.parse(mocks.sockets[0]!.send.mock.calls[0]![0] as string);
+    event({ type: 'error', error: { type: 'invalid_request_error', param: 'content', client_event_id: sent.event_id, message: 'private-caller-text', code: 'private-provider-code' } });
+    close();
+    await run;
+
+    expect(console.warn).toHaveBeenCalledWith('[voice-sideband]', expect.objectContaining({ lastProviderErrorType: 'invalid_request_error', lastProviderErrorParam: 'content', lastProviderErrorEvent: sent.type }));
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private-');
+  });
+
   it('queues an explicitly requested link to caller ID without another question', async () => {
     const call = await mocks.claim();
     mocks.claim.mockResolvedValue({ ...call, callerNumber: '+14165550100' });
