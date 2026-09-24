@@ -24,13 +24,14 @@ export function voiceBookingLinkRecipientHash(recipient: string): string {
   return createHmac('sha256', secret).update(normalizeConsentRecipient(recipient)).digest('hex');
 }
 
-/** The call lease and explicit phone confirmation own one public-link intent. */
+/** The call lease and a caller request own one public-link intent. */
 export async function queueVoiceBookingLink(input: {
   salonId: string;
   callId: string;
   leaseToken: string;
   liveSessionId: string;
-  pendingId: string;
+  pendingId?: string;
+  callerId?: true;
   phone: string;
   isCurrent?: () => boolean;
 }): Promise<{ intentId: string; created: boolean; authority: NonNullable<VoiceCallState['bookingLinkAuthority']> }> {
@@ -49,12 +50,18 @@ export async function queueVoiceBookingLink(input: {
       eq(voiceCallSchema.salonId, input.salonId),
     )).for('update').limit(1);
     const draft = call?.draft as VoiceCallState | null;
+    const confirmedNumber = input.callerId !== true && !!input.pendingId
+      && draft?.bookingLinkPending?.id === input.pendingId
+      && draft?.bookingLinkPending?.phone === recipient;
+    const requestedCallerId = input.callerId === true && !input.pendingId
+      && !draft?.bookingLinkPending
+      && !draft?.bookingLinkAttempted
+      && call?.callerNumber === destination.e164;
     if (!call || call.provider !== 'twilio' || call.liveSessionId !== input.liveSessionId
       || call.leaseToken !== input.leaseToken || !call.leaseExpiresAt || call.leaseExpiresAt <= now
       || call.endedAt || !['connected', 'in_progress'].includes(call.status)
       || call.appointmentId || draft?.bookingStatus?.appointment || draft?.booking?.operation
-      || draft?.bookingLinkPending?.id !== input.pendingId
-      || draft.bookingLinkPending.phone !== recipient) {
+      || (!confirmedNumber && !requestedCallerId)) {
       throw new Error('VOICE_BOOKING_LINK_CALL_STALE');
     }
     const [salon] = await tx.select({ name: salonSchema.name, slug: salonSchema.slug, customDomain: salonSchema.customDomain, isActive: salonSchema.isActive, deletedAt: salonSchema.deletedAt })
