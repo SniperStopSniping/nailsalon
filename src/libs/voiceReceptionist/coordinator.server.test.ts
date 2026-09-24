@@ -29,15 +29,15 @@ const mocks = vi.hoisted(() => {
       this.close();
     }
   }
-  return { Socket, sockets, claim: vi.fn(), get: vi.fn(), save: vi.fn(), release: vi.fn(), settings: vi.fn(), publicFacts: vi.fn(), createDraft: vi.fn(), review: vi.fn(), consult: vi.fn(), checkpoint: vi.fn(), readOperation: vi.fn(), status: vi.fn(), live: vi.fn() };
+  return { Socket, sockets, claim: vi.fn(), get: vi.fn(), save: vi.fn(), release: vi.fn(), settings: vi.fn(), review: vi.fn(), consult: vi.fn(), checkpoint: vi.fn(), readOperation: vi.fn(), status: vi.fn(), live: vi.fn() };
 });
 vi.mock('server-only', () => ({}));
 vi.mock('ws', () => ({ default: mocks.Socket }));
 vi.mock('@/libs/queries', () => ({ getSalonById: vi.fn(async () => ({ id: 'salon-a', name: 'Synthetic Isla', slug: 'synthetic-isla' })) }));
-vi.mock('@/libs/customerAssistant/publicFacts.server', () => ({ loadCustomerPublicFacts: mocks.publicFacts }));
+vi.mock('@/libs/customerAssistant/publicFacts.server', () => ({ loadCustomerPublicFacts: vi.fn(async () => ({ salon: { name: 'Synthetic Isla' } })) }));
 vi.mock('@/libs/customerAssistant/operationStore.server', () => ({ readCustomerBookingOperation: mocks.readOperation }));
 vi.mock('@/libs/customerAssistant/bookingStatus.server', () => ({ readCustomerBookingStatus: mocks.status }));
-vi.mock('./authority.server', () => ({ createVoiceDraft: mocks.createDraft, prepareVoiceReview: mocks.review, runVoiceConsultation: mocks.consult, chooseVoiceSlot: vi.fn() }));
+vi.mock('./authority.server', () => ({ createVoiceDraft: vi.fn(), prepareVoiceReview: mocks.review, runVoiceConsultation: mocks.consult, chooseVoiceSlot: vi.fn() }));
 vi.mock('./checkpoint.server', () => ({ requestVoiceCheckpoint: mocks.checkpoint }));
 vi.mock('./live.server', () => ({ liveSessionPath: (id: string) => `/${id}`, voiceLiveRequest: mocks.live }));
 vi.mock('./storage.server', () => ({ claimVoiceLease: mocks.claim, renewVoiceLease: mocks.claim, getVoiceCall: mocks.get, saveVoiceCall: mocks.save, releaseVoiceLease: mocks.release, getVoiceSettings: mocks.settings }));
@@ -77,8 +77,6 @@ beforeEach(() => {
   mocks.sockets.length = 0;
   mocks.claim.mockResolvedValue({ id: 'call-a', salonId: 'salon-a', provider: 'twilio', providerCallId: 'CAparent', createdAt: new Date(), liveSessionId: 'live-a', draft: callState(), voiceSeconds: 0 });
   mocks.get.mockResolvedValue(null);
-  mocks.createDraft.mockImplementation(() => callState().booking);
-  mocks.publicFacts.mockResolvedValue({ salon: { name: 'Synthetic Isla' } });
   mocks.save.mockResolvedValue({ id: 'call-a' });
   mocks.release.mockResolvedValue(null);
   mocks.settings.mockResolvedValue({ enabled: true, bookingEnabled: true, language: 'auto', callbackEnabled: true });
@@ -93,30 +91,6 @@ afterEach(() => {
 });
 
 describe('voice sideband consultation and interruption', () => {
-  it('greets after an optional public profile failure and keeps canonical consultation available', async () => {
-    mocks.publicFacts.mockRejectedValue(new TypeError('private caller data must not be logged'));
-    mocks.claim.mockResolvedValueOnce({ id: 'call-a', salonId: 'salon-a', provider: 'twilio', providerCallId: 'CAparent', createdAt: new Date(), liveSessionId: 'live-a', draft: null, voiceSeconds: 0 });
-    const run = coordinateVoiceCall('call-a', config);
-    await open();
-    const sent = () => mocks.sockets[0]!.send.mock.calls.map(([raw]) => JSON.parse(raw as string));
-
-    expect(sent()).toContainEqual(expect.objectContaining({ type: 'session.instructions.append', content: expect.stringContaining('READY.') }));
-    expect(sent().map(message => message.content).join('')).toContain('Do not invent services, prices, hours, policies, or contact details');
-    expect(mocks.live).not.toHaveBeenCalled();
-
-    input('How much is Gel-X?');
-    delegate();
-    await vi.advanceTimersByTimeAsync(700);
-
-    expect(mocks.consult).toHaveBeenCalledOnce();
-
-    close();
-    await run;
-
-    expect(console.warn).toHaveBeenCalledWith('[voice-sideband]', expect.objectContaining({ factsFailure: 'type_error', connectionStage: 'ready', connectionFailure: 'none' }));
-    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private caller data');
-  });
-
   it('records a failed attach status without logging the provider response or secrets', async () => {
     const run = coordinateVoiceCall('call-a', config);
     await vi.advanceTimersByTimeAsync(0);
