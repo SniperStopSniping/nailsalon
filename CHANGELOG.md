@@ -1,3 +1,10 @@
+## [1.131.9](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.8...v1.131.9) (2026-09-25)
+
+
+### Bug Fixes
+
+* **voice:** stabilize gel consultation and requested booking links ([#324](https://github.com/SniperStopSniping/nailsalon/issues/324)) ([97cf68c](https://github.com/SniperStopSniping/nailsalon/commit/97cf68ca421c0e2510e339a07d59cf58e82cdf0b))
+
 ## [1.131.8](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.7...v1.131.8) (2026-09-24)
 
 
