@@ -246,6 +246,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       summary = 'Caller requested a public booking link by text; no appointment was created.';
       outcome = 'booking_link_requested';
       metrics.lastResult = 'booking_link_queued';
+      metrics.bookingLinkQueued = true;
       if (stopped || epoch !== expected || Date.now() >= deadline) {
         state.bookingLinkAuthority = null;
         await revokeVoiceBookingLinkAuthority({ salonId: call.salonId, callId: call.id, liveSessionId: call.liveSessionId!, intentId: result.intentId });
@@ -257,6 +258,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
         throw error;
       }
       metrics.lastFailure = 'booking_link_unavailable';
+      metrics.bookingLinkFailure = true;
       state.bookingLinkPending = null;
       state.bookingLinkAuthority = null;
       state.bookingLinkAttempted = true;
@@ -497,6 +499,9 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
     if (response.result.kind === 'unavailable') {
       metrics.lastFailure = response.result.reason;
     }
+    if ('availabilityFailure' in response && typeof response.availabilityFailure === 'string') {
+      metrics.availabilityFailure = response.availabilityFailure;
+    }
     state.consentHash = null;
     if ('proposal' in response.result) {
       const proposal = response.result.proposal;
@@ -515,6 +520,9 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       }
       if ('availabilityIssue' in response && response.availabilityIssue === 'unverified') {
         send('session.commentary.append', 'Luster could not verify an appointment time right now. You may state the checked service price below, but say you are having trouble checking times and offer to text the verified booking page using caller ID when available.', delegationId);
+      }
+      if (response.result.kind === 'clarification' && response.result.question === 'product') {
+        send('session.commentary.append', 'The service is already identified. Ask only what is currently on the nails: bare nails, gel polish, builder gel/BIAB, or extensions. Do not ask again whether the caller wants a Gel Manicure.', delegationId);
       }
       send('session.commentary.append', `Authoritative Luster result (use these facts, no invention): ${JSON.stringify(response.result)}`, delegationId);
       if ('publicFacts' in response && response.publicFacts) {
@@ -753,7 +761,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
     Object.assign(metrics, { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, lastProviderErrorType, lastProviderErrorEvent, lastProviderErrorParam, reconnectAttempt });
     // Fixed labels and numbers only: never log provider bodies, socket errors,
     // close reasons, identifiers, transcripts, or authentication headers.
-    console.warn('[voice-sideband]', { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, lastProviderErrorType, lastProviderErrorEvent, lastProviderErrorParam, lastStep: metrics.lastStep, lastResult: metrics.lastResult, lastFailure: metrics.lastFailure, reconnectAttempt, sessionClosed: ended, attached: metrics.attachMs !== undefined });
+    console.warn('[voice-sideband]', { connectionStage, connectionFailure, handshakeStatus, closeCode, providerErrors, lastProviderErrorType, lastProviderErrorEvent, lastProviderErrorParam, lastStep: metrics.lastStep, lastResult: metrics.lastResult, lastFailure: metrics.lastFailure, availabilityFailure: metrics.availabilityFailure, bookingLinkQueued: metrics.bookingLinkQueued === true, bookingLinkFailure: metrics.bookingLinkFailure === true, reconnectAttempt, sessionClosed: ended, attached: metrics.attachMs !== undefined });
     const current = await getVoiceCall(call.id, call.salonId).catch(() => null);
     const transferred = handedOff || current?.status === 'awaiting_confirmation' || (current?.liveSessionId && current.liveSessionId !== call.liveSessionId) || (current?.leaseToken && current.leaseToken !== leaseToken);
     if (!transferred && !ended && reconnectAttempt < 2 && Date.now() < deadline - 15_000 && current && !current.endedAt) {

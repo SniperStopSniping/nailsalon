@@ -733,6 +733,29 @@ describe('canonical SMS safety and recovery', () => {
     expect(new Date(String(rows.rows[0]!.available_at)).toISOString()).toBe('2026-08-17T13:00:00.000Z');
   });
 
+  it('sends an explicitly requested voice booking link during quiet hours after the call has ended', async () => {
+    const previousSecret = process.env.VOICE_RECEPTIONIST_SIGNING_SECRET;
+    process.env.VOICE_RECEPTIONIST_SIGNING_SECRET = 's'.repeat(40);
+    try {
+      const { salonId, recipient } = await seedVoiceLinkWithoutBroadConsent();
+      await db.execute(sql`UPDATE salon SET settings = ${JSON.stringify({ booking: { timezone: 'America/Toronto' }, communications: { sms: { enabled: true }, quietHours: { enabled: true, start: '21:00', end: '09:00' } } })}::jsonb WHERE id = ${salonId}`);
+      await grantCredits(salonId, 10);
+      await enableControl(true);
+      const provider = vi.fn(async (_input: { to: string }) => ({ sid: 'SM_voice_link_quiet' }));
+      const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+      expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('sent');
+      expect(provider).toHaveBeenCalledOnce();
+      expect(provider.mock.calls[0]![0]).toMatchObject({ to: `+1${recipient}` });
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.VOICE_RECEPTIONIST_SIGNING_SECRET;
+      } else {
+        process.env.VOICE_RECEPTIONIST_SIGNING_SECRET = previousSecret;
+      }
+    }
+  });
+
   it('suppresses stale and cross-tenant client identities before sending', async () => {
     const { salonId, recipient } = await seedSalonWithConsent();
     const other = await seedSalonWithConsent();
