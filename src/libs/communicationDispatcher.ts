@@ -422,7 +422,7 @@ export async function dispatchClaimedIntent(
     quietHours: settings.quietHours,
     timeZone: salon.settings?.booking?.timezone,
     notAfter: intent.notAfter,
-    bypass: ['booking_confirmation', 'booking_request_received'].includes(intent.eventType),
+    bypass: ['booking_confirmation', 'booking_request_received', 'voice_booking_link'].includes(intent.eventType),
   });
   if (quiet.kind === 'stale') {
     await transitionIntent(intent.id, { to: 'expired', lastError: quiet.reason }, now);
@@ -655,7 +655,7 @@ export async function dispatchClaimedIntent(
     || freshConnection.phoneNumber !== readiness.phoneNumber
   ));
   const finalNow = new Date(now.getTime() + Math.max(0, Date.now() - dispatchStartedAt));
-  const finalQuiet = applyQuietHours({ instant: finalNow, quietHours: finalSettings.quietHours, timeZone: freshSalon?.settings?.booking?.timezone, notAfter: intent.notAfter, bypass: ['booking_confirmation', 'booking_request_received'].includes(intent.eventType) });
+  const finalQuiet = applyQuietHours({ instant: finalNow, quietHours: finalSettings.quietHours, timeZone: freshSalon?.settings?.booking?.timezone, notAfter: intent.notAfter, bypass: ['booking_confirmation', 'booking_request_received', 'voice_booking_link'].includes(intent.eventType) });
   const currentRule = await reminderRuleStillCurrent(intent, finalSettings, freshSalon?.settings?.booking?.timezone);
   const finalFailure = !freshSalon || freshSalon.isActive === false || freshSalon.deletedAt !== null
     ? 'SALON_INACTIVE'

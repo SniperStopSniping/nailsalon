@@ -25,6 +25,7 @@ import { assessReadyCustomerProposal } from '../customerAssistant/readiness.serv
 import { applyCustomerTurnResult, resolveCustomerTurn } from '../customerAssistant/resolveTurn';
 import type { CustomerReadyReviewSnapshot } from '../customerAssistant/reviewContracts';
 import { emptyFacts } from '../customerAssistant/semanticFacts';
+import { semanticCatalog } from '../customerAssistant/semanticSelection';
 import { getCustomerAvailabilityContext, lookupCustomerSlots, lookupNextCustomerSlots } from '../customerAssistant/slots.server';
 
 /** The persisted, server-trusted call state. It contains no caller-ID identity claim. */
@@ -54,7 +55,7 @@ export type VoiceSalon = {
   zipCode: string | null;
 };
 /** Per-turn interpreter count for latency/cost telemetry; no transcript is retained. */
-export type VoiceConsultationResponse = { draft: VoiceDraft; result: CustomerAssistantResult; publicFacts: CustomerPublicFacts | null; modelCalls?: 0 | 1; availabilityIssue?: 'unverified' };
+export type VoiceConsultationResponse = { draft: VoiceDraft; result: CustomerAssistantResult; publicFacts: CustomerPublicFacts | null; modelCalls?: 0 | 1; availabilityIssue?: 'unverified'; availabilityFailure?: 'lookup_failed' | 'quote_changed' | 'no_verified_slots' };
 
 const VOICE_INTERPRETER_MODEL = 'gpt-5.6-terra';
 const MAX_VOICE_MESSAGE_CHARS = 1_200;
@@ -103,9 +104,6 @@ function normalizeClarificationText(value: string): string {
 function exactClarificationIntent(message: string, conversation: CustomerConversation, menu: CustomerMenu) {
   const context = conversation.context;
   const question = context?.question;
-  if (!context || !question) {
-    return null;
-  }
   // This accepts only a complete, current-question answer after harmless
   // speech punctuation/politeness. Any compound request remains with Terra so
   // Luster never drops a correction such as a design or a date.
@@ -113,6 +111,20 @@ function exactClarificationIntent(message: string, conversation: CustomerConvers
   const polite = normalized
     .replace(/^(?:please|por favor|okay|ok|um|uh|well)\s+/u, '')
     .replace(/\s+(?:please|por favor|thanks|gracias)$/u, '');
+  // A named, exact public service is a safe local interpretation. A short
+  // phone request should not need a model call just to retain that service.
+  // A prior service can carry treatment facts, so a service change still
+  // needs the bounded interpreter to clear or replace those facts.
+  const priorService = conversation.requestedSelection?.baseServiceId ?? context?.selection?.baseServiceId;
+  const initialServiceRequest = !priorService && (conversation.facts?.treatment ?? 'unknown') === 'unknown'
+    && (conversation.facts?.desiredApplication ?? 'unknown') === 'unknown';
+  const simpleService = polite.replace(/^(?:(?:i want|i would like|id like|can i book|book me|its just|it is just|just|a|the)\s+)+/u, '');
+  const exactServices = (question === 'service' || (!question && initialServiceRequest))
+    ? menu.services.filter(item => normalizeClarificationText(item.name) === simpleService && (!priorService || priorService === item.id))
+    : [];
+  if ((!context || !question) && exactServices.length !== 1) {
+    return null;
+  }
   const base = {
     factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, lengthChoice: null, french: null, designPreference: null, existingProduct: null, currentProductUncertain: null, origin: null, removal: null, repairCount: null },
     lengthExplicitThisTurn: false,
@@ -128,12 +140,18 @@ function exactClarificationIntent(message: string, conversation: CustomerConvers
     answerTopic: null,
     addOnUpdates: { add: [], remove: [] },
     informationServiceIds: [],
-    serviceId: context.selection?.baseServiceId ?? null,
-    addOns: context.selection?.selectedAddOns ?? [],
-    question,
+    serviceId: context?.selection?.baseServiceId ?? null,
+    addOns: context?.selection?.selectedAddOns ?? [],
+    question: question ?? 'details',
     optionIds: [],
     datePreference: null,
   } as const;
+  if (exactServices.length === 1 && (!context || !question || context.options.some(option => normalizeClarificationText(option) === normalizeClarificationText(exactServices[0]!.name)))) {
+    return customerInterpretationSchema.parse({ ...base, action: 'propose', serviceId: exactServices[0]!.id, addOns: [] });
+  }
+  if (!context || !question) {
+    return null;
+  }
   if (question === 'removal' && ['yes', 'si'].includes(polite)) {
     return customerInterpretationSchema.parse({ ...base, factUpdates: { ...base.factUpdates, removal: 'yes' } });
   }
@@ -147,6 +165,25 @@ function exactClarificationIntent(message: string, conversation: CustomerConvers
   }
   if (question === 'product' && ['i dont know', 'i dont know what i have on my nails', 'no se', 'no lo se'].includes(polite)) {
     return customerInterpretationSchema.parse({ ...base, factUpdates: { ...base.factUpdates, existingProduct: 'unknown', currentProductUncertain: true } });
+  }
+  if (question === 'product') {
+    const products = new Map<string, 'none' | 'gel_polish' | 'builder_gel' | 'gel_x' | 'acrylic'>([
+      ['nothing', 'none'],
+      ['nothing on my nails', 'none'],
+      ['bare nails', 'none'],
+      ['my nails are bare', 'none'],
+      ['gel polish', 'gel_polish'],
+      ['i have gel polish', 'gel_polish'],
+      ['shellac', 'gel_polish'],
+      ['builder gel', 'builder_gel'],
+      ['biab', 'builder_gel'],
+      ['gel x', 'gel_x'],
+      ['acrylic', 'acrylic'],
+    ] as const);
+    const existingProduct = products.get(polite);
+    if (existingProduct) {
+      return customerInterpretationSchema.parse({ ...base, factUpdates: { ...base.factUpdates, existingProduct, currentProductUncertain: false } });
+    }
   }
   if (question === 'origin' && ['from another salon', 'from a different salon', 'de otro salon'].includes(polite)) {
     return customerInterpretationSchema.parse({ ...base, factUpdates: { ...base.factUpdates, origin: 'other_salon' } });
@@ -281,6 +318,19 @@ export async function runVoiceConsultation(args: {
         }
       }
     }
+    const previousServiceId = prior.requestedSelection?.baseServiceId ?? prior.context?.selection?.baseServiceId;
+    const requestedService = menu.services.find(item => item.id === intent.serviceId);
+    const requestedTreatment = requestedService ? semanticCatalog.serviceFamily(requestedService) : 'unknown';
+    const requestedApplication = requestedService ? semanticCatalog.serviceApplication(requestedService) : 'unknown';
+    const conflictsWithKnownTreatment = !!prior.facts && requestedTreatment !== 'unknown' && prior.facts.treatment !== 'unknown'
+      && requestedTreatment !== prior.facts.treatment && intent.factUpdates.treatment === null;
+    const conflictsWithKnownApplication = !!prior.facts && requestedApplication !== 'unknown' && prior.facts.desiredApplication !== 'unknown'
+      && requestedApplication !== prior.facts.desiredApplication && intent.factUpdates.desiredApplication === null
+      && intent.factUpdates.treatment === null;
+    if (previousServiceId && intent.serviceId && intent.serviceId !== previousServiceId
+      && intent.action === 'propose' && (conflictsWithKnownTreatment || conflictsWithKnownApplication)) {
+      return { ...unavailable(args.draft, 'selection_changed'), publicFacts, modelCalls: fastPath ? 0 : 1 };
+    }
     let snapshot: ReturnType<typeof loadCustomerClarificationSnapshot> | undefined;
     let result = await resolveCustomerTurn({ salonId: args.salon.id, salonSlug: args.salon.slug, features: args.salon.features, locale: 'en' }, menu, intent, prior, next, {
       buildCustomerProposal,
@@ -301,6 +351,7 @@ export async function runVoiceConsultation(args: {
     }
     applyCustomerTurnResult(next, result);
     let availabilityIssue: 'unverified' | undefined;
+    let availabilityFailure: VoiceConsultationResponse['availabilityFailure'];
     // A service proposal is enough to look for a real opening. Voice callers
     // should hear a checked first slot without having to ask a second time.
     if (result.kind === 'proposal') {
@@ -329,7 +380,9 @@ export async function runVoiceConsultation(args: {
               : {}),
           });
         }
-      } catch { /* Keep the trusted proposal and offer the booking page. */ }
+      } catch {
+        availabilityFailure = 'lookup_failed';
+      }
       if (nextAvailable && !nextAvailable.quoteChanged && nextAvailable.proposal.fingerprint === result.proposal.fingerprint) {
         const preference = nextAvailable.preference;
         result = {
@@ -347,6 +400,9 @@ export async function runVoiceConsultation(args: {
         // availability failure. Keep the quote and selection so the caller can
         // still hear the real price while the voice explains the uncertainty.
         availabilityIssue = 'unverified';
+        availabilityFailure ??= nextAvailable?.quoteChanged || (nextAvailable && nextAvailable.proposal.fingerprint !== result.proposal.fingerprint)
+          ? 'quote_changed'
+          : 'no_verified_slots';
       }
     }
     const changed = materiallyChanged(prior, next);
@@ -356,7 +412,7 @@ export async function runVoiceConsultation(args: {
       lastResult: result,
       ...(changed ? { review: null, operation: null } : {}),
     };
-    return { draft, result, publicFacts, modelCalls: fastPath ? 0 : 1, ...(availabilityIssue ? { availabilityIssue } : {}) };
+    return { draft, result, publicFacts, modelCalls: fastPath ? 0 : 1, ...(availabilityIssue ? { availabilityIssue, availabilityFailure } : {}) };
   } catch {
     return { ...unavailable(args.draft, 'unavailable'), publicFacts: null };
   }

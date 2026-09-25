@@ -189,6 +189,17 @@ describe('voice receptionist shared authority adapter', () => {
     expect(response).toMatchObject({ result: { kind: 'proposal', proposal }, availabilityIssue: 'unverified' });
   });
 
+  it('reports a safe lookup failure category without dropping the trusted service proposal', async () => {
+    const proposal = { selection: { baseServiceId: 'gel-manicure', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: { id: 'gel-manicure', name: 'Gel Manicure', priceCents: 4000 }, addOns: [], currency: 'CAD', subtotalCents: 4000, durationMinutes: 60, expiresAt: '2030-01-01T00:00:00.000Z' };
+    mocks.menu = { services: [{ id: 'gel-manicure', name: 'Gel Manicure', description: '', category: 'Manicure' }], addOns: [], bindings: [], l1: undefined };
+    mocks.resolve.mockResolvedValue({ kind: 'proposal', proposal });
+    mocks.next.mockRejectedValue(new Error('synthetic availability outage'));
+
+    const response = await runVoiceConsultation({ salon, draft: createVoiceDraft(salon.id, callId), message: 'just a gel manicure' });
+
+    expect(response).toMatchObject({ result: { kind: 'proposal', proposal }, availabilityIssue: 'unverified', availabilityFailure: 'lookup_failed', modelCalls: 0 });
+  });
+
   it('checks a requested day and later window before offering another date', async () => {
     const proposal = { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: { id: 'gel-x', name: 'Gel-X', priceCents: 6000 }, addOns: [], currency: 'CAD', subtotalCents: 6000, durationMinutes: 90, expiresAt: '2030-01-01T00:00:00.000Z' };
     const preference = { date: '2026-09-26', earliest: '14:00', latest: '23:59' };
@@ -315,6 +326,59 @@ describe('voice receptionist shared authority adapter', () => {
     expect(mocks.resolve).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ action: 'propose', serviceId: 'gel-x' }), expect.anything(), expect.anything(), expect.anything());
   });
 
+  it('identifies a simple public Gel Manicure request locally without guessing what is already on the nails', async () => {
+    mocks.menu = { services: [{ id: 'gel-manicure', name: 'Gel Manicure', description: '', category: 'Manicure' }], addOns: [], bindings: [], l1: undefined };
+    const provider = { createResponse: vi.fn() };
+
+    const response = await runVoiceConsultation({ salon, draft: createVoiceDraft(salon.id, callId), message: 'just a gel manicure' }, provider);
+
+    expect(response.modelCalls).toBe(0);
+    expect(provider.createResponse).not.toHaveBeenCalled();
+    expect(mocks.resolve).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ action: 'propose', serviceId: 'gel-manicure', factUpdates: expect.objectContaining({ existingProduct: null }) }), expect.anything(), expect.anything(), expect.anything());
+  });
+
+  it('does not carry Gel-X facts into a later Gel Manicure service change', async () => {
+    mocks.menu = { services: [
+      { id: 'gel-x', name: 'Gel-X', description: '', category: 'Extensions' },
+      { id: 'gel-manicure', name: 'Gel Manicure', description: '', category: 'Manicure' },
+    ], addOns: [], bindings: [], l1: undefined };
+    const draft = createVoiceDraft(salon.id, callId);
+    draft.conversation.context = { question: null, options: [], selection: { baseServiceId: 'gel-x', selectedAddOns: [] } };
+    draft.conversation.requestedSelection = { baseServiceId: 'gel-x', selectedAddOns: [] };
+    draft.conversation.facts = { schemaVersion: 1, treatment: 'gel_x', desiredApplication: 'extensions', maintenance: 'new_set', length: 'short', french: 'unknown', existingProduct: 'none', origin: 'unknown', removal: 'unknown', repairCount: 'unknown' };
+    const provider = { createResponse: vi.fn(async () => ({ status: 'completed' as const, items: [{ type: 'message' as const, text: JSON.stringify({ ...interpreterFallback, action: 'propose', serviceId: 'gel-manicure', factUpdates: { ...interpreterFallback.factUpdates, treatment: 'gel_polish', desiredApplication: 'natural_nails' } }) }], usage: null })) };
+
+    const response = await runVoiceConsultation({ salon, draft, message: 'just a gel manicure' }, provider);
+
+    expect(response.modelCalls).toBe(1);
+    expect(provider.createResponse).toHaveBeenCalledOnce();
+    expect(mocks.resolve).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ serviceId: 'gel-manicure', factUpdates: expect.objectContaining({ treatment: 'gel_polish', desiredApplication: 'natural_nails' }) }), expect.anything(), expect.anything(), expect.anything());
+
+    provider.createResponse.mockResolvedValueOnce({ status: 'completed', items: [{ type: 'message', text: JSON.stringify({ ...interpreterFallback, action: 'propose', serviceId: 'gel-manicure' }) }], usage: null });
+    const unsafe = await runVoiceConsultation({ salon, draft, message: 'just a gel manicure' }, provider);
+
+    expect(unsafe.result).toEqual({ kind: 'unavailable', reason: 'selection_changed' });
+    expect(mocks.resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps valid same-treatment service variant changes available', async () => {
+    mocks.menu = { services: [
+      { id: 'gel-x-short', name: 'Gel-X Short', description: '', category: 'Extensions' },
+      { id: 'gel-x-medium', name: 'Gel-X Medium', description: '', category: 'Extensions' },
+    ], addOns: [], bindings: [], l1: undefined };
+    const draft = createVoiceDraft(salon.id, callId);
+    draft.conversation.context = { question: 'service', options: ['Gel-X Medium'], selection: { baseServiceId: 'gel-x-short', selectedAddOns: [] } };
+    draft.conversation.requestedSelection = { baseServiceId: 'gel-x-short', selectedAddOns: [] };
+    draft.conversation.facts = { schemaVersion: 1, treatment: 'gel_x', desiredApplication: 'extensions', maintenance: 'new_set', length: 'unknown', french: 'unknown', existingProduct: 'none', origin: 'unknown', removal: 'unknown', repairCount: 'unknown' };
+    const provider = { createResponse: vi.fn(async () => ({ status: 'completed' as const, items: [{ type: 'message' as const, text: JSON.stringify({ ...interpreterFallback, action: 'propose', serviceId: 'gel-x-medium' }) }], usage: null })) };
+
+    const response = await runVoiceConsultation({ salon, draft, message: 'Gel-X Medium' }, provider);
+
+    expect(response.result.kind).not.toBe('unavailable');
+    expect(provider.createResponse).not.toHaveBeenCalled();
+    expect(mocks.resolve).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ serviceId: 'gel-x-medium' }), expect.anything(), expect.anything(), expect.anything());
+  });
+
   it('handles spoken Spanish removal and short-length clarifications without an interpreter', async () => {
     const removal = createVoiceDraft(salon.id, callId);
     removal.conversation.context = { question: 'removal', options: ['Yes', 'No'], selection: { baseServiceId: 'gel-x', selectedAddOns: [] } };
@@ -334,6 +398,8 @@ describe('voice receptionist shared authority adapter', () => {
     ['actually make them short', 'length', { length: 'short' }],
     ['from another salon', 'origin', { origin: 'other_salon' }],
     ['I don\'t know what I have on my nails', 'product', { existingProduct: 'unknown', currentProductUncertain: true }],
+    ['gel polish', 'product', { existingProduct: 'gel_polish', currentProductUncertain: false }],
+    ['bare nails', 'product', { existingProduct: 'none', currentProductUncertain: false }],
     ['French tips', 'finish', { french: 'yes' }],
     ['no design', 'details', { french: 'no', designPreference: 'plain' }],
   ] as const)('handles the whole current clarification answer %s locally', async (message, question, facts) => {
