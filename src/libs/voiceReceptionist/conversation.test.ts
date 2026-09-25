@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { advanceVoiceContact, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkHarmlessAcknowledgment, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, isVoicePhoneFragment, matchVoiceOfferedSlot, spokenVoiceLinkDestination, voiceReviewText } from './conversation';
+import { advanceVoiceContact, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkHarmlessAcknowledgment, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, isVoiceContactAffirmation, isVoicePhoneFragment, matchVoiceOfferedSlot, spokenVoiceLinkDestination, voiceReviewText } from './conversation';
 
 describe('voice conversation safety', () => {
   it('recognizes a requested booking-link text without treating general booking talk as a send request', () => {
@@ -106,6 +106,21 @@ describe('voice conversation safety', () => {
 
     expect(advanceVoiceContact(contact, 'no')).toMatchObject({ step: 'phone' });
     expect(advanceVoiceContact(contact, '4165550101')).toMatchObject({ step: 'complete', phone: '4165550101' });
+  });
+
+  it('uses caller ID after email and never treats a phone affirmation as a correction', () => {
+    const contact = { step: 'email' as const, name: 'Ava', email: '', phone: '4165550100' };
+    const completed = advanceVoiceContact(contact, 'ava at example dot test');
+
+    expect(completed).toMatchObject({ step: 'complete', email: 'ava@example.test', phone: '4165550100' });
+
+    for (const speech of ['My number is correct', 'Yes that is the one I am calling from', 'Yes that is my phone number']) {
+      expect(isVoiceContactAffirmation(speech), speech).toBe(true);
+      expect(correctVoiceContact(completed, speech), speech).toBeNull();
+    }
+
+    expect(isVoiceContactAffirmation('No, that is not my number')).toBe(false);
+    expect(advanceVoiceContact({ ...contact, phone: '' }, 'ava at example dot test')).toMatchObject({ step: 'phone' });
   });
 
   it('clears a prior SMS choice for invalid and re-entered callback-number corrections', () => {

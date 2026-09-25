@@ -133,7 +133,7 @@ describe('voice sideband consultation and interruption', () => {
 
     expect(mocks.sockets[0]!.send).toHaveBeenCalledWith(expect.stringContaining('Ask for the name'));
 
-    for (const [index, speech] of ['Ava Test', 'ava at example dot test', 'yeah'].entries()) {
+    for (const [index, speech] of ['Ava Test', 'ava at example dot test'].entries()) {
       input(speech, 1000 + index * 1000, 1500 + index * 1000);
       delegate(`contact-${index}`);
       await vi.advanceTimersByTimeAsync(700);
@@ -142,6 +142,55 @@ describe('voice sideband consultation and interruption', () => {
 
     expect(mocks.review).toHaveBeenCalledWith(expect.objectContaining({ contact: { name: 'Ava Test', email: 'ava@example.test', phone: '4165550100' } }));
     expect(mocks.checkpoint).toHaveBeenCalledOnce();
+    expect(mocks.sockets[0]!.send).not.toHaveBeenCalledWith(expect.stringContaining('correct callback number'));
+  });
+
+  it('reuses complete contact after a new slot choice without asking to verify the number again', async () => {
+    const slot = { time: '5:00 PM', startTime: '2030-01-01T22:00:00.000Z' };
+    const state = { ...callState(), contact: { step: 'complete' as const, name: 'Ava Test', email: 'ava@example.test', phone: '4165550100' }, booking: { ...callState().booking, lastResult: { kind: 'slots', slots: [slot] }, conversation: { ...callState().booking.conversation, booking: { offeredSlots: [slot] } } } };
+    mocks.claim.mockResolvedValue({ ...await mocks.claim(), callerNumber: '+14165550100', draft: state });
+    mocks.choose.mockResolvedValue({ draft: state.booking, result: { kind: 'slot_selected', proposal: { service: { name: 'Gel Manicure' }, addOns: [] }, preference: { date: '2030-01-01' }, slot } });
+    const operation = { capability: 'operation-a', fingerprint: 'f'.repeat(64), revision: 2, expiresAt: new Date(Date.now() + 120_000).toISOString() };
+    mocks.review.mockResolvedValue({ draft: { ...state.booking, operation, review }, review });
+
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    input('yes that works');
+    delegate('new-slot');
+    await vi.advanceTimersByTimeAsync(700);
+    await run;
+
+    expect(mocks.review).toHaveBeenCalledWith(expect.objectContaining({ contact: { name: 'Ava Test', email: 'ava@example.test', phone: '4165550100' } }));
+    expect(mocks.checkpoint).toHaveBeenCalledOnce();
+    expect(mocks.sockets[0]!.send).not.toHaveBeenCalledWith(expect.stringContaining('Confirm the corrected contact'));
+  });
+
+  it('rechecks a resumed final review without asking for the saved caller-ID number again', async () => {
+    const prior = callState();
+    const state = {
+      ...prior,
+      confirmation: { stage: 'resumed' },
+      contact: { step: 'complete' as const, name: 'Ava Test', email: 'ava@example.test', phone: '4165550100' },
+      booking: {
+        ...prior.booking,
+        lastResult: { kind: 'answer', topic: 'conversation', message: '', options: [] },
+        conversation: { ...prior.booking.conversation, booking: { selectedSlot: { startTime: '2030-01-01T21:00:00.000Z' } } },
+      },
+    };
+    const operation = { capability: 'operation-a', fingerprint: 'f'.repeat(64), revision: 3, expiresAt: new Date(Date.now() + 120_000).toISOString() };
+    mocks.claim.mockResolvedValue({ ...await mocks.claim(), callerNumber: '+14165550100', draft: state });
+    mocks.review.mockResolvedValue({ draft: { ...state.booking, operation, review }, review });
+
+    const run = coordinateVoiceCall('call-a', config);
+    await open();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.review).toHaveBeenCalledWith(expect.objectContaining({ contact: { name: 'Ava Test', email: 'ava@example.test', phone: '4165550100' } }));
+    expect(mocks.checkpoint).toHaveBeenCalledOnce();
+    expect(mocks.sockets[0]!.send).not.toHaveBeenCalledWith(expect.stringContaining('correct callback number'));
+
+    close();
+    await run;
   });
 
   it('does not attach an undelegated greeting to a later link-offer acceptance', async () => {

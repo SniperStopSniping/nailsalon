@@ -217,6 +217,37 @@ describe('handleVoiceCheckpoint', () => {
     expect(mocks.commitVoiceBooking).not.toHaveBeenCalled();
   });
 
+  it('resumes Live with complete contact after an early yes while keeping the old status token valid', async () => {
+    const draft = state();
+    const leased = state();
+    mocks.readVoiceBody.mockResolvedValue('AccountSid=AC1&CallSid=CA1&SpeechResult=yes&Confidence=0.99');
+    mocks.getVoiceCall.mockResolvedValue(call(draft));
+    mocks.claimVoiceLease.mockResolvedValue(call(leased, { leaseToken: 'lease', leaseExpiresAt: new Date(Date.now() + 90_000) }));
+    mocks.getSalonById.mockResolvedValue({ id: 'salon-a' });
+    mocks.dbWhere.mockReturnValue({ returning: vi.fn().mockResolvedValue([{}]) });
+
+    const response = await handleVoiceCheckpoint(requestFor(draft, 'review-interrupted', ''), 'review-interrupted');
+    const job = mocks.after.mock.calls[0]?.[0];
+
+    expect(response.status).toBe(200);
+    expect(job).toBeTypeOf('function');
+
+    await job();
+
+    expect(mocks.runVoiceConsultation).not.toHaveBeenCalled();
+    expect(mocks.commitVoiceBooking).not.toHaveBeenCalled();
+    expect(mocks.twilioUpdate).not.toHaveBeenCalled();
+    expect(leased.contact.step).toBe('complete');
+    expect(leased.confirmation.stage).toBe('resumed');
+    expect(mocks.dbWhere).toHaveBeenCalledOnce();
+
+    mocks.getVoiceCall.mockResolvedValue(call(leased, { status: 'created' }));
+    const poll = await handleVoiceCheckpoint(requestFor(draft, 'booking-status', ''), 'booking-status');
+
+    expect(poll.status).toBe(200);
+    expect(await poll.text()).toBe('<Response><Say>dial</Say></Response>');
+  });
+
   it('records an exact finalized SMS correction as a review invalidation, never a booking', async () => {
     const draft = state();
     mocks.getVoiceCall.mockResolvedValue(call(draft));

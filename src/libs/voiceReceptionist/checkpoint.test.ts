@@ -57,7 +57,8 @@ describe('voice checkpoint proof', () => {
     expect(xml).toContain('voice="Polly.Joanna-Neural"');
     expect(xml).toContain('Booking for Ava Client');
     expect(xml).toContain('ava at example dot test');
-    expect(xml).not.toContain('callback number');
+    expect(xml).toContain('Callback number ending in 0 1 0 0');
+    expect(xml).not.toContain('4165550100');
     expect(xml).toContain('BIAB overlay, from $70');
     expect(xml).toContain('80 minutes');
     expect(xml).toContain('Current total including tax');

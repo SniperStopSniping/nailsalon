@@ -84,6 +84,9 @@ function safeStoredState(value: unknown, salonId: string, callId: string): CallS
       bookingLinkAttempted: stored.bookingLinkAttempted ?? false,
       consentHash: null,
       bookingStatus: stored.bookingStatus ?? null,
+      // A resumed checkpoint is only a cue to recheck the saved slot. Never
+      // restore a pending/committing checkpoint as Live booking authority.
+      confirmation: stored.confirmation?.stage === 'resumed' ? stored.confirmation : null,
     };
   }
   return { booking: createVoiceDraft(salonId, callId), contact: null, callbackPending: false, bookingLinkPending: null, bookingLinkAuthority: null, bookingLinkAttempted: false, consentHash: null, bookingStatus: null };
@@ -267,6 +270,50 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       send('session.commentary.append', 'Luster could not queue the booking-link text. Give the caller the verified booking page verbally. Do not ask for the number again or claim a text was sent.', delegationId);
     }
   };
+  const prepareContactReview = async (nextContact: Parameters<typeof completedVoiceContact>[0], expected: number, delegationId: string | null) => {
+    const contact = completedVoiceContact(nextContact);
+    if (!contact) {
+      return;
+    }
+    metrics.lastStep = 'review';
+    const prepared = await prepareVoiceReview({ salon: boundSalon, draft: state.booking, contact, smsConsent: nextContact.smsConsent, secret: config.signingSecret });
+    // Preparation can durably revise the operation before a caller interrupts.
+    // Retain recovery identity even if this result is stale.
+    state.booking.lastOperationRevision = prepared.draft.lastOperationRevision;
+    state.booking.lastOperationCapability = prepared.draft.lastOperationCapability;
+    assertEpoch(expected);
+    state.contact = nextContact;
+    state.booking = prepared.draft;
+    await persist({ callerNumber: `+1${contact.phone}` });
+    if (!prepared.review) {
+      send('session.commentary.append', 'The booking could not be reviewed safely. Recheck the selected time or offer the booking page. No appointment was created.', delegationId);
+      return;
+    }
+    if (sandbox || !settings.enabled || !settings.bookingEnabled) {
+      emitReview(delegationId);
+      return;
+    }
+    assertEpoch(expected);
+    const reviewWords = formatVoiceCheckpointReview(prepared.review, language, contact).split(/\s+/).length;
+    if ((deadline - Date.now()) / 1000 < reviewWords / 2 + 20) {
+      throw new Error('VOICE_REVIEW_NEEDS_MANUAL_BOOKING');
+    }
+    handedOff = true;
+    clearInterval(heartbeat);
+    clearTimeout(cutoff);
+    clearTimeout(wrapup);
+    send('session.instructions.append', 'Luster is ready for the final review. Say briefly: I will confirm the final details now.');
+    try {
+      metrics.lastStep = 'checkpoint';
+      await requestVoiceCheckpoint({ call, state, config, leaseToken, language });
+    } catch {
+      await persist({ status: 'failed', outcome: 'confirmation_unavailable', endedAt: new Date() }).catch(() => undefined);
+      await voiceLiveRequest(config, `${liveSessionPath(call.liveSessionId!)}/hangup`).catch(() => undefined);
+    } finally {
+      stopped = true;
+      socket.close();
+    }
+  };
   const processInput = async (current: Input, delegationId: string | null, expected: number) => {
     if (delegationId) {
       metrics.delegations = Number(metrics.delegations) + 1;
@@ -436,44 +483,7 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       const nextContact = advanceVoiceContact(state.contact, text);
       const contact = completedVoiceContact(nextContact);
       if (contact) {
-        metrics.lastStep = 'review';
-        const prepared = await prepareVoiceReview({ salon: boundSalon, draft: state.booking, contact, smsConsent: nextContact.smsConsent, secret: config.signingSecret });
-        // Preparation can durably revise the operation before a caller
-        // interrupts. Retain recovery identity even if this result is stale.
-        state.booking.lastOperationRevision = prepared.draft.lastOperationRevision;
-        state.booking.lastOperationCapability = prepared.draft.lastOperationCapability;
-        assertEpoch(expected);
-        state.contact = nextContact;
-        state.booking = prepared.draft;
-        await persist({ callerNumber: `+1${contact.phone}` });
-        if (prepared.review) {
-          if (!sandbox && settings.enabled && settings.bookingEnabled) {
-            assertEpoch(expected);
-            const reviewWords = formatVoiceCheckpointReview(prepared.review, language, contact).split(/\s+/).length;
-            if ((deadline - Date.now()) / 1000 < reviewWords / 2 + 20) {
-              throw new Error('VOICE_REVIEW_NEEDS_MANUAL_BOOKING');
-            }
-            handedOff = true;
-            clearInterval(heartbeat);
-            clearTimeout(cutoff);
-            clearTimeout(wrapup);
-            send('session.instructions.append', 'Luster is ready for the final review. Say briefly: I will confirm the final details now.');
-            try {
-              metrics.lastStep = 'checkpoint';
-              await requestVoiceCheckpoint({ call, state, config, leaseToken, language });
-            } catch {
-              await persist({ status: 'failed', outcome: 'confirmation_unavailable', endedAt: new Date() }).catch(() => undefined);
-              await voiceLiveRequest(config, `${liveSessionPath(call.liveSessionId!)}/hangup`).catch(() => undefined);
-            } finally {
-              stopped = true;
-              socket.close();
-            }
-          } else {
-            emitReview(delegationId);
-          }
-        } else {
-          send('session.commentary.append', 'The booking could not be reviewed safely. Recheck the selected time or offer the booking page. No appointment was created.', delegationId);
-        }
+        await prepareContactReview(nextContact, expected, delegationId);
       } else {
         assertEpoch(expected);
         state.contact = nextContact;
@@ -512,7 +522,11 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
       outcome = 'follow_up_needed';
     }
     if (response.result.kind === 'slot_selected') {
-      state.contact = state.contact?.step === 'complete' ? { ...state.contact, step: 'verify' } : state.contact ?? { step: 'name', name: '', email: '', phone: spokenPhone(call.callerNumber ?? '') ?? '' };
+      if (state.contact?.step === 'complete') {
+        await prepareContactReview(state.contact, expected, delegationId);
+        return;
+      }
+      state.contact ??= { step: 'name', name: '', email: '', phone: spokenPhone(call.callerNumber ?? '') ?? '' };
       send('session.commentary.append', `Luster rechecked this offered slot; it is not held. ${contactPrompt(state.contact)}`, delegationId);
     } else {
       if (response.result.kind === 'unavailable' && response.result.reason === 'no_match') {
@@ -625,8 +639,27 @@ export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeCo
           if (call.draft) {
             send('session.thinking.append', `Saved authoritative consultation: ${JSON.stringify(state.booking.lastResult)}. ${state.contact ? contactPrompt(state.contact) : ''}`);
           }
-          send('session.instructions.append', call.draft ? `READY. The backend reconnected. Consent has been reset. ${state.bookingStatus ? statusFacts(state.bookingStatus) : 'Resume the saved consultation and obtain a new review and confirmation before booking.'}` : `READY. Greet the caller with hello: identify yourself as the AI receptionist for ${salon.name}. Ask how you can help. Avoid a time-of-day greeting. ${settings.greeting ?? ''}`);
           connectionStage = 'ready';
+          const resumedReview = state.confirmation?.stage === 'resumed'
+            && state.contact?.step === 'complete'
+            && state.booking.lastResult?.kind === 'answer'
+            && !!state.booking.conversation.booking?.selectedSlot
+            && !state.booking.review;
+          if (resumedReview && epoch === 0 && !input && !busy) {
+            try {
+              await prepareContactReview(state.contact!, 0, null);
+            } catch (error) {
+              // Caller speech supersedes automatic re-review. Its own turn
+              // handles any correction with a fresh consultation.
+              if (epoch === 0 || !(error instanceof Error) || error.message !== 'VOICE_TURN_SUPERSEDED') {
+                throw error;
+              }
+            }
+            if (stopped) {
+              return;
+            }
+          }
+          send('session.instructions.append', call.draft ? `READY. The backend reconnected. Consent has been reset. ${state.bookingStatus ? statusFacts(state.bookingStatus) : 'Resume the saved consultation and obtain a new review and confirmation before booking.'}` : `READY. Greet the caller with hello: identify yourself as the AI receptionist for ${salon.name}. Ask how you can help. Avoid a time-of-day greeting. ${settings.greeting ?? ''}`);
         })().catch(() => {
           connectionFailure = 'bootstrap';
           stopped = true;
