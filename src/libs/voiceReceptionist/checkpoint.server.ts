@@ -15,7 +15,7 @@ import { voiceCallSchema, voiceReceptionistSettingsSchema } from '@/models/Schem
 import { commitVoiceBooking, runVoiceConsultation, type VoiceSalon } from './authority.server';
 import { finalizedVoiceSmsChoice, formatVoiceCheckpointReview, isFinalizedVoiceConsent, isFinalVoiceBookingAffirmation, verifyVoiceCheckpointToken, type VoiceCheckpointPhase, voiceCheckpointToken, voiceCheckpointTwiml } from './checkpoint';
 import { getVoiceRuntimeConfig, VOICE_CALL_LIMIT_SECONDS, type VoiceRuntimeConfig } from './config.server';
-import { correctVoiceContact, normalizedSpeech } from './conversation';
+import { correctVoiceContact, isVoiceContactAffirmation, normalizedSpeech } from './conversation';
 import { sendVoiceDepositLink } from './depositDelivery.server';
 import { reconcileVoiceCallBooking } from './recovery.server';
 import { readVoiceBody, verifyVoiceTwilio, voiceRouteToken, voiceTokenHash } from './security.server';
@@ -140,13 +140,14 @@ async function resumeVoice(call: VoiceCall, state: VoiceCallState, leaseToken: s
   if (!salon) {
     throw new Error('VOICE_SALON_UNAVAILABLE');
   }
+  const acknowledgedReview = isVoiceContactAffirmation(message);
   if (smsChoice && state.contact) {
     // A signed deterministic choice invalidates the old review. Do not send
     // this narrowly-scoped correction to Luna or treat it as booking assent.
     state.contact = { ...state.contact, smsConsent: smsChoice, step: 'complete' };
     state.booking.contact = null;
     state.booking.review = null;
-  } else if (message && message.length <= 1200) {
+  } else if (message && message.length <= 1200 && !acknowledgedReview) {
     const contact = correctVoiceContact(state.contact, message);
     if (contact) {
       state.contact = contact;
@@ -156,9 +157,9 @@ async function resumeVoice(call: VoiceCall, state: VoiceCallState, leaseToken: s
       state.booking = result.draft;
     }
   }
-  if (state.contact?.step === 'complete') {
-    state.contact = { ...state.contact, step: 'verify' };
-  }
+  // Returning to Live keeps the current checkpoint token valid until Twilio
+  // receives the dial response. The sideband prepares a new review only after
+  // that handoff; an early yes is never booking consent.
   const routeExpiresAt = new Date(Math.min(Date.now() + 180_000, call.createdAt.getTime() + VOICE_CALL_LIMIT_SECONDS * 1000));
   const token = voiceRouteToken({ ...call, routeExpiresAt }, config.signingSecret);
   state.confirmation = { ...state.confirmation!, stage: 'resumed' };

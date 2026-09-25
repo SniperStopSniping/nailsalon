@@ -22,7 +22,11 @@ export function isExplicitVoiceBookingConsent(text: string): boolean {
 }
 
 export function isVoiceContactAffirmation(text: string): boolean {
-  return /^(?:yes|yeah|yep|sure|okay|ok|yes please|yeah please|yes that'?s (?:right|correct|my number)|yeah that'?s (?:right|correct|my number)|that'?s (?:right|correct|my number)|correct|si|si correcto|si es correcto|es correcto)$/.test(normalizedSpeech(text));
+  const speech = normalizedSpeech(text);
+  return /^(?:yes|yeah|yep|sure|okay|ok|yes please|yeah please|correct|si|si correcto|si es correcto|es correcto)$/.test(speech)
+    || /^(?:(?:yes|yeah|yep) )?(?:that'?s|it'?s|that is) (?:right|correct|my (?:phone )?number|the (?:right|correct) number)$/.test(speech)
+    || /^(?:yes )?my (?:phone )?number is correct$/.test(speech)
+    || /^(?:yes )?(?:that'?s|that is) the (?:number|one) i(?:'m| am) calling from$/.test(speech);
 }
 
 export function isVoiceNo(text: string): boolean {
@@ -194,7 +198,10 @@ export function advanceVoiceContact(state: VoiceContactState, text: string): Voi
     const email = spokenEmail(text);
     if (email) {
       next.email = email;
-      next.step = 'phone';
+      // Caller ID is already available for this call. The signed final review
+      // names its last four digits and gives the caller a chance to correct it.
+      // Asking a separate number question here caused repeated contact loops.
+      next.step = state.phone ? 'complete' : 'phone';
     }
   } else if (state.step === 'phone') {
     const phone = spokenPhone(text) ?? (isVoiceContactAffirmation(text) ? state.phone : null);
@@ -238,6 +245,9 @@ export function correctVoiceContact(state: VoiceContactState | null, message: st
   const correctionBase = field === 'phone' ? { ...base, smsConsent: undefined } : base;
   let value = input;
   value = value.replace(/^(?:my |mi )?(?:email(?: address)?|e-mail|correo(?: electrónico)?|phone(?: number)?|number|numero|número|teléfono|telefono|name|nombre)(?: is| es| should be| debe ser)?[: ]+/i, '');
+  if (field === 'phone' && (isVoiceContactAffirmation(input) || isVoiceContactAffirmation(value))) {
+    return null;
+  }
   const updated = advanceVoiceContact({ ...correctionBase, step: field, [field]: '' }, value);
   if (!updated[field]) {
     return { ...correctionBase, [field]: '', step: field };
