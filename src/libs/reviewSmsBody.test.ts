@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { COMMUNICATION_TEMPLATES } from './communicationTemplates';
-import { DEFAULT_REVIEW_MESSAGE, LEGACY_DEFAULT_REVIEW_MESSAGE, resolveReviewMessageTemplate, reviewSmsBody } from './reviewRequests';
+import { BLANK_NAME_REVIEW_MESSAGE, DEFAULT_REVIEW_MESSAGE, LEGACY_DEFAULT_REVIEW_MESSAGE, PREVIOUS_DEFAULT_REVIEW_MESSAGE, resolveReviewMessageTemplate, reviewSmsBody } from './reviewRequests';
 import { prepareSmsBody } from './smsSegments';
 
 const reviewLink = 'https://g.page/r/Cd2cHWyZCr9bEBM/review';
@@ -13,15 +13,17 @@ describe('review SMS final body', () => {
     const body = reviewSmsBody({ template: message, businessName: 'Isla Nail Studio', clientName: 'Samira', reviewLink });
 
     expect(prepareSmsBody(old).segmentation).toMatchObject({ encoding: 'gsm7', billableUnits: 177, segments: 2 });
-    expect(prepareSmsBody(body)).toMatchObject({ finalBody: `Isla Nail Studio via Luster: ${message}`, predictedCredits: 1, segmentation: { billableUnits: 154, encoding: 'gsm7', segments: 1 } });
+    expect(prepareSmsBody(body)).toMatchObject({ finalBody: message, predictedCredits: 1, segmentation: { billableUnits: 125, encoding: 'gsm7', segments: 1 } });
   });
 
   it.each(['Sam', 'Samira', 'Alexandria-Konstantina Papadopoulos', '美甲', 'Jose\u0301', null])('keeps the default at one credit independently of customer name %s', (clientName) => {
-    for (const [businessName, units] of [['Isla Nail Studio', 119], ['ABCDEFGHIJKLMNOPQRSTUVWX', 127]] as const) {
+    for (const [businessName, units] of [['Isla Nail Studio', 110], ['ABCDEFGHIJKLMNOPQRSTUVWX', 118]] as const) {
       const body = reviewSmsBody({ template: DEFAULT_REVIEW_MESSAGE, clientName, businessName, reviewLink });
 
       expect(prepareSmsBody(body)).toMatchObject({ predictedCredits: 1, segmentation: { encoding: 'gsm7', billableUnits: units, segments: 1 } });
       expect(body).not.toContain('STOP');
+      expect(body).toContain(`Thank you for visiting ${businessName}!`);
+      expect(body).not.toContain('via Luster');
       expect(body).toContain(reviewLink);
     }
   });
@@ -29,7 +31,17 @@ describe('review SMS final body', () => {
   it('adopts only the exact legacy default and preserves customized templates', () => {
     expect(resolveReviewMessageTemplate(null)).toBe(DEFAULT_REVIEW_MESSAGE);
     expect(resolveReviewMessageTemplate(LEGACY_DEFAULT_REVIEW_MESSAGE)).toBe(DEFAULT_REVIEW_MESSAGE);
+    expect(resolveReviewMessageTemplate(PREVIOUS_DEFAULT_REVIEW_MESSAGE)).toBe(DEFAULT_REVIEW_MESSAGE);
+    expect(resolveReviewMessageTemplate(BLANK_NAME_REVIEW_MESSAGE)).toBe(DEFAULT_REVIEW_MESSAGE);
     expect(resolveReviewMessageTemplate(`Custom ${LEGACY_DEFAULT_REVIEW_MESSAGE}`)).toBe(`Custom ${LEGACY_DEFAULT_REVIEW_MESSAGE}`);
+    expect(resolveReviewMessageTemplate(`Custom ${PREVIOUS_DEFAULT_REVIEW_MESSAGE}`)).toBe(`Custom ${PREVIOUS_DEFAULT_REVIEW_MESSAGE}`);
+  });
+
+  it('identifies a custom review message that does not name the salon', () => {
+    const body = reviewSmsBody({ template: 'Hi {{firstName}}! Review us: {{reviewLink}}', businessName: 'Isla Nail Studio', clientName: 'Samira', reviewLink });
+
+    expect(body).toBe(`Isla Nail Studio: Hi Samira! Review us: ${reviewLink}`);
+    expect(body).not.toContain('via Luster');
   });
 
   it.each(['💅', '’', '\u00A0', '\u200B', 'Jose\u0301'])('preserves custom Unicode and reports its real segment cost: %s', (extra) => {

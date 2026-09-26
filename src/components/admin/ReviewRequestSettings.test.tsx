@@ -16,6 +16,7 @@ const configuredSettings = {
   policy: { mode: 'scheduled_end', delayMinutes: 45, repeatCooldownDays: 90 },
   readiness: { status: 'configured', reasons: [] },
 };
+const namedSettings = { ...configuredSettings, messageTemplate: 'Hi {{firstName}} from {{businessName}}! {{reviewLink}}' };
 function response(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 }
@@ -55,9 +56,22 @@ describe('ReviewRequestSettings', () => {
     const preview = await screen.findByTestId('sms-message-preview');
 
     expect(preview).toHaveTextContent('Sample customer message');
-    expect(preview).toHaveTextContent('Isla Nail Studio via Luster: Hi Avery! https://g.page/salon/review');
+    expect(preview).toHaveTextContent('Isla Nail Studio: Hi Avery! https://g.page/salon/review');
+    expect(preview).not.toHaveTextContent('via Luster');
     expect(preview).not.toHaveTextContent('Reply STOP to opt out.');
     expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('1 SMS segment · 1 credit');
+  });
+
+  it('restores the default with the salon name in the message', async () => {
+    fetchMock.mockResolvedValueOnce(response({ data: legacySettings }));
+    render(<ReviewRequestSettings salonSlug="isla" />);
+    await screen.findByDisplayValue('Hi {{firstName}}! {{reviewLink}}');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore default' }));
+
+    expect(screen.getByLabelText('Message')).toHaveValue('Thank you for visiting {{businessName}}! We\'d love your Google review: {{reviewLink}}');
+    expect(screen.getByTestId('sms-message-preview')).toHaveTextContent('Thank you for visiting Isla Nail Studio! We\'d love your Google review: https://g.page/salon/review');
+    expect(screen.getByTestId('sms-message-preview')).not.toHaveTextContent('via Luster');
   });
 
   it('preserves the legacy lifetime cooldown when a salon only changes its message', async () => {
@@ -129,16 +143,16 @@ describe('ReviewRequestSettings', () => {
 
   it('ignores a stale salon response after the salon changes', async () => {
     const oldIsla = deferred<Response>();
-    fetchMock.mockImplementationOnce(() => oldIsla.promise).mockResolvedValueOnce(response({ data: { ...configuredSettings, businessName: 'Nova Nails' } }));
+    fetchMock.mockImplementationOnce(() => oldIsla.promise).mockResolvedValueOnce(response({ data: { ...namedSettings, businessName: 'Nova Nails' } }));
     const view = render(<ReviewRequestSettings salonSlug="isla" />);
     view.rerender(<ReviewRequestSettings salonSlug="nova" />);
-    await screen.findByText(/Nova Nails via Luster/);
+    await screen.findByText(/Hi Avery from Nova Nails!/);
     await act(async () => {
-      oldIsla.resolve(response({ data: { ...configuredSettings, businessName: 'Old Isla' } }));
+      oldIsla.resolve(response({ data: { ...namedSettings, businessName: 'Old Isla' } }));
       await oldIsla.promise;
     });
 
-    expect(screen.queryByText(/Old Isla via Luster/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Hi Avery from Old Isla!/)).not.toBeInTheDocument();
   });
 
   it('does not retain an old salon draft when the next salon load fails', async () => {
@@ -160,30 +174,30 @@ describe('ReviewRequestSettings', () => {
     expect(screen.queryByLabelText('Message')).not.toBeInTheDocument();
 
     await act(async () => {
-      freshIsla.resolve(response({ data: { ...configuredSettings, businessName: 'Fresh Isla' } }));
+      freshIsla.resolve(response({ data: { ...namedSettings, businessName: 'Fresh Isla' } }));
       await freshIsla.promise;
     });
 
-    expect(await screen.findByText(/Fresh Isla via Luster/)).toBeVisible();
+    expect(await screen.findByText(/Hi Avery from Fresh Isla!/)).toBeVisible();
   });
 
   it('cannot let a delayed save for one salon overwrite another salon editor', async () => {
     const savedIsla = deferred<Response>();
-    fetchMock.mockResolvedValueOnce(response({ data: configuredSettings })).mockImplementationOnce(() => savedIsla.promise).mockResolvedValueOnce(response({ data: { ...configuredSettings, businessName: 'Nova Nails' } }));
+    fetchMock.mockResolvedValueOnce(response({ data: configuredSettings })).mockImplementationOnce(() => savedIsla.promise).mockResolvedValueOnce(response({ data: { ...namedSettings, businessName: 'Nova Nails' } }));
     const view = render(<ReviewRequestSettings salonSlug="isla" />);
     await screen.findByDisplayValue('Hi {{firstName}}! {{reviewLink}}');
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Isla draft {{reviewLink}}' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save review settings' }));
     view.rerender(<ReviewRequestSettings salonSlug="nova" />);
-    await screen.findByText(/Nova Nails via Luster/);
+    await screen.findByText(/Hi Avery from Nova Nails!/);
     await act(async () => {
-      savedIsla.resolve(response({ data: { ...configuredSettings, businessName: 'Old Isla' } }));
+      savedIsla.resolve(response({ data: { ...namedSettings, businessName: 'Old Isla' } }));
       await savedIsla.promise;
     });
 
-    expect(screen.queryByText(/Old Isla via Luster/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Hi Avery from Old Isla!/)).not.toBeInTheDocument();
 
-    expect(screen.getByLabelText('Message')).toHaveValue('Hi {{firstName}}! {{reviewLink}}');
+    expect(screen.getByLabelText('Message')).toHaveValue(namedSettings.messageTemplate);
   });
 
   it('blocks same-salon edits and duplicate saves while a save is in flight', async () => {

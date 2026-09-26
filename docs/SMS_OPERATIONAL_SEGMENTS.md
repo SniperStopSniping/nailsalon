@@ -2,21 +2,23 @@
 
 ## Product decision and scope
 
-Owner approved removing automatically appended STOP instructions from appointment confirmations, reminders, reschedule/cancellation updates, booking-request status updates, and Google review requests. This is a presentation change, not consent or opt-out removal. The salon identity prefix remains. Generic manual SMS keeps its footer. Promotional campaigns, win-back/Next Visit discounts, native phone drafts, provider configuration and billing reconciliation are unchanged.
+Owner approved removing automatically appended STOP instructions from appointment confirmations, reminders, reschedule/cancellation updates, booking-request status updates, and Google review requests. This is a presentation change, not consent or opt-out removal. The original 2026-09-20 release retained the salon identity prefix. Generic manual SMS keeps its footer. Promotional campaigns, win-back/Next Visit discounts, native phone drafts, provider configuration and billing reconciliation are unchanged.
+
+On 2026-09-26, the owner changed Google review request copy: the default now says `Thank you for visiting {{businessName}}! We'd love your Google review: {{reviewLink}}`. Review requests no longer prepend `{{businessName}} via Luster: `. Custom copy that already names the salon is sent as written; otherwise the salon name alone is prepended so the message still identifies its sender. The exact blank-name copy shown in the owner's screenshot also resolves to the new default. Other SMS categories retain their existing prefix. Preview, segment counting, and the provider body use the same rendered text.
 
 The Google review action remains an explicitly owner-selected category with editable copy and the existing server-side review coordinator. It does not semantically classify copy or detect promotions. Ordinary manual text is never promoted to review/operational text by substring matching.
 
 ## Rendering and compatibility
 
 - `prepareSmsBody` calculates encoding, units, segments and predicted credits only after all text and URLs are assembled. The same final string is snapshotted and submitted to the provider.
-- Review requests use `client_review_request/v2`; legacy proven-unsent review intents using `client_manual_text` resolve to it by their trusted event type. Generic manual intents do not change.
+- Review requests now use `client_review_request/v3`; legacy proven-unsent review intents using `client_manual_text` resolve to it by their trusted event type. Generic manual intents do not change.
 - Operational template revisions are v2. Pending proven-unsent operational messages intentionally adopt the current copy. Actual renderer key/version are saved at the existing locked sending transition; accepted/unknown messages and historical snapshots are not rewritten or resent.
-- New/restored review default: `Thanks for visiting! We'd love your Google review: {{reviewLink}}`. Exact stored copies of the old shipped default resolve to the new default on read, without a database update or backfill. Any customized template remains unchanged. Saving settings subsequently persists the displayed value.
+- New/restored review default: `Thank you for visiting {{businessName}}! We'd love your Google review: {{reviewLink}}`. Exact stored copies of both older shipped defaults and the blank-name screenshot copy resolve to the new default on read, without a database update or backfill. Other customized templates remain unchanged. Saving settings subsequently persists the displayed value.
 - No migration, automation activation, consent modification, sender change, or new redirect is required.
 
 ## Quantified fixtures
 
-Fixtures: Isla Nail Studio; `Wed, Sep 23, 12:30 PM`; 46-character `https://lustergel.app/a/{22-character token}`; supplied 39-character Google review URL. All are GSM-7. The short origin is a test fixture, not a production configuration assertion.
+The following table records the 2026-09-20 change. Fixtures: Isla Nail Studio; `Wed, Sep 23, 12:30 PM`; 46-character `https://lustergel.app/a/{22-character token}`; supplied 39-character Google review URL. All are GSM-7. The short origin is a test fixture, not a production configuration assertion. Under the 2026-09-26 wording, the Isla review default is 110 GSM-7 units and one credit for this review URL.
 
 | Message | Old units/segments | New units/segments |
 | --- | --- | --- |

@@ -8,8 +8,10 @@
  * preview counter. No Env, no 'server-only', no provider imports. Nothing
  * in this module sends anything.
  *
- * Operational SMS keeps sender identification but omits the visible STOP
- * footer (owner decision 2026-09-20). Arbitrary manual SMS retains it.
+ * Operational SMS omits the visible STOP footer (owner decision 2026-09-20).
+ * Review requests use the owner-visible body, including the salon name in
+ * the default copy; other client templates keep the sender prefix.
+ * Arbitrary manual SMS retains the STOP footer.
  * This presentation policy does not change consent or inbound opt-out handling.
  * Salon prefix sanitization is unchanged; custom body Unicode is preserved.
  * Secure short management links keep the default operational copy in one segment.
@@ -184,6 +186,16 @@ function renderShortReminder(variables: TemplateVariables): string {
   return candidates.find(body => calculateSmsSegments(body).segments === 1) ?? candidates.at(-1)!;
 }
 
+function renderReviewRequest(variables: TemplateVariables): string {
+  const message = variables.message ?? '';
+  const salonName = variables.salonName?.trim() ?? '';
+  const visibleText = message.replace(/https?:\/\/\S+/gi, '').normalize('NFKC').toLowerCase();
+  if (!salonName || visibleText.includes(salonName.normalize('NFKC').toLowerCase())) {
+    return message;
+  }
+  return `${salonName}: ${message}`;
+}
+
 const WORST_CASE_SALON_NAME = 'Twenty Four Septet Name Xy';
 const WORST_CASE_TIME = 'Wed Aug 26, 12:30 PM';
 
@@ -215,10 +227,10 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
   },
   client_review_request: {
     key: 'client_review_request',
-    version: 'v2',
+    version: 'v3',
     audience: 'client',
-    render: variables => `${buildClientSmsPrefix(variables.salonName ?? '')}${variables.message ?? ''}`,
-    worstCaseVariables: [{ salonName: WORST_CASE_SALON_NAME, message: 'Thanks for visiting! We\'d love your Google review: https://g.page/r/Cd2cHWyZCr9bEBM/review' }],
+    render: renderReviewRequest,
+    worstCaseVariables: [{ salonName: WORST_CASE_SALON_NAME, message: 'Thank you for visiting Twenty Four Septet Name Xy! We\'d love your Google review: https://g.page/r/Cd2cHWyZCr9bEBM/review' }],
   },
   client_booking_confirmation_nolink: {
     key: 'client_booking_confirmation_nolink',

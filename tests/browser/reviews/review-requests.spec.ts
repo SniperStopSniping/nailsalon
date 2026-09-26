@@ -19,7 +19,7 @@ const settings = {
   googleReviewUrl: reviewUrl,
   automaticEnabled: false,
   delayMinutes: 60,
-  messageTemplate: 'Thanks for visiting! We\'d love your Google review: {{reviewLink}}',
+  messageTemplate: 'Thank you for visiting {{businessName}}! We\'d love your Google review: {{reviewLink}}',
   businessName: 'Avery Lee Nail Studio',
 };
 
@@ -29,7 +29,7 @@ function action(state: ReviewState['status'], overrides: Partial<ReviewState> = 
     reason: null,
     scheduledFor: state === 'scheduled' ? '2026-09-12T20:30:00.000Z' : null,
     sentAt: state === 'sent' ? '2026-09-12T20:31:00.000Z' : null,
-    message: 'Avery Lee Nail Studio via Luster: Thanks for visiting! We\'d love your Google review: https://www.google.com/maps/place/Avery+Lee+Nail+Studio/review?utm_source=luster-mobile-preview',
+    message: 'Thank you for visiting Avery Lee Nail Studio! We\'d love your Google review: https://www.google.com/maps/place/Avery+Lee+Nail+Studio/review?utm_source=luster-mobile-preview',
     phone: '(416) 555-0199',
     clientId: 'review-client',
     source: 'automatic',
@@ -107,7 +107,7 @@ test('mobile owner can edit settings, queue Send now once, then see sent and sup
 
   await expect(page.getByTestId('review-request-settings')).toBeVisible();
   await expect(page.getByLabel('Google review link')).toHaveValue(reviewUrl);
-  await expect(page.getByText(/Avery Lee Nail Studio via Luster: Thanks for visiting! We'd love your Google review/)).toBeVisible();
+  await expect(page.getByText(/Thank you for visiting Avery Lee Nail Studio! We'd love your Google review/)).toBeVisible();
   await expect(page.getByRole('link', { name: 'Test link' })).toHaveAttribute('href', reviewUrl);
 
   await expect(page.getByRole('radio', { name: /manual only/i })).toBeChecked();
@@ -119,7 +119,12 @@ test('mobile owner can edit settings, queue Send now once, then see sent and sup
   await expect(page.getByLabel('Send after')).toHaveValue('60');
 
   await page.getByLabel('Send after').selectOption('120');
-  await page.getByRole('button', { name: 'Save review settings' }).tap();
+
+  const saveSettings = page.getByRole('button', { name: 'Save review settings' });
+
+  await expect(saveSettings).toBeEnabled();
+
+  await saveSettings.tap();
 
   await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Saved' })).toBeDisabled();
