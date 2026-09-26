@@ -426,7 +426,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     await page.getByLabel('Customer name').fill('Synthetic Browser Customer');
     await page.getByLabel('Customer email').fill(`browser-${randomUUID()}@example.invalid`);
     await page.getByLabel('Customer phone').fill('4165550199');
-    await browserExpect(page.getByRole('checkbox', { name: 'Text reminders' })).toBeChecked();
+    await browserExpect(page.getByRole('checkbox', { name: 'Text updates' })).toBeChecked();
     await browserExpect.poll(() => page.getByLabel('Customer phone').evaluate((element) => {
       for (let current: Element | null = element; current; current = current.parentElement) {
         if (Number(getComputedStyle(current).opacity) < 1) {
@@ -458,22 +458,15 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     }
 
     expect(appointment).toMatchObject({ status: 'confirmed', completedAt: null });
-    expect(await database.select().from(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON))).toEqual(expect.arrayContaining([expect.objectContaining({ purpose: 'appointment_reminders', status: 'granted' })]));
+    expect(await database.select().from(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ purpose: 'appointment_reminders', status: 'granted' }),
+      expect.objectContaining({ purpose: 'appointment_transactional', status: 'granted' }),
+      expect.objectContaining({ purpose: 'salon_promotions', status: 'granted' }),
+    ]));
     expect(await database.select().from(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON))).toHaveLength(1);
 
-    // Reminder consent is not review-request consent. Add the latter
-    // deliberately, then run the shared scheduled-end scanner/materializer
-    // against the appointment produced by the ordinary Customer AI handoff.
-    await database.insert(schema.communicationConsentSchema).values({
-      id: `synthetic-browser-review-consent-${randomUUID()}`,
-      salonId: SALON,
-      recipient: appointment.clientPhone,
-      channel: 'sms',
-      purpose: 'appointment_transactional',
-      status: 'granted',
-      source: 'synthetic-browser-review-proof',
-      wordingVersion: 'test',
-    });
+    // The same disclosed booking selection covers review requests, so the
+    // scheduled-end scanner can materialize its intent without a fixture grant.
     const { materializeCompletedReviewTriggers, scanScheduledEndReviewTriggers } = await import('@/libs/reviewRequests.server');
     await scanScheduledEndReviewTriggers({ database, now: appointment.endTime });
     await materializeCompletedReviewTriggers({ database, now: appointment.endTime });
