@@ -1012,13 +1012,13 @@ test.describe('compact booking agreement and receipt', () => {
       await page.getByLabel('Customer email').fill('layout@example.invalid');
       await page.getByLabel('Customer phone').fill('4165550199');
 
-      // Public reminder preference remains visible on a compact phone even
+      // Public text preference remains visible on a compact phone even
       // when a local fixture has no live SMS sender. Delivery stays server-
       // gated, while this selection records the customer’s choice.
-      const textReminders = page.getByRole('checkbox', { name: 'Text reminders' });
+      const textUpdates = page.getByRole('checkbox', { name: 'Text updates' });
 
-      await expect(textReminders).toBeChecked();
-      await expect.poll(() => textReminders.locator('..').evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+      await expect(textUpdates).toBeChecked();
+      await expect.poll(() => textUpdates.locator('..').evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
 
       for (const name of ['Terms', 'Privacy']) {
         const link = page.getByRole('link', { name, exact: true });
@@ -1026,9 +1026,9 @@ test.describe('compact booking agreement and receipt', () => {
         await expect.poll(() => link.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
         await expect.poll(() => link.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThanOrEqual(44);
       }
-      await page.screenshot({ path: testInfo.outputPath('reminders-default-on.png'), fullPage: true });
+      await page.screenshot({ path: testInfo.outputPath('texts-default-on.png'), fullPage: true });
 
-      await textReminders.uncheck();
+      await textUpdates.uncheck();
 
       const agreement = page.getByTestId('booking-policy-before-confirmation');
       const checkbox = agreement.getByRole('checkbox');
