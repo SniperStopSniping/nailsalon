@@ -2176,7 +2176,7 @@ export function CheckoutSheet({
               </div>
               {successResult?.showReviewPrompt && (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-                  Tip: this client hasn't left a Google review yet — the review follow-up is available from their profile.
+                  Review requests are set to manual for this salon. You can request one from the client profile.
                 </div>
               )}
             </div>

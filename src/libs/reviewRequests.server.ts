@@ -348,10 +348,31 @@ export async function materializeCompletedReviewTriggers(
             salon_id as "salonId",
             available_at as "availableAt",
             row_number() over (partition by salon_id order by available_at, id) as turn
-          from review_request_trigger
-          where kind in ('completed', 'scheduled_end')
-            and state = 'pending'
-            and available_at <= ${now}
+          from review_request_trigger rrt
+          where rrt.kind in ('completed', 'scheduled_end')
+            and rrt.available_at <= ${now}
+            and (
+              rrt.state = 'pending'
+              or (
+                rrt.state = 'skipped'
+                and rrt.reason_code = 'SMS_INELIGIBLE'
+                and rrt.expires_at > ${now}
+                and exists (
+                  select 1
+                  from appointment appointment
+                  join salon_client client on client.id = appointment.salon_client_id
+                    and client.salon_id = rrt.salon_id
+                  join communication_consent consent on consent.salon_id = rrt.salon_id
+                    and consent.recipient = right(regexp_replace(client.phone, '[^0-9]', '', 'g'), 10)
+                    and consent.channel = 'sms'
+                    and consent.purpose = 'appointment_transactional'
+                    and consent.status = 'granted'
+                    and consent.created_at > rrt.resolved_at
+                  where appointment.id = rrt.appointment_id
+                    and appointment.salon_id = rrt.salon_id
+                )
+              )
+            )
         ) due
         where turn <= 5
         order by turn, "availableAt" asc, id asc
@@ -378,12 +399,15 @@ export async function materializeCompletedReviewTriggers(
 
         const [trigger] = await transaction.select().from(reviewRequestTriggerSchema)
           .where(and(eq(reviewRequestTriggerSchema.id, candidate.id), eq(reviewRequestTriggerSchema.salonId, candidate.salonId))).limit(1);
-        if (!trigger || trigger.state !== 'pending') {
+        const freshNow = input.now ?? new Date();
+        const recoveringConsentSkip = trigger?.state === 'skipped'
+          && trigger.reasonCode === 'SMS_INELIGIBLE'
+          && trigger.expiresAt > freshNow;
+        if (!trigger || (trigger.state !== 'pending' && !recoveringConsentSkip)) {
           return 'pending' as const;
         }
         const triggerKind: 'completed' | 'scheduled_end' = trigger.kind;
         const isCompletionTrigger = (trigger.kind as string) === 'completed';
-        const freshNow = input.now ?? new Date();
         if (trigger.availableAt > freshNow) {
           return 'pending' as const;
         }
@@ -457,11 +481,29 @@ export async function materializeCompletedReviewTriggers(
         const automaticReason = ineligible(ctx, true, triggerKind);
         if (!snapshotsMatch || policy.mode !== (triggerKind === 'completed' ? 'marked_completed' : 'scheduled_end')
           || !ctx.settings.enabledAt || trigger.triggerAt <= ctx.settings.enabledAt
-          || trigger.policyRevision !== storedSettings?.reviewRequestPolicyRevision
-          || automaticReason) {
+          || trigger.policyRevision !== storedSettings?.reviewRequestPolicyRevision) {
           await transaction.update(reviewRequestTriggerSchema).set({
             state: 'skipped',
-            reasonCode: !snapshotsMatch ? 'APPOINTMENT_CHANGED' : automaticReason ? reviewIneligibilityReasonCode(automaticReason) : 'POLICY_CHANGED',
+            reasonCode: !snapshotsMatch ? 'APPOINTMENT_CHANGED' : 'POLICY_CHANGED',
+            resolvedAt: freshNow,
+          }).where(eq(reviewRequestTriggerSchema.id, trigger.id));
+          return 'skipped' as const;
+        }
+        if (reviewIneligibilityReasonCode(automaticReason) === 'SMS_INELIGIBLE'
+          && freshNow < trigger.scheduledFor && !recoveringConsentSkip) {
+          // A scheduled-end request may be captured before its send time.
+          // Give a later consent grant until that time instead of terminally
+          // skipping the immutable event immediately after the appointment.
+          await transaction.update(reviewRequestTriggerSchema).set({
+            availableAt: trigger.scheduledFor,
+            updatedAt: freshNow,
+          }).where(eq(reviewRequestTriggerSchema.id, trigger.id));
+          return 'deferred' as const;
+        }
+        if (automaticReason) {
+          await transaction.update(reviewRequestTriggerSchema).set({
+            state: 'skipped',
+            reasonCode: reviewIneligibilityReasonCode(automaticReason),
             resolvedAt: freshNow,
           }).where(eq(reviewRequestTriggerSchema.id, trigger.id));
           return 'skipped' as const;
@@ -552,6 +594,7 @@ export async function materializeCompletedReviewTriggers(
           .where(and(eq(reviewRequestSchema.id, id), eq(reviewRequestSchema.salonId, trigger.salonId)));
         await transaction.update(reviewRequestTriggerSchema).set({
           state: 'materialized',
+          reasonCode: null,
           resolvedAt: freshNow,
         }).where(eq(reviewRequestTriggerSchema.id, trigger.id));
         return 'materialized' as const;
