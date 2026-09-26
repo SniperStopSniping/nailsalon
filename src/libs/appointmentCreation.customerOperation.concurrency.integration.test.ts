@@ -642,16 +642,38 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it.each(['default_on', 'explicit_off'] as const)('records the expanded booking text choice %s for all purposes', async (selection) => {
+    const value = material();
+    const granted = selection === 'default_on';
+    value.smsConsent = { granted, selection, wordingVersion: 'booking-sms-all-v2' };
+    value.review.reminders = { mode: 'default_on', selection, requestedEnabled: granted };
+    const response = await create(await prepare(contact(), value));
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+
+    const rows = await database.select().from(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON));
+
+    expect(rows).toEqual(expect.arrayContaining(['appointment_reminders', 'appointment_transactional', 'salon_promotions'].map(purpose => expect.objectContaining({
+      purpose,
+      status: granted ? 'granted' : 'revoked',
+      wordingVersion: 'booking-sms-all-v2',
+      metadata: expect.objectContaining({ selection, selectionWasExplicit: !granted }),
+    }))));
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it('keeps prior STOP suppressed despite a default-on booking', async () => {
     await database.insert(schema.communicationConsentSchema).values({ id: randomUUID(), salonId: SALON, recipient: contact().phone, channel: 'sms', purpose: 'appointment_transactional', status: 'revoked', source: 'twilio_inbound', wordingVersion: 'STOP', revokedAt: new Date() });
-    const prepared = await prepare();
+    const value = material();
+    value.smsConsent = { granted: true, selection: 'default_on', wordingVersion: 'booking-sms-all-v2' };
+    const prepared = await prepare(contact(), value);
     const response = await create(prepared);
 
     expect(response.status, JSON.stringify(await response.json())).toBe(201);
 
     const rows = await database.select().from(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON));
 
-    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({ source: 'twilio_inbound', status: 'revoked' }), expect.objectContaining({ purpose: 'appointment_reminders', status: 'revoked', metadata: expect.objectContaining({ selection: 'default_on', suppression: 'provider_opt_out' }) })]));
+    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({ source: 'twilio_inbound', status: 'revoked' }), ...['appointment_reminders', 'appointment_transactional', 'salon_promotions'].map(purpose => expect.objectContaining({ purpose, status: 'revoked', metadata: expect.objectContaining({ selection: 'default_on', suppression: 'provider_opt_out' }) }))]));
     expect(rows.filter(item => item.status === 'granted')).toHaveLength(0);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });

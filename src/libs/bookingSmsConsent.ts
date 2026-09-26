@@ -1,8 +1,10 @@
-/**
- * Public-booking SMS reminder preference rules.  This is intentionally
- * separate from promotional consent: every event written by this module uses
- * the existing `appointment_transactional` purpose.
- */
+/** Public-booking text preference and its auditable wording version. */
+export const BOOKING_SMS_WORDING_VERSION = 'booking-sms-all-v2';
+export const BOOKING_SMS_EXPANDED_PURPOSES = ['appointment_transactional', 'salon_promotions'] as const;
+
+export function includesExpandedBookingSmsPurposes(wordingVersion: string): boolean {
+  return wordingVersion === BOOKING_SMS_WORDING_VERSION;
+}
 export const BOOKING_SMS_MODES = ['default_on', 'default_off', 'disabled'] as const;
 export type BookingSmsMode = (typeof BOOKING_SMS_MODES)[number];
 

@@ -3,7 +3,7 @@
 import type { FormEvent } from 'react';
 import { useId, useState } from 'react';
 
-import type { BookingSmsConsentInput, BookingSmsMode } from '@/libs/bookingSmsConsent';
+import { BOOKING_SMS_WORDING_VERSION, type BookingSmsConsentInput, type BookingSmsMode } from '@/libs/bookingSmsConsent';
 import type { CustomerAssistantLocale } from '@/libs/customerAssistant/contracts';
 import { isValidPhone } from '@/libs/phone';
 
@@ -75,8 +75,8 @@ export function ContactDetailsForm({ locale, contact, disabled, onChange, onRevi
       {smsMode !== 'disabled' && (
         <div className="space-y-1">
           <label className="flex min-h-11 items-center gap-3 text-sm text-neutral-950">
-            <input type="checkbox" aria-label={locale === 'fr' ? 'Rappels texto' : 'Text reminders'} aria-describedby={`${id}-sms-details`} disabled={disabled} checked={smsConsent?.granted ?? smsMode === 'default_on'} onChange={event => onSmsChange?.({ granted: event.target.checked, selection: event.target.checked ? 'explicit_on' : 'explicit_off', wordingVersion: 'booking-sms-reminders-v1' })} className="size-4 accent-neutral-950" />
-            {locale === 'fr' ? 'Envoyez-moi les confirmations et rappels par texto' : 'Text me appointment confirmations and reminders'}
+            <input type="checkbox" aria-label={locale === 'fr' ? 'Messages texto' : 'Text updates'} aria-describedby={`${id}-sms-details`} disabled={disabled} checked={smsConsent?.granted ?? smsMode === 'default_on'} onChange={event => onSmsChange?.({ granted: event.target.checked, selection: event.target.checked ? 'explicit_on' : 'explicit_off', wordingVersion: BOOKING_SMS_WORDING_VERSION })} className="size-4 accent-neutral-950" />
+            {locale === 'fr' ? 'Envoyez-moi les confirmations, rappels, demandes d’avis et promotions du salon par texto' : 'Text me appointment confirmations, reminders, review requests, and salon promotions'}
           </label>
           <p id={`${id}-sms-details`} className="text-xs text-neutral-600">{locale === 'fr' ? 'Vous pouvez désactiver cette option maintenant ou répondre STOP à tout moment.' : 'You can turn this off now or reply STOP at any time.'}</p>
         </div>

@@ -475,7 +475,7 @@ describe('voice receptionist shared authority adapter', () => {
 
     await prepareVoiceReview({ salon: defaultOffSalon, draft, contact: { name: 'Ava', email: 'ava@example.test', phone: '4165550100' }, secret: 'v'.repeat(32) });
 
-    expect(mocks.quote).toHaveBeenCalledWith(expect.objectContaining({ smsConsent: { granted: false, selection: 'default_off', wordingVersion: 'booking-sms-reminders-v1' } }));
+    expect(mocks.quote).toHaveBeenCalledWith(expect.objectContaining({ smsConsent: { granted: false, selection: 'default_off', wordingVersion: 'booking-sms-all-v2' } }));
 
     await prepareVoiceReview({ salon: { ...salon, settings: { communications: { sms: { bookingDefault: 'disabled' } } } }, draft: selectedDraft(), contact: { name: 'Ava', email: 'ava@example.test', phone: '4165550100' }, smsConsent: { granted: true, selection: 'explicit_on', wordingVersion: 'booking-sms-reminders-v1' }, secret: 'v'.repeat(32) });
 

@@ -893,7 +893,8 @@ describe('BookConfirmClient', () => {
     }), { status: 201 }));
     renderBasicConfirm();
 
-    expect(screen.getByRole('checkbox', { name: 'Text reminders' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Text updates' })).toBeChecked();
+    expect(screen.getByText('Text me appointment confirmations, reminders, review requests, and salon promotions')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
@@ -901,7 +902,7 @@ describe('BookConfirmClient', () => {
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
       smsConsent: {
         granted: true,
-        wordingVersion: 'booking-sms-reminders-v1',
+        wordingVersion: 'booking-sms-all-v2',
         selection: 'default_on',
       },
     });
@@ -912,7 +913,7 @@ describe('BookConfirmClient', () => {
       data: { appointment: { id: 'appt_confirmed', status: 'confirmed' } },
     }), { status: 201 }));
     renderBasicConfirm();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Text reminders' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Text updates' }));
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     await screen.findByRole('heading', { name: 'Appointment confirmed' });
@@ -920,7 +921,7 @@ describe('BookConfirmClient', () => {
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
       smsConsent: {
         granted: false,
-        wordingVersion: 'booking-sms-reminders-v1',
+        wordingVersion: 'booking-sms-all-v2',
         selection: 'explicit_off',
       },
     });
@@ -931,7 +932,7 @@ describe('BookConfirmClient', () => {
       data: { appointment: { id: 'appt_confirmed', status: 'confirmed' } },
     }), { status: 201 }));
     renderBasicConfirm({ smsBookingDefault: 'default_off' });
-    const reminders = screen.getByRole('checkbox', { name: 'Text reminders' });
+    const reminders = screen.getByRole('checkbox', { name: 'Text updates' });
 
     expect(reminders).not.toBeChecked();
 
@@ -951,7 +952,7 @@ describe('BookConfirmClient', () => {
     }), { status: 201 }));
     renderBasicConfirm({ smsBookingDefault: 'disabled' });
 
-    expect(screen.queryByRole('checkbox', { name: 'Text reminders' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Text updates' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
@@ -1009,7 +1010,7 @@ describe('BookConfirmClient', () => {
           clientPhone: '4165550101',
           smsConsent: {
             granted: true,
-            wordingVersion: 'booking-sms-reminders-v1',
+            wordingVersion: 'booking-sms-all-v2',
             selection: 'default_on',
           },
         }),
@@ -1022,7 +1023,7 @@ describe('BookConfirmClient', () => {
       await waitFor(() => expect(normalBookingMock.recover).toHaveBeenCalledWith('salon-id'));
       await waitFor(() => expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled());
 
-      fireEvent.click(screen.getByRole('checkbox', { name: 'Text reminders' }));
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Text updates' }));
       fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
       await waitFor(() => expect(normalBookingMock.confirm).toHaveBeenCalledTimes(1));
@@ -1228,7 +1229,7 @@ describe('BookConfirmClient', () => {
     const { container } = renderBasicConfirm({
       clientChangeCutoffHours: 48,
     });
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Text reminders' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Text updates' }));
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     expect(await screen.findByRole('heading', { name: 'Request received' })).toBeInTheDocument();
