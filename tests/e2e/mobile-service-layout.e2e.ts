@@ -1060,7 +1060,7 @@ test.describe('compact booking agreement and receipt', () => {
       });
       expect(submitted?.smsConsent).toEqual({
         granted: false,
-        wordingVersion: 'booking-sms-reminders-v1',
+        wordingVersion: 'booking-sms-all-v2',
         selection: 'explicit_off',
       });
 
