@@ -465,6 +465,8 @@ jobs:
               migrations/0091_appointment_add_on_service_snapshot.sql) ;;
               # Shared-authority voice receptionist; additive only.
               migrations/0092_voice_receptionist.sql) ;;
+              # Existing test-client text preference backfill; no schema change.
+              migrations/0093_existing_test_client_text_defaults.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -478,6 +480,7 @@ jobs:
               migrations/meta/0090_snapshot.json) ;;
               migrations/meta/0091_snapshot.json) ;;
               migrations/meta/0092_snapshot.json) ;;
+              migrations/meta/0093_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -786,6 +789,36 @@ jobs:
             exit 1
           fi
 
+          # Keep the existing-client backfill an exact reviewed postimage.
+          if ! git diff --quiet "$base" -- migrations/0093_existing_test_client_text_defaults.sql migrations/meta/0093_snapshot.json; then
+            if git cat-file -e "$base:migrations/0093_existing_test_client_text_defaults.sql" 2>/dev/null \
+              || git cat-file -e "$base:migrations/meta/0093_snapshot.json" 2>/dev/null; then
+              echo "::error::Migration 0093 and its snapshot are already shipped and immutable."
+              exit 1
+            fi
+            migration_0093_sql_status="$(git diff --name-status "$base" -- migrations/0093_existing_test_client_text_defaults.sql)"
+            migration_0093_snapshot_status="$(git diff --name-status "$base" -- migrations/meta/0093_snapshot.json)"
+            if [ "$migration_0093_sql_status" != $'A\tmigrations/0093_existing_test_client_text_defaults.sql' ] \
+              || [ "$migration_0093_snapshot_status" != $'A\tmigrations/meta/0093_snapshot.json' ]; then
+              echo "::error::Migration 0093 must introduce exactly one SQL file and one snapshot."
+              exit 1
+            fi
+            migration_0093_sql_sha256="$(sha256sum migrations/0093_existing_test_client_text_defaults.sql | awk '{print $1}')"
+            migration_0093_snapshot_sha256="$(sha256sum migrations/meta/0093_snapshot.json | awk '{print $1}')"
+            if [ "$migration_0093_sql_sha256" != "0bb8ad7b8016a2ed37240fd6eee03e4137fe9eb13a91a8c4e0e19b5bcc2580a8" ] \
+              || [ "$migration_0093_snapshot_sha256" != "8e9f8c28b0ba6de451bb9567b8ea32423a1ddfacc0a85cac84bff02dac6765c3" ]; then
+              echo "::error::Migration 0093 artifacts do not match the reviewed text-default postimage."
+              exit 1
+            fi
+          fi
+
+          expected_0093_journal='{"breakpoints":true,"idx":92,"tag":"0093_existing_test_client_text_defaults","version":"7","when":1790452293000}'
+          actual_0093_journal="$(jq -cS '.entries[] | select(.tag == "0093_existing_test_client_text_defaults")' migrations/meta/_journal.json)"
+          if [ "$actual_0093_journal" != "$expected_0093_journal" ]; then
+            echo "::error::Migration 0093 journal entry does not match the reviewed postimage."
+            exit 1
+          fi
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -846,6 +879,7 @@ jobs:
               0090_misty_sprite) ;;
               0091_appointment_add_on_service_snapshot) ;;
               0092_voice_receptionist) ;;
+              0093_existing_test_client_text_defaults) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1

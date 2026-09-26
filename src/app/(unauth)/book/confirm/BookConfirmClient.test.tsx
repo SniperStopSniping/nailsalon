@@ -1201,11 +1201,11 @@ describe('BookConfirmClient', () => {
     }), { status: 201 }));
     renderBasicConfirm();
 
-    expect(screen.queryByText(/has opted out of appointment texts/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/has opted out of texts/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
-    expect(await screen.findByText(/has opted out of appointment texts/i)).toBeInTheDocument();
+    expect(await screen.findByText(/has opted out of texts/i)).toBeInTheDocument();
     expect(screen.queryByText(/will be sent by text/i)).not.toBeInTheDocument();
   });
 
