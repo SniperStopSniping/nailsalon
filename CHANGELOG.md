@@ -1,3 +1,15 @@
+# [1.132.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.9...v1.132.0) (2026-09-26)
+
+
+### Bug Fixes
+
+* **voice:** stop repeated caller number confirmation ([#325](https://github.com/SniperStopSniping/nailsalon/issues/325)) ([bb24fba](https://github.com/SniperStopSniping/nailsalon/commit/bb24fbac894716fd22b2201c30cbdd4caf5db0b0))
+
+
+### Features
+
+* **super-admin:** add audited cross-salon no-show records ([#326](https://github.com/SniperStopSniping/nailsalon/issues/326)) ([b9542d5](https://github.com/SniperStopSniping/nailsalon/commit/b9542d51f1a883b36db234e6a90ead6dc8160be9))
+
 ## [1.131.9](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.8...v1.131.9) (2026-09-25)
 
 
