@@ -1,3 +1,10 @@
+## [1.132.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.132.0...v1.132.1) (2026-09-26)
+
+
+### Bug Fixes
+
+* **review-requests:** name salon in review SMS without platform prefix ([05641e9](https://github.com/SniperStopSniping/nailsalon/commit/05641e9e2198263c5775cc09632884f949443640))
+
 # [1.132.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.131.9...v1.132.0) (2026-09-26)
 
 
