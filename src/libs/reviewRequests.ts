@@ -4,11 +4,15 @@ import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { calculateSmsSegments } from '@/libs/smsSegments';
 
 export const LEGACY_DEFAULT_REVIEW_MESSAGE = 'Hi {{firstName}}! Thanks for visiting {{businessName}}. We would appreciate a Google review: {{reviewLink}}';
-export const DEFAULT_REVIEW_MESSAGE = 'Thanks for visiting! We\'d love your Google review: {{reviewLink}}';
+export const PREVIOUS_DEFAULT_REVIEW_MESSAGE = 'Thanks for visiting! We\'d love your Google review: {{reviewLink}}';
+export const BLANK_NAME_REVIEW_MESSAGE = 'Thanks for visiting ! We\'d love your Google review: {{reviewLink}}';
+export const DEFAULT_REVIEW_MESSAGE = 'Thank you for visiting {{businessName}}! We\'d love your Google review: {{reviewLink}}';
 
-/** Adopt only the exact shipped default. Owner customizations are never rewritten. */
+/** Adopt exact prior defaults and the blank-name copy shown in the owner preview. */
 export function resolveReviewMessageTemplate(template: string | null | undefined): string {
-  return !template || template === LEGACY_DEFAULT_REVIEW_MESSAGE ? DEFAULT_REVIEW_MESSAGE : template;
+  return !template || template === LEGACY_DEFAULT_REVIEW_MESSAGE || template === PREVIOUS_DEFAULT_REVIEW_MESSAGE || template === BLANK_NAME_REVIEW_MESSAGE
+    ? DEFAULT_REVIEW_MESSAGE
+    : template;
 }
 
 export const REVIEW_DELAY_MINUTES = [0, 30, 60, 120, 240, 1440] as const;

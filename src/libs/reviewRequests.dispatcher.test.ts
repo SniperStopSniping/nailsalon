@@ -183,8 +183,8 @@ describe('review requests through the dispatcher', () => {
     const [reservation] = await db.select().from(schema.smsCreditReservationSchema).where(eq(schema.smsCreditReservationSchema.id, stored!.creditReservationId!));
 
     expect(provider.mock.calls[0]![0].body).toBe(preview.message);
-    expect(stored).toMatchObject({ bodySnapshot: preview.message, encoding: 'gsm7', segmentCount: 1, templateKey: 'client_review_request', templateVersion: 'v2' });
-    expect(stored!.bodySnapshot).toHaveLength(119);
+    expect(stored).toMatchObject({ bodySnapshot: preview.message, encoding: 'gsm7', segmentCount: 1, templateKey: 'client_review_request', templateVersion: 'v3' });
+    expect(stored!.bodySnapshot).toBe('Thank you for visiting Isla Nail Studio! We\'d love your Google review: https://g.page/r/Cd2cHWyZCr9bEBM/review');
     expect(stored!.bodySnapshot).not.toContain('STOP');
     expect(reservation!.segments).toBe(1);
   });

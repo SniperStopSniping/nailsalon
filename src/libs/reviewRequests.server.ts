@@ -542,7 +542,7 @@ export async function materializeCompletedReviewTriggers(
           recipient: ctx.client.phone,
           destinationCountry: 'CA',
           templateKey: 'client_review_request',
-          templateVersion: 'v2',
+          templateVersion: 'v3',
           variables: { clientId: ctx.client.id, reviewRequestId: id },
           schedulingRevision: id,
           scheduledFor: quiet.sendAt,
@@ -970,7 +970,7 @@ export async function scheduleReviewRequest(database: CommunicationIntentDatabas
   if (!inserted.length) {
     return;
   }
-  const intent = await enqueueCommunicationIntent({ database, salonId, appointmentId, channel: 'sms', audience: 'client', eventType: 'review_request', dedupeKey: `review:${salonId}:${id}`, recipient: ctx.client.phone, destinationCountry: 'CA', templateKey: 'client_review_request', templateVersion: 'v2', variables: { clientId: ctx.client.id, reviewRequestId: id }, schedulingRevision: id, scheduledFor: quiet.sendAt, notAfter });
+  const intent = await enqueueCommunicationIntent({ database, salonId, appointmentId, channel: 'sms', audience: 'client', eventType: 'review_request', dedupeKey: `review:${salonId}:${id}`, recipient: ctx.client.phone, destinationCountry: 'CA', templateKey: 'client_review_request', templateVersion: 'v3', variables: { clientId: ctx.client.id, reviewRequestId: id }, schedulingRevision: id, scheduledFor: quiet.sendAt, notAfter });
   await database.update(reviewRequestSchema).set({ intentId: intent.intentId }).where(and(eq(reviewRequestSchema.id, id), eq(reviewRequestSchema.salonId, salonId)));
 }
 
@@ -1062,7 +1062,7 @@ export async function queueClientReviewRequest(input: {
       recipient: ctx.client.phone,
       destinationCountry: 'CA',
       templateKey: 'client_review_request',
-      templateVersion: 'v2',
+      templateVersion: 'v3',
       variables: { clientId: ctx.client.id, reviewRequestId: id, reviewRequestPurpose: 'client_google_review', message: input.message },
       schedulingRevision: id,
       scheduledFor: quiet.sendAt,

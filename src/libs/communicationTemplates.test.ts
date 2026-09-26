@@ -43,7 +43,7 @@ describe('sanitizeSalonNameForSms', () => {
 });
 
 describe('controlled templates', () => {
-  it('identifies every client message but only appends STOP to arbitrary manual text', () => {
+  it('keeps the review body exact and identifies other client messages', () => {
     for (const template of Object.values(COMMUNICATION_TEMPLATES)) {
       if (template.audience !== 'client') {
         continue;
@@ -51,7 +51,13 @@ describe('controlled templates', () => {
       for (const variables of template.worstCaseVariables) {
         const body = template.render(variables);
 
-        expect(body).toMatch(/^(?:.+ via Luster: |Luster: )/);
+        if (template.key === 'client_review_request') {
+          expect(body).toBe(variables.message);
+          expect(body).not.toContain('via Luster');
+        } else {
+          expect(body).toMatch(/^(?:.+ via Luster: |Luster: )/);
+        }
+
         expect(body.includes('Reply STOP to opt out.')).toBe(
           template.key === 'client_manual_text'
           || template.key === 'client_booking_recovery_shortlink'
@@ -70,6 +76,17 @@ describe('controlled templates', () => {
         expect(body.toLowerCase()).not.toContain('reply to this text');
       }
     }
+  });
+
+  it('identifies review copy without a visible salon name, even when the URL contains it', () => {
+    const review = COMMUNICATION_TEMPLATES.client_review_request!;
+
+    expect(review.render({ salonName: 'Isla Nail Studio', message: 'Please review us: https://example.com/Isla%20Nail%20Studio' }))
+      .toBe('Isla Nail Studio: Please review us: https://example.com/Isla%20Nail%20Studio');
+    expect(review.render({ salonName: '美甲沙龍', message: 'Please review us: https://example.com/review' }))
+      .toBe('美甲沙龍: Please review us: https://example.com/review');
+    expect(review.render({ salonName: 'Isla Nail Studio', message: 'Thanks for visiting ISLA NAIL STUDIO! https://example.com/review' }))
+      .toBe('Thanks for visiting ISLA NAIL STUDIO! https://example.com/review');
   });
 
   it('keeps every worst-case rendering in GSM-7 (no emoji, smart quotes or decorative Unicode)', () => {

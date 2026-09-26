@@ -76,7 +76,7 @@ test('review settings require an explicit automation mode @mobile-safari', async
   const finalPreview = panel.getByTestId('sms-message-preview');
 
   await expect(finalPreview.getByText('1 SMS segment · 1 credit', { exact: true })).toBeVisible();
-  await expect(finalPreview.getByText('Daniela Nails via Luster: Thanks for visiting! We\'d love your Google review: https://g.page/daniela/review', { exact: true })).toBeVisible();
+  await expect(finalPreview.getByText('Thank you for visiting Daniela Nails! We\'d love your Google review: https://g.page/daniela/review', { exact: true })).toBeVisible();
 
   await panel.getByLabel('Message', { exact: true }).fill('Thanks for visiting! We\'d love your Google review: {{reviewLink}} 💅');
 
