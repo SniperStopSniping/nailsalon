@@ -1,6 +1,7 @@
 'use client';
 
 import { ChevronLeft, ChevronRight, LogOut, Search, Sparkles, UserPlus } from 'lucide-react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -244,8 +245,8 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
       {/* Header */}
       <div className="border-b border-rose-100 bg-[#4C1D2E] text-white">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
               <div className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-300 to-rose-400 shadow-lg shadow-black/15">
                 <Sparkles className="size-5 text-[#4C1D2E]" />
               </div>
@@ -255,7 +256,13 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
                 <p className="text-sm text-rose-100/80">Salons, feature access, integrations, and owner support</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                href={`/${locale}/super-admin/no-shows`}
+                className="rounded-lg border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/15"
+              >
+                No-show records
+              </Link>
               <a
                 href="#luster-invite"
                 className="inline-flex items-center gap-2 rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-semibold text-[#4C1D2E] transition-colors hover:bg-amber-200"

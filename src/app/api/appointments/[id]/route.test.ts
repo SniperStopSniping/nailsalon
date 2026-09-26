@@ -808,14 +808,18 @@ describe('appointment detail route auth', () => {
     }));
   });
 
-  it('blocks no-show reactivation while immutable deposit forfeiture evidence exists', async () => {
+  it.each([
+    ['no_show', 'no_show'],
+    ['cancelled', 'admin_correction'],
+    ['cancelled', 'client_request'],
+  ])('blocks %s reactivation while immutable no-show deposit forfeiture evidence exists', async (status, cancelReason) => {
     const noShowAppointment = Object.freeze({
       id: 'appt_1',
       salonId: 'salon_1',
       salonClientId: 'merged_source',
       technicianId: 'tech_1',
-      status: 'no_show',
-      cancelReason: 'no_show',
+      status,
+      cancelReason,
       clientPhone: '4165550100',
       clientEmail: 'historical@example.test',
       clientName: 'Ava',
@@ -832,8 +836,8 @@ describe('appointment detail route auth', () => {
       ...mockDbState.lockedAppointmentRows[0]!,
       salonClientId: 'merged_source',
       technicianId: 'tech_1',
-      status: 'no_show',
-      cancelReason: 'no_show',
+      status,
+      cancelReason,
     };
     mockDbState.appointmentRows = [{ ...mockDbState.lockedAppointmentRows[0]! }];
     loadAppointmentDepositCreditRows.mockResolvedValue([forfeitedDepositRow()]);

@@ -1043,14 +1043,23 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
             };
           }
 
-          if (lockedAppointment.status === 'no_show') {
-            const depositRows = await loadAppointmentDepositCreditRows({
+          // A source status/reason can be corrected later, but immutable
+          // forfeiture evidence stays with the deposit. Check that evidence
+          // for every terminal reactivation instead of trusting mutable text.
+          const terminalSource = TERMINAL_APPOINTMENT_STATUSES.includes(
+            lockedAppointment.status as (typeof TERMINAL_APPOINTMENT_STATUSES)[number],
+          );
+          const depositRows = terminalSource
+            ? await loadAppointmentDepositCreditRows({
               salonId: lockedAppointment.salonId,
               appointmentId,
               database: tx,
               forUpdate: true,
               appointmentLockHeld: true,
-            });
+            })
+            : [];
+          const hasForfeitureEvidence = depositRows.some(row => row.forfeitedAt || row.forfeitureTaxSnapshot);
+          if (lockedAppointment.status === 'no_show' || hasForfeitureEvidence) {
             const taxChain = validateAppointmentTaxSnapshotChain(lockedAppointment);
             const invoiceCurrency = taxChain.ok ? taxChain.invoiceCurrency : null;
             const depositResolution = depositRows.length === 0

@@ -75,6 +75,31 @@ system attribution as an identified human correction.
 
 ## Restricted operations
 
+Super admins can open **Platform Control Center → No-show records** to see a
+paginated, audited list across salons. The list includes local no-show
+appointments that were never eligible for network sharing, plus suppressed,
+revoked, expired, and corrected history. It shows the source salon and masked
+contact details only to the super-admin session. Ordinary salons still receive
+only the bounded risk count.
+
+Two corrections are deliberately separate:
+
+- **Remove from network risk** suppresses one active network event through the
+  existing tenant-qualified operator action. It preserves the source
+  appointment, event row, and audit trail. It does not refund a deposit.
+- **Correct to cancelled** changes an erroneously marked source appointment
+  from `no_show` to terminal `cancelled`, records a required operator reason in
+  the appointment audit, and lets the source trigger revoke its network event.
+  A stale or already corrected row is rejected. It does not reopen the slot,
+  notify the client, or alter deposits and refunds. Review those separately.
+  Any later attempt to reactivate an appointment with immutable no-show
+  forfeiture evidence still passes the deposit reconciliation guard, even if
+  the appointment's cancellation reason is edited later.
+
+Neither action supports manually adding a network no-show or editing a shared
+count directly. The list and correction endpoints require super-admin auth,
+rate limits, and no-store responses.
+
 `POST /api/super-admin/network-no-show` requires the existing super-admin guard.
 Requests are strict, rate limited and no-store. There is no contact-search or
 bulk-import action. `mode` defaults to `plan`; `apply` must be explicit. Plan reads
