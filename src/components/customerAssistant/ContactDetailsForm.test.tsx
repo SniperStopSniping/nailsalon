@@ -33,4 +33,18 @@ describe('ContactDetailsForm', () => {
     expect(onChange).toHaveBeenCalledWith({ ...contact, name: 'Alex Updated' });
     expect(screen.getByLabelText('Numéro de téléphone')).toHaveValue(contact.phone);
   });
+
+  it('shows the expanded text choice checked by default and records an explicit uncheck', () => {
+    const onSmsChange = vi.fn();
+    render(<ContactDetailsForm locale="en" contact={contact} disabled={false} onChange={vi.fn()} onReview={vi.fn()} onSmsChange={onSmsChange} />);
+
+    const updates = screen.getByRole('checkbox', { name: 'Text updates' });
+
+    expect(updates).toBeChecked();
+    expect(screen.getByText('Text me appointment confirmations, reminders, review requests, and salon promotions')).toBeInTheDocument();
+
+    fireEvent.click(updates);
+
+    expect(onSmsChange).toHaveBeenCalledWith({ granted: false, selection: 'explicit_off', wordingVersion: 'booking-sms-all-v2' });
+  });
 });

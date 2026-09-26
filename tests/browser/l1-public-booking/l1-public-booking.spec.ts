@@ -91,10 +91,10 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
   await expect(page.getByRole('heading', { name: /review your appointment/i })).toBeVisible();
 
   const phone = page.getByLabel('Customer phone', { exact: true });
-  const reminders = page.getByRole('checkbox', { name: 'Text reminders', exact: true });
+  const textUpdates = page.getByRole('checkbox', { name: 'Text updates', exact: true });
 
   await expect(phone).toHaveAttribute('required', '');
-  await expect(reminders).toBeChecked();
+  await expect(textUpdates).toBeChecked();
   await expect.poll(() => phone.evaluate((element) => {
     for (let current: Element | null = element; current; current = current.parentElement) {
       if (Number(getComputedStyle(current).opacity) < 1) {
@@ -108,7 +108,7 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
   await page.getByLabel('Customer name', { exact: true }).fill('Synthetic L1 Customer');
   await page.getByLabel('Customer email', { exact: true }).fill(`l1-${randomUUID()}@example.invalid`);
   await phone.fill('4165550199');
-  await reminders.uncheck();
+  await textUpdates.uncheck();
   const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/appointments') && response.request().method() === 'POST');
   await page.getByRole('button', { name: /confirm appointment/i }).click();
   const response = await responsePromise;

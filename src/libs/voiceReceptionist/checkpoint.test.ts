@@ -32,7 +32,7 @@ describe('voice checkpoint proof', () => {
     expect(finalizedVoiceSmsChoice({ SpeechResult: 'no texts', Confidence: '0.8' })).toMatchObject({ granted: false, selection: 'explicit_off' });
     expect(finalizedVoiceSmsChoice({ SpeechResult: 'don’t text me', Confidence: '0.99' })).toMatchObject({ granted: false, selection: 'explicit_off' });
     expect(finalizedVoiceSmsChoice({ SpeechResult: 'no texts please', Confidence: '0.99' })).toMatchObject({ granted: false, selection: 'explicit_off' });
-    expect(finalizedVoiceSmsChoice({ SpeechResult: 'sí textos por favor', Confidence: '0.99' })).toMatchObject({ granted: true, selection: 'explicit_on' });
+    expect(finalizedVoiceSmsChoice({ SpeechResult: 'sí textos por favor', Confidence: '0.99' })).toMatchObject({ granted: true, selection: 'explicit_on', wordingVersion: 'booking-sms-all-v2' });
     expect(finalizedVoiceSmsChoice({ SpeechResult: 'yes, actually no texts', Confidence: '0.99' })).toBeNull();
     expect(finalizedVoiceSmsChoice({ SpeechResult: 'no texts', Confidence: '0.79' })).toBeNull();
   });
@@ -68,6 +68,7 @@ describe('voice checkpoint proof', () => {
     expect(xml).toContain('This request requires the salon to approve it');
     expect(xml).toContain('Appointment agreement. Please arrive on time and cancel promptly.');
     expect(xml).toContain('salon’s current default enables');
+    expect(xml).toContain('review requests, and promotions');
     expect(xml).toContain('STOP');
     expect(xml).toContain('Say yes or press one to confirm');
     expect(formatVoiceCheckpointReview({ ...review, reminders: { mode: 'default_off', selection: 'default_off', requestedEnabled: false } }, 'en')).toContain('salon’s current default does not enable');

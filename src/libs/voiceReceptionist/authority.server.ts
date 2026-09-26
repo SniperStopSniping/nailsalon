@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { createOpenAiResponsesProvider } from '@/libs/ai/openaiResponses.server';
 import type { OwnerAssistantModelProvider } from '@/libs/ai/provider';
-import { type BookingSmsConsentInput, resolveBookingSmsMode } from '@/libs/bookingSmsConsent';
+import { BOOKING_SMS_WORDING_VERSION, type BookingSmsConsentInput, resolveBookingSmsMode } from '@/libs/bookingSmsConsent';
 import type { SalonFeatures } from '@/types/salonPolicy';
 
 import type { CustomerBookingOperationReference, CustomerBookingStatus } from '../customerAssistant/bookingOperationContracts';
@@ -73,7 +73,7 @@ function voiceSmsConsent(settings: unknown, choice: BookingSmsConsentInput | und
   return {
     granted: mode === 'default_on',
     selection: mode,
-    wordingVersion: 'booking-sms-reminders-v1',
+    wordingVersion: BOOKING_SMS_WORDING_VERSION,
   };
 }
 

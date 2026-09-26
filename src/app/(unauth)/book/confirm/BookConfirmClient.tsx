@@ -30,6 +30,7 @@ import { useBookingState } from '@/hooks/useBookingState';
 import type { BookingStep } from '@/libs/bookingFlow';
 import type { BookingBasket } from '@/libs/bookingParams';
 import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
+import { BOOKING_SMS_WORDING_VERSION } from '@/libs/bookingSmsConsent';
 import { computeCheckoutTotals, type ResolvedTaxConfig } from '@/libs/checkoutTotals';
 import type { CustomerBookingStatus } from '@/libs/customerAssistant/bookingOperationContracts';
 import { canStartAnotherBooking, startAnotherBooking } from '@/libs/customerAssistant/newBooking.client';
@@ -119,7 +120,7 @@ export type LocationSummary = {
 
 type SmsBookingDefault = 'default_on' | 'default_off' | 'disabled';
 type SmsConsentSelection = Exclude<SmsBookingDefault, 'disabled'> | 'explicit_on' | 'explicit_off';
-const SMS_CONSENT_WORDING_VERSION = 'booking-sms-reminders-v1';
+const SMS_CONSENT_WORDING_VERSION = BOOKING_SMS_WORDING_VERSION;
 
 type BookConfirmClientProps = {
   rebookingSettings?: RebookingPromptSettings;
@@ -1477,7 +1478,7 @@ const ConfirmContent = ({
             {smsBookingDefault !== 'disabled' && (
               <div className="space-y-1 text-xs leading-4 text-[var(--n5-ink-muted)]">
                 <label className="flex min-h-11 cursor-pointer items-center gap-2 text-[var(--n5-ink-main)]">
-                  <input aria-label="Text reminders" aria-describedby="booking-sms-details" type="checkbox" disabled={isSubmitting} checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="size-4 shrink-0 accent-[var(--n5-accent)] disabled:cursor-not-allowed" />
+                  <input aria-label="Text updates" aria-describedby="booking-sms-details" type="checkbox" disabled={isSubmitting} checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="size-4 shrink-0 accent-[var(--n5-accent)] disabled:cursor-not-allowed" />
                   <span>{t('sms_label')}</span>
                 </label>
                 <p id="booking-sms-details">{t('sms_details', { salon: salonName })}</p>

@@ -10,7 +10,7 @@ export const customerReviewRequestSchema = z.object({
   conversation: z.string().min(1).max(24_576),
   contact: customerContactRequestSchema,
   expectedRevision: z.number().int().min(0).optional(),
-  smsConsent: z.object({ granted: z.boolean(), wordingVersion: z.literal('booking-sms-reminders-v1'), selection: z.enum(BOOKING_SMS_SELECTIONS) }).strict().optional(),
+  smsConsent: z.object({ granted: z.boolean(), wordingVersion: z.enum(['booking-sms-reminders-v1', 'booking-sms-all-v2']), selection: z.enum(BOOKING_SMS_SELECTIONS) }).strict().optional(),
 }).strict();
 
 export type CustomerReviewRequest = z.infer<typeof customerReviewRequestSchema>;

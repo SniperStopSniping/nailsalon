@@ -645,6 +645,13 @@
       "when": 1790201476984,
       "tag": "0092_voice_receptionist",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1790452293000,
+      "tag": "0093_existing_test_client_text_defaults",
+      "breakpoints": true
     }
   ]
 }

@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import twilio from 'twilio';
 
-import type { BookingSmsConsentInput } from '@/libs/bookingSmsConsent';
+import { BOOKING_SMS_WORDING_VERSION, type BookingSmsConsentInput } from '@/libs/bookingSmsConsent';
 import type { CustomerReadyReviewSnapshot } from '@/libs/customerAssistant/reviewContracts';
 
 import { isExplicitVoiceBookingConsent, normalizedSpeech } from './conversation';
@@ -62,7 +62,7 @@ export function finalizedVoiceSmsChoice(params: Record<string, string>): Booking
       ? 'explicit_on' as const
       : null;
   return selection
-    ? { granted: selection === 'explicit_on', selection, wordingVersion: 'booking-sms-reminders-v1' }
+    ? { granted: selection === 'explicit_on', selection, wordingVersion: BOOKING_SMS_WORDING_VERSION }
     : null;
 }
 
@@ -72,15 +72,15 @@ function reminderDisclosure(review: CustomerReadyReviewSnapshot, language: 'en' 
     return language === 'es' ? 'Los recordatorios por texto están desactivados para este salón.' : 'Text reminders are disabled for this salon.';
   }
   if (reminders.selection === 'explicit_on') {
-    return language === 'es' ? 'Enviaré confirmación y recordatorios por texto a este número. Puedes responder STOP para dejar de recibir textos.' : 'Appointment confirmation and reminder texts are enabled for this number. You can reply STOP to stop texts.';
+    return language === 'es' ? 'Enviaremos confirmaciones, recordatorios, solicitudes de reseñas y promociones del salón por texto a este número. Puedes responder STOP para dejar de recibir textos.' : 'Appointment confirmations, reminders, review requests, and salon promotions are enabled by text for this number. You can reply STOP to stop texts.';
   }
   if (reminders.selection === 'explicit_off') {
-    return language === 'es' ? 'Los recordatorios por texto están desactivados para esta cita.' : 'Text reminders are off for this appointment.';
+    return language === 'es' ? 'Los textos de citas, solicitudes de reseñas y promociones están desactivados para esta cita.' : 'Appointment texts, review requests, and promotions are off for this booking.';
   }
   if (reminders.requestedEnabled) {
-    return language === 'es' ? 'La configuración actual del salón activa las confirmaciones y recordatorios por texto. Puedes responder STOP para dejar de recibir textos.' : 'The salon’s current default enables appointment confirmation and reminder texts. You can reply STOP to stop texts.';
+    return language === 'es' ? 'La configuración actual del salón activa las confirmaciones, recordatorios, solicitudes de reseñas y promociones por texto. Puedes responder STOP para dejar de recibir textos.' : 'The salon’s current default enables appointment confirmations, reminders, review requests, and promotions by text. You can reply STOP to stop texts.';
   }
-  return language === 'es' ? 'La configuración actual del salón no activa recordatorios por texto para esta cita.' : 'The salon’s current default does not enable text reminders for this appointment.';
+  return language === 'es' ? 'La configuración actual del salón no activa textos de citas, solicitudes de reseñas ni promociones para esta reserva.' : 'The salon’s current default does not enable appointment texts, review requests, or promotions for this booking.';
 }
 
 export function formatVoiceCheckpointReview(review: CustomerReadyReviewSnapshot, language: 'en' | 'es', contact?: { name: string; email: string; phone: string }): string {

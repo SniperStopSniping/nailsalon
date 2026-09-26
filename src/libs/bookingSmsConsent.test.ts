@@ -1,10 +1,19 @@
 import {
+  BOOKING_SMS_EXPANDED_PURPOSES,
+  BOOKING_SMS_WORDING_VERSION,
+  includesExpandedBookingSmsPurposes,
   resolveBookingSmsConsentDecision,
   resolveBookingSmsMode,
   shouldRecordBookingSmsConsent,
 } from './bookingSmsConsent';
 
 describe('booking SMS reminder preference', () => {
+  it('expands only the new disclosed wording to review and promotion purposes', () => {
+    expect(BOOKING_SMS_EXPANDED_PURPOSES).toEqual(['appointment_transactional', 'salon_promotions']);
+    expect(includesExpandedBookingSmsPurposes(BOOKING_SMS_WORDING_VERSION)).toBe(true);
+    expect(includesExpandedBookingSmsPurposes('booking-sms-reminders-v1')).toBe(false);
+  });
+
   it('defaults new and malformed salon settings to default on', () => {
     expect(resolveBookingSmsMode(null)).toBe('default_on');
     expect(resolveBookingSmsMode({ communications: { sms: { bookingDefault: 'unexpected' } } })).toBe('default_on');

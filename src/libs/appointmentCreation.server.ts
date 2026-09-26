@@ -77,6 +77,8 @@ import {
   validatePublicBookingSelection,
 } from '@/libs/bookingQuote';
 import {
+  BOOKING_SMS_EXPANDED_PURPOSES,
+  includesExpandedBookingSmsPurposes,
   resolveBookingSmsConsentDecision,
   resolveBookingSmsMode,
   shouldRecordBookingSmsConsent,
@@ -3236,6 +3238,27 @@ async function createAppointmentFromRequestCore(
             suppression: 'provider_opt_out',
           },
         });
+        if (includesExpandedBookingSmsPurposes(normalizedSmsConsent.wordingVersion)) {
+          await tx.insert(communicationConsentSchema).values(BOOKING_SMS_EXPANDED_PURPOSES.map(purpose => ({
+            id: crypto.randomUUID(),
+            salonId: salon.id,
+            recipient,
+            channel: 'sms',
+            purpose,
+            status: 'revoked',
+            wordingVersion: normalizedSmsConsent.wordingVersion,
+            source: 'public_booking',
+            grantedAt: null,
+            revokedAt: now,
+            metadata: {
+              appointmentId: args.appointmentId,
+              preferenceScope: purpose,
+              selection: bookingSmsConsentDecision.selection,
+              selectionWasExplicit: bookingSmsConsentDecision.isExplicit,
+              suppression: 'provider_opt_out',
+            },
+          })));
+        }
         effectiveSmsConsentGranted = false;
         smsReminderStatus = 'opted_out';
         return;
@@ -3267,6 +3290,26 @@ async function createAppointmentFromRequestCore(
           selectionWasExplicit: bookingSmsConsentDecision.isExplicit,
         },
       });
+      if (includesExpandedBookingSmsPurposes(normalizedSmsConsent.wordingVersion)) {
+        await tx.insert(communicationConsentSchema).values(BOOKING_SMS_EXPANDED_PURPOSES.map(purpose => ({
+          id: crypto.randomUUID(),
+          salonId: salon.id,
+          recipient,
+          channel: 'sms',
+          purpose,
+          status: bookingSmsConsentDecision.status,
+          wordingVersion: normalizedSmsConsent.wordingVersion,
+          source: 'public_booking',
+          grantedAt: bookingSmsConsentDecision.status === 'granted' ? now : null,
+          revokedAt: bookingSmsConsentDecision.status === 'revoked' ? now : null,
+          metadata: {
+            appointmentId: args.appointmentId,
+            preferenceScope: purpose,
+            selection: bookingSmsConsentDecision.selection,
+            selectionWasExplicit: bookingSmsConsentDecision.isExplicit,
+          },
+        })));
+      }
       effectiveSmsConsentGranted = bookingSmsConsentDecision.status === 'granted';
       smsReminderStatus = effectiveSmsConsentGranted ? 'enabled' : 'customer_disabled';
     };

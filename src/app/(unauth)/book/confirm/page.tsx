@@ -9,6 +9,7 @@ import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { BOOKING_SMS_WORDING_VERSION } from '@/libs/bookingSmsConsent';
 import { getClientSession } from '@/libs/clientAuth';
 import { isCustomerAssistantEnabledForSalon } from '@/libs/customerAssistant/access.server';
 import {
@@ -408,7 +409,7 @@ export default async function BookConfirmPage(
       technicianId: techId && techId !== 'any' ? techId : undefined,
       locationId: locationId || undefined,
       contact: { name: 'Guest', email: 'quote@example.invalid', phone: nextVisitIdentity.phone },
-      smsConsent: smsDefault === 'disabled' ? undefined : { granted: smsDefault === 'default_on', wordingVersion: 'booking-sms-reminders-v1', selection: smsDefault },
+      smsConsent: smsDefault === 'disabled' ? undefined : { granted: smsDefault === 'default_on', wordingVersion: BOOKING_SMS_WORDING_VERSION, selection: smsDefault },
       campaignToken: searchParams.campaign,
     })
     : null;
