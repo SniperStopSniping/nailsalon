@@ -13,6 +13,7 @@ describe('booking SMS reminder preference', () => {
     expect(includesExpandedBookingSmsPurposes(BOOKING_SMS_WORDING_VERSION)).toBe(true);
     expect(includesExpandedBookingSmsPurposes('booking-sms-reminders-v1')).toBe(false);
   });
+
   it('defaults new and malformed salon settings to default on', () => {
     expect(resolveBookingSmsMode(null)).toBe('default_on');
     expect(resolveBookingSmsMode({ communications: { sms: { bookingDefault: 'unexpected' } } })).toBe('default_on');
