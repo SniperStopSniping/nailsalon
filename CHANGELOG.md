@@ -1,3 +1,10 @@
+## [1.132.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.132.1...v1.132.2) (2026-09-27)
+
+
+### Bug Fixes
+
+* **review-requests:** recover after late SMS consent ([854a2b5](https://github.com/SniperStopSniping/nailsalon/commit/854a2b50cf3b1a73933f012a18f765dac326d864))
+
 ## [1.132.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.132.0...v1.132.1) (2026-09-26)
 
 
