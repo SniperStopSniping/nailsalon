@@ -97,6 +97,105 @@ describe('scheduled-end review automation', () => {
     }
   });
 
+  it('waits until send time for missing consent, then recovers a skipped request after a new grant', async () => {
+    const fixture = await seed();
+    await db.delete(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, fixture.salonId));
+    const { materializeCompletedReviewTriggers, scanScheduledEndReviewTriggers } = await import('./reviewRequests.server');
+    await scanScheduledEndReviewTriggers({ database: db, now: NOW });
+    await materializeCompletedReviewTriggers({ database: db, now: NOW });
+
+    const due = new Date(NOW.getTime() + 60 * 60_000);
+    const [waiting] = await db.select().from(schema.reviewRequestTriggerSchema).where(eq(schema.reviewRequestTriggerSchema.salonId, fixture.salonId));
+
+    expect(waiting).toMatchObject({ state: 'pending', availableAt: due });
+    expect(await db.select().from(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, fixture.salonId))).toHaveLength(0);
+
+    await materializeCompletedReviewTriggers({ database: db, now: due });
+    const [skipped] = await db.select().from(schema.reviewRequestTriggerSchema).where(eq(schema.reviewRequestTriggerSchema.salonId, fixture.salonId));
+
+    expect(skipped).toMatchObject({ state: 'skipped', reasonCode: 'SMS_INELIGIBLE' });
+
+    const grantedAt = new Date(due.getTime() + 60_000);
+    await db.insert(schema.communicationConsentSchema).values({
+      id: 'late-consent',
+      salonId: fixture.salonId,
+      recipient: fixture.phone,
+      channel: 'sms',
+      purpose: 'appointment_transactional',
+      status: 'granted',
+      source: 'test',
+      wordingVersion: 'test',
+      createdAt: grantedAt,
+    });
+    await materializeCompletedReviewTriggers({ database: db, now: grantedAt });
+    await materializeCompletedReviewTriggers({ database: db, now: grantedAt });
+
+    const [recovered] = await db.select().from(schema.reviewRequestTriggerSchema).where(eq(schema.reviewRequestTriggerSchema.salonId, fixture.salonId));
+
+    expect(recovered).toMatchObject({ state: 'materialized', reasonCode: null });
+
+    const requests = await db.select().from(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, fixture.salonId));
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ appointmentId: fixture.appointmentId, source: 'automatic', scheduledFor: due });
+  });
+
+  it('does not recover a consent skip after the original expiry or a later revocation', async () => {
+    const fixture = await seed();
+    const otherSalon = await seed();
+    await db.delete(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, fixture.salonId));
+    const { materializeCompletedReviewTriggers, scanScheduledEndReviewTriggers } = await import('./reviewRequests.server');
+    await scanScheduledEndReviewTriggers({ database: db, now: NOW });
+    const due = new Date(NOW.getTime() + 60 * 60_000);
+    await materializeCompletedReviewTriggers({ database: db, now: due });
+
+    const grant = new Date(due.getTime() + 60_000);
+    await db.insert(schema.communicationConsentSchema).values({
+      id: 'wrong-salon-grant',
+      salonId: otherSalon.salonId,
+      recipient: fixture.phone,
+      channel: 'sms',
+      purpose: 'appointment_transactional',
+      status: 'granted',
+      source: 'test',
+      wordingVersion: 'test',
+      createdAt: grant,
+    });
+    await materializeCompletedReviewTriggers({ database: db, now: grant });
+
+    expect(await db.select().from(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, fixture.salonId))).toHaveLength(0);
+
+    await db.insert(schema.communicationConsentSchema).values({
+      id: 'late-grant',
+      salonId: fixture.salonId,
+      recipient: fixture.phone,
+      channel: 'sms',
+      purpose: 'appointment_transactional',
+      status: 'granted',
+      source: 'test',
+      wordingVersion: 'test',
+      createdAt: grant,
+    });
+    await db.insert(schema.communicationConsentSchema).values({
+      id: 'later-revocation',
+      salonId: fixture.salonId,
+      recipient: fixture.phone,
+      channel: 'sms',
+      purpose: 'appointment_transactional',
+      status: 'revoked',
+      source: 'test',
+      wordingVersion: 'test',
+      createdAt: new Date(grant.getTime() + 60_000),
+    });
+    await materializeCompletedReviewTriggers({ database: db, now: new Date(grant.getTime() + 120_000) });
+
+    expect(await db.select().from(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, fixture.salonId))).toHaveLength(0);
+
+    await materializeCompletedReviewTriggers({ database: db, now: new Date(due.getTime() + 25 * 60 * 60_000) });
+
+    expect(await db.select().from(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, fixture.salonId))).toHaveLength(0);
+  });
+
   it.each(['manual', null] as const)('does not scan %s/legacy policy', async (mode) => {
     const fixture = await seed({ mode });
     const { scanScheduledEndReviewTriggers } = await import('./reviewRequests.server');

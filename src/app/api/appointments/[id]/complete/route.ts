@@ -48,6 +48,7 @@ import {
   getOrCreateSalonClient,
   updateSalonClientStats,
 } from '@/libs/queries';
+import { resolveReviewAutomationPolicy } from '@/libs/reviewAutomationPolicy';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import {
   buildFinalTaxSnapshot,
@@ -61,6 +62,7 @@ import {
   appointmentPhotoSchema,
   appointmentSchema,
   salonClientSchema,
+  salonRetentionSettingsSchema,
   salonSchema,
   serviceSchema,
 } from '@/models/Schema';
@@ -154,7 +156,7 @@ type SuccessResponse = {
       eligibleCents: number;
     };
     // Whether the post-appointment review prompt should be shown to the tech.
-    // False once the client is marked as already reviewed on Google.
+    // Manual salons can show the follow-up prompt after completion.
     showReviewPrompt?: boolean;
   };
 };
@@ -1510,7 +1512,11 @@ async function handleSuccessfulCompletion(
   // 6d. Decide whether to show the post-appointment review prompt.
   let showReviewPrompt = false;
   try {
-    if (salonClientId) {
+    const [reviewSettings] = await db.select().from(salonRetentionSettingsSchema)
+      .where(eq(salonRetentionSettingsSchema.salonId, completedAppointment.salonId)).limit(1);
+    if (resolveReviewAutomationPolicy(reviewSettings).mode !== 'manual') {
+      showReviewPrompt = false;
+    } else if (salonClientId) {
       const [client] = await db
         .select({ hasGoogleReview: salonClientSchema.hasGoogleReview })
         .from(salonClientSchema)

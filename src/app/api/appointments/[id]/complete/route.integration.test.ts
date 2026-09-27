@@ -273,6 +273,31 @@ afterAll(async () => {
 });
 
 describe('PATCH /complete — checkout integration', () => {
+  it('shows the completion review prompt only when the salon uses manual requests', async () => {
+    await db.insert(schema.salonClientSchema).values({ id: 'client_review_prompt', salonId: SALON_ID, phone: '4165550111', fullName: 'Checkout Client' });
+    await db.insert(schema.salonRetentionSettingsSchema).values({
+      salonId: SALON_ID,
+      automaticReviewRequests: false,
+      reviewRequestAutomationMode: 'manual',
+    });
+    const manualId = await seedAppointment({ salonClientId: 'client_review_prompt' });
+    const manual = await completeCatalogVisit(manualId);
+
+    expect(manual.status).toBe(200);
+    expect((await manual.json()).data.showReviewPrompt).toBe(true);
+
+    await db.update(schema.salonRetentionSettingsSchema).set({
+      automaticReviewRequests: true,
+      reviewRequestAutomationMode: 'scheduled_end',
+      reviewRequestsEnabledAt: new Date('2026-01-01T00:00:00.000Z'),
+    }).where(eq(schema.salonRetentionSettingsSchema.salonId, SALON_ID));
+    const automaticId = await seedAppointment({ salonClientId: 'client_review_prompt' });
+    const automatic = await completeCatalogVisit(automaticId);
+
+    expect(automatic.status).toBe(200);
+    expect((await automatic.json()).data.showReviewPrompt).toBe(false);
+  });
+
   async function enableNextVisitOffer() {
     await db.insert(schema.salonRetentionSettingsSchema).values({
       salonId: SALON_ID,
