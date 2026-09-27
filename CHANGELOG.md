@@ -1,3 +1,10 @@
+# [1.133.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.132.2...v1.133.0) (2026-09-27)
+
+
+### Features
+
+* **sms:** default active clients eligible for salon texts ([8915282](https://github.com/SniperStopSniping/nailsalon/commit/891528256244c31531ea68b2a8eac8014720bb25))
+
 ## [1.132.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.132.1...v1.132.2) (2026-09-27)
 
 
