@@ -97,9 +97,10 @@ describe('scheduled-end review automation', () => {
     }
   });
 
-  it('waits until send time for missing consent, then recovers a skipped request after a new grant', async () => {
+  it('waits until send time for an explicit refusal, then recovers after the client turns texts on', async () => {
     const fixture = await seed();
-    await db.delete(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, fixture.salonId));
+    await db.update(schema.communicationConsentSchema).set({ status: 'revoked', metadata: { selection: 'explicit_off' } })
+      .where(eq(schema.communicationConsentSchema.salonId, fixture.salonId));
     const { materializeCompletedReviewTriggers, scanScheduledEndReviewTriggers } = await import('./reviewRequests.server');
     await scanScheduledEndReviewTriggers({ database: db, now: NOW });
     await materializeCompletedReviewTriggers({ database: db, now: NOW });
@@ -126,6 +127,7 @@ describe('scheduled-end review automation', () => {
       source: 'test',
       wordingVersion: 'test',
       createdAt: grantedAt,
+      metadata: { selection: 'explicit_on' },
     });
     await materializeCompletedReviewTriggers({ database: db, now: grantedAt });
     await materializeCompletedReviewTriggers({ database: db, now: grantedAt });
@@ -143,7 +145,8 @@ describe('scheduled-end review automation', () => {
   it('does not recover a consent skip after the original expiry or a later revocation', async () => {
     const fixture = await seed();
     const otherSalon = await seed();
-    await db.delete(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, fixture.salonId));
+    await db.update(schema.communicationConsentSchema).set({ status: 'revoked', metadata: { selection: 'explicit_off' } })
+      .where(eq(schema.communicationConsentSchema.salonId, fixture.salonId));
     const { materializeCompletedReviewTriggers, scanScheduledEndReviewTriggers } = await import('./reviewRequests.server');
     await scanScheduledEndReviewTriggers({ database: db, now: NOW });
     const due = new Date(NOW.getTime() + 60 * 60_000);
@@ -175,6 +178,7 @@ describe('scheduled-end review automation', () => {
       source: 'test',
       wordingVersion: 'test',
       createdAt: grant,
+      metadata: { selection: 'explicit_on' },
     });
     await db.insert(schema.communicationConsentSchema).values({
       id: 'later-revocation',

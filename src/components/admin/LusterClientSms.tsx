@@ -31,7 +31,7 @@ const LABELS: Record<string, string> = {
   sending: 'Sending',
   sent: 'Sent',
   delivered: 'Delivered',
-  customer_disabled: 'Reminders disabled by customer',
+  customer_disabled: 'Texts disabled by customer',
   booking_disabled: 'Disabled for this booking',
   opted_out: 'STOP / opted out',
   provider_blocked: 'Provider blocked',
@@ -258,7 +258,7 @@ export function LusterClientSms({
       {loading && <p className="text-xs text-stone-500" role="status">Loading messages…</p>}
       {loadError && <p className="text-sm text-red-800" role="alert">{loadError}</p>}
       {!loading && !loadError && reminderPreference === 'salon_disabled' && <p className="mt-2 text-sm text-stone-700">SMS reminders were disabled for this online booking.</p>}
-      {!loading && !loadError && reminderPreference === 'customer_disabled' && <p className="mt-2 text-sm text-stone-700">Reminders disabled by customer</p>}
+      {!loading && !loadError && reminderPreference === 'customer_disabled' && <p className="mt-2 text-sm text-stone-700">Texts disabled by customer</p>}
       {!loading && !loadError && reminderPreference === 'opted_out' && <p className="mt-2 text-sm text-stone-700">STOP / opted out. A new booking cannot restart appointment texts.</p>}
       {!loading && !loadError && history.length === 0 && <p className="text-xs text-stone-500">No Luster texts for this client yet.</p>}
       <ol className="mt-2 space-y-2">
@@ -315,7 +315,7 @@ export function LusterClientSms({
             }}
             disabled={sending || uncertain}
             className="mt-1 w-full rounded-xl border border-stone-300 bg-white p-3 text-base text-stone-900 focus:border-rose-500 focus:outline-none disabled:opacity-70"
-            placeholder="Write an appointment-related message…"
+            placeholder="Write a message to this client…"
           />
           <SmsMessagePreview body={finalLusterBody} className="mt-3" />
           <p className="mt-2 text-xs text-stone-500">Texts respect consent and quiet hours. Replies are not an inbox; clients should use their appointment link or call the salon for changes.</p>

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH } from '@/libs/clientLifecycleStabilization';
+import { getClientSmsPurposeEligibilityBatch } from '@/libs/clientSmsEligibility.server';
 import { db } from '@/libs/DB';
 import { getCompletedRevenueRows } from '@/libs/financialReportingServer';
 import {
@@ -19,7 +20,6 @@ import {
   appointmentSchema,
   appointmentServicesSchema,
   clientCommunicationSchema,
-  communicationConsentSchema,
   notificationDeliverySchema,
   retentionCampaignRedemptionSchema,
   retentionCampaignSchema,
@@ -35,7 +35,7 @@ export const dynamic = 'force-dynamic';
 // =============================================================================
 // Follow-up groups reuse the SAME live retention/reminder engine as the Today
 // workspace (no second computation path), enriched with the last completed
-// service and transactional-SMS consent visibility. Results report ONLY
+// service and salon-promotion SMS eligibility visibility. Results report ONLY
 // measurable facts: the manual outreach ledger (client_communication), minted/
 // redeemed win-back campaigns joined to their booked appointments (final
 // completed revenue via revenueCentsSql — tax reported separately, never as
@@ -348,7 +348,7 @@ export async function GET(request: Request): Promise<Response> {
   });
 
   // ---------------------------------------------------------------------------
-  // Enrichment: last completed service + transactional-SMS consent visibility.
+  // Enrichment: last completed service + current promotion-text eligibility.
   // Consent is DISPLAY ONLY here — the manual composer never requires it, and
   // its presence never turns anything automatic.
   // ---------------------------------------------------------------------------
@@ -395,29 +395,7 @@ export async function GET(request: Request): Promise<Response> {
       .map(item => normalizeRetentionPhone(item.phone))
       .filter((phone): phone is string => Boolean(phone)),
   )];
-  const consentByPhone = new Map<string, boolean>();
-  if (queuedPhones.length > 0) {
-    const consentRows = await db
-      .select({
-        recipient: communicationConsentSchema.recipient,
-        status: communicationConsentSchema.status,
-        createdAt: communicationConsentSchema.createdAt,
-      })
-      .from(communicationConsentSchema)
-      .where(and(
-        eq(communicationConsentSchema.salonId, salon.id),
-        eq(communicationConsentSchema.channel, 'sms'),
-        eq(communicationConsentSchema.purpose, 'appointment_transactional'),
-        inArray(communicationConsentSchema.recipient, queuedPhones),
-      ))
-      .orderBy(desc(communicationConsentSchema.createdAt));
-    for (const row of consentRows) {
-      // Rows are newest-first; the first row per recipient is authoritative.
-      if (!consentByPhone.has(row.recipient)) {
-        consentByPhone.set(row.recipient, row.status === 'granted');
-      }
-    }
-  }
+  const consentByPhone = await getClientSmsPurposeEligibilityBatch({ salonId: salon.id, phones: queuedPhones, purpose: 'salon_promotions' });
 
   const followupItem = (item: (typeof retention)[number]) => ({
     clientId: item.clientId,

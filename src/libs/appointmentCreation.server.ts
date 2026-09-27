@@ -101,6 +101,7 @@ import {
   resolveOperationalSalonClientContact,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
+import { getClientSmsPurposeEligibility } from '@/libs/clientSmsEligibility.server';
 import type { CustomerBookingMaterial } from '@/libs/customerAssistant/bookingOperationContracts';
 import { CustomerBookingOperationError, linkCustomerBookingOperation, lockCustomerBookingOperation, type LockedCustomerBookingOperation, readCustomerBookingOperation } from '@/libs/customerAssistant/operationStore.server';
 import { validateCustomerReviewLocationInTx } from '@/libs/customerAssistant/validateReviewLocation.server';
@@ -3186,6 +3187,14 @@ async function createAppointmentFromRequestCore(
         return;
       }
       if (!bookingSmsConsentDecision || !normalizedSmsConsent) {
+        const preference = await getClientSmsPurposeEligibility({
+          salonId: salon.id,
+          phone: args.recipient,
+          purpose: 'appointment_reminders',
+          database: tx,
+        });
+        effectiveSmsConsentGranted = preference.state === 'enabled';
+        smsReminderStatus = preference.state === 'opted_out' ? 'opted_out' : effectiveSmsConsentGranted ? 'enabled' : 'customer_disabled';
         return;
       }
 
@@ -3310,8 +3319,14 @@ async function createAppointmentFromRequestCore(
           },
         })));
       }
-      effectiveSmsConsentGranted = bookingSmsConsentDecision.status === 'granted';
-      smsReminderStatus = effectiveSmsConsentGranted ? 'enabled' : 'customer_disabled';
+      const preference = await getClientSmsPurposeEligibility({
+        salonId: salon.id,
+        phone: recipient,
+        purpose: 'appointment_reminders',
+        database: tx,
+      });
+      effectiveSmsConsentGranted = preference.state === 'enabled';
+      smsReminderStatus = preference.state === 'opted_out' ? 'opted_out' : effectiveSmsConsentGranted ? 'enabled' : 'customer_disabled';
     };
 
     const lockAndResolveRequiredBookingPolicyInTx = async (

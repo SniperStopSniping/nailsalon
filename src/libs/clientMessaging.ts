@@ -2,8 +2,8 @@ import 'server-only';
 
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
-import { getAppointmentSmsDeliveryPreference, getAppointmentSmsPreference } from '@/libs/bookingSmsConsent.server';
 import { getSalonClientLineageIdentityWithHandle, lockTerminalSalonClientWithHandle, resolveTerminalSalonClient } from '@/libs/clientLifecycleStabilization';
+import { getClientSmsPurposeEligibility } from '@/libs/clientSmsEligibility.server';
 import { enqueueCommunicationIntent } from '@/libs/communicationIntent';
 import { friendlyFailureReason, maskRecipient, ownerSmsDeliveryStatus } from '@/libs/communicationMasking';
 import { applyQuietHours, computeSchedulingRevision } from '@/libs/communicationScheduling';
@@ -129,9 +129,8 @@ export async function getClientSmsPreference(input: { salonId: string; clientId:
     if (!appointment) {
       throw new ClientMessagingError('APPOINTMENT_NOT_FOUND', 'This appointment does not belong to this client.', 404);
     }
-    return getAppointmentSmsDeliveryPreference({ salonId: input.salonId, phone: identity.terminal.phone ?? '', appointmentId: appointment.id });
   }
-  return getAppointmentSmsPreference(input.salonId, identity.terminal.phone ?? '');
+  return getClientSmsPurposeEligibility({ salonId: input.salonId, phone: identity.terminal.phone ?? '', purpose: 'salon_promotions' });
 }
 
 /** Both workflow histories show Twilio delivery state, not merely queue acceptance. */

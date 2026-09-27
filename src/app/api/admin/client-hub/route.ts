@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { buildActiveTerminalSalonClientMap } from '@/libs/clientLifecycleStabilization';
+import { getClientSmsPurposeEligibilityBatch } from '@/libs/clientSmsEligibility.server';
 import { db } from '@/libs/DB';
 import {
   getFinancialBalanceSummary,
@@ -18,7 +19,6 @@ import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import {
   appointmentSchema,
   appointmentServicesSchema,
-  communicationConsentSchema,
   retentionCampaignSchema,
   salonClientContactAliasSchema,
   salonClientSchema,
@@ -84,7 +84,6 @@ export async function GET(request: Request): Promise<Response> {
       canonicalBalances,
       topServices,
       categoryRows,
-      consentRows,
       redemptionStats,
       recentCancelledRows,
     ] = await Promise.all([
@@ -199,16 +198,6 @@ export async function GET(request: Request): Promise<Response> {
           eq(appointmentSchema.status, 'completed'),
         ))
         .limit(10000),
-      db
-        .select({
-          recipient: communicationConsentSchema.recipient,
-          status: communicationConsentSchema.status,
-        })
-        .from(communicationConsentSchema)
-        .where(and(
-          eq(communicationConsentSchema.salonId, salon.id),
-          eq(communicationConsentSchema.channel, 'sms'),
-        )),
       db
         .select({
           redeemed: sql<number>`count(*) FILTER (
@@ -339,11 +328,12 @@ export async function GET(request: Request): Promise<Response> {
         category => [...(categoryClients.get(category) ?? [])],
       )).size;
 
-    const consentGranted = new Set(
-      consentRows
-        .filter(row => row.status === 'granted')
-        .map(row => row.recipient),
-    ).size;
+    const textEligibility = await getClientSmsPurposeEligibilityBatch({
+      salonId: salon.id,
+      phones: activeClientRows.map(client => client.phone),
+      purpose: 'appointment_transactional',
+    });
+    const consentGranted = [...textEligibility.values()].filter(Boolean).length;
     const stats = apptStats[0]!;
     const money = {
       serviceRevenueCents: canonicalRange.completedAppointmentRevenueCents,
@@ -428,7 +418,7 @@ export async function GET(request: Request): Promise<Response> {
           { id: 'manicure', label: 'Manicure clients', count: categoryCount(['manicure', 'hands']) },
           { id: 'pedicure', label: 'Pedicure clients', count: categoryCount(['pedicure', 'feet']) },
           { id: 'extensions', label: 'Extension clients', count: categoryCount(['extensions']) },
-          { id: 'sms_consent', label: 'Text consent on file (transactional)', count: consentGranted },
+          { id: 'sms_consent', label: 'Eligible for appointment texts', count: consentGranted },
         ],
         reports: {
           finishedAppointments: finishedTotal,
