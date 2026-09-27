@@ -733,6 +733,21 @@ describe('canonical SMS safety and recovery', () => {
     expect(new Date(String(rows.rows[0]!.available_at)).toISOString()).toBe('2026-08-17T13:00:00.000Z');
   });
 
+  it('sends a manual promotional text for an active client with no stored preference', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await db.delete(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, salonId));
+    const clientId = `default-text-client-${salonId}`;
+    await db.insert(schema.salonClientSchema).values({ id: clientId, salonId, phone: recipient });
+    await enableControl(true);
+    await grantCredits(salonId, 10);
+    await enqueueSmsIntent(salonId, recipient, { eventType: 'manual_text', templateKey: 'client_manual_text', variables: { clientId, message: 'Test offer' } });
+    const provider = vi.fn(async () => ({ sid: 'SM_default_promotional_text' }));
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('sent');
+    expect(provider).toHaveBeenCalledOnce();
+  });
+
   it('sends an explicitly requested voice booking link during quiet hours after the call has ended', async () => {
     const previousSecret = process.env.VOICE_RECEPTIONIST_SIGNING_SECRET;
     process.env.VOICE_RECEPTIONIST_SIGNING_SECRET = 's'.repeat(40);
@@ -747,6 +762,53 @@ describe('canonical SMS safety and recovery', () => {
       expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('sent');
       expect(provider).toHaveBeenCalledOnce();
       expect(provider.mock.calls[0]![0]).toMatchObject({ to: `+1${recipient}` });
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.VOICE_RECEPTIONIST_SIGNING_SECRET;
+      } else {
+        process.env.VOICE_RECEPTIONIST_SIGNING_SECRET = previousSecret;
+      }
+    }
+  });
+
+  it('does not send a voice booking link after an explicit refusal and later untouched default', async () => {
+    const previousSecret = process.env.VOICE_RECEPTIONIST_SIGNING_SECRET;
+    process.env.VOICE_RECEPTIONIST_SIGNING_SECRET = 's'.repeat(40);
+    try {
+      const { salonId, recipient } = await seedVoiceLinkWithoutBroadConsent();
+      await db.insert(schema.communicationConsentSchema).values([
+        {
+          id: `voice-refusal-${salonId}`,
+          salonId,
+          recipient,
+          channel: 'sms',
+          purpose: 'appointment_reminders',
+          status: 'revoked',
+          source: 'public_booking',
+          wordingVersion: 'booking-sms-all-v2',
+          createdAt: new Date(NOW.getTime() - 1000),
+          metadata: { selection: 'explicit_off', selectionWasExplicit: true },
+        },
+        {
+          id: `voice-default-${salonId}`,
+          salonId,
+          recipient,
+          channel: 'sms',
+          purpose: 'appointment_transactional',
+          status: 'granted',
+          source: 'public_booking',
+          wordingVersion: 'booking-sms-all-v2',
+          createdAt: NOW,
+          metadata: { selection: 'default_on', selectionWasExplicit: false },
+        },
+      ]);
+      await grantCredits(salonId, 10);
+      await enableControl(true);
+      const provider = vi.fn();
+      const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+      expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('suppressed');
+      expect(provider).not.toHaveBeenCalled();
     } finally {
       if (previousSecret === undefined) {
         delete process.env.VOICE_RECEPTIONIST_SIGNING_SECRET;

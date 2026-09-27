@@ -1293,7 +1293,7 @@ export function MarketingModal({
                                                 Text (manual)
                                               </span>
                                               <span className={`rounded-full px-2 py-0.5 font-medium ${item.smsConsent ? 'bg-emerald-50 text-emerald-700' : 'bg-[var(--owner-ground)] text-[var(--owner-muted)]'}`}>
-                                                {item.smsConsent ? 'Text consent on file' : 'No text consent recorded'}
+                                                {item.smsConsent ? 'Texting available' : 'Texting unavailable'}
                                               </span>
                                             </div>
                                           </div>

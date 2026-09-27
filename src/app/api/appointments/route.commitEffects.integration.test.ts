@@ -619,6 +619,59 @@ describe('public-booking appointment SMS preference', () => {
     await db.update(schema.salonSchema).set({ settings: { bookingExperience: { policy: { enabled: false } } } })
       .where(eq(schema.salonSchema.id, SALON_ID));
   });
+
+  it('enables texts for an active client when a legacy booking omits the consent payload', async () => {
+    const phone = freshPhone();
+    await seedRewardFixture(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+    await db.update(schema.salonSchema).set({
+      settings: { bookingExperience: { policy: { enabled: false } }, communications: { sms: { enabled: true } } },
+    }).where(eq(schema.salonSchema.id, SALON_ID));
+
+    const response = await postBooking({ startTime: at(futureDate(87), '10:00').toISOString(), smsConsent: undefined });
+
+    expect(response.status).toBe(201);
+
+    const { getClientSmsPurposeEligibility } = await import('@/libs/clientSmsEligibility.server');
+
+    expect(await getClientSmsPurposeEligibility({ salonId: SALON_ID, phone, purpose: 'appointment_reminders' })).toMatchObject({ state: 'enabled' });
+
+    const intents = await db.select().from(schema.communicationIntentSchema);
+
+    expect(intents).toEqual(expect.arrayContaining([expect.objectContaining({ eventType: 'booking_confirmation', recipient: phone })]));
+  });
+
+  it('keeps a previous explicit refusal until the client explicitly turns texts back on', async () => {
+    const phone = freshPhone();
+    await seedRewardFixture(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+
+    const unchecked = await postBooking({
+      startTime: at(futureDate(88), '10:00').toISOString(),
+      smsConsent: { granted: false, wordingVersion: 'booking-sms-all-v2', selection: 'explicit_off' },
+    });
+
+    expect(unchecked.status).toBe(201);
+    expect((await unchecked.json()).data.smsReminderStatus).toBe('customer_disabled');
+
+    effects.automaticDiscount = null;
+
+    const untouched = await postBooking({
+      startTime: at(futureDate(89), '10:00').toISOString(),
+      smsConsent: { granted: true, wordingVersion: 'booking-sms-all-v2', selection: 'default_on' },
+    });
+
+    expect(untouched.status).toBe(201);
+    expect((await untouched.json()).data.smsReminderStatus).toBe('customer_disabled');
+
+    const rechecked = await postBooking({
+      startTime: at(futureDate(90), '10:00').toISOString(),
+      smsConsent: { granted: true, wordingVersion: 'booking-sms-all-v2', selection: 'explicit_on' },
+    });
+
+    expect(rechecked.status).toBe(201);
+    expect((await rechecked.json()).data.smsReminderStatus).toBe('enabled');
+  });
 });
 
 describe('D4.5 — the idempotency contract is unchanged', () => {

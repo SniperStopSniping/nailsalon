@@ -21,6 +21,7 @@ import {
   settleReservationOnAccept,
 } from '@/libs/billing/creditReservation';
 import { getAppointmentSmsDeliveryPreference } from '@/libs/bookingSmsConsent.server';
+import { getClientSmsPurposeEligibility } from '@/libs/clientSmsEligibility.server';
 import {
   claimDueIntents,
   expireStaleIntents,
@@ -54,7 +55,6 @@ import { voiceBookingLinkSendState } from '@/libs/voiceReceptionist/bookingLink.
 import {
   appointmentAccessTokenSchema,
   appointmentSchema,
-  communicationConsentSchema,
   type CommunicationIntent,
   communicationIntentSchema,
   notificationDeliverySchema,
@@ -153,29 +153,10 @@ function providerErrorCode(error: unknown): string | null {
 }
 
 async function hasSalonTransactionalConsent(salonId: string, recipient: string, requireGranted = true): Promise<boolean> {
-  const normalized = normalizeConsentRecipient(recipient);
-  const [rows, providerRows] = await Promise.all([
-    db.select({ status: communicationConsentSchema.status }).from(communicationConsentSchema).where(and(
-      eq(communicationConsentSchema.salonId, salonId),
-      eq(communicationConsentSchema.recipient, normalized),
-      eq(communicationConsentSchema.channel, 'sms'),
-      eq(communicationConsentSchema.purpose, 'appointment_transactional'),
-    )).orderBy(sql`${communicationConsentSchema.createdAt} DESC`).limit(1),
-    // Booking selections append normal preference events. Provider STOP/START
-    // must retain its own authority even if an older implementation appended
-    // one of those events after a STOP callback.
-    db.select({ status: communicationConsentSchema.status }).from(communicationConsentSchema).where(and(
-      eq(communicationConsentSchema.salonId, salonId),
-      eq(communicationConsentSchema.recipient, normalized),
-      eq(communicationConsentSchema.channel, 'sms'),
-      eq(communicationConsentSchema.purpose, 'appointment_transactional'),
-      eq(communicationConsentSchema.source, 'twilio_inbound'),
-    )).orderBy(sql`${communicationConsentSchema.createdAt} DESC`).limit(1),
-  ]);
-  if (providerRows[0]?.status === 'revoked') {
-    return false;
-  }
-  return requireGranted ? rows[0]?.status === 'granted' : rows[0]?.status !== 'revoked';
+  const preference = await getClientSmsPurposeEligibility({ salonId, phone: recipient, purpose: 'appointment_transactional' });
+  // A verified first-time voice caller can receive their booking link before
+  // a client profile exists; a recorded refusal or STOP still wins.
+  return preference.state === 'enabled' || (!requireGranted && preference.state === 'unrecorded');
 }
 
 /**
@@ -634,7 +615,9 @@ export async function dispatchClaimedIntent(
     && await hasSalonTransactionalConsent(intent.salonId, intent.recipient, false)
     : appointmentReminder
       ? reminderPreference?.state === 'enabled'
-      : await hasSalonTransactionalConsent(intent.salonId, intent.recipient, intent.audience === 'client');
+      : intent.audience === 'client' && intent.eventType === 'manual_text'
+        ? (await getClientSmsPurposeEligibility({ salonId: intent.salonId, phone: intent.recipient, purpose: 'salon_promotions' })).state === 'enabled'
+        : await hasSalonTransactionalConsent(intent.salonId, intent.recipient, intent.audience === 'client');
   const consentFailure = reminderPreference?.state === 'opted_out'
     ? 'PROVIDER_OPT_OUT'
     : reminderPreference?.state === 'customer_disabled'

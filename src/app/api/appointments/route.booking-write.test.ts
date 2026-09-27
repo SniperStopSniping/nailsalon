@@ -13,6 +13,9 @@ vi.mock('@/libs/communicationMaterialization', () => ({
   resolveSalonCommunicationContext: vi.fn(async () => ({ settings: {}, mode: 'shared_luster', smsEligible: false, timeZone: 'America/Toronto', salonName: 'Test Salon' })),
 }));
 vi.mock('server-only', () => ({}));
+vi.mock('@/libs/clientSmsEligibility.server', () => ({
+  getClientSmsPurposeEligibility: vi.fn(async () => ({ state: 'enabled', selection: 'default_on' })),
+}));
 
 const {
   canTechnicianTakeAppointment,

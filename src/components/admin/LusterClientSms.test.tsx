@@ -41,7 +41,7 @@ describe('Luster SMS composer', () => {
   });
 
   it.each([
-    ['customer_disabled', 'Reminders disabled by customer'],
+    ['customer_disabled', 'Texts disabled by customer'],
     ['opted_out', 'STOP / opted out. A new booking cannot restart appointment texts.'],
   ])('shows %s even when no SMS was queued', async (state, label) => {
     fetchMock.mockResolvedValue(response({ data: { sms, history: [], reminderPreference: { state } } }));

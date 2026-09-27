@@ -257,11 +257,10 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
       'src/libs/SMS.ts',
       // Booking reads sender identity to preserve provider STOP suppression.
       'src/libs/appointmentCreation.server.ts',
-      'src/libs/bookingSmsConsent.server.ts',
+      // The shared eligibility reader preserves STOP for every text purpose.
+      'src/libs/clientSmsEligibility.server.ts',
       'src/libs/communicationDispatcher.ts',
       'src/libs/integrationHealth.ts',
-      // Reads only the canonical sender identity for pre-enqueue STOP checks.
-      'src/libs/reviewRequests.server.ts',
     ]);
   });
 });

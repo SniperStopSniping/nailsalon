@@ -3,6 +3,7 @@ import 'server-only';
 import { and, desc, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
 
 import { ClientLifecycleStabilizationError, getSalonClientLineageIdentityWithHandle, lockOperationalSalonClientContactWithHandle, resolveOperationalSalonClientContactWithHandle } from '@/libs/clientLifecycleStabilization';
+import { getClientSmsPurposeEligibility } from '@/libs/clientSmsEligibility.server';
 import type { CommunicationIntentDatabase, CommunicationIntentTransaction } from '@/libs/communicationIntent';
 import { enqueueCommunicationIntent } from '@/libs/communicationIntent';
 import { applyQuietHours } from '@/libs/communicationScheduling';
@@ -16,9 +17,8 @@ import { evaluateReviewHistory } from '@/libs/reviewRequestHistory';
 import { isReviewUrl, renderReviewMessage, resolveReviewMessageTemplate, reviewMessageFits, reviewSmsBody } from '@/libs/reviewRequests';
 import type { ClientReviewHistoryItem, ClientReviewOverview, ReviewRequestDisplay } from '@/libs/reviewRequestStatus';
 import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
-import { readSharedSenderEnvConfig } from '@/libs/smsSender';
 import { DEFAULT_BOOKING_TIME_ZONE } from '@/libs/timeZone';
-import { appointmentSchema, clientCommunicationSchema, communicationConsentSchema, communicationIntentSchema, notificationDeliverySchema, reviewRequestSchema, reviewRequestTriggerSchema, salonClientSchema, salonRetentionSettingsSchema, salonSchema, smsGlobalConsentEventSchema } from '@/models/Schema';
+import { appointmentSchema, clientCommunicationSchema, communicationIntentSchema, notificationDeliverySchema, reviewRequestSchema, reviewRequestTriggerSchema, salonClientSchema, salonRetentionSettingsSchema, salonSchema } from '@/models/Schema';
 
 const DAY = 86400000;
 const CANCELLABLE = ['pending', 'claimed', 'blocked_no_credit'] as const;
@@ -668,17 +668,8 @@ async function context(database: CommunicationIntentDatabase, salonId: string, a
       now,
     });
     const legacyReview = legacyReviews.find(row => row.id === legacyDecision.blockingId);
-    const [consent] = await database.select().from(communicationConsentSchema).where(and(
-      eq(communicationConsentSchema.salonId, salonId),
-      eq(communicationConsentSchema.recipient, recipient),
-      eq(communicationConsentSchema.channel, 'sms'),
-      eq(communicationConsentSchema.purpose, 'appointment_transactional'),
-    )).orderBy(desc(communicationConsentSchema.createdAt)).limit(1);
-    const [global] = await database.select().from(smsGlobalConsentEventSchema).where(and(
-      eq(smsGlobalConsentEventSchema.recipient, recipient),
-      eq(smsGlobalConsentEventSchema.senderIdentity, readSharedSenderEnvConfig().senderIdentity),
-    )).orderBy(desc(smsGlobalConsentEventSchema.seq)).limit(1);
-    return { appointment, settings, now, client: client ?? null, legacyReview: legacyReview ?? null, consent: consent?.status === 'granted' && global?.state !== 'suppressed', clientIds: identity.clientIds };
+    const consent = await getClientSmsPurposeEligibility({ salonId, phone: recipient, purpose: 'appointment_transactional', database });
+    return { appointment, settings, now, client: client ?? null, legacyReview: legacyReview ?? null, consent: consent.state === 'enabled', clientIds: identity.clientIds };
   } catch (error) {
     if (!(error instanceof ClientLifecycleStabilizationError)) {
       throw error;

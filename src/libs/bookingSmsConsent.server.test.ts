@@ -48,6 +48,79 @@ async function preference(phone: string, status: 'granted' | 'revoked', override
 }
 
 describe('appointment reminder preference reader', () => {
+  it('defaults active old and new client profiles on for all text purposes within their salon', async () => {
+    const { getClientSmsPurposeEligibility } = await import('./clientSmsEligibility.server');
+    await database.insert(schema.salonClientSchema).values([
+      { id: 'default-profile-a', salonId: 'prefs-a', phone: '4165550190' },
+      { id: 'formatted-old-profile-a', salonId: 'prefs-a', phone: '+1 (416) 555-0193' },
+    ]);
+
+    for (const purpose of ['appointment_reminders', 'appointment_transactional', 'salon_promotions'] as const) {
+      expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone: '4165550190', purpose })).toMatchObject({ state: 'enabled', selection: 'default_on' });
+      expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-b', phone: '4165550190', purpose })).toMatchObject({ state: 'unrecorded' });
+      expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone: '4165550193', purpose })).toMatchObject({ state: 'enabled' });
+    }
+  });
+
+  it('treats an old untouched default-off as a default, while retaining explicit refusal for every purpose', async () => {
+    const { getClientSmsPurposeEligibility } = await import('./clientSmsEligibility.server');
+    await database.insert(schema.salonClientSchema).values({ id: 'old-default-off-a', salonId: 'prefs-a', phone: '4165550191' });
+    await preference('4165550191', 'revoked', { metadata: { selection: 'default_off', selectionWasExplicit: false } });
+
+    for (const purpose of ['appointment_reminders', 'appointment_transactional', 'salon_promotions'] as const) {
+      expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone: '4165550191', purpose })).toMatchObject({ state: 'enabled' });
+    }
+
+    await preference('4165550191', 'revoked', { metadata: { selection: 'explicit_off', selectionWasExplicit: true } });
+    for (const purpose of ['appointment_reminders', 'appointment_transactional', 'salon_promotions'] as const) {
+      expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone: '4165550191', purpose })).toMatchObject({ state: 'customer_disabled' });
+    }
+  });
+
+  it('preserves STOP across all purposes even for default-eligible clients', async () => {
+    const { getClientSmsPurposeEligibility } = await import('./clientSmsEligibility.server');
+    await database.insert(schema.salonClientSchema).values({ id: 'stopped-default-a', salonId: 'prefs-a', phone: '4165550192' });
+    await database.insert(schema.smsGlobalConsentEventSchema).values({ id: 'stop-default-a', senderIdentity: 'test-sender', recipient: '4165550192', state: 'suppressed', source: 'twilio_inbound' });
+
+    for (const purpose of ['appointment_reminders', 'appointment_transactional', 'salon_promotions'] as const) {
+      expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone: '4165550192', purpose })).toMatchObject({ state: 'opted_out' });
+    }
+  });
+
+  it('keeps a later legacy transactional refusal across reminders and promotions', async () => {
+    const { getClientSmsPurposeEligibility } = await import('./clientSmsEligibility.server');
+    await database.insert(schema.salonClientSchema).values({ id: 'legacy-refused-a', salonId: 'prefs-a', phone: '4165550189' });
+    await preference('4165550189', 'granted');
+    await preference('4165550189', 'revoked', { purpose: 'appointment_transactional', metadata: {} });
+
+    for (const purpose of ['appointment_reminders', 'appointment_transactional', 'salon_promotions'] as const) {
+      expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone: '4165550189', purpose })).toMatchObject({ state: 'customer_disabled' });
+    }
+  });
+
+  it('batches promotional and appointment eligibility with the same result as individual send checks', async () => {
+    const { getClientSmsPurposeEligibilityBatch, getClientSmsPurposeEligibility } = await import('./clientSmsEligibility.server');
+    await database.insert(schema.salonClientSchema).values([
+      { id: 'batch-default-a', salonId: 'prefs-a', phone: '4165550194' },
+      { id: 'batch-refused-a', salonId: 'prefs-a', phone: '4165550195' },
+      { id: 'batch-stopped-a', salonId: 'prefs-a', phone: '4165550196' },
+      { id: 'batch-other-b', salonId: 'prefs-b', phone: '4165550197' },
+    ]);
+    await preference('4165550195', 'revoked', { metadata: { selection: 'explicit_off', selectionWasExplicit: true } });
+    await database.insert(schema.smsGlobalConsentEventSchema).values({ id: 'batch-stop', senderIdentity: 'test-sender', recipient: '4165550196', state: 'suppressed', source: 'twilio_inbound' });
+
+    const phones = ['4165550194', '4165550195', '4165550196', '4165550197'];
+    for (const purpose of ['salon_promotions', 'appointment_transactional'] as const) {
+      const batch = await getClientSmsPurposeEligibilityBatch({ salonId: 'prefs-a', phones, purpose });
+
+      for (const phone of phones) {
+        const individual = await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone, purpose });
+
+        expect(batch.get(phone)).toBe(individual.state === 'enabled');
+      }
+    }
+  });
+
   it('normalizes phone, preserves selection provenance, and never reads another tenant', async () => {
     const { getAppointmentSmsPreference } = await import('./bookingSmsConsent.server');
     await preference('4165550101', 'granted');

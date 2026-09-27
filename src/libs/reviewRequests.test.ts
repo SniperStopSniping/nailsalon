@@ -45,6 +45,7 @@ async function seed(input: {
   suppressed?: boolean;
   clientId?: string;
   salonId?: string;
+  recordConsent?: boolean;
 } = {}) {
   sequence += 1;
   const salonId = input.salonId ?? `review-salon-${sequence}`;
@@ -63,7 +64,7 @@ async function seed(input: {
     phone: input.phone === undefined ? `416555${String(1000 + sequence).padStart(4, '0')}` : input.phone ?? '',
     reviewRequestsSuppressed: input.suppressed ?? false,
   });
-  if (input.phone !== null) {
+  if (input.phone !== null && input.recordConsent !== false) {
     await db.insert(schema.communicationConsentSchema).values({
       id: `review-consent-${sequence}`,
       salonId,
@@ -116,6 +117,15 @@ async function laterAppointment(fixture: Awaited<ReturnType<typeof seed>>) {
 }
 
 describe('repeat-review coordinator preparation', () => {
+  it('schedules an automatic review for an active client with no stored preference', async () => {
+    const fixture = await seed({ recordConsent: false });
+    const { scheduleReviewRequest } = await import('./reviewRequests.server');
+
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, true);
+
+    expect(await rows(fixture.salonId)).toHaveLength(1);
+  });
+
   it('matches another client identity with the same normalized durable recipient', async () => {
     const fixture = await seed();
     const { scheduleReviewRequest, getAppointmentReviewState } = await import('./reviewRequests.server');
