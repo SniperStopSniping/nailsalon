@@ -14,6 +14,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      '@clerk/nextjs': path.join(repository, 'tests/browser/clerk.ts'),
       'next/image': path.join(root, 'next-image.tsx'),
       'next/navigation': path.join(root, 'navigation.ts'),
       '@': path.join(repository, 'src'),

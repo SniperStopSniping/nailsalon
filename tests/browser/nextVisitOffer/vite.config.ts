@@ -12,6 +12,6 @@ export default defineConfig({
   root,
   cacheDir: path.join(os.tmpdir(), 'luster-next-visit-offer-vite-cache'),
   plugins: [react()],
-  resolve: { alias: { 'next/navigation': path.join(root, 'navigation.ts'), '@': path.join(repository, 'src') } },
+  resolve: { alias: { '@clerk/nextjs': path.join(repository, 'tests/browser/clerk.ts'), 'next/navigation': path.join(root, 'navigation.ts'), '@': path.join(repository, 'src') } },
   server: { host: '127.0.0.1', port: 3147, strictPort: true, fs: { allow: [repository] } },
 });

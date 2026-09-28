@@ -16,6 +16,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: [
+      { find: '@clerk/nextjs', replacement: path.join(repository, 'tests/browser/clerk.ts') },
       { find: '@/libs/bookingPageContent', replacement: path.join(root, 'content.ts') },
       { find: 'next/navigation', replacement: path.join(root, 'navigation.ts') },
       { find: 'next/font/google', replacement: path.join(root, 'fonts.ts') },
