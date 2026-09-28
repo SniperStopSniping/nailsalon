@@ -412,7 +412,7 @@ export async function GET(
         customDomain: salon.customDomain,
         plan: (salon.plan || 'single_salon') as SalonPlan,
         status: (salon.status || 'active') as SalonStatus,
-        maxLocations: salon.maxLocations ?? -1,
+        maxLocations: -1,
         isMultiLocationEnabled: true,
         features: salon.features ?? null,
         bookingExperienceEntitlement,
@@ -509,9 +509,16 @@ export async function PUT(
       );
     }
 
-    const { syncFeatureModules, ...validatedUpdates } = validated.data;
+    const {
+      syncFeatureModules,
+      maxLocations: _maxLocations,
+      isMultiLocationEnabled: _isMultiLocationEnabled,
+      ...validatedUpdates
+    } = validated.data;
     const requestedFeatures = validatedUpdates.features;
     const updates: Partial<typeof salonSchema.$inferInsert> = { ...validatedUpdates };
+    void _maxLocations;
+    void _isMultiLocationEnabled;
 
     // `syncFeatureModules` is accepted for backwards-compatible clients but
     // intentionally does nothing. These are owner operational preferences,
@@ -554,8 +561,6 @@ export async function PUT(
     // Plans no longer restrict locations. Keep a larger explicit admin
     // allowance, while lifting historic commercial defaults to the universal
     // bounded capacity.
-    updates.maxLocations = updates.maxLocations ?? existing.maxLocations ?? -1;
-    updates.isMultiLocationEnabled = true;
 
     // Update salon
     const [updated] = await db
@@ -580,7 +585,7 @@ export async function PUT(
         customDomain: updated!.customDomain,
         plan: (updated!.plan || 'single_salon') as SalonPlan,
         status: (updated!.status || 'active') as SalonStatus,
-        maxLocations: updated!.maxLocations ?? -1,
+        maxLocations: -1,
         isMultiLocationEnabled: true,
         features: updated!.features ?? null,
         bookingExperienceEntitlement,

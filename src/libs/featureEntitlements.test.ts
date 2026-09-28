@@ -372,3 +372,20 @@ describe('universal built feature access', () => {
     expect(FEATURE_DEFAULTS.money.deposits).toBe(true);
   });
 });
+
+describe('operational core feature controls', () => {
+  it('preserves explicitly closed online booking despite universal plan access', () => {
+    expect(resolveEntitlement({ booking: { onlineBooking: false } }, 'booking', 'onlineBooking')).toBe(false);
+    expect(resolveEntitlement({ onlineBooking: false }, 'booking', 'onlineBooking')).toBe(false);
+    expect(resolveEntitlement({}, 'booking', 'onlineBooking')).toBe(true);
+    expect(resolveEntitlement({ onlineBooking: false, booking: { onlineBooking: true } }, 'booking', 'onlineBooking')).toBe(false);
+    expect(resolveEntitlement({ onlineBooking: true, booking: { onlineBooking: false } }, 'booking', 'onlineBooking')).toBe(false);
+  });
+
+  it('preserves core staff and client restrictions that were never commercial tiers', () => {
+    expect(resolveEntitlement({ booking: { staffDashboard: false } }, 'booking', 'staffDashboard')).toBe(false);
+    expect(resolveEntitlement({ staff: { timeOff: false } }, 'staff', 'timeOff')).toBe(false);
+    expect(resolveEntitlement({ clients: { clientProfiles: false, clientHistory: false } }, 'clients', 'clientProfiles')).toBe(false);
+    expect(resolveEntitlement({ clients: { clientHistory: false } }, 'clients', 'clientHistory')).toBe(false);
+  });
+});

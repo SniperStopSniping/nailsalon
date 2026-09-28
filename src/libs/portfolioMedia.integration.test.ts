@@ -165,11 +165,11 @@ describe('portfolio photo limit enforcement', () => {
   });
 });
 
-describe('owner-ratified plan allowances', () => {
-  it('resolves each legacy plan identifier to its ratified allowance', async () => {
+describe('universal plan allowances', () => {
+  it('resolves every legacy plan identifier to the universal allowance', async () => {
     const expected: [string, number][] = [
-      ['free', 10],
-      ['single_salon', 75],
+      ['free', 200],
+      ['single_salon', 200],
       ['multi_salon', 200],
       ['enterprise', 200],
     ];
@@ -187,7 +187,7 @@ describe('owner-ratified plan allowances', () => {
     await seedSalon(SALON_A, 'free', null, true);
     const usage = await limits.getPortfolioUsage(SALON_A);
 
-    expect(usage.max).toBe(75);
+    expect(usage.max).toBe(200);
     expect(usage.source).toBe('founding');
   });
 
@@ -202,7 +202,7 @@ describe('owner-ratified plan allowances', () => {
   it('enforces the founding allowance on the real upload path', async () => {
     await seedSalon(SALON_A, 'free', null, true);
 
-    // A founding salon on the `free` row must not be capped at 10.
+    // A founding salon shares the universal 200-photo capacity.
     for (let i = 0; i < 11; i++) {
       await addPhoto(SALON_A, `founding000000${String(i).padStart(2, '0')}`);
     }

@@ -1195,34 +1195,14 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                           </select>
                         </div>
 
-                        {/* Max Locations */}
-                        <div className="mb-4">
-                          <label htmlFor="maxLocations" className="mb-1 block text-sm font-medium text-gray-700">
-                            Max Locations
-                          </label>
-                          <input
-                            type="number"
-                            id="maxLocations"
-                            value={maxLocations}
-                            onChange={(e) => {
-                              setMaxLocations(Math.max(-1, Number.parseInt(e.target.value) || -1));
-                              markDirty();
-                            }}
-                            min={-1}
-                            className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"
-                          />
-                        </div>
-
-                        {/* Included multi-location access */}
-                        <div className="flex items-center justify-between py-2">
+                        <div className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50/50 px-4 py-3">
                           <div>
-                            <div className="text-sm font-medium text-gray-700">Multi-location Features</div>
+                            <div className="text-sm font-medium text-gray-700">Locations</div>
                             <div className="text-xs text-gray-500">Included on every plan</div>
                           </div>
-                          <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
-                            Included
-                          </span>
+                          <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">Unlimited</span>
                         </div>
+
                       </CollapsibleSection>
 
                       {/* Legacy controls remain available to developers while old
@@ -1964,7 +1944,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                         icon={<MapPin className="size-4" />}
                         expanded={expandedSections.locations ?? false}
                         onToggle={() => toggleSection('locations')}
-                        badge={`${metrics.locationsCount}/${maxLocations}`}
+                        badge={`${metrics.locationsCount}/Unlimited`}
                       >
                         <button
                           type="button"

@@ -336,7 +336,20 @@ export function resolveEntitlement(
   // legacy plan restrictions. Owner preferences and activation checks are
   // enforced separately; dark or unknown features retain their existing gates.
   const defaultGroup = FEATURE_DEFAULTS[group as keyof typeof FEATURE_DEFAULTS];
-  if (defaultGroup && (defaultGroup as Record<string, boolean>)[key] === true) {
+  // These core flags were included in every historical plan. An explicit
+  // false is an operational restriction, such as closing online booking.
+  const operationalCore = (group === 'booking' && (key === 'onlineBooking' || key === 'staffDashboard'))
+    || (group === 'staff' && key === 'timeOff')
+    || (group === 'clients' && (key === 'clientProfiles' || key === 'clientHistory'));
+  const operationalGroup = features?.[group as keyof SalonFeatures];
+  if (operationalCore && (
+    features?.[key as keyof SalonFeatures] === false
+    || (operationalGroup && typeof operationalGroup === 'object'
+      && (operationalGroup as Record<string, unknown>)[key] === false)
+  )) {
+    return false;
+  }
+  if (!operationalCore && defaultGroup && (defaultGroup as Record<string, boolean>)[key] === true) {
     return true;
   }
 

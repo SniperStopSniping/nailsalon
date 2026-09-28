@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 
 import { LusterClientSms } from '@/components/admin/LusterClientSms';
 import { SettingsModal } from '@/components/admin/SettingsModal';
+import { AddSmsCreditsControl } from '@/components/super-admin/AddSmsCreditsControl';
 
 export function SmsBrowserFixture() {
   const [open, setOpen] = useState(true);
@@ -35,5 +36,20 @@ function SettingsBrowserFixture() {
   );
 }
 
-const settingsFixture = new URLSearchParams(window.location.search).get('fixture') === 'settings';
-createRoot(document.getElementById('root')!).render(settingsFixture ? <SettingsBrowserFixture /> : <SmsBrowserFixture />);
+function SuperAdminCreditsBrowserFixture() {
+  return (
+    <main className="mx-auto min-h-screen max-w-md bg-stone-50 p-3">
+      <h1 className="text-xl font-semibold">Super admin SMS credits</h1>
+      <AddSmsCreditsControl salonId="super-admin-fixture" salonName="Fixture Nail Studio" />
+    </main>
+  );
+}
+
+const fixture = new URLSearchParams(window.location.search).get('fixture');
+createRoot(document.getElementById('root')!).render(
+  fixture === 'settings'
+    ? <SettingsBrowserFixture />
+    : fixture === 'super-admin-credits'
+      ? <SuperAdminCreditsBrowserFixture />
+      : <SmsBrowserFixture />,
+);

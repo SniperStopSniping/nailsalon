@@ -66,3 +66,47 @@ describe('legacy salon SMS capability projections', () => {
     expect(await getSalonFeatures('missing-salon')).toBeNull();
   });
 });
+
+describe('operational core booking controls', () => {
+  it('preserves an explicit online-booking off setting while commercial flags are universal', async () => {
+    const database = drizzle(client, { schema });
+    await database.update(schema.salonSchema)
+      .set({
+        onlineBookingEnabled: false,
+        features: {
+          onlineBooking: false,
+          booking: { onlineBooking: true, staffDashboard: false },
+          clientProfiles: false,
+          clients: { clientProfiles: false },
+          marketing: { rewards: false },
+        },
+      })
+      .where(eq(schema.salonSchema.id, 'sms-access-free'));
+
+    expect(resolveFeatures({
+      onlineBooking: false,
+      booking: { onlineBooking: true, staffDashboard: false },
+      clients: { clientProfiles: false },
+      rewards: false,
+    })).toMatchObject({
+      onlineBooking: false,
+      staffDashboard: false,
+      clientProfiles: false,
+      rewards: true,
+    });
+    expect(resolveFeatures({
+      onlineBooking: true,
+      booking: { onlineBooking: false },
+    }).onlineBooking).toBe(false);
+    expect(await checkFeatureEntitlement('sms-access-free', 'onlineBooking'))
+      .toEqual({ enabled: false });
+    expect(await checkFeatureEntitlement('sms-access-free', 'staffDashboard'))
+      .toEqual({ enabled: false });
+    expect(await getSalonFeatures('sms-access-free')).toMatchObject({
+      onlineBooking: false,
+      staffDashboard: false,
+      clientProfiles: false,
+      rewards: true,
+    });
+  });
+});

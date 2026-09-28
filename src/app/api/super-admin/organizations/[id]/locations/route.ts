@@ -53,7 +53,7 @@ export async function GET(
 
     // Check salon exists
     const [salon] = await db
-      .select({ id: salonSchema.id, name: salonSchema.name, maxLocations: salonSchema.maxLocations })
+      .select({ id: salonSchema.id, name: salonSchema.name })
       .from(salonSchema)
       .where(eq(salonSchema.id, id))
       .limit(1);
@@ -90,7 +90,7 @@ export async function GET(
       salon: {
         id: salon.id,
         name: salon.name,
-        maxLocations: salon.maxLocations ?? -1,
+        maxLocations: -1,
       },
     });
   } catch (error) {
@@ -127,9 +127,9 @@ export async function POST(
       );
     }
 
-    // Check salon exists and get max locations
+    // Check salon exists. Location capacity is included on every plan.
     const [salon] = await db
-      .select({ id: salonSchema.id, maxLocations: salonSchema.maxLocations })
+      .select({ id: salonSchema.id })
       .from(salonSchema)
       .where(eq(salonSchema.id, id))
       .limit(1);
@@ -141,26 +141,13 @@ export async function POST(
       );
     }
 
-    // Check current location count
+    // Count only to choose the primary location; it never enforces a plan cap.
     const [countResult] = await db
       .select({ count: sql<number>`count(*)` })
       .from(salonLocationSchema)
       .where(eq(salonLocationSchema.salonId, id));
 
     const currentCount = Number(countResult?.count ?? 0);
-    const maxLocations = salon.maxLocations ?? -1;
-
-    if (maxLocations !== -1 && currentCount >= maxLocations) {
-      return Response.json(
-        {
-          error: {
-            code: 'LOCATION_LIMIT_REACHED',
-            message: `Location limit reached (${currentCount}/${maxLocations})`,
-          },
-        },
-        { status: 403 },
-      );
-    }
 
     const locationData = validated.data;
 

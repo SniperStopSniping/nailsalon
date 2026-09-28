@@ -245,7 +245,7 @@ describe('SalonDetailPanel Booking Experience entitlement wiring', () => {
     await user.click(await screen.findByRole('button', { name: 'Legacy feature settings' }));
 
     expect(screen.getByText('Luster SMS')).toBeInTheDocument();
-    expect(screen.getAllByText('Included')).toHaveLength(2);
+    expect(screen.getAllByText('Included')).toHaveLength(1);
     expect(screen.getByText('Texts use SMS credits. The owner manages texting and reminders in communication preferences.')).toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: /sms/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();

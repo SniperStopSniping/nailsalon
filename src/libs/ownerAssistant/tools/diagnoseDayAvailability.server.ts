@@ -418,7 +418,8 @@ export async function diagnoseDayAvailability(
     causes,
   });
 
-  // Step 3 — is the page reachable at all, and is online booking entitled?
+  // Step 3 — public booking uses the same operational off controls as the
+  // admission guard. Commercial feature access does not reopen a closed page.
   // Both are reported and neither stops the diagnosis: an owner fixing their
   // publication state still wants to know their Friday is fully booked. But
   // either one means the PUBLIC page serves nobody, on every day and whatever
@@ -429,7 +430,7 @@ export async function diagnoseDayAvailability(
     causes.push(cause('salon_not_public'));
     publicRouteState = 'unreachable';
   }
-  if (!resolveEntitlement(features, 'booking', 'onlineBooking')) {
+  if (salon.onlineBookingEnabled === false || !resolveEntitlement(features, 'booking', 'onlineBooking')) {
     causes.push(cause('online_booking_off'));
     publicRouteState = 'unreachable';
   }

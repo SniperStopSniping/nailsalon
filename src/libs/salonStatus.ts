@@ -415,10 +415,15 @@ export const FEATURE_DEFAULTS = {
  *
  * @deprecated For new code, use featureGating.ts helpers which support nested structure.
  */
-export function resolveFeatures(_features: SalonFeatures | null | undefined) {
-  // Stored flat booleans were old plan presets. They are not owner module
-  // controls and must not keep existing free salons locked after this rollout.
-  return { ...FEATURE_DEFAULTS };
+export function resolveFeatures(features: SalonFeatures | null | undefined) {
+  // These three flat flags are longstanding operational controls. The other
+  // flat booleans were commercial presets and now resolve to included access.
+  return {
+    ...FEATURE_DEFAULTS,
+    onlineBooking: resolveEntitlement(features, 'booking', 'onlineBooking'),
+    staffDashboard: resolveEntitlement(features, 'booking', 'staffDashboard'),
+    clientProfiles: resolveEntitlement(features, 'clients', 'clientProfiles'),
+  };
 }
 
 /**
@@ -484,6 +489,11 @@ export async function checkFeatureEntitlement(
   }
 
   if (feature === 'onlineBooking') {
+    // The column is the public-booking switch. A false value always wins;
+    // otherwise the shared resolver preserves explicit nested/flat controls.
+    if (salon.onlineBookingEnabled === false) {
+      return { enabled: false };
+    }
     return { enabled: resolveEntitlement(featuresJson, 'booking', 'onlineBooking') };
   }
 
@@ -491,7 +501,7 @@ export async function checkFeatureEntitlement(
   // module settings are resolved separately, so these rows cannot keep a
   // built feature unavailable for an existing free salon.
   const defaultValue = feature in FEATURE_DEFAULTS
-    ? FEATURE_DEFAULTS[feature as keyof typeof FEATURE_DEFAULTS]
+    ? resolveFeatures(featuresJson)[feature as keyof typeof FEATURE_DEFAULTS]
     : false;
   return { enabled: defaultValue };
 }
@@ -565,9 +575,12 @@ export async function getSalonFeatures(salonId: string): Promise<LegacyResolvedF
   if (!salon) {
     return null;
   }
-  // Flat feature values were commercial presets. All built flat features are
-  // included now; module-level owner settings remain resolved elsewhere.
-  return { ...FEATURE_DEFAULTS };
+  return {
+    ...resolveFeatures(salon.features as SalonFeatures | null),
+    onlineBooking: salon.onlineBookingEnabled === false
+      ? false
+      : resolveEntitlement(salon.features as SalonFeatures | null, 'booking', 'onlineBooking'),
+  };
 }
 
 // =============================================================================

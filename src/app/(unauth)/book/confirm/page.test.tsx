@@ -1069,7 +1069,7 @@ describe('BookConfirmPage deposit disclosure — dark', () => {
     expect(props.depositFingerprint).toBe('deposit-v1:none');
   });
 
-  it('test 30a — an UNENTITLED salon resolves not_entitled with gate 1 open', async () => {
+  it('test 30a — a dormant salon requires owner confirmation with collection live', async () => {
     // The live shape of "dark". Gate 1 being flipped takes nobody live on its
     // own, and this is the assertion that says so at the page surface.
     const { getDepositPolicyForSalon } = await import('@/libs/depositPolicy.server');
@@ -1081,7 +1081,7 @@ describe('BookConfirmPage deposit disclosure — dark', () => {
       },
     });
 
-    expect(policy).toMatchObject({ active: false, reason: 'not_entitled' });
+    expect(policy).toMatchObject({ active: false, reason: 'owner_confirmation_required' });
   });
 
   it('test 30a2 — gate 1 still short-circuits ahead of the entitlement', async () => {

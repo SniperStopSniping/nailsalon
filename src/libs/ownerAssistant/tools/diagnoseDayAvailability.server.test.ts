@@ -296,7 +296,8 @@ beforeAll(async () => {
       slug: 'diag-nobooking',
       businessHours: WEEKDAY_HOURS,
       settings: bookingSettings(),
-      features: { booking: { onlineBooking: false } },
+      onlineBookingEnabled: false,
+      features: { onlineBooking: false, booking: { onlineBooking: true } },
     },
     {
       id: 'salon_diag_location',
@@ -670,7 +671,12 @@ describe('steps 3 and 4 — the gates above the slot loop', () => {
     expect(result.customersCanBookNow).toBe(false);
   });
 
-  it('reports online booking being switched off the same way, with nowhere to send the owner', async () => {
+  it.each([
+    { onlineBookingEnabled: false, features: { booking: { onlineBooking: true } } },
+    { onlineBookingEnabled: true, features: { onlineBooking: false, booking: { onlineBooking: true } } },
+    { onlineBookingEnabled: true, features: { onlineBooking: true, booking: { onlineBooking: false } } },
+  ])('reports online booking switched off for operational controls %j', async (controls) => {
+    await db.update(schema.salonSchema).set(controls).where(eq(schema.salonSchema.id, 'salon_diag_nobooking'));
     const result = await diagnose('salon_diag_nobooking', { date: 'friday' });
 
     expect(codes(result)).toContain('online_booking_off');
