@@ -12,7 +12,6 @@ import {
   getBookingExperienceOverrideState,
   parseBookingExperienceOverrideProvenance,
 } from '@/libs/featureEntitlements';
-import { getEntitledModules } from '@/libs/featureGating';
 import { getSalonIntegrationHealth } from '@/libs/integrationHealth';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import type { PurgeTx } from '@/libs/salonPurge';
@@ -38,7 +37,6 @@ import {
 import type {
   BookingExperienceEntitlementInspection,
   SalonFeatures,
-  SalonSettings,
 } from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
@@ -60,7 +58,7 @@ const updateSalonSchema = z.object({
   slug: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only').optional(),
   plan: z.enum(SALON_PLANS).optional(),
   status: z.enum(SALON_STATUSES).optional(),
-  maxLocations: z.coerce.number().min(1).optional(),
+  maxLocations: z.coerce.number().int().refine(value => value === -1 || value >= 1).optional(),
   isMultiLocationEnabled: z.boolean().optional(),
   ownerEmail: z.string().email().optional().nullable(),
   ownerClerkUserId: z.string().optional().nullable(),
@@ -207,6 +205,7 @@ function protectFeatureOverrides(
         ELSE '{}'::jsonb
       END
       - 'deposits'
+      - 'depositsSuspended'
     )
   `;
   const currentMoney = sql`
@@ -228,6 +227,18 @@ function protectFeatureOverrides(
       ELSE ${requestedMoney}
     END
   `;
+  const withMoneyControls = sql`
+    CASE
+      WHEN ${currentMoney} ? 'depositsSuspended'
+        THEN jsonb_set(
+          ${withDeposits},
+          '{depositsSuspended}',
+          ${currentMoney} -> 'depositsSuspended',
+          true
+        )
+      ELSE ${withDeposits}
+    END
+  `;
 
   const withBooking = sql`
     jsonb_set(
@@ -241,7 +252,7 @@ function protectFeatureOverrides(
     jsonb_set(
       ${withBooking},
       '{money}',
-      ${withDeposits},
+      ${withMoneyControls},
       true
     )
   `;
@@ -401,8 +412,8 @@ export async function GET(
         customDomain: salon.customDomain,
         plan: (salon.plan || 'single_salon') as SalonPlan,
         status: (salon.status || 'active') as SalonStatus,
-        maxLocations: salon.maxLocations ?? 1,
-        isMultiLocationEnabled: salon.isMultiLocationEnabled ?? false,
+        maxLocations: -1,
+        isMultiLocationEnabled: true,
         features: salon.features ?? null,
         bookingExperienceEntitlement,
         // Feature toggles
@@ -498,41 +509,22 @@ export async function PUT(
       );
     }
 
-    const { syncFeatureModules, ...validatedUpdates } = validated.data;
+    const {
+      syncFeatureModules,
+      maxLocations: _maxLocations,
+      isMultiLocationEnabled: _isMultiLocationEnabled,
+      ...validatedUpdates
+    } = validated.data;
     const requestedFeatures = validatedUpdates.features;
     const updates: Partial<typeof salonSchema.$inferInsert> = { ...validatedUpdates };
+    void _maxLocations;
+    void _isMultiLocationEnabled;
 
-    if (syncFeatureModules && requestedFeatures) {
-      // SMS capability is included on every plan. A super-admin feature save
-      // must never turn the owner's texting preference on or off as a side
-      // effect; only the canonical communications preference save aligns it.
-      const entitledModules = Object.fromEntries(
-        Object.entries(getEntitledModules(requestedFeatures))
-          .filter(([module]) => module !== 'smsReminders'),
-      );
-      // Resolve the modules object from the live column at UPDATE time. A
-      // request-start snapshot may predate an owner booking-page write; a
-      // whole-settings replacement here would then erase that unrelated
-      // DRAFT/LIVE state. JSONB concatenation preserves existing module keys
-      // while the right-hand entitlement values remain authoritative.
-      updates.settings = sql`
-        jsonb_set(
-          CASE
-            WHEN jsonb_typeof(${salonSchema.settings}) = 'object'
-              THEN ${salonSchema.settings}
-            ELSE '{}'::jsonb
-          END,
-          '{modules}',
-          (
-            CASE
-              WHEN jsonb_typeof(${salonSchema.settings}->'modules') = 'object'
-                THEN ${salonSchema.settings}->'modules'
-              ELSE '{}'::jsonb
-            END
-          ) || ${JSON.stringify(entitledModules)}::jsonb
-        )
-      ` as unknown as SalonSettings;
-    }
+    // `syncFeatureModules` is accepted for backwards-compatible clients but
+    // intentionally does nothing. These are owner operational preferences,
+    // not plan entitlements, and a super-admin feature save must not alter
+    // them.
+    void syncFeatureModules;
 
     if (requestedFeatures) {
       // Booking Experience overrides and the deposits entitlement are mutated
@@ -566,19 +558,9 @@ export async function PUT(
       }
     }
 
-    // Determine the effective plan after update (use update value if provided, else existing)
-    const effectivePlan = updates.plan ?? existing.plan ?? 'single_salon';
-
-    // Business logic: single_salon and free plans must have maxLocations=1
-    if (effectivePlan === 'single_salon' || effectivePlan === 'free') {
-      updates.maxLocations = 1;
-      updates.isMultiLocationEnabled = false;
-    }
-
-    // Business logic: multi_salon plan requires maxLocations >= 2
-    if (effectivePlan === 'multi_salon' && (updates.maxLocations ?? existing.maxLocations ?? 1) < 2) {
-      updates.maxLocations = 2;
-    }
+    // Plans no longer restrict locations. Keep a larger explicit admin
+    // allowance, while lifting historic commercial defaults to the universal
+    // bounded capacity.
 
     // Update salon
     const [updated] = await db
@@ -603,8 +585,8 @@ export async function PUT(
         customDomain: updated!.customDomain,
         plan: (updated!.plan || 'single_salon') as SalonPlan,
         status: (updated!.status || 'active') as SalonStatus,
-        maxLocations: updated!.maxLocations ?? 1,
-        isMultiLocationEnabled: updated!.isMultiLocationEnabled ?? false,
+        maxLocations: -1,
+        isMultiLocationEnabled: true,
         features: updated!.features ?? null,
         bookingExperienceEntitlement,
         // Feature toggles

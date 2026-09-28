@@ -4,8 +4,7 @@ import { z } from 'zod';
 
 import { formatPhoneE164 } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
-import { resolveOrCreateBusinessIdentity } from '@/libs/billing/businessIdentity';
-import { grantStarterCredits } from '@/libs/billing/creditGrants';
+import { claimVerifiedStarterCredits } from '@/libs/billing/verifiedStarterGrant';
 import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
 import { db } from '@/libs/DB';
@@ -441,15 +440,14 @@ export async function POST(request: Request) {
       // Only the verified owner's initial setup reaches this point. The
       // durable business identity prevents another salon or invite from
       // granting the same owner a second starter allowance.
-      const businessIdentity = await resolveOrCreateBusinessIdentity(tx, {
+      const verifiedPhone = clerkUser.phoneNumbers?.find(
+        phone => phone.id === clerkUser.primaryPhoneNumberId && phone.verification?.status === 'verified',
+      )?.phoneNumber ?? null;
+      await claimVerifiedStarterCredits(tx, {
         clerkUserId: clerkUser.id,
         salonId,
         verifiedEmail: primaryEmail.emailAddress,
-      });
-      await grantStarterCredits(tx, {
-        businessIdentityId: businessIdentity.businessIdentityId,
-        salonId,
-        now,
+        verifiedPhone,
       });
       await tx.insert(salonLocationSchema).values({
         id: locationId,

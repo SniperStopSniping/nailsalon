@@ -24,46 +24,16 @@ import type { SalonPlan } from '@/models/Schema';
  */
 
 // ---------------------------------------------------------------------------
-// LEGACY PLAN → PORTFOLIO LIMIT MAPPING (owner-ratified)
+// UNIVERSAL PORTFOLIO CAPACITY
 // ---------------------------------------------------------------------------
 //
-// The legacy feature-entitlement rail is the sole authority here. The billing
-// domain added by the billing & communications track is deliberately NOT
-// consulted: per §5 of `docs/luster-billing-communications-rev-2-2.md` it must
-// not write `salon.plan` or feature entitlements, and a salon may be
-// `starter_2026_08` for billing while remaining legacy `single_salon` for
-// features. Nothing in this module reads `billing_subscription`.
-//
-// The repository has exactly four legacy plan identifiers (`SALON_PLANS`),
-// which the existing resolver `PLAN_TO_FEATURE_TIER` normalizes onto three
-// feature tiers:
-//
-//   free          → starter
-//   single_salon  → pro
-//   multi_salon   → elite
-//   enterprise    → elite      (two identifiers, one tier — normalized here)
-//
-// Owner-ratified allowances, applied through that resolver:
-//
-//   free          10   the entry plan, named explicitly by the owner decision
-//   single_salon  75   pro / growth tier
-//   multi_salon  200   elite / team tier
-//   enterprise   200   elite / team tier
-//
-// NOTE FOR REVIEW: the owner decision also names a "starter / solo" tier at
-// 30. No legacy identifier normalizes to it — `free` is the only plan on the
-// `starter` feature tier, and the owner named that plan's allowance directly
-// as the entry value of 10. The 30 row therefore corresponds to the
-// commercial Starter plan, which has no legacy feature-plan equivalent yet;
-// it becomes reachable when the separately approved feature-matrix migration
-// introduces one. It is recorded here rather than silently dropped.
-//
-// `enterprise` is 200 rather than unlimited: the owner's table tops out at the
-// elite/team tier, and granting a higher allowance than any ratified row would
-// be exactly the silent escalation the decision forbids.
+// Every legacy plan receives the historical highest supported photo capacity.
+// Billing may change SMS allowance, but it does not reduce this built feature.
+// Explicit operational overrides remain handled below.
+
 export const PORTFOLIO_PHOTO_LIMITS: Record<SalonPlan, number> = {
-  free: 10,
-  single_salon: 75,
+  free: 200,
+  single_salon: 200,
   multi_salon: 200,
   enterprise: 200,
 };
@@ -75,7 +45,7 @@ export const PORTFOLIO_PHOTO_LIMITS: Record<SalonPlan, number> = {
  * Founding status is read from `salon.freeSoloEnabled` — the flag the Luster
  * onboarding invite path sets — and never inferred from billing state.
  */
-export const FOUNDING_PORTFOLIO_PHOTO_LIMIT = 75;
+export const FOUNDING_PORTFOLIO_PHOTO_LIMIT = 200;
 
 export const UNLIMITED_PORTFOLIO_PHOTOS = -1;
 

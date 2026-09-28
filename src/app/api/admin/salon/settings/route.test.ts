@@ -3260,7 +3260,7 @@ describe('/api/admin/salon/settings booking experience', () => {
     expect(logAuditEvent).not.toHaveBeenCalled();
   });
 
-  it('returns saved customization with locked entitlement metadata for a free salon', async () => {
+  it('returns universal customization entitlement metadata for a free salon', async () => {
     const savedBookingExperience = {
       ...createBookingExperience(),
       policy: {
@@ -3301,11 +3301,11 @@ describe('/api/admin/salon/settings booking experience', () => {
     );
     expect(body.bookingExperienceEntitlement).toEqual({
       featureKey: 'booking_experience_customization',
-      entitled: false,
+      entitled: true,
       source: 'plan',
       planKey: 'free',
       storedPlan: 'free',
-      lockedReason: 'upgrade_required',
+      lockedReason: null,
     });
   });
 
@@ -3929,7 +3929,7 @@ describe('/api/admin/salon/settings deposits', () => {
       expect(db.update).not.toHaveBeenCalled();
     });
 
-    it('requires deposit entitlement and a charge-ready account before deposit enforcement', async () => {
+    it('requires a charge-ready account before deposit enforcement', async () => {
       isNetworkNoShowPlatformActive.mockResolvedValue(true);
       getSalonBySlug.mockResolvedValue({
         ...baseSalon,
@@ -3937,13 +3937,12 @@ describe('/api/admin/salon/settings deposits', () => {
         settings: { payments: { deposit: { enabled: false, amountCents: 2500 } } },
       });
 
-      const notEntitled = await patch({
+      const legacyFalsePreset = await patch({
         payments: { deposit: { noShowProtection: 'deposit_1' } },
       });
 
-      expect(notEntitled.status).toBe(409);
-      expect((await notEntitled.json()).error).toBe('DEPOSITS_NOT_AVAILABLE');
-      expect(refreshAccountReadiness).not.toHaveBeenCalled();
+      expect(legacyFalsePreset.status).toBe(200);
+      expect(refreshAccountReadiness).toHaveBeenCalledWith('salon_1');
 
       vi.clearAllMocks();
       isNetworkNoShowPlatformActive.mockResolvedValue(true);
@@ -4010,6 +4009,105 @@ describe('/api/admin/salon/settings deposits', () => {
       expect(response.status).toBe(409);
       expect((await response.json()).error).toBe('DEPOSIT_STATE_CHANGED');
     });
+  });
+
+  it('confirms a dormant pre-universal deposit setup only after readiness succeeds', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      features: {},
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    const response = await patch({ payments: { deposit: { enabled: true } } });
+
+    expect(response.status).toBe(200);
+    expect(refreshAccountReadiness).toHaveBeenCalledWith('salon_1');
+    expect(settingsSqlFor()).toContain('{payments,deposit,activationConfirmed}');
+  });
+
+  it('does not activate a dormant rule from an amount-only update', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      features: {},
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    const response = await patch({ payments: { deposit: { amountCents: 3000 } } });
+
+    expect(response.status).toBe(200);
+    expect(refreshAccountReadiness).not.toHaveBeenCalled();
+    expect(settingsSqlFor()).not.toContain('{payments,deposit,activationConfirmed}');
+  });
+
+  it('keeps ordinary deposits off when confirming dormant no-show-only enforcement', async () => {
+    isNetworkNoShowPlatformActive.mockResolvedValue(true);
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      features: {},
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    const response = await patch({
+      payments: { deposit: { noShowProtection: 'deposit_1' } },
+    });
+
+    expect(response.status).toBe(200);
+
+    const settingsSql = settingsSqlFor();
+
+    expect(settingsSql).toContain('{payments,deposit,enabled}');
+
+    expect(settingsSql).toContain('\'false\'::jsonb');
+    expect(settingsSql).toContain('{payments,deposit,activationConfirmed}');
+  });
+
+  it('clears dormant no-show enforcement when first confirming regular deposits', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      features: {},
+      settings: {
+        payments: {
+          deposit: {
+            enabled: true,
+            amountCents: 2500,
+            noShowProtection: 'deposit_1',
+          },
+        },
+      },
+    });
+
+    const response = await patch({ payments: { deposit: { enabled: true } } });
+
+    expect(response.status).toBe(200);
+
+    const settingsSql = settingsSqlFor();
+
+    expect(settingsSql).toContain('{payments,deposit,noShowProtection}');
+  });
+
+  it('compare-and-sets the full deposit snapshot after a readiness-gated activation', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: false, amountCents: 2500 } } },
+    });
+
+    const response = await patch({ payments: { deposit: { enabled: true, amountCents: 3000 } } });
+
+    expect(response.status).toBe(200);
+
+    const wherePayload = db.update.mock.results[0]!.value.set.mock.results[0]!.value.where.mock.calls[0]![0];
+
+    expect(collectSqlStringChunks(wherePayload).join(' ')).toContain('amountCents');
+  });
+
+  it('never accepts activation confirmation from the browser', async () => {
+    const response = await patch({
+      payments: { deposit: { activationConfirmed: true } },
+    });
+
+    expect(response.status).toBe(400);
+    expect(refreshAccountReadiness).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
   });
 
   // ---------------------------------------------------------------------------
@@ -4491,6 +4589,28 @@ describe('/api/admin/salon/settings deposits', () => {
     expect(body.depositPolicy.disabledReason).toBeUndefined();
   });
 
+  it('keeps the no-show readiness preview available for a dormant legacy deposit rule', async () => {
+    isNetworkNoShowPlatformActive.mockResolvedValue(true);
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      features: {},
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    await GET(new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'));
+
+    expect(getDepositPolicyForSalon).toHaveBeenLastCalledWith(expect.objectContaining({
+      networkRiskRequired: true,
+      salon: expect.objectContaining({
+        settings: expect.objectContaining({
+          payments: expect.objectContaining({
+            deposit: expect.objectContaining({ activationConfirmed: true }),
+          }),
+        }),
+      }),
+    }));
+  });
+
   it('test 23e — readinessStale is decoupled from the verdict', async () => {
     getDepositPolicyForSalon.mockResolvedValue({
       active: true,
@@ -4677,6 +4797,23 @@ describe('/api/admin/salon/settings billing display (LG-4)', () => {
     expect(body.billingMode).toBe('STRIPE');
     expect(body.subscriptionStatus).toBe('trialing');
     expect(body.billingSource).toBe('billing_subscription');
+  });
+
+  it('lets a Free Solo salon manage reviews and rewards like every other salon', async () => {
+    getSalonBySlug.mockResolvedValue({ ...baseSalon, freeSoloEnabled: true });
+    updatedRows.push({
+      ...baseSalon,
+      freeSoloEnabled: true,
+      reviewsEnabled: false,
+      rewardsEnabled: false,
+    });
+
+    const response = await patch({ reviewsEnabled: false, rewardsEnabled: false });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.reviewsEnabled).toBe(false);
+    expect(body.rewardsEnabled).toBe(false);
   });
 
   it('billingMode is still a FORBIDDEN field for an admin, derived display or not', async () => {

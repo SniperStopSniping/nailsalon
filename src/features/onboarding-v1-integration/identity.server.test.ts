@@ -26,6 +26,7 @@ describe('requireAuthenticatedOnboardingIdentity', () => {
     await expect(requireAuthenticatedOnboardingIdentity()).resolves.toEqual({
       clerkUserId: 'user_daniela',
       email: 'daniela@example.test',
+      verifiedEmail: ' Daniela@Example.Test ',
       name: 'Daniela Isla',
       phoneE164: null,
     });

@@ -28,6 +28,10 @@ import {
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/libs/Env', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/Env')>();
+  return { Env: { ...actual.Env, BILLING_IDENTITY_HMAC_SECRET: 'onboarding-test-key', BILLING_IDENTITY_HMAC_VERSION: 1, BILLING_STARTER_IDENTITY_READY: 'true' } };
+});
 
 /* eslint-disable import/first */
 import { compileOnboardingToSiteDocument } from './compiler';
@@ -459,25 +463,17 @@ describe.sequential('account-backed onboarding persistence', () => {
 
     const lots = await starterLots(first.data.salonId);
 
-    expect(lots).toHaveLength(1);
-    expect(lots[0]).toMatchObject({ amount: 100, entryType: 'grant', expiresAt: null });
-    expect(await database.select().from(schema.billingStarterGrantSchema)
-      .where(eq(schema.billingStarterGrantSchema.salonId, first.data.salonId))).toMatchObject([
-      { credits: 100, ledgerId: lots[0]!.id },
-    ]);
-    expect(await database.select().from(schema.smsCreditAccountSchema)
-      .where(eq(schema.smsCreditAccountSchema.salonId, first.data.salonId))).toMatchObject([
-      { cachedAvailable: 100, cachedReserved: 0 },
-    ]);
+    // An unverified contact number from the salon draft cannot earn an allowance.
+    expect(lots).toEqual([]);
   });
 
   it('grants independent new owners 100 credits each, without granting a second salon for the same business', async () => {
-    const owner = identity('starter_owner');
+    const owner = { ...identity('starter_owner'), phoneE164: '+14165550901' };
     const first = await claimOnboardingDraft(owner, request('starter_first'), handle());
     const second = await claimOnboardingDraft(owner, request('starter_second', {
       target: { mode: 'create_business' },
     }), handle());
-    const independent = await claimOnboardingDraft(identity('starter_independent'), request('starter_independent'), handle());
+    const independent = await claimOnboardingDraft({ ...identity('starter_independent'), phoneE164: '+14165550902' }, request('starter_independent'), handle());
     if (first.kind !== 'success' || second.kind !== 'success' || independent.kind !== 'success') {
       throw new Error('Expected saved businesses.');
     }
@@ -516,7 +512,7 @@ describe.sequential('account-backed onboarding persistence', () => {
   });
 
   it('rolls back the starter grant and business identity when initial onboarding fails before commit', async () => {
-    const owner = identity('starter_rollback');
+    const owner = { ...identity('starter_rollback'), phoneE164: '+14165550903' };
     const failedDatabase = new Proxy(handle(), {
       get(target, property, receiver) {
         if (property === 'transaction') {
@@ -1003,7 +999,7 @@ describe.sequential('account-backed onboarding persistence', () => {
   });
 
   it('serializes a two-tab claim race and returns the same winning claim', async () => {
-    const owner = identity('race');
+    const owner = { ...identity('race'), phoneE164: '+14165550904' };
     const input = request('race');
     const [left, right] = await Promise.all([
       claimOnboardingDraft(owner, input, handle()),
@@ -1069,7 +1065,7 @@ describe.sequential('account-backed onboarding persistence', () => {
 
   it('rejects another Clerk owner attempting to reuse the claimed opaque token', async () => {
     const input = request('tenant_owner');
-    const initial = await claimOnboardingDraft(identity('tenant_owner'), input, handle());
+    const initial = await claimOnboardingDraft({ ...identity('tenant_owner'), phoneE164: '+14165550905' }, input, handle());
 
     await expect(claimOnboardingDraft(identity('wrong_owner'), input, handle()))
       .rejects.toMatchObject({

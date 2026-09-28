@@ -16,18 +16,14 @@ describe('portfolioLimitForPlan', () => {
   });
 
   it('maps each legacy identifier to its owner-ratified allowance', () => {
-    expect(portfolioLimitForPlan('free')).toBe(10);
-    expect(portfolioLimitForPlan('single_salon')).toBe(75);
+    expect(portfolioLimitForPlan('free')).toBe(200);
+    expect(portfolioLimitForPlan('single_salon')).toBe(200);
     expect(portfolioLimitForPlan('multi_salon')).toBe(200);
     expect(portfolioLimitForPlan('enterprise')).toBe(200);
   });
 
   it('gives identifiers that share a feature tier the same allowance', () => {
-    // multi_salon and enterprise are two historical aliases for the elite
-    // tier in PLAN_TO_FEATURE_TIER. Asserted as a property here rather than by
-    // importing planLimits, which reaches the database and would drag
-    // server-only into what is deliberately a client-safe module.
-    expect(portfolioLimitForPlan('multi_salon')).toBe(portfolioLimitForPlan('enterprise'));
+    expect(new Set(Object.values(PORTFOLIO_PHOTO_LIMITS))).toEqual(new Set([200]));
   });
 
   it('never grants an unlimited allowance to any plan', () => {
@@ -39,13 +35,8 @@ describe('portfolioLimitForPlan', () => {
     }
   });
 
-  it('never decreases as the plan grows', () => {
-    const free = portfolioLimitForPlan('free');
-    const single = portfolioLimitForPlan('single_salon');
-    const multi = portfolioLimitForPlan('multi_salon');
-
-    expect(single).toBeGreaterThan(free);
-    expect(multi).toBeGreaterThan(single);
+  it('keeps the same capacity on every plan', () => {
+    expect(Object.values(PORTFOLIO_PHOTO_LIMITS)).toEqual([200, 200, 200, 200]);
   });
 });
 
@@ -58,7 +49,7 @@ describe('founding salons', () => {
     });
 
     expect(allowance.max).toBe(FOUNDING_PORTFOLIO_PHOTO_LIMIT);
-    expect(allowance.max).toBe(75);
+    expect(allowance.max).toBe(200);
     expect(allowance.source).toBe('founding');
   });
 
@@ -90,14 +81,14 @@ describe('founding salons', () => {
       plan: 'free',
       maxPortfolioPhotos: null,
       freeSoloEnabled: false,
-    })).toEqual({ plan: 'free', max: 10, source: 'plan' });
+    })).toEqual({ plan: 'free', max: 200, source: 'plan' });
   });
 });
 
 describe('resolvePortfolioAllowance', () => {
   it('uses the plan default when no override is set', () => {
     expect(resolvePortfolioAllowance({ plan: 'single_salon', maxPortfolioPhotos: null }))
-      .toEqual({ plan: 'single_salon', max: 75, source: 'plan' });
+      .toEqual({ plan: 'single_salon', max: 200, source: 'plan' });
     expect(resolvePortfolioAllowance({ plan: 'multi_salon', maxPortfolioPhotos: null }))
       .toEqual({ plan: 'multi_salon', max: 200, source: 'plan' });
     expect(resolvePortfolioAllowance({ plan: 'enterprise', maxPortfolioPhotos: null }))
@@ -127,19 +118,19 @@ describe('resolvePortfolioAllowance', () => {
 
   it('fails closed to the free allowance for a missing or unknown plan', () => {
     expect(resolvePortfolioAllowance({ plan: null, maxPortfolioPhotos: null }))
-      .toEqual({ plan: 'free', max: 10, source: 'plan' });
+      .toEqual({ plan: 'free', max: 200, source: 'plan' });
     expect(resolvePortfolioAllowance({ plan: 'legacy_unknown' as never, maxPortfolioPhotos: null }).max)
-      .toBe(10);
+      .toBe(200);
   });
 
-  it('never resolves an unknown plan to the highest allowance', () => {
+  it('resolves an unknown plan to the universal bounded allowance', () => {
     const unknown = resolvePortfolioAllowance({
       plan: 'some_retired_alias' as never,
       maxPortfolioPhotos: null,
     });
 
     expect(unknown.max).toBe(portfolioLimitForPlan('free'));
-    expect(unknown.max).toBeLessThan(portfolioLimitForPlan('multi_salon'));
+    expect(unknown.max).toBe(200);
   });
 });
 

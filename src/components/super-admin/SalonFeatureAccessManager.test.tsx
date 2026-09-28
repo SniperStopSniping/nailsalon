@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { SalonFeatures } from '@/types/salonPolicy';
@@ -15,30 +14,22 @@ describe('SalonFeatureAccessManager SMS access', () => {
     const onChange = vi.fn();
     render(<SalonFeatureAccessManager features={features} onChange={onChange} />);
 
-    expect(screen.getByText('Included')).toBeInTheDocument();
+    expect(screen.getAllByText('Included').length).toBeGreaterThan(1);
     expect(screen.getByText(/SMS credits/)).toBeInTheDocument();
     expect(screen.getByText('The owner manages texting and reminders in communication preferences.')).toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: /sms/i })).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('preserves historical SMS flags when changing an unrelated optional feature', async () => {
-    const user = userEvent.setup();
+  it('shows built features as included without offering ineffective plan switches', () => {
     const onChange = vi.fn();
-    render(
-      <SalonFeatureAccessManager
-        features={{ smsReminders: false, marketing: { smsReminders: false } }}
-        onChange={onChange}
-      />,
-    );
+    render(<SalonFeatureAccessManager features={{ marketing: { rewards: false } }} onChange={onChange} />);
 
-    await user.click(screen.getByRole('switch', { name: 'Toggle Rewards' }));
-
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
-      smsReminders: false,
-      marketing: expect.objectContaining({ smsReminders: false, rewards: true }),
-    }));
-    expect(screen.queryByRole('switch', { name: /sms/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Rewards')).toBeInTheDocument();
+    expect(screen.getByText('Deposits & no-show protection')).toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Free Solo' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Service variants (L1)')).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

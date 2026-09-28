@@ -12,8 +12,9 @@
  * controls are reduced-motion safe (CSS only).
  */
 import { X } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { StarterSmsCreditsCard } from '@/components/admin/StarterSmsCreditsCard';
 import { DialogShell } from '@/components/ui/dialog-shell';
 
 type UsagePayload = {
@@ -185,6 +186,8 @@ function creditLabel(entry: UsagePayload['history'][number]): string {
 }
 
 export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps) {
+  const currentSalonSlug = useRef(salonSlug);
+  currentSalonSlug.current = salonSlug;
   const [data, setData] = useState<UsagePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -226,6 +229,17 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
     return () => {
       cancelled = true;
     };
+  }, [salonSlug]);
+
+  const refreshUsage = useCallback(async () => {
+    const response = await fetch(`/api/admin/salon/communications/usage?salonSlug=${salonSlug}`);
+    if (!response.ok) {
+      throw new Error('usage fetch failed');
+    }
+    const body = await response.json();
+    if (currentSalonSlug.current === salonSlug) {
+      setData(body.data);
+    }
   }, [salonSlug]);
 
   // Message history — a second page on demand (distinct from the top-ups
@@ -523,6 +537,15 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                   </p>
                 )}
               </section>
+
+              {usage.plan === null && (
+                <StarterSmsCreditsCard
+                  key={data!.salonId}
+                  salonId={data!.salonId}
+                  hasKnownStarterCredits={usage.starterCredits > 0}
+                  onClaimed={refreshUsage}
+                />
+              )}
 
               <section aria-labelledby="plan-heading" className="space-y-2">
                 <h3 id="plan-heading" className="text-[15px] font-medium text-gray-900">Plan</h3>

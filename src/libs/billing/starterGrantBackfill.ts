@@ -52,9 +52,11 @@ import {
   resolveOrCreateBusinessIdentity,
 } from '@/libs/billing/businessIdentity';
 import { grantStarterCredits, STARTER_CREDITS } from '@/libs/billing/creditGrants';
+import { Env } from '@/libs/Env';
 import {
   adminSalonMembershipSchema,
   adminUserSchema,
+  billingBusinessIdentityLinkSchema,
   billingStarterGrantSchema,
   salonSchema,
 } from '@/models/Schema';
@@ -66,7 +68,7 @@ export type StarterGrantBackfillDb = {
   transaction: <T>(callback: (tx: BillingDbTransaction) => Promise<T>) => Promise<T>;
 };
 
-export type StarterGrantBackfillErrorCode = 'SALON_NOT_FOUND' | 'SALON_DELETED';
+export type StarterGrantBackfillErrorCode = 'SALON_NOT_FOUND' | 'SALON_DELETED' | 'CONTACT_VERIFICATION_REQUIRED';
 
 export class StarterGrantBackfillError extends Error {
   readonly code: StarterGrantBackfillErrorCode;
@@ -330,6 +332,19 @@ export async function applyStarterGrantBackfill(
       stripeCustomerId: salon.stripeCustomerId,
       verifiedEmail: salon.ownerVerifiedEmail,
     });
+
+    if (Env.BILLING_STARTER_IDENTITY_READY === 'true') {
+      const contactLinks = await tx.select({ type: billingBusinessIdentityLinkSchema.linkType })
+        .from(billingBusinessIdentityLinkSchema)
+        .where(and(
+          eq(billingBusinessIdentityLinkSchema.businessIdentityId, identity.businessIdentityId),
+          eq(billingBusinessIdentityLinkSchema.hmacKeyVersion, Env.BILLING_IDENTITY_HMAC_VERSION ?? 0),
+        ));
+      if (!contactLinks.some(link => link.type === 'email_hmac')
+        || !contactLinks.some(link => link.type === 'phone_hmac')) {
+        throw new StarterGrantBackfillError('CONTACT_VERIFICATION_REQUIRED', 'The owner must verify email and phone before claiming the lifetime allowance. Use administrative credits for a manual bonus.');
+      }
+    }
 
     const grant = await grantStarterCredits(tx, {
       businessIdentityId: identity.businessIdentityId,

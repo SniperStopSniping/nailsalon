@@ -102,9 +102,12 @@ export type SalonFeatures = {
   };
   money?: {
     staffEarnings?: boolean; // default: false
-    // Per-salon deposits entitlement. Written ONLY by the dedicated, audited
-    // super-admin entitlement route; protected from stale whole-object saves.
+    // Historical proof that a deposit rule was explicitly activated before
+    // deposits became universally available. It is not a plan entitlement.
     deposits?: boolean; // default: false
+    // Audited emergency operational kill switch. It must never be written by
+    // regular owner or organization feature saves.
+    depositsSuspended?: boolean; // default: false
   };
   analytics?: {
     dashboard?: boolean; // default: false
@@ -482,6 +485,8 @@ export type SalonSettings = {
     // is inert unless every conjunct of that gate holds.
     deposit?: {
       enabled?: boolean;
+      /** Server-written owner confirmation for universal deposit access. */
+      activationConfirmed?: boolean;
       amountCents?: number; // integer cents
       noShowProtection?: 'warn_only' | 'deposit_1' | 'deposit_2';
     };

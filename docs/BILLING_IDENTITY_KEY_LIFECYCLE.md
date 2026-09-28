@@ -2,6 +2,10 @@
 
 Governing contract: [luster-billing-communications-rev-2-2.md](luster-billing-communications-rev-2-2.md) §7.3 ("HMAC rotation MUST NOT reset eligibility... Document key version, activation date, retirement date, retained verification period, deletion process"). Plan: [luster-billing-remaining-work-plan.md](luster-billing-remaining-work-plan.md) §5 P8c, §6 D10. This is the §7.3 deliverable referenced there. Companion: [BILLING_PRODUCTION_RUNBOOK.md](BILLING_PRODUCTION_RUNBOOK.md) §4 (where `BILLING_IDENTITY_HMAC_SECRET`/`_VERSION` are provisioned).
 
+## Current implementation update
+
+The all-plan SMS rollout adds verified phone fingerprints, retained-key lookup via `BILLING_IDENTITY_HMAC_PREVIOUS_KEYS`, and a new-claim readiness gate. Follow [ALL_PLAN_SMS_ROLLOUT.md](ALL_PLAN_SMS_ROLLOUT.md) for current procedures. Historical provisioning statements below are snapshots, not current environment evidence. Rotation requires updating the current key/version AND the retained keyring atomically; storing old link rows alone is insufficient.
+
 ## 1. What this key protects, and what it does not
 
 `BILLING_IDENTITY_HMAC_SECRET` (with `BILLING_IDENTITY_HMAC_VERSION`) produces the **fallback** verified-email fingerprint used to resolve a durable `billing_business_identity` when no stronger identifier is available. Contract §7.3's resolution preference order is:

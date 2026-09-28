@@ -125,6 +125,9 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json(result);
   } catch (error) {
     if (error instanceof StarterGrantBackfillError) {
+      if (error.code === 'CONTACT_VERIFICATION_REQUIRED') {
+        return errorJson(409, error.code, 'The owner must verify email and phone before claiming free texts. Use Add texts for a manual bonus.');
+      }
       if (error.code === 'SALON_NOT_FOUND') {
         return errorJson(404, 'SALON_NOT_FOUND', 'No salon with that slug was found.');
       }

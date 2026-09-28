@@ -1894,6 +1894,7 @@ function noShowProtection(value: unknown): NoShowProtection {
 const DEPOSIT_REASON_COPY: Record<DepositPolicyInactiveReason, string | null> = {
   collection_not_live: null,
   not_entitled: null,
+  owner_confirmation_required: 'Review your saved deposit amount, then turn deposits on to confirm collection.',
   currency_unsupported: 'Deposits are only supported when this salon bills in Canadian dollars.',
   not_configured: 'Set a deposit amount to finish setting this up.',
   disabled: 'Deposits are set up but switched off.',
@@ -2559,7 +2560,14 @@ export function SettingsModal({
           etransferQrEnabled: data.payments?.etransfer?.qrPageEnabled ?? false,
         });
         setPaymentsDirty(false);
-        setDepositEnabled(data.payments?.deposit?.enabled ?? false);
+        // A pre-universal `enabled: true` must be confirmed by its owner before
+        // collection resumes. Render it as off so saving the toggle is an
+        // explicit confirmation rather than an automatic charge change.
+        setDepositEnabled(
+          data.depositPolicy?.reason === 'owner_confirmation_required'
+            ? false
+            : data.payments?.deposit?.enabled ?? false,
+        );
         setDepositAmountInput(
           typeof data.payments?.deposit?.amountCents === 'number'
             ? formatDepositCentsForInput(data.payments.deposit.amountCents)
@@ -4841,7 +4849,7 @@ export function SettingsModal({
                             : depositPolicy.collectionLive === false
                               ? 'Deposits are not collected on Luster yet. Nothing here charges a client.'
                               : !depositPolicy.entitled
-                                  ? 'Deposits are not part of your plan yet, so nothing here charges a client.'
+                                  ? 'Deposits are unavailable for this salon, so nothing here charges a client.'
                                   : depositPolicy.active
                                     ? 'Deposits are being collected on new bookings.'
                                     : (depositPolicy.reason
@@ -4862,19 +4870,19 @@ export function SettingsModal({
                             className="space-y-2 rounded-[10px] border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-blush,#f6e7ec)] p-3 text-sm leading-6 text-[var(--owner-ink,#30262a)]"
                           >
                             <p className="font-semibold">
-                              Two things have to be in place first
+                              Set up deposits when you are ready
                             </p>
                             <ol className="list-decimal space-y-1 pl-5">
                               <li>
-                                Deposits have to be enabled for your salon. Only
-                                Luster can do that &mdash; ask support to turn
-                                deposits on for your salon.
+                                Choose a deposit amount and turn on Require a
+                                deposit. We confirm your setup before any
+                                client is asked to pay.
                               </li>
                               <li>
                                 Your own payment account has to be connected, so
                                 the deposit can be charged and paid out to you.
-                                When deposits are enabled, that appears as
-                                &ldquo;Payments&rdquo; in the Integrations app.
+                                Connect it from &ldquo;Payments&rdquo; in the
+                                Integrations app.
                               </li>
                             </ol>
                             <p>

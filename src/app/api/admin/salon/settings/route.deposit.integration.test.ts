@@ -197,6 +197,7 @@ describe('test 25 — the enable gate and the local read-time policy', () => {
     expect((await readSettings())?.payments?.deposit).toEqual({
       enabled: true,
       amountCents: 2500,
+      activationConfirmed: true,
     });
 
     // The read path reads the row LOCALLY and takes no provider proof.
@@ -342,7 +343,7 @@ describe('test 25d — the FIRST-ENABLE case', () => {
 
     const settings = await readSettings();
 
-    expect(settings?.payments?.deposit).toEqual({ enabled: true, amountCents: 2500 });
+    expect(settings?.payments?.deposit).toEqual({ enabled: true, amountCents: 2500, activationConfirmed: true });
     // After EVERY deposit write: a non-null object, and the untouched sibling
     // byte-identical.
     expect(settings).toBeTypeOf('object');
@@ -537,7 +538,7 @@ describe('test 28 — the modules route no longer clobbers the deposit block', (
 
     const settings = await readSettings();
 
-    expect(settings?.payments?.deposit).toEqual({ enabled: true, amountCents: 2500 });
+    expect(settings?.payments?.deposit).toEqual({ enabled: true, amountCents: 2500, activationConfirmed: true, noShowProtection: 'warn_only' });
     expect(settings?.modules?.smsReminders).toBe(true);
   });
 });
@@ -569,8 +570,8 @@ describe('test 23c — the GET forces BOTH launch gates on', () => {
 // 29 / 29b / 29d — entitlement resolution against real rows
 // =============================================================================
 
-describe('test 29 / 29b — entitlement is per salon and honours all three branches', () => {
-  it('separates two enabled salons by entitlement alone', async () => {
+describe('test 29 / 29b — universal deposit access preserves per-salon activation', () => {
+  it('keeps dormant rules inactive while preserving an existing active setup', async () => {
     await seedSalon(SALON, { payments: { deposit: { enabled: true, amountCents: 2500 } } }, {
       money: { deposits: true },
     });
@@ -588,7 +589,7 @@ describe('test 29 / 29b — entitlement is per salon and honours all three branc
     });
 
     expect(entitled).not.toMatchObject({ reason: 'not_entitled' });
-    expect(notEntitled).toMatchObject({ active: false, reason: 'not_entitled' });
+    expect(notEntitled).toMatchObject({ active: false, reason: 'owner_confirmation_required' });
   });
 
   it('honours the LEGACY flat key as the second branch', async () => {
@@ -605,14 +606,14 @@ describe('test 29 / 29b — entitlement is per salon and honours all three branc
     expect(policy).not.toMatchObject({ reason: 'not_entitled' });
   });
 
-  it('defaults to FALSE when neither key is present', async () => {
+  it('requires owner confirmation when no prior activation exists', async () => {
     await seedSalon(SALON, { payments: { deposit: { enabled: true, amountCents: 2500 } } }, null);
 
     expect(await getDepositPolicyForSalon({
       salonId: SALON,
       salon: await currentSnapshot(SALON),
       collectionLive: true,
-    })).toMatchObject({ active: false, reason: 'not_entitled' });
+    })).toMatchObject({ active: false, reason: 'owner_confirmation_required' });
   });
 });
 
@@ -628,5 +629,30 @@ describe('test 29d — no fixture salon ships entitled', () => {
       .where(eq(schema.salonSchema.id, 'salon_fresh'));
 
     expect((row?.features as Record<string, any> | null)?.money?.deposits).toBeUndefined();
+  });
+});
+
+describe('universal access activation preserves independent owner choices', () => {
+  it.each([true, false, undefined])('does not carry dormant no-show rules across regular activation when enabled was %s', async (enabled) => {
+    await seedSalon(SALON, {
+      payments: { deposit: { enabled, amountCents: 2500, noShowProtection: 'deposit_1' } },
+    }, {});
+
+    const activated = await patchWith(await currentSnapshot(), { payments: { deposit: { enabled: true } } });
+
+    expect(activated.status).toBe(200);
+    expect((await readSettings())?.payments?.deposit).toMatchObject({
+      enabled: true,
+      activationConfirmed: true,
+      noShowProtection: 'warn_only',
+    });
+
+    const disabled = await patchWith(await currentSnapshot(), { payments: { deposit: { enabled: false } } });
+
+    expect(disabled.status).toBe(200);
+    expect((await readSettings())?.payments?.deposit).toMatchObject({
+      enabled: false,
+      noShowProtection: 'warn_only',
+    });
   });
 });

@@ -171,18 +171,16 @@ describe('test 33 — TENANT-1 on the id-bearing route', () => {
     expect(await db.select().from(schema.salonStripeAccountSchema)).toHaveLength(0);
   });
 
-  it('(a) a non-pilot salon with no binding is refused as SALON_NOT_FOUND', async () => {
-    // Deliberately the same shape as a genuinely missing salon, so the endpoint
-    // does not confirm to a prober which salons are in the pilot.
+  it('(a) a salon can connect payments without a plan or pilot entitlement', async () => {
     await allowlist(undefined);
+    stripeMock.accountsCreate.mockResolvedValue(accountPayload());
 
     const response = await POST(request({ salonId: SALON_A }));
 
-    expect(response.status).toBe(404);
-    expect(await response.json()).toMatchObject({ error: { code: 'SALON_NOT_FOUND' } });
-    expect(stripeMock.accountsCreate).not.toHaveBeenCalled();
-    expect(stripeMock.accountLinksCreate).not.toHaveBeenCalled();
-    expect(await db.select().from(schema.salonStripeAccountSchema)).toHaveLength(0);
+    expect(response.status).toBe(200);
+    expect(stripeMock.accountsCreate).toHaveBeenCalledTimes(1);
+    expect(stripeMock.accountLinksCreate).toHaveBeenCalledTimes(1);
+    expect(await db.select().from(schema.salonStripeAccountSchema)).toHaveLength(1);
   });
 
   it('(b) a non-pilot salon WITH a revoked binding is not stranded', async () => {

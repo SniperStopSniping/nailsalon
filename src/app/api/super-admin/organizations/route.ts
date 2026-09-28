@@ -66,8 +66,8 @@ const createSalonSchema = z.object({
   ownerPhone: z.string().min(10, 'Owner phone must be at least 10 digits'),
   ownerEmail: z.string().email('Valid email is required'),
   plan: z.enum(SALON_PLANS).optional().default('single_salon'),
-  maxLocations: z.coerce.number().min(1).optional().default(1),
-  isMultiLocationEnabled: z.boolean().optional().default(false),
+  maxLocations: z.coerce.number().int().refine(value => value === -1 || value >= 1).optional().default(-1),
+  isMultiLocationEnabled: z.boolean().optional().default(true),
 });
 
 // =============================================================================
@@ -284,8 +284,8 @@ export async function GET(request: Request): Promise<Response> {
         ownerInviteStatus,
         pendingOwnerPhone: invite?.status === 'pending' ? invite.phone : null,
         plan: (salon.plan || 'single_salon') as SalonPlan,
-        maxLocations: salon.maxLocations ?? 1,
-        isMultiLocationEnabled: salon.isMultiLocationEnabled ?? false,
+        maxLocations: -1,
+        isMultiLocationEnabled: true,
         status: (salon.status || 'active') as SalonStatus,
         // Archived salons stay in the list. Without this the dashboard cannot
         // tell them apart from a salon whose status merely reads 'cancelled',
@@ -341,7 +341,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const { name, slug, ownerName, ownerPhone, ownerEmail, plan, maxLocations, isMultiLocationEnabled } = validated.data;
+    const { name, slug, ownerName, ownerPhone, ownerEmail, plan } = validated.data;
 
     if (!isValidSalonSlug(slug)) {
       return Response.json({ error: 'This slug is invalid or reserved by Luster' }, { status: 400 });
@@ -373,8 +373,8 @@ export async function POST(request: Request): Promise<Response> {
         ownerPhone,
         ownerEmail,
         plan,
-        maxLocations,
-        isMultiLocationEnabled,
+        maxLocations: -1,
+        isMultiLocationEnabled: true,
         status: 'active',
         isActive: true,
       })
@@ -461,8 +461,8 @@ export async function POST(request: Request): Promise<Response> {
         ownerPhone: newSalon!.ownerPhone,
         ownerEmail: newSalon!.ownerEmail,
         plan: newSalon!.plan as SalonPlan,
-        maxLocations: newSalon!.maxLocations ?? 1,
-        isMultiLocationEnabled: newSalon!.isMultiLocationEnabled ?? false,
+        maxLocations: -1,
+        isMultiLocationEnabled: true,
         status: newSalon!.status as SalonStatus,
         createdAt: newSalon!.createdAt.toISOString(),
       },

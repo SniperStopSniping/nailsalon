@@ -65,7 +65,7 @@ describe('the dark-launch gate (BUILD H)', () => {
     expect(resolved.active === false && resolved.reason).toBe('collection_not_live');
   });
 
-  it('gate 1 alone takes NOBODY live — an unentitled salon stays inactive', () => {
+  it('gate 1 alone takes NOBODY live — a formerly unentitled salon needs owner confirmation', () => {
     // The leg that makes "flipping this is safe" a fact rather than a claim.
     const resolved = resolveDepositPolicy({
       settings: ENTITLED_SETTINGS,
@@ -75,7 +75,7 @@ describe('the dark-launch gate (BUILD H)', () => {
     });
 
     expect(resolved.active).toBe(false);
-    expect(resolved.active === false && resolved.reason).toBe('not_entitled');
+    expect(resolved.active === false && resolved.reason).toBe('owner_confirmation_required');
   });
 
   it('gate 1 alone does not bypass configuration or account readiness either', () => {

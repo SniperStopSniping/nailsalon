@@ -283,7 +283,7 @@ describe('PATCH Booking Experience entitlement override', () => {
       changed: true,
       bookingExperienceEntitlement: {
         planKey: 'free',
-        planDefault: false,
+        planDefault: true,
         overrideState: 'force_enabled',
         entitled: true,
         source: 'override',
@@ -335,7 +335,7 @@ describe('PATCH Booking Experience entitlement override', () => {
     expect(returnedToDefault.status).toBe(200);
     expect(defaultBody.bookingExperienceEntitlement).toMatchObject({
       overrideState: 'default',
-      entitled: false,
+      entitled: true,
       source: 'plan',
       reason: null,
       actor: {
@@ -374,8 +374,8 @@ describe('PATCH Booking Experience entitlement override', () => {
           overrideState: 'default',
           reason: null,
           planKey: 'free',
-          planDefault: false,
-          entitled: false,
+          planDefault: true,
+          entitled: true,
           source: 'plan',
         },
       },

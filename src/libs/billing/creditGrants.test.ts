@@ -28,6 +28,8 @@ vi.mock('@/libs/DB', () => ({
 const envHolder = vi.hoisted(() => ({
   BILLING_IDENTITY_HMAC_SECRET: undefined as string | undefined,
   BILLING_IDENTITY_HMAC_VERSION: undefined as number | undefined,
+  BILLING_IDENTITY_HMAC_PREVIOUS_KEYS: undefined as string | undefined,
+  BILLING_STARTER_IDENTITY_READY: 'true' as string | undefined,
 }));
 
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
@@ -89,6 +91,8 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  envHolder.BILLING_IDENTITY_HMAC_PREVIOUS_KEYS = undefined;
+  envHolder.BILLING_STARTER_IDENTITY_READY = 'true';
   sentryHolder.captureMessage.mockClear();
   sentryHolder.captureException.mockClear();
 });
@@ -512,7 +516,7 @@ describe('business identity + starter grant — once per business, forever', () 
       ORDER BY hmac_key_version
     `);
 
-    expect(links.rows.map(row => Number((row as Record<string, unknown>).hmac_key_version))).toEqual([1, 2]);
+    expect(links.rows.map(row => Number((row as Record<string, unknown>).hmac_key_version))).toEqual([1, 1, 2, 2]);
   });
 
   it('normalization preserves +tags and local-part case, lowercases only the domain', async () => {
@@ -1203,4 +1207,118 @@ describe('P3c — transactional audit trail (§8.5, §17)', () => {
 
     expect(claimRows).toHaveLength(0);
   });
+});
+
+describe('verified lifetime starter allowance', () => {
+  const verified = (id: string, email = `${id}@example.test`, phone = '+14165550111') => ({
+    salonId: id,
+    clerkUserId: `clerk_${id}`,
+    verifiedEmail: email,
+    verifiedPhone: phone,
+  });
+
+  beforeEach(() => {
+    envHolder.BILLING_IDENTITY_HMAC_SECRET = 'starter-proof-key';
+    envHolder.BILLING_IDENTITY_HMAC_VERSION = 1;
+  });
+
+  it('keeps setup pending without both verified contacts or a secure key', async () => {
+    const { claimVerifiedStarterCredits } = await import('./verifiedStarterGrant');
+    await seedSalon('verified_pending');
+
+    expect(await db.transaction(tx => claimVerifiedStarterCredits(tx, { ...verified('verified_pending'), verifiedPhone: null })))
+      .toEqual({ granted: false, status: 'verification_required' });
+
+    envHolder.BILLING_IDENTITY_HMAC_SECRET = undefined;
+
+    expect(await db.transaction(tx => claimVerifiedStarterCredits(tx, verified('verified_pending'))))
+      .toEqual({ granted: false, status: 'identity_setup_required' });
+    expect(await db.select().from(schema.billingStarterGrantSchema).where(eq(schema.billingStarterGrantSchema.salonId, 'verified_pending'))).toEqual([]);
+  });
+
+  it.each(['email', 'phone'] as const)('denies a recreated account matching only its verified %s', async (match) => {
+    const { claimVerifiedStarterCredits } = await import('./verifiedStarterGrant');
+    const first = `verified_${match}_first`;
+    const second = `verified_${match}_second`;
+    await seedSalon(first);
+    await seedSalon(second);
+    const email = `${match}@lifetime.test`;
+    const phone = match === 'email' ? '+14165550211' : '+14165550212';
+
+    expect(await db.transaction(tx => claimVerifiedStarterCredits(tx, verified(first, email, phone))))
+      .toEqual({ granted: true, status: 'granted' });
+
+    const recreated = verified(second, match === 'email' ? email.toUpperCase() : 'different@lifetime.test', match === 'phone' ? '+1 (416) 555-0212' : '+14165550213');
+
+    expect(await db.transaction(tx => claimVerifiedStarterCredits(tx, recreated)))
+      .toEqual({ granted: false, status: 'already_claimed' });
+    expect(await db.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, second))).toEqual([]);
+  });
+
+  it('rejects conflicting verified email and phone identities without merging or granting', async () => {
+    const { claimVerifiedStarterCredits } = await import('./verifiedStarterGrant');
+    await seedSalon('verified_conflict_a');
+    await seedSalon('verified_conflict_b');
+    await seedSalon('verified_conflict_new');
+    await db.transaction(tx => claimVerifiedStarterCredits(tx, verified('verified_conflict_a', 'conflict-a@lifetime.test', '+14165550401')));
+    await db.transaction(tx => claimVerifiedStarterCredits(tx, verified('verified_conflict_b', 'conflict-b@lifetime.test', '+14165550402')));
+
+    await expect(db.transaction(tx => claimVerifiedStarterCredits(tx, verified('verified_conflict_new', 'conflict-a@lifetime.test', '+14165550402'))))
+      .rejects.toMatchObject({ code: 'IDENTITY_CONFLICT' });
+    expect(await db.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, 'verified_conflict_new'))).toEqual([]);
+  });
+
+  it('retains lifetime eligibility after key rotation with entirely new account and salon IDs', async () => {
+    const { claimVerifiedStarterCredits } = await import('./verifiedStarterGrant');
+    await seedSalon('verified_rotation_old');
+    await seedSalon('verified_rotation_new');
+    const old = verified('verified_rotation_old', 'rotate@lifetime.test', '+14165550333');
+
+    expect((await db.transaction(tx => claimVerifiedStarterCredits(tx, old))).granted).toBe(true);
+
+    envHolder.BILLING_IDENTITY_HMAC_PREVIOUS_KEYS = JSON.stringify([{ version: 1, secret: 'starter-proof-key' }]);
+    envHolder.BILLING_IDENTITY_HMAC_VERSION = 2;
+    envHolder.BILLING_IDENTITY_HMAC_SECRET = 'starter-proof-key-v2';
+    const result = await db.transaction(tx => claimVerifiedStarterCredits(tx, { ...old, salonId: 'verified_rotation_new', clerkUserId: 'new_clerk_after_rotation' }));
+
+    expect(result).toEqual({ granted: false, status: 'already_claimed' });
+  });
+
+  it('holds new claims during historical reconciliation but lets existing owners attach verified contacts', async () => {
+    const { claimVerifiedStarterCredits } = await import('./verifiedStarterGrant');
+    await seedSalon('verified_history');
+    await seedSalon('verified_history_pending');
+    const owner = verified('verified_history', 'history@lifetime.test', '+14165550334');
+
+    expect((await db.transaction(tx => claimVerifiedStarterCredits(tx, owner))).granted).toBe(true);
+
+    envHolder.BILLING_STARTER_IDENTITY_READY = undefined;
+
+    expect(await db.transaction(tx => claimVerifiedStarterCredits(tx, { ...owner, verifiedPhone: '+14165550335' })))
+      .toEqual({ granted: false, status: 'already_claimed' });
+    expect(await db.transaction(tx => claimVerifiedStarterCredits(tx, verified('verified_history_pending', 'pending@lifetime.test', '+14165550336'))))
+      .toEqual({ granted: false, status: 'identity_setup_required' });
+  });
+
+  it('fails closed on malformed retained key configuration', async () => {
+    const { claimVerifiedStarterCredits } = await import('./verifiedStarterGrant');
+    envHolder.BILLING_IDENTITY_HMAC_PREVIOUS_KEYS = '{malformed';
+
+    expect(await db.transaction(tx => claimVerifiedStarterCredits(tx, verified('unused_malformed'))))
+      .toEqual({ granted: false, status: 'identity_setup_required' });
+  });
+});
+
+it('reports incomplete historical identity linkage without changing a grant or disclosing contact data', async () => {
+  const { inspectStarterIdentityReadiness } = await import('./starterIdentityReadiness');
+  envHolder.BILLING_IDENTITY_HMAC_SECRET = 'starter-proof-key';
+  envHolder.BILLING_IDENTITY_HMAC_VERSION = 1;
+  const before = await db.select().from(schema.billingStarterGrantSchema);
+  const report = await db.transaction(inspectStarterIdentityReadiness);
+
+  expect(report.totalClaims).toBe(before.length);
+  expect(report.missingPhone).toBeGreaterThan(0);
+  expect(report.ready).toBe(false);
+  expect(await db.select().from(schema.billingStarterGrantSchema)).toEqual(before);
+  expect(Object.keys(report)).toEqual(['keysReady', 'totalClaims', 'missingEmail', 'missingPhone', 'purgedClaims', 'ready', 'newClaimsEnabled']);
 });

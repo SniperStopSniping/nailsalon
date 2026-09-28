@@ -975,6 +975,7 @@ describe('20 — provider-call placement', () => {
     it.each([
       ['collection_not_live'],
       ['not_entitled'],
+      ['owner_confirmation_required'],
       ['not_configured'],
       ['disabled'],
       ['currency_unsupported'],

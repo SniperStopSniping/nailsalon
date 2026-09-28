@@ -304,7 +304,7 @@ test('unsaved hours guard protects both the More header and contextual shortcuts
   await expect(page.getByTestId('calendar-screen')).toBeVisible();
 });
 
-test('Help dispatches to existing paths and Free Solo retains the existing plan gate', async ({ page }) => {
+test('Help dispatches to existing paths and Free Solo keeps Messages & Credits available', async ({ page }) => {
   await mockInformationApi(page);
   await page.goto('/?app=help&salon=isla');
 

@@ -25,8 +25,6 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
   const [ownerPhone, setOwnerPhone] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
   const [plan, setPlan] = useState<SalonPlan>('single_salon');
-  const [maxLocations, setMaxLocations] = useState(1);
-  const [isMultiLocationEnabled, setIsMultiLocationEnabled] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,8 +60,6 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
           ownerPhone: ownerPhone.replace(/\D/g, ''),
           ownerEmail,
           plan,
-          maxLocations,
-          isMultiLocationEnabled,
         }),
       });
 
@@ -83,7 +79,9 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div
+      <button
+        type="button"
+        aria-label="Close modal"
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
@@ -216,12 +214,6 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
                 onChange={(e) => {
                   const newPlan = e.target.value as SalonPlan;
                   setPlan(newPlan);
-                  if (newPlan === 'single_salon' || newPlan === 'free') {
-                    setMaxLocations(1);
-                    setIsMultiLocationEnabled(false);
-                  } else if (newPlan === 'multi_salon' && maxLocations < 2) {
-                    setMaxLocations(2);
-                  }
                 }}
                 className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
@@ -232,46 +224,14 @@ export function CreateSalonModal({ onClose, onSuccess }: CreateSalonModalProps) 
               </select>
             </div>
 
-            {/* Max Locations */}
-            <div>
-              <label htmlFor="maxLocations" className="mb-1 block text-sm font-medium text-gray-700">
-                Max Locations
-              </label>
-              <input
-                type="number"
-                id="maxLocations"
-                value={maxLocations}
-                onChange={e => setMaxLocations(Math.max(1, Number.parseInt(e.target.value) || 1))}
-                min={1}
-                disabled={plan === 'single_salon' || plan === 'free'}
-                className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"
-              />
+            <div className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50/50 px-4 py-3">
+              <div>
+                <div className="text-sm font-medium text-gray-700">Locations</div>
+                <div className="text-xs text-gray-500">Included on every plan</div>
+              </div>
+              <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">Unlimited</span>
             </div>
 
-            {/* Multi-location toggle */}
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium text-gray-700">Multi-location Features</div>
-                <div className="text-xs text-gray-500">Enable multi-location UI and features</div>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isMultiLocationEnabled}
-                onClick={() => setIsMultiLocationEnabled(!isMultiLocationEnabled)}
-                disabled={plan === 'single_salon' || plan === 'free'}
-                aria-label="Toggle multi-location features"
-                className={`relative h-6 w-11 rounded-full transition-colors ${
-                  isMultiLocationEnabled ? 'bg-indigo-600' : 'bg-gray-200'
-                } ${plan === 'single_salon' || plan === 'free' ? 'cursor-not-allowed opacity-50' : ''}`}
-              >
-                <div
-                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                    isMultiLocationEnabled ? 'translate-x-5' : ''
-                  }`}
-                />
-              </button>
-            </div>
           </form>
 
           {/* Footer */}

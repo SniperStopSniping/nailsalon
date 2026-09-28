@@ -3614,6 +3614,7 @@ export const AUDIT_LOG_ACTIONS = [
   // POST /api/super-admin/billing/starter-grant (mode: 'apply'), never the
   // live onboarding path. Appended, never reordered.
   'billing_starter_grant_backfilled',
+  'sms_credits_administered',
   // PR-1/R-2 (§6.7 refund completion): an operator- or reconcile-driven
   // correction of the refund evidence for ONE invoice — `void` (the charge is
   // no longer fully refunded, so the exclusion must stop applying) or `set`
@@ -4006,6 +4007,7 @@ export const BILLING_IDENTITY_LINK_TYPES = [
   'salon',
   'stripe_customer',
   'email_hmac',
+  'phone_hmac',
 ] as const;
 export type BillingIdentityLinkType = (typeof BILLING_IDENTITY_LINK_TYPES)[number];
 
@@ -4228,6 +4230,8 @@ export const billingBusinessIdentityLinkSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
   },
   table => ({
+    typeValid: check('billing_identity_link_type_valid', sql`${table.linkType} IN ('clerk_user', 'salon', 'stripe_customer', 'email_hmac', 'phone_hmac')`),
+    versionPairing: check('billing_identity_link_version_pairing', sql`(${table.linkType} IN ('email_hmac', 'phone_hmac')) = (${table.hmacKeyVersion} IS NOT NULL)`),
     valueUniq: uniqueIndex('billing_identity_link_value_uniq').on(table.linkType, table.linkValue),
     identityIdx: index('billing_identity_link_identity_idx').on(table.businessIdentityId),
   }),

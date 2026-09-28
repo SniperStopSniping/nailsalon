@@ -28,6 +28,7 @@ vi.mock('@/libs/DB', () => ({
 const envHolder = vi.hoisted(() => ({
   BILLING_IDENTITY_HMAC_SECRET: undefined as string | undefined,
   BILLING_IDENTITY_HMAC_VERSION: undefined as number | undefined,
+  BILLING_STARTER_IDENTITY_READY: undefined as string | undefined,
 }));
 
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
@@ -117,6 +118,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   identitySpy.signals = [];
+  envHolder.BILLING_STARTER_IDENTITY_READY = undefined;
   // Default for the pre-existing suite: no HMAC secret, exactly as before.
   envHolder.BILLING_IDENTITY_HMAC_SECRET = undefined;
   envHolder.BILLING_IDENTITY_HMAC_VERSION = undefined;
@@ -607,4 +609,16 @@ describe('Y9 — verified-email gating of the identity signal', () => {
 
     expect(audits.filter(row => row.action === 'billing_starter_grant_backfilled')).toHaveLength(0);
   });
+});
+
+it('requires both protected contacts for legacy starter backfills after policy activation', async () => {
+  envHolder.BILLING_IDENTITY_HMAC_SECRET = 'activated-identity-key';
+  envHolder.BILLING_IDENTITY_HMAC_VERSION = 1;
+  envHolder.BILLING_STARTER_IDENTITY_READY = 'true';
+  await seedSalon({ id: 'backfill_contact_pending', slug: 'backfill-contact-pending', ownerClerkUserId: 'backfill_owner' });
+  const { applyStarterGrantBackfill } = await import('./starterGrantBackfill');
+
+  await expect(applyStarterGrantBackfill(db, { salonSlug: 'backfill-contact-pending', actorId: 'super-admin' }))
+    .rejects.toMatchObject({ code: 'CONTACT_VERIFICATION_REQUIRED' });
+  expect(await db.select().from(schema.billingStarterGrantSchema).where(eq(schema.billingStarterGrantSchema.salonId, 'backfill_contact_pending'))).toEqual([]);
 });

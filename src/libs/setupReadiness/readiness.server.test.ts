@@ -369,7 +369,7 @@ describe('loadSetupReadiness', () => {
     expect(item?.detail).toEqual({ count: 1 });
   });
 
-  it('keeps the item required when the salon lacks the scheduleOverrides entitlement', async () => {
+  it('keeps the item recommended when legacy scheduleOverrides data is false', async () => {
     await seedSalon({
       features: { staff: { scheduleOverrides: false } } as never,
       businessHours: null,
@@ -389,7 +389,7 @@ describe('loadSetupReadiness', () => {
     const result = await loadSetupReadiness(SALON_ID, new Date('2026-09-16T12:00:00.000Z'));
 
     expect(result?.items.find(entry => entry.code === 'technician_no_weekly_days')?.severity)
-      .toBe('required');
+      .toBe('recommended');
   });
 
   it('reports no deposits item for a salon without the deposits entitlement', async () => {

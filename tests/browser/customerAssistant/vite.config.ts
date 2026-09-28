@@ -15,6 +15,7 @@ export default defineConfig({
   // Next replaces this public debug flag in the real client bundle.
   define: { 'process.env.NEXT_PUBLIC_THEME_DEBUG': JSON.stringify('false') },
   resolve: { alias: [
+    { find: '@clerk/nextjs', replacement: path.join(repository, 'tests/browser/clerk.ts') },
     { find: 'next/navigation', replacement: path.join(root, 'navigation.ts') },
     { find: 'next/font/google', replacement: path.resolve(repository, 'tests/browser/booking-theme/fonts.ts') },
     { find: 'next/image', replacement: path.resolve(repository, 'tests/browser/booking-theme/image.tsx') },

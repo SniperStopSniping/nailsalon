@@ -13,7 +13,7 @@ import type { SalonFeatures } from '@/types/salonPolicy';
 export const dynamic = 'force-dynamic';
 
 /**
- * THE SANCTIONED WRITER of `features.money.deposits`.
+ * THE SANCTIONED WRITER of `features.money.depositsSuspended`.
  *
  * The super-admin organizations PATCH protects this key, which makes it
  * immutable through that route in both directions. Without this endpoint the key
@@ -43,7 +43,7 @@ type MutationResult
  * guards for both `features` and `features->'money'` so a legacy scalar cannot
  * turn the whole column NULL.
  */
-function buildNextFeaturesExpression(entitled: boolean) {
+function buildNextFeaturesExpression(suspended: boolean) {
   const liveFeatures = sql`
     CASE
       WHEN jsonb_typeof(${salonSchema.features}) = 'object'
@@ -58,17 +58,17 @@ function buildNextFeaturesExpression(entitled: boolean) {
       ELSE '{}'::jsonb
     END
   `;
-  const moneyWithDeposits = sql`jsonb_set(
+  const moneyWithSuspension = sql`jsonb_set(
     ${liveMoney},
-    '{deposits}',
-    to_jsonb(${entitled}::boolean),
+    '{depositsSuspended}',
+    to_jsonb(${suspended}::boolean),
     true
   )`;
 
   return sql`jsonb_set(
     ${liveFeatures},
     '{money}',
-    ${moneyWithDeposits},
+    ${moneyWithSuspension},
     true
   )`;
 }
@@ -137,7 +137,9 @@ export async function PATCH(
       const [updated] = await tx
         .update(salonSchema)
         .set({
-          features: buildNextFeaturesExpression(entitled) as unknown as SalonFeatures,
+          // Resume clears the suspension only. It deliberately does not set
+          // `money.deposits`, which remains historical activation evidence.
+          features: buildNextFeaturesExpression(!entitled) as unknown as SalonFeatures,
         })
         .where(eq(salonSchema.id, salonId))
         .returning();
@@ -155,12 +157,12 @@ export async function PATCH(
           performedBy: guard.admin.id,
           performedByEmail: guard.admin.email,
           metadata: {
-            field: 'money_deposits',
-            previousValue: currentEntitled,
-            newValue: entitled,
+            field: 'money_deposits_suspended',
+            previousValue: !currentEntitled,
+            newValue: !entitled,
             details: reason
-              ? `Deposits entitlement changed from ${currentEntitled} to ${entitled} — ${reason}`
-              : `Deposits entitlement changed from ${currentEntitled} to ${entitled}`,
+              ? `Deposit collection ${entitled ? 'resumed' : 'suspended'} — ${reason}`
+              : `Deposit collection ${entitled ? 'resumed' : 'suspended'}`,
           },
         })
         .returning();

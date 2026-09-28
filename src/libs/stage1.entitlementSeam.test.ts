@@ -1,35 +1,7 @@
 /**
- * S1 (Stage 1) — the content/style entitlement seam, proven against an
- * ONBOARDING-REALISTIC free fixture.
- *
- * The fixture is not a hand-picked "unentitled" edge case: it is exactly what
- * `src/app/api/onboarding/luster/route.ts` writes for every salon Luster
- * creates — `plan: 'free'` plus a `freeSoloFeatures` object that contains no
- * `booking.customization` key at all. Before Stage 1 that combination made
- * booking message, policy, social links, quick facts, confirmation message and
- * the brand accent colour structurally unrenderable for EVERY Luster-onboarded
- * salon, and unwritable through the settings route.
- *
- * The controls in this file matter as much as the assertions: an "it renders"
- * test that would also pass on a fabricated default proves nothing, so every
- * positive case is paired with a no-op control on the same resolver.
- *
- * WHAT THIS FILE DOES AND DOES NOT PROVE — read before trusting it as evidence.
- *
- * `resolveBookingExperience` was NEVER entitlement-gated; the gate lived in its
- * three CALLERS. So the render and no-op blocks below are premise pins and
- * regression guards for the unchanged resolver — they pass identically on
- * origin/main and cannot observe the Stage 1 change. They are here because the
- * "nothing is fabricated" property is load-bearing once the callers stop
- * filtering, not because they demonstrate the seam moved.
- *
- * The seam itself is discriminated elsewhere, verified by reverting each seam
- * and observing the failures:
- *   - public render      -> 8 failures in book/service/BookServiceClient.test.tsx
- *   - confirmation email -> 18 failures in customerBookingEmail.test.ts and
- *                           stage1.publicSurfaces.test.ts
- *   - policy enforcement -> the acknowledgment block IN THIS FILE, which is the
- *                           one block here that does discriminate.
+ * Owner-authored booking content remains available on every plan. These
+ * regression cases preserve authored values, safe defaults, and agreement
+ * enforcement while the former commercial customization gate is removed.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -83,12 +55,12 @@ const AUTHORED_SETTINGS = {
 /** Same salon, nothing authored. The no-op control for every case below. */
 const UNAUTHORED_SETTINGS = {};
 
-describe('S1 — the free fixture really is unentitled (non-vacuous premise)', () => {
-  it('an onboarding-realistic free salon resolves as NOT entitled', () => {
+describe('universal booking customization access', () => {
+  it('includes an onboarding-realistic free salon', () => {
     const entitlement = resolveBookingExperienceEntitlement(FREE_PLAN_SALON);
 
-    // If this ever flips, every assertion below becomes vacuous.
-    expect(entitlement.entitled).toBe(false);
+    // Saved plan-era flags cannot exclude the free salon.
+    expect(entitlement.entitled).toBe(true);
   });
 });
 
@@ -210,16 +182,7 @@ describe('S1 — premium style fields are untouched by Stage 1', () => {
     expect(experience).not.toHaveProperty('tokenOverrides');
   });
 
-  it('DEFERRED INVARIANT: premium style is currently WRITABLE and INERT, not gated', () => {
-    // Stage 1 deliberately does NOT claim stylePack/tokenOverrides are
-    // entitlement-gated today — they are not. They are written through
-    // `api/admin/booking-page/route.ts`, which has no entitlement guard, and no
-    // production renderer reads them.
-    //
-    // The binding invariant recorded for the future: the first PR that gives
-    // either field a production reader MUST add the premium entitlement
-    // boundary in that same PR, before activation. Asserting a 403 here would
-    // be a fabricated control for behaviour that does not exist.
-    expect(resolveBookingExperienceEntitlement(FREE_PLAN_SALON).entitled).toBe(false);
+  it('includes booking customization on the free plan', () => {
+    expect(resolveBookingExperienceEntitlement(FREE_PLAN_SALON).entitled).toBe(true);
   });
 });

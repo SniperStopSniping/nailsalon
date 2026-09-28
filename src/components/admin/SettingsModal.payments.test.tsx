@@ -464,7 +464,7 @@ describe('SettingsModal Deposits card', () => {
     });
 
     expect(screen.getByTestId('deposits-status'))
-      .toHaveTextContent('Deposits are not part of your plan yet, so nothing here charges a client.');
+      .toHaveTextContent('Deposits are unavailable for this salon, so nothing here charges a client.');
   });
 
   it('renders the DIAGNOSTIC reason in plain language when both gates are open', async () => {
@@ -485,6 +485,31 @@ describe('SettingsModal Deposits card', () => {
     // steady-state value is `true` for every enabled salon.
     expect(screen.getByTestId('deposits-readiness-age'))
       .toHaveTextContent('Stripe status last confirmed');
+  });
+
+  it('requires an owner to reconfirm a dormant legacy deposit toggle', async () => {
+    await openDeposits({
+      payments: { deposit: { enabled: true, amountCents: 2500 } },
+      depositPolicy: {
+        collectionLive: true,
+        entitled: true,
+        active: false,
+        reason: 'owner_confirmation_required',
+        readinessStale: false,
+        readinessAgeMs: null,
+      },
+    });
+
+    expect(screen.getByTestId('deposits-status'))
+      .toHaveTextContent('Review your saved deposit amount');
+    expect(screen.getByTestId('deposits-enabled')).not.toBeChecked();
+
+    fireEvent.click(screen.getByTestId('deposits-enabled'));
+    fireEvent.click(screen.getByTestId('deposits-save'));
+
+    await waitFor(() => expect(lastPatchBody()).toEqual({
+      payments: { deposit: { enabled: true } },
+    }));
   });
 
   it('renders both money-bearing sentences from the policy module', async () => {
@@ -581,7 +606,7 @@ describe('SettingsModal Deposits card', () => {
       expect(await screen.findByText('Deposits saved.')).toBeInTheDocument();
     });
 
-    it('names both prerequisites, who acts on each, and that nothing is charged meanwhile', async () => {
+    it('explains the owner-led setup and that nothing is charged meanwhile', async () => {
       await openDeposits({
         depositPolicy: {
           collectionLive: true,
@@ -595,8 +620,8 @@ describe('SettingsModal Deposits card', () => {
 
       const prerequisites = screen.getByTestId('deposits-prerequisites');
 
-      expect(prerequisites).toHaveTextContent(/Deposits have to be enabled for your salon/i);
-      expect(prerequisites).toHaveTextContent(/Only\s+Luster can do that/i);
+      expect(prerequisites).toHaveTextContent(/Set up deposits when you are ready/i);
+      expect(prerequisites).toHaveTextContent(/Choose a deposit amount and turn on Require a deposit/i);
       expect(prerequisites).toHaveTextContent(/payment account has to be connected/i);
       expect(prerequisites).toHaveTextContent(/Integrations/i);
       expect(prerequisites).toHaveTextContent(/no card is charged/i);

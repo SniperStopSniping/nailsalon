@@ -39,6 +39,7 @@ import { db } from '@/libs/DB';
 import {
   DEPOSIT_COLLECTION_LIVE,
   DEPOSIT_ISO_CURRENCY,
+  hasLegacyDepositEntitlement,
   readStoredDepositSettings,
   resolveDepositEntitlement,
 } from '@/libs/depositPolicy';
@@ -135,6 +136,29 @@ function buildSalonEmailNotificationResponse(salon: {
       ? { email: recipient.email, source: recipient.source }
       : null,
     salonNotificationRecipientMissing: recipient.email === null,
+  };
+}
+
+/**
+ * Readiness previews may ignore the owner-confirmation gate so the no-show
+ * control can explain whether a payment account is usable. This transformed
+ * value is display-only; PATCH is the sole activation authority.
+ */
+function withDepositActivationPreview<T extends { settings?: unknown }>(salon: T) {
+  const settings = (salon.settings as SalonSettings | null | undefined) ?? {};
+
+  return {
+    ...salon,
+    settings: {
+      ...settings,
+      payments: {
+        ...(settings.payments ?? {}),
+        deposit: {
+          ...readStoredDepositSettings(settings),
+          activationConfirmed: true,
+        },
+      },
+    },
   };
 }
 
@@ -275,8 +299,16 @@ export async function GET(request: Request): Promise<Response> {
       entitled: true,
     });
     const networkActive = await isNetworkNoShowPlatformActive();
+    // This is a readiness preview for the no-show control, not a collection
+    // decision. A dormant legacy rule still needs an explicit PATCH to become
+    // active, but should not leave the owner unable to choose enforcement.
+    const networkReadinessSalon = withDepositActivationPreview(salon);
     const networkCanCollect = networkActive
-      ? await getDepositPolicyForSalon({ salonId: salon.id, salon, networkRiskRequired: true })
+      ? await getDepositPolicyForSalon({
+        salonId: salon.id,
+        salon: networkReadinessSalon,
+        networkRiskRequired: true,
+      })
       : null;
     const depositCollectionLive = DEPOSIT_COLLECTION_LIVE;
     const depositEntitled = resolveDepositEntitlement(
@@ -459,15 +491,6 @@ export async function PATCH(request: Request): Promise<Response> {
         features: salon.features,
       });
 
-    if (salon.freeSoloEnabled && (updates.reviewsEnabled !== undefined || updates.rewardsEnabled !== undefined)) {
-      return Response.json(
-        {
-          error: 'FEATURE_PROFILE_LOCKED',
-          message: 'Reviews and rewards are not available in the free solo profile.',
-        },
-        { status: 403 },
-      );
-    }
     const currentSettings = ((salon.settings as SalonSettings | null | undefined) ?? {}) as SalonSettings;
     const currentBookingConfig = resolveBookingConfigFromSettings((salon.settings as SalonSettings | null | undefined) ?? null);
     if (updates.payments?.tax) {
@@ -823,10 +846,6 @@ export async function PATCH(request: Request): Promise<Response> {
     // The RAW request-start snapshot value, NOT the parsed `storedDeposit`: on a
     // legacy non-boolean stored value the parsed read collapses to `{}` (so the
     // gate fires) while the raw comparand still matches the live row.
-    const rawSnapshotDepositEnabled = (
-      currentSettings as { payments?: { deposit?: { enabled?: unknown } } } | undefined
-    )?.payments?.deposit?.enabled;
-
     // The effective currency is the RAW STORED value overridden by THIS
     // REQUEST'S OWN field, and nothing else. Never `resolveBookingConfigFromSettings`
     // (CAD defaults on a failed safeParse) and never `nextSettings?.booking`
@@ -861,12 +880,19 @@ export async function PATCH(request: Request): Promise<Response> {
     // TRANSITION-scoped: the body carried `payments.deposit`, the merged value
     // enables, and the stored value did not. Disabling and amount edits are
     // NEVER gated, and a PATCH without a `deposit` key makes ZERO provider calls.
-    const depositEnableTransition = depositRequested
-      && mergedPayments?.deposit?.enabled === true
-      && storedDeposit.enabled !== true;
+    const unconfirmedDepositActivation = !storedDeposit.activationConfirmed
+      && !hasLegacyDepositEntitlement(salon.features as SalonFeatures);
+    const depositEnableTransition = updates.payments?.deposit?.enabled === true
+      && (storedDeposit.enabled !== true || unconfirmedDepositActivation);
     const protectionEnableTransition = requestedProtection !== undefined
       && requestedProtection !== 'warn_only'
-      && requestedProtection !== readNoShowProtection(currentSettings);
+      && (
+        requestedProtection !== readNoShowProtection(currentSettings)
+        || (
+          !storedDeposit.activationConfirmed
+          && !hasLegacyDepositEntitlement(salon.features as SalonFeatures)
+        )
+      );
     let depositGateFired = false;
 
     if (depositEnableTransition || protectionEnableTransition) {
@@ -1160,9 +1186,13 @@ export async function PATCH(request: Request): Promise<Response> {
           `;
 
           const mergedDepositEnabled = mergedPayments?.deposit?.enabled;
+          const noShowOnlyDormantActivation = depositGateFired
+            && unconfirmedDepositActivation
+            && updates.payments.deposit.enabled !== true;
           if (
-            updates.payments.deposit.enabled !== undefined
-            && mergedDepositEnabled !== undefined
+            (updates.payments.deposit.enabled !== undefined
+              && mergedDepositEnabled !== undefined)
+              || noShowOnlyDormantActivation
           ) {
             // MONOTONICITY. When the gate did not fire, the write is a
             // LIVE-ROW-EVALUATED expression that can only PRESERVE or LOWER
@@ -1171,20 +1201,34 @@ export async function PATCH(request: Request): Promise<Response> {
             // `{"enabled":true,"amountCents":4000}` — the Deposits card's natural
             // body — would otherwise write `true` with no gate, no readiness
             // proof and no CAS, reverting a disable that committed in between.
-            const depositEnabledValue = depositGateFired
-              ? sql`${JSON.stringify(mergedDepositEnabled)}::jsonb`
-              : sql`
-                  CASE
-                    WHEN ${settingsExpression}#>'{payments,deposit,enabled}' = 'true'::jsonb
-                      THEN ${JSON.stringify(mergedDepositEnabled)}::jsonb
-                    ELSE 'false'::jsonb
-                  END
-                `;
+            const depositEnabledValue = noShowOnlyDormantActivation
+              ? sql`'false'::jsonb`
+              : depositGateFired
+                ? sql`${JSON.stringify(mergedDepositEnabled)}::jsonb`
+                : sql`
+                    CASE
+                      WHEN ${settingsExpression}#>'{payments,deposit,enabled}' = 'true'::jsonb
+                        THEN ${JSON.stringify(mergedDepositEnabled)}::jsonb
+                      ELSE 'false'::jsonb
+                    END
+                  `;
             settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments,deposit,enabled}', ${depositEnabledValue})`;
           }
 
           if (requestedProtection !== undefined) {
             settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments,deposit,noShowProtection}', ${JSON.stringify(requestedProtection)}::jsonb)`;
+          } else if (depositGateFired && unconfirmedDepositActivation) {
+            // The prior rule was never confirmed. A first regular-deposit
+            // activation must not silently carry over dormant network-only
+            // enforcement that a later disable could reactivate.
+            settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments,deposit,noShowProtection}', ${JSON.stringify('warn_only')}::jsonb)`;
+          }
+
+          // The browser cannot submit this field. A formerly dormant setup
+          // becomes collectible only after this request has explicitly chosen
+          // deposits/no-show enforcement and the readiness gate above passed.
+          if (depositGateFired) {
+            settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments,deposit,activationConfirmed}', 'true'::jsonb)`;
           }
 
           const mergedDepositAmount = mergedPayments?.deposit?.amountCents;
@@ -1283,10 +1327,9 @@ export async function PATCH(request: Request): Promise<Response> {
 
     // 8. Update salon
     //
-    // On the enable EDGE only, a compare-and-set on the stored value. Snapshot
-    // EQUALITY, not `IS DISTINCT FROM 'true'::jsonb`: the latter only asserts
-    // "not currently enabled", which passes after a concurrent enable-then-disable
-    // and lets a slow enable overwrite a committed disable.
+    // Every readiness-gated activation compare-and-sets the complete deposit
+    // snapshot. Checking only `enabled` would let a concurrent amount edit
+    // become collectible under a readiness result for the old amount.
     //
     // `jsonb #> <missing path>` is SQL NULL and `NULL IS NOT DISTINCT FROM
     // 'null'::jsonb` is FALSE, so an absent path must be emitted as a real SQL
@@ -1294,9 +1337,9 @@ export async function PATCH(request: Request): Promise<Response> {
     // false for exactly the state every salon is in before its first enable.
     // (A *stored* jsonb null is a distinct state and does compare as `'null'::jsonb`.)
     const depositCasComparand = depositGateFired
-      ? (rawSnapshotDepositEnabled === undefined
+      ? (currentSettings.payments?.deposit === undefined
           ? sql`null::jsonb`
-          : sql`${JSON.stringify(rawSnapshotDepositEnabled)}::jsonb`)
+          : sql`${JSON.stringify(currentSettings.payments.deposit)}::jsonb`)
       : null;
 
     const [updatedSalon] = await db
@@ -1304,10 +1347,10 @@ export async function PATCH(request: Request): Promise<Response> {
       .set(dbUpdates)
       .where(and(
         eq(salonSchema.id, salon.id),
-        ...(depositCasComparand ? [sql`(${salonSchema.settings} #> '{payments,deposit,enabled}') IS NOT DISTINCT FROM ${depositCasComparand}`] : []),
+        ...(depositCasComparand ? [sql`(${salonSchema.settings} #> '{payments,deposit}') IS NOT DISTINCT FROM ${depositCasComparand}`] : []),
         // Every consequence save is compare-and-set, including stale no-op saves.
         // It must not restore enforcement after another tab selected Warn only.
-        ...(requestedProtection !== undefined ? [sql`(${salonSchema.settings} #> '{payments,deposit}') IS NOT DISTINCT FROM ${currentSettings.payments?.deposit === undefined ? sql`null::jsonb` : sql`${JSON.stringify(currentSettings.payments.deposit)}::jsonb`}`] : []),
+        ...(!depositGateFired && requestedProtection !== undefined ? [sql`(${salonSchema.settings} #> '{payments,deposit}') IS NOT DISTINCT FROM ${currentSettings.payments?.deposit === undefined ? sql`null::jsonb` : sql`${JSON.stringify(currentSettings.payments.deposit)}::jsonb`}`] : []),
       ))
       .returning();
 
@@ -1412,6 +1455,14 @@ export async function PATCH(request: Request): Promise<Response> {
         storedPlan: updatedSalon.plan,
         features: updatedSalon.features,
       });
+    const updatedNetworkActive = await isNetworkNoShowPlatformActive();
+    const updatedNetworkCanCollect = updatedNetworkActive
+      ? await getDepositPolicyForSalon({
+        salonId: updatedSalon.id,
+        salon: withDepositActivationPreview(updatedSalon),
+        networkRiskRequired: true,
+      })
+      : null;
     // D19c companion (see the GET site).
     const billingDisplay = await resolveSalonBillingDisplay(db, updatedSalon);
 
@@ -1420,7 +1471,11 @@ export async function PATCH(request: Request): Promise<Response> {
       rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
       bookingConfig,
       ...(depositCopyWarning ? { depositCopyWarning } : {}),
-      networkNoShow: { active: await isNetworkNoShowPlatformActive(), protection: readNoShowProtection(updatedSalon.settings as SalonSettings), canRequireDeposit: process.env.NETWORK_NO_SHOW_ENABLED === 'true' && (await getDepositPolicyForSalon({ salonId: updatedSalon.id, salon: updatedSalon, networkRiskRequired: true })).active },
+      networkNoShow: {
+        active: updatedNetworkActive,
+        protection: readNoShowProtection(updatedSalon.settings as SalonSettings),
+        canRequireDeposit: updatedNetworkCanCollect?.active === true,
+      },
       bookingExperience: resolveBookingExperience(
         (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
         { includeAcknowledgmentConfiguration: true },
