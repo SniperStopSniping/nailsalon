@@ -110,6 +110,8 @@ export const Env = createEnv({
     // engine never falls back to an unkeyed hash.
     BILLING_IDENTITY_HMAC_SECRET: z.string().optional(),
     BILLING_IDENTITY_HMAC_VERSION: z.coerce.number().int().positive().optional(),
+    BILLING_IDENTITY_HMAC_PREVIOUS_KEYS: z.string().optional(),
+    BILLING_STARTER_IDENTITY_READY: z.enum(['true', 'false']).optional(),
     // Fixed Luster-owned origin for short manage links (/a/<token>). Must be
     // short enough for the one-segment SMS budget; template tests enforce it.
     LUSTER_SHORT_LINK_ORIGIN: z.string().url().optional(),
@@ -213,6 +215,8 @@ export const Env = createEnv({
     SMS_PILOT_SALON_ALLOWLIST: process.env.SMS_PILOT_SALON_ALLOWLIST,
     BILLING_IDENTITY_HMAC_SECRET: process.env.BILLING_IDENTITY_HMAC_SECRET,
     BILLING_IDENTITY_HMAC_VERSION: process.env.BILLING_IDENTITY_HMAC_VERSION,
+    BILLING_IDENTITY_HMAC_PREVIOUS_KEYS: process.env.BILLING_IDENTITY_HMAC_PREVIOUS_KEYS,
+    BILLING_STARTER_IDENTITY_READY: process.env.BILLING_STARTER_IDENTITY_READY,
     LUSTER_SHORT_LINK_ORIGIN: process.env.LUSTER_SHORT_LINK_ORIGIN,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,

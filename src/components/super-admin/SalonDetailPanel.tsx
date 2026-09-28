@@ -41,6 +41,7 @@ import type {
   SalonFeatures,
 } from '@/types/salonPolicy';
 
+import { AddSmsCreditsControl } from './AddSmsCreditsControl';
 import { AuditLogTable } from './AuditLogTable';
 import { BookingExperienceEntitlementOverrideControl } from './BookingExperienceEntitlementOverrideControl';
 import { ChangeSalonSlugModal, type SalonSlugUpdateResult } from './ChangeSalonSlugModal';
@@ -367,8 +368,8 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [name, setName] = useState('');
   const [plan, setPlan] = useState<SalonPlan>('single_salon');
   const [status, setStatus] = useState<SalonStatus>('active');
-  const [maxLocations, setMaxLocations] = useState(1);
-  const [isMultiLocationEnabled, setIsMultiLocationEnabled] = useState(false);
+  const [maxLocations, setMaxLocations] = useState(-1);
+  const [isMultiLocationEnabled, setIsMultiLocationEnabled] = useState(true);
   const [internalNotes, setInternalNotes] = useState('');
 
   // Feature entitlements state (JSONB - source of truth)
@@ -457,7 +458,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       setPlan(data.salon.plan);
       setStatus(data.salon.status);
       setMaxLocations(data.salon.maxLocations);
-      setIsMultiLocationEnabled(data.salon.isMultiLocationEnabled);
+      setIsMultiLocationEnabled(true);
       setInternalNotes(data.salon.internalNotes || '');
 
       // Populate feature entitlements (from JSONB)
@@ -587,12 +588,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
     setPlan(newPlan);
     setIsDirty(true);
     setJustSaved(false);
-    if (newPlan === 'single_salon' || newPlan === 'free') {
-      setMaxLocations(1);
-      setIsMultiLocationEnabled(false);
-    } else if (newPlan === 'multi_salon' && maxLocations < 2) {
-      setMaxLocations(2);
-    }
   };
 
   // Helper to mark form as dirty
@@ -1210,41 +1205,23 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             id="maxLocations"
                             value={maxLocations}
                             onChange={(e) => {
-                              setMaxLocations(Math.max(1, Number.parseInt(e.target.value) || 1));
+                              setMaxLocations(Math.max(-1, Number.parseInt(e.target.value) || -1));
                               markDirty();
                             }}
-                            min={1}
-                            disabled={plan === 'single_salon' || plan === 'free'}
+                            min={-1}
                             className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"
                           />
                         </div>
 
-                        {/* Multi-location toggle */}
+                        {/* Included multi-location access */}
                         <div className="flex items-center justify-between py-2">
                           <div>
                             <div className="text-sm font-medium text-gray-700">Multi-location Features</div>
-                            <div className="text-xs text-gray-500">Enable multi-location UI and features</div>
+                            <div className="text-xs text-gray-500">Included on every plan</div>
                           </div>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={isMultiLocationEnabled ? 'true' : 'false'}
-                            onClick={() => {
-                              setIsMultiLocationEnabled(!isMultiLocationEnabled);
-                              markDirty();
-                            }}
-                            disabled={plan === 'single_salon' || plan === 'free'}
-                            aria-label="Toggle multi-location features"
-                            className={`relative h-6 w-11 rounded-full transition-colors ${
-                              isMultiLocationEnabled ? 'bg-indigo-600' : 'bg-gray-200'
-                            } ${plan === 'single_salon' || plan === 'free' ? 'cursor-not-allowed opacity-50' : ''}`}
-                          >
-                            <div
-                              className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                isMultiLocationEnabled ? 'translate-x-5' : ''
-                              }`}
-                            />
-                          </button>
+                          <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                            Included
+                          </span>
                         </div>
                       </CollapsibleSection>
 
@@ -1749,6 +1726,10 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                                 <span className="font-medium">$10 off (manual grant)</span>
                               </div>
                             </div>
+                          </div>
+
+                          <div className="border-t border-gray-200 pt-4">
+                            <AddSmsCreditsControl salonId={salonId} salonName={salon.name} />
                           </div>
 
                           {/* Save Settings Button */}

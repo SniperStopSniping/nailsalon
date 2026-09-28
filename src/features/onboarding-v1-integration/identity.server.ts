@@ -50,6 +50,7 @@ export async function requireAuthenticatedOnboardingIdentity(): Promise<Authenti
   return {
     clerkUserId: user.id,
     email: primaryEmail.emailAddress.trim().toLowerCase(),
+    verifiedEmail: primaryEmail.emailAddress,
     name: name || null,
     phoneE164,
   };

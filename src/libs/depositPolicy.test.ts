@@ -15,6 +15,7 @@ import {
   type DepositCharge,
   type DepositPolicyInactiveReason,
   formatDepositCentsForInput,
+  hasLegacyDepositEntitlement,
   isDepositGovernedBySystem,
   MAX_DEPOSIT_CENTS_ABSURDITY,
   MIN_DEPOSIT_CENTS,
@@ -150,10 +151,17 @@ describe('test 2 — one case per row of the effective-policy table', () => {
     expect(perfect({ collectionLive: false })).toMatchObject({ reason: 'collection_not_live' });
   });
 
-  it('reports not_entitled', () => {
-    expect(perfect({ features: null })).toMatchObject({ reason: 'not_entitled' });
-    expect(perfect({ features: { money: { deposits: false } } }))
+  it('reports an explicit operational deposit disable', () => {
+    expect(perfect({ entitled: false })).toMatchObject({ reason: 'not_entitled' });
+    expect(perfect({ features: { money: { deposits: false } }, entitled: false }))
       .toMatchObject({ reason: 'not_entitled' });
+  });
+
+  it('honours an emergency suspension even when a diagnostic caller forces entitlement', () => {
+    expect(perfect({
+      features: { money: { depositsSuspended: true } },
+      entitled: true,
+    })).toMatchObject({ reason: 'not_entitled' });
   });
 
   it('reports not_configured when nothing is stored', () => {
@@ -163,6 +171,14 @@ describe('test 2 — one case per row of the effective-policy table', () => {
   it('reports disabled when a valid amount is stored but switched off', () => {
     expect(perfect({ settings: settingsWith({ enabled: false, amountCents: 2500 }) }))
       .toMatchObject({ reason: 'disabled' });
+  });
+
+  it('requires a new owner confirmation for legacy false entitlement data', () => {
+    const legacyFreeSoloFeatures: SalonFeatures = { money: { deposits: false } };
+
+    expect(hasLegacyDepositEntitlement(legacyFreeSoloFeatures)).toBe(false);
+    expect(perfect({ features: legacyFreeSoloFeatures }))
+      .toMatchObject({ reason: 'owner_confirmation_required' });
   });
 
   it('reports account_not_connected for a missing and for a revoked binding', () => {
@@ -359,6 +375,7 @@ describe('test 5b — undetermined is FORWARDED, not flattened', () => {
     const others: DepositPolicyInactiveReason[] = [
       'collection_not_live',
       'not_entitled',
+      'owner_confirmation_required',
       'not_configured',
       'disabled',
       'account_not_connected',
@@ -557,13 +574,13 @@ describe('test 9 — layering', () => {
     expect(DEPOSIT_POLICY_SOURCE).not.toMatch(/STRIPE_SECRET_KEY|sk_live_|Env\.STRIPE/);
   });
 
-  it('ships exactly the nine specified inactive reasons', () => {
+  it('ships every specified inactive reason including owner confirmation', () => {
     const union = DEPOSIT_POLICY_SOURCE
       .split('export type DepositPolicyInactiveReason')[1]!
       .split(';')[0]!;
     const members = union.match(/'[a-z_]+'/g) ?? [];
 
-    expect(new Set(members).size).toBe(9);
+    expect(new Set(members).size).toBe(10);
   });
 });
 

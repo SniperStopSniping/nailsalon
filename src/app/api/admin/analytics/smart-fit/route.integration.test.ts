@@ -439,7 +439,7 @@ describe('smart fit report — authorization and tenancy', () => {
     expect(JSON.stringify(data)).not.toContain('Foreign Tech');
   });
 
-  it('returns 403 UPGRADE_REQUIRED when the salon lacks the analytics entitlement', async () => {
+  it('includes analytics when a salon has no saved entitlement flags', async () => {
     await db.update(schema.salonSchema)
       .set({ features: null })
       .where(eq(schema.salonSchema.id, SALON_ID));
@@ -447,8 +447,8 @@ describe('smart fit report — authorization and tenancy', () => {
     const response = await queryReport(WEEK);
     const body = await response.json();
 
-    expect(response.status).toBe(403);
-    expect(body.error.code).toBe('UPGRADE_REQUIRED');
+    expect(response.status).toBe(200);
+    expect(body.error).toBeUndefined();
   });
 
   it('returns 403 MODULE_DISABLED when the admin turned the module off', async () => {

@@ -43,19 +43,63 @@ export function normalizeEmailForHmac(email: string): string | null {
 
 export type EmailFingerprint = { digest: string; version: number };
 
-/** Fail-closed: null when the dedicated secret/version are not configured. */
-export function computeEmailFingerprint(email: string): EmailFingerprint | null {
+type FingerprintKey = { secret: string; version: number };
+
+/** Retain all previous keys for lifetime eligibility; invalid configuration fails closed. */
+function fingerprintKeys(): FingerprintKey[] {
   const secret = Env.BILLING_IDENTITY_HMAC_SECRET;
   const version = Env.BILLING_IDENTITY_HMAC_VERSION;
   if (!secret || !version) {
-    return null;
+    return [];
   }
+  try {
+    const previous: unknown = JSON.parse(Env.BILLING_IDENTITY_HMAC_PREVIOUS_KEYS ?? '[]');
+    if (!Array.isArray(previous)) {
+      return [];
+    }
+    const keys: FingerprintKey[] = [{ secret, version }];
+    for (const key of previous) {
+      if (!key || typeof key.secret !== 'string' || !key.secret
+        || !Number.isInteger(key.version) || key.version < 1
+        || keys.some(existing => existing.version === key.version || existing.secret === key.secret)) {
+        return [];
+      }
+      keys.push({ secret: key.secret, version: key.version });
+    }
+    return keys;
+  } catch {
+    return [];
+  }
+}
+
+export function isIdentityFingerprintingReady(): boolean {
+  const keys = fingerprintKeys();
+  const currentVersion = Env.BILLING_IDENTITY_HMAC_VERSION ?? 0;
+  return currentVersion > 0 && keys.length === currentVersion
+    && keys.every(key => key.version <= currentVersion);
+}
+
+export function normalizeVerifiedPhone(phone: string): string | null {
+  const normalized = phone.replace(/[ ()-]/g, '');
+  return /^\+[1-9]\d{7,14}$/.test(normalized) ? normalized : null;
+}
+
+function fingerprints(value: string): EmailFingerprint[] {
+  return fingerprintKeys().map(({ secret, version }) => ({
+    digest: createHmac('sha256', secret).update(value, 'utf8').digest('hex'),
+    version,
+  }));
+}
+
+/** Keep the original email digest format so existing links remain usable. */
+export function computeEmailFingerprint(email: string): EmailFingerprint | null {
   const normalized = normalizeEmailForHmac(email);
-  if (normalized === null) {
-    return null;
-  }
-  const digest = createHmac('sha256', secret).update(normalized, 'utf8').digest('hex');
-  return { digest, version };
+  return normalized === null ? null : fingerprints(normalized)[0] ?? null;
+}
+
+export function computePhoneFingerprint(phone: string): EmailFingerprint | null {
+  const normalized = normalizeVerifiedPhone(phone);
+  return normalized === null ? null : fingerprints(`phone:${normalized}`)[0] ?? null;
 }
 
 export type IdentitySignals = {
@@ -63,6 +107,7 @@ export type IdentitySignals = {
   salonId?: string | null;
   stripeCustomerId?: string | null;
   verifiedEmail?: string | null;
+  verifiedPhone?: string | null;
 };
 
 type CandidateLink = { linkType: BillingIdentityLinkType; linkValue: string; hmacKeyVersion: number | null };
@@ -79,13 +124,23 @@ function candidateLinks(signals: IdentitySignals): CandidateLink[] {
     links.push({ linkType: 'stripe_customer', linkValue: signals.stripeCustomerId, hmacKeyVersion: null });
   }
   if (signals.verifiedEmail) {
-    const fingerprint = computeEmailFingerprint(signals.verifiedEmail);
-    if (fingerprint !== null) {
-      links.push({
-        linkType: 'email_hmac',
-        linkValue: fingerprint.digest,
-        hmacKeyVersion: fingerprint.version,
-      });
+    const normalized = normalizeEmailForHmac(signals.verifiedEmail);
+    if (normalized) {
+      // Both onboarding paths have historically differed in local-part casing.
+      // Preserve the original link and add a canonical alias on the same identity.
+      for (const value of new Set([normalized, normalized.toLowerCase()])) {
+        for (const fingerprint of fingerprints(value)) {
+          links.push({ linkType: 'email_hmac', linkValue: fingerprint.digest, hmacKeyVersion: fingerprint.version });
+        }
+      }
+    }
+  }
+  if (signals.verifiedPhone) {
+    const normalized = normalizeVerifiedPhone(signals.verifiedPhone);
+    if (normalized) {
+      for (const fingerprint of fingerprints(`phone:${normalized}`)) {
+        links.push({ linkType: 'phone_hmac', linkValue: fingerprint.digest, hmacKeyVersion: fingerprint.version });
+      }
     }
   }
   return links;

@@ -33,7 +33,7 @@ beforeAll(async () => {
     name: 'SMS access fixture',
     plan,
     smsRemindersEnabled: false,
-    features: { smsReminders: false, marketing: { smsReminders: false }, analyticsDashboard: false },
+    features: { smsReminders: false, marketing: { smsReminders: false }, analyticsDashboard: true },
     settings: { modules: { smsReminders: false }, communications: { sms: { enabled: false } } },
   })));
 });
@@ -47,7 +47,7 @@ describe('legacy salon SMS capability projections', () => {
     const salonId = `sms-access-${plan}`;
 
     expect(await checkFeatureEntitlement(salonId, 'smsReminders')).toEqual({ enabled: true });
-    expect(await getSalonFeatures(salonId)).toMatchObject({ smsReminders: true, analyticsDashboard: false });
+    expect(await getSalonFeatures(salonId)).toMatchObject({ smsReminders: true, analyticsDashboard: true });
 
     const database = drizzle(client, { schema });
     const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, salonId));
@@ -58,7 +58,7 @@ describe('legacy salon SMS capability projections', () => {
   });
 
   it.each([null, undefined, {}, { smsReminders: false }, { marketing: { smsReminders: false } }])('resolves included SMS from legacy feature data %j', (features) => {
-    expect(resolveFeatures(features)).toMatchObject({ smsReminders: true, rewards: false, analyticsDashboard: false });
+    expect(resolveFeatures(features)).toMatchObject({ smsReminders: true, rewards: true, analyticsDashboard: true });
   });
 
   it('does not project access for a nonexistent salon', async () => {

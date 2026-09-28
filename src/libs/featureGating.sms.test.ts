@@ -16,7 +16,7 @@ import {
 describe('SMS module capability and owner preference', () => {
   it.each([null, {}, { smsReminders: false }, { marketing: { smsReminders: false } }, { marketing: { smsReminders: true } }])('includes SMS despite historical feature data %j', (features) => {
     expect(isModuleEntitled(features, 'smsReminders')).toBe(true);
-    expect(getEntitledModules(features)).toMatchObject({ smsReminders: true, rewards: false, analyticsDashboard: false });
+    expect(getEntitledModules(features)).toMatchObject({ smsReminders: true, rewards: true, analyticsDashboard: true });
     expect(getEffectiveModuleEnabled({ features, settings: null, module: 'smsReminders' })).toBe(true);
     expect(guardModuleOr403Sync({ features, settings: null, module: 'smsReminders' })).toBeNull();
   });
@@ -35,10 +35,14 @@ describe('SMS module capability and owner preference', () => {
     expect(settings.communications.sms.enabled).toBe(false);
   });
 
-  it('continues denying other paid modules even when an owner tries to enable them', async () => {
-    const denial = guardModuleOr403Sync({ features: {}, settings: { modules: { analyticsDashboard: true } }, module: 'analyticsDashboard' });
+  it('includes analytics despite old plan flags while preserving owner module controls', async () => {
+    const features = { analytics: { dashboard: false } };
+
+    expect(guardModuleOr403Sync({ features, settings: { modules: { analyticsDashboard: true } }, module: 'analyticsDashboard' })).toBeNull();
+
+    const denial = guardModuleOr403Sync({ features, settings: { modules: { analyticsDashboard: false } }, module: 'analyticsDashboard' });
 
     expect(denial?.status).toBe(403);
-    expect(await denial?.json()).toMatchObject({ error: { code: 'UPGRADE_REQUIRED' } });
+    expect(await denial?.json()).toMatchObject({ error: { code: 'MODULE_DISABLED' } });
   });
 });

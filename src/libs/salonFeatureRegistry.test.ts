@@ -29,21 +29,23 @@ describe('salon feature registry', () => {
     expect(resolveEntitlement(features, 'analytics', 'dashboard')).toBe(true);
   });
 
-  it('applies Free Solo without removing unknown feature data', () => {
+  it('applies universal built features without removing unknown feature data', () => {
     const features = applySalonFeaturePreset({ customBranding: true }, 'free_solo');
 
     expect(features.customBranding).toBe(true);
     expect(features.marketing?.smsReminders).toBe(true);
     expect(features.smsReminders).toBe(true);
-    expect(features.analytics?.dashboard).toBe(false);
+    expect(features.analytics?.dashboard).toBe(true);
   });
 
-  it.each(['free_solo', 'pro', 'all_available'] as const)('keeps credit-funded SMS in the %s preset', (preset) => {
+  it.each(['free_solo', 'pro', 'all_available'] as const)('keeps universal built features in the %s preset', (preset) => {
     const features = applySalonFeaturePreset({ smsReminders: false, marketing: { smsReminders: false }, customBranding: true }, preset);
 
     expect(features.smsReminders).toBe(true);
     expect(features.marketing?.smsReminders).toBe(true);
     expect(features.customBranding).toBe(true);
+    expect(features.analytics?.dashboard).toBe(true);
+    expect(features.controls?.clientBlocking).toBe(true);
     expect(features.catalog).toMatchObject({ variantsV1: false, addOnGroupsV1: false, bookingModesV1: false });
   });
 });

@@ -71,7 +71,7 @@ describe('test 10 — collection not live', () => {
   });
 });
 
-describe('test 11 — not entitled', () => {
+describe('test 11 — owner confirmation required', () => {
   it('never touches the database handle', async () => {
     const { getDepositPolicyForSalon } = await loadModule();
     const result = await getDepositPolicyForSalon({
@@ -80,7 +80,7 @@ describe('test 11 — not entitled', () => {
       collectionLive: true,
     });
 
-    expect(result).toMatchObject({ active: false, reason: 'not_entitled' });
+    expect(result).toMatchObject({ active: false, reason: 'owner_confirmation_required' });
     expect(readDepositAccountSnapshot).not.toHaveBeenCalled();
     expect(dbHandle.select).not.toHaveBeenCalled();
   });

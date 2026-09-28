@@ -114,6 +114,7 @@ function scenarios(): SetupReadinessInput[] {
     'readiness_never_synced',
     'undetermined',
     'not_entitled',
+    'owner_confirmation_required',
   ];
 
   const base = (overrides: Partial<SetupReadinessInput> = {}) =>

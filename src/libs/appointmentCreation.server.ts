@@ -844,6 +844,10 @@ function classifyDepositScope(
 
     case 'collection_not_live':
     case 'not_entitled':
+    case 'owner_confirmation_required':
+      // Universal access must not reactivate a legacy stored rule. Until its
+      // owner explicitly confirms it, no deposit was disclosed or collected.
+      // falls through
     case 'not_configured':
     case 'disabled':
     case 'currency_unsupported':

@@ -37,7 +37,7 @@ export const SUBSCRIPTION_FEATURE_PLAN_DEFAULTS: Readonly<
   Record<SubscriptionFeatureKey, Readonly<Record<InternalPlanKey, boolean>>>
 > = {
   booking_experience_customization: {
-    free: false,
+    free: true,
     tier_1: true,
     tier_2: true,
     enterprise: true,
@@ -311,10 +311,12 @@ export const FEATURE_DEFAULTS: {
   // and have NO WRITER yet: nothing in the app can set them, and the owner
   // assistant pilot is driven by OWNER_ASSISTANT_SALON_ALLOWLIST instead.
   ai: { ownerAssistant: false, bookingHelper: false },
-  marketing: { smsReminders: true, referrals: false, rewards: false },
-  money: { staffEarnings: false, deposits: false },
-  analytics: { dashboard: false, utilization: false },
-  controls: { clientBlocking: false, clientFlags: false },
+  marketing: { smsReminders: true, referrals: true, rewards: true },
+  // Deposits are available on every plan. A legacy stored `enabled: true` is
+  // still inert until the owner confirms activation; see depositPolicy.ts.
+  money: { staffEarnings: true, deposits: true },
+  analytics: { dashboard: true, utilization: true },
+  controls: { clientBlocking: true, clientFlags: true },
   visibility: {
     allowHideClientPhone: true,
     allowHideClientEmail: true,
@@ -330,11 +332,11 @@ export function resolveEntitlement(
   group: string,
   key: string,
 ): boolean {
-  // SMS access is included on every plan and paid for with Luster credits.
-  // Historical plan presets stored false in both nested and flat fields;
-  // neither is an SMS subscription restriction anymore. This grants access
-  // only: owner preferences and the canonical sending gates remain separate.
-  if (group === 'marketing' && key === 'smsReminders') {
+  // Built features are included on every plan, including salons with saved
+  // legacy plan restrictions. Owner preferences and activation checks are
+  // enforced separately; dark or unknown features retain their existing gates.
+  const defaultGroup = FEATURE_DEFAULTS[group as keyof typeof FEATURE_DEFAULTS];
+  if (defaultGroup && (defaultGroup as Record<string, boolean>)[key] === true) {
     return true;
   }
 
@@ -354,7 +356,6 @@ export function resolveEntitlement(
     }
   }
 
-  const defaultGroup = FEATURE_DEFAULTS[group as keyof typeof FEATURE_DEFAULTS];
   if (defaultGroup && typeof defaultGroup === 'object' && key in defaultGroup) {
     return (defaultGroup as Record<string, boolean>)[key] ?? false;
   }

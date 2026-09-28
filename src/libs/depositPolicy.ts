@@ -102,7 +102,7 @@ export const salonDepositSettingsSchema = z.object({
     .min(MIN_DEPOSIT_CENTS)
     .max(MAX_DEPOSIT_CENTS_ABSURDITY)
     .optional(),
-});
+}).strict();
 
 /**
  * STORED-READ schema, deliberately permissive: privileged whole-column writers
@@ -111,6 +111,8 @@ export const salonDepositSettingsSchema = z.object({
  */
 export const storedDepositSettingsSchema = z.object({
   enabled: z.boolean().optional(),
+  /** Server-written after the owner confirms a formerly dormant deposit setup. */
+  activationConfirmed: z.boolean().optional(),
   noShowProtection: z.enum(['warn_only', 'deposit_1', 'deposit_2']).optional(),
   amountCents: z.number().int().nonnegative().optional(),
 });
@@ -141,6 +143,7 @@ export type DepositAccountSnapshot = {
 export type DepositPolicyInactiveReason
   = | 'collection_not_live'
   | 'not_entitled'
+  | 'owner_confirmation_required'
   | 'not_configured'
   | 'disabled'
   | 'account_not_connected'
@@ -210,7 +213,19 @@ export function readStoredDepositSettings(
 export function resolveDepositEntitlement(
   features: SalonFeatures | null | undefined,
 ): boolean {
-  return resolveEntitlement(features, 'money', 'deposits');
+  return features?.money?.depositsSuspended !== true
+    && resolveEntitlement(features, 'money', 'deposits');
+}
+
+/**
+ * A true value from the former per-salon entitlement route proves the owner
+ * already had deposit collection activated before deposits became universal.
+ * New universal access is intentionally not enough to activate stored rules.
+ */
+export function hasLegacyDepositEntitlement(
+  features: SalonFeatures | null | undefined,
+): boolean {
+  return features?.money?.deposits === true;
 }
 
 // =============================================================================
@@ -255,6 +270,11 @@ export function resolveDepositPolicy(
   if (!collectionLive) {
     return inactive('collection_not_live');
   }
+  // This emergency operational control remains effective even for diagnostic
+  // callers that pass `entitled: true` to see readiness beyond plan defaults.
+  if (features?.money?.depositsSuspended === true) {
+    return inactive('not_entitled');
+  }
   if (!entitled) {
     return inactive('not_entitled');
   }
@@ -272,6 +292,9 @@ export function resolveDepositPolicy(
   }
   if (stored.enabled !== true && args.networkRiskRequired !== true) {
     return inactive('disabled');
+  }
+  if (!stored.activationConfirmed && !hasLegacyDepositEntitlement(features)) {
+    return inactive('owner_confirmation_required');
   }
 
   // The RAW STORED currency. Never read through `resolveBookingConfigFromSettings`,

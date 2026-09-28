@@ -1,8 +1,8 @@
 /**
  * Feature Tier Presets
  *
- * Defines the feature packages for Starter, Pro, and Elite tiers.
- * These presets are used by Super Admin to quickly apply tier features to a salon.
+ * Defines legacy labels used by Super Admin. Every plan now has the same
+ * built product features; billing varies SMS allowance only.
  *
  * IMPORTANT: When applying a tier, MERGE with existing features (don't overwrite).
  * This preserves any custom/future keys that may have been added.
@@ -15,15 +15,8 @@ import type { SalonFeatures } from '@/types/salonPolicy';
 // =============================================================================
 
 /**
- * Starter Tier - Core salon operations
- *
- * Includes basic features needed to run a salon:
- * - Online booking
- * - Staff dashboard
- * - Photo uploads
- * - Client profiles
- * - SMS access using Luster credits
- * - Visibility controls (admin can control what staff sees)
+ * Every preset enables the built feature set. Dark or unbuilt catalog and AI
+ * capabilities remain absent from these legacy flat presets.
  */
 export const STARTER_FEATURES: SalonFeatures = {
   // Core operations
@@ -33,22 +26,20 @@ export const STARTER_FEATURES: SalonFeatures = {
   clientProfiles: true,
   visibilityControls: true,
   smsReminders: true,
-  // Pro features OFF
-  rewards: false,
-  referrals: false,
-  scheduleOverrides: false,
-  clientFlags: false,
-  clientBlocking: false,
-  analyticsDashboard: false,
-  // Elite features OFF
-  profilePage: false,
-  multiLocation: false,
-  advancedAnalytics: false,
-  revenueReports: false,
-  utilization: false,
-  techPerformance: false,
-  customBranding: false,
-  apiAccess: false,
+  rewards: true,
+  referrals: true,
+  scheduleOverrides: true,
+  clientFlags: true,
+  clientBlocking: true,
+  analyticsDashboard: true,
+  profilePage: true,
+  multiLocation: true,
+  advancedAnalytics: true,
+  revenueReports: true,
+  utilization: true,
+  techPerformance: true,
+  customBranding: true,
+  apiAccess: true,
 };
 
 /**
@@ -76,15 +67,14 @@ export const PRO_FEATURES: SalonFeatures = {
   clientFlags: true,
   clientBlocking: true,
   analyticsDashboard: true,
-  // Elite features OFF
-  profilePage: false,
-  multiLocation: false,
-  advancedAnalytics: false,
-  revenueReports: false,
-  utilization: false,
-  techPerformance: false,
-  customBranding: false,
-  apiAccess: false,
+  profilePage: true,
+  multiLocation: true,
+  advancedAnalytics: true,
+  revenueReports: true,
+  utilization: true,
+  techPerformance: true,
+  customBranding: true,
+  apiAccess: true,
 };
 
 /**

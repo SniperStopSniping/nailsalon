@@ -58,17 +58,13 @@ export function setOptionalSalonFeature(
 
 export function applySalonFeaturePreset(
   features: SalonFeatures | null | undefined,
-  preset: SalonFeaturePreset,
+  _preset: SalonFeaturePreset,
 ): SalonFeatures {
   return OPTIONAL_SALON_FEATURES.reduce<SalonFeatures>(
     (current, definition) => setOptionalSalonFeature(
       current,
       definition.key,
-      !(DARK_CATALOG_FEATURE_KEYS as readonly string[]).includes(definition.key)
-      && (
-        preset === 'all_available'
-        || (preset === 'pro' && ['analyticsDashboard', 'clientFlags', 'clientBlocking'].includes(definition.key))
-      ),
+      !(DARK_CATALOG_FEATURE_KEYS as readonly string[]).includes(definition.key),
     ),
     {
       ...features,

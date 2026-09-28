@@ -90,7 +90,7 @@ export async function GET(
       salon: {
         id: salon.id,
         name: salon.name,
-        maxLocations: salon.maxLocations ?? 1,
+        maxLocations: salon.maxLocations ?? -1,
       },
     });
   } catch (error) {
@@ -148,9 +148,9 @@ export async function POST(
       .where(eq(salonLocationSchema.salonId, id));
 
     const currentCount = Number(countResult?.count ?? 0);
-    const maxLocations = salon.maxLocations ?? 1;
+    const maxLocations = salon.maxLocations ?? -1;
 
-    if (currentCount >= maxLocations) {
+    if (maxLocations !== -1 && currentCount >= maxLocations) {
       return Response.json(
         {
           error: {

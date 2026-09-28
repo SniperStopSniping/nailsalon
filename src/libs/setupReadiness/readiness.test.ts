@@ -418,6 +418,7 @@ describe('deriveSetupReadiness — the deposits reason matrix', () => {
   const silent: DepositPolicyInactiveReason[] = [
     'collection_not_live',
     'not_entitled',
+    'owner_confirmation_required',
     'not_configured',
     'disabled',
     'currency_unsupported',
@@ -476,6 +477,7 @@ describe('deriveSetupReadiness — the deposits reason matrix', () => {
       'disabled',
       'not_configured',
       'not_entitled',
+      'owner_confirmation_required',
       'readiness_never_synced',
       'undetermined',
     ]);

@@ -1,4 +1,3 @@
-import { PGlite } from '@electric-sql/pglite';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -86,11 +85,6 @@ vi.mock('@/libs/DB', () => ({
 function renderFeatureUpdateSql(): string {
   const payload = getLastUpdatePayload() as { features?: unknown };
   return new PgDialect().sqlToQuery(payload.features as SQL).sql;
-}
-
-function renderSettingsUpdateSql() {
-  const payload = getLastUpdatePayload() as { settings?: unknown };
-  return new PgDialect().sqlToQuery(payload.settings as SQL);
 }
 
 describe('GET/PUT /api/super-admin/organizations/[id]', () => {
@@ -232,7 +226,7 @@ describe('GET/PUT /api/super-admin/organizations/[id]', () => {
     expect(getLastUpdatePayload()).not.toHaveProperty('smsRemindersEnabled');
   });
 
-  it('synchronizes optional modules without changing live owner SMS preferences', async () => {
+  it('preserves owner module preferences when legacy clients request module synchronization', async () => {
     const existingSalon = {
       id: 'salon_1',
       name: 'Luster Nail Studio',
@@ -244,10 +238,8 @@ describe('GET/PUT /api/super-admin/organizations/[id]', () => {
       freeSoloEnabled: true,
       features: {},
       settings: {
-        booking: { timezone: 'America/Toronto' },
         modules: { analyticsDashboard: false, rewards: false, smsReminders: false },
         communications: { sms: { enabled: false } },
-        bookingPageContent: { draft: { bio: 'must remain current' } },
       },
       onlineBookingEnabled: true,
       smsRemindersEnabled: false,
@@ -262,77 +254,27 @@ describe('GET/PUT /api/super-admin/organizations/[id]', () => {
       createdAt: new Date('2026-03-24T00:00:00.000Z'),
       updatedAt: new Date('2026-03-24T00:00:00.000Z'),
     };
-    const enabledFeatures = {
+    const requestedFeatures = {
       analytics: { dashboard: true, utilization: true },
       marketing: { rewards: true, referrals: false, smsReminders: false },
     };
 
     setSelectResults([[existingSalon]]);
-    setUpdateResult([{ ...existingSalon, features: enabledFeatures }]);
+    setUpdateResult([{ ...existingSalon, features: requestedFeatures }]);
 
     const response = await PUT(
       new Request('http://localhost/api/super-admin/organizations/salon_1', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          features: enabledFeatures,
-          syncFeatureModules: true,
-        }),
+        body: JSON.stringify({ features: requestedFeatures, syncFeatureModules: true }),
       }),
       { params: Promise.resolve({ id: 'salon_1' }) },
     );
 
     expect(response.status).toBe(200);
-
-    const settingsQuery = renderSettingsUpdateSql();
-
-    expect(settingsQuery.sql).toContain('jsonb_set');
-    expect(settingsQuery.sql).toContain('\'{modules}\'');
-    expect(settingsQuery.sql).toContain('"salon"."settings"');
-    expect(settingsQuery.params).toHaveLength(1);
-    expect(JSON.parse(String(settingsQuery.params[0]))).toMatchObject({
-      analyticsDashboard: true,
-      utilization: true,
-      rewards: true,
-      referrals: false,
-    });
-    expect(JSON.parse(String(settingsQuery.params[0]))).not.toHaveProperty('smsReminders');
-    expect(JSON.stringify(settingsQuery.params)).not.toContain('must remain current');
-    expect(JSON.stringify(settingsQuery.params)).not.toContain('bookingPageContent');
+    expect(getLastUpdatePayload()).not.toHaveProperty('settings');
     expect(renderFeatureUpdateSql()).toContain(`- 'customization'`);
-
-    // Execute the actual UPDATE expression against live JSONB values. These
-    // may differ from the request-start snapshot, so omitting SMS must preserve
-    // both an owner's later change and an unconfigured salon's missing key.
-    const client = new PGlite();
-    try {
-      await client.waitReady;
-      await client.exec('CREATE TABLE salon (id integer PRIMARY KEY, settings jsonb)');
-      const modules = [
-        { smsReminders: false },
-        { smsReminders: true },
-        {},
-      ];
-      for (const [index, ownerModules] of modules.entries()) {
-        await client.query('INSERT INTO salon (id, settings) VALUES ($1, $2::jsonb)', [index, JSON.stringify({
-          modules: ownerModules,
-          communications: { sms: { enabled: false }, quietHours: { enabled: true, start: '20:00', end: '08:00' } },
-        })]);
-      }
-      await client.query(`UPDATE salon SET settings = ${settingsQuery.sql}`, settingsQuery.params);
-      const { rows } = await client.query<{ settings: { modules: Record<string, boolean>; communications: unknown } }>('SELECT settings FROM salon ORDER BY id');
-
-      expect(rows[0]?.settings.modules.smsReminders).toBe(false);
-      expect(rows[1]?.settings.modules.smsReminders).toBe(true);
-      expect(rows[2]?.settings.modules).not.toHaveProperty('smsReminders');
-
-      for (const row of rows) {
-        expect(row.settings.modules).toMatchObject({ analyticsDashboard: true, rewards: true, referrals: false });
-        expect(row.settings.communications).toEqual({ sms: { enabled: false }, quietHours: { enabled: true, start: '20:00', end: '08:00' } });
-      }
-    } finally {
-      await client.close();
-    }
+    expect(renderFeatureUpdateSql()).toContain(`- 'depositsSuspended'`);
   });
 
   it.each([

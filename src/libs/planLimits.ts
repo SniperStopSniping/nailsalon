@@ -18,14 +18,12 @@ import type { FeatureTier } from './featureTiers';
  * Maps billing plans to feature tiers.
  * This bridges the plan system (limits) with the feature tier system (entitlements).
  *
- * - free → starter (basic features only)
- * - single_salon → pro (marketing + client management)
- * - multi_salon → elite (all features)
- * - enterprise → elite (all features, unlimited limits)
+ * All plans use the same built feature set. The legacy labels remain for
+ * billing and SMS allowances, not product access.
  */
 export const PLAN_TO_FEATURE_TIER: Record<SalonPlan, FeatureTier> = {
-  free: 'starter',
-  single_salon: 'pro',
+  free: 'elite',
+  single_salon: 'elite',
   multi_salon: 'elite',
   enterprise: 'elite',
 } as const;
@@ -40,26 +38,26 @@ export type PlanLimits = {
   features: string[];
 };
 
+const UNIVERSAL_PRODUCT_LIMITS: PlanLimits = {
+  // Capacity is not a commercial tier. Keep the historical top-plan capacity
+  // for every salon so this rollout cannot newly block an existing business.
+  maxTechs: -1,
+  maxLocations: -1,
+  features: ['all'],
+};
+
 export const PLAN_LIMITS: Record<SalonPlan, PlanLimits> = {
   free: {
-    maxTechs: 1,
-    maxLocations: 1,
-    features: [],
+    ...UNIVERSAL_PRODUCT_LIMITS,
   },
   single_salon: {
-    maxTechs: 10,
-    maxLocations: 1,
-    features: ['analytics', 'rewards'],
+    ...UNIVERSAL_PRODUCT_LIMITS,
   },
   multi_salon: {
-    maxTechs: 50,
-    maxLocations: 10,
-    features: ['analytics', 'rewards', 'multi_location', 'advanced_reports'],
+    ...UNIVERSAL_PRODUCT_LIMITS,
   },
   enterprise: {
-    maxTechs: -1, // unlimited
-    maxLocations: -1, // unlimited
-    features: ['all'],
+    ...UNIVERSAL_PRODUCT_LIMITS,
   },
 };
 
@@ -148,8 +146,11 @@ export async function canAddLocation(salonId: string): Promise<{
   const plan = (salon.plan || 'free') as SalonPlan;
   const limits = getPlanLimits(plan);
 
-  // Use salon's maxLocations if set, otherwise use plan default
-  const maxLocations = salon.maxLocations ?? limits.maxLocations;
+  // A positive super-admin override remains stored for administration, while
+  // the universal plan capacity does not impose a commercial location cap.
+  const maxLocations = limits.maxLocations === -1
+    ? -1
+    : Math.max(salon.maxLocations ?? limits.maxLocations, limits.maxLocations);
 
   // If unlimited, always allow
   if (maxLocations === -1) {
@@ -195,8 +196,8 @@ export async function getSalonPlanStatus(salonId: string): Promise<{
       plan: 'free',
       limits: PLAN_LIMITS.free,
       usage: {
-        technicians: { current: 0, max: 1, remaining: 1 },
-        locations: { current: 0, max: 1, remaining: 1 },
+        technicians: { current: 0, max: PLAN_LIMITS.free.maxTechs, remaining: PLAN_LIMITS.free.maxTechs },
+        locations: { current: 0, max: PLAN_LIMITS.free.maxLocations, remaining: PLAN_LIMITS.free.maxLocations },
       },
       features: [],
     };
@@ -219,7 +220,9 @@ export async function getSalonPlanStatus(salonId: string): Promise<{
 
   const currentTechs = Number(techCount?.count ?? 0);
   const currentLocs = Number(locCount?.count ?? 0);
-  const maxLocs = salon.maxLocations ?? limits.maxLocations;
+  const maxLocs = limits.maxLocations === -1
+    ? -1
+    : Math.max(salon.maxLocations ?? limits.maxLocations, limits.maxLocations);
 
   return {
     plan,

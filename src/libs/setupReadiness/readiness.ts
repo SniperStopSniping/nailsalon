@@ -124,7 +124,7 @@ const MINIMUM_NOTICE_CEILING_MINUTES = 7 * 24 * 60;
 /**
  * The four members of `DepositPolicyInactiveReason` that mean "the owner
  * started deposits and something is wrong". The other five (`disabled`,
- * `not_entitled`, `not_configured`, `collection_not_live`,
+ * `not_entitled`, `owner_confirmation_required`, `not_configured`, `collection_not_live`,
  * `currency_unsupported`) are settled owner or platform states, not unfinished
  * setup, and produce no item at all.
  */

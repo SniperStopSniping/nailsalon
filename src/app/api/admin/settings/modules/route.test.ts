@@ -66,14 +66,14 @@ function updateRequest(slug: string, modules: Record<string, boolean>) {
 }
 
 describe('module API SMS access on Free', () => {
-  it('reports an owner-disabled SMS module as included, retaining paid-feature restrictions', async () => {
+  it('includes all modules while retaining the owner SMS preference', async () => {
     const response = await GET(new Request(`http://localhost/api/admin/settings/modules?salonSlug=${salonId}`));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ data: {
-      entitledModules: { smsReminders: true, rewards: false, analyticsDashboard: false },
+      entitledModules: { smsReminders: true, rewards: true, analyticsDashboard: true },
       modules: { smsReminders: false },
-      moduleReasons: { smsReminders: 'MODULE_DISABLED', rewards: 'UPGRADE_REQUIRED' },
+      moduleReasons: { smsReminders: 'MODULE_DISABLED', rewards: 'ENABLED' },
     } });
   });
 
@@ -91,11 +91,11 @@ describe('module API SMS access on Free', () => {
     expect(salon?.features?.marketing?.smsReminders).toBe(false);
   });
 
-  it('still rejects enabling another paid module on Free', async () => {
+  it('allows the owner to enable rewards on Free', async () => {
     const response = await PUT(updateRequest(salonId, { rewards: true }));
 
-    expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ error: { code: 'UPGRADE_REQUIRED' } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ data: { modules: { rewards: true } } });
   });
 
   it.each([true, false])('preserves a concurrent canonical SMS=%s save when a stale tab changes another module', async (enabled) => {

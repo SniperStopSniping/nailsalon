@@ -19,7 +19,7 @@ import type { SalonFeatures } from '@/types/salonPolicy';
 
 describe('subscription feature entitlements', () => {
   it.each([
-    ['free', 'free', false],
+    ['free', 'free', true],
     ['single_salon', 'tier_1', true],
     ['multi_salon', 'tier_2', true],
     ['enterprise', 'enterprise', true],
@@ -51,15 +51,15 @@ describe('subscription feature entitlements', () => {
     expect(mapStoredPlanToInternalPlan(storedPlan)).toBe('free');
     expect(resolveBookingExperienceEntitlement({ storedPlan })).toEqual({
       featureKey: 'booking_experience_customization',
-      entitled: false,
+      entitled: true,
       source: 'plan',
       planKey: 'free',
       storedPlan: typeof storedPlan === 'string' ? storedPlan : null,
-      lockedReason: 'upgrade_required',
+      lockedReason: null,
     });
   });
 
-  it('lets an explicit true override enable a feature disabled by the plan', () => {
+  it('keeps an explicit true operational override enabled', () => {
     const features: SalonFeatures = {
       booking: { customization: true },
     };
@@ -77,7 +77,7 @@ describe('subscription feature entitlements', () => {
     });
   });
 
-  it('lets an explicit false override disable a feature enabled by the plan', () => {
+  it('preserves an explicit false operational override', () => {
     const features: SalonFeatures = {
       booking: { customization: false },
     };
@@ -104,7 +104,7 @@ describe('subscription feature entitlements', () => {
       storedPlan: 'free',
       features,
     })).toMatchObject({
-      entitled: false,
+      entitled: true,
       source: 'plan',
       planKey: 'free',
     });
@@ -124,7 +124,7 @@ describe('subscription feature entitlements', () => {
 
     expect(resolveBookingExperienceEntitlement(freeSoloSalon))
       .toEqual(resolveBookingExperienceEntitlement(nonFreeSoloSalon));
-    expect(resolveBookingExperienceEntitlement(freeSoloSalon).entitled).toBe(false);
+    expect(resolveBookingExperienceEntitlement(freeSoloSalon).entitled).toBe(true);
   });
 
   it('exposes the same result through the generic stable-feature resolver', () => {
@@ -147,7 +147,7 @@ describe('subscription feature entitlements', () => {
     expect(SUBSCRIPTION_FEATURE_KEYS).toEqual(['booking_experience_customization']);
     expect(SUBSCRIPTION_FEATURE_PLAN_DEFAULTS).toEqual({
       booking_experience_customization: {
-        free: false,
+        free: true,
         tier_1: true,
         tier_2: true,
         enterprise: true,
@@ -169,7 +169,7 @@ describe('subscription feature entitlements', () => {
     expect(getSubscriptionFeaturePlanDefault(
       'free',
       'booking_experience_customization',
-    )).toBe(false);
+    )).toBe(true);
     expect(getSubscriptionFeaturePlanDefault(
       'single_salon',
       'booking_experience_customization',
@@ -195,7 +195,7 @@ describe('subscription feature entitlements', () => {
       storedPlan: 'free',
       features,
     })).toMatchObject({
-      entitled: false,
+      entitled: true,
       source: 'plan',
     });
   });
@@ -225,7 +225,7 @@ describe('subscription feature entitlements', () => {
       planKey: 'free',
       storedPlan: 'free',
       lockedReason: null,
-      planDefault: false,
+      planDefault: true,
       overrideState: 'force_enabled',
       overrideAuditId: 'audit-1',
       reason: 'Approved support exception',
@@ -338,29 +338,37 @@ describe('legacy feature entitlement compatibility', () => {
       'marketing',
       'referrals',
     )).toBe(true);
-    expect(resolveEntitlement({}, 'marketing', 'referrals')).toBe(false);
-    expect(resolveEntitlement({ referrals: true, marketing: { referrals: false } }, 'marketing', 'referrals')).toBe(false);
+    expect(resolveEntitlement({}, 'marketing', 'referrals')).toBe(true);
+    expect(resolveEntitlement({ referrals: true, marketing: { referrals: false } }, 'marketing', 'referrals')).toBe(true);
   });
 });
 
-describe('SMS access on every plan', () => {
+describe('universal built feature access', () => {
   it.each([
     ['missing', undefined],
     ['null', null],
     ['free defaults', {}],
     ['legacy Starter', { smsReminders: false }],
-    ['nested Free Solo', { marketing: { smsReminders: false } }],
+    ['nested Free Solo', { marketing: { smsReminders: false, rewards: false, referrals: false }, money: { deposits: false }, analytics: { dashboard: false } }],
     ['both historical restrictions', { smsReminders: false, marketing: { smsReminders: false } }],
     ['paid access', { smsReminders: true, marketing: { smsReminders: true } }],
-  ] as const)('includes SMS for %s without granting other paid features', (_label, features) => {
+  ] as const)('includes built features for %s despite saved plan restrictions', (_label, features) => {
     expect(resolveEntitlement(features, 'marketing', 'smsReminders')).toBe(true);
-    expect(resolveEntitlement(features, 'marketing', 'rewards')).toBe(false);
-    expect(resolveEntitlement(features, 'marketing', 'referrals')).toBe(false);
-    expect(resolveEntitlement(features, 'analytics', 'dashboard')).toBe(false);
-    expect(resolveEntitlement(features, 'money', 'deposits')).toBe(false);
+    expect(resolveEntitlement(features, 'marketing', 'rewards')).toBe(true);
+    expect(resolveEntitlement(features, 'marketing', 'referrals')).toBe(true);
+    expect(resolveEntitlement(features, 'analytics', 'dashboard')).toBe(true);
+    expect(resolveEntitlement(features, 'money', 'deposits')).toBe(true);
+  });
+
+  it('keeps dark and unknown features gated', () => {
+    expect(resolveEntitlement({}, 'catalog', 'variantsV1')).toBe(false);
+    expect(resolveEntitlement({}, 'ai', 'ownerAssistant')).toBe(false);
+    expect(resolveEntitlement({ ai: { ownerAssistant: true } }, 'ai', 'ownerAssistant')).toBe(true);
+    expect(resolveEntitlement({}, 'unknown', 'missing')).toBe(false);
   });
 
   it('reports the same included default to callers inspecting the default catalog', () => {
     expect(FEATURE_DEFAULTS.marketing.smsReminders).toBe(true);
+    expect(FEATURE_DEFAULTS.money.deposits).toBe(true);
   });
 });

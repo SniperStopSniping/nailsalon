@@ -386,30 +386,27 @@ export function createFeatureDisabledResponse(feature: FeatureToggle): Response 
  * @deprecated Use featureGating.ts FEATURE_DEFAULTS for new code
  */
 export const FEATURE_DEFAULTS = {
-  // Starter tier (ON by default)
   onlineBooking: true,
   staffDashboard: true,
   photoUploads: true,
   clientProfiles: true,
   visibilityControls: true,
-  // Credit-funded SMS access is included on every plan; sending has its own gates.
+  // Sending still depends on a salon's SMS allowance and consent settings.
   smsReminders: true,
-  // Pro tier (OFF by default)
-  rewards: false,
-  referrals: false,
-  scheduleOverrides: false,
-  clientFlags: false,
-  clientBlocking: false,
-  analyticsDashboard: false,
-  // Elite tier (OFF by default)
-  profilePage: false,
-  multiLocation: false,
-  advancedAnalytics: false,
-  revenueReports: false,
-  utilization: false,
-  techPerformance: false,
-  customBranding: false,
-  apiAccess: false,
+  rewards: true,
+  referrals: true,
+  scheduleOverrides: true,
+  clientFlags: true,
+  clientBlocking: true,
+  analyticsDashboard: true,
+  profilePage: true,
+  multiLocation: true,
+  advancedAnalytics: true,
+  revenueReports: true,
+  utilization: true,
+  techPerformance: true,
+  customBranding: true,
+  apiAccess: true,
 } as const;
 
 /**
@@ -418,36 +415,10 @@ export const FEATURE_DEFAULTS = {
  *
  * @deprecated For new code, use featureGating.ts helpers which support nested structure.
  */
-export function resolveFeatures(features: SalonFeatures | null | undefined) {
-  if (!features) {
-    return { ...FEATURE_DEFAULTS };
-  }
-
-  return {
-    // Starter
-    onlineBooking: features.onlineBooking ?? FEATURE_DEFAULTS.onlineBooking,
-    staffDashboard: features.staffDashboard ?? FEATURE_DEFAULTS.staffDashboard,
-    photoUploads: features.photoUploads ?? FEATURE_DEFAULTS.photoUploads,
-    clientProfiles: features.clientProfiles ?? FEATURE_DEFAULTS.clientProfiles,
-    visibilityControls: features.visibilityControls ?? FEATURE_DEFAULTS.visibilityControls,
-    // Pro
-    smsReminders: resolveEntitlement(features, 'marketing', 'smsReminders'),
-    rewards: features.rewards ?? FEATURE_DEFAULTS.rewards,
-    referrals: features.referrals ?? FEATURE_DEFAULTS.referrals,
-    scheduleOverrides: features.scheduleOverrides ?? FEATURE_DEFAULTS.scheduleOverrides,
-    clientFlags: features.clientFlags ?? FEATURE_DEFAULTS.clientFlags,
-    clientBlocking: features.clientBlocking ?? FEATURE_DEFAULTS.clientBlocking,
-    analyticsDashboard: features.analyticsDashboard ?? FEATURE_DEFAULTS.analyticsDashboard,
-    // Elite
-    profilePage: features.profilePage ?? FEATURE_DEFAULTS.profilePage,
-    multiLocation: features.multiLocation ?? FEATURE_DEFAULTS.multiLocation,
-    advancedAnalytics: features.advancedAnalytics ?? FEATURE_DEFAULTS.advancedAnalytics,
-    revenueReports: features.revenueReports ?? FEATURE_DEFAULTS.revenueReports,
-    utilization: features.utilization ?? FEATURE_DEFAULTS.utilization,
-    techPerformance: features.techPerformance ?? FEATURE_DEFAULTS.techPerformance,
-    customBranding: features.customBranding ?? FEATURE_DEFAULTS.customBranding,
-    apiAccess: features.apiAccess ?? FEATURE_DEFAULTS.apiAccess,
-  };
+export function resolveFeatures(_features: SalonFeatures | null | undefined) {
+  // Stored flat booleans were old plan presets. They are not owner module
+  // controls and must not keep existing free salons locked after this rollout.
+  return { ...FEATURE_DEFAULTS };
 }
 
 /**
@@ -516,34 +487,9 @@ export async function checkFeatureEntitlement(
     return { enabled: resolveEntitlement(featuresJson, 'booking', 'onlineBooking') };
   }
 
-  // 1. Check features JSONB - this is the SOURCE OF TRUTH
-  if (featuresJson) {
-    const value = featuresJson[feature];
-    // If explicitly set (true or false), use it
-    if (typeof value === 'boolean') {
-      return { enabled: value };
-    }
-    // If undefined in features, fall through to legacy check
-  }
-
-  // 2. Fall back to legacy boolean columns ONLY if features[key] was undefined
-  // This is for migration path - salons that haven't been migrated to features JSONB yet
-  const legacyMap: Partial<Record<FeatureKey, boolean | null>> = {
-    onlineBooking: salon.onlineBookingEnabled,
-    smsReminders: salon.smsRemindersEnabled,
-    rewards: salon.rewardsEnabled,
-    profilePage: salon.profilePageEnabled,
-  };
-
-  if (feature in legacyMap) {
-    const legacyValue = legacyMap[feature];
-    if (typeof legacyValue === 'boolean') {
-      return { enabled: legacyValue };
-    }
-  }
-
-  // 3. Use default (for features not in legacy columns)
-  // Handle both flat keys and nested keys that don't exist in FEATURE_DEFAULTS
+  // Flat values and legacy columns were former commercial presets. Owner
+  // module settings are resolved separately, so these rows cannot keep a
+  // built feature unavailable for an existing free salon.
   const defaultValue = feature in FEATURE_DEFAULTS
     ? FEATURE_DEFAULTS[feature as keyof typeof FEATURE_DEFAULTS]
     : false;
@@ -619,54 +565,9 @@ export async function getSalonFeatures(salonId: string): Promise<LegacyResolvedF
   if (!salon) {
     return null;
   }
-
-  const featuresJson = salon.features as SalonFeatures | null;
-
-  // Helper to get feature value with correct priority
-  const getFeatureValue = (
-    featureKey: keyof typeof FEATURE_DEFAULTS,
-    legacyValue: boolean | null,
-  ): boolean => {
-    // 1. Check features JSONB first (source of truth)
-    if (featuresJson) {
-      const value = featuresJson[featureKey];
-      if (typeof value === 'boolean') {
-        return value;
-      }
-    }
-    // 2. Fall back to legacy if features[key] was undefined
-    if (typeof legacyValue === 'boolean') {
-      return legacyValue;
-    }
-    // 3. Use default
-    return FEATURE_DEFAULTS[featureKey];
-  };
-
-  return {
-    // Starter - these have legacy columns for backward compat
-    onlineBooking: getFeatureValue('onlineBooking', salon.onlineBookingEnabled),
-    staffDashboard: featuresJson?.staffDashboard ?? FEATURE_DEFAULTS.staffDashboard,
-    photoUploads: featuresJson?.photoUploads ?? FEATURE_DEFAULTS.photoUploads,
-    clientProfiles: featuresJson?.clientProfiles ?? FEATURE_DEFAULTS.clientProfiles,
-    visibilityControls: featuresJson?.visibilityControls ?? FEATURE_DEFAULTS.visibilityControls,
-    // SMS capability is independent of historical plan and sender toggles.
-    smsReminders: resolveEntitlement(featuresJson, 'marketing', 'smsReminders'),
-    rewards: getFeatureValue('rewards', salon.rewardsEnabled),
-    referrals: featuresJson?.referrals ?? FEATURE_DEFAULTS.referrals,
-    scheduleOverrides: featuresJson?.scheduleOverrides ?? FEATURE_DEFAULTS.scheduleOverrides,
-    clientFlags: featuresJson?.clientFlags ?? FEATURE_DEFAULTS.clientFlags,
-    clientBlocking: featuresJson?.clientBlocking ?? FEATURE_DEFAULTS.clientBlocking,
-    analyticsDashboard: featuresJson?.analyticsDashboard ?? FEATURE_DEFAULTS.analyticsDashboard,
-    // Elite - profilePage has legacy column
-    profilePage: getFeatureValue('profilePage', salon.profilePageEnabled),
-    multiLocation: featuresJson?.multiLocation ?? FEATURE_DEFAULTS.multiLocation,
-    advancedAnalytics: featuresJson?.advancedAnalytics ?? FEATURE_DEFAULTS.advancedAnalytics,
-    revenueReports: featuresJson?.revenueReports ?? FEATURE_DEFAULTS.revenueReports,
-    utilization: featuresJson?.utilization ?? FEATURE_DEFAULTS.utilization,
-    techPerformance: featuresJson?.techPerformance ?? FEATURE_DEFAULTS.techPerformance,
-    customBranding: featuresJson?.customBranding ?? FEATURE_DEFAULTS.customBranding,
-    apiAccess: featuresJson?.apiAccess ?? FEATURE_DEFAULTS.apiAccess,
-  };
+  // Flat feature values were commercial presets. All built flat features are
+  // included now; module-level owner settings remain resolved elsewhere.
+  return { ...FEATURE_DEFAULTS };
 }
 
 // =============================================================================

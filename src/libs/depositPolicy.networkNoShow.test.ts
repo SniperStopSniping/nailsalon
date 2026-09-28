@@ -20,7 +20,7 @@ describe('network risk extends deposit applicability only', () => {
   });
 
   it('never bypasses entitlement or payment readiness', () => {
-    expect(resolveDepositPolicy({ ...base, networkRiskRequired: true, features: {} })).toMatchObject({ active: false, reason: 'not_entitled' });
+    expect(resolveDepositPolicy({ ...base, networkRiskRequired: true, features: {}, entitled: false })).toMatchObject({ active: false, reason: 'not_entitled' });
     expect(resolveDepositPolicy({ ...base, networkRiskRequired: true, stripeAccount: null })).toMatchObject({ active: false, reason: 'account_not_connected' });
   });
 

@@ -1318,8 +1318,6 @@ function AdminDashboardContent() {
   const hiddenAppIds = useMemo(() => {
     const moduleIsEnabled = (module: ModuleKey) =>
       moduleReasons[module] === 'ENABLED';
-    const staffToolsEnabled
-      = moduleIsEnabled('scheduleOverrides') || moduleIsEnabled('staffEarnings');
     const hidden: string[] = [...NAV_ONLY_APP_IDS];
     if (!moduleIsEnabled('analyticsDashboard')) {
       hidden.push('analytics');
@@ -1330,17 +1328,8 @@ function AdminDashboardContent() {
     if (!moduleIsEnabled('rewards')) {
       hidden.push('rewards');
     }
-    if (isFreeSolo) {
-      hidden.push('reviews');
-    }
-    if (!moduleIsEnabled('rewards') && isFreeSolo) {
-      hidden.push('rewards-reviews');
-    }
-    if (isFreeSolo && !staffToolsEnabled) {
-      hidden.push('team', 'staff', 'staff-ops');
-    }
     return hidden;
-  }, [moduleReasons, isFreeSolo]);
+  }, [moduleReasons]);
 
   // Role/entitlement restrictions also apply to deep links — nav-only apps
   // stay reachable via URL because their bottom-nav tabs are always allowed.
