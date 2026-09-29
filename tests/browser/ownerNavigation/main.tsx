@@ -1,6 +1,7 @@
 import '@/styles/global.css';
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import { NextIntlClientProvider } from 'next-intl';
 import { createRoot } from 'react-dom/client';
 
 import { AppGrid } from '@/components/admin/AppGrid';
@@ -8,6 +9,7 @@ import { OwnerManagementModal } from '@/components/admin/OwnerManagementModal';
 import { PaymentsModal } from '@/components/admin/PaymentsModal';
 import { ServicesModal } from '@/components/admin/ServicesModal';
 import { isOwnerManagementApp } from '@/libs/ownerNavigation';
+import en from '@/locales/en.json';
 
 export function OwnerNavigationFixture() {
   const router = useRouter();
@@ -73,4 +75,8 @@ export function OwnerNavigationFixture() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<OwnerNavigationFixture />);
+createRoot(document.getElementById('root')!).render(
+  <NextIntlClientProvider locale="en" messages={en}>
+    <OwnerNavigationFixture />
+  </NextIntlClientProvider>,
+);

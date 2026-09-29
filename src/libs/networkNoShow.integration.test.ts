@@ -9,6 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import {
   eraseNetworkNoShowSubjectInTx,
   readNetworkNoShowRisk,
+  reconcileNetworkNoShows,
   recordNetworkNoShowInTx,
   registerNetworkBookingInTx,
   suppressNetworkNoShowSubjectInTx,
@@ -245,5 +246,127 @@ describe('network no-show storage', () => {
     }));
 
     await expect(readNetworkNoShowRisk({ salonId: receiver, phone: old.phone, email: old.email, now })).resolves.toEqual({ state: 'unavailable' });
+  });
+
+  it('reconciles an early explicit no-show once, keeps its original actor, and respects a later correction', async () => {
+    const source = `network-early-reconcile-${sequence}`;
+    const receiver = `network-early-reconcile-receiver-${sequence}`;
+    await participant(source);
+    await participant(receiver);
+    const entry = await booking({ salonId: source });
+    const markedAt = new Date('2030-06-15T14:00:00.000Z');
+    await db.update(schema.appointmentSchema).set({ status: 'no_show' }).where(eq(schema.appointmentSchema.id, entry.id));
+    await db.transaction(tx => recordNetworkNoShowInTx(tx, {
+      salonId: source,
+      appointmentId: entry.id,
+      actorId: 'owner-early',
+      actorRole: 'admin',
+      now: markedAt,
+    }));
+
+    await expect(readNetworkNoShowRisk({ salonId: receiver, phone: entry.phone, email: entry.email, now })).resolves.toEqual({ state: 'available', activeNoShowCount: 0, windowMonths: 12 });
+
+    const firstSweep = await reconcileNetworkNoShows({ handle: db, now });
+
+    expect(firstSweep.recorded).toBeGreaterThanOrEqual(1);
+
+    const eventsAfterFirstSweep = await db.select().from(schema.networkNoShowEventSchema)
+      .where(eq(schema.networkNoShowEventSchema.appointmentId, entry.id));
+    await reconcileNetworkNoShows({ handle: db, now });
+
+    await expect(db.select().from(schema.networkNoShowEventSchema)
+      .where(eq(schema.networkNoShowEventSchema.appointmentId, entry.id))).resolves.toEqual(eventsAfterFirstSweep);
+    await expect(readNetworkNoShowRisk({ salonId: receiver, phone: entry.phone, email: entry.email, now })).resolves.toEqual({ state: 'available', activeNoShowCount: 1, windowMonths: 12 });
+
+    const [event] = await db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, entry.id));
+
+    expect(event).toMatchObject({ markedBy: 'owner-early', markedByRole: 'admin', markedAt });
+
+    await db.update(schema.appointmentSchema).set({ status: 'cancelled' }).where(eq(schema.appointmentSchema.id, entry.id));
+    await reconcileNetworkNoShows({ handle: db, now });
+
+    expect((await db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.id, event!.id)))[0]?.state).toBe('revoked');
+  });
+
+  it('recovers only eligible current records in the seven-day window and labels legacy records with missing actor provenance', async () => {
+    const source = `network-legacy-reconcile-${sequence}`;
+    await participant(source);
+    const legacy = await booking({ salonId: source, status: 'no_show' });
+    const suppressed = await booking({ salonId: source, status: 'no_show' });
+    const expired = await booking({ salonId: source, status: 'no_show' });
+    const createdAtStart = await booking({ salonId: source, status: 'no_show' });
+    await db.update(schema.networkNoShowBookingBindingSchema).set({ state: 'suppressed', invalidatedAt: now })
+      .where(eq(schema.networkNoShowBookingBindingSchema.appointmentId, suppressed.id));
+    const deleted = await booking({ salonId: source, status: 'no_show' });
+    await db.update(schema.appointmentSchema).set({ deletedAt: now }).where(eq(schema.appointmentSchema.id, deleted.id));
+    await db.update(schema.appointmentSchema).set({ endTime: new Date('2030-06-01T15:00:00.000Z') })
+      .where(eq(schema.appointmentSchema.id, expired.id));
+    await db.update(schema.appointmentSchema).set({ startTime: new Date('2030-06-01T00:00:00.000Z') })
+      .where(eq(schema.appointmentSchema.id, createdAtStart.id));
+
+    await expect(reconcileNetworkNoShows({ handle: db, now })).resolves.toEqual({ scanned: 1, recorded: 1 });
+
+    const [legacyEvent] = await db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, legacy.id));
+
+    expect(legacyEvent).toMatchObject({ markedBy: 'system:network-no-show-reconcile', markedByRole: 'system', markedAt: now });
+    await expect(db.select().from(schema.networkNoShowAuditSchema).where(eq(schema.networkNoShowAuditSchema.action, `reconciled:missing_source_actor:${legacy.id}`))).resolves.toHaveLength(1);
+
+    await db.update(schema.appointmentSchema).set({ endTime: new Date('2030-06-01T15:00:00.000Z') }).where(eq(schema.appointmentSchema.id, suppressed.id));
+
+    await expect(reconcileNetworkNoShows({ handle: db, now })).resolves.toEqual({ scanned: 0, recorded: 0 });
+    await expect(db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, suppressed.id))).resolves.toHaveLength(0);
+    await expect(db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, deleted.id))).resolves.toHaveLength(0);
+    await expect(db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, expired.id))).resolves.toHaveLength(0);
+    await expect(db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, createdAtStart.id))).resolves.toHaveLength(0);
+  });
+
+  it('never republishes an early no-show after its source was corrected before event creation', async () => {
+    const source = `network-corrected-early-${sequence}`;
+    await participant(source);
+    const entry = await booking({ salonId: source });
+    const early = new Date('2030-06-15T14:00:00.000Z');
+    await db.update(schema.appointmentSchema).set({ status: 'no_show', cancelReason: 'no_show' })
+      .where(eq(schema.appointmentSchema.id, entry.id));
+    await db.transaction(tx => recordNetworkNoShowInTx(tx, {
+      salonId: source,
+      appointmentId: entry.id,
+      actorId: 'owner-corrected-early',
+      actorRole: 'admin',
+      now: early,
+    }));
+    await db.update(schema.appointmentSchema).set({ status: 'cancelled', cancelReason: 'admin_correction' })
+      .where(eq(schema.appointmentSchema.id, entry.id));
+    await db.insert(schema.networkNoShowAuditSchema).values({
+      id: `source-correction-${entry.id}`,
+      salonId: source,
+      actorId: 'operator',
+      actorRole: 'operator',
+      action: `source_corrected:no_show_to_cancelled:${entry.id}`,
+    });
+    // A stale status writer cannot turn the corrected source back into a
+    // shared-risk event because the immutable correction audit fences it.
+    await db.update(schema.appointmentSchema).set({ status: 'no_show', cancelReason: 'no_show' })
+      .where(eq(schema.appointmentSchema.id, entry.id));
+
+    await expect(reconcileNetworkNoShows({ handle: db, now })).resolves.toEqual({ scanned: 0, recorded: 0 });
+    await expect(db.select().from(schema.networkNoShowEventSchema)
+      .where(eq(schema.networkNoShowEventSchema.appointmentId, entry.id))).resolves.toHaveLength(0);
+  });
+
+  it('does not let an older durable-ineligible binding starve a later eligible record in a bounded batch', async () => {
+    const source = `network-batch-reconcile-${sequence}`;
+    await participant(source);
+    const ineligible = await booking({ salonId: source, status: 'no_show' });
+    const eligible = await booking({ salonId: source, status: 'no_show' });
+    const [ineligibleBinding] = await db.select().from(schema.networkNoShowBookingBindingSchema)
+      .where(eq(schema.networkNoShowBookingBindingSchema.appointmentId, ineligible.id));
+    await db.update(schema.networkNoShowSubjectSchema).set({ state: 'suppressed' })
+      .where(eq(schema.networkNoShowSubjectSchema.id, ineligibleBinding!.subjectId!));
+
+    await expect(reconcileNetworkNoShows({ handle: db, limit: 1, now })).resolves.toEqual({ scanned: 1, recorded: 1 });
+    await expect(db.select().from(schema.networkNoShowEventSchema)
+      .where(eq(schema.networkNoShowEventSchema.appointmentId, eligible.id))).resolves.toHaveLength(1);
+    await expect(db.select().from(schema.networkNoShowEventSchema)
+      .where(eq(schema.networkNoShowEventSchema.appointmentId, ineligible.id))).resolves.toHaveLength(0);
   });
 });

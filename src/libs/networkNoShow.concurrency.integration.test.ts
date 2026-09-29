@@ -10,6 +10,7 @@ import {
   disableNetworkNoShowPlatformInTx,
   eraseNetworkNoShowSubjectInTx,
   readNetworkNoShowRisk,
+  reconcileNetworkNoShows,
   recordNetworkNoShowInTx,
   registerNetworkBookingInTx,
   suppressNetworkNoShowSubjectInTx,
@@ -27,6 +28,20 @@ const suite = databaseUrl ? describe : describe.skip;
 let pool: pg.Pool;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 const now = new Date('2030-06-15T16:00:00.000Z');
+
+async function waitForDatabaseLock(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const { rows } = await pool.query<{ wait_event_type: string | null }>(
+      'SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1',
+      [pid],
+    );
+    if (rows[0]?.wait_event_type === 'Lock') {
+      return;
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, 10));
+  }
+  throw new Error('Expected reconciliation to block on the source appointment lock');
+}
 
 suite('network no-show PostgreSQL serialization', () => {
   beforeAll(async () => {
@@ -193,5 +208,54 @@ suite('network no-show PostgreSQL serialization', () => {
     }
   });
 
-  afterAll(() => process.stdout.write('NETWORK_NO_SHOW_POSTGRES_TESTS_EXECUTED=5 NETWORK_NO_SHOW_POSTGRES_TESTS_SKIPPED=0\n'));
+  it('does not publish a pending early no-show when its source correction wins the appointment lock', async () => {
+    const correction = await pool.connect();
+    const reconciler = await pool.connect();
+    const reconcilerPid = (await reconciler.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+    let correctionOpen = false;
+    let reconciliation: Promise<{ scanned: number; recorded: number }> | null = null;
+    try {
+      await pool.query('DELETE FROM network_no_show_event WHERE id=\'event\'');
+      await pool.query('UPDATE appointment SET end_time=\'2030-06-15 17:00Z\' WHERE id=\'appt\'');
+      await db.transaction(tx => recordNetworkNoShowInTx(tx, {
+        salonId: 'a',
+        appointmentId: 'appt',
+        actorId: 'owner-early',
+        actorRole: 'admin',
+        now,
+      }));
+
+      await correction.query('BEGIN');
+      correctionOpen = true;
+      await correction.query('UPDATE appointment SET status=\'cancelled\', cancel_reason=\'admin_correction\' WHERE id=\'appt\'');
+      await correction.query(`INSERT INTO network_no_show_audit(id,salon_id,actor_id,actor_role,action)
+        VALUES ('early-correction','a','operator','operator','source_corrected:no_show_to_cancelled:appt')`);
+
+      reconciliation = reconcileNetworkNoShows({
+        handle: drizzle(reconciler, { schema }),
+        limit: 1,
+        now: new Date('2030-06-15T18:00:00.000Z'),
+      });
+      await waitForDatabaseLock(reconcilerPid);
+      await correction.query('COMMIT');
+      correctionOpen = false;
+
+      await expect(reconciliation).resolves.toEqual({ scanned: 1, recorded: 0 });
+
+      reconciliation = null;
+
+      expect((await pool.query('SELECT count(*)::int AS count FROM network_no_show_event WHERE salon_id=\'a\' AND state=\'active\'')).rows[0].count).toBe(0);
+    } finally {
+      if (correctionOpen) {
+        await correction.query('ROLLBACK');
+      }
+      if (reconciliation) {
+        await reconciliation.catch(() => undefined);
+      }
+      correction.release();
+      reconciler.release();
+    }
+  });
+
+  afterAll(() => process.stdout.write('NETWORK_NO_SHOW_POSTGRES_TESTS_EXECUTED=6 NETWORK_NO_SHOW_POSTGRES_TESTS_SKIPPED=0\n'));
 });

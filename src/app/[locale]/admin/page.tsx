@@ -168,6 +168,7 @@ const URL_APP_IDS = [
   // Photos & Gallery: the More tile and the Booking Page hub both open the
   // shared Portfolio library through this URL.
   'portfolio',
+  'no-show-records',
 ] as const;
 
 /**

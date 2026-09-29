@@ -42,8 +42,10 @@ import {
   Scissors,
   Settings,
   Shield,
+  ShieldCheck,
   Users,
 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 
 import { LockedFeatureRow } from '@/components/ui/locked-feature-row';
@@ -192,6 +194,14 @@ const APPS: AppItem[] = [
     iconTo: '#C2410C',
   },
   {
+    id: 'no-show-records',
+    name: 'No-show records',
+    description: 'Review and correct mistaken no-shows',
+    icon: ShieldCheck,
+    iconFrom: '#70213F',
+    iconTo: '#A83A5F',
+  },
+  {
     id: 'settings',
     name: 'Settings',
     description: 'Account, notifications and workspace preferences',
@@ -239,7 +249,7 @@ const MORE_GROUPS: AppGroup[] = [
   {
     id: 'clients-growth',
     name: 'Clients & Growth',
-    appIds: ['marketing', 'portfolio'],
+    appIds: ['marketing', 'portfolio', 'no-show-records'],
   },
   {
     id: 'business',
@@ -468,6 +478,7 @@ const EMPTY_BADGES: Record<string, number> = {};
 const EMPTY_HIDDEN_IDS: string[] = [];
 
 export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, isTeamSalon = false, account }: AppGridProps) {
+  const t = useTranslations('NoShowRecords');
   const appById = new Map(APPS.map(app => [app.id, app]));
   const visibleGroups = MORE_GROUPS.map(group => ({
     ...group,
@@ -479,7 +490,7 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
     apps: group.appIds.flatMap((appId) => {
       const app = appById.get(appId);
       return app && !hiddenIds.includes(app.id)
-        ? [{ ...app, badge: badges[app.id] || 0 }]
+        ? [{ ...app, badge: badges[app.id] || 0, ...(app.id === 'no-show-records' ? { name: t('tile_name'), description: t('tile_description') } : {}) }]
         : [];
     }),
   })).filter(group => group.apps.length > 0);

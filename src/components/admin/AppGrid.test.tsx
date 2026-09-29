@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AppGrid, APPS } from './AppGrid';
 
+vi.mock('next-intl', () => ({
+  useTranslations: () => (key: string) => key === 'tile_name' ? 'No-show records' : key === 'tile_description' ? 'Review and correct mistaken no-shows' : key,
+}));
+
 /** WCAG relative luminance of an #rrggbb colour. */
 function relativeLuminance(hex: string): number {
   const value = hex.replace('#', '');

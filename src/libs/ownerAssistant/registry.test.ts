@@ -44,6 +44,7 @@ const URL_APP_IDS = [
   'payments',
   'integrations',
   'portfolio',
+  'no-show-records',
 ] as const;
 
 /** Source: `SETTINGS_VIEW_IDS` in src/components/admin/SettingsModal.tsx. */
