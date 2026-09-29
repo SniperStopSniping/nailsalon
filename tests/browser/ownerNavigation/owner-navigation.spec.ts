@@ -160,6 +160,7 @@ test('mobile More is ranked in task groups and Hours opens first with browser hi
     'admin-app-tile-booking-page',
     'admin-app-tile-marketing',
     'admin-app-tile-portfolio',
+    'admin-app-tile-no-show-records',
     'admin-app-tile-analytics',
     'admin-app-tile-payments',
     'admin-app-tile-integrations',

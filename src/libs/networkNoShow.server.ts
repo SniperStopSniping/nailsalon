@@ -2,12 +2,13 @@ import 'server-only';
 
 import { createHmac, randomUUID } from 'node:crypto';
 
-import { and, eq, gt, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm';
 
 import type { db } from '@/libs/DB';
 import type { NetworkNoShowRisk, NoShowProtection } from '@/libs/networkNoShow';
 import { normalizePhone } from '@/libs/phone';
 import {
+  appointmentAuditLogSchema,
   appointmentSchema,
   networkNoShowAuditSchema,
   networkNoShowBookingBindingSchema,
@@ -274,16 +275,19 @@ export async function registerNetworkBookingInTx(
 /** Creates one event at most, from the immutable booking binding. */
 export async function recordNetworkNoShowInTx(
   tx: NetworkNoShowHandle,
-  args: { salonId: string; appointmentId: string; actorId: string; actorRole: string; now: Date },
-): Promise<void> {
+  args: { salonId: string; appointmentId: string; actorId: string; actorRole: string; now: Date; markedAt?: Date },
+): Promise<boolean> {
   if (!isNetworkNoShowEnabled()) {
-    return;
+    return false;
   }
+  const [appointment] = await tx.select({ id: appointmentSchema.id, status: appointmentSchema.status, createdAt: appointmentSchema.createdAt, startTime: appointmentSchema.startTime, endTime: appointmentSchema.endTime, deletedAt: appointmentSchema.deletedAt })
+    .from(appointmentSchema).where(and(eq(appointmentSchema.salonId, args.salonId), eq(appointmentSchema.id, args.appointmentId))).for('update').limit(1);
+  // Source writers already hold the appointment lock before they publish. Keep
+  // this source -> platform order so a queued platform disable cannot invert
+  // the reconciliation job and deadlock an in-flight source correction.
   if (!await lockPlatformControlInTx(tx)) {
-    return;
+    return false;
   }
-  const [appointment] = await tx.select({ id: appointmentSchema.id, status: appointmentSchema.status, createdAt: appointmentSchema.createdAt, endTime: appointmentSchema.endTime, deletedAt: appointmentSchema.deletedAt })
-    .from(appointmentSchema).where(and(eq(appointmentSchema.salonId, args.salonId), eq(appointmentSchema.id, args.appointmentId))).limit(1);
   const [binding] = await tx.select().from(networkNoShowBookingBindingSchema)
     .where(and(eq(networkNoShowBookingBindingSchema.salonId, args.salonId), eq(networkNoShowBookingBindingSchema.appointmentId, args.appointmentId))).limit(1);
   const [subject] = binding?.subjectId
@@ -291,15 +295,49 @@ export async function recordNetworkNoShowInTx(
       .where(eq(networkNoShowSubjectSchema.id, binding.subjectId)).limit(1)
     : [];
   const [control] = await tx.select().from(networkNoShowPlatformControlSchema).where(eq(networkNoShowPlatformControlSchema.id, 1)).limit(1);
-  if (!control?.prospectiveAfter || !appointment || !binding || !subject || subject.state !== 'active' || appointment.status !== 'no_show' || appointment.deletedAt || binding.state !== 'eligible' || !binding.subjectId
-    || appointment.createdAt < control.prospectiveAfter || args.now < appointment.endTime || args.now.getTime() - appointment.endTime.getTime() > REPORTING_WINDOW_MS) {
-    return;
+  const sourceCorrectionAction = `source_corrected:no_show_to_cancelled:${args.appointmentId}`;
+  const [sourceCorrection] = await tx.select({ id: networkNoShowAuditSchema.id })
+    .from(networkNoShowAuditSchema)
+    .where(and(
+      eq(networkNoShowAuditSchema.salonId, args.salonId),
+      eq(networkNoShowAuditSchema.action, sourceCorrectionAction),
+    ))
+    .limit(1);
+  if (!control?.prospectiveAfter || !appointment || !binding || !subject || subject.state !== 'active' || appointment.status !== 'no_show' || appointment.deletedAt || binding.state !== 'eligible' || binding.invalidatedAt || !binding.subjectId
+    || appointment.createdAt < control.prospectiveAfter || appointment.createdAt >= appointment.startTime || sourceCorrection || args.now.getTime() - appointment.endTime.getTime() > REPORTING_WINDOW_MS) {
+    return false;
+  }
+  if (args.now < appointment.endTime) {
+    // An early explicit mark is valid locally, but it cannot count until the
+    // scheduled visit has ended. Preserve its attributable provenance inside
+    // the same transaction so reconciliation can retain the original actor.
+    // The action is appointment-qualified because this audit
+    // table deliberately carries no source-appointment column.
+    const pendingAction = `pending_no_show:${args.appointmentId}`;
+    const [pending] = await tx.select({ id: networkNoShowAuditSchema.id })
+      .from(networkNoShowAuditSchema)
+      .where(and(
+        eq(networkNoShowAuditSchema.salonId, args.salonId),
+        eq(networkNoShowAuditSchema.action, pendingAction),
+      ))
+      .limit(1);
+    if (!pending) {
+      await tx.insert(networkNoShowAuditSchema).values({
+        id: randomUUID(),
+        salonId: args.salonId,
+        actorId: args.actorId,
+        actorRole: args.actorRole,
+        action: pendingAction,
+        createdAt: args.markedAt ?? args.now,
+      });
+    }
+    return false;
   }
   await lockNetworkNoShowSubjectInTx(tx, binding.subjectId);
   const [lockedSubject] = await tx.select({ state: networkNoShowSubjectSchema.state })
     .from(networkNoShowSubjectSchema).where(eq(networkNoShowSubjectSchema.id, binding.subjectId)).limit(1);
   if (!lockedSubject || lockedSubject.state !== 'active') {
-    return;
+    return false;
   }
   const eventId = randomUUID();
   const inserted = await tx.insert(networkNoShowEventSchema).values({
@@ -311,12 +349,155 @@ export async function recordNetworkNoShowInTx(
     expiresAt: expiresAfterTwelveCalendarMonths(appointment.endTime),
     markedBy: args.actorId,
     markedByRole: args.actorRole,
-    markedAt: args.now,
+    markedAt: args.markedAt ?? args.now,
   }).onConflictDoNothing().returning();
   if (!inserted[0]) {
-    return;
+    return false;
   }
   await tx.insert(networkNoShowAuditSchema).values({ id: randomUUID(), salonId: args.salonId, eventId, actorId: args.actorId, actorRole: args.actorRole, action: 'recorded' });
+  return true;
+}
+
+type ReconciliationProvenance = {
+  actorId: string;
+  actorRole: string;
+  markedAt: Date;
+  reconciledWithoutSourceActor: boolean;
+};
+
+async function resolveNoShowReconciliationProvenanceInTx(
+  tx: NetworkNoShowHandle,
+  args: { salonId: string; appointmentId: string; now: Date },
+): Promise<ReconciliationProvenance> {
+  const pendingAction = `pending_no_show:${args.appointmentId}`;
+  const [pending] = await tx.select({
+    actorId: networkNoShowAuditSchema.actorId,
+    actorRole: networkNoShowAuditSchema.actorRole,
+    markedAt: networkNoShowAuditSchema.createdAt,
+  })
+    .from(networkNoShowAuditSchema)
+    .where(and(
+      eq(networkNoShowAuditSchema.salonId, args.salonId),
+      eq(networkNoShowAuditSchema.action, pendingAction),
+      isNotNull(networkNoShowAuditSchema.actorId),
+    ))
+    .orderBy(asc(networkNoShowAuditSchema.createdAt))
+    .limit(1);
+  if (pending?.actorId) {
+    return {
+      actorId: pending.actorId,
+      actorRole: pending.actorRole,
+      markedAt: pending.markedAt,
+      reconciledWithoutSourceActor: false,
+    };
+  }
+
+  // Older early marks predate the in-transaction pending audit. Preserve the
+  // original actor when the immutable appointment audit supplies it.
+  const [appointmentAudit] = await tx.select({
+    actorId: appointmentAuditLogSchema.performedBy,
+    actorRole: appointmentAuditLogSchema.performedByRole,
+    markedAt: appointmentAuditLogSchema.createdAt,
+  })
+    .from(appointmentAuditLogSchema)
+    .where(and(
+      eq(appointmentAuditLogSchema.salonId, args.salonId),
+      eq(appointmentAuditLogSchema.appointmentId, args.appointmentId),
+      eq(appointmentAuditLogSchema.action, 'status_changed'),
+      sql`${appointmentAuditLogSchema.newValue}->>'status' = 'no_show'`,
+    ))
+    .orderBy(asc(appointmentAuditLogSchema.createdAt))
+    .limit(1);
+  if (appointmentAudit) {
+    return { ...appointmentAudit, reconciledWithoutSourceActor: false };
+  }
+  // The status plus the immutable prospective booking binding is sufficient
+  // evidence that this source is a real local no-show. Older writers did not
+  // always persist a human appointment audit, so recover it under an explicit
+  // system identity rather than losing a valid record or inventing a person.
+  return {
+    actorId: 'system:network-no-show-reconcile',
+    actorRole: 'system',
+    markedAt: args.now,
+    reconciledWithoutSourceActor: true,
+  };
+}
+
+/**
+ * Replays bounded early no-shows once their source visit has ended. The
+ * source-event uniqueness constraint remains the final idempotency fence when
+ * overlapping cron invocations select the same row.
+ */
+export async function reconcileNetworkNoShows(args: {
+  handle?: NetworkNoShowHandle;
+  now?: Date;
+  limit?: number;
+} = {}): Promise<{ scanned: number; recorded: number }> {
+  if (!isNetworkNoShowEnabled()) {
+    return { scanned: 0, recorded: 0 };
+  }
+  const database = await resolveHandle(args.handle);
+  const now = args.now ?? new Date();
+  const limit = args.limit ?? 100;
+  const cutoff = new Date(now.getTime() - REPORTING_WINDOW_MS);
+  const candidates = await database.select({
+    salonId: appointmentSchema.salonId,
+    appointmentId: appointmentSchema.id,
+  })
+    .from(appointmentSchema)
+    .innerJoin(networkNoShowBookingBindingSchema, and(
+      eq(networkNoShowBookingBindingSchema.salonId, appointmentSchema.salonId),
+      eq(networkNoShowBookingBindingSchema.appointmentId, appointmentSchema.id),
+    ))
+    .innerJoin(networkNoShowSubjectSchema, eq(networkNoShowSubjectSchema.id, networkNoShowBookingBindingSchema.subjectId))
+    .innerJoin(networkNoShowPlatformControlSchema, eq(networkNoShowPlatformControlSchema.id, 1))
+    .where(and(
+      eq(appointmentSchema.status, 'no_show'),
+      isNull(appointmentSchema.deletedAt),
+      eq(networkNoShowBookingBindingSchema.state, 'eligible'),
+      isNotNull(networkNoShowBookingBindingSchema.subjectId),
+      isNull(networkNoShowBookingBindingSchema.invalidatedAt),
+      eq(networkNoShowSubjectSchema.state, 'active'),
+      isNotNull(networkNoShowPlatformControlSchema.enabledAt),
+      isNotNull(networkNoShowPlatformControlSchema.prospectiveAfter),
+      gte(appointmentSchema.createdAt, networkNoShowPlatformControlSchema.prospectiveAfter),
+      lt(appointmentSchema.createdAt, appointmentSchema.startTime),
+      lte(appointmentSchema.endTime, now),
+      gt(appointmentSchema.endTime, cutoff),
+      sql`not exists (select 1 from network_no_show_event event where event.salon_id = ${appointmentSchema.salonId} and event.appointment_id = ${appointmentSchema.id})`,
+      sql`not exists (select 1 from network_no_show_audit correction where correction.salon_id = ${appointmentSchema.salonId} and correction.action = ${'source_corrected:no_show_to_cancelled:'} || ${appointmentSchema.id})`,
+    ))
+    .orderBy(asc(appointmentSchema.endTime), asc(appointmentSchema.id))
+    .limit(limit);
+
+  let recorded = 0;
+  for (const candidate of candidates) {
+    const didRecord = await database.transaction(async (tx) => {
+      const provenance = await resolveNoShowReconciliationProvenanceInTx(tx, { ...candidate, now });
+      const didRecord = await recordNetworkNoShowInTx(tx, {
+        ...candidate,
+        actorId: provenance.actorId,
+        actorRole: provenance.actorRole,
+        markedAt: provenance.reconciledWithoutSourceActor ? now : provenance.markedAt,
+        now,
+      });
+      if (didRecord && provenance.reconciledWithoutSourceActor) {
+        await tx.insert(networkNoShowAuditSchema).values({
+          id: randomUUID(),
+          salonId: candidate.salonId,
+          actorId: provenance.actorId,
+          actorRole: provenance.actorRole,
+          action: `reconciled:missing_source_actor:${candidate.appointmentId}`,
+          createdAt: now,
+        });
+      }
+      return didRecord;
+    });
+    if (didRecord) {
+      recorded += 1;
+    }
+  }
+  return { scanned: candidates.length, recorded };
 }
 
 export async function suppressNetworkNoShowEventInTx(

@@ -11,6 +11,7 @@ import { ClientsModal } from '@/components/admin/ClientsModal';
 import { type FraudSignal, FraudSignalsModal } from '@/components/admin/FraudSignalsModal';
 import { IntegrationsModal, type IntegrationsView } from '@/components/admin/IntegrationsModal';
 import { MarketingModal } from '@/components/admin/MarketingModal';
+import { NoShowRecordsModal } from '@/components/admin/NoShowRecordsModal';
 import { NotificationsModal } from '@/components/admin/NotificationsModal';
 import { OwnerManagementModal } from '@/components/admin/OwnerManagementModal';
 import { PaymentsModal } from '@/components/admin/PaymentsModal';
@@ -313,6 +314,14 @@ export function AdminModalHost({
           salonId={activeSalonId}
           isFreeSolo={isFreeSolo}
         />
+      </AppModal>
+
+      <AppModal
+        isOpen={activeModal === 'no-show-records'}
+        onClose={onCloseModal}
+        allowDragToDismiss={false}
+      >
+        <NoShowRecordsModal key={activeSalonSlug} onClose={onCloseModal} salonSlug={activeSalonSlug} />
       </AppModal>
 
       <AppModal

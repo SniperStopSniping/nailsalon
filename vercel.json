@@ -35,6 +35,10 @@
     {
       "path": "/api/communications/dispatch",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/network-no-show/reconcile",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

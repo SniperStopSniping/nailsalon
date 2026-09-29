@@ -52,6 +52,21 @@ appointment end and within seven days. Cancellation/refund/completed visits do
 not add events. One appointment has one source event. Status corrections revoke
 it transactionally, even with rollout disabled; stale repeats cannot revive it.
 
+## Early no-show reconciliation
+
+An owner or staff member may mark a missed appointment before its scheduled end.
+That remains a local no-show immediately, but it must not count in shared risk
+until the scheduled end has passed. `/api/network-no-show/reconcile` runs every
+five minutes through Vercel and accepts only `CRON_SECRET` in either the
+`Authorization: Bearer` or `x-cron-secret` header. It considers the oldest
+eligible, still-current no-shows first, only within seven days after their end,
+and preserves the original mark actor and timestamp when an in-transaction
+pending audit or appointment audit proves them. Older records without actor
+evidence are recovered only as an explicitly labelled system reconciliation;
+the job never attributes those to a person. The existing source trigger still
+revokes immediately when the appointment is corrected, deleted, rescheduled,
+or its bound contact changes.
+
 ## Boundaries
 
 The shared service returns only inactive/unavailable or count + 12-month window.
@@ -74,6 +89,17 @@ writers without actor context are recorded as system actions. Do not interpret
 system attribution as an identified human correction.
 
 ## Restricted operations
+
+Salon owners can open **More → No-show records** to review their own salon's
+paginated history and correct an accidental no-show. The server resolves salon
+membership from the authenticated owner session and the requested dashboard
+salon. A correction requires the displayed record version and an operator
+reason, changes the appointment to `cancelled` with `admin_correction`, and
+withdraws that appointment's shared contribution transactionally, including
+when network sharing is paused. It preserves contacts, appointment history,
+deposits, refunds, and every other source appointment's risk contribution.
+Corrected source audits also fence early marks that have not yet produced a
+network event, so a stale status rewrite cannot publish them later.
 
 Super admins can open **Platform Control Center → No-show records** to see a
 paginated, audited list across salons. The list includes local no-show
