@@ -61,7 +61,9 @@ test('owner reviews an early mark and corrects it without overflow at 200% text'
   await expect(page.getByText(/10:00:00 AM/)).toBeVisible();
 
   await page.getByRole('button', { name: 'Correct mistaken no-show' }).click();
+
   await expect(page.getByLabel('Why was this marked incorrectly?')).toBeFocused();
+
   const confirm = page.getByRole('button', { name: 'Confirm correction' });
 
   await expect(confirm).toBeDisabled();
