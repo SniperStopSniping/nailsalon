@@ -23,7 +23,7 @@ test('owner corrects a mistaken no-show from More without exposing another salon
 
     await expect(page.getByText('Owner Client')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Correct mistaken no-show' }).click();
+    await page.getByTestId('app-modal-scroll-region').getByRole('button', { name: 'Correct mistaken no-show', exact: true }).click();
     await page.getByLabel('Why was this marked incorrectly?').fill('Client attended and this was marked by mistake.');
     await page.getByRole('button', { name: 'Confirm correction' }).click();
 
