@@ -23,7 +23,7 @@ test('accepts only an explicitly disposable loopback/test-provider scope', () =>
 test('dedicated acceptance port can avoid an existing local server without allowing remote targets', () => {
   assert.equal(localAcceptanceBaseURL(), 'http://localhost:4211');
   assert.equal(localAcceptanceBaseURL('4212'), 'http://localhost:4212');
-  for (const value of ['', '443', '4201', 'https://islanailsalon.com', '4212/path']) {
+  for (const value of ['', '443', '4201', 'https://islanailsalon.com', 'https://www.lustergel.app', '4212/path']) {
     assert.throws(() => localAcceptanceBaseURL(value));
   }
 });
@@ -31,6 +31,7 @@ test('dedicated acceptance port can avoid an existing local server without allow
 test('rejects remote targets, provider leaks, live keys, and repository storage', () => {
   for (const override of [
     { LIVE_BASE_URL: 'https://islanailsalon.com' },
+    { LIVE_BASE_URL: 'https://www.lustergel.app' },
     { LIVE_BASE_URL: 'http://localhost:4211/path' },
     { LIVE_DISPOSABLE_LOCAL_CONFIRMED: '' },
     { APP_ENV: 'production' },

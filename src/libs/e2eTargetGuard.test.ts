@@ -19,6 +19,9 @@ describe('E2E target guard', () => {
   });
 
   it.each([
+    'https://lustergel.app',
+    'https://www.lustergel.app/path',
+    'https://LUSTERGEL.APP./book',
     'https://islanailsalon.com',
     'https://www.islanailsalon.com/path',
     'https://ISLANAILSALON.COM./book',
@@ -102,6 +105,11 @@ describe('E2E target guard', () => {
 
   it('preserves built-in behavior when the configured variable is missing', () => {
     expect(() => assertAllowedE2ETarget(
+      'https://www.lustergel.app',
+      undefined,
+      undefined,
+    )).toThrow('Production E2E target rejected');
+    expect(() => assertAllowedE2ETarget(
       'https://islanailsalon.com',
       undefined,
       undefined,
@@ -114,6 +122,7 @@ describe('E2E target guard', () => {
   });
 
   it.each([
+    ['https://www.lustergel.app', undefined],
     ['https://islanailsalon.com', undefined],
     ['https://luster-production-alias.vercel.app', 'luster-production-alias.vercel.app'],
   ])('bypasses both blocklists only with exact owner authorization', (target, configuredHosts) => {
@@ -144,7 +153,7 @@ describe('E2E target guard', () => {
   });
 
   it('runs the Production check when the global Playwright config loads', async () => {
-    vi.stubEnv('E2E_BASE_URL', 'https://islanailsalon.com');
+    vi.stubEnv('E2E_BASE_URL', 'https://www.lustergel.app');
     vi.stubEnv('E2E_ALLOW_PRODUCTION', '');
     vi.resetModules();
 

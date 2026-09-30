@@ -1,4 +1,6 @@
 const PRODUCTION_E2E_HOSTS = new Set([
+  'lustergel.app',
+  'www.lustergel.app',
   'islanailsalon.com',
   'www.islanailsalon.com',
 ]);

@@ -2,7 +2,7 @@
 
 Luster is a Canada-first booking and client workspace for independent nail techs. Salon owners manage appointments, services, clients, availability, and optional Google Calendar synchronization. Clients book as guests and manage reservations through private email links—no account or phone verification is required.
 
-Production: [islanailsalon.com](https://islanailsalon.com)
+Production: [www.lustergel.app](https://www.lustergel.app)
 
 ## Product boundaries
 
@@ -83,4 +83,4 @@ verified backup. Operational cleanup scripts default to dry-run.
 
 ## Support
 
-Luster support: [support@islanailsalon.com](mailto:support@islanailsalon.com)
+Luster support: [support@lustergel.app](mailto:support@lustergel.app)

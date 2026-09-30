@@ -147,7 +147,7 @@ async function getEnvStatus(): Promise<EnvStatus> {
 
   const resendConfigured = Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL);
   const isProduction = process.env.VERCEL_ENV === 'production' || process.env.APP_ENV === 'production';
-  const publicAppUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://islanailsalon.com';
+  const publicAppUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.lustergel.app';
   const [resendSenderVerified, redisHealthy, dnsAndSslHealthy] = await Promise.all([
     resendConfigured ? isResendSenderVerified() : Promise.resolve(false),
     redis ? isRedisAvailable() : Promise.resolve(false),
