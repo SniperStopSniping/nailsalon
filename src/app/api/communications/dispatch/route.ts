@@ -7,6 +7,7 @@
  */
 import { processDueCommunications } from '@/libs/communicationDispatcher';
 import { evaluateLowBalanceWarnings, sendLowBalanceWarningEmail } from '@/libs/lowBalanceWarnings';
+import { materializeRebookingReminders } from '@/libs/rebookingReminders.server';
 import { materializeCompletedReviewTriggers, scanScheduledEndReviewTriggers } from '@/libs/reviewRequests.server';
 import { releaseExpiredInboundEvidence } from '@/libs/smsInboundRetention';
 import { sendIntentEmail, sendViaTwilio } from '@/libs/twilioMessagingSend';
@@ -57,7 +58,13 @@ async function run(request: Request): Promise<Response> {
   } catch {
     scheduledEnd = { recorded: 0, skipped: 0, deferred: 0, phaseError: true };
   }
-  return Response.json({ summary, reviewTriggers: { ...reviewTriggers, scheduledEnd }, retention, unknownOutcomes, lowBalance });
+  let rebookingReminders;
+  try {
+    rebookingReminders = await materializeRebookingReminders();
+  } catch {
+    rebookingReminders = { queued: 0, examined: 0, phaseError: true };
+  }
+  return Response.json({ summary, rebookingReminders, reviewTriggers: { ...reviewTriggers, scheduledEnd }, retention, unknownOutcomes, lowBalance });
 }
 
 export const GET = run;

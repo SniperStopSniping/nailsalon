@@ -1608,6 +1608,36 @@ export const salonRetentionSettingsSchema = pgTable(
   }),
 );
 
+// Automatic post-visit rebooking is separate from overdue win-back offers and
+// from the confirmation-page prompt. Overrides are dormant until a salon sets
+// them; the first release uses the salon-wide interval.
+export const rebookingReminderSettingsSchema = pgTable('rebooking_reminder_settings', {
+  salonId: text('salon_id').primaryKey().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  enabled: boolean('enabled').notNull().default(false),
+  defaultIntervalWeeks: integer('default_interval_weeks').notNull().default(3),
+  messageTemplate: text('message_template').notNull(),
+  enabledAt: timestamp('enabled_at', { mode: 'date', withTimezone: true }),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, table => ({
+  intervalValid: check('rebooking_reminder_interval_valid', sql`${table.defaultIntervalWeeks} BETWEEN 1 AND 52`),
+  messageValid: check('rebooking_reminder_message_valid', sql`char_length(${table.messageTemplate}) BETWEEN 1 AND 500`),
+}));
+
+export const rebookingReminderServiceIntervalSchema = pgTable('rebooking_reminder_service_interval', {
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  serviceId: text('service_id').notNull(),
+  intervalWeeks: integer('interval_weeks').notNull(),
+}, table => ({
+  pk: primaryKey({ columns: [table.salonId, table.serviceId] }),
+  serviceFk: foreignKey({
+    name: 'rebooking_reminder_service_interval_service_fk',
+    columns: [table.salonId, table.serviceId],
+    foreignColumns: [serviceSchema.salonId, serviceSchema.id],
+  }).onDelete('cascade'),
+  intervalValid: check('rebooking_reminder_service_interval_valid', sql`${table.intervalWeeks} BETWEEN 1 AND 52`),
+}));
+
 // -----------------------------------------------------------------------------
 // Client communication - honest, salon-scoped outreach history and queue state
 // -----------------------------------------------------------------------------
@@ -4566,6 +4596,7 @@ export const COMMUNICATION_EVENT_TYPES = [
   'booking_recovery',
   'voice_booking_link',
   'review_request',
+  'rebooking_reminder',
   'owner_new_booking',
   'owner_appointment_cancelled',
   'tech_new_booking',

@@ -166,6 +166,10 @@ async function hasSalonTransactionalConsent(salonId: string, recipient: string, 
  * the message. Non-appointment intents pass through.
  */
 async function appointmentStillActive(intent: CommunicationIntent, now = new Date()): Promise<boolean> {
+  if (intent.eventType === 'rebooking_reminder') {
+    return !!intent.appointmentId && (await (await import('@/libs/rebookingReminders.server'))
+      .rebookingReminderSendContext(intent.salonId, intent.appointmentId, now)) !== null;
+  }
   if (intent.eventType === 'review_request') {
     const { reviewRequestSendContext } = await import('@/libs/reviewRequests.server');
     return (await reviewRequestSendContext(intent.salonId, intent.id)) !== null;
@@ -454,6 +458,15 @@ export async function dispatchClaimedIntent(
     return 'suppressed';
   }
   let variables = intent.variables;
+  if (intent.eventType === 'rebooking_reminder' && intent.appointmentId) {
+    const context = await (await import('@/libs/rebookingReminders.server'))
+      .rebookingReminderSendContext(intent.salonId, intent.appointmentId, now);
+    if (!context) {
+      await transitionIntent(intent.id, { to: 'suppressed', lastError: 'REBOOKING_NO_LONGER_ELIGIBLE' }, now);
+      return 'suppressed';
+    }
+    variables = { ...variables, message: context.message };
+  }
   if (intent.eventType === 'review_request') {
     const { reviewRequestSendContext } = await import('@/libs/reviewRequests.server');
     const review = await reviewRequestSendContext(intent.salonId, intent.id);
@@ -604,7 +617,7 @@ export async function dispatchClaimedIntent(
   const finalControl = await readCommunicationControlUncached();
   const finalSuppressed = readiness.mode === 'shared_luster' && await hasGlobalSuppression(readiness.senderIdentity, destination.e164);
   const appointmentReminder = intent.audience === 'client' && intent.appointmentId !== null
-    && intent.eventType !== 'review_request' && intent.eventType !== 'manual_text' && intent.eventType !== 'booking_recovery';
+    && intent.eventType !== 'review_request' && intent.eventType !== 'manual_text' && intent.eventType !== 'booking_recovery' && intent.eventType !== 'rebooking_reminder';
   const reminderPreference = appointmentReminder
     ? await getAppointmentSmsDeliveryPreference({ salonId: intent.salonId, phone: intent.recipient, appointmentId: intent.appointmentId! })
     : null;
@@ -613,11 +626,13 @@ export async function dispatchClaimedIntent(
     && typeof intent.variables.callId === 'string'
     && await voiceBookingLinkSendState({ salonId: intent.salonId, intentId: intent.id, callId: intent.variables.callId, recipient: intent.recipient }, now) === 'authorized'
     && await hasSalonTransactionalConsent(intent.salonId, intent.recipient, false)
-    : appointmentReminder
-      ? reminderPreference?.state === 'enabled'
-      : intent.audience === 'client' && intent.eventType === 'manual_text'
-        ? (await getClientSmsPurposeEligibility({ salonId: intent.salonId, phone: intent.recipient, purpose: 'salon_promotions' })).state === 'enabled'
-        : await hasSalonTransactionalConsent(intent.salonId, intent.recipient, intent.audience === 'client');
+    : intent.eventType === 'rebooking_reminder'
+      ? (await getClientSmsPurposeEligibility({ salonId: intent.salonId, phone: intent.recipient, purpose: 'salon_promotions' })).state === 'enabled'
+      : appointmentReminder
+        ? reminderPreference?.state === 'enabled'
+        : intent.audience === 'client' && intent.eventType === 'manual_text'
+          ? (await getClientSmsPurposeEligibility({ salonId: intent.salonId, phone: intent.recipient, purpose: 'salon_promotions' })).state === 'enabled'
+          : await hasSalonTransactionalConsent(intent.salonId, intent.recipient, intent.audience === 'client');
   const consentFailure = reminderPreference?.state === 'opted_out'
     ? 'PROVIDER_OPT_OUT'
     : reminderPreference?.state === 'customer_disabled'
@@ -689,7 +704,15 @@ export async function dispatchClaimedIntent(
   const finalReview = intent.eventType === 'review_request'
     ? await (await import('@/libs/reviewRequests.server')).reviewRequestSendContext(intent.salonId, intent.id)
     : undefined;
-  if (!(await appointmentStillActive(intent, finalNow)) || (intent.eventType === 'review_request' && finalReview?.message !== variables.message)) {
+  const finalRebooking = intent.eventType === 'rebooking_reminder' && intent.appointmentId
+    ? await (await import('@/libs/rebookingReminders.server')).rebookingReminderSendContext(intent.salonId, intent.appointmentId, finalNow)
+    : undefined;
+  const finalAppointmentActive = intent.eventType === 'rebooking_reminder'
+    ? finalRebooking !== null && finalRebooking !== undefined
+    : await appointmentStillActive(intent, finalNow);
+  if (!finalAppointmentActive
+    || (intent.eventType === 'review_request' && finalReview?.message !== variables.message)
+    || (intent.eventType === 'rebooking_reminder' && finalRebooking?.message !== variables.message)) {
     // Final pre-provider appointment recheck: the reservation releases and
     // the provider is never called — same linearization posture as STOP.
     if (reservation.reservationId) {

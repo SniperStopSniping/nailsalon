@@ -61,7 +61,8 @@ describe('controlled templates', () => {
         expect(body.includes('Reply STOP to opt out.')).toBe(
           template.key === 'client_manual_text'
           || template.key === 'client_booking_recovery_shortlink'
-          || template.key === 'client_voice_booking_link',
+          || template.key === 'client_voice_booking_link'
+          || template.key === 'client_rebooking_reminder',
         );
       }
     }
@@ -89,8 +90,11 @@ describe('controlled templates', () => {
       .toBe('Thanks for visiting ISLA NAIL STUDIO! https://example.com/review');
   });
 
-  it('keeps every worst-case rendering in GSM-7 (no emoji, smart quotes or decorative Unicode)', () => {
+  it('keeps controlled operational copy in GSM-7 while preserving the owner-approved rebooking default', () => {
     for (const template of Object.values(COMMUNICATION_TEMPLATES)) {
+      if (template.key === 'client_rebooking_reminder') {
+        continue;
+      }
       for (const variables of template.worstCaseVariables) {
         expect(isGsmCompatible(template.render(variables))).toBe(true);
       }
@@ -100,8 +104,8 @@ describe('controlled templates', () => {
   it('keeps link-free client templates and internal templates inside their audience budgets', () => {
     const violations = validateTemplateSegments();
     for (const violation of violations) {
-      // Only the tracked manage-link finding may violate (see next test).
-      expect(violation.templateKey).toBe('client_appointment_reminder');
+      // Rebooking copy is owner editable and its default includes an emoji.
+      expect(['client_appointment_reminder', 'client_rebooking_reminder']).toContain(violation.templateKey);
     }
     const confirmation = COMMUNICATION_TEMPLATES.client_booking_confirmation_nolink!;
     for (const variables of confirmation.worstCaseVariables) {
@@ -121,7 +125,7 @@ describe('controlled templates', () => {
 
     expect(lengths[0]!.segments).toBe(1);
     expect(lengths[1]!.segments).toBe(2);
-    expect(validateTemplateSegments()).toHaveLength(1);
+    expect(validateTemplateSegments()).toHaveLength(2);
   });
 
   it.each([

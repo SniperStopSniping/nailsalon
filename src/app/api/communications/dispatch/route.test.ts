@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   lowBalance: vi.fn(),
   reviews: vi.fn(),
   scheduledEnd: vi.fn(),
+  rebooking: vi.fn(),
   sms: vi.fn(),
   email: vi.fn(),
   warningEmail: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('@/libs/reviewRequests.server', () => ({
   materializeCompletedReviewTriggers: mocks.reviews,
   scanScheduledEndReviewTriggers: mocks.scheduledEnd,
 }));
+vi.mock('@/libs/rebookingReminders.server', () => ({ materializeRebookingReminders: mocks.rebooking }));
 vi.mock('@/libs/twilioMessagingSend', () => ({ sendViaTwilio: mocks.sms, sendIntentEmail: mocks.email }));
 
 function authorizedRequest() {
@@ -38,6 +40,7 @@ describe('communications cron review-phase compatibility', () => {
     mocks.lowBalance.mockResolvedValue({ warnings: 0 });
     mocks.reviews.mockResolvedValue({ materialized: 1, pending: 0, skipped: 0, deferred: 0, phaseError: false });
     mocks.scheduledEnd.mockResolvedValue({ recorded: 0, skipped: 0, deferred: 0, phaseError: false });
+    mocks.rebooking.mockResolvedValue({ queued: 0, examined: 0 });
   });
 
   afterEach(() => vi.unstubAllEnvs());
@@ -91,6 +94,7 @@ describe('communications cron review-phase compatibility', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       summary: { sent: 1 },
+      rebookingReminders: { queued: 0, examined: 0 },
       retention: { released: 0 },
       unknownOutcomes: { reconciled: 0 },
       lowBalance: { warnings: 0 },

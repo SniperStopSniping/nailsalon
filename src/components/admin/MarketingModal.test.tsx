@@ -301,6 +301,29 @@ describe('MarketingModal', () => {
     expect(screen.queryByRole('checkbox', { name: /email/i })).not.toBeInTheDocument();
   });
 
+  it('places automatic rebooking before overdue win-back and preserves the confirmation-page prompt', async () => {
+    installSuccessfulFetch();
+    await renderMarketing();
+
+    const home = screen.getByTestId('marketing-home');
+    const ordered = Array.from(home.querySelectorAll('[data-testid]')).map(element => element.getAttribute('data-testid'));
+    const sequence = [
+      'marketing-write-message-action',
+      'marketing-home-followups',
+      'marketing-home-rebooking-reminders',
+      'marketing-home-campaigns',
+      'marketing-home-appointment-messages',
+      'marketing-home-rebooking-prompt',
+    ];
+    const positions = sequence.map(id => ordered.indexOf(id));
+
+    expect(positions).not.toContain(-1);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    expect(screen.getByTestId('marketing-home-rebooking-reminders')).toHaveTextContent('Automatically remind clients when it’s almost time for their next appointment.');
+    expect(screen.getByTestId('marketing-home-campaigns')).toHaveTextContent('Bring overdue clients back with timed reminders or offers.');
+    expect(screen.getByTestId('marketing-home-rebooking-prompt')).toHaveTextContent('Confirmation Page Rebooking Prompt');
+  });
+
   it('automatic texting shows Ready from canonical Luster SMS readiness', async () => {
     installSuccessfulFetch(makeSettings(), { lusterReady: true });
     await renderMarketing();
