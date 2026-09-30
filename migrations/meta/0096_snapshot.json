@@ -11075,6 +11075,51 @@
         }
       }
     },
+    "public.rebooking_reminder_sweep_state": {
+      "name": "rebooking_reminder_sweep_state",
+      "schema": "",
+      "columns": {
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "cursor_due_at": {
+          "name": "cursor_due_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cursor_appointment_id": {
+          "name": "cursor_appointment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "rebooking_reminder_sweep_global_scope": {
+          "name": "rebooking_reminder_sweep_global_scope",
+          "value": "\"rebooking_reminder_sweep_state\".\"scope\" = 'global'"
+        },
+        "rebooking_reminder_sweep_cursor_pair": {
+          "name": "rebooking_reminder_sweep_cursor_pair",
+          "value": "(\"rebooking_reminder_sweep_state\".\"cursor_due_at\" IS NULL) = (\"rebooking_reminder_sweep_state\".\"cursor_appointment_id\" IS NULL)"
+        }
+      }
+    },
     "public.referral": {
       "name": "referral",
       "schema": "",

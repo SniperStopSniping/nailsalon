@@ -8,10 +8,11 @@ import { db } from '@/libs/DB';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { defaultRebookingReminderSettings, rebookingReminderDueAt, type RebookingReminderSettings, renderRebookingReminder } from '@/libs/rebookingReminders';
 import { DEFAULT_BOOKING_TIME_ZONE } from '@/libs/timeZone';
-import { rebookingReminderSettingsSchema } from '@/models/Schema';
+import { rebookingReminderSettingsSchema, rebookingReminderSweepStateSchema } from '@/models/Schema';
 
 const CANDIDATE_LIMIT = 50;
 const SEND_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const SWEEP_SCOPE = 'global';
 
 type Candidate = {
   appointment_id: string;
@@ -33,6 +34,10 @@ type Candidate = {
   has_upcoming: boolean;
   has_later_completed: boolean;
   is_blocked: boolean;
+};
+
+type CandidatePointer = Pick<Candidate, 'appointment_id' | 'salon_id'> & {
+  sort_at: Date | string;
 };
 
 function rows<T>(result: unknown): T[] {
@@ -136,10 +141,11 @@ export async function rebookingReminderSendContext(salonId: string, appointmentI
   };
 }
 
-/** A bounded sweep; the unique intent key survives retry and concurrent cron runs. */
-export async function materializeRebookingReminders(now = new Date()): Promise<{ queued: number; examined: number }> {
-  const result = await db.execute(sql`
-    SELECT a.id AS appointment_id, a.salon_id ${candidateJoins}
+const candidatePool = (now: Date) => sql`
+  WITH candidate_pool AS (
+    SELECT a.id AS appointment_id, a.salon_id,
+      a.completed_at + (COALESCE(interval_override.interval_weeks, config.default_interval_weeks) * interval '1 week') AS sort_at
+      ${candidateJoins}
     WHERE config.enabled = true AND config.enabled_at IS NOT NULL
       AND a.status = 'completed' AND a.completed_at IS NOT NULL AND a.deleted_at IS NULL
       AND a.completed_at <= ${now}::timestamptz - interval '6 days'
@@ -170,11 +176,51 @@ export async function materializeRebookingReminders(now = new Date()): Promise<{
         SELECT 1 FROM communication_intent intent
         WHERE intent.dedupe_key = ('rebooking:' || a.salon_id || ':' || a.id)
       )
-    ORDER BY a.completed_at + (COALESCE(interval_override.interval_weeks, config.default_interval_weeks) * interval '1 week'), a.id
-    LIMIT ${CANDIDATE_LIMIT}
-  `);
+  )
+`;
+
+async function reserveRebookingCandidates(now: Date): Promise<CandidatePointer[]> {
+  return db.transaction(async (transaction) => {
+    await transaction.insert(rebookingReminderSweepStateSchema)
+      .values({ scope: SWEEP_SCOPE, updatedAt: now })
+      .onConflictDoNothing();
+    const [state] = await transaction.select().from(rebookingReminderSweepStateSchema)
+      .where(eq(rebookingReminderSweepStateSchema.scope, SWEEP_SCOPE)).for('update').limit(1);
+
+    const selectAfterCursor = async (afterCursor: boolean) => {
+      const result = await transaction.execute(sql`
+        ${candidatePool(now)}
+        SELECT appointment_id, salon_id, sort_at FROM candidate_pool
+        ${afterCursor && state?.cursorDueAt && state.cursorAppointmentId
+          ? sql`WHERE (sort_at, appointment_id) > (${state.cursorDueAt}, ${state.cursorAppointmentId})`
+          : sql``}
+        ORDER BY sort_at, appointment_id
+        LIMIT ${CANDIDATE_LIMIT}
+      `);
+      return rows<CandidatePointer>(result);
+    };
+
+    // When the cursor reaches the tail, wrap in this same locked transaction
+    // so permanently ineligible rows cannot pin every later salon behind them.
+    let candidates = await selectAfterCursor(true);
+    if (candidates.length === 0 && state?.cursorDueAt) {
+      candidates = await selectAfterCursor(false);
+    }
+
+    const last = candidates.at(-1);
+    await transaction.update(rebookingReminderSweepStateSchema)
+      .set(last
+        ? { cursorDueAt: new Date(last.sort_at), cursorAppointmentId: last.appointment_id, updatedAt: now }
+        : { cursorDueAt: null, cursorAppointmentId: null, updatedAt: now })
+      .where(eq(rebookingReminderSweepStateSchema.scope, SWEEP_SCOPE));
+    return candidates;
+  });
+}
+
+/** A bounded, cursor-backed sweep; the unique intent key survives retry and concurrent cron runs. */
+export async function materializeRebookingReminders(now = new Date()): Promise<{ queued: number; examined: number }> {
+  const candidates = await reserveRebookingCandidates(now);
   let queued = 0;
-  const candidates = rows<Pick<Candidate, 'appointment_id' | 'salon_id'>>(result);
   for (const row of candidates) {
     const context = await rebookingReminderSendContext(row.salon_id, row.appointment_id, now);
     if (!context) {

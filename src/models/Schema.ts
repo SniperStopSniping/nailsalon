@@ -1638,6 +1638,21 @@ export const rebookingReminderServiceIntervalSchema = pgTable('rebooking_reminde
   intervalValid: check('rebooking_reminder_service_interval_valid', sql`${table.intervalWeeks} BETWEEN 1 AND 52`),
 }));
 
+// A single, technical cursor lets the bounded reminder cron move beyond
+// ineligible candidates without coupling a salon's data to another salon.
+export const rebookingReminderSweepStateSchema = pgTable('rebooking_reminder_sweep_state', {
+  scope: text('scope').primaryKey(),
+  cursorDueAt: timestamp('cursor_due_at', { mode: 'date', withTimezone: true }),
+  cursorAppointmentId: text('cursor_appointment_id'),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().$onUpdate(() => new Date()).notNull(),
+}, table => ({
+  globalScope: check('rebooking_reminder_sweep_global_scope', sql`${table.scope} = 'global'`),
+  cursorPair: check(
+    'rebooking_reminder_sweep_cursor_pair',
+    sql`(${table.cursorDueAt} IS NULL) = (${table.cursorAppointmentId} IS NULL)`,
+  ),
+}));
+
 // -----------------------------------------------------------------------------
 // Client communication - honest, salon-scoped outreach history and queue state
 // -----------------------------------------------------------------------------

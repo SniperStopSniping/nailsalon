@@ -23,11 +23,11 @@ let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 let sequence = 0;
 
-async function seed(input: { status?: string; enabled?: boolean; blocked?: boolean; completedAt?: Date; message?: string; timeZone?: string } = {}) {
+async function seed(input: { status?: string; enabled?: boolean; blocked?: boolean; completedAt?: Date; message?: string; timeZone?: string; appointmentId?: string } = {}) {
   sequence += 1;
   const salonId = `rebooking-salon-${sequence}`;
   const clientId = `rebooking-client-${sequence}`;
-  const appointmentId = `rebooking-appointment-${sequence}`;
+  const appointmentId = input.appointmentId ?? `rebooking-appointment-${sequence}`;
   await db.insert(schema.salonSchema).values({ id: salonId, name: `Salon ${sequence}`, slug: salonId, settings: { booking: { timezone: input.timeZone ?? 'America/Toronto' } } as never });
   await db.insert(schema.salonClientSchema).values({ id: clientId, salonId, phone: `416555${String(1000 + sequence).padStart(4, '0')}`, fullName: 'Alex Client', isBlocked: input.blocked ?? false });
   await db.insert(schema.appointmentSchema).values({
@@ -221,5 +221,32 @@ describe('automatic rebooking reminders', () => {
     const after = await db.select().from(schema.communicationIntentSchema);
 
     expect(after).toHaveLength(before.length);
+  });
+
+  it('moves past more than one batch of opted-out candidates to reach a later due salon', async () => {
+    const now = new Date('2028-01-22T15:05:00Z');
+    await db.delete(schema.rebookingReminderSweepStateSchema);
+    const optedOut = await Promise.all(Array.from({ length: 51 }, (_, index) => seed({
+      completedAt: new Date('2028-01-01T15:00:00Z'),
+      appointmentId: `a-starvation-${String(index).padStart(2, '0')}`,
+    })));
+    const dueSalon = await seed({
+      completedAt: new Date('2028-01-01T15:00:00Z'),
+      appointmentId: 'z-starvation-due',
+    });
+    holder.consent.mockImplementation(({ salonId }: { salonId: string }) => Promise.resolve({
+      state: salonId === dueSalon.salonId ? 'enabled' : 'opted_out',
+    }));
+
+    const { materializeRebookingReminders } = await import('./rebookingReminders.server');
+    const first = await materializeRebookingReminders(now);
+    const second = await materializeRebookingReminders(now);
+    const dueIntents = await db.select().from(schema.communicationIntentSchema)
+      .where(eq(schema.communicationIntentSchema.appointmentId, dueSalon.appointmentId));
+
+    expect(optedOut).toHaveLength(51);
+    expect(first).toEqual({ queued: 0, examined: 50 });
+    expect(second).toEqual({ queued: 1, examined: 2 });
+    expect(dueIntents).toHaveLength(1);
   });
 });

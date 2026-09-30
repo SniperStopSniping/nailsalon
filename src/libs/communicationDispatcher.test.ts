@@ -1174,3 +1174,92 @@ describe('booking recovery SMS capabilities', () => {
     expect(await dispatchClaimedIntent(intent, vi.fn(), NOW)).toBe('suppressed');
   });
 });
+
+async function seedDueRebookingReminder() {
+  const { salonId, recipient } = await seedSalonWithConsent();
+  const clientId = `rebooking-client-${salonId}`;
+  const appointmentId = `rebooking-visit-${salonId}`;
+  const completedAt = new Date('2026-07-26T15:00:00.000Z');
+  await db.insert(schema.salonClientSchema).values({ id: clientId, salonId, phone: recipient, fullName: 'Alex Client' });
+  await db.insert(schema.appointmentSchema).values({
+    id: appointmentId,
+    salonId,
+    salonClientId: clientId,
+    clientPhone: recipient,
+    clientName: 'Alex Client',
+    startTime: new Date('2026-07-26T14:00:00.000Z'),
+    endTime: completedAt,
+    completedAt,
+    status: 'completed',
+    totalPrice: 5000,
+    totalDurationMinutes: 60,
+  });
+  const { DEFAULT_REBOOKING_REMINDER_MESSAGE } = await import('./rebookingReminders');
+  await db.insert(schema.rebookingReminderSettingsSchema).values({
+    salonId,
+    enabled: true,
+    enabledAt: new Date('2026-07-20T00:00:00.000Z'),
+    defaultIntervalWeeks: 3,
+    messageTemplate: DEFAULT_REBOOKING_REMINDER_MESSAGE,
+  });
+  await grantCredits(salonId, 10);
+  await enableControl(true);
+  const { materializeRebookingReminders } = await import('./rebookingReminders.server');
+  await materializeRebookingReminders(NOW);
+  return { salonId, recipient, clientId, appointmentId };
+}
+
+describe('automatic rebooking reminder dispatch', () => {
+  it('sends the current template through the existing SMS credit path', async () => {
+    const { salonId } = await seedDueRebookingReminder();
+    const intent = await claimOne(salonId);
+    const provider = vi.fn(async (_input: { body: string }) => ({ sid: `SM_rebooking_${salonId}` }));
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, provider, NOW)).toBe('sent');
+    expect(provider).toHaveBeenCalledOnce();
+    expect(provider.mock.calls[0]![0].body).toContain('Hi Alex! It’s almost time');
+    expect(provider.mock.calls[0]![0].body).toContain('Reply STOP to opt out.');
+
+    const [stored] = await db.select().from(schema.communicationIntentSchema)
+      .where(eq(schema.communicationIntentSchema.id, intent.id));
+    const [reservation] = await db.select().from(schema.smsCreditReservationSchema)
+      .where(eq(schema.smsCreditReservationSchema.id, stored!.creditReservationId!));
+
+    expect(stored?.eventType).toBe('rebooking_reminder');
+    expect(reservation?.segments).toBe(stored?.segmentCount);
+    expect(stored?.segmentCount).toBeGreaterThan(1);
+  });
+
+  it('suppresses a queued reminder after a client opts out', async () => {
+    const { salonId, recipient } = await seedDueRebookingReminder();
+    const { appendGlobalConsentEvent } = await import('./smsConsentShared');
+    await appendGlobalConsentEvent({ senderIdentity: 'luster_shared_v1', recipient, state: 'suppressed', source: 'twilio_inbound' });
+    const provider = vi.fn();
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('suppressed');
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('suppresses a queued reminder when the client books another visit', async () => {
+    const { salonId, recipient, clientId } = await seedDueRebookingReminder();
+    await db.insert(schema.appointmentSchema).values({
+      id: `rebooking-future-${salonId}`,
+      salonId,
+      salonClientId: clientId,
+      clientPhone: recipient,
+      clientName: 'Alex Client',
+      startTime: new Date(NOW.getTime() + 24 * 60 * 60 * 1000),
+      endTime: new Date(NOW.getTime() + 25 * 60 * 60 * 1000),
+      status: 'confirmed',
+      totalPrice: 5000,
+      totalDurationMinutes: 60,
+    });
+    const provider = vi.fn();
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('suppressed');
+    expect(provider).not.toHaveBeenCalled();
+  });
+});

@@ -471,6 +471,8 @@ jobs:
               migrations/0094_billing_phone_identity.sql) ;;
               # Owner-specific salon chooser visibility; no salon data removed.
               migrations/0095_salon_chooser_visibility.sql) ;;
+              # Default-off automatic rebooking reminder settings and interval contract.
+              migrations/0096_rebooking_reminders.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -487,6 +489,7 @@ jobs:
               migrations/meta/0093_snapshot.json) ;;
               migrations/meta/0094_snapshot.json) ;;
               migrations/meta/0095_snapshot.json) ;;
+              migrations/meta/0096_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -950,6 +953,7 @@ jobs:
               0093_existing_test_client_text_defaults) ;;
               0094_billing_phone_identity) ;;
               0095_salon_chooser_visibility) ;;
+              0096_rebooking_reminders) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
