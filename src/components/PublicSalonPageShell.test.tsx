@@ -131,6 +131,27 @@ function SalonContentPlaceProbe() {
 }
 
 describe('booking palette continuity', () => {
+  it('applies font-only choices without changing a legacy booking theme', () => {
+    render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'theme', themeKey: 'espresso' }}
+        pageName="book-service"
+        salon={baseSalon}
+        bookingPage={{ ...liveBookingPageSide, siteHeadingFont: 'editorial', siteBodyFont: 'nunito' }}
+      >
+        <div data-testid="palette-child" />
+      </PublicSalonPageShell>,
+    );
+
+    const wrapper = screen.getByTestId('palette-child').closest<HTMLElement>('[data-customer-site-fonts]');
+
+    expect(wrapper).not.toHaveAttribute('data-customer-booking-theme');
+    expect(wrapper?.style.getPropertyValue('--customer-site-heading-font')).toContain('--font-luster-editorial');
+    expect(wrapper?.style.getPropertyValue('--customer-site-body-font')).toContain('--font-luster-soft');
+    expect(wrapper?.style.getPropertyValue('--theme-background')).toBe('');
+    expect(wrapper?.style.getPropertyValue('--customer-site-card-radius')).toBe('');
+  });
+
   it.each(CUSTOMER_SITE_PALETTE_PRESETS)('shares %s across every booking step', (palette) => {
     const expected = getCustomerSitePresentationCssVariables({ palettePreset: palette, stylePreset: 'modern' });
     for (const pageName of ['book-service', 'book-technician', 'book-datetime', 'book-confirm']) {

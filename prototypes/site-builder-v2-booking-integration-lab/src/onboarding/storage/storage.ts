@@ -36,10 +36,28 @@ import {
   type QuickBookProfileVisibilityDraft,
   type SetupChecklistFixtureStatus,
   type SitePalettePresetId,
+  type SiteStylePresetId,
   type Weekday,
   type WeeklyHoursDraft,
 } from '../model/types';
 import { isQuickBookLayoutId } from '../quick-book/layouts';
+
+const SITE_STYLE_PRESET_IDS: ReadonlySet<SiteStylePresetId> = new Set([
+  'modern',
+  'editorial',
+  'soft',
+  'minimal',
+  'bold',
+  'luxury',
+]);
+
+const BODY_FONT_IDS = new Set(['inter', 'outfit', 'nunito']);
+
+const isSiteStylePresetId = (value: unknown): value is SiteStylePresetId =>
+  typeof value === 'string' && SITE_STYLE_PRESET_IDS.has(value as SiteStylePresetId);
+
+const isBodyFont = (value: unknown): value is NonNullable<OnboardingLabState['recipe']['bodyFont']> =>
+  typeof value === 'string' && BODY_FONT_IDS.has(value);
 
 export const ONBOARDING_STORAGE_KEY = 'luster:onboarding-v1-lab';
 
@@ -1019,6 +1037,12 @@ const migrateLegacyOnboardingState = (
     recipe: {
       ...defaults.recipe,
       ...(value.recipe as OnboardingLabState['recipe']),
+      bodyFont: isBodyFont(value.recipe.bodyFont)
+        ? value.recipe.bodyFont
+        : defaults.recipe.bodyFont,
+      headingFont: isSiteStylePresetId(value.recipe.headingFont)
+        ? value.recipe.headingFont
+        : undefined,
       paletteConfirmed: typeof value.recipe.paletteConfirmed === 'boolean'
         ? value.recipe.paletteConfirmed
         : false,
@@ -1109,6 +1133,7 @@ export const parseOnboardingState = (
     };
   }
   const instagram = resolveInstagramUsername(normalizedValue.profile.instagram);
+  const defaults = createDefaultOnboardingState();
   const profile = {
     ...normalizedValue.profile,
     ...(instagram.status === 'resolved' ? { instagram: instagram.username } : {}),
@@ -1120,6 +1145,15 @@ export const parseOnboardingState = (
     state: reconcileConditionalHistory({
       ...normalizedValue,
       profile,
+      recipe: {
+        ...normalizedValue.recipe,
+        bodyFont: isBodyFont(normalizedValue.recipe.bodyFont)
+          ? normalizedValue.recipe.bodyFont
+          : defaults.recipe.bodyFont,
+        headingFont: isSiteStylePresetId(normalizedValue.recipe.headingFont)
+          ? normalizedValue.recipe.headingFont
+          : undefined,
+      },
       reviewOptions: {
         ...normalizedValue.reviewOptions,
         feedbackMilestones: normalizeFeedbackMilestones(

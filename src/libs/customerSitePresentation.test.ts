@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CUSTOMER_SITE_PALETTE_PRESETS,
   CUSTOMER_SITE_STYLE_PRESETS,
+  getCustomerSiteFontCssVariables,
   getCustomerSitePresentationCssVariables,
   resolveCustomerSitePalettePreset,
   resolveCustomerSiteStylePreset,
@@ -102,6 +103,31 @@ describe('customerSitePresentation', () => {
     );
 
     expect(new Set(bodyFonts).size).toBe(1);
+  });
+
+  it('changes fonts independently of style and palette', () => {
+    const base = getCustomerSitePresentationCssVariables({ palettePreset: 'black_champagne', stylePreset: 'luxury' });
+    const customized = getCustomerSitePresentationCssVariables({
+      bodyFont: 'nunito',
+      headingFont: 'modern',
+      palettePreset: 'black_champagne',
+      stylePreset: 'luxury',
+    });
+
+    expect(customized['--customer-site-heading-font']).toContain('--font-luster-modern');
+    expect(customized['--customer-site-body-font']).toContain('--font-luster-soft');
+    expect(customized['--customer-site-card-radius']).toBe(base['--customer-site-card-radius']);
+    expect(customized['--theme-primary']).toBe(base['--theme-primary']);
+    expect(customized['--customer-site-button-radius']).toBe(base['--customer-site-button-radius']);
+  });
+
+  it('offers font-only variables for salons with an existing theme', () => {
+    const fonts = getCustomerSiteFontCssVariables({ bodyFont: 'nunito', headingFont: 'editorial' });
+
+    expect(fonts['--customer-site-heading-font']).toContain('--font-luster-editorial');
+    expect(fonts['--customer-site-body-font']).toContain('--font-luster-soft');
+    expect(fonts).not.toHaveProperty('--theme-background');
+    expect(fonts).not.toHaveProperty('--customer-site-card-radius');
   });
 
   it('uses safe released defaults for absent or unsupported ids', () => {

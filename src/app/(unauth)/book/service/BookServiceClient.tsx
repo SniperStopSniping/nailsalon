@@ -25,6 +25,7 @@ import type { PublicCatalogSnapshot } from '@/libs/catalogDomain';
 import { resolveCatalogSelection } from '@/libs/catalogResolverCore';
 import { useNormalBookingFlowMarker } from '@/libs/customerAssistant/normalConfirmHandoff.client';
 import {
+  getCustomerSiteFontCssVariables,
   getCustomerSitePresentationCssVariables,
   resolveCustomerSitePalettePreset,
   resolveCustomerSiteStylePreset,
@@ -339,6 +340,8 @@ export function BookServiceClient({
   );
   const hasCustomerSitePresentation = bookingPage?.siteStylePreset !== undefined
     || bookingPage?.sitePalettePreset !== undefined;
+  const hasCustomerSiteFonts = bookingPage?.siteHeadingFont !== undefined
+    || bookingPage?.siteBodyFont !== undefined;
   const customerSiteStylePreset = hasCustomerSitePresentation
     ? resolveCustomerSiteStylePreset(bookingPage?.siteStylePreset)
     : undefined;
@@ -347,10 +350,17 @@ export function BookServiceClient({
     : undefined;
   const customerSitePresentationStyles = hasCustomerSitePresentation
     ? getCustomerSitePresentationCssVariables({
+      bodyFont: bookingPage?.siteBodyFont,
+      headingFont: bookingPage?.siteHeadingFont,
       palettePreset: customerSitePalettePreset,
       stylePreset: customerSiteStylePreset,
     })
-    : {};
+    : hasCustomerSiteFonts
+      ? getCustomerSiteFontCssVariables({
+        bodyFont: bookingPage?.siteBodyFont,
+        headingFont: bookingPage?.siteHeadingFont,
+      })
+      : {};
   const compactQuickBookProfileEnabled = layout === 'quick_book'
     && usesCompactQuickBookProfile(bookingPage?.quickBookProfile);
   const quickBookSectionOrder = resolveQuickBookPublicSectionOrder(
@@ -1416,6 +1426,7 @@ export function BookServiceClient({
       className="service-page-viewport"
       data-customer-site-palette={customerSitePalettePreset}
       data-customer-site-style={customerSiteStylePreset}
+      data-customer-site-fonts={hasCustomerSiteFonts ? 'true' : undefined}
       style={{
         ...customerSitePresentationStyles,
         background: hasBookingBrandColor

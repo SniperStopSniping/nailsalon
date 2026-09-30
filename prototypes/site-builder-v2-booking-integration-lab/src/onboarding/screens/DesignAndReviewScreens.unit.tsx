@@ -408,7 +408,8 @@ describe('SiteStyleScreen', () => {
       .getAllByRole('button')).toHaveLength(8);
     expect(screen.getByRole('region', { name: 'Live personalized style preview' })).toBeVisible();
 
-    await user.click(screen.getByRole('button', { name: /Luxury/ }));
+    await user.click(within(screen.getByRole('group', { name: 'Site style presets' }))
+      .getByRole('button', { name: /Luxury/ }));
 
     expect(preview.querySelector('[data-style-preset]')).toHaveAttribute(
       'data-style-preset',
@@ -442,6 +443,63 @@ describe('SiteStyleScreen', () => {
       styleConfirmed: true,
       stylePreset: 'luxury',
     });
+  });
+
+  it('lets owners tune heading and body fonts while preserving an explicit heading choice', async () => {
+    const user = userEvent.setup();
+    const initial = createDanielaFixtureState();
+    let latestState = initial;
+
+    function Harness() {
+      const [state, setState] = useState(initial);
+      const update: OnboardingStateUpdater = transform => setState((current) => {
+        const next = transform(current);
+        latestState = next;
+        return next;
+      });
+      return (
+        <SiteStyleScreen
+          document={null}
+          onBack={vi.fn()}
+          onContinue={vi.fn()}
+          onFullPreview={vi.fn()}
+          onUpdate={update}
+          state={state}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const preview = screen.getByRole('region', { name: 'Live personalized style preview' });
+    const headingFonts = screen.getByRole('group', { name: 'Heading font choices' });
+    const bodyFonts = screen.getByRole('group', { name: 'Body font choices' });
+
+    expect(within(headingFonts).getAllByRole('button')).toHaveLength(6);
+    expect(within(bodyFonts).getAllByRole('button')).toHaveLength(3);
+    expect(preview.querySelector('[data-heading-font]')).toHaveAttribute(
+      'data-heading-font',
+      initial.recipe.stylePreset,
+    );
+    expect(preview.querySelector('[data-body-font]')).toHaveAttribute('data-body-font', 'inter');
+
+    await user.click(within(headingFonts).getByRole('button', { name: 'Playfair Display heading font' }));
+    await user.click(within(bodyFonts).getByRole('button', { name: 'Outfit body font' }));
+    await user.click(within(screen.getByRole('group', { name: 'Site style presets' }))
+      .getByRole('button', { name: /Bold/ }));
+
+    expect(latestState.recipe).toMatchObject({
+      bodyFont: 'outfit',
+      headingFont: 'luxury',
+      stylePreset: 'bold',
+    });
+    expect(preview.querySelector('[data-heading-font]')).toHaveAttribute('data-heading-font', 'luxury');
+    expect(preview.querySelector('[data-body-font]')).toHaveAttribute('data-body-font', 'outfit');
+
+    await user.click(screen.getByRole('button', { name: 'Follow Bold style font' }));
+
+    expect(latestState.recipe.headingFont).toBeUndefined();
+    expect(preview.querySelector('[data-heading-font]')).toHaveAttribute('data-heading-font', 'bold');
   });
 
   it('allows the bounded default style to be accepted explicitly', async () => {

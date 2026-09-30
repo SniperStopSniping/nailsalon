@@ -240,6 +240,7 @@ export function compileOnboardingToSiteDocument(input: {
   const visiblePageIds = new Set(pages.map(page => page.id));
 
   const document = {
+    ...(snapshot.site.bodyFont ? { bodyFont: snapshot.site.bodyFont } : {}),
     builderDocument: stampedDocument,
     compilerVersion: recipe.compilerVersion,
     navigation: [...stampedDocument.navigation.items]
@@ -247,6 +248,7 @@ export function compileOnboardingToSiteDocument(input: {
       .filter(item => visiblePageIds.has(item.pageId))
       .map((item, order) => ({ label: item.label, order, pageId: item.pageId })),
     navigationEnabled: stampedDocument.navigation.enabled,
+    ...(snapshot.site.headingFont ? { headingFont: snapshot.site.headingFont } : {}),
     pages,
     palettePresetId: snapshot.site.palettePresetId,
     recipeMigrationResult: recipe.migrationResult,

@@ -248,6 +248,14 @@
    * colours never inherit a customer's style or palette. Legacy salons have
    * no data attribute and retain their existing tenant theme unchanged.
    */
+  :is(.service-page-viewport[data-customer-site-fonts], [data-customer-site-fonts]) {
+    font-family: var(--customer-site-body-font);
+  }
+
+  :is(.service-page-viewport[data-customer-site-fonts], [data-customer-site-fonts]) :where(h1, h2, h3) {
+    font-family: var(--customer-site-heading-font);
+  }
+
   :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme]) {
     color: var(--customer-site-ink);
     font-family: var(--customer-site-body-font);
@@ -281,7 +289,8 @@
     line-height: var(--customer-site-heading-leading, 1.1);
   }
 
-  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme]) :where(.text-neutral-950, .text-neutral-900, .text-neutral-800) {
+  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme])
+    :where(.text-neutral-950, .text-neutral-900, .text-neutral-800) {
     color: var(--customer-site-ink);
   }
 
@@ -290,11 +299,13 @@
     color: var(--customer-site-muted);
   }
 
-  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme]) :where(.bg-white, .bg-white\/75, .bg-white\/70, .bg-white\/50) {
+  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme])
+    :where(.bg-white, .bg-white\/75, .bg-white\/70, .bg-white\/50) {
     background-color: var(--theme-card-background);
   }
 
-  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme]) :where(.bg-neutral-50, .bg-neutral-100) {
+  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme])
+    :where(.bg-neutral-50, .bg-neutral-100) {
     background-color: var(--theme-surface-alt);
   }
 
@@ -472,7 +483,11 @@
 }
 
 [data-booking-readability] .booking-week-day:disabled {
-  background-image: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, currentColor 7%, transparent) 5px 6px);
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 5px,
+    color-mix(in srgb, currentColor 7%, transparent) 5px 6px
+  );
 }
 
 .booking-month-grid button {

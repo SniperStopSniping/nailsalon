@@ -1104,7 +1104,8 @@ test.describe('Daniela-final onboarding acceptance', () => {
   test('V04 all six website styles visibly update the personalized customer preview', async ({ page }) => {
     await page.setViewportSize({ height: 800, width: 1180 });
     await openAuditFresh(page);
-    await applyFixture(page, 'Policies Off', 'Choose your website style');
+    await chooseStartingPoint(page, 'Quick Book');
+    await applyFixture(page, 'Policies Off', 'Make it feel like yours');
 
     const styles = [
       ['Modern', 'modern', '28-style-modern'],
@@ -1139,7 +1140,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
       });
       tokenSnapshots.set(id, tokens);
       if (id === 'modern') {
-        await expect(group.getByRole('button', { name: /^Soft/u })).toContainText('On your site now');
+        await expect(group.getByRole('button', { name: /^Soft/u })).toHaveAttribute('data-current', 'true');
         await expect(option).toContainText('Previewing');
 
         await captureLocator(group, '34-style-current-vs-previewing');
@@ -1148,6 +1149,17 @@ test.describe('Daniela-final onboarding acceptance', () => {
     }
 
     expect(new Set(tokenSnapshots.values()).size).toBeGreaterThanOrEqual(5);
+
+    await page.getByRole('group', { name: 'Heading font choices' })
+      .getByRole('button', { name: 'Newsreader heading font' }).click();
+    await page.getByRole('group', { name: 'Body font choices' })
+      .getByRole('button', { name: 'Nunito body font' }).click();
+
+    await expect(preview.locator('[data-style-preset="luxury"][data-heading-font="editorial"][data-body-font="nunito"]')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Follow Luxury style font' }).click();
+
+    await expect(preview.locator('[data-style-preset="luxury"][data-heading-font="luxury"][data-body-font="nunito"]')).toBeVisible();
 
     await page.setViewportSize({ height: 568, width: 320 });
     await group.scrollIntoViewIfNeeded();

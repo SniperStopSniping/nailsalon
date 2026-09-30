@@ -19,6 +19,8 @@ function currentSide(): BookingPageConfigSide {
     serviceMenuLayout: 'clean_list',
     sitePalettePreset: 'black_champagne',
     siteStylePreset: 'luxury',
+    siteHeadingFont: 'editorial',
+    siteBodyFont: 'nunito',
     stylePack: 'future-premium-style',
     tokenOverrides: {
       accentColor: '#AABBCC',
@@ -91,6 +93,8 @@ describe('booking-page preset target preview', () => {
       serviceMenuLayout: current.serviceMenuLayout,
       sitePalettePreset: current.sitePalettePreset,
       siteStylePreset: current.siteStylePreset,
+      siteHeadingFont: current.siteHeadingFont,
+      siteBodyFont: current.siteBodyFont,
       stylePack: current.stylePack,
       tokenOverrides,
       sectionOrder: [...recipe!.sectionOrder],

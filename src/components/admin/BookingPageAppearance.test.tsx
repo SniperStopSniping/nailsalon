@@ -11,13 +11,13 @@ vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({ db: {} }));
 
 describe('Booking Page appearance', () => {
-  it('uses the shared six styles and eight palettes and writes only the chosen field', () => {
+  it('uses the shared styles, palettes and font choices, and writes only the chosen field', () => {
     const onChange = vi.fn();
     const draft = resolveBookingPageConfig({}).draft;
     const before = JSON.stringify(draft);
     render(<BookingPageAppearance disabled={false} draft={draft} mode="appearance" onChange={onChange} />);
 
-    expect(screen.getAllByRole('button')).toHaveLength(14);
+    expect(screen.getAllByRole('button')).toHaveLength(23);
 
     fireEvent.click(screen.getByRole('button', { name: 'Luxury' }));
 
@@ -26,7 +26,50 @@ describe('Booking Page appearance', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Black & Champagne' }));
 
     expect(onChange).toHaveBeenLastCalledWith({ sitePalettePreset: 'black_champagne' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Newsreader heading font' }));
+
+    expect(onChange).toHaveBeenLastCalledWith({ siteHeadingFont: 'editorial' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nunito body font' }));
+
+    expect(onChange).toHaveBeenLastCalledWith({ siteBodyFont: 'nunito' });
     expect(JSON.stringify(draft)).toBe(before);
+  });
+
+  it('keeps font selection independent from the selected style and palette', () => {
+    const onChange = vi.fn();
+    const draft = resolveBookingPageConfig({
+      bookingPage: {
+        draft: {
+          sitePalettePreset: 'black_champagne',
+          siteStylePreset: 'soft',
+        },
+      },
+    }).draft;
+    render(<BookingPageAppearance disabled={false} draft={draft} mode="appearance" onChange={onChange} />);
+
+    expect(screen.getByRole('button', { name: 'Nunito heading font' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Inter body font' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('appearance-specimen-heading-editorial')).toHaveStyle({ backgroundColor: 'rgb(21, 19, 21)' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Playfair Display heading font' }));
+
+    expect(onChange).toHaveBeenLastCalledWith({ siteHeadingFont: 'luxury' });
+    expect(JSON.stringify(draft)).toContain('black_champagne');
+    expect(JSON.stringify(draft)).toContain('soft');
+  });
+
+  it('lets an owner return heading lettering to the style default', () => {
+    const onChange = vi.fn();
+    const draft = resolveBookingPageConfig({
+      bookingPage: { draft: { siteStylePreset: 'luxury', siteHeadingFont: 'editorial' } },
+    }).draft;
+    render(<BookingPageAppearance disabled={false} draft={draft} mode="appearance" onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Follow style font' }));
+
+    expect(onChange).toHaveBeenLastCalledWith({ siteHeadingFont: null });
   });
 
   it('keeps every registered site composition independent from the five booking menus', () => {

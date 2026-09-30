@@ -355,8 +355,8 @@ describe('SettingsModal — one writer per record', () => {
 
       const handoff = await screen.findByTestId('branding-colour-authority');
 
-      expect(handoff).toHaveTextContent('Booking Page → Style & Colours');
-      expect(screen.getByRole('link', { name: /open style & colours/i }))
+      expect(handoff).toHaveTextContent('Booking Page → Style, Colours & Fonts');
+      expect(screen.getByRole('link', { name: /open style, colours & fonts/i }))
         .toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=appearance');
       expect(screen.queryByLabelText('Primary brand colour')).not.toBeInTheDocument();
       expect(screen.queryByLabelText('Choose primary brand colour')).not.toBeInTheDocument();

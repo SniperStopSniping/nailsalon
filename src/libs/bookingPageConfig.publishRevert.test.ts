@@ -37,6 +37,7 @@ import {
 import {
   BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
   BookingPageBuilderWriteError,
+  bookingPageDraftPatchSchema,
   getBookingPageDraftPresentationState,
   publishBookingPageConfig,
   resolveBookingPageConfig,
@@ -206,12 +207,16 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
 
   it('persists and publishes the free customer-site appearance without using premium fields', async () => {
     const updated = await updateBookingPageDraft(SALON_ID, {
+      siteBodyFont: 'nunito',
+      siteHeadingFont: 'editorial',
       sitePalettePreset: 'black_champagne',
       siteStylePreset: 'luxury',
     });
 
     expect(updated?.draft.sitePalettePreset).toBe('black_champagne');
     expect(updated?.draft.siteStylePreset).toBe('luxury');
+    expect(updated?.draft.siteHeadingFont).toBe('editorial');
+    expect(updated?.draft.siteBodyFont).toBe('nunito');
     expect(updated?.draft.stylePack).toBe('default');
     expect(updated?.draft.tokenOverrides).toBeNull();
 
@@ -219,8 +224,18 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
 
     expect(published?.live.sitePalettePreset).toBe('black_champagne');
     expect(published?.live.siteStylePreset).toBe('luxury');
+    expect(published?.live.siteHeadingFont).toBe('editorial');
+    expect(published?.live.siteBodyFont).toBe('nunito');
     expect(published?.live.stylePack).toBe('default');
     expect(published?.live.tokenOverrides).toBeNull();
+  });
+
+  it('can remove a custom heading font to follow the current style', async () => {
+    await updateBookingPageDraft(SALON_ID, { siteHeadingFont: 'editorial' });
+    const reset = await updateBookingPageDraft(SALON_ID, { siteHeadingFont: null });
+
+    expect(reset?.draft.siteHeadingFont).toBeUndefined();
+    expect(bookingPageDraftPatchSchema.safeParse({ siteHeadingFont: null }).success).toBe(true);
   });
 
   it('publishBookingPageConfig copies the current draft into live and leaves draft untouched', async () => {

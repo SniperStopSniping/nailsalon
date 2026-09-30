@@ -118,6 +118,120 @@
   text-align: center;
 }
 
+.onboarding-font-section {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 20px;
+  background: var(--onboarding-surface);
+}
+
+.onboarding-font-choice {
+  display: grid;
+  gap: 10px;
+}
+
+.onboarding-font-choice h3,
+.onboarding-font-choice p {
+  margin: 0;
+}
+
+.onboarding-font-choice h3 {
+  color: var(--onboarding-ink);
+  font-size: 0.94rem;
+}
+
+.onboarding-font-choice p {
+  margin-top: 3px;
+  color: var(--onboarding-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.onboarding-font-grid,
+.onboarding-body-font-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.onboarding-font-card {
+  display: grid;
+  min-width: 0;
+  min-height: 92px;
+  align-content: start;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 12px;
+  color: var(--onboarding-ink);
+  background: #fff;
+  text-align: left;
+}
+
+.onboarding-font-card[data-selected='true'] {
+  border-color: var(--onboarding-accent);
+  background: var(--onboarding-accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--onboarding-accent) 18%, transparent);
+}
+
+.onboarding-font-card > strong,
+.onboarding-font-card > span {
+  font-family: var(--font-choice-family, inherit);
+}
+
+.onboarding-font-card > strong {
+  font-size: 0.83rem;
+}
+
+.onboarding-font-card > span {
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.onboarding-font-card > small {
+  margin-top: auto;
+  color: var(--onboarding-muted);
+  font-size: 0.61rem;
+  font-weight: 750;
+}
+
+.onboarding-font-card--body > span {
+  font-size: 0.73rem;
+  line-height: 1.35;
+}
+
+.onboarding-font-reset {
+  justify-self: start;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 9px;
+  color: var(--onboarding-accent-dark);
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+@media (max-width: 599px) {
+  .onboarding-font-section {
+    padding: 14px;
+  }
+
+  .onboarding-font-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .onboarding-body-font-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-font-card {
+    min-height: 82px;
+  }
+}
+
 .onboarding-save-progress {
   display: grid;
   width: min(100%, 820px);
@@ -325,7 +439,11 @@
   margin: 0;
 }
 
-@keyframes onboarding-save-spin { to { transform: rotate(360deg); } }
+@keyframes onboarding-save-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 @media (max-width: 760px) {
   .onboarding-look-preview {
