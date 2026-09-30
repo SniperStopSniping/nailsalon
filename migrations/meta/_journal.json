@@ -666,6 +666,13 @@
       "when": 1790745061453,
       "tag": "0095_salon_chooser_visibility",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1790801118004,
+      "tag": "0096_rebooking_reminders",
+      "breakpoints": true
     }
   ]
 }

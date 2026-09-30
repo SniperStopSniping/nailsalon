@@ -11,7 +11,7 @@
  * Operational SMS omits the visible STOP footer (owner decision 2026-09-20).
  * Review requests use the owner-visible body, including the salon name in
  * the default copy; other client templates keep the sender prefix.
- * Arbitrary manual SMS retains the STOP footer.
+ * Arbitrary manual and automatic rebooking SMS retain the STOP footer.
  * This presentation policy does not change consent or inbound opt-out handling.
  * Salon prefix sanitization is unchanged; custom body Unicode is preserved.
  * Secure short management links keep the default operational copy in one segment.
@@ -231,6 +231,13 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
     audience: 'client',
     render: renderReviewRequest,
     worstCaseVariables: [{ salonName: WORST_CASE_SALON_NAME, message: 'Thank you for visiting Twenty Four Septet Name Xy! We\'d love your Google review: https://g.page/r/Cd2cHWyZCr9bEBM/review' }],
+  },
+  client_rebooking_reminder: {
+    key: 'client_rebooking_reminder',
+    version: 'v1',
+    audience: 'client',
+    render: variables => `${buildClientSmsPrefix(variables.salonName ?? '')}${variables.message ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [{ salonName: WORST_CASE_SALON_NAME, message: 'Hi Ana! It’s almost time for your next appointment 💕 Our popular times can fill up quickly, so book ahead to get the time that works best for you: https://www.lustergel.app/en/isla-nail-studio/book/service' }],
   },
   client_booking_confirmation_nolink: {
     key: 'client_booking_confirmation_nolink',

@@ -23,6 +23,7 @@ import { LusterClientSms } from '@/components/admin/LusterClientSms';
 import { MarketingMessageComposer } from '@/components/admin/MarketingMessageComposer';
 import { NextVisitOfferSettings } from '@/components/admin/NextVisitOfferSettings';
 import { RebookingPromptSettings } from '@/components/admin/RebookingPromptSettings';
+import { RebookingReminderSettings } from '@/components/admin/RebookingReminderSettings';
 import { ReviewRequestSettings } from '@/components/admin/ReviewRequestSettings';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { buildClientSmsMessage } from '@/libs/clientSmsComposer';
@@ -471,9 +472,9 @@ function PromotionEditor({
 // shared resolver as the Integrations app; Results show only measurable facts.
 // =============================================================================
 
-type MarketingView = 'home' | 'compose' | 'followups' | 'messages' | 'phone-receptionist' | 'offers' | 'next-visit' | 'rebooking-prompt' | 'smart-fit' | 'campaigns' | 'results' | 'reviews';
+type MarketingView = 'home' | 'compose' | 'followups' | 'messages' | 'phone-receptionist' | 'offers' | 'next-visit' | 'rebooking-prompt' | 'rebooking-reminders' | 'smart-fit' | 'campaigns' | 'results' | 'reviews';
 
-const MARKETING_VIEWS: MarketingView[] = ['home', 'compose', 'followups', 'messages', 'phone-receptionist', 'offers', 'next-visit', 'rebooking-prompt', 'smart-fit', 'campaigns', 'results', 'reviews'];
+const MARKETING_VIEWS: MarketingView[] = ['home', 'compose', 'followups', 'messages', 'phone-receptionist', 'offers', 'next-visit', 'rebooking-prompt', 'rebooking-reminders', 'smart-fit', 'campaigns', 'results', 'reviews'];
 
 function isMarketingView(value: string | null): value is MarketingView {
   return value !== null && (MARKETING_VIEWS as string[]).includes(value);
@@ -488,6 +489,7 @@ const VIEW_TITLES: Record<MarketingView, string> = {
   'offers': 'Offers',
   'next-visit': 'Next Visit Offer',
   'rebooking-prompt': 'Rebooking Prompt',
+  'rebooking-reminders': 'Rebooking Reminders',
   'smart-fit': 'Smart Fit',
   'campaigns': 'Win-back Offers',
   'results': 'Results',
@@ -1019,6 +1021,17 @@ export function MarketingModal({
     );
   }
 
+  if (view === 'rebooking-reminders') {
+    return (
+      <RebookingReminderSettings
+        key={`${salonSlug}:${view}`}
+        salonSlug={salonSlug ?? ''}
+        salonName={salonName ?? ''}
+        onClose={() => backTo('home')}
+      />
+    );
+  }
+
   if (view === 'smart-fit') {
     return (
       <SettingsModal
@@ -1138,16 +1151,16 @@ export function MarketingModal({
                           <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--owner-accent)]">{followupCount === null ? '…' : `${followupCount} due`}</span>
                         </button>
                         {homeRow({
-                          testId: 'marketing-home-rebooking-prompt',
-                          title: 'Rebooking Prompt',
-                          detail: 'Invite clients to reserve their next visit on the booking confirmation page.',
+                          testId: 'marketing-home-rebooking-reminders',
+                          title: 'Rebooking Reminders',
+                          detail: 'Automatically remind clients when it’s almost time for their next appointment.',
                           status: 'Manage',
-                          onClick: () => openView('rebooking-prompt'),
+                          onClick: () => openView('rebooking-reminders'),
                         })}
                         {homeRow({
                           testId: 'marketing-home-campaigns',
                           title: 'Win-back Offers',
-                          detail: 'Rebooking timing, return offers and saved wording.',
+                          detail: 'Bring overdue clients back with timed reminders or offers.',
                           status: winbackConfigured ? 'Set up' : 'Not set up',
                           onClick: () => openView('campaigns'),
                         })}
@@ -1157,6 +1170,13 @@ export function MarketingModal({
                           detail: automaticStatus.detail || 'Confirmations, reminders, cancellations and channels.',
                           status: automaticStatus.label === 'Ready' ? 'Luster texting ready' : automaticStatus.label,
                           onClick: () => openView('messages'),
+                        })}
+                        {homeRow({
+                          testId: 'marketing-home-rebooking-prompt',
+                          title: 'Confirmation Page Rebooking Prompt',
+                          detail: 'Invite clients to reserve their next visit on the booking confirmation page.',
+                          status: 'Manage',
+                          onClick: () => openView('rebooking-prompt'),
                         })}
                         {homeRow({
                           testId: 'marketing-home-phone-receptionist',
