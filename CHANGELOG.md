@@ -1,3 +1,10 @@
+## [1.133.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.133.1...v1.133.2) (2026-09-30)
+
+
+### Bug Fixes
+
+* retry competing billing subscription projections ([47c4cf4](https://github.com/SniperStopSniping/nailsalon/commit/47c4cf4d966d66e2a82b6680710487c68cbfa661))
+
 ## [1.133.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.133.0...v1.133.1) (2026-09-30)
 
 
