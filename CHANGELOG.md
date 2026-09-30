@@ -1,3 +1,10 @@
+## [1.133.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.133.0...v1.133.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* align production domain safeguards with Luster ([9550af6](https://github.com/SniperStopSniping/nailsalon/commit/9550af6b4b78fa76290405405d167dd7ba4e72dc))
+
 # [1.133.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.132.2...v1.133.0) (2026-09-27)
 
 
