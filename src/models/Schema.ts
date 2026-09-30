@@ -2376,6 +2376,7 @@ export const adminSalonMembershipSchema = pgTable(
       .references(() => salonSchema.id, { onDelete: 'cascade' }),
     role: text('role').default('admin').notNull(), // 'admin' | 'owner'
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    hiddenFromChooserAt: timestamp('hidden_from_chooser_at', { mode: 'date' }),
   },
   table => ({
     pk: primaryKey({ columns: [table.adminId, table.salonId] }),

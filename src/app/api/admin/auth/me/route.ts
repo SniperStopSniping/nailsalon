@@ -52,7 +52,8 @@ export async function GET(request: Request) {
         publicUrl: buildSalonTenantPublicUrl('/', { slug: s.salonSlug, customDomain: s.customDomain }),
         bookingUrl: buildSalonTenantPublicUrl('/book/service', { slug: s.salonSlug, customDomain: s.customDomain }),
       }));
-      let availableSalons = [...salons];
+      let availableSalons = salons.filter((_, index) => !admin.salons[index]?.hiddenFromChooserAt);
+      const hiddenSalons = salons.filter((_, index) => Boolean(admin.salons[index]?.hiddenFromChooserAt));
 
       if (impersonation) {
         salons = [{
@@ -144,6 +145,7 @@ export async function GET(request: Request) {
           profileComplete,
           salons,
           availableSalons: impersonation ? salons : availableSalons,
+          hiddenSalons: impersonation ? [] : hiddenSalons,
           impersonation: impersonation
             ? {
                 isActive: true,

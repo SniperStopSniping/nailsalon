@@ -109,7 +109,7 @@ const salonB = { id: 'salon_b', slug: 'salon-b', name: 'Salon B' };
 const salonA = { id: 'salon_a', slug: 'salon-a', name: 'Salon A' };
 
 /** One `getAdminSession()` call's worth of query plans. */
-function sessionPlans(memberships: Array<{ salonId: string; salonSlug: string }>) {
+function sessionPlans(memberships: Array<{ salonId: string; salonSlug: string; hidden?: boolean }>) {
   return [
     {
       type: 'limit' as const,
@@ -139,6 +139,7 @@ function sessionPlans(memberships: Array<{ salonId: string; salonSlug: string }>
         customDomain: null,
         salonStatus: 'active',
         freeSoloEnabled: false,
+        hiddenFromChooserAt: membership.hidden ? new Date('2026-09-30T00:00:00.000Z') : null,
       })),
     },
   ];
@@ -171,6 +172,20 @@ describe('requireAdminSalonForSlug', () => {
 
     expect(result.error).toBeNull();
     expect(result.salon?.id).toBe(salonB.id);
+  });
+
+  it('does not automatically open a removed salon, but still permits its explicit link', async () => {
+    const memberships = [
+      { salonId: salonA.id, salonSlug: salonA.slug, hidden: true },
+      { salonId: salonB.id, salonSlug: salonB.slug },
+    ];
+    setSelectPlans([...sessionPlans(memberships), ...sessionPlans(memberships), ...sessionPlans(memberships)]);
+
+    const fallback = await requireAdminSalonForSlug(null);
+    const direct = await requireAdminSalonForSlug('salon-a');
+
+    expect(fallback.salon?.id).toBe(salonB.id);
+    expect(direct.salon?.id).toBe(salonA.id);
   });
 
   it('acts on the salon the URL names, not the cookie fallback', async () => {
