@@ -1,0 +1,322 @@
+{
+  "schema_version": 2,
+  "id": "tutorial-booking",
+  "status": "blocked-awaiting-narration",
+  "title": "This is what your clients see",
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "min_duration_seconds": 60,
+    "max_duration_seconds": 75
+  },
+  "branding": {
+    "frame_background": "#F7F1E8",
+    "text_color": "#292421",
+    "accent_color": "#B99A64",
+    "font_file": null,
+    "disclosure": "AI-generated narration \u00b7 Fictional demo salon \u00b7 AI nail imagery"
+  },
+  "inputs": {
+    "narration": "narration/tutorial-booking-aligned.wav"
+  },
+  "scenes": [
+    {
+      "id": "preview",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 60,
+      "source_end": 64,
+      "output_duration_seconds": 4,
+      "label": "PREVIEW \u00b7 Booking complete",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    },
+    {
+      "id": "page",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 2.4,
+      "source_end": 7.3,
+      "output_duration_seconds": 4.9,
+      "label": "Choose your appointment",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    },
+    {
+      "id": "service",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 7.3,
+      "source_end": 12.1,
+      "output_duration_seconds": 4.8,
+      "label": "Select BIAB Overlay",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    },
+    {
+      "id": "addon",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 12.1,
+      "source_end": 17.6,
+      "output_duration_seconds": 5.5,
+      "label": "Optional \u00b7 Add Simple Nail Art",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    },
+    {
+      "id": "continue",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 17.6,
+      "source_end": 22.5,
+      "output_duration_seconds": 4.9,
+      "label": "Continue",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    },
+    {
+      "id": "date",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 22.5,
+      "source_end": 25.6,
+      "output_duration_seconds": 3.1,
+      "label": "Choose a date",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    },
+    {
+      "id": "time",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 25.6,
+      "source_end": 29.5,
+      "output_duration_seconds": 3.9,
+      "label": "Choose an available time",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    },
+    {
+      "id": "summary",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 29.5,
+      "source_end": 35.6,
+      "output_duration_seconds": 6.1,
+      "label": "Review your appointment",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    },
+    {
+      "id": "details",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 35.6,
+      "source_end": 43.3,
+      "output_duration_seconds": 7.7,
+      "label": "Enter your contact details",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    },
+    {
+      "id": "agreement",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 43.3,
+      "source_end": 51,
+      "output_duration_seconds": 7.7,
+      "label": "Read the required agreement",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    },
+    {
+      "id": "confirm",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 51,
+      "source_end": 55.5,
+      "output_duration_seconds": 4.5,
+      "label": "Confirm appointment \u00b7 $75.00",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    },
+    {
+      "id": "complete",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+      "source_start": 55.5,
+      "source_end": 64.5,
+      "output_duration_seconds": 9.0,
+      "label": "Your time is reserved",
+      "framing": {
+        "fit": "contain",
+        "zoom": 1,
+        "source_crop": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "clean": "exports/tutorial-booking.clean.mp4",
+    "captioned": "exports/tutorial-booking.captioned.mp4",
+    "thumbnail": "exports/tutorial-booking.thumbnail.png",
+    "srt": "subtitles/tutorial-booking.srt",
+    "vtt": "subtitles/tutorial-booking.vtt",
+    "qa": "qa/tutorial-booking.json"
+  },
+  "narration": {
+    "model": "gpt-4o-mini-tts",
+    "voice": "marin",
+    "instructions": "Warm, conversational English. Calm, confident, approachable delivery.",
+    "segments": [
+      {
+        "start": 4.3,
+        "end": 9,
+        "text": "This is what your clients see when they open your booking page."
+      },
+      {
+        "start": 9.2,
+        "end": 14,
+        "text": "They can explore your services and choose the appointment they want."
+      },
+      {
+        "start": 14.2,
+        "end": 23.1,
+        "text": "Here, Sarah chooses BIAB Overlay and adds optional Simple Nail Art. Then she taps Continue."
+      },
+      {
+        "start": 23.3,
+        "end": 30.3,
+        "text": "Next, she chooses an available date and time. This studio has one technician."
+      },
+      {
+        "start": 30.5,
+        "end": 36.1,
+        "text": "The review screen shows the service, price, duration, time, and location."
+      },
+      {
+        "start": 36.3,
+        "end": 44,
+        "text": "She enters her name, email, and mobile number. The required fields are clearly marked."
+      },
+      {
+        "start": 44.2,
+        "end": 51.4,
+        "text": "She reads the appointment agreement and checks the required acknowledgment before continuing."
+      },
+      {
+        "start": 51.6,
+        "end": 56.5,
+        "text": "With the details reviewed, she taps Confirm appointment."
+      },
+      {
+        "start": 58,
+        "end": 64.5,
+        "text": "The confirmation screen shows that the booking is complete. Her time is reserved."
+      }
+    ],
+    "timing_status": "Proposed alignment only; must replace from final spoken audio"
+  },
+  "layout": {
+    "mode": "landscape-mobile-right",
+    "title_x": 120,
+    "title_y": 240,
+    "title_font_size": 60,
+    "title_wrap_chars": 16,
+    "label_x": 120,
+    "label_y": 520,
+    "label_font_size": 36,
+    "label_wrap_chars": 28,
+    "app_x": 1200,
+    "app_y": 90,
+    "app_height": 920
+  },
+  "caption_style": {
+    "font_size": 28,
+    "margin_vertical": 240,
+    "margin_left": 120,
+    "alignment": 1
+  }
+}

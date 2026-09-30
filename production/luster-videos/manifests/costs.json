@@ -1,0 +1,24 @@
+{
+  "currency": "CAD",
+  "maximumAllIn": 50,
+  "confirmedExternalPurchases": 0,
+  "narrationPaidCalls": 0,
+  "actualNarrationCharges": 0,
+  "estimatedNarrationCharges": 0.45,
+  "reservedRetryHeadroom": 5,
+  "pricingChecked": "2026-09-30",
+  "pricingSource": "https://developers.openai.com/api/docs/models/gpt-4o-mini-tts",
+  "apiInputUSDPerMillionTextTokens": 0.6,
+  "apiOutputUSDPerMillionAudioTokens": 12,
+  "fundingVerified": false,
+  "fxAndTaxesVerified": false,
+  "paidGenerationAllowed": false,
+  "notes": [
+    "Local FFmpeg is free.",
+    "Built-in image-generation charge not exposed; no separately metered image API used.",
+    "Do not report estimated usage as invoiced cost.",
+    "First tutorial has nine short sections. CAD0.45 is a conservative planning estimate, not incurred cost; planned reservation CAD9 before any request."
+  ],
+  "conservativeFirstTutorialReservation": 9,
+  "plannedRetryHeadroom": 5
+}

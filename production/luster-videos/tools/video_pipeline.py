@@ -1,0 +1,568 @@
+#!/usr/bin/env python3
+"""Fail-closed, offline FFmpeg assembly for approved Luster recordings.
+
+Timelines are editable JSON. Every scene names its source, source range, fit,
+and zoom, so an edit can be rebuilt without hidden editor state. This program
+does not make network or paid narration calls; ``tts-plan`` is dry-run only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any, Iterable
+
+ROOT = Path(__file__).resolve().parents[1]
+MAX_DURATION_SECONDS = 90
+SUPPORTED_FORMATS = {(1920, 1080), (1080, 1920)}
+REQUIRED_OUTPUTS = ("clean", "captioned", "thumbnail", "srt", "vtt", "qa")
+
+
+class PipelineError(RuntimeError):
+    pass
+
+
+def resolve_relative(value: str) -> Path:
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts:
+        raise PipelineError("Timeline paths must be relative and cannot escape production/luster-videos.")
+    return ROOT / path
+
+
+def load_timeline(value: str) -> dict[str, Any]:
+    timeline_path = Path(value)
+    if not timeline_path.is_absolute():
+        timeline_path = ROOT / timeline_path
+    try:
+        data = json.loads(timeline_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise PipelineError("Timeline file does not exist: %s" % timeline_path) from error
+    except json.JSONDecodeError as error:
+        raise PipelineError("Timeline is not valid JSON: %s" % error) from error
+    if not isinstance(data, dict):
+        raise PipelineError("Timeline root must be an object.")
+    return data
+
+
+def require_string(container: dict[str, Any], key: str) -> str:
+    value = container.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise PipelineError("Expected non-empty string for %s." % key)
+    return value
+
+
+def scene_duration(scene: dict[str, Any]) -> float:
+    return float(scene["source_end"]) - float(scene["source_start"])
+
+
+def planned_duration(data: dict[str, Any]) -> float:
+    return sum(scene_duration(scene) for scene in data["scenes"])
+
+
+def validate_timeline(data: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    try:
+        if data.get("schema_version") != 2:
+            raise PipelineError("schema_version must be 2.")
+        require_string(data, "id")
+        require_string(data, "title")
+        if data.get("status") == "final":
+            errors.append("Timeline status cannot be final until user approval is recorded.")
+        format_data = data.get("format")
+        if not isinstance(format_data, dict):
+            raise PipelineError("format must be an object.")
+        dimensions = (format_data.get("width"), format_data.get("height"))
+        if dimensions not in SUPPORTED_FORMATS or format_data.get("fps") != 30:
+            errors.append("format must be 1920x1080 or 1080x1920 at 30 fps.")
+        layout = data.get("layout", {"mode": "legacy"})
+        if not isinstance(layout, dict) or layout.get("mode", "legacy") not in ("legacy", "landscape-mobile-right"):
+            errors.append("layout.mode must be legacy or landscape-mobile-right.")
+        elif layout.get("mode") == "landscape-mobile-right":
+            if dimensions != (1920, 1080):
+                errors.append("landscape-mobile-right layout requires 1920x1080 output.")
+            for key in ("app_x", "app_y", "app_height"):
+                if key in layout and (not isinstance(layout[key], int) or layout[key] < 0):
+                    errors.append("layout.%s must be a non-negative integer." % key)
+            for key in ("title_x", "title_y", "label_x", "label_y", "disclosure_x", "disclosure_y", "watermark_x", "watermark_y"):
+                if key in layout and (not isinstance(layout[key], int) or layout[key] < 0):
+                    errors.append("layout.%s must be a non-negative integer." % key)
+            for key in ("title_font_size", "label_font_size", "disclosure_font_size", "watermark_font_size", "title_wrap_chars", "label_wrap_chars"):
+                if key in layout and (not isinstance(layout[key], int) or layout[key] <= 0):
+                    errors.append("layout.%s must be a positive integer." % key)
+            if "title_text" in layout and (not isinstance(layout["title_text"], str) or not layout["title_text"].strip() or len(layout["title_text"]) > 120):
+                errors.append("layout.title_text must be a non-empty string of at most 120 characters.")
+        caption_style = data.get("caption_style", {})
+        if not isinstance(caption_style, dict):
+            errors.append("caption_style must be an object when present.")
+        else:
+            for key, lower, upper in (("font_size", 16, 48), ("margin_vertical", 40, 400), ("margin_left", 0, 600)):
+                if key in caption_style and (not isinstance(caption_style[key], int) or not lower <= caption_style[key] <= upper):
+                    errors.append("caption_style.%s must be an integer between %s and %s." % (key, lower, upper))
+            if "alignment" in caption_style and caption_style["alignment"] not in (1, 2, 3):
+                errors.append("caption_style.alignment must be 1, 2, or 3.")
+        minimum, maximum = format_data.get("min_duration_seconds"), format_data.get("max_duration_seconds")
+        if not isinstance(minimum, (int, float)) or not isinstance(maximum, (int, float)) or not 1 <= minimum <= maximum <= MAX_DURATION_SECONDS:
+            errors.append("format must specify min_duration_seconds and max_duration_seconds between 1 and %s." % MAX_DURATION_SECONDS)
+        for section, keys in (("inputs", ("narration",)), ("outputs", REQUIRED_OUTPUTS)):
+            values = data.get(section)
+            if not isinstance(values, dict):
+                errors.append("%s must be an object." % section)
+                continue
+            for key in keys:
+                try:
+                    resolve_relative(require_string(values, key))
+                except PipelineError as error:
+                    errors.append("%s.%s: %s" % (section, key, error))
+        scenes = data.get("scenes")
+        if not isinstance(scenes, list) or not scenes:
+            errors.append("scenes must contain ordered scene definitions.")
+        else:
+            for index, scene in enumerate(scenes, start=1):
+                if not isinstance(scene, dict):
+                    errors.append("Scene %s must be an object." % index)
+                    continue
+                try:
+                    resolve_relative(require_string(scene, "recording"))
+                except PipelineError as error:
+                    errors.append("Scene %s recording: %s" % (index, error))
+                start, end = scene.get("source_start"), scene.get("source_end")
+                if not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or start < 0 or end <= start:
+                    errors.append("Scene %s must have a non-empty, non-negative source range." % index)
+                output_duration = scene.get("output_duration_seconds")
+                if not isinstance(output_duration, (int, float)) or abs(float(output_duration) - scene_duration(scene)) > 0.001:
+                    errors.append("Scene %s output_duration_seconds must equal its source range; no time compression is supported." % index)
+                if "playback_rate" in scene and scene["playback_rate"] != 1:
+                    errors.append("Scene %s playback_rate must be 1; required actions cannot be time-compressed." % index)
+                framing = scene.get("framing", {"fit": "contain", "zoom": 1.0})
+                if not isinstance(framing, dict) or framing.get("fit", "contain") not in ("contain", "cover"):
+                    errors.append("Scene %s framing.fit must be contain or cover." % index)
+                else:
+                    zoom = framing.get("zoom", 1.0)
+                    if not isinstance(zoom, (int, float)) or not 1.0 <= float(zoom) <= 1.08:
+                        errors.append("Scene %s framing.zoom must be between 1.0 and 1.08." % index)
+                source_crop = framing.get("source_crop") if isinstance(framing, dict) else None
+                if source_crop is not None:
+                    if not isinstance(source_crop, dict) or any(not isinstance(source_crop.get(key), int) for key in ("x", "y", "width", "height")):
+                        errors.append("Scene %s framing.source_crop must have integer x, y, width, and height." % index)
+                    elif source_crop["x"] < 0 or source_crop["y"] < 0 or source_crop["width"] <= 0 or source_crop["height"] <= 0:
+                        errors.append("Scene %s framing.source_crop must have non-negative x/y and positive width/height." % index)
+                if "label" in scene:
+                    if not isinstance(scene["label"], str) or not scene["label"].strip() or len(scene["label"]) > 96:
+                        errors.append("Scene %s label must be a non-empty string of at most 96 characters." % index)
+                    elif isinstance(framing, dict) and framing.get("fit", "contain") != "contain":
+                        errors.append("Scene %s label requires contain framing so it stays outside the app UI." % index)
+            if isinstance(minimum, (int, float)) and isinstance(maximum, (int, float)):
+                duration = planned_duration(data)
+                if duration < minimum or duration > maximum:
+                    errors.append("Ordered scene runtime %.3fs must be within %.3fs–%.3fs." % (duration, minimum, maximum))
+        narration = data.get("narration")
+        if not isinstance(narration, dict):
+            errors.append("narration must be an object.")
+        else:
+            segments = narration.get("segments")
+            if not isinstance(segments, list) or not segments:
+                errors.append("narration.segments must contain at least one timed segment.")
+            else:
+                previous_end = -1.0
+                duration_limit = planned_duration(data) if isinstance(data.get("scenes"), list) and data["scenes"] else 0
+                for index, segment in enumerate(segments, start=1):
+                    if not isinstance(segment, dict):
+                        errors.append("Narration segment %s must be an object." % index)
+                        continue
+                    start, end, text = segment.get("start"), segment.get("end"), segment.get("text")
+                    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+                        errors.append("Narration segment %s must have numeric start/end." % index)
+                    elif start < 0 or end <= start or start < previous_end or end > duration_limit:
+                        errors.append("Narration segment %s has invalid or overlapping time range." % index)
+                    else:
+                        previous_end = float(end)
+                    if not isinstance(text, str) or not text.strip():
+                        errors.append("Narration segment %s must have text." % index)
+    except (PipelineError, KeyError, TypeError, ValueError) as error:
+        errors.append(str(error))
+    return errors
+
+
+def hms(seconds: float, separator: str = ",") -> str:
+    milliseconds = int(round(seconds * 1000))
+    hours, remainder = divmod(milliseconds, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    whole_seconds, millis = divmod(remainder, 1000)
+    return "%02d:%02d:%02d%s%03d" % (hours, minutes, whole_seconds, separator, millis)
+
+
+def split_caption(text: str, max_chars: int = 40) -> list[str]:
+    """Return one or more <=2-line caption chunks without wide fallback lines."""
+    words = text.split()
+    if any(len(word) > max_chars for word in words):
+        raise PipelineError("Caption contains a word longer than %s characters; edit narration before export." % max_chars)
+    lines: list[str] = []
+    current: list[str] = []
+    for word in words:
+        candidate = " ".join(current + [word])
+        if current and len(candidate) > max_chars:
+            lines.append(" ".join(current))
+            current = [word]
+        else:
+            current.append(word)
+    if current:
+        lines.append(" ".join(current))
+    return ["\n".join(lines[index:index + 2]) for index in range(0, len(lines), 2)]
+
+
+def subtitle_text(segments: Iterable[dict[str, Any]], vtt: bool) -> str:
+    records: list[str] = ["WEBVTT", ""] if vtt else []
+    separator = "." if vtt else ","
+    number = 1
+    for segment in segments:
+        chunks = split_caption(str(segment["text"]))
+        start, end = float(segment["start"]), float(segment["end"])
+        interval = (end - start) / len(chunks)
+        for index, chunk in enumerate(chunks):
+            if not vtt:
+                records.append(str(number))
+            records.append("%s --> %s" % (hms(start + interval * index, separator), hms(start + interval * (index + 1), separator)))
+            records.append(chunk)
+            records.append("")
+            number += 1
+    return "\n".join(records)
+
+
+def write_subtitles(data: dict[str, Any]) -> tuple[Path, Path]:
+    outputs = data["outputs"]
+    segments = data["narration"]["segments"]
+    srt, vtt = resolve_relative(outputs["srt"]), resolve_relative(outputs["vtt"])
+    for path, contents in ((srt, subtitle_text(segments, False)), (vtt, subtitle_text(segments, True))):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents, encoding="utf-8")
+    return srt, vtt
+
+
+def executable(name: str, env_name: str | None = None) -> str:
+    selected = os.environ.get(env_name, "") if env_name else ""
+    candidate = selected or shutil.which(name)
+    if not candidate:
+        raise PipelineError("%s is required. Set %s or install %s." % (name, env_name or name.upper(), name))
+    return candidate
+
+
+def run(command: list[str]) -> None:
+    try:
+        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except subprocess.CalledProcessError as error:
+        raise PipelineError("FFmpeg command failed: %s" % error.stderr[-2500:].strip()) from error
+
+
+def probe(path: Path) -> dict[str, Any]:
+    ffprobe = executable("ffprobe", "VIDEO_FFPROBE")
+    completed = subprocess.run([ffprobe, "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return json.loads(completed.stdout)
+
+
+def media_duration(path: Path) -> float:
+    report = probe(path)
+    try:
+        return float(report["format"]["duration"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise PipelineError("Cannot read media duration: %s" % path) from error
+
+
+def source_dimensions(path: Path) -> tuple[int, int]:
+    streams = probe(path).get("streams", [])
+    video = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
+    if not video or not isinstance(video.get("width"), int) or not isinstance(video.get("height"), int):
+        raise PipelineError("Cannot read source video dimensions: %s" % path)
+    return video["width"], video["height"]
+
+
+def required_recordings(data: dict[str, Any]) -> list[Path]:
+    recordings = [resolve_relative(scene["recording"]) for scene in data["scenes"]]
+    missing = [str(path.relative_to(ROOT)) for path in recordings if not path.is_file()]
+    if missing:
+        raise PipelineError("Approved scene recordings are required before render; missing: %s" % ", ".join(missing))
+    return recordings
+
+
+def required_media(data: dict[str, Any]) -> tuple[list[Path], Path]:
+    recordings = required_recordings(data)
+    narration = resolve_relative(data["inputs"]["narration"])
+    missing = [str(narration.relative_to(ROOT))] if not narration.is_file() else []
+    if missing:
+        raise PipelineError("Approved scene recordings and narration are required before render; missing: %s" % ", ".join(missing))
+    return recordings, narration
+
+
+def textfile(directory: Path, name: str, value: str) -> Path:
+    path = directory / name
+    path.write_text(value, encoding="utf-8")
+    return path
+
+
+def wrap_editorial_text(value: str, max_chars: int) -> str:
+    """Wrap title/labels conservatively for the ivory editorial panel."""
+    if "\n" in value:
+        return value
+    words = value.split()
+    lines: list[str] = []
+    current: list[str] = []
+    for word in words:
+        candidate = " ".join(current + [word])
+        if current and len(candidate) > max_chars:
+            lines.append(" ".join(current))
+            current = [word]
+        else:
+            current.append(word)
+    if current:
+        lines.append(" ".join(current))
+    return "\n".join(lines)
+
+
+def editorial_style(data: dict[str, Any]) -> dict[str, int | str]:
+    layout = data.get("layout", {"mode": "legacy"})
+    if layout.get("mode") == "landscape-mobile-right":
+        return {
+            "title_x": layout.get("title_x", 120), "title_y": layout.get("title_y", 240), "title_font_size": layout.get("title_font_size", 60), "title_wrap_chars": layout.get("title_wrap_chars", 16),
+            "label_x": layout.get("label_x", 120), "label_y": layout.get("label_y", 520), "label_font_size": layout.get("label_font_size", 36), "label_wrap_chars": layout.get("label_wrap_chars", 28),
+            "disclosure_x": layout.get("disclosure_x", 120), "disclosure_y": layout.get("disclosure_y", 1015), "disclosure_font_size": layout.get("disclosure_font_size", 18),
+            "watermark_x": layout.get("watermark_x", 120), "watermark_y": layout.get("watermark_y", 650), "watermark_font_size": layout.get("watermark_font_size", 26),
+            "title_text": layout.get("title_text", data["title"]),
+        }
+    height = data["format"]["height"]
+    return {
+        "title_x": 64, "title_y": 42, "title_font_size": 38, "title_wrap_chars": 80,
+        "label_x": 64, "label_y": 82, "label_font_size": 22, "label_wrap_chars": 70,
+        "disclosure_x": 64, "disclosure_y": height - 48, "disclosure_font_size": 22,
+        "watermark_x": 0, "watermark_y": 0, "watermark_font_size": 34,
+        "title_text": data["title"],
+    }
+
+
+def scene_filter(index: int, scene: dict[str, Any], data: dict[str, Any], label_file: Path | None = None) -> str:
+    width, height = data["format"]["width"], data["format"]["height"]
+    framing = scene.get("framing", {})
+    fit, zoom = framing.get("fit", "contain"), float(framing.get("zoom", 1.0))
+    source_crop = framing.get("source_crop")
+    source_crop_filter = ""
+    if source_crop:
+        source_crop_filter = "crop=%d:%d:%d:%d," % (source_crop["width"], source_crop["height"], source_crop["x"], source_crop["y"])
+    layout = data.get("layout", {"mode": "legacy"})
+    if layout.get("mode") == "landscape-mobile-right":
+        app_x, app_y, app_height = layout.get("app_x", 1200), layout.get("app_y", 90), layout.get("app_height", 920)
+        scaled_height = int(round(app_height * zoom / 2) * 2)
+        crop_width, crop_height = (source_crop["width"], source_crop["height"]) if source_crop else (390, 844)
+        app_width = int(round(app_height * crop_width / crop_height))
+        filter_text = "scale=-2:%d,crop=trunc(iw/%.4f/2)*2:%d:(in_w-out_w)/2:(in_h-out_h)/2,pad=%d:%d:%d:%d:#F7F1E8,drawbox=x=%d:y=%d:w=%d:h=%d:color=#B99A64@0.38:t=2" % (scaled_height, zoom, app_height, width, height, app_x, app_y, app_x - 8, app_y - 8, app_width + 16, app_height + 16)
+    elif fit == "contain":
+        margin = 64 if width >= height else 48
+        top = 110 if width >= height else 150
+        caption_safe_bottom = 200 if width >= height else 300
+        inner_width, inner_height = width - margin * 2, height - top - caption_safe_bottom
+        filter_text = "scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:#F7F1E8" % (inner_width, inner_height, width, height)
+    else:
+        filter_text = "scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d" % (width, height, width, height)
+    if zoom > 1 and layout.get("mode") != "landscape-mobile-right":
+        filter_text += ",scale=trunc(iw*%.4f/2)*2:trunc(ih*%.4f/2)*2,crop=%d:%d:(in_w-out_w)/2:(in_h-out_h)/2" % (zoom, zoom, width, height)
+    if label_file:
+        editorial = editorial_style(data)
+        filter_text += ",drawtext=textfile='%s':fontcolor=#B99A64:fontsize=%d:x=%d:y=%d" % (escape_filter_path(label_file), editorial["label_font_size"], editorial["label_x"], editorial["label_y"])
+    return "[%d:v]trim=duration=%.6f,setpts=PTS-STARTPTS,%s%s[v%d]" % (index, scene_duration(scene), source_crop_filter, filter_text, index)
+
+
+def caption_style(data: dict[str, Any]) -> dict[str, int]:
+    style = data.get("caption_style", {})
+    layout = data.get("layout", {"mode": "legacy"})
+    mobile_right = layout.get("mode") == "landscape-mobile-right"
+    return {
+        "font_size": style.get("font_size", 25),
+        "margin_vertical": style.get("margin_vertical", 240 if mobile_right else 100),
+        "margin_left": style.get("margin_left", 120 if mobile_right else 0),
+        "alignment": style.get("alignment", 1 if mobile_right else 2),
+    }
+
+
+def escape_filter_path(path: Path) -> str:
+    return str(path).replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+
+
+def validate_recording_sources(data: dict[str, Any], recordings: list[Path]) -> None:
+    for scene, recording in zip(data["scenes"], recordings):
+        if media_duration(recording) + 0.05 < float(scene["source_end"]):
+            raise PipelineError("Scene source range exceeds the available recording duration: %s" % recording.relative_to(ROOT))
+        source_crop = scene.get("framing", {}).get("source_crop")
+        if source_crop:
+            source_width, source_height = source_dimensions(recording)
+            if source_crop["x"] + source_crop["width"] > source_width or source_crop["y"] + source_crop["height"] > source_height:
+                raise PipelineError("Scene source_crop exceeds the actual recording dimensions: %s" % recording.relative_to(ROOT))
+
+
+def append_scene_inputs(command: list[str], data: dict[str, Any], recordings: list[Path]) -> None:
+    for scene, recording in zip(data["scenes"], recordings):
+        command.extend(["-ss", "%.6f" % float(scene["source_start"]), "-t", "%.6f" % scene_duration(scene), "-i", str(recording)])
+
+
+def assemble_filters(data: dict[str, Any], label_files: list[Path | None], title_file: Path, disclosure_file: Path, watermark_file: Path | None = None) -> list[str]:
+    filters = [scene_filter(index, scene, data, label_files[index]) for index, scene in enumerate(data["scenes"])]
+    labels = "".join("[v%d]" % index for index in range(len(data["scenes"])))
+    filters.append("%sconcat=n=%d:v=1:a=0[assembled]" % (labels, len(data["scenes"])))
+    editorial = editorial_style(data)
+    final_filter = "[assembled]drawtext=textfile='%s':fontcolor=#292421:fontsize=%d:x=%d:y=%d,drawtext=textfile='%s':fontcolor=#292421:fontsize=%d:x=%d:y=%d" % (escape_filter_path(title_file), editorial["title_font_size"], editorial["title_x"], editorial["title_y"], escape_filter_path(disclosure_file), editorial["disclosure_font_size"], editorial["disclosure_x"], editorial["disclosure_y"])
+    if watermark_file:
+        if data.get("layout", {}).get("mode") == "landscape-mobile-right":
+            final_filter += ",drawtext=textfile='%s':fontcolor=#8A5B3D@0.92:fontsize=%d:x=%d:y=%d:box=1:boxcolor=#F7F1E8@0.82:boxborderw=12" % (escape_filter_path(watermark_file), editorial["watermark_font_size"], editorial["watermark_x"], editorial["watermark_y"])
+        else:
+            final_filter += ",drawtext=textfile='%s':fontcolor=#8A5B3D@0.92:fontsize=34:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=#F7F1E8@0.82:boxborderw=18" % escape_filter_path(watermark_file)
+    return filters + [final_filter + "[video]"]
+
+
+def render_silent_draft(data: dict[str, Any], ffmpeg: str) -> dict[str, str]:
+    recordings = required_recordings(data)
+    validate_recording_sources(data, recordings)
+    output = ROOT / "work" / "internal-drafts" / (str(data["id"]) + ".silent.not-approval-ready.mp4")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="luster-video-", dir=str(ROOT / "work")) as temp:
+        temp_path = Path(temp)
+        editorial = editorial_style(data)
+        title_file = textfile(temp_path, "title.txt", wrap_editorial_text(str(editorial["title_text"]), int(editorial["title_wrap_chars"])))
+        disclosure_file = textfile(temp_path, "disclosure.txt", str(data["branding"].get("disclosure", "AI-generated narration")))
+        watermark_file = textfile(temp_path, "watermark.txt", "INTERNAL SILENT DRAFT — NOT APPROVAL READY")
+        label_files = [textfile(temp_path, "label-%d.txt" % index, wrap_editorial_text(scene["label"], int(editorial["label_wrap_chars"]))) if scene.get("label") else None for index, scene in enumerate(data["scenes"])]
+        command = [ffmpeg, "-y"]
+        append_scene_inputs(command, data, recordings)
+        expected_duration = planned_duration(data)
+        command.extend(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-filter_complex", ";".join(assemble_filters(data, label_files, title_file, disclosure_file, watermark_file)), "-map", "[video]", "-map", "%d:a" % len(data["scenes"]), "-t", "%.6f" % expected_duration, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-movflags", "+faststart", str(output)])
+        run(command)
+    return {"internal_silent_draft": str(output), "render_status": "internal-silent-draft-not-approval-ready"}
+
+
+def render(data: dict[str, Any], internal_test: bool = False, internal_silent_draft: bool = False) -> dict[str, str]:
+    errors = validate_timeline(data)
+    if errors:
+        raise PipelineError("Invalid timeline: " + "; ".join(errors))
+    ffmpeg = executable("ffmpeg", "VIDEO_FFMPEG")
+    outputs = data["outputs"]
+    width, height = data["format"]["width"], data["format"]["height"]
+    if internal_test:
+        internal_output = ROOT / "work" / "internal-tests" / (str(data["id"]) + ".not-final.mp4")
+        internal_output.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="luster-video-", dir=str(ROOT / "work")) as temp:
+            slate = textfile(Path(temp), "title.txt", "INTERNAL TEST — NOT FINAL")
+            command = [ffmpeg, "-y", "-f", "lavfi", "-i", "color=c=#F7F1E8:s=%dx%d:r=30" % (width, height), "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "3", "-vf", "drawtext=textfile='%s':fontcolor=#292421:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2" % escape_filter_path(slate), "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-movflags", "+faststart", str(internal_output)]
+            run(command)
+        return {"internal_test": str(internal_output), "render_status": "internal-test-not-final"}
+    if internal_silent_draft:
+        return render_silent_draft(data, ffmpeg)
+    clean, captioned, thumbnail = (resolve_relative(outputs[key]) for key in ("clean", "captioned", "thumbnail"))
+    for output in (clean, captioned, thumbnail):
+        output.parent.mkdir(parents=True, exist_ok=True)
+    recordings, narration = required_media(data)
+    expected_duration = planned_duration(data)
+    validate_recording_sources(data, recordings)
+    if media_duration(narration) > expected_duration + 0.1:
+        raise PipelineError("Narration is longer than the ordered scene timeline; revise scenes or narration before rendering.")
+    srt, _ = write_subtitles(data)
+    with tempfile.TemporaryDirectory(prefix="luster-video-", dir=str(ROOT / "work") if (ROOT / "work").exists() else None) as temp:
+        temp_path = Path(temp)
+        editorial = editorial_style(data)
+        title_file = textfile(temp_path, "title.txt", wrap_editorial_text(str(editorial["title_text"]), int(editorial["title_wrap_chars"])))
+        disclosure_file = textfile(temp_path, "disclosure.txt", str(data["branding"].get("disclosure", "AI-generated narration")))
+        font = data["branding"].get("font_file")
+        if font:
+            font_path = resolve_relative(str(font))
+            if not font_path.is_file():
+                raise PipelineError("Configured font file does not exist: %s" % font)
+        label_files = [textfile(temp_path, "label-%d.txt" % index, wrap_editorial_text(scene["label"], int(editorial["label_wrap_chars"]))) if scene.get("label") else None for index, scene in enumerate(data["scenes"])]
+        command = [ffmpeg, "-y"]
+        append_scene_inputs(command, data, recordings)
+        command.extend(["-i", str(narration)])
+        filters = assemble_filters(data, label_files, title_file, disclosure_file)
+        narration_index = len(data["scenes"])
+        filters.append("[%d:a]apad=whole_dur=%.6f[audio]" % (narration_index, expected_duration))
+        command.extend(["-filter_complex", ";".join(filters), "-map", "[video]", "-map", "[audio]", "-t", "%.6f" % expected_duration, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(clean)])
+        run(command)
+        style = caption_style(data)
+        subtitle_filter = "subtitles=filename='%s':force_style='FontSize=%d,PrimaryColour=&H00FFFFFF,OutlineColour=&H00292421,BorderStyle=1,Outline=2,Alignment=%d,MarginL=%d,MarginV=%d'" % (escape_filter_path(srt), style["font_size"], style["alignment"], style["margin_left"], style["margin_vertical"])
+        run([ffmpeg, "-y", "-i", str(clean), "-vf", subtitle_filter, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "copy", "-movflags", "+faststart", str(captioned)])
+        run([ffmpeg, "-y", "-ss", "00:00:02.000", "-i", str(clean), "-frames:v", "1", str(thumbnail)])
+    return {"clean": str(clean), "captioned": str(captioned), "thumbnail": str(thumbnail), "render_status": "reference-ready-not-final"}
+
+
+def qa(data: dict[str, Any]) -> dict[str, Any]:
+    outputs = data["outputs"]
+    clean, captioned = (resolve_relative(outputs[key]) for key in ("clean", "captioned"))
+    width, height = data["format"]["width"], data["format"]["height"]
+    expected_duration = planned_duration(data)
+    result: dict[str, Any] = {"timeline_id": data["id"], "status": data.get("status"), "render_status": "reference-ready-not-final", "files": {}}
+    for label, path in (("clean", clean), ("captioned", captioned)):
+        if not path.is_file():
+            raise PipelineError("Cannot QA missing export: %s" % path.relative_to(ROOT))
+        report = probe(path)
+        streams = report.get("streams", [])
+        video = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
+        audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
+        if not video or not audio:
+            raise PipelineError("%s must contain video and audio." % label)
+        if video.get("width") != width or video.get("height") != height or video.get("pix_fmt") != "yuv420p":
+            raise PipelineError("%s does not meet configured dimensions and yuv420p requirements." % label)
+        if video.get("codec_name") != "h264" or audio.get("codec_name") != "aac" or video.get("r_frame_rate") not in ("30/1", "30"):
+            raise PipelineError("%s must use H.264/AAC at 30 fps." % label)
+        duration = float(report.get("format", {}).get("duration", 0))
+        if abs(duration - expected_duration) > 0.1:
+            raise PipelineError("%s duration must match the ordered scene runtime." % label)
+        result["files"][label] = {"duration_seconds": duration, "width": video["width"], "height": video["height"], "video_codec": video["codec_name"], "audio_codec": audio["codec_name"], "pixel_format": video["pix_fmt"]}
+    if abs(result["files"]["clean"]["duration_seconds"] - result["files"]["captioned"]["duration_seconds"]) > 0.05:
+        raise PipelineError("Clean and captioned output duration differs.")
+    qa_path = resolve_relative(outputs["qa"])
+    qa_path.parent.mkdir(parents=True, exist_ok=True)
+    qa_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    return result
+
+
+def tts_plan(data: dict[str, Any]) -> dict[str, str]:
+    narration = data["narration"]
+    fingerprint = json.dumps({"text": [segment["text"] for segment in narration["segments"]], "model": narration.get("model"), "voice": narration.get("voice"), "instructions": narration.get("instructions")}, sort_keys=True, separators=(",", ":"))
+    return {"cache_key": hashlib.sha256(fingerprint.encode("utf-8")).hexdigest(), "mode": "dry-run-only", "message": "No API call was made. A separately approved budget-controlled producer must place approved narration at inputs.narration."}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=("validate", "subtitles", "render", "qa", "tts-plan"))
+    parser.add_argument("--timeline", required=True, help="Timeline JSON relative to production/luster-videos.")
+    parser.add_argument("--internal-test", action="store_true", help="Render a clearly labelled three-second slate only; it is never final media.")
+    parser.add_argument("--internal-silent-draft", action="store_true", help="Assemble actual scene footage with silence only under work/internal-drafts; it is never approval-ready.")
+    args = parser.parse_args(argv)
+    try:
+        data = load_timeline(args.timeline)
+        if args.command == "validate":
+            errors = validate_timeline(data)
+            if errors:
+                raise PipelineError("\n".join(errors))
+            print("Timeline is structurally valid. Exports remain reference-ready, not final, until user approval.")
+        elif args.command == "subtitles":
+            errors = validate_timeline(data)
+            if errors:
+                raise PipelineError("\n".join(errors))
+            srt, vtt = write_subtitles(data)
+            print(json.dumps({"srt": str(srt.relative_to(ROOT)), "vtt": str(vtt.relative_to(ROOT))}))
+        elif args.command == "render":
+            if args.internal_test and args.internal_silent_draft:
+                raise PipelineError("Choose only one internal render mode.")
+            print(json.dumps(render(data, internal_test=args.internal_test, internal_silent_draft=args.internal_silent_draft), indent=2))
+        elif args.command == "qa":
+            print(json.dumps(qa(data), indent=2))
+        else:
+            print(json.dumps(tts_plan(data), indent=2))
+        return 0
+    except PipelineError as error:
+        print("video-pipeline: %s" % error, file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

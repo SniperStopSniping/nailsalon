@@ -1,0 +1,94 @@
+{
+  "schema_version": 2,
+  "id": "tutorial-booking",
+  "status": "reference-ready-not-final",
+  "title": "This is what your clients see",
+  "format": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "min_duration_seconds": 60,
+    "max_duration_seconds": 75
+  },
+  "branding": {
+    "frame_background": "#F7F1E8",
+    "text_color": "#292421",
+    "accent_color": "#B99A64",
+    "font_file": null,
+    "disclosure": "AI-generated narration · Fictional demo salon"
+  },
+  "inputs": {
+    "narration": "narration/tutorial-booking-approved.wav"
+  },
+  "scenes": [
+    {
+      "id": "booking-page-preview",
+      "recording": "recordings/tutorial-booking/01-booking-page-preview.mp4",
+      "source_start": 0,
+      "source_end": 6,
+      "output_duration_seconds": 6,
+      "framing": { "fit": "contain", "zoom": 1.0 }
+    },
+    {
+      "id": "service-and-addon",
+      "recording": "recordings/tutorial-booking/02-service-and-addon.mp4",
+      "source_start": 0,
+      "source_end": 12,
+      "output_duration_seconds": 12,
+      "framing": { "fit": "contain", "zoom": 1.03 }
+    },
+    {
+      "id": "technician-selection",
+      "recording": "recordings/tutorial-booking/03-technician-selection.mp4",
+      "source_start": 0,
+      "source_end": 8,
+      "output_duration_seconds": 8,
+      "framing": { "fit": "contain", "zoom": 1.0 }
+    },
+    {
+      "id": "availability-and-details",
+      "recording": "recordings/tutorial-booking/04-availability-and-details.mp4",
+      "source_start": 0,
+      "source_end": 14,
+      "output_duration_seconds": 14,
+      "framing": { "fit": "contain", "zoom": 1.02 }
+    },
+    {
+      "id": "acknowledgments-and-review",
+      "recording": "recordings/tutorial-booking/05-acknowledgments-and-review.mp4",
+      "source_start": 0,
+      "source_end": 12,
+      "output_duration_seconds": 12,
+      "framing": { "fit": "contain", "zoom": 1.0 }
+    },
+    {
+      "id": "booking-confirmation",
+      "recording": "recordings/tutorial-booking/06-booking-confirmation.mp4",
+      "source_start": 0,
+      "source_end": 10,
+      "output_duration_seconds": 10,
+      "framing": { "fit": "contain", "zoom": 1.0 }
+    }
+  ],
+  "outputs": {
+    "clean": "exports/tutorial-booking.clean.mp4",
+    "captioned": "exports/tutorial-booking.captioned.mp4",
+    "thumbnail": "exports/tutorial-booking.thumbnail.png",
+    "srt": "subtitles/tutorial-booking.srt",
+    "vtt": "subtitles/tutorial-booking.vtt",
+    "qa": "qa/tutorial-booking.json"
+  },
+  "narration": {
+    "model": "gpt-4o-mini-tts",
+    "voice": "marin",
+    "instructions": "Warm, conversational English. Calm, confident, approachable delivery.",
+    "segments": [
+      { "start": 0.0, "end": 5.5, "text": "This is what your clients see when they open your booking page." },
+      { "start": 5.8, "end": 16.5, "text": "They can explore your services and choose the appointment they want. Available extras, such as simple nail art, appear in the booking flow." },
+      { "start": 16.8, "end": 25.5, "text": "When technician selection is available, they can choose who they book with." },
+      { "start": 25.8, "end": 39.5, "text": "Next, they choose an available date and time, enter their details, and complete the required booking acknowledgments." },
+      { "start": 39.8, "end": 51.5, "text": "They review the information shown and confirm their appointment." },
+      { "start": 51.8, "end": 61.5, "text": "The confirmation screen shows that the booking is complete." }
+    ]
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "video_id": "tutorial-booking",
+  "model": "gpt-4o-mini-tts",
+  "voice": "marin",
+  "instructions": "Warm, conversational English. Calm, confident, approachable delivery. Natural pauses and clear pronunciation. No hype, whispering, or exaggerated luxury-ad performance. Give viewers time to follow the visible action. Pronounce Luster as LUSS-ter and BIAB as the individual letters B I A B.",
+  "cache_dir": "narration/cache/tutorial-booking",
+  "ledger": "narration/ledger.json",
+  "retry_headroom_cad_cents": 500,
+  "pricing_basis": {
+    "currency": "USD",
+    "input_usd_per_million_tokens": 0.6,
+    "audio_usd_per_million_tokens": 12,
+    "source": "OpenAI GPT-4o Mini TTS pricing checked 2026-09-30",
+    "note": "Per-section CAD estimates and conservative reservations below are planning controls, not invoices."
+  },
+  "sections": [
+    {
+      "id": "opening",
+      "text": "This is what your clients see when they open your booking page.",
+      "estimated_cad_cents": 5,
+      "reservation_cad_cents": 100
+    },
+    {
+      "id": "service",
+      "text": "They can explore your services and choose the appointment they want.",
+      "estimated_cad_cents": 5,
+      "reservation_cad_cents": 100
+    },
+    {
+      "id": "extras",
+      "text": "Here, Sarah chooses BIAB Overlay and adds optional Simple Nail Art. Then she taps Continue.",
+      "estimated_cad_cents": 5,
+      "reservation_cad_cents": 100
+    },
+    {
+      "id": "time",
+      "text": "Next, she chooses an available date and time. This studio has one technician.",
+      "estimated_cad_cents": 5,
+      "reservation_cad_cents": 100
+    },
+    {
+      "id": "review",
+      "text": "The review screen shows the service, price, duration, time, and location.",
+      "estimated_cad_cents": 5,
+      "reservation_cad_cents": 100
+    },
+    {
+      "id": "details",
+      "text": "She enters her name, email, and mobile number. The required fields are clearly marked.",
+      "estimated_cad_cents": 5,
+      "reservation_cad_cents": 100
+    },
+    {
+      "id": "agreement",
+      "text": "She reads the appointment agreement and checks the required acknowledgment before continuing.",
+      "estimated_cad_cents": 5,
+      "reservation_cad_cents": 100
+    },
+    {
+      "id": "confirm",
+      "text": "With the details reviewed, she taps Confirm appointment.",
+      "estimated_cad_cents": 5,
+      "reservation_cad_cents": 100
+    },
+    {
+      "id": "confirmation",
+      "text": "The confirmation screen shows that the booking is complete. Her time is reserved.",
+      "estimated_cad_cents": 5,
+      "reservation_cad_cents": 100
+    }
+  ]
+}

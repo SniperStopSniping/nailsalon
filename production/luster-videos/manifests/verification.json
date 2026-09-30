@@ -1,0 +1,146 @@
+{
+  "checkedAt": "2026-09-30",
+  "applicationSHA": "3980197563c4ddc5774f6c5dcbfb8fe9f8827a6a",
+  "applicationSourceChanges": false,
+  "approvalReady": false,
+  "userReferenceApproval": "pending",
+  "passed": [
+    {
+      "check": "Isolated runtime, database marker and provider configuration",
+      "command": "python3 production/luster-videos/demo/runtime.py verify; python3 production/luster-videos/demo/runtime.py status",
+      "evidence": "Independent read-only isolation review and task-owned loopback services"
+    },
+    {
+      "check": "Local application production build",
+      "command": "python3 production/luster-videos/demo/runtime.py build",
+      "evidence": "qa/build.log",
+      "priorFailure": "Initial demo seed TypeScript inference repaired before successful build"
+    },
+    {
+      "check": "Application type check",
+      "command": "npm run check-types (through guarded runtime environment)",
+      "evidence": "qa/typecheck.log"
+    },
+    {
+      "check": "Production tooling tests",
+      "command": "python3 -m unittest discover -s production/luster-videos/tests -v",
+      "testsPassed": 40,
+      "evidence": "qa/tooling-tests.log"
+    },
+    {
+      "check": "Targeted ESLint",
+      "command": "node_modules/.bin/eslint production/luster-videos/demo/*.mjs production/luster-videos/demo/seed.ts",
+      "evidence": "qa/tooling-eslint.log"
+    },
+    {
+      "check": "Real guest booking then owner reschedule and saved note",
+      "evidence": [
+        "qa/hero-booking.json",
+        "qa/continuity-report.json",
+        "qa/rescheduled-calendar-reloaded.png",
+        "qa/client-note-reloaded.png"
+      ],
+      "appointmentId": "appt_a60f8bff-b3b7-4fc9-a3b9-7b080e788e4b"
+    },
+    {
+      "check": "Public old slot restored and new slot occupied",
+      "evidence": "qa/reschedule-slot-verification.json"
+    },
+    {
+      "check": "Chromium and WebKit 390x844 emulation",
+      "command": "node production/luster-videos/demo/verify-booking-ui.mjs",
+      "evidence": "qa/booking-ui-verification.json",
+      "limitations": "No second submission; required agreement enforced; real-device testing not performed"
+    },
+    {
+      "check": "FFmpeg encoders/filters and actual encode",
+      "tools": {
+        "ffmpeg": "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg",
+        "ffprobe": "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe",
+        "version": "9.0.2"
+      }
+    },
+    {
+      "check": "Exact released filming base",
+      "evidence": "manifests/release.json",
+      "details": "Required base checks, successful exact Production deployment, matching deployment health SHA"
+    },
+    {
+      "check": "Internal silent edit technical decode",
+      "command": "ffmpeg -v error -i work/internal-drafts/tutorial-booking.silent.not-approval-ready.mp4 -f null -",
+      "result": "No decode errors; ffprobe confirms 66.100s, H.264/AAC, yuv420p, 1920x1080, 30/1 fps. This is not audiovisual creative acceptance."
+    },
+    {
+      "check": "Tracked-tree secret scan after staging demo tools",
+      "command": "npm run security:check-secrets",
+      "evidence": "qa/secret-scan-demo.log",
+      "result": "3280 tracked and 526 generated files; no findings. Dynamic URL constructors and placeholder usage documentation revised after false positives; scanner unchanged."
+    }
+  ],
+  "blocked": [
+    {
+      "check": "Final narration",
+      "reason": "OPENAI_API_KEY absent and funded account/model access unverified; paid-generation gates remain false"
+    },
+    {
+      "check": "Reference video approval candidate",
+      "reason": "Needs actual narrated audio, reviewed alignment/subtitles, final clean/captioned exports, thumbnail, complete audiovisual review"
+    }
+  ],
+  "pending": [
+    "Native 200% text scaling and visually sufficient keyboard focus indicators",
+    "Design draft isolation, immediate-save behavior, first publication when applicable, copied link destination",
+    "Team selection/schedules and eligible follow-up queue UI verification",
+    "Real-device browser coverage",
+    "Unfamiliar reviewer can repeat the tutorial",
+    "Tooling branch CI, preview and review; no merge authorized by incomplete checks",
+    "Final control/caption readability on a phone; improve scene crops or recapture if needed",
+    "Full playback with sound and without sound, audio quality, caption timing, drift, clipping, transitions and black frames"
+  ],
+  "notRunLocally": [
+    {
+      "command": "npm run test:all",
+      "reason": "No application source changed; exact filmed base full suite passed CI. Tooling branch CI not yet checked."
+    },
+    {
+      "command": "npm run lint:all",
+      "reason": "Scoped tooling lint run; full branch gate pending."
+    },
+    {
+      "command": "npm run test:appointment-regression",
+      "reason": "No appointment implementation changed; real isolated owner reschedule verified separately."
+    },
+    {
+      "command": "npm run test:e2e:core:local",
+      "reason": "Used focused isolated capture and Chromium/WebKit journeys instead; no claim of full local suite pass."
+    }
+  ],
+  "internalVideo": {
+    "durationSeconds": 66.1,
+    "dimensions": [
+      1920,
+      1080
+    ],
+    "fps": 30,
+    "status": "silent internal draft, not final",
+    "sourceContainer": [
+      780,
+      1688
+    ],
+    "effectiveSourceContent": [
+      390,
+      844
+    ],
+    "sourceFps": 25,
+    "sourceDurationSeconds": 98.16,
+    "audio": "intentional silence only"
+  },
+  "finalOutputInventory": {
+    "cleanMP4": 0,
+    "captionedMP4": 0,
+    "finalSRT": 0,
+    "finalVTT": 0,
+    "finalThumbnails": 0
+  },
+  "deviations": "manifests/scene-evidence.json"
+}
