@@ -49,7 +49,8 @@ test('experience is mobile canonical and Flow fails closed for Free Solo', async
 
   await expect(page.getByLabel('Booking message')).toHaveValue('Welcome');
   await expect(page.getByText('Legacy Page Themes')).toHaveCount(0);
-  await expect(page.getByText('Website colours are set in Booking Page')).toBeVisible();
+  await expect(page.getByText(/Website styles, colours, and fonts are set in Booking Page/)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open Style, Colours & Fonts' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await page.goto('/?salon=isla&panel=flow');
