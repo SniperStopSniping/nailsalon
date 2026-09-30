@@ -1,0 +1,25 @@
+# Approved footage, audio, generated exports, and machine-local render scratch space.
+assets/
+recordings/
+narration/
+exports/
+work/
+qa/
+*.mp4
+*.mov
+*.m4a
+*.wav
+*.aac
+*.png
+*.jpg
+*.jpeg
+
+# Keep intentional templates and documentation tracked.
+!timelines/*.json
+!narration-scripts/*.md
+!subtitles/*.srt
+!subtitles/*.vtt
+
+# Python validation caches
+__pycache__/
+*.pyc

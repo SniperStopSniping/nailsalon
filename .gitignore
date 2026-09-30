@@ -66,6 +66,7 @@ local
 /public/uploads/services/
 /public/uploads/onboarding-profile/
 /public/uploads/cover/
+/public/video-assets/
 
 # vercel
 .vercel

@@ -1,0 +1,21 @@
+{
+  "assets": [
+    {
+      "id": "atelier-ai-nails",
+      "path": "assets/atelier-ai-nails.png",
+      "sha256": "66e8c577f2e758340cc7e36a56fdb219a13b855d62783cf0837e0afa4dbdeb80",
+      "source": "Built-in image_gen tool",
+      "synthetic": true,
+      "depicts": "Fictional adult manicure demonstration, not customer work",
+      "approval": "User explicitly allowed AI nail photos in this conversation on 2026-09-30",
+      "publicationDisclosure": "Fictional demo salon. Nail imagery is AI-generated.",
+      "prompt": "Photorealistic landscape editorial photograph of adult hands on warm ivory linen; short almond sheer milky pink BIAB nails with delicate cream line art; no text/logos/watermarks/faces.",
+      "incrementalCost": "Tool did not expose a charge; no separately billed API image call made"
+    }
+  ],
+  "fonts": {
+    "dependency": "System-installed fonts for local rendering; document actual chosen font in render QA",
+    "redistributed": false
+  },
+  "existingSalonPhotosUsed": false
+}
