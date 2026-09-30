@@ -84,6 +84,7 @@ async function main() {
   const page = await context.newPage();
   const started = Date.now();
   const events = [];
+  const clicks = [];
   const mark = (label) => {
     stage = label;
     events.push({ label, seconds: (Date.now() - started) / 1000 });
@@ -93,6 +94,29 @@ async function main() {
       element.scrollIntoView({ behavior: 'smooth', block: 'center' }),
     );
     await pause(1300);
+  };
+  // Capture real pointer targets for the editor without changing application DOM.
+  // Wall-clock action intervals must still be aligned to the encoded source frames.
+  const clickControl = async (locator, label, checkbox = false) => {
+    await locator.scrollIntoViewIfNeeded();
+    const bounds = await locator.boundingBox();
+    if (!bounds) {
+      throw new Error('Click target is not visible');
+    }
+    const position = { x: bounds.width / 2, y: bounds.height / 2 };
+    const event = {
+      label,
+      x: bounds.x + position.x,
+      y: bounds.y + position.y,
+      coordinateSpace: 'viewport-css-pixels',
+      startedSeconds: (Date.now() - started) / 1000,
+    };
+    if (checkbox) {
+      await locator.check({ position });
+    } else {
+      await locator.click({ position });
+    }
+    clicks.push({ ...event, completedSeconds: (Date.now() - started) / 1000 });
   };
   const video = page.video();
   try {
@@ -109,7 +133,7 @@ async function main() {
     await reveal(service);
     mark('choose-service');
     await pause(1800);
-    await service.click();
+    await clickControl(service, 'Select BIAB Overlay');
     await pause(1600);
     const extra = page.getByRole('button', {
       name: 'Add Simple Nail Art',
@@ -118,13 +142,13 @@ async function main() {
     await reveal(extra);
     mark('optional-addon');
     await pause(2000);
-    await extra.click();
+    await clickControl(extra, 'Add Simple Nail Art');
     await pause(2200);
     const next = page.getByTestId('service-continue-button');
     await reveal(next);
     mark('continue');
     await pause(1600);
-    await next.click();
+    await clickControl(next, 'Continue');
     await page.waitForURL(/book\/time/);
     await page.getByTestId(`calendar-day-${day}`).waitFor();
     await pause(1800);
@@ -132,13 +156,13 @@ async function main() {
     await reveal(calendarDay);
     mark('choose-date');
     await pause(1600);
-    await calendarDay.click();
+    await clickControl(calendarDay, `Choose ${day}`);
     const slot = page.getByTestId('time-slot-10:00');
     await slot.waitFor();
     await reveal(slot);
     mark('choose-time');
     await pause(2000);
-    await slot.click();
+    await clickControl(slot, 'Choose 10:00 AM');
     await page.waitForURL(/book\/confirm/);
     await page.getByLabel('Customer name').waitFor();
     await pause(1800);
@@ -159,7 +183,7 @@ async function main() {
     await reveal(policy);
     mark('required-agreement');
     await pause(4000);
-    await policy.getByRole('checkbox').check();
+    await clickControl(policy.getByRole('checkbox'), 'Required appointment agreement', true);
     await pause(2300);
     const confirm = page.getByRole('button', {
       name: 'Confirm appointment · $75.00',
@@ -175,7 +199,7 @@ async function main() {
             && r.request().method() === 'POST',
         { timeout: 60000 },
       );
-      await confirm.click();
+      await clickControl(confirm, 'Confirm appointment · $75.00');
       const response = await responsePromise;
       const body = await response.json();
       if (response.status() !== 201 || !body.data?.appointmentId) {
@@ -241,6 +265,7 @@ async function main() {
           viewport: { width: 390, height: 844 },
           requestedVideo: { width: 780, height: 1688 },
           events,
+          clicks,
         },
         null,
         2,
