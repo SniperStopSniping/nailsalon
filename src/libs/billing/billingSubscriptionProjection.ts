@@ -23,7 +23,7 @@
 
 import 'server-only';
 
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, notInArray } from 'drizzle-orm';
 
 import { type ActorType, logAuditEventTx } from '@/libs/auditLog';
 import { type BillingOffer, getBillingOffer } from '@/libs/billing/billingOffers';
@@ -271,12 +271,16 @@ export async function projectSubscriptionSnapshot(input: {
         creditCycleAnchor: snapshot.currentPeriodStart,
         lastEventCreated: input.eventCreated,
         lastEventId: input.eventId,
-      }).onConflictDoNothing({ target: billingSubscriptionSchema.stripeSubscriptionId })
+      })
+        // The same subscription id and a different live subscription for this
+        // salon are protected by separate unique indexes. Either concurrent
+        // insert must reach the checked re-read below instead of raising 23505.
+        .onConflictDoNothing()
         .returning();
 
       if (insertedRows.length === 0) {
-        // Insert race: a concurrent delivery for the SAME subscription won the
-        // insert, so `subscriptionId` names a row that was never persisted.
+        // An insert race left `subscriptionId` unpersisted. Only a winner with
+        // the SAME Stripe subscription id may be updated by this delivery.
         // Writing the `created` audit row for it anyway (what this path used to
         // do unconditionally) put an entity_id into `audit_log` that no
         // `billing_subscription` row has — and refund evidence lives in that
@@ -292,9 +296,27 @@ export async function projectSubscriptionSnapshot(input: {
           .where(eq(billingSubscriptionSchema.stripeSubscriptionId, snapshot.id))
           .for('update');
         if (winner === undefined) {
-          // Neither inserted nor findable: the winning row was deleted between
-          // the conflict and this re-select. Nothing to project onto.
-          return { applied: false as const, anomaly: 'SUBSCRIPTION_PROJECTION_RACE' };
+          // A different live subscription may have won this salon, or a row
+          // may have vanished after the conflict. Never project this snapshot
+          // onto a row found by salon alone.
+          const [otherLiveSubscription] = await tx
+            .select({ stripeSubscriptionId: billingSubscriptionSchema.stripeSubscriptionId })
+            .from(billingSubscriptionSchema)
+            .where(and(
+              eq(billingSubscriptionSchema.salonId, salonId),
+              notInArray(billingSubscriptionSchema.status, ['canceled', 'incomplete_expired']),
+            ))
+            .limit(1);
+          if (otherLiveSubscription !== undefined
+            && otherLiveSubscription.stripeSubscriptionId !== snapshot.id) {
+            // A cancellation may still be in transit. Throw into the webhook's
+            // bounded retry path so a replacement can be projected after it
+            // arrives; a terminal held anomaly would silently strand it.
+            throw new Error('ACTIVE_SUBSCRIPTION_CONFLICT_RETRYABLE');
+          }
+          // The conflicting row may have been canceled or removed after the
+          // insert lost. A fresh transaction can now insert this subscription.
+          throw new Error('SUBSCRIPTION_PROJECTION_RACE_RETRYABLE');
         }
         return applySnapshotToExisting(tx, winner, {
           snapshot,
