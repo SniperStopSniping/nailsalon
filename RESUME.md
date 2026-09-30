@@ -1,3 +1,15 @@
+# Historical SMS activation and delivered booking test — 2026-09-09
+
+- This is a dated operational record. It is not evidence that SMS, a sender, a balance, a deployment, or any production setting remains ready today. Recheck the current deployment, environment, shared Messaging Service sender pool, platform controls, salon consent/preferences, queue, credits and callback configuration before any later send.
+- On September 9, the user approved a controlled booking test using an approved recipient. The recorded deployment was protected-main v1.89.3 / `601807a`; the recorded configuration enabled communications SMS and disabled the pilot allowlist. These values and the deployment state were read back at that time only.
+- The recorded pre-send inspection found an empty SMS queue, authenticated ownership of `isla-nail-studio`, and an enabled salon SMS preference. A one-time 100-credit starter allowance was then corrected after the documented eligibility checks; the recorded post-correction balance was 100 credits. These are historical account and ledger facts, not a current-balance claim.
+- The test booking created one confirmation intent and a reminder. The normal dispatcher sent the confirmation; Twilio status processing recorded `delivered` at 13:50:20 UTC, owner history agreed, and the user confirmed receipt. The recorded balance after settlement was 99 credits with no held reservation.
+
+- The test appointment was cancelled through the owner UI. Its reminder was recorded as `canceled` with zero attempts; a separate cancellation notice was recorded as delivered once. The final 13:57 UTC readback recorded 98 available credits and zero reserved. Do not resend or recreate this historical test merely to reproduce the record.
+- This event supports only the recorded booking, receipt, callback/history, settlement, cancellation, and reminder-invalidating paths. It did not verify manual SMS, request approval, rescheduling, quiet hours, STOP/START, paid top-ups, or continued sender readiness. No application code or schema changed in this documentation checkpoint.
+
+---
+
 # Approved combined release — 2026-09-09
 
 - The user explicitly approved releasing PRs #171, #172 and #173 together, with SMS kept paused. This supersedes the earlier release-approval boundaries in the historical checkpoints below. It does not approve pilot recipients, carrier sends, paid purchases or activating customer queues.
@@ -101,7 +113,7 @@ Node 20.19.4, committed dependency lock, existing matching dependency installati
 - Final typecheck and branch-wide lint passed after the preference fixes; zero lint errors, seven existing warnings.
 - Initial implementation commit: `ea13516`. Draft review: [PR #172](https://github.com/SniperStopSniping/nailsalon/pull/172). Final preference fixes and validation evidence are a separate checkpoint commit. Both PR #172 and the independent layout PR #171 require release authorization; customer/pilot SMS activation still requires approved recipients and explicit send approval.
 
-Older repair checkpoints below are historical; the current release and authorization status above supersedes their unreleased-state notes.
+Older repair checkpoints below are historical; the later September 9 record above postdates their unreleased-state notes and does not establish current release or authorization status.
 
 ---
 
