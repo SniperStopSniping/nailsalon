@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-const PRODUCTION_URL = 'https://islanailsalon.com';
+const PRODUCTION_URL = 'https://www.lustergel.app';
 const workflow = readFileSync(
   join(process.cwd(), '.github/workflows/checkly.yml'),
   'utf8',
@@ -35,7 +35,7 @@ describe('Checkly environment targets', () => {
       `if: steps.run-checks.outcome == 'success' && github.event.deployment_status.environment == 'Production'`,
     );
     expect(deployStep).toContain(`ENVIRONMENT_URL: ${PRODUCTION_URL}`);
-    expect(workflow.match(/https:\/\/islanailsalon\.com/g)).toHaveLength(1);
+    expect(workflow.match(/https:\/\/www\.lustergel\.app/g)).toHaveLength(1);
     expect(globalWorkflow).not.toContain('ENVIRONMENT_URL');
     expect(runChecksStep).toContain(
       ['ENVIRONMENT_URL: $', '{{ github.event.deployment_status.environment_url }}'].join(''),

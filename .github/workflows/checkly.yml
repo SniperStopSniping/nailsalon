@@ -62,4 +62,4 @@ jobs:
         if: steps.run-checks.outcome == 'success' && github.event.deployment_status.environment == 'Production'
         run: npx checkly deploy --force
         env:
-          ENVIRONMENT_URL: https://islanailsalon.com
+          ENVIRONMENT_URL: https://www.lustergel.app
