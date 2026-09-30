@@ -37,7 +37,7 @@ test('mobile owner can manage a separate automatic rebooking reminder @mobile-sa
 
   await reminderCard.click();
 
-  await expect(page.getByRole('heading', { name: 'Rebooking Reminders' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Rebooking Reminders', exact: true })).toBeVisible();
 
   await page.getByRole('switch', { name: 'Enable rebooking reminders' }).click();
   await page.getByLabel('Send after the last completed appointment').fill('4');
