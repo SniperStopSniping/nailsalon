@@ -298,6 +298,28 @@ describe('onboarding browser-local storage', () => {
     })).status).toBe('error');
   });
 
+  it('normalizes saved font choices while retaining a valid explicit heading font', () => {
+    const valid = createDefaultOnboardingState();
+    valid.recipe.headingFont = 'luxury';
+    valid.recipe.bodyFont = 'outfit';
+
+    expect(parseOnboardingState(JSON.stringify(valid))).toMatchObject({
+      state: { recipe: { bodyFont: 'outfit', headingFont: 'luxury' } },
+      status: 'loaded',
+    });
+
+    const malformed = createDefaultOnboardingState() as unknown as {
+      recipe: Record<string, unknown>;
+    };
+    malformed.recipe.headingFont = 'display_comic';
+    malformed.recipe.bodyFont = 'papyrus';
+
+    expect(parseOnboardingState(JSON.stringify(malformed))).toMatchObject({
+      state: { recipe: { bodyFont: 'inter', headingFont: undefined } },
+      status: 'loaded',
+    });
+  });
+
   it('normalizes absent or malformed current milestone state to known deduplicated ids', () => {
     const absent = createDefaultOnboardingState();
     delete absent.reviewOptions.feedbackMilestones;

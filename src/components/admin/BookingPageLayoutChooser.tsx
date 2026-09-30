@@ -72,6 +72,8 @@ const linkClass = 'font-semibold text-[var(--owner-accent)] underline';
 /** Maps the owner's chosen palette/style onto the shared `--qb-*` tokens. */
 function presentationTokens(draft: BookingPageConfigSide): CSSProperties {
   const tokens = getCustomerSitePresentationCssVariables({
+    bodyFont: draft.siteBodyFont,
+    headingFont: draft.siteHeadingFont,
     palettePreset: draft.sitePalettePreset,
     stylePreset: draft.siteStylePreset,
   });

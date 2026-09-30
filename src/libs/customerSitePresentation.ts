@@ -17,6 +17,9 @@ export const CUSTOMER_SITE_STYLE_PRESETS = [
 
 export type CustomerSiteStylePreset = (typeof CUSTOMER_SITE_STYLE_PRESETS)[number];
 
+export const CUSTOMER_SITE_BODY_FONT_PRESETS = ['inter', 'outfit', 'nunito'] as const;
+export type CustomerSiteBodyFont = (typeof CUSTOMER_SITE_BODY_FONT_PRESETS)[number];
+
 export const CUSTOMER_SITE_PALETTE_PRESETS = [
   'luster_berry',
   'blush_cocoa',
@@ -67,6 +70,7 @@ type CustomerSitePaletteRoles = Readonly<{
 
 const STYLE_PRESET_SET: ReadonlySet<string> = new Set(CUSTOMER_SITE_STYLE_PRESETS);
 const PALETTE_PRESET_SET: ReadonlySet<string> = new Set(CUSTOMER_SITE_PALETTE_PRESETS);
+const BODY_FONT_SET: ReadonlySet<string> = new Set(CUSTOMER_SITE_BODY_FONT_PRESETS);
 
 /**
  * Body copy stays one neutral sans for every preset. Addresses, hours, prices,
@@ -76,6 +80,12 @@ const PALETTE_PRESET_SET: ReadonlySet<string> = new Set(CUSTOMER_SITE_PALETTE_PR
  */
 const CUSTOMER_SITE_BODY_FONT
   = 'var(--font-luster-sans), Inter, ui-sans-serif, system-ui, sans-serif';
+
+export const CUSTOMER_SITE_BODY_FONT_ROLES: Record<CustomerSiteBodyFont, string> = {
+  inter: CUSTOMER_SITE_BODY_FONT,
+  outfit: 'var(--font-luster-modern), Outfit, Inter, ui-sans-serif, sans-serif',
+  nunito: 'var(--font-luster-soft), Nunito, Inter, ui-sans-serif, sans-serif',
+};
 
 /**
  * Exported so the onboarding preview can spend the same typefaces rather than
@@ -273,8 +283,34 @@ export function resolveCustomerSitePalettePreset(
     : DEFAULT_CUSTOMER_SITE_PALETTE_PRESET;
 }
 
+export function resolveCustomerSiteBodyFont(value: unknown): CustomerSiteBodyFont {
+  return typeof value === 'string' && BODY_FONT_SET.has(value)
+    ? value as CustomerSiteBodyFont
+    : 'inter';
+}
+
+/** Font-only choices for salons still using their existing booking theme. */
+export function getCustomerSiteFontCssVariables(input: {
+  bodyFont?: unknown;
+  headingFont?: unknown;
+  stylePreset?: unknown;
+}): Record<string, string> {
+  const heading = CUSTOMER_SITE_STYLE_ROLES[
+    input.headingFont === undefined
+      ? resolveCustomerSiteStylePreset(input.stylePreset)
+      : resolveCustomerSiteStylePreset(input.headingFont)
+  ];
+
+  return {
+    '--customer-site-body-font': CUSTOMER_SITE_BODY_FONT_ROLES[resolveCustomerSiteBodyFont(input.bodyFont)],
+    '--customer-site-heading-font': heading.headingFont,
+  };
+}
+
 /** CSS variables consumed only inside the customer booking surface. */
 export function getCustomerSitePresentationCssVariables(input: {
+  bodyFont?: unknown;
+  headingFont?: unknown;
   palettePreset: unknown;
   stylePreset: unknown;
 }): Record<string, string> {
@@ -284,6 +320,7 @@ export function getCustomerSitePresentationCssVariables(input: {
   const style = CUSTOMER_SITE_STYLE_ROLES[
     resolveCustomerSiteStylePreset(input.stylePreset)
   ];
+  const fontVariables = getCustomerSiteFontCssVariables(input);
 
   return {
     '--booking-brand-foreground': palette.buttonText,
@@ -296,10 +333,9 @@ export function getCustomerSitePresentationCssVariables(input: {
     '--booking-today-background': palette.surface,
     '--booking-today-foreground': palette.accent,
     '--booking-today-ring': `inset 0 0 0 1px ${palette.accent}`,
-    '--customer-site-body-font': style.bodyFont,
+    ...fontVariables,
     '--customer-site-button-radius': style.buttonRadius,
     '--customer-site-card-radius': style.cardRadius,
-    '--customer-site-heading-font': style.headingFont,
     '--customer-site-heading-leading': style.headingLeading,
     '--customer-site-heading-tracking': style.headingTracking,
     '--customer-site-heading-weight': style.headingWeight,

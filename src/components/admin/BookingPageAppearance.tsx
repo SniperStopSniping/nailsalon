@@ -3,6 +3,7 @@
 import type { BookingPageConfigSide, BookingPageDraftPatch } from '@/libs/bookingPageConfig';
 import type { BookingPageContentPatch, BookingPageContentSide } from '@/libs/bookingPageContent';
 import {
+  CUSTOMER_SITE_BODY_FONT_PRESETS,
   CUSTOMER_SITE_PALETTE_PRESETS,
   CUSTOMER_SITE_STYLE_PRESETS,
   getCustomerSitePresentationCssVariables,
@@ -28,23 +29,36 @@ const names: Record<string, string> = {
   editorial_cards: 'Editorial Cards',
   category_menu: 'Category Menu',
   editorial_price_list: 'Editorial Price List',
+  inter: 'Inter',
+  nunito: 'Nunito',
+  outfit: 'Outfit',
+};
+
+const headingFontNames: Record<(typeof CUSTOMER_SITE_STYLE_PRESETS)[number], string> = {
+  bold: 'Archivo',
+  editorial: 'Newsreader',
+  luxury: 'Playfair Display',
+  minimal: 'Inter',
+  modern: 'Outfit',
+  soft: 'Nunito',
 };
 
 /**
  * AG-hub-publish-04 — a presentation chooser has to show what it is choosing.
  *
- * Both groups render the same miniature card through the SAME resolver the
+ * Every group renders the same miniature card through the SAME resolver the
  * customer site uses (`getCustomerSitePresentationCssVariables`), so a
  * specimen can never drift from what publishing actually produces:
  *
- *   - "Choose your style" holds the owner's current palette constant and
- *     varies the style, so the heading typeface, card corner radius and
- *     button shape are the only things that differ between cards.
+ *   - "Choose your style" holds the owner's current palette and fonts
+ *     constant, varying card corner radius and button shape only.
  *   - "Choose your colours" holds the style constant and varies the palette,
  *     painting THREE stops (page ground, primary button, secondary accent)
  *     instead of the single `--booking-brand-primary` bar that used to hide
  *     the second half of every paired palette name — "Navy & Ivory" showed
  *     navy only, "Black & Champagne" champagne only.
+ *   - "Choose your fonts" holds the current style and palette constant and
+ *     varies either the heading or body typeface.
  *
  * The specimen is `aria-hidden` throughout, so each card's accessible name
  * stays the style/palette name on its own.
@@ -79,6 +93,16 @@ function PresetSpecimen({ tokens, value }: { tokens: Record<string, string>; val
           }}
         >
           Aa
+        </span>
+        <span
+          className="text-[9px] leading-none"
+          data-specimen-role="body"
+          style={{
+            color: tokens['--customer-site-muted'],
+            fontFamily: tokens['--customer-site-body-font'],
+          }}
+        >
+          Book now
         </span>
         <span
           className="h-3.5 w-8"
@@ -127,10 +151,7 @@ export function BookingPageAppearance({
         { key: 'serviceMenuLayout' as const, title: 'Booking menu layout', values: SERVICE_MENU_LAYOUTS, selected: draft.serviceMenuLayout },
       ]
     : [
-        // Named for fonts because that is now most of what the choice is:
-        // each preset carries its own display typeface, and every card shows
-        // its name and description set in that face.
-        { key: 'siteStylePreset' as const, title: 'Choose your style and fonts', values: CUSTOMER_SITE_STYLE_PRESETS, selected: draft.siteStylePreset ?? 'modern' },
+        { key: 'siteStylePreset' as const, title: 'Choose your style', values: CUSTOMER_SITE_STYLE_PRESETS, selected: draft.siteStylePreset ?? 'modern' },
         { key: 'sitePalettePreset' as const, title: 'Choose your colours', values: CUSTOMER_SITE_PALETTE_PRESETS, selected: draft.sitePalettePreset ?? 'luster_berry' },
       ];
 
@@ -154,7 +175,7 @@ export function BookingPageAppearance({
         <fieldset className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4" disabled={disabled} key={group.key}>
           <legend className="px-2 text-xl font-semibold">{group.title}</legend>
           {group.key === 'siteStylePreset' && (
-            <p className="mb-3 text-xs text-[var(--owner-muted)]">Every sample uses your chosen colours, so only the lettering, corners and button shape change.</p>
+            <p className="mb-3 text-xs text-[var(--owner-muted)]">Styles set the corners, button shape and starting heading font. Your chosen fonts remain when you switch styles.</p>
           )}
           {group.key === 'sitePalettePreset' && (
             <p className="mb-3 text-xs text-[var(--owner-muted)]">Every sample shows that palette's page background, button colour and accent colour.</p>
@@ -162,9 +183,19 @@ export function BookingPageAppearance({
           <div className="grid grid-cols-2 gap-3">
             {group.values.map((value) => {
               const tokens = group.key === 'siteStylePreset'
-                ? getCustomerSitePresentationCssVariables({ palettePreset: draft.sitePalettePreset, stylePreset: value })
+                ? getCustomerSitePresentationCssVariables({
+                  bodyFont: draft.siteBodyFont,
+                  headingFont: draft.siteHeadingFont,
+                  palettePreset: draft.sitePalettePreset,
+                  stylePreset: value,
+                })
                 : group.key === 'sitePalettePreset'
-                  ? getCustomerSitePresentationCssVariables({ palettePreset: value, stylePreset: draft.siteStylePreset })
+                  ? getCustomerSitePresentationCssVariables({
+                    bodyFont: draft.siteBodyFont,
+                    headingFont: draft.siteHeadingFont,
+                    palettePreset: value,
+                    stylePreset: draft.siteStylePreset,
+                  })
                   : null;
               return (
                 <button
@@ -191,6 +222,77 @@ export function BookingPageAppearance({
           </div>
         </fieldset>
       ))}
+      {mode === 'appearance' && (
+        <fieldset className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4" disabled={disabled}>
+          <legend className="px-2 text-xl font-semibold">Choose your fonts</legend>
+          <p className="mb-4 text-xs text-[var(--owner-muted)]">Choose a display font for headings and a readable font for booking details. Your style and colours stay the same.</p>
+          <div className="space-y-5">
+            <div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-[var(--owner-ink)]">Heading font</h3>
+                {draft.siteHeadingFont && (
+                  <button className="text-sm font-semibold text-[var(--owner-accent)] underline" onClick={() => onChange({ siteHeadingFont: null })} type="button">
+                    Follow style font
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {CUSTOMER_SITE_STYLE_PRESETS.map((value) => {
+                  const selected = (draft.siteHeadingFont ?? draft.siteStylePreset ?? 'modern') === value;
+                  const tokens = getCustomerSitePresentationCssVariables({
+                    bodyFont: draft.siteBodyFont,
+                    headingFont: value,
+                    palettePreset: draft.sitePalettePreset,
+                    stylePreset: draft.siteStylePreset,
+                  });
+                  return (
+                    <button
+                      aria-label={`${headingFontNames[value]} heading font`}
+                      aria-pressed={selected}
+                      className={`min-h-14 rounded-xl border p-3 text-left text-sm font-semibold disabled:opacity-50 ${selected ? 'border-[var(--owner-accent)] bg-[var(--owner-blush)] text-[var(--owner-accent-strong)]' : 'border-[var(--owner-line-strong)] text-[var(--owner-ink)]'}`}
+                      key={value}
+                      onClick={() => onChange({ siteHeadingFont: value })}
+                      type="button"
+                    >
+                      <PresetSpecimen tokens={tokens} value={`heading-${value}`} />
+                      <span style={{ fontFamily: tokens['--customer-site-heading-font'] }}>{headingFontNames[value]}</span>
+                      {selected && <span className="mt-1 block text-xs">✓ Selected</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-[var(--owner-ink)]">Body font</h3>
+              <div className="grid grid-cols-3 gap-3">
+                {CUSTOMER_SITE_BODY_FONT_PRESETS.map((value) => {
+                  const selected = (draft.siteBodyFont ?? 'inter') === value;
+                  const tokens = getCustomerSitePresentationCssVariables({
+                    bodyFont: value,
+                    headingFont: draft.siteHeadingFont,
+                    palettePreset: draft.sitePalettePreset,
+                    stylePreset: draft.siteStylePreset,
+                  });
+                  return (
+                    <button
+                      aria-label={`${names[value]} body font`}
+                      aria-pressed={selected}
+                      className={`min-h-14 rounded-xl border p-3 text-left text-sm font-semibold disabled:opacity-50 ${selected ? 'border-[var(--owner-accent)] bg-[var(--owner-blush)] text-[var(--owner-accent-strong)]' : 'border-[var(--owner-line-strong)] text-[var(--owner-ink)]'}`}
+                      key={value}
+                      onClick={() => onChange({ siteBodyFont: value })}
+                      type="button"
+                    >
+                      <PresetSpecimen tokens={tokens} value={`body-${value}`} />
+                      <span style={{ fontFamily: tokens['--customer-site-body-font'] }}>{names[value]}</span>
+                      {selected && <span className="mt-1 block text-xs">✓ Selected</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </fieldset>
+      )}
     </div>
   );
 }

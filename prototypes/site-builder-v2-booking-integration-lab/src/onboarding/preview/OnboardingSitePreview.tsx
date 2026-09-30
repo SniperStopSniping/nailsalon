@@ -25,7 +25,10 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
-import { CUSTOMER_SITE_STYLE_ROLES } from '../../../../../src/libs/customerSitePresentation';
+import {
+  CUSTOMER_SITE_BODY_FONT_ROLES,
+  CUSTOMER_SITE_STYLE_ROLES,
+} from '../../../../../src/libs/customerSitePresentation';
 import {
   BookingSectionRenderer,
   type BookingSessionUpdater,
@@ -1876,16 +1879,18 @@ export function OnboardingSitePreview({
   const [previewHeight, setPreviewHeight] = useState(viewport.height);
   const { profile, recipe } = state;
   const roles = ONBOARDING_STYLE_ROLES[recipe.stylePreset];
+  const headingRoles = ONBOARDING_STYLE_ROLES[recipe.headingFont ?? recipe.stylePreset];
+  const bodyFont = CUSTOMER_SITE_BODY_FONT_ROLES[recipe.bodyFont ?? 'inter'];
   const palette = SITE_PALETTE_BY_ID[recipe.palettePreset];
   const style = {
     '--customer-accent': palette.roles.accent,
-    '--customer-body-font': roles.bodyFont,
+    '--customer-body-font': bodyFont,
     '--customer-button': palette.roles.button,
     '--customer-button-text': palette.roles.buttonText,
     '--customer-button-radius': roles.buttonRadius,
     '--customer-focus-ring': palette.roles.focusRing,
     '--customer-ground': palette.roles.ground,
-    '--customer-heading-font': roles.headingFont,
+    '--customer-heading-font': headingRoles.headingFont,
     '--customer-ink': palette.roles.ink,
     '--customer-line': palette.roles.line,
     '--customer-muted': palette.roles.muted,
@@ -2443,6 +2448,8 @@ export function OnboardingSitePreview({
         data-preview-device={device}
         data-preview-scroll-container="true"
         data-palette-preset={recipe.palettePreset}
+        data-body-font={recipe.bodyFont ?? 'inter'}
+        data-heading-font={recipe.headingFont ?? recipe.stylePreset}
         data-style-preset={recipe.stylePreset}
         ref={frameRef}
         role={interactionMode !== 'inline' ? 'region' : undefined}

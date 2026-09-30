@@ -42,10 +42,13 @@ import {
   resolveBookingPagePresetRecipe,
 } from '@/libs/bookingPagePresetRecipes';
 import {
+  CUSTOMER_SITE_BODY_FONT_PRESETS,
   CUSTOMER_SITE_PALETTE_PRESETS,
   CUSTOMER_SITE_STYLE_PRESETS,
+  type CustomerSiteBodyFont,
   type CustomerSitePalettePreset,
   type CustomerSiteStylePreset,
+  resolveCustomerSiteBodyFont,
   resolveCustomerSitePalettePreset,
   resolveCustomerSiteStylePreset,
 } from '@/libs/customerSitePresentation';
@@ -254,6 +257,9 @@ export type BookingPageConfigSide = {
   sitePalettePreset?: CustomerSitePalettePreset;
   /** Free customer-site visual character selected during onboarding; not a premium style pack. */
   siteStylePreset?: CustomerSiteStylePreset;
+  /** Optional font choices override the fonts supplied by the visual style. */
+  siteHeadingFont?: CustomerSiteStylePreset;
+  siteBodyFont?: CustomerSiteBodyFont;
   /** Presentation of canonical business data above Quick Book's service menu. */
   quickBookLayout?: QuickBookSiteLayout;
   /** Presentation of the canonical catalogue inside the shared booking engine. */
@@ -395,6 +401,8 @@ function resolveWithDefault<T>(schema: z.ZodType<T>, value: unknown, fallback: T
 const layoutSchema = z.enum(BOOKING_PAGE_LAYOUTS);
 const sitePalettePresetSchema = z.enum(CUSTOMER_SITE_PALETTE_PRESETS);
 const siteStylePresetSchema = z.enum(CUSTOMER_SITE_STYLE_PRESETS);
+const siteHeadingFontSchema = z.enum(CUSTOMER_SITE_STYLE_PRESETS);
+const siteBodyFontSchema = z.enum(CUSTOMER_SITE_BODY_FONT_PRESETS);
 const quickBookSiteLayoutSchema = z.enum(QUICK_BOOK_SITE_LAYOUTS);
 const serviceMenuLayoutSchema = z.enum(SERVICE_MENU_LAYOUTS);
 
@@ -523,6 +531,8 @@ const bookingPageSideSchema = z.object({
   layout: layoutSchema,
   sitePalettePreset: sitePalettePresetSchema.optional(),
   siteStylePreset: siteStylePresetSchema.optional(),
+  siteHeadingFont: siteHeadingFontSchema.optional(),
+  siteBodyFont: siteBodyFontSchema.optional(),
   quickBookLayout: quickBookSiteLayoutSchema.optional(),
   serviceMenuLayout: serviceMenuLayoutSchema,
   stylePack: stylePackSchema,
@@ -539,8 +549,10 @@ export type WritableBookingPageLayout = (typeof WRITABLE_BOOKING_PAGE_LAYOUTS)[n
 
 export type BookingPageDraftPatch = Omit<
   Partial<BookingPageConfigSide>,
-  'layout' | 'quickBookProfile' | 'sectionVariants'
+  'layout' | 'quickBookProfile' | 'sectionVariants' | 'siteHeadingFont'
 > & {
+  /** Null removes a custom heading font so the current style supplies it. */
+  siteHeadingFont?: CustomerSiteStylePreset | null;
   /**
    * S4 (Stage 1) — narrowed at the TYPE level as well as at runtime, so a
    * direct `updateBookingPageDraft` caller writing an unimplemented layout is
@@ -561,6 +573,7 @@ export type BookingPageDraftPatch = Omit<
 export const bookingPageDraftPatchSchema = bookingPageSideSchema
   .partial()
   .extend({
+    siteHeadingFont: siteHeadingFontSchema.nullable().optional(),
     // S4: writes are restricted to implemented layouts. Reads are not.
     layout: writableLayoutSchema.optional(),
     quickBookProfile: quickBookProfileVisibilityPatchSchema.optional(),
@@ -863,6 +876,12 @@ function resolveSide(
   const siteStylePreset = hasOwn(source, 'siteStylePreset')
     ? resolveCustomerSiteStylePreset(source.siteStylePreset)
     : undefined;
+  const siteHeadingFont = hasOwn(source, 'siteHeadingFont')
+    ? resolveCustomerSiteStylePreset(source.siteHeadingFont)
+    : undefined;
+  const siteBodyFont = hasOwn(source, 'siteBodyFont')
+    ? resolveCustomerSiteBodyFont(source.siteBodyFont)
+    : undefined;
   const quickBookLayout = resolveQuickBookSiteLayout(source.quickBookLayout);
   const stylePack = resolveStylePack(source.stylePack);
   const tokenOverrides = resolveTokenOverrides(
@@ -916,6 +935,8 @@ function resolveSide(
     layout,
     ...(sitePalettePreset ? { sitePalettePreset } : {}),
     ...(siteStylePreset ? { siteStylePreset } : {}),
+    ...(siteHeadingFont ? { siteHeadingFont } : {}),
+    ...(siteBodyFont ? { siteBodyFont } : {}),
     quickBookLayout,
     serviceMenuLayout,
     stylePack,
@@ -1218,6 +1239,14 @@ export async function updateBookingPageDraftInTransaction(
   }
   if (validatedPatch.siteStylePreset !== undefined) {
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,siteStylePreset}', ${JSON.stringify(validatedPatch.siteStylePreset)}::jsonb)`;
+  }
+  if (validatedPatch.siteHeadingFont === null) {
+    settingsExpression = sql`${settingsExpression} #- '{bookingPage,draft,siteHeadingFont}'`;
+  } else if (validatedPatch.siteHeadingFont !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,siteHeadingFont}', ${JSON.stringify(validatedPatch.siteHeadingFont)}::jsonb)`;
+  }
+  if (validatedPatch.siteBodyFont !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,siteBodyFont}', ${JSON.stringify(validatedPatch.siteBodyFont)}::jsonb)`;
   }
   // Materialize the resolved legacy default on the next config write while
   // preserving it unless this patch explicitly selects another composition.

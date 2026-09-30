@@ -331,6 +331,14 @@ export type OnboardingSiteRecipe = {
   canvaEnabled: boolean;
   wantsCanvaFromWelcome: boolean;
   stylePreset: SiteStylePresetId;
+  /**
+   * An absent heading choice deliberately follows the selected site style.
+   * This lets a later style change refresh the default without replacing an
+   * owner-selected display face.
+   */
+  headingFont?: SiteStylePresetId;
+  /** Operational copy defaults to the neutral Inter role. */
+  bodyFont?: 'inter' | 'outfit' | 'nunito';
   styleConfirmed: boolean;
   palettePreset: SitePalettePresetId;
   paletteConfirmed: boolean;

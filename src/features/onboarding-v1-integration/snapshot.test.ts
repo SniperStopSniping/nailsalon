@@ -50,6 +50,36 @@ describe('onboarding persisted owner name boundary', () => {
   });
 });
 
+describe('onboarding font choices', () => {
+  it('round trips heading and body fonts through the saved preview', () => {
+    const state = createDefaultOnboardingState();
+    state.profile.businessName = 'Maya Test Atelier';
+    state.profile.ownerName = 'Maya';
+    state.profile.businessType = 'independent_salon';
+    state.profile.businessStructure = 'solo';
+    state.profile.location.cityOrArea = 'Toronto';
+    state.recipe.starter = 'quick_book';
+    state.recipe.stylePreset = 'luxury';
+    state.recipe.headingFont = 'editorial';
+    state.recipe.bodyFont = 'nunito';
+
+    const { snapshot } = createPersistableOnboardingDraft(
+      state,
+      'black_champagne',
+      null,
+      initializeStarter('quick_book'),
+    );
+    const restored = onboardingPersistedSnapshotSchema.parse(JSON.parse(JSON.stringify(snapshot)));
+    const document = compileOnboardingToSiteDocument({ revision: 1, siteId: 'font-choice-test', snapshot: restored });
+    const saved = createSavedSitePreviewModel({ document, media: [], snapshot: restored });
+
+    expect(restored.site.headingFont).toBe('editorial');
+    expect(restored.site.bodyFont).toBe('nunito');
+    expect(saved.state.recipe.headingFont).toBe('editorial');
+    expect(saved.state.recipe.bodyFont).toBe('nunito');
+  });
+});
+
 describe('onboarding persisted location boundary', () => {
   it('keeps setup-default provenance local while saving canonical address and contact choices', () => {
     const state = createDefaultOnboardingState();

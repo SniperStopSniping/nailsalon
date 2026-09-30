@@ -1306,6 +1306,7 @@ describe.sequential('account-backed onboarding persistence', () => {
     it('still applies the snapshot when the dashboard has not touched the record', async () => {
       const owner = identity('resume_clean');
       const initialInput = request('resume_clean');
+      delete initialInput.snapshot.site.bodyFont;
       const initial = await claimOnboardingDraft(owner, initialInput, handle());
       if (initial.kind !== 'success') {
         throw new Error('Expected early account save.');
@@ -1322,6 +1323,7 @@ describe.sequential('account-backed onboarding persistence', () => {
         salonId: initial.data.salonId,
       };
       resumedInput.snapshot.profile.businessName = 'Renamed inside setup';
+      resumedInput.snapshot.site.stylePresetId = 'luxury';
       const resumed = await claimOnboardingDraft(owner, resumedInput, handle());
       if (resumed.kind !== 'success') {
         throw new Error('Expected the resume claim to succeed.');
@@ -1333,6 +1335,43 @@ describe.sequential('account-backed onboarding persistence', () => {
         .where(eq(schema.salonSchema.id, initial.data.salonId));
 
       expect(salon?.name).toBe('Renamed inside setup');
+      expect(resolveBookingPageConfig(salon?.settings).draft.siteStylePreset).toBe('luxury');
+    });
+
+    it('clears a saved heading override when resumed setup follows the style font', async () => {
+      const owner = identity('resume_font_reset');
+      const initialInput = request('resume_font_reset');
+      initialInput.snapshot.site.headingFont = 'editorial';
+      initialInput.snapshot.site.bodyFont = 'nunito';
+      const initial = await claimOnboardingDraft(owner, initialInput, handle());
+      if (initial.kind !== 'success') {
+        throw new Error('Expected early account save.');
+      }
+
+      const resumedInput = structuredClone(initialInput);
+      resumedInput.anonymousDraftToken = opaque('resume_font_reset_later');
+      resumedInput.target = {
+        continuationClaimId: initial.data.claimId,
+        existingSiteStrategy: 'continue_onboarding_draft',
+        expectedRevision: initial.data.revision,
+        expectedSiteId: initial.data.siteId,
+        mode: 'existing_business',
+        salonId: initial.data.salonId,
+      };
+      delete resumedInput.snapshot.site.headingFont;
+      resumedInput.snapshot.site.bodyFont = 'inter';
+      const resumed = await claimOnboardingDraft(owner, resumedInput, handle());
+      if (resumed.kind !== 'success') {
+        throw new Error('Expected resumed account save.');
+      }
+
+      const [salon] = await database.select({ settings: schema.salonSchema.settings })
+        .from(schema.salonSchema).where(eq(schema.salonSchema.id, initial.data.salonId));
+      const draft = resolveBookingPageConfig(salon?.settings).draft;
+
+      expect(draft.siteStylePreset).toBe(initialInput.snapshot.site.stylePresetId);
+      expect(draft.siteHeadingFont).toBeUndefined();
+      expect(draft.siteBodyFont).toBe('inter');
     });
   });
 

@@ -447,7 +447,7 @@ describe('SettingsModal index', () => {
     // Website colour is authored in the Booking Page hub now; this screen only
     // points at it (AG-more-settings-06).
     expect(screen.getByTestId('branding-colour-authority'))
-      .toHaveTextContent('Booking Page → Style & Colours');
+      .toHaveTextContent('Booking Page → Style, Colours & Fonts');
     expect(screen.queryByRole('textbox', { name: 'Primary brand colour' })).not.toBeInTheDocument();
     expect(
       screen.getByDisplayValue('Welcome to online booking.'),

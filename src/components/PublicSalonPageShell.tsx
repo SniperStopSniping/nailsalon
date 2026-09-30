@@ -8,6 +8,7 @@ import {
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import {
+  getCustomerSiteFontCssVariables,
   getCustomerSitePresentationCssVariables,
   resolveCustomerSitePalettePreset,
   resolveCustomerSiteStylePreset,
@@ -158,7 +159,10 @@ export function PublicSalonPageShell({
   // Use the already-authorized draft/live side, exactly as the service page
   // does. Never read the draft independently or activate premium overrides.
   const hasSitePresentation = pageName.startsWith('book-')
-    && (bookingPage?.siteStylePreset !== undefined || bookingPage?.sitePalettePreset !== undefined);
+    && (bookingPage?.siteStylePreset !== undefined
+      || bookingPage?.sitePalettePreset !== undefined);
+  const hasSiteFonts = pageName.startsWith('book-')
+    && (bookingPage?.siteHeadingFont !== undefined || bookingPage?.siteBodyFont !== undefined);
   const sitePalette = hasSitePresentation
     ? resolveCustomerSitePalettePreset(bookingPage?.sitePalettePreset)
     : undefined;
@@ -168,8 +172,18 @@ export function PublicSalonPageShell({
   const bookingStyles = {
     ...bookingExperienceStyles,
     ...(hasSitePresentation
-      ? getCustomerSitePresentationCssVariables({ palettePreset: sitePalette, stylePreset: siteStyle })
-      : {}),
+      ? getCustomerSitePresentationCssVariables({
+        bodyFont: bookingPage?.siteBodyFont,
+        headingFont: bookingPage?.siteHeadingFont,
+        palettePreset: sitePalette,
+        stylePreset: siteStyle,
+      })
+      : hasSiteFonts
+        ? getCustomerSiteFontCssVariables({
+          bodyFont: bookingPage?.siteBodyFont,
+          headingFont: bookingPage?.siteHeadingFont,
+        })
+        : {}),
   };
 
   // Post-launch privacy fix: resolved HERE, unconditionally, for every
@@ -227,13 +241,14 @@ export function PublicSalonPageShell({
         themeKey={appearance.themeKey}
         pageName={pageName}
       >
-        {hasBookingColorOverride || hasSitePresentation
+        {hasBookingColorOverride || hasSitePresentation || hasSiteFonts
           ? (
               <div
                 data-booking-experience-theme={pageName}
                 data-customer-booking-theme={hasSitePresentation ? pageName : undefined}
                 data-customer-site-palette={sitePalette}
                 data-customer-site-style={siteStyle}
+                data-customer-site-fonts={hasSiteFonts ? pageName : undefined}
                 style={bookingStyles as CSSProperties}
               >
                 <BookingReadingPreferences>{children}</BookingReadingPreferences>

@@ -22,7 +22,7 @@ const EDITORS = [
   // Fonts are named here on purpose. Each style preset now carries its own
   // display typeface, and "the look you chose during setup" gave an owner
   // looking for their fonts nothing to aim at.
-  { id: 'appearance', title: 'Style & Colours', description: 'Fonts, colours and overall look', icon: Palette },
+  { id: 'appearance', title: 'Style, Colours & Fonts', description: 'Fonts, colours and overall look', icon: Palette },
   { id: 'policies', title: 'Policies Display', description: 'Show policies and open their canonical editor', icon: ShieldCheck },
   { id: 'experience', title: 'Booking Messages & Social Links', description: 'Booking message, social links and confirmation text', icon: MessageSquare },
   { id: 'publish', title: 'Preview & Publish', description: 'Preview the draft, publish changes or view the live site', icon: Check },

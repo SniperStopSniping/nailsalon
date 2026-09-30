@@ -638,7 +638,7 @@ type BookingExperienceEditorProps = {
   onReset: () => void;
   onSave: () => void;
   onRetryLoad: () => void;
-  /** Booking Page → Style & Colours, the single colour authority. */
+  /** Booking Page → Style, Colours & Fonts, the single colour authority. */
   appearanceHref?: string;
 };
 
@@ -750,18 +750,18 @@ function BookingExperienceEditor({
           data-testid="branding-colour-authority"
         >
           <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-            Website colours
+            Website appearance
           </span>
           <p className="text-sm text-[var(--owner-muted)]">
-            Website colours are set in Booking Page → Style &amp; Colours, where
-            they stay in your draft until you publish.
+            Website styles, colours, and fonts are set in Booking Page → Style, Colours &amp; Fonts.
+            They stay in your draft until you publish.
           </p>
           {appearanceHref && (
             <a
               href={appearanceHref}
               className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-[var(--owner-accent)] underline"
             >
-              Open Style &amp; Colours
+              Open Style, Colours &amp; Fonts
             </a>
           )}
         </div>
@@ -3956,7 +3956,7 @@ export function SettingsModal({
         {view === 'legacy-themes' && (
           <Section
             title="Legacy Page Themes"
-            footer="Existing per-page themes for older client-facing pages. Booking Page → Style & Colours owns the current website design."
+            footer="Existing per-page themes for older client-facing pages. Booking Page → Style, Colours & Fonts owns the current website design."
           >
             <PageThemesSettings className="overflow-visible rounded-[10px] bg-[var(--owner-surface)]" />
           </Section>
@@ -3970,6 +3970,7 @@ export function SettingsModal({
             <div className="space-y-3 p-4" data-testid="settings-booking-experience-handoff">
               <p className="text-sm text-[var(--owner-muted)]">Booking messages, social links and confirmation text are managed on Booking Page.</p>
               {bookingPageHubHref && <a className="inline-flex min-h-11 items-center rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white" href={`${bookingPageHubHref}&panel=experience`}>Open Booking Messages & Social Links</a>}
+              {appearanceHubHref && <a className="inline-flex min-h-11 items-center text-sm font-semibold text-[var(--owner-accent)] underline" href={appearanceHubHref}>Open Style, Colours & Fonts</a>}
             </div>
           </Section>
         )}
@@ -3977,7 +3978,7 @@ export function SettingsModal({
         {view === 'booking-experience' && (
           <Section
             title="Public booking experience"
-            footer="Booking messages and social links save immediately. Website colours stay in Booking Page → Style & Colours until you publish."
+            footer="Booking messages and social links save immediately. Website colours stay in Booking Page → Style, Colours & Fonts until you publish."
           >
             <BookingExperienceEditor
               appearanceHref={appearanceHubHref}

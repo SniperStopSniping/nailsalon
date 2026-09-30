@@ -341,6 +341,8 @@ function resetBookingExperienceMock() {
   salonContextMock.bookingPage.serviceMenuLayout = 'visual_grid';
   delete (salonContextMock.bookingPage as { sitePalettePreset?: string }).sitePalettePreset;
   delete (salonContextMock.bookingPage as { siteStylePreset?: string }).siteStylePreset;
+  delete (salonContextMock.bookingPage as { siteHeadingFont?: string }).siteHeadingFont;
+  delete (salonContextMock.bookingPage as { siteBodyFont?: string }).siteBodyFont;
   salonContextMock.bookingPage.sectionOrder = [
     'salonProfile',
     'serviceMenu',
@@ -696,6 +698,21 @@ describe('BookServiceClient', () => {
       '--customer-site-card-radius': '10px',
       '--theme-background': '#151315',
     });
+  });
+
+  it('changes fonts without applying a new site palette or card shape', () => {
+    Object.assign(salonContextMock.bookingPage, { siteHeadingFont: 'editorial', siteBodyFont: 'nunito' });
+    const { container } = render(
+      <BookServiceClient services={services} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={locations} />,
+    );
+    const viewport = container.querySelector('main.service-page-viewport');
+
+    expect(viewport).toHaveAttribute('data-customer-site-fonts', 'true');
+    expect(viewport).not.toHaveAttribute('data-customer-site-style');
+    expect((viewport as HTMLElement).style.getPropertyValue('--customer-site-heading-font')).toContain('--font-luster-editorial');
+    expect((viewport as HTMLElement).style.getPropertyValue('--customer-site-body-font')).toContain('--font-luster-soft');
+    expect(viewport?.getAttribute('style')).not.toContain('--theme-background');
+    expect(viewport?.getAttribute('style')).not.toContain('--customer-site-card-radius');
   });
 
   it('renders the salon profile only for Quick Book and preserves the existing Editorial renderer', () => {

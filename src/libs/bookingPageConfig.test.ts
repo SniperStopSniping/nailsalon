@@ -130,6 +130,8 @@ describe('bookingPageDraftPatchSchema typed section-variant writes', () => {
 
   it('validates and resolves free customer-site style and palette independently', () => {
     expect(bookingPageDraftPatchSchema.safeParse({
+      siteBodyFont: 'nunito',
+      siteHeadingFont: 'editorial',
       sitePalettePreset: 'black_champagne',
       siteStylePreset: 'luxury',
     }).success).toBe(true);
@@ -137,6 +139,8 @@ describe('bookingPageDraftPatchSchema typed section-variant writes', () => {
     const resolved = resolveBookingPageConfig({
       bookingPage: {
         draft: {
+          siteBodyFont: 'nunito',
+          siteHeadingFont: 'editorial',
           sitePalettePreset: 'black_champagne',
           siteStylePreset: 'luxury',
         },
@@ -145,6 +149,8 @@ describe('bookingPageDraftPatchSchema typed section-variant writes', () => {
 
     expect(resolved.draft.sitePalettePreset).toBe('black_champagne');
     expect(resolved.draft.siteStylePreset).toBe('luxury');
+    expect(resolved.draft.siteHeadingFont).toBe('editorial');
+    expect(resolved.draft.siteBodyFont).toBe('nunito');
     expect(resolved.live.sitePalettePreset).toBeUndefined();
     expect(resolved.live.siteStylePreset).toBeUndefined();
   });

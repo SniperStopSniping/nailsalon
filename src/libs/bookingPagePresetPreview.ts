@@ -90,6 +90,8 @@ export function resolveBookingPagePresetPreviewSide({
     layout: recipe.layout,
     quickBookLayout: currentSide.quickBookLayout,
     serviceMenuLayout: currentSide.serviceMenuLayout,
+    siteBodyFont: currentSide.siteBodyFont,
+    siteHeadingFont: currentSide.siteHeadingFont,
     sitePalettePreset: currentSide.sitePalettePreset,
     siteStylePreset: currentSide.siteStylePreset,
     stylePack: currentSide.stylePack,

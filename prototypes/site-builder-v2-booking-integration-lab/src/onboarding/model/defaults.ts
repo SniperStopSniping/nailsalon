@@ -212,6 +212,7 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
 export const createDefaultSiteRecipe = (): OnboardingSiteRecipe => ({
   aboutEnabled: true,
   aboutPreset: 'photo_right',
+  bodyFont: 'inter',
   canvaEnabled: false,
   galleryEnabled: false,
   policiesEnabled: true,

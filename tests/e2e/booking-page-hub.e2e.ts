@@ -77,11 +77,13 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await page.goto(hubUrl);
 
-    await page.getByRole('link', { name: /Style & Colours/ }).click();
+    await page.getByRole('link', { name: /Style, Colours & Fonts/ }).click();
 
-    await expect(page.getByRole('heading', { name: 'Style & Colours', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Style, Colours & Fonts', exact: true })).toBeVisible();
     await expect(page.getByRole('group', { name: /^Choose your style/ }).getByRole('button')).toHaveCount(6);
     await expect(page.getByRole('group', { name: 'Choose your colours' }).getByRole('button')).toHaveCount(8);
+    await expect(page.getByRole('group', { name: 'Choose your fonts' }).getByRole('button')).toHaveCount(9);
+    expect(await noHorizontalOverflow()).toBe(true);
     await expect(page.getByTitle('Live booking page preview')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Booking Page', exact: true }).click();

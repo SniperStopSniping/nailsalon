@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { CUSTOMER_SITE_BODY_FONT_PRESETS } from '@/libs/customerSitePresentation';
+
 import {
   CANONICAL_SERVICE_IDS,
   MOCK_ADD_ONS,
@@ -313,9 +315,11 @@ const siteBuilderDocumentSchema = z.custom<SiteBuilderDocument>(
 const siteRecipeSchema = z.object({
   aboutEnabled: z.boolean(),
   aboutPreset: z.enum(['photo_right', 'editorial_portrait', 'profile_quick_facts', 'about_before_you_book']),
+  bodyFont: z.enum(CUSTOMER_SITE_BODY_FONT_PRESETS).optional(),
   builderDocument: siteBuilderDocumentSchema.nullable().default(null),
   canvaEnabled: z.boolean(),
   galleryEnabled: z.boolean(),
+  headingFont: z.enum(ONBOARDING_STYLE_PRESET_IDS).optional(),
   palettePresetId: z.enum(ONBOARDING_PALETTE_PRESET_IDS),
   policiesEnabled: z.boolean(),
   quickBookLayout: z.enum(QUICK_BOOK_LAYOUT_IDS).default('compact_dropdown'),
@@ -557,6 +561,7 @@ const compiledPageSchema = z.object({
 }).strict();
 
 export const onboardingCompiledSiteDocumentSchema = z.object({
+  bodyFont: z.enum(CUSTOMER_SITE_BODY_FONT_PRESETS).optional(),
   builderDocument: siteBuilderDocumentSchema,
   compilerVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(3),
   navigation: z.array(z.object({
@@ -565,6 +570,7 @@ export const onboardingCompiledSiteDocumentSchema = z.object({
     pageId: nonEmptyText(200),
   }).strict()).max(10),
   navigationEnabled: z.boolean(),
+  headingFont: z.enum(ONBOARDING_STYLE_PRESET_IDS).optional(),
   pages: z.array(compiledPageSchema).min(1).max(10),
   palettePresetId: z.enum(ONBOARDING_PALETTE_PRESET_IDS),
   recipeMigrationResult: z.enum([

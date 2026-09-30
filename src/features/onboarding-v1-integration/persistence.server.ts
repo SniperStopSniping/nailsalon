@@ -490,6 +490,8 @@ async function syncQuickBookProfilePresentationDraft(input: {
       quickBookProfile: snapshot.site.quickBookProfile,
       sitePalettePreset: snapshot.site.palettePresetId,
       siteStylePreset: snapshot.site.stylePresetId,
+      siteHeadingFont: snapshot.site.headingFont ?? null,
+      siteBodyFont: snapshot.site.bodyFont ?? 'inter',
       ...(serviceMenuLayout ? { serviceMenuLayout } : {}),
     },
   );
@@ -1603,6 +1605,8 @@ async function resolveDashboardOwnedFields(input: {
   if (
     draftConfig.siteStylePreset !== baseline.site.stylePresetId
     || draftConfig.sitePalettePreset !== baseline.site.palettePresetId
+    || draftConfig.siteHeadingFont !== baseline.site.headingFont
+    || (draftConfig.siteBodyFont ?? 'inter') !== (baseline.site.bodyFont ?? 'inter')
     || draftConfig.quickBookLayout !== baseline.site.quickBookLayout
     || (baselineServiceMenuLayout !== null && draftConfig.serviceMenuLayout !== baselineServiceMenuLayout)
     || (draftContent.bio ?? null) !== (baseline.profile.about.shortBio.trim() || null)

@@ -241,9 +241,11 @@ export function createPersistableOnboardingDraft(
     site: {
       aboutEnabled: state.recipe.aboutEnabled,
       aboutPreset: state.recipe.aboutPreset,
+      ...(state.recipe.bodyFont ? { bodyFont: state.recipe.bodyFont } : {}),
       builderDocument: acceptedBuilderDocument,
       canvaEnabled: state.recipe.canvaEnabled,
       galleryEnabled: state.recipe.galleryEnabled,
+      ...(state.recipe.headingFont ? { headingFont: state.recipe.headingFont } : {}),
       palettePresetId,
       policiesEnabled: state.recipe.policiesEnabled,
       quickBookLayout: state.recipe.quickBookLayout,
