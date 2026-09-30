@@ -44,6 +44,26 @@ describe('GET /api/admin/auth/me', () => {
     });
   });
 
+  it('keeps hidden memberships accessible while removing them from chooser options', async () => {
+    getAdminImpersonationForAdmin.mockResolvedValue(null);
+    getAdminSession.mockResolvedValue({
+      id: 'admin_1',
+      isSuperAdmin: false,
+      salons: [
+        { salonId: 'old', salonSlug: 'old', salonName: 'Old', role: 'owner', hiddenFromChooserAt: new Date() },
+        { salonId: 'current', salonSlug: 'current', salonName: 'Current', role: 'owner', hiddenFromChooserAt: null },
+      ],
+    });
+
+    const response = await GET(new Request('http://localhost/api/admin/auth/me?salonSlug=old'));
+    const { user } = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(user.salons.map((salon: { id: string }) => salon.id)).toEqual(['old']);
+    expect(user.availableSalons.map((salon: { id: string }) => salon.id)).toEqual(['current']);
+    expect(user.hiddenSalons.map((salon: { id: string }) => salon.id)).toEqual(['old']);
+  });
+
   it('returns impersonation details and locks the salons list to the impersonated salon', async () => {
     getAdminImpersonationForAdmin.mockResolvedValue({
       salonId: 'salon_locked',

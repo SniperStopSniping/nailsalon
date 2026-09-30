@@ -231,6 +231,7 @@ type AdminUser = {
     bookingUrl?: string;
   }>;
   availableSalons?: AdminUser['salons'];
+  hiddenSalons?: AdminUser['salons'];
 };
 
 type DashboardData = {
@@ -448,13 +449,14 @@ function AdminDashboardContent() {
   const activeDashboardSalonSlug
     = adminUser?.impersonation?.salonSlug
     ?? requestedSalonSlug
-    ?? adminUser?.salons[0]?.slug
+    ?? adminUser?.availableSalons?.[0]?.slug
+    ?? (adminUser?.availableSalons ? null : adminUser?.salons[0]?.slug)
     ?? null;
   const activeDashboardSalon = activeDashboardSalonSlug
     ? (adminUser?.salons.find(
         s => s.slug?.toLowerCase() === activeDashboardSalonSlug.toLowerCase(),
       ) ?? null)
-    : (adminUser?.salons[0] ?? null);
+    : (adminUser?.availableSalons?.[0] ?? adminUser?.salons[0] ?? null);
   const activeDashboardSalonName = activeDashboardSalon?.name ?? null;
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
   const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
@@ -756,11 +758,11 @@ function AdminDashboardContent() {
             setShowSalonSelector(false);
           }
 
-          // If admin has multiple salons and no salon selected, show selector
+          // Keep the selector available when hidden salons need restoring.
           const salonChoices = data.user.availableSalons ?? data.user.salons;
           if (
             !data.user.impersonation?.isActive
-            && salonChoices.length > 1
+            && (salonChoices.length > 1 || (data.user.hiddenSalons?.length ?? 0) > 0)
             && !requestedSalonSlug
           ) {
             setShowSalonSelector(true);
@@ -830,6 +832,25 @@ function AdminDashboardContent() {
       // Ignore
     }
     await clerk.signOut({ redirectUrl: '/owner' });
+  };
+
+  const handleSalonVisibilityChange = async (salon: AdminUser['salons'][number], hidden: boolean) => {
+    const response = await fetch(`/api/admin/salons/${encodeURIComponent(salon.id)}/chooser-visibility`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hidden }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.error || 'Could not update the salon list. Try again.');
+    }
+    const refreshed = await fetch('/api/admin/auth/me', { cache: 'no-store' });
+    if (!refreshed.ok) {
+      throw new Error('Your list changed, but it could not refresh. Reload this page.');
+    }
+    const body = await refreshed.json();
+    setAdminUser(body.user);
+    router.refresh();
   };
 
   const resetAnalyticsPresentation = useCallback(() => {
@@ -1761,11 +1782,12 @@ function AdminDashboardContent() {
   if (
     !adminUser.impersonation?.isActive
     && showSalonSelector
-    && selectableSalons.length > 1
   ) {
     return (
       <AdminSalonSelector
         salons={selectableSalons}
+        hiddenSalons={adminUser.hiddenSalons}
+        onVisibilityChange={handleSalonVisibilityChange}
         onSelect={(salon) => {
           router.push(`/${locale}/admin?salon=${salon.slug}`);
           setShowSalonSelector(false);
@@ -1885,7 +1907,7 @@ function AdminDashboardContent() {
             actions={(
               <>
                 {!adminUser.impersonation?.isActive
-                && selectableSalons.length > 1 && (
+                && (selectableSalons.length > 1 || (adminUser.hiddenSalons?.length ?? 0) > 0) && (
                   <button
                     type="button"
                     onClick={() => setShowSalonSelector(true)}

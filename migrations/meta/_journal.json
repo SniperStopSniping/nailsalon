@@ -659,6 +659,13 @@
       "when": 1790609459475,
       "tag": "0094_billing_phone_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1790745061453,
+      "tag": "0095_salon_chooser_visibility",
+      "breakpoints": true
     }
   ]
 }

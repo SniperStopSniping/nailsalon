@@ -2,9 +2,11 @@ import '@/styles/global.css';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
+import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { AppGrid } from '@/components/admin/AppGrid';
+import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
 import { OwnerManagementModal } from '@/components/admin/OwnerManagementModal';
 import { PaymentsModal } from '@/components/admin/PaymentsModal';
 import { ServicesModal } from '@/components/admin/ServicesModal';
@@ -16,6 +18,11 @@ export function OwnerNavigationFixture() {
   const query = useSearchParams();
   const app = query.get('app');
   const isFreeSolo = query.get('freeSolo') === '1';
+  const [removedSalons, setRemovedSalons] = useState<string[]>([]);
+  const chooserSalons = [
+    { id: 'salon_old', slug: 'old', name: 'Old Studio', role: 'owner', status: 'cancelled' },
+    { id: 'salon_live', slug: 'live', name: 'Current Studio', role: 'owner', status: 'active' },
+  ];
   const openApp = (nextApp: string) => {
     const next = new URLSearchParams(query.toString());
     next.set('salon', 'isla');
@@ -29,6 +36,21 @@ export function OwnerNavigationFixture() {
     next.delete('view');
     router.push(`/en/admin?${next.toString()}`, { scroll: false });
   };
+
+  if (app === 'salon-chooser') {
+    return (
+      <AdminSalonSelector
+        salons={chooserSalons.filter(salon => !removedSalons.includes(salon.id))}
+        hiddenSalons={chooserSalons.filter(salon => removedSalons.includes(salon.id))}
+        onSelect={() => {}}
+        onVisibilityChange={async (salon, hidden) => {
+          setRemovedSalons(current => hidden
+            ? [...current, salon.id]
+            : current.filter(id => id !== salon.id));
+        }}
+      />
+    );
+  }
 
   if (app === 'workspace-tour') {
     return (

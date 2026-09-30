@@ -469,6 +469,8 @@ jobs:
               migrations/0093_existing_test_client_text_defaults.sql) ;;
               # Verified phone continuity for the lifetime free SMS allowance.
               migrations/0094_billing_phone_identity.sql) ;;
+              # Owner-specific salon chooser visibility; no salon data removed.
+              migrations/0095_salon_chooser_visibility.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -484,6 +486,7 @@ jobs:
               migrations/meta/0092_snapshot.json) ;;
               migrations/meta/0093_snapshot.json) ;;
               migrations/meta/0094_snapshot.json) ;;
+              migrations/meta/0095_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -493,9 +496,10 @@ jobs:
             esac
           done <<< "$(git diff --name-only "$base" -- migrations vercel.json)"
 
-          # 4. Additive by construction: no deletions, no rewrites. This is what
-          #    keeps an already-shipped migration or an existing cron immutable.
-          removed="$(git diff --unified=0 "$base" -- migrations vercel.json \
+          # 4. SQL, snapshots, and cron configuration remain additive. The
+          #    journal is checked as parsed entries in step 5 because appending
+          #    valid JSON necessarily changes the previous last-entry comma.
+          removed="$(git diff --unified=0 "$base" -- migrations vercel.json ':(exclude)migrations/meta/_journal.json' \
             | grep -E '^-' | grep -vE '^--- ' || true)"
           if [ -n "$removed" ]; then
             echo "::error::The deposits ladder is additive by construction, but these lines were removed or rewritten:"
@@ -852,6 +856,37 @@ jobs:
             exit 1
           fi
 
+          # The chooser preference is a single nullable membership column.
+          # Pin both artifacts and the exact new journal entry before release.
+          if ! git diff --quiet "$base" -- migrations/0095_salon_chooser_visibility.sql migrations/meta/0095_snapshot.json; then
+            if git cat-file -e "$base:migrations/0095_salon_chooser_visibility.sql" 2>/dev/null \
+              || git cat-file -e "$base:migrations/meta/0095_snapshot.json" 2>/dev/null; then
+              echo "::error::Migration 0095 and its snapshot are already shipped and immutable."
+              exit 1
+            fi
+            migration_0095_sql_status="$(git diff --name-status "$base" -- migrations/0095_salon_chooser_visibility.sql)"
+            migration_0095_snapshot_status="$(git diff --name-status "$base" -- migrations/meta/0095_snapshot.json)"
+            if [ "$migration_0095_sql_status" != $'A\tmigrations/0095_salon_chooser_visibility.sql' ] \
+              || [ "$migration_0095_snapshot_status" != $'A\tmigrations/meta/0095_snapshot.json' ]; then
+              echo "::error::Migration 0095 must introduce exactly one SQL file and one snapshot."
+              exit 1
+            fi
+            migration_0095_sql_sha256="$(sha256sum migrations/0095_salon_chooser_visibility.sql | awk '{print $1}')"
+            migration_0095_snapshot_sha256="$(sha256sum migrations/meta/0095_snapshot.json | awk '{print $1}')"
+            if [ "$migration_0095_sql_sha256" != "e6eb382cde9368609b8ee41ae52208c05f21de71e8c273c96e50b9949320a79e" ] \
+              || [ "$migration_0095_snapshot_sha256" != "bdb4de12b82dff7507bb6795c3f1fd9aeb8a8b7bb5a9f79a62337531e1792a6b" ]; then
+              echo "::error::Migration 0095 artifacts do not match the reviewed chooser postimage."
+              exit 1
+            fi
+          fi
+
+          expected_0095_journal='{"breakpoints":true,"idx":94,"tag":"0095_salon_chooser_visibility","version":"7","when":1790745061453}'
+          actual_0095_journal="$(jq -cS '.entries[] | select(.tag == "0095_salon_chooser_visibility")' migrations/meta/_journal.json)"
+          if [ "$actual_0095_journal" != "$expected_0095_journal" ]; then
+            echo "::error::Migration 0095 journal entry does not match the reviewed postimage."
+            exit 1
+          fi
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -914,6 +949,7 @@ jobs:
               0092_voice_receptionist) ;;
               0093_existing_test_client_text_defaults) ;;
               0094_billing_phone_identity) ;;
+              0095_salon_chooser_visibility) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1

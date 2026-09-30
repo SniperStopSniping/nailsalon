@@ -57,6 +57,7 @@ export type SalonMembership = {
   status?: string | null;
   role: string;
   freeSoloEnabled?: boolean;
+  hiddenFromChooserAt?: Date | null;
 };
 
 export type AdminWithSalons = {
@@ -85,6 +86,7 @@ async function loadAdminWithSalons(admin: AdminUser): Promise<AdminWithSalons> {
       customDomain: salonSchema.customDomain,
       salonStatus: salonSchema.status,
       freeSoloEnabled: salonSchema.freeSoloEnabled,
+      hiddenFromChooserAt: adminSalonMembershipSchema.hiddenFromChooserAt,
     })
     .from(adminSalonMembershipSchema)
     .innerJoin(salonSchema, eq(adminSalonMembershipSchema.salonId, salonSchema.id))
@@ -100,6 +102,7 @@ async function loadAdminWithSalons(admin: AdminUser): Promise<AdminWithSalons> {
       status: m.salonStatus,
       role: m.role,
       freeSoloEnabled: m.freeSoloEnabled,
+      hiddenFromChooserAt: m.hiddenFromChooserAt,
     })),
   };
 }
@@ -912,7 +915,7 @@ export async function requireActiveAdminSalon(): Promise<{
     }
   }
 
-  const fallbackMembership = admin.salons[0];
+  const fallbackMembership = admin.salons.find(membership => !membership.hiddenFromChooserAt);
   if (fallbackMembership) {
     const salon = await getSalonById(fallbackMembership.salonId);
     if (salon) {
