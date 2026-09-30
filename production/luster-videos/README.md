@@ -103,7 +103,7 @@ python3 production/luster-videos/tools/video_pipeline.py render --timeline timel
 python3 production/luster-videos/tools/video_pipeline.py qa --timeline timelines/tutorial-booking.json
 ```
 
-Rebuilds use saved media and make no paid calls. Scene order/ranges, duration, crop, zoom, framing, titles, narration, captions and export settings are editable JSON. Target: H.264/AAC, yuv420p, constant 30 fps, fast-start MP4, 1920×1080 landscape or 1080×1920 vertical.
+Rebuilds use saved media and make no paid calls. Scene order/ranges, duration, crop, zoom, framing, titles, narration, captions and export settings are editable JSON. Tutorial click annotations use a white hand pointer with a charcoal outline and a short champagne pulse. Each scene stores the actual control position and visually aligned source time; the introductory outcome preview has no clicks. Both clean and captioned versions inherit the same pointer animation. Original vector cursor graphics are in `graphics/`; the installed root `sharp` package rasterizes them into ignored render cache files. No app DOM or styling is modified. See `manifests/cursor-evidence.json` for source-frame evidence. Target: H.264/AAC, yuv420p, constant 30 fps, fast-start MP4, 1920×1080 landscape or 1080×1920 vertical.
 
 ## Inventory and acceptance
 

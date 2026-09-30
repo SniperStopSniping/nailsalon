@@ -100,6 +100,49 @@ class TimelineValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(pipeline.PipelineError, "exceeds"):
                 pipeline.validate_recording_sources(data, recordings)
 
+    def test_click_plan_uses_raw_source_time_with_scene_edit_offset(self):
+        data = template()
+        data["scenes"][0]["framing"]["source_crop"] = {"x": 0, "y": 0, "width": 390, "height": 844}
+        data["scenes"][1]["framing"]["source_crop"] = {"x": 0, "y": 0, "width": 390, "height": 844}
+        data["scenes"][1]["clicks"] = [{"source_time": 3.0, "x": 195, "y": 422, "label": "Add", "evidence": "Observed capture click."}]
+        self.assertEqual([], pipeline.validate_timeline(data))
+        event = pipeline.click_plan(data)[0]
+        self.assertEqual(9.0, event["edit_time"])
+        self.assertGreater(event["x"], 0)
+        self.assertGreater(event["y"], 0)
+
+    def test_click_mapping_respects_crop_and_mobile_right_frame(self):
+        data = template()
+        data["layout"] = {"mode": "landscape-mobile-right"}
+        scene = data["scenes"][0]
+        scene["framing"]["source_crop"] = {"x": 0, "y": 0, "width": 390, "height": 844}
+        x, y = pipeline.map_raw_click(scene, data, 195, 422)
+        self.assertAlmostEqual(1412.56, x, places=2)
+        self.assertAlmostEqual(550.0, y, places=1)
+
+    def test_invalid_or_overlapping_clicks_are_rejected(self):
+        data = template()
+        scene = data["scenes"][0]
+        scene["framing"]["source_crop"] = {"x": 0, "y": 0, "width": 390, "height": 844}
+        scene["clicks"] = [
+            {"source_time": 1.0, "x": 500, "y": 422, "label": "Add", "evidence": "Observed."},
+            {"source_time": 1.2, "x": 195, "y": 422, "label": "Continue", "evidence": "Observed."},
+        ]
+        errors = pipeline.validate_timeline(data)
+        self.assertTrue(any("inside the visible" in error for error in errors))
+        self.assertTrue(any("overlap" in error for error in errors))
+
+    def test_annotation_filter_path_is_shared_by_silent_and_clean_exports(self):
+        data = template()
+        plan = [{"edit_time": 3.0, "x": 500.0, "y": 400.0, "label": "Continue", "evidence": "Observed."}]
+        filters_a = ["[base]null[video]"]
+        filters_b = ["[base]null[video]"]
+        label_a = pipeline.append_annotation_filters(filters_a, plan, 4, data)
+        label_b = pipeline.append_annotation_filters(filters_b, plan, 4, data)
+        self.assertEqual("click_0", label_a)
+        self.assertEqual(filters_a, filters_b)
+        self.assertTrue(any("between(t\\,2.720\\,3.180)" in item for item in filters_a))
+
 
 class SubtitleTests(unittest.TestCase):
     def test_srt_and_vtt_use_explicit_timing(self):

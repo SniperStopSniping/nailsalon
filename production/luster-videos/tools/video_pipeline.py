@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_DURATION_SECONDS = 90
 SUPPORTED_FORMATS = {(1920, 1080), (1080, 1920)}
 REQUIRED_OUTPUTS = ("clean", "captioned", "thumbnail", "srt", "vtt", "qa")
+ANNOTATION_GRAPHICS = ROOT / "graphics"
+POINTER_HOTSPOT = (12, 4)
 
 
 class PipelineError(RuntimeError):
@@ -66,6 +68,75 @@ def planned_duration(data: dict[str, Any]) -> float:
     return sum(scene_duration(scene) for scene in data["scenes"])
 
 
+def cursor_style(data: dict[str, Any]) -> dict[str, float]:
+    style = data.get("cursor_style", {})
+    return {
+        "hand_size": float(style.get("hand_size", 52)), "ring_small_size": float(style.get("ring_small_size", 54)), "ring_large_size": float(style.get("ring_large_size", 82)),
+        "hotspot_x": float(style.get("hotspot_x", POINTER_HOTSPOT[0])), "hotspot_y": float(style.get("hotspot_y", POINTER_HOTSPOT[1])),
+        "approach_seconds": float(style.get("approach_seconds", 0.28)), "press_seconds": float(style.get("press_seconds", 0.08)), "post_click_seconds": float(style.get("post_click_seconds", 0.18)),
+        "approach_dx": float(style.get("approach_dx", 18)), "approach_dy": float(style.get("approach_dy", 22)),
+    }
+
+
+def scene_edit_start(data: dict[str, Any], scene_index: int) -> float:
+    return sum(scene_duration(scene) for scene in data["scenes"][:scene_index])
+
+
+def visible_source_rect(scene: dict[str, Any]) -> tuple[float, float, float, float]:
+    crop = scene.get("framing", {}).get("source_crop")
+    if not crop:
+        raise PipelineError("Click annotations require framing.source_crop so raw capture coordinates can be mapped safely.")
+    return float(crop["x"]), float(crop["y"]), float(crop["width"]), float(crop["height"])
+
+
+def map_raw_click(scene: dict[str, Any], data: dict[str, Any], raw_x: float, raw_y: float) -> tuple[float, float]:
+    """Map a raw source-pixel click point through crop, framing, zoom, and pad."""
+    crop_x, crop_y, crop_width, crop_height = visible_source_rect(scene)
+    if not crop_x <= raw_x < crop_x + crop_width or not crop_y <= raw_y < crop_y + crop_height:
+        raise PipelineError("Click point must be inside the visible source_crop.")
+    x, y = raw_x - crop_x, raw_y - crop_y
+    width, height = data["format"]["width"], data["format"]["height"]
+    framing = scene.get("framing", {})
+    zoom = float(framing.get("zoom", 1.0))
+    layout = data.get("layout", {"mode": "legacy"})
+    if layout.get("mode") == "landscape-mobile-right":
+        app_x, app_y, app_height = layout.get("app_x", 1200), layout.get("app_y", 90), layout.get("app_height", 920)
+        scaled_height = int(round(app_height * zoom / 2) * 2)
+        scale = scaled_height / crop_height
+        scaled_width = int(round(crop_width * scale / 2) * 2)
+        visible_width = int(scaled_width / zoom / 2) * 2
+        return app_x + x * scale - (scaled_width - visible_width) / 2, app_y + y * scale - (scaled_height - app_height) / 2
+    fit = framing.get("fit", "contain")
+    if fit == "contain":
+        margin = 64 if width >= height else 48
+        top = 110 if width >= height else 150
+        bottom = 200 if width >= height else 300
+        inner_width, inner_height = width - margin * 2, height - top - bottom
+        scale = min(inner_width / crop_width, inner_height / crop_height)
+        scaled_width, scaled_height = crop_width * scale, crop_height * scale
+        mapped_x, mapped_y = (width - scaled_width) / 2 + x * scale, (height - scaled_height) / 2 + y * scale
+    elif fit == "cover":
+        scale = max(width / crop_width, height / crop_height)
+        scaled_width, scaled_height = crop_width * scale, crop_height * scale
+        mapped_x, mapped_y = x * scale - (scaled_width - width) / 2, y * scale - (scaled_height - height) / 2
+    else:
+        raise PipelineError("Click annotations do not support this framing mode.")
+    if zoom > 1:
+        mapped_x = mapped_x * zoom - (width * zoom - width) / 2
+        mapped_y = mapped_y * zoom - (height * zoom - height) / 2
+    return mapped_x, mapped_y
+
+
+def click_plan(data: dict[str, Any]) -> list[dict[str, Any]]:
+    plan: list[dict[str, Any]] = []
+    for scene_index, scene in enumerate(data["scenes"]):
+        for click in scene.get("clicks", []):
+            edit_time = scene_edit_start(data, scene_index) + float(click["source_time"]) - float(scene["source_start"])
+            mapped_x, mapped_y = map_raw_click(scene, data, float(click["x"]), float(click["y"]))
+            plan.append({"scene_index": scene_index, "edit_time": edit_time, "x": mapped_x, "y": mapped_y, "label": click["label"], "evidence": click["evidence"]})
+    return plan
+
+
 def validate_timeline(data: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     try:
@@ -107,6 +178,15 @@ def validate_timeline(data: dict[str, Any]) -> list[str]:
                     errors.append("caption_style.%s must be an integer between %s and %s." % (key, lower, upper))
             if "alignment" in caption_style and caption_style["alignment"] not in (1, 2, 3):
                 errors.append("caption_style.alignment must be 1, 2, or 3.")
+        raw_cursor_style = data.get("cursor_style", {})
+        if not isinstance(raw_cursor_style, dict):
+            errors.append("cursor_style must be an object when present.")
+        else:
+            for key, lower, upper in (("hand_size", 32, 96), ("ring_small_size", 32, 120), ("ring_large_size", 40, 144), ("hotspot_x", 0, 96), ("hotspot_y", 0, 96), ("approach_seconds", 0.08, 0.60), ("press_seconds", 0.04, 0.20), ("post_click_seconds", 0.08, 0.50), ("approach_dx", 0, 80), ("approach_dy", 0, 80)):
+                if key in raw_cursor_style and (not isinstance(raw_cursor_style[key], (int, float)) or not lower <= raw_cursor_style[key] <= upper):
+                    errors.append("cursor_style.%s must be between %s and %s." % (key, lower, upper))
+            if raw_cursor_style.get("ring_small_size", 54) > raw_cursor_style.get("ring_large_size", 82):
+                errors.append("cursor_style.ring_small_size cannot exceed ring_large_size.")
         minimum, maximum = format_data.get("min_duration_seconds"), format_data.get("max_duration_seconds")
         if not isinstance(minimum, (int, float)) or not isinstance(maximum, (int, float)) or not 1 <= minimum <= maximum <= MAX_DURATION_SECONDS:
             errors.append("format must specify min_duration_seconds and max_duration_seconds between 1 and %s." % MAX_DURATION_SECONDS)
@@ -158,6 +238,31 @@ def validate_timeline(data: dict[str, Any]) -> list[str]:
                         errors.append("Scene %s label must be a non-empty string of at most 96 characters." % index)
                     elif isinstance(framing, dict) and framing.get("fit", "contain") != "contain":
                         errors.append("Scene %s label requires contain framing so it stays outside the app UI." % index)
+                clicks = scene.get("clicks", [])
+                if not isinstance(clicks, list):
+                    errors.append("Scene %s clicks must be a list when present." % index)
+                else:
+                    style = cursor_style(data)
+                    previous_click_time = None
+                    for click_index, click in enumerate(clicks, start=1):
+                        if not isinstance(click, dict):
+                            errors.append("Scene %s click %s must be an object." % (index, click_index))
+                            continue
+                        click_time, click_x, click_y = click.get("source_time"), click.get("x"), click.get("y")
+                        if not all(isinstance(value, (int, float)) for value in (click_time, click_x, click_y)):
+                            errors.append("Scene %s click %s must have numeric source_time, x, and y." % (index, click_index))
+                            continue
+                        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or click_time < start + style["approach_seconds"] or click_time > end - style["post_click_seconds"]:
+                            errors.append("Scene %s click %s needs room for its approach and release within the source range." % (index, click_index))
+                        if previous_click_time is not None and click_time - previous_click_time < style["approach_seconds"] + style["post_click_seconds"] + 0.04:
+                            errors.append("Scene %s click annotations overlap; leave room for approach and release." % index)
+                        previous_click_time = click_time
+                        if not isinstance(click.get("label"), str) or not click["label"].strip() or not isinstance(click.get("evidence"), str) or not click["evidence"].strip():
+                            errors.append("Scene %s click %s requires non-empty label and evidence." % (index, click_index))
+                        try:
+                            map_raw_click(scene, data, float(click_x), float(click_y))
+                        except PipelineError as error:
+                            errors.append("Scene %s click %s: %s" % (index, click_index, error))
             if isinstance(minimum, (int, float)) and isinstance(maximum, (int, float)):
                 duration = planned_duration(data)
                 if duration < minimum or duration > maximum:
@@ -258,6 +363,65 @@ def run(command: list[str]) -> None:
         subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     except subprocess.CalledProcessError as error:
         raise PipelineError("FFmpeg command failed: %s" % error.stderr[-2500:].strip()) from error
+
+
+def rasterize_annotation_asset(name: str, width: int) -> Path:
+    source = ANNOTATION_GRAPHICS / (name + ".svg")
+    if not source.is_file():
+        raise PipelineError("Annotation graphic is missing: %s" % source)
+    fingerprint = hashlib.sha256(source.read_bytes() + str(width).encode("ascii")).hexdigest()[:16]
+    output = ROOT / "work" / "annotation-cache" / (name + "-" + fingerprint + ".png")
+    if output.is_file():
+        return output
+    node = shutil.which("node")
+    if not node:
+        raise PipelineError("Node.js and the repository's installed sharp package are required to rasterize annotation graphics.")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    script = "const sharp=require('sharp'); sharp(process.argv[1]).resize({width:Number(process.argv[3])}).png().toFile(process.argv[2]).catch(e=>{process.stderr.write(e.message);process.exit(1)})"
+    try:
+        subprocess.run([node, "-e", script, str(source), str(output), str(width)], cwd=str(ROOT.parents[1]), check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except subprocess.CalledProcessError as error:
+        raise PipelineError("Could not rasterize local annotation graphic with sharp: %s" % error.stderr[-1000:].strip()) from error
+    return output
+
+
+def annotation_assets(plan: list[dict[str, Any]]) -> tuple[Path, Path] | None:
+    if not plan:
+        return None
+    return rasterize_annotation_asset("hand-pointer", 64), rasterize_annotation_asset("click-ring", 80)
+
+
+def append_annotation_inputs(command: list[str], plan: list[dict[str, Any]], assets: tuple[Path, Path] | None) -> None:
+    if not assets:
+        return
+    hand, ring = assets
+    for _ in plan:
+        command.extend(["-loop", "1", "-framerate", "30", "-i", str(ring), "-loop", "1", "-framerate", "30", "-i", str(hand)])
+
+
+def append_annotation_filters(filters: list[str], plan: list[dict[str, Any]], input_start: int, data: dict[str, Any]) -> str:
+    """Append short-lived ring and hand overlays after the assembled editorial video."""
+    base = "video"
+    style = cursor_style(data)
+    for index, click in enumerate(plan):
+        ring_input, hand_input = input_start + index * 2, input_start + index * 2 + 1
+        start, press, end = click["edit_time"] - style["approach_seconds"], click["edit_time"], click["edit_time"] + style["post_click_seconds"]
+        small_end = press + style["press_seconds"]
+        x, y = click["x"], click["y"]
+        small, large, first, second, hand = "ring_small_%d" % index, "ring_large_%d" % index, "ring_first_%d" % index, "ring_second_%d" % index, "hand_%d" % index
+        filters.append("[%d:v]format=rgba,split=2[ring_a_%d][ring_b_%d]" % (ring_input, index, index))
+        filters.append("[ring_a_%d]fade=t=in:st=%.3f:d=0.03:alpha=1,fade=t=out:st=%.3f:d=0.03:alpha=1,scale=%d:%d[%s]" % (index, press, small_end - 0.03, style["ring_small_size"], style["ring_small_size"], small))
+        filters.append("[ring_b_%d]fade=t=in:st=%.3f:d=0.04:alpha=1,fade=t=out:st=%.3f:d=0.06:alpha=1,scale=%d:%d[%s]" % (index, small_end, end - 0.06, style["ring_large_size"], style["ring_large_size"], large))
+        filters.append("[%s][%s]overlay=x=%.3f:y=%.3f:enable='between(t\\,%.3f\\,%.3f)'[%s]" % (base, small, x - style["ring_small_size"] / 2, y - style["ring_small_size"] / 2, press, small_end, first))
+        filters.append("[%s][%s]overlay=x=%.3f:y=%.3f:enable='between(t\\,%.3f\\,%.3f)'[%s]" % (first, large, x - style["ring_large_size"] / 2, y - style["ring_large_size"] / 2, small_end, end, second))
+        hot_x, hot_y = x - style["hotspot_x"], y - style["hotspot_y"]
+        filters.append("[%d:v]format=rgba,fade=t=in:st=%.3f:d=0.06:alpha=1,fade=t=out:st=%.3f:d=0.06:alpha=1,scale=%d:%d[%s]" % (hand_input, start, end - 0.06, style["hand_size"], style["hand_size"], hand))
+        x_expression = "if(lt(t\\,%.3f)\\,%.3f+%.3f*(%.3f-t)/%.3f\\,%.3f)" % (press, hot_x, style["approach_dx"], press, style["approach_seconds"], hot_x)
+        y_expression = "if(lt(t\\,%.3f)\\,%.3f+%.3f*(%.3f-t)/%.3f\\,%.3f)+if(between(t\\,%.3f\\,%.3f)\\,4\\,0)" % (press, hot_y, style["approach_dy"], press, style["approach_seconds"], hot_y, press, press + style["press_seconds"])
+        next_base = "click_%d" % index
+        filters.append("[%s][%s]overlay=x='%s':y='%s':enable='between(t\\,%.3f\\,%.3f)'[%s]" % (second, hand, x_expression, y_expression, start, end, next_base))
+        base = next_base
+    return base
 
 
 def probe(path: Path) -> dict[str, Any]:
@@ -424,6 +588,8 @@ def assemble_filters(data: dict[str, Any], label_files: list[Path | None], title
 def render_silent_draft(data: dict[str, Any], ffmpeg: str) -> dict[str, str]:
     recordings = required_recordings(data)
     validate_recording_sources(data, recordings)
+    plan = click_plan(data)
+    assets = annotation_assets(plan)
     output = ROOT / "work" / "internal-drafts" / (str(data["id"]) + ".silent.not-approval-ready.mp4")
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="luster-video-", dir=str(ROOT / "work")) as temp:
@@ -436,7 +602,11 @@ def render_silent_draft(data: dict[str, Any], ffmpeg: str) -> dict[str, str]:
         command = [ffmpeg, "-y"]
         append_scene_inputs(command, data, recordings)
         expected_duration = planned_duration(data)
-        command.extend(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-filter_complex", ";".join(assemble_filters(data, label_files, title_file, disclosure_file, watermark_file)), "-map", "[video]", "-map", "%d:a" % len(data["scenes"]), "-t", "%.6f" % expected_duration, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-movflags", "+faststart", str(output)])
+        command.extend(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"])
+        append_annotation_inputs(command, plan, assets)
+        filters = assemble_filters(data, label_files, title_file, disclosure_file, watermark_file)
+        output_label = append_annotation_filters(filters, plan, len(data["scenes"]) + 1, data)
+        command.extend(["-filter_complex", ";".join(filters), "-map", "[%s]" % output_label, "-map", "%d:a" % len(data["scenes"]), "-t", "%.6f" % expected_duration, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-movflags", "+faststart", str(output)])
         run(command)
     return {"internal_silent_draft": str(output), "render_status": "internal-silent-draft-not-approval-ready"}
 
@@ -464,6 +634,8 @@ def render(data: dict[str, Any], internal_test: bool = False, internal_silent_dr
     recordings, narration = required_media(data)
     expected_duration = planned_duration(data)
     validate_recording_sources(data, recordings)
+    plan = click_plan(data)
+    assets = annotation_assets(plan)
     if media_duration(narration) > expected_duration + 0.1:
         raise PipelineError("Narration is longer than the ordered scene timeline; revise scenes or narration before rendering.")
     srt, _ = write_subtitles(data)
@@ -481,10 +653,12 @@ def render(data: dict[str, Any], internal_test: bool = False, internal_silent_dr
         command = [ffmpeg, "-y"]
         append_scene_inputs(command, data, recordings)
         command.extend(["-i", str(narration)])
+        append_annotation_inputs(command, plan, assets)
         filters = assemble_filters(data, label_files, title_file, disclosure_file)
+        output_label = append_annotation_filters(filters, plan, len(data["scenes"]) + 1, data)
         narration_index = len(data["scenes"])
         filters.append("[%d:a]apad=whole_dur=%.6f[audio]" % (narration_index, expected_duration))
-        command.extend(["-filter_complex", ";".join(filters), "-map", "[video]", "-map", "[audio]", "-t", "%.6f" % expected_duration, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(clean)])
+        command.extend(["-filter_complex", ";".join(filters), "-map", "[%s]" % output_label, "-map", "[audio]", "-t", "%.6f" % expected_duration, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(clean)])
         run(command)
         style = caption_style(data)
         subtitle_filter = "subtitles=filename='%s':force_style='FontSize=%d,PrimaryColour=&H00FFFFFF,OutlineColour=&H00292421,BorderStyle=1,Outline=2,Alignment=%d,MarginL=%d,MarginV=%d'" % (escape_filter_path(srt), style["font_size"], style["alignment"], style["margin_left"], style["margin_vertical"])

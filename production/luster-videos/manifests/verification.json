@@ -142,5 +142,25 @@
     "finalVTT": 0,
     "finalThumbnails": 0
   },
-  "deviations": "manifests/scene-evidence.json"
+  "deviations": "manifests/scene-evidence.json",
+  "cursorRevision": {
+    "date": "2026-09-30",
+    "requested": "Visible hand pointer for tutorial clicks",
+    "status": "Rendered, target positions visually reviewed, full decode passed; silent preview only",
+    "sceneEvidence": "manifests/cursor-evidence.json",
+    "applicationChanges": false,
+    "additionalBookingCreated": false,
+    "testsPassed": 44,
+    "testCommand": "python3 -m unittest discover -s production/luster-videos/tests -v",
+    "testEvidence": "qa/cursor-tests.log",
+    "secretScan": "Passed: 3301 tracked files, 526 generated files, 3 reviewed commits"
+  },
+  "branchCICheckpoint": {
+    "head": "6b574c60",
+    "fullVitest": "passed",
+    "applicationTests": "passed",
+    "node22Build": "failed in unchanged next/font Google loader: TypeError reading null match",
+    "node20Build": "cancelled by build matrix",
+    "release": "Draft PR not merged; new cursor revision requires its own CI"
+  }
 }

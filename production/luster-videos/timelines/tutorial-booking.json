@@ -73,7 +73,16 @@
           "width": 390,
           "height": 844
         }
-      }
+      },
+      "clicks": [
+        {
+          "source_time": 9.48,
+          "x": 102,
+          "y": 421,
+          "label": "Select BIAB Overlay",
+          "evidence": "manifests/cursor-evidence.json"
+        }
+      ]
     },
     {
       "id": "addon",
@@ -91,7 +100,16 @@
           "width": 390,
           "height": 844
         }
-      }
+      },
+      "clicks": [
+        {
+          "source_time": 14.76,
+          "x": 324,
+          "y": 421,
+          "label": "Add Simple Nail Art",
+          "evidence": "manifests/cursor-evidence.json"
+        }
+      ]
     },
     {
       "id": "continue",
@@ -109,7 +127,16 @@
           "width": 390,
           "height": 844
         }
-      }
+      },
+      "clicks": [
+        {
+          "source_time": 20.12,
+          "x": 318,
+          "y": 816,
+          "label": "Continue",
+          "evidence": "manifests/cursor-evidence.json"
+        }
+      ]
     },
     {
       "id": "date",
@@ -127,7 +154,16 @@
           "width": 390,
           "height": 844
         }
-      }
+      },
+      "clicks": [
+        {
+          "source_time": 25.16,
+          "x": 146,
+          "y": 422,
+          "label": "Choose Friday, October 2",
+          "evidence": "manifests/cursor-evidence.json"
+        }
+      ]
     },
     {
       "id": "time",
@@ -145,7 +181,16 @@
           "width": 390,
           "height": 844
         }
-      }
+      },
+      "clicks": [
+        {
+          "source_time": 28.88,
+          "x": 113,
+          "y": 238,
+          "label": "Choose 10:00 AM",
+          "evidence": "manifests/cursor-evidence.json"
+        }
+      ]
     },
     {
       "id": "summary",
@@ -199,14 +244,23 @@
           "width": 390,
           "height": 844
         }
-      }
+      },
+      "clicks": [
+        {
+          "source_time": 49.64,
+          "x": 44,
+          "y": 493,
+          "label": "Required appointment agreement",
+          "evidence": "manifests/cursor-evidence.json"
+        }
+      ]
     },
     {
       "id": "confirm",
       "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
       "source_start": 51,
-      "source_end": 55.5,
-      "output_duration_seconds": 4.5,
+      "source_end": 57,
+      "output_duration_seconds": 6,
       "label": "Confirm appointment \u00b7 $75.00",
       "framing": {
         "fit": "contain",
@@ -217,14 +271,23 @@
           "width": 390,
           "height": 844
         }
-      }
+      },
+      "clicks": [
+        {
+          "source_time": 55.88,
+          "x": 195,
+          "y": 605,
+          "label": "Confirm appointment \u00b7 $75.00",
+          "evidence": "manifests/cursor-evidence.json"
+        }
+      ]
     },
     {
       "id": "complete",
       "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
-      "source_start": 55.5,
+      "source_start": 57,
       "source_end": 64.5,
-      "output_duration_seconds": 9.0,
+      "output_duration_seconds": 7.5,
       "label": "Your time is reserved",
       "framing": {
         "fit": "contain",
@@ -318,5 +381,17 @@
     "margin_vertical": 240,
     "margin_left": 120,
     "alignment": 1
+  },
+  "cursor_style": {
+    "hand_size": 52,
+    "ring_small_size": 54,
+    "ring_large_size": 82,
+    "hotspot_x": 12,
+    "hotspot_y": 3,
+    "approach_seconds": 0.6,
+    "press_seconds": 0.08,
+    "post_click_seconds": 0.18,
+    "approach_dx": 18,
+    "approach_dy": 22
   }
 }

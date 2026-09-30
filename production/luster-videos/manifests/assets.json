@@ -17,5 +17,15 @@
     "dependency": "System-installed fonts for local rendering; document actual chosen font in render QA",
     "redistributed": false
   },
-  "existingSalonPhotosUsed": false
+  "existingSalonPhotosUsed": false,
+  "tutorialAnnotations": {
+    "paths": [
+      "graphics/hand-pointer.svg",
+      "graphics/click-ring.svg"
+    ],
+    "source": "Original vector drawings authored in the production tooling for the requested tutorial cursor.",
+    "thirdPartyAsset": false,
+    "fontDependency": false,
+    "generatedRasterCache": "Ignored work/annotation-cache; rebuildable from SVG with installed sharp."
+  }
 }
