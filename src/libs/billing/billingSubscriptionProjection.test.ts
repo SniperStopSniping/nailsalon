@@ -666,7 +666,54 @@ describe('projection insert race (§8.3) — the loser must never write a phanto
     expect((await projectedRows(winnerRow!.id)).at(-1)!.metadata).toMatchObject({ kind: 'stale' });
   });
 
-  it('a winner row that vanishes before the re-select is SUBSCRIPTION_PROJECTION_RACE, not a phantom create', async () => {
+  it('a different live subscription retries, then projects after the old subscription cancels', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_race_other_sub');
+
+    const created = await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_race_other_sub', id: 'sub_race_first' }),
+      eventCreated: T0,
+      eventId: 'evt_race_first',
+    });
+
+    expect(created).toEqual({ applied: true, kind: 'created' });
+
+    const replacement = {
+      snapshot: snapshot({ salonId: 's_race_other_sub', id: 'sub_race_second' }),
+      eventCreated: new Date(T0.getTime() + 1000),
+      eventId: 'evt_race_second',
+    };
+
+    await expect(projectSubscriptionSnapshot(replacement))
+      .rejects.toThrow('ACTIVE_SUBSCRIPTION_CONFLICT_RETRYABLE');
+
+    const rows = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.salonId, 's_race_other_sub'));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.stripeSubscriptionId).toBe('sub_race_first');
+    expect(rows[0]!.lastEventId).toBe('evt_race_first');
+    expect(await projectedRows(rows[0]!.id)).toHaveLength(1);
+
+    const canceled = await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_race_other_sub', id: 'sub_race_first', status: 'canceled' }),
+      eventCreated: new Date(T0.getTime() + 2000),
+      eventId: 'evt_race_first_canceled',
+    });
+
+    expect(canceled).toEqual({ applied: true, kind: 'updated' });
+    await expect(projectSubscriptionSnapshot(replacement))
+      .resolves.toEqual({ applied: true, kind: 'created' });
+
+    const afterRetry = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.salonId, 's_race_other_sub'));
+
+    expect(afterRetry).toHaveLength(2);
+    expect(afterRetry.find(row => row.stripeSubscriptionId === 'sub_race_first')?.status).toBe('canceled');
+    expect(afterRetry.find(row => row.stripeSubscriptionId === 'sub_race_second')?.status).toBe('active');
+  });
+
+  it('a winner row that vanishes before the re-select remains retryable without a phantom create', async () => {
     const { projectSubscriptionSnapshot } = await projection();
     await seedSalon('s_race_gone');
     await projectSubscriptionSnapshot({
@@ -680,18 +727,15 @@ describe('projection insert race (§8.3) — the loser must never write a phanto
     // share-lock read): the winning row was deleted between the conflict and
     // the re-read.
     holder.db = dbWithBlindSelects([2, 4]);
-    let loser;
     try {
-      loser = await projectSubscriptionSnapshot({
+      await expect(projectSubscriptionSnapshot({
         snapshot: snapshot({ salonId: 's_race_gone', id: 'sub_race_gone' }),
         eventCreated: new Date(T0.getTime() + 1000),
         eventId: 'evt_race_gone_loser',
-      });
+      })).rejects.toThrow('SUBSCRIPTION_PROJECTION_RACE_RETRYABLE');
     } finally {
       holder.db = db;
     }
-
-    expect(loser).toEqual({ applied: false, anomaly: 'SUBSCRIPTION_PROJECTION_RACE' });
 
     const orphans = await db.execute(sql`
       SELECT COUNT(*)::int AS orphans FROM audit_log

@@ -82,7 +82,7 @@ const signingStripe = new Stripe('sk_test_billing_refund_concurrency', { apiVers
  * Zero-skip proof: this suite must never silently degrade to a skip in CI.
  * The count is asserted in afterAll and grepped for by the workflow step.
  */
-const EXPECTED_EXECUTED_TESTS = 22;
+const EXPECTED_EXECUTED_TESTS = 23;
 let executedTests = 0;
 
 function deferred<T>() {
@@ -974,6 +974,64 @@ suite('subscription refund exclusions — real PostgreSQL', () => {
     );
 
     expect(orphans.rows).toEqual([]);
+  });
+
+  it('RT-21: competing subscriptions retry safely and replacement succeeds after cancellation', async () => {
+    executedTests += 1;
+    const salonId = 'refund_projection_competitors';
+    await db.insert(schema.salonSchema).values({ id: salonId, name: salonId, slug: salonId });
+
+    const { projectSubscriptionSnapshot } = await import('./billingSubscriptionProjection');
+    const project = (subscriptionId: string, status: 'active' | 'canceled' = 'active') => projectSubscriptionSnapshot({
+      snapshot: {
+        id: subscriptionId,
+        customerId: `cus_${subscriptionId}`,
+        status,
+        cancelAtPeriodEnd: false,
+        currentPeriodStart: anchor,
+        metadata: { purpose: 'plan_subscription', salonId, billingOfferKey: 'starter_2026_08_monthly' },
+      },
+      eventCreated: new Date(status === 'canceled' ? '2030-01-03T00:00:00.000Z' : '2030-01-02T00:00:00.000Z'),
+      eventId: `evt_${subscriptionId}_${status}`,
+    });
+
+    const outcomes = await Promise.allSettled([
+      project('sub_projection_competitor_a'),
+      project('sub_projection_competitor_b'),
+    ]);
+
+    expect(outcomes.filter(outcome => outcome.status === 'fulfilled')).toHaveLength(1);
+    expect(outcomes.filter(outcome => outcome.status === 'rejected')).toHaveLength(1);
+    expect(outcomes.find(outcome => outcome.status === 'fulfilled'))
+      .toMatchObject({ value: { applied: true, kind: 'created' } });
+    expect(outcomes.find(outcome => outcome.status === 'rejected'))
+      .toMatchObject({ reason: { message: 'ACTIVE_SUBSCRIPTION_CONFLICT_RETRYABLE' } });
+
+    const rows = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.salonId, salonId));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.stripeSubscriptionId).toMatch(/^sub_projection_competitor_[ab]$/);
+
+    const winnerId = rows[0]!.stripeSubscriptionId;
+    const loserId = winnerId.endsWith('_a') ? 'sub_projection_competitor_b' : 'sub_projection_competitor_a';
+
+    const projected = (await db.select().from(schema.auditLogSchema))
+      .filter(entry => entry.action === 'billing_subscription_projected');
+
+    expect(projected).toHaveLength(1);
+    expect(projected[0]!.entityId).toBe(rows[0]!.id);
+    expect(projected[0]!.metadata).toMatchObject({ kind: 'created' });
+
+    expect(await project(winnerId, 'canceled')).toEqual({ applied: true, kind: 'updated' });
+    expect(await project(loserId)).toEqual({ applied: true, kind: 'created' });
+
+    const recovered = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.salonId, salonId));
+
+    expect(recovered).toHaveLength(2);
+    expect(recovered.find(row => row.stripeSubscriptionId === winnerId)?.status).toBe('canceled');
+    expect(recovered.find(row => row.stripeSubscriptionId === loserId)?.status).toBe('active');
   });
 
   it('RT-19: a void racing a replayed full-refund event converges on one consistent live state', async () => {
