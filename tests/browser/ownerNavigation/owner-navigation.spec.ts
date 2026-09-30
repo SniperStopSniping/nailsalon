@@ -1,5 +1,31 @@
 import { expect, test } from '@playwright/test';
 
+test('owner can remove and restore an old salon from the mobile chooser', async ({ page }) => {
+  await page.goto('/?app=salon-chooser');
+
+  await expect(page.getByText('Your Luster salons')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open dashboard' })).toHaveCount(2);
+
+  await page.getByRole('button', { name: 'Remove from my list' }).first().click();
+
+  await expect(page.getByText(/This does not change its booking page, appointments, or subscription/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Remove from my list' }).first().click();
+
+  await expect(page.getByRole('button', { name: 'Open dashboard' })).toHaveCount(1);
+  await expect(page.getByText('Current Studio')).toBeVisible();
+
+  await page.getByText('Removed salons (1)').click();
+
+  await expect(page.getByText('Old Studio', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Restore' }).click();
+
+  await expect(page.getByRole('button', { name: 'Open dashboard' })).toHaveCount(2);
+  await expect(page.getByText('Removed salons (1)')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 const hours = {
   monday: { open: '10:00', close: '18:00' },
   tuesday: { open: '10:00', close: '18:00' },
