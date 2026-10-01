@@ -89,10 +89,13 @@ for (const status of ['confirmed', 'pending'] as const) {
     const submit = page.getByRole('button', { name: /Confirm appointment/ });
 
     await submit.scrollIntoViewIfNeeded();
+
     expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+
     await submit.click();
 
     const heading = page.getByTestId('booking-result-heading');
+
     await expect(heading).toHaveText(status === 'confirmed' ? 'Appointment confirmed' : 'Request received');
     await expect(heading).toBeFocused();
     await expect.poll(() => page.evaluate(() => scrollY)).toBeLessThanOrEqual(1);
@@ -108,17 +111,25 @@ for (const status of ['confirmed', 'pending'] as const) {
     await expect(page.getByRole('link', { name: 'Google Calendar', exact: true })).toHaveCount(status === 'confirmed' ? 1 : 0);
     await expect(page.getByRole('link', { name: 'Apple Calendar', exact: true })).toHaveCount(status === 'confirmed' ? 1 : 0);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect.poll(() => page.locator('main [style*="opacity"]').evaluateAll(elements => elements.every(element => getComputedStyle(element).opacity === '1'))).toBe(true);
+
     await page.screenshot({ path: info.outputPath(`receipt-${status}.png`), fullPage: true });
 
     // macOS WebKit skips links with plain Tab unless full keyboard access is
     // enabled; Option-Tab includes links in the native navigation sequence.
     await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
     const manage = page.getByRole('link', { name: status === 'confirmed' ? 'Manage this appointment' : 'Manage this request', exact: true });
+
     await expect(manage).toBeFocused();
     await expect(manage).toHaveCSS('outline-style', 'solid');
+
     // CSS text enlargement exercises reflow; this is not a physical-device or
     // native browser text-size setting verification.
     await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+
+    await expect(page.getByRole('heading', { name: 'Appointment summary', exact: true })).toHaveCSS('overflow-wrap', 'anywhere');
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+    await page.screenshot({ path: info.outputPath(`receipt-${status}-text-200.png`), fullPage: true });
   });
 }

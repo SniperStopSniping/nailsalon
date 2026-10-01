@@ -1842,7 +1842,7 @@ const SuccessContent = ({
   }, [prefersReducedMotion]);
 
   return (
-    <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
+    <div className="booking-confirm-page min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
       {recoveryError && <p role="alert" className="p-4">{recoveryError}</p>}
       {/* Navbar */}
       <nav
