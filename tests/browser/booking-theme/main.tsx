@@ -48,7 +48,7 @@ window.fetch = async (input) => {
     return Response.json({ data: {
       appointmentId: 'synthetic-appointment',
       appointment: { id: 'synthetic-appointment', status: query.has('pending') ? 'pending' : 'confirmed' },
-      manageUrl: '/en/theme-fixture/manage/private-token',
+      manageUrl: query.has('missing-management') ? undefined : '/en/theme-fixture/manage/private-token',
     } }, { status: 201 });
   }
   throw new Error(`Unexpected fixture request: ${String(input)}`);

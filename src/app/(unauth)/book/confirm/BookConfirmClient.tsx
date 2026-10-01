@@ -620,11 +620,11 @@ const BookingCard = ({
         className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
         headerClassName="booking-review-summary-header"
         actions={(
-          <div className="text-right">
-            <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <p className="font-body text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">
               {addOns.some(addOn => addOn.priceMode === 'manual_confirmation') ? 'Current booking subtotal' : 'Estimated total'}
             </p>
-            <p data-testid="booking-receipt-total" className="font-heading mt-1 text-2xl font-bold text-[var(--n5-ink-main)]">
+            <p data-testid="booking-receipt-total" className="font-heading text-2xl font-semibold leading-8 text-[var(--n5-ink-main)]">
               {totalPriceDisplay ?? `$${totalPrice}`}
             </p>
           </div>
@@ -632,40 +632,40 @@ const BookingCard = ({
         contentClassName="divide-y divide-[var(--n5-border-muted)]"
       >
         {addOns.some(addOn => addOn.priceMode === 'manual_confirmation') && (
-          <p data-testid="booking-manual-price-note" className="mb-4 rounded-xl bg-[var(--n5-bg-muted)] px-3 py-2 text-xs font-semibold text-[var(--n5-ink-main)]">
+          <p data-testid="booking-manual-price-note" className="mb-4 rounded-xl bg-[var(--n5-bg-muted)] px-3 py-2 text-sm font-semibold text-[var(--n5-ink-main)]">
             Additional item: price to be confirmed by your nail tech. It is not included in this subtotal.
           </p>
         )}
         <div data-testid="booking-receipt-when" className="flex items-center gap-3 pb-4">
           <div
-            className="flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--n5-accent)]"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--n5-ink-main)]"
             style={{ backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, var(--n5-bg-card))' }}
           >
             <Calendar aria-hidden="true" className="size-5" />
           </div>
           <div className="min-w-0">
-            <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">When</p>
-            <p className="font-heading mt-1 text-xl font-semibold tracking-tight text-[var(--n5-ink-main)]">
+            <p className="font-body text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">When</p>
+            <p className="font-heading mt-1 text-2xl font-semibold leading-8 text-[var(--n5-ink-main)]">
               {formatDate(dateStr)}
             </p>
-            <p className="font-body mt-0.5 text-sm font-semibold text-[var(--n5-ink-main)]">{formatTime(timeStr)}</p>
+            <p className="font-body mt-0.5 text-base font-semibold leading-6 text-[var(--n5-ink-main)]">{formatTime(timeStr)}</p>
           </div>
         </div>
 
         <div data-testid="booking-receipt-services" className="py-4">
-          <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">Services</p>
+          <p className="font-body text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">Services</p>
           <ul
             data-public-surface="appointmentSummaryCard"
             className="mt-2 space-y-1.5"
             aria-label="Booked services"
           >
             {services.map(service => (
-              <li key={service.id} className="font-body text-sm font-semibold text-[var(--n5-ink-main)]">{service.name}</li>
+              <li key={service.id} className="font-body text-base font-semibold leading-6 text-[var(--n5-ink-main)]">{service.name}</li>
             ))}
           </ul>
           {addOns.length > 0 && (
             <>
-              <p className="font-body mt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">Add-ons</p>
+              <p className="font-body mt-3 text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">Add-ons</p>
               <ul
                 data-public-surface="appointmentSummaryCard"
                 data-testid="booking-receipt-add-ons"
@@ -673,7 +673,7 @@ const BookingCard = ({
                 aria-label="Booked add-ons"
               >
                 {addOns.map((addOn, index) => (
-                  <li key={addOnKey(addOn, index)} className="font-body break-words text-sm leading-6 text-[var(--n5-ink-main)]">
+                  <li key={addOnKey(addOn, index)} className="font-body break-words text-base leading-6 text-[var(--n5-ink-main)]">
                     {addOnLabel(addOn)}
                   </li>
                 ))}
@@ -681,7 +681,7 @@ const BookingCard = ({
             </>
           )}
           {rewardsEnabled && (
-            <p className="font-body mt-3 text-xs leading-relaxed text-[var(--n5-ink-muted)]">
+            <p className="font-body mt-3 text-sm leading-6 text-[var(--n5-ink-muted)]">
               Estimated reward after completion: +
               {pointsEarned.toLocaleString()}
               {' '}
@@ -701,6 +701,7 @@ const BookingCard = ({
                     name={technician.name}
                     imageUrl={technician.imageUrl}
                     className="size-full"
+                    fallbackClassName="border border-[var(--n5-border-muted)] bg-none bg-[var(--n5-bg-muted)] text-[var(--n5-ink-main)]"
                     sizes="48px"
                   />
                 </div>
@@ -713,20 +714,20 @@ const BookingCard = ({
                     backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, var(--n5-bg-card))',
                   }}
                 >
-                  <User className="size-5 text-[var(--n5-accent)]" />
+                  <User aria-hidden="true" className="size-5 text-[var(--n5-ink-main)]" />
                 </div>
               )}
           <div className="min-w-0 flex-1">
-            <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+            <p className="font-body text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">
               Artist
             </p>
-            <p className="font-body mt-1 text-sm font-semibold text-[var(--n5-ink-main)]">
+            <p className="font-body mt-1 text-base font-semibold leading-6 text-[var(--n5-ink-main)]">
               {technician?.name ?? 'Any available artist'}
             </p>
           </div>
           <div
             data-testid="booking-receipt-duration"
-            className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold"
+            className="shrink-0 rounded-full px-3 py-1 text-sm font-semibold leading-5"
             style={{
               backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, var(--n5-bg-card))',
               color: 'var(--n5-ink-main)',
@@ -737,12 +738,12 @@ const BookingCard = ({
         </div>
         {location && (
           <div className="flex items-start gap-3 pt-4">
-            <MapPin aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[var(--n5-accent)]" />
+            <MapPin aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-[var(--n5-ink-main)]" />
             <div className="min-w-0">
-              <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">Location</p>
-              <p className="font-body mt-1 text-sm font-semibold text-[var(--n5-ink-main)]">{location.name}</p>
+              <p className="font-body text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">Location</p>
+              <p className="font-body mt-1 text-base font-semibold leading-6 text-[var(--n5-ink-main)]">{location.name}</p>
               {location.address && (
-                <p className="font-body mt-1 text-xs leading-relaxed text-[var(--n5-ink-muted)]">
+                <p className="font-body mt-1 text-sm leading-6 text-[var(--n5-ink-muted)]">
                   {location.address}
                   {location.city ? `, ${location.city}` : ''}
                 </p>
@@ -1440,24 +1441,24 @@ const ConfirmContent = ({
             className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
             contentClassName="space-y-3 pt-0"
           >
-            <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+            <label className="block text-sm font-semibold text-[var(--n5-ink-muted)]">
               <span className="flex items-baseline justify-between gap-2">
                 Name
-                <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]">Required</span>
+                <span className="text-xs font-medium text-[var(--n5-ink-muted)]">Required</span>
               </span>
               <input aria-label="Customer name" required aria-required="true" autoComplete="name" disabled={isSubmitting} value={guestName} onChange={event => onGuestNameChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
             </label>
-            <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+            <label className="block text-sm font-semibold text-[var(--n5-ink-muted)]">
               <span className="flex items-baseline justify-between gap-2">
                 Email
-                <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]">Required</span>
+                <span className="text-xs font-medium text-[var(--n5-ink-muted)]">Required</span>
               </span>
               <input aria-label="Customer email" required aria-required="true" type="email" autoComplete="email" disabled={isSubmitting} value={guestEmail} onChange={event => onGuestEmailChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
             </label>
-            <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+            <label className="block text-sm font-semibold text-[var(--n5-ink-muted)]">
               <span className="flex items-baseline justify-between gap-2">
                 Mobile phone
-                <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]">Required</span>
+                <span className="text-xs font-medium text-[var(--n5-ink-muted)]">Required</span>
               </span>
               <input aria-label="Customer phone" required aria-required="true" type="tel" inputMode="tel" autoComplete="tel" disabled={isSubmitting} value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
             </label>
@@ -1738,10 +1739,10 @@ const ConfirmContent = ({
               triggerHaptic('select');
               onEditSelection();
             }}
-            className="font-body flex min-h-11 w-full items-center justify-center gap-2 border px-3 py-2.5 text-sm font-semibold text-[var(--n5-accent)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            className="font-body flex min-h-11 w-full items-center justify-center gap-2 border px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               borderRadius: n5.radiusMd,
-              borderColor: 'var(--n5-accent)',
+              borderColor: 'var(--booking-brand-state-border, var(--n5-ink-main))',
             }}
           >
             <RefreshCw className="size-4" />
@@ -1863,8 +1864,8 @@ const SuccessContent = ({
       </nav>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-6">
-        <div data-testid="booking-result-receipt" className="space-y-5">
+      <main className="mx-auto max-w-lg space-y-4 px-5 pb-10 pt-5">
+        <div data-testid="booking-result-receipt" className="space-y-4">
           <motion.header
             data-testid="booking-result-hero"
             initial={prefersReducedMotion ? undefined : { opacity: 0, y: 12 }}
@@ -1877,7 +1878,7 @@ const SuccessContent = ({
               ref={resultHeadingRef}
               data-testid="booking-result-heading"
               tabIndex={-1}
-              className="font-heading mb-1 text-2xl font-bold text-[var(--n5-ink-main)] outline-none"
+              className="font-heading text-2xl font-semibold leading-8 text-[var(--n5-ink-main)] outline-none"
             >
               {isPending ? 'Request received' : 'Appointment confirmed'}
             </h1>
@@ -1925,7 +1926,7 @@ const SuccessContent = ({
                   backgroundColor: 'color-mix(in srgb, var(--n5-success) 12%, var(--n5-bg-card))',
                 }}
               >
-                <Check className="size-4 text-[var(--n5-success)]" strokeWidth={2.5} />
+                <Check className="size-4 text-[var(--n5-ink-main)]" strokeWidth={2.5} />
               </div>
               <p className="font-body text-sm text-[var(--n5-ink-main)]">Your time is reserved.</p>
             </motion.div>
@@ -1998,7 +1999,7 @@ const SuccessContent = ({
                     </p>
                     <a
                       href={findBookingUrl}
-                      className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--n5-accent)] underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                      className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--n5-ink-main)] underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                     >
                       Find my booking to receive a secure management link
                     </a>
@@ -2006,16 +2007,16 @@ const SuccessContent = ({
                 )}
 
           {!isPending && (googleCalendarUrl || manageUrl) && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
               {googleCalendarUrl && (
-                <a href={googleCalendarUrl} target="_blank" rel="noreferrer" className="font-body flex min-h-11 items-center justify-center gap-1.5 rounded-xl border p-2 text-center text-xs font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
-                  <Calendar className="size-4" />
+                <a href={googleCalendarUrl} target="_blank" rel="noreferrer" className="font-body flex min-h-11 items-center justify-center gap-2 rounded-xl border p-2 text-center text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--booking-brand-state-border, var(--n5-ink-main))' }}>
+                  <Calendar aria-hidden="true" className="size-4 shrink-0" />
                   Google Calendar
                 </a>
               )}
               {manageUrl && (
-                <a href={`${manageUrl}/calendar.ics`} className="font-body flex min-h-11 items-center justify-center gap-1.5 rounded-xl border p-2 text-center text-xs font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
-                  <Calendar className="size-4" />
+                <a href={`${manageUrl}/calendar.ics`} className="font-body flex min-h-11 items-center justify-center gap-2 rounded-xl border p-2 text-center text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--booking-brand-state-border, var(--n5-ink-main))' }}>
+                  <Calendar aria-hidden="true" className="size-4 shrink-0" />
                   Apple Calendar
                 </a>
               )}
@@ -2030,13 +2031,13 @@ const SuccessContent = ({
                   triggerHaptic('select');
                   onOpenDirections();
                 }}
-                className="font-body inline-flex min-h-11 items-center justify-center gap-1.5 p-2 text-xs font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
+                className="font-body inline-flex min-h-11 items-center justify-center gap-2 p-2 text-sm font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
                 style={{
                   borderRadius: n5.radiusMd,
                   borderColor: 'var(--n5-border)',
                 }}
               >
-                <MapPin className="size-4 text-[var(--n5-accent)]" />
+                <MapPin aria-hidden="true" className="size-4 shrink-0" />
                 <span>Directions</span>
               </button>
             )}
@@ -2046,14 +2047,14 @@ const SuccessContent = ({
                 triggerHaptic('select');
                 onGoHome();
               }}
-              className="font-body inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl p-2 text-xs font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
+              className="font-body inline-flex min-h-11 items-center justify-center gap-2 rounded-xl p-2 text-sm font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
               style={{ borderColor: 'var(--n5-border)' }}
             >
-              <Home className="size-4" />
+              <Home aria-hidden="true" className="size-4 shrink-0" />
               <span>Back to booking</span>
             </button>
             {onStartAnother && (
-              <button type="button" onClick={onStartAnother} className="font-body inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl p-2 text-xs font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]">
+              <button type="button" onClick={onStartAnother} className="font-body inline-flex min-h-11 items-center justify-center gap-2 rounded-xl p-2 text-sm font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]">
                 <span>Start another booking</span>
               </button>
             )}
@@ -2076,23 +2077,23 @@ const SuccessContent = ({
           </div>
           <>
             {smsReminderStatus === 'enabled' && smsConsentGranted && (
-              <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+              <p className="font-body text-sm leading-6 text-[var(--n5-ink-muted)]">
                 {t('sms_saved')}
               </p>
             )}
             {smsReminderStatus === 'customer_disabled' && (
-              <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+              <p className="font-body text-sm leading-6 text-[var(--n5-ink-muted)]">
                 {t('sms_off')}
               </p>
             )}
             {smsReminderStatus === 'opted_out' && (
-              <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+              <p className="font-body text-sm leading-6 text-[var(--n5-ink-muted)]">
                 {t('sms_opted_out')}
               </p>
             )}
           </>
           {!isPending && (
-            <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
+            <p className="font-body mt-0.5 text-sm leading-6 text-[var(--n5-ink-muted)]">
               You can change or cancel up to
               {' '}
               {clientChangeCutoffHours}

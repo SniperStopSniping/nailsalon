@@ -12,6 +12,45 @@ async function primaryButtonContrast(control: Locator, property: 'color' | 'outl
   return getColorContrastRatio(colors.background, colors.foreground);
 }
 
+async function renderedContrast(control: Locator, property = 'color') {
+  const colors = await control.evaluate((element, foregroundProperty) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext('2d')!;
+    const rgba = (color: string) => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+      return Array.from(context.getImageData(0, 0, 1, 1).data);
+    };
+    const composite = (foreground: number[], background: number[]) => {
+      const alpha = foreground[3]! / 255;
+      return background.slice(0, 3).map((channel, index) => foreground[index]! * alpha + channel * (1 - alpha));
+    };
+    const layers: number[][] = [];
+    let node: Element | null = element;
+    while (node) {
+      layers.unshift(rgba(getComputedStyle(node).backgroundColor));
+      node = node.parentElement;
+    }
+    const background = layers.reduce((surface, layer) => composite(layer, surface), [255, 255, 255]);
+    const foreground = composite(rgba(getComputedStyle(element).getPropertyValue(foregroundProperty)), background);
+    const hex = (channels: number[]) => `#${channels.map(channel => Math.round(channel).toString(16).padStart(2, '0')).join('')}`;
+    return { background: hex(background), foreground: hex(foreground) };
+  }, property);
+  return getColorContrastRatio(colors.background, colors.foreground);
+}
+
+async function expectReadableText(elements: Locator, minimumSize: number) {
+  expect(await elements.count()).toBeGreaterThan(0);
+
+  for (const element of await elements.all()) {
+    expect(await renderedContrast(element), (await element.textContent()) ?? '').toBeGreaterThanOrEqual(4.5);
+    expect(await element.evaluate(node => Number.parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(minimumSize);
+  }
+}
+
 for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
   test(`${palette} confirmation has readable labels and usable inputs`, async ({ page }) => {
     await page.goto(`/?step=confirm&palette=${palette}`);
@@ -49,6 +88,32 @@ for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
 
     await expect(confirm).toBeEnabled();
     expect(await primaryButtonContrast(confirm)).toBeGreaterThanOrEqual(4.5);
+
+    await expectReadableText(page.locator('.booking-review-summary p, .booking-review-summary li'), 14);
+    const changeSelection = page.getByRole('button', { name: 'Change time or services', exact: true });
+
+    expect(await renderedContrast(changeSelection)).toBeGreaterThanOrEqual(4.5);
+    expect(await renderedContrast(name, 'border-top-color')).toBeGreaterThanOrEqual(3);
+    await expect(name).toHaveCSS('font-size', '16px');
+
+    await confirm.click();
+
+    await expect(page.getByTestId('booking-result-heading')).toBeVisible();
+    await expect.poll(() => page.locator('main [style*="opacity"]').evaluateAll(elements => elements.every(element => getComputedStyle(element).opacity === '1'))).toBe(true);
+
+    await expectReadableText(page.locator('.booking-review-summary p, .booking-review-summary li'), 14);
+    await expectReadableText(page.locator('main a, main button'), 14);
+    await expectReadableText(page.locator('[data-booking-avatar-fallback] span'), 14);
+
+    expect(await renderedContrast(page.getByTestId('booking-success-celebration').locator('svg'))).toBeGreaterThanOrEqual(3);
+
+    const title = page.getByRole('heading', { name: 'Appointment summary', exact: true });
+    const titleBox = (await title.boundingBox())!;
+    const priceBox = (await page.getByTestId('booking-receipt-total').boundingBox())!;
+    const titleLineHeight = await title.evaluate(element => Number.parseFloat(getComputedStyle(element).lineHeight));
+
+    expect(titleBox.height).toBeLessThanOrEqual(titleLineHeight + 1);
+    expect(priceBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
   });
 }
 
@@ -201,3 +266,43 @@ for (const status of ['confirmed', 'pending'] as const) {
     await page.screenshot({ path: info.outputPath(`receipt-${status}-text-200.png`), fullPage: true });
   });
 }
+
+for (const theme of ['espresso', 'lavender', 'pastel']) {
+  test(`${theme} missing-management recovery remains readable`, async ({ page }) => {
+    await page.goto(`/?step=confirm&legacy-theme=${theme}&missing-management`);
+    await page.getByLabel('Customer name').fill('Fictional Recovery Guest');
+    await page.getByLabel('Customer email').fill('recovery@example.invalid');
+    await page.getByLabel('Customer phone').fill('4165550100');
+    await page.getByRole('button', { name: /Confirm appointment/ }).click();
+    const recovery = page.getByRole('link', { name: 'Find my booking to receive a secure management link', exact: true });
+
+    await expect(recovery).toBeVisible();
+    await expect(recovery).toHaveCSS('text-decoration-line', 'underline');
+    expect(await renderedContrast(recovery)).toBeGreaterThanOrEqual(4.5);
+  });
+}
+
+test('320px receipt supports enlarged text and user text-spacing without clipping controls', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/?step=confirm&legacy-theme=espresso&receipt-details');
+  await page.getByLabel('Customer name').fill('Fictional Spacing Guest');
+  await page.getByLabel('Customer email').fill('spacing@example.invalid');
+  await page.getByLabel('Customer phone').fill('4165550100');
+  await page.getByRole('button', { name: /Confirm appointment/ }).click();
+
+  await expect(page.getByTestId('booking-result-heading')).toBeVisible();
+
+  await page.addStyleTag({ content: 'html { font-size: 200% !important; } .booking-confirm-page * { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } .booking-confirm-page p { margin-bottom: 2em !important; }' });
+
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  for (const control of await page.locator('main a, main button').all()) {
+    const box = (await control.boundingBox())!;
+
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(321);
+    expect(await control.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  }
+});
