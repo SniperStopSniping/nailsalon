@@ -2,7 +2,7 @@
   "checkedAt": "2026-09-30",
   "applicationSHA": "3980197563c4ddc5774f6c5dcbfb8fe9f8827a6a",
   "applicationSourceChanges": false,
-  "approvalReady": false,
+  "approvalReady": true,
   "userReferenceApproval": "pending",
   "passed": [
     {
@@ -24,8 +24,8 @@
     {
       "check": "Production tooling tests",
       "command": "python3 -m unittest discover -s production/luster-videos/tests -v",
-      "testsPassed": 40,
-      "evidence": "qa/tooling-tests.log"
+      "testsPassed": 54,
+      "evidence": "qa/reference-tests.log"
     },
     {
       "check": "Targeted ESLint",
@@ -74,33 +74,66 @@
       "check": "Tracked-tree secret scan after staging demo tools",
       "command": "npm run security:check-secrets",
       "evidence": "qa/secret-scan-demo.log",
-      "result": "3280 tracked and 526 generated files; no findings. Dynamic URL constructors and placeholder usage documentation revised after false positives; scanner unchanged."
-    }
-  ],
-  "blocked": [
-    {
-      "check": "Final narration",
-      "reason": "OPENAI_API_KEY absent and funded account/model access unverified; paid-generation gates remain false"
+      "result": "Historical checkpoint passed; current staged production revision scan recorded separately before commit."
     },
     {
-      "check": "Reference video approval candidate",
-      "reason": "Needs actual narrated audio, reviewed alignment/subtitles, final clean/captioned exports, thumbnail, complete audiovisual review"
+      "check": "Narration generation and pronunciation correction",
+      "evidence": [
+        "qa/audio-alignment.json",
+        "qa/audio-listening-ff0c5c1c5aae3fa8.json",
+        "qa/audio-listening-91688d621838598b.json"
+      ],
+      "result": "Nine final cached sections, ten speech requests including one explicit correction, two bounded automated full-audio listening reviews; human voice approval pending."
+    },
+    {
+      "check": "Reference MP4 decode, fast-start, audio levels and pair continuity",
+      "command": "python3 production/luster-videos/tools/qa_reference.py",
+      "evidence": "qa/reference-technical.json",
+      "result": "66.1s, 1983 constant-30-fps frames each, no decode errors or whole-frame black, -18.06 LUFS / -1.5dBTP, identical compressed AAC audio."
+    },
+    {
+      "check": "Landscape dimensions and codec properties",
+      "command": "python3 production/luster-videos/tools/video_pipeline.py qa --timeline timelines/tutorial-booking.json",
+      "evidence": "qa/tutorial-booking.json",
+      "result": "Both exports 1920x1080, H.264/AAC, yuv420p."
+    },
+    {
+      "check": "Complete visual sequence, captions and click targets",
+      "evidence": "qa/final-frames/contact-01.png through contact-11.png and individual press frames",
+      "result": "All 66 one-second sample frames reviewed without sound; active controls and captions occupy separate panels, seven real clicks mapped to source geometry. This is sampled visual review, not a human full-motion viewing claim."
+    },
+    {
+      "check": "Clean reference browser playback with sound enabled",
+      "evidence": "qa/browser-playback.json",
+      "result": "MP4 reached ended=true/currentTime=66.1 with no media error, muted=false; human creative listening remains pending."
+    },
+    {
+      "check": "Current staged production secret scan",
+      "command": "npm run security:check-secrets",
+      "evidence": "qa/reference-secret-scan.log",
+      "result": "Passed: 3311 tracked files, 526 generated files, five reviewed commits."
+    },
+    {
+      "check": "Captioned reference silent browser playback",
+      "evidence": "qa/browser-playback.json",
+      "result": "Reached ended=true/currentTime=66.1, muted=true, no media error."
     }
   ],
+  "blocked": [],
   "pending": [
     "Native 200% text scaling and visually sufficient keyboard focus indicators",
     "Design draft isolation, immediate-save behavior, first publication when applicable, copied link destination",
     "Team selection/schedules and eligible follow-up queue UI verification",
     "Real-device browser coverage",
     "Unfamiliar reviewer can repeat the tutorial",
-    "Tooling branch CI, preview and review; no merge authorized by incomplete checks",
-    "Final control/caption readability on a phone; improve scene crops or recapture if needed",
-    "Full playback with sound and without sound, audio quality, caption timing, drift, clipping, transitions and black frames"
+    "Current production tooling commit CI, preview and PR review; prior bef62647 checkpoint passed all checks",
+    "Human full audiovisual creative review and approval of voice, timing and pacing",
+    "Full-motion silent playback review by a human; sampled sequence review and full technical decode passed"
   ],
   "notRunLocally": [
     {
       "command": "npm run test:all",
-      "reason": "No application source changed; exact filmed base full suite passed CI. Tooling branch CI not yet checked."
+      "reason": "No application source changed; exact filmed base full suite passed CI. Tooling checkpoint bef62647 passed CI; new production revision CI reported separately."
     },
     {
       "command": "npm run lint:all",
@@ -122,7 +155,7 @@
       1080
     ],
     "fps": 30,
-    "status": "silent internal draft, not final",
+    "status": "Preserved silent internal draft, superseded by narrated reference exports",
     "sourceContainer": [
       780,
       1688
@@ -136,31 +169,53 @@
     "audio": "intentional silence only"
   },
   "finalOutputInventory": {
-    "cleanMP4": 0,
-    "captionedMP4": 0,
-    "finalSRT": 0,
-    "finalVTT": 0,
-    "finalThumbnails": 0
+    "cleanMP4": 1,
+    "captionedMP4": 1,
+    "finalSRT": 1,
+    "finalVTT": 1,
+    "finalThumbnails": 1,
+    "scope": "First-video reference only; seven videos await creative approval"
   },
   "deviations": "manifests/scene-evidence.json",
   "cursorRevision": {
     "date": "2026-09-30",
     "requested": "Visible hand pointer for tutorial clicks",
-    "status": "Rendered, target positions visually reviewed, full decode passed; silent preview only",
+    "status": "Narrated reference rendered with all seven real click targets visually reviewed",
     "sceneEvidence": "manifests/cursor-evidence.json",
     "applicationChanges": false,
     "additionalBookingCreated": false,
-    "testsPassed": 44,
+    "testsPassed": 54,
     "testCommand": "python3 -m unittest discover -s production/luster-videos/tests -v",
-    "testEvidence": "qa/cursor-tests.log",
+    "testEvidence": "qa/reference-tests.log",
     "secretScan": "Passed: 3301 tracked files, 526 generated files, 3 reviewed commits"
   },
   "branchCICheckpoint": {
-    "head": "6b574c60",
-    "fullVitest": "passed",
-    "applicationTests": "passed",
-    "node22Build": "failed in unchanged next/font Google loader: TypeError reading null match",
-    "node20Build": "cancelled by build matrix",
-    "release": "Draft PR not merged; new cursor revision requires its own CI"
+    "head": "bef62647b3cd67f14f181bfa77f51cf262242868",
+    "status": "All required checks passed at this checkpoint; latest production revision requires fresh CI",
+    "release": "Draft PR 338 remains unmerged; filmed application base already approved and released",
+    "latestProductionRevision": "Final narrated reference commit CI pending after push"
+  },
+  "referenceVideo": {
+    "durationSeconds": 66.1,
+    "dimensions": [
+      1920,
+      1080
+    ],
+    "fps": 30,
+    "sourceContent": [
+      390,
+      844
+    ],
+    "sourceFps": 25,
+    "status": "Complete reference awaiting user creative approval",
+    "clean": "exports/tutorial-booking.clean.mp4",
+    "captioned": "exports/tutorial-booking.captioned.mp4",
+    "subtitles": [
+      "subtitles/tutorial-booking.srt",
+      "subtitles/tutorial-booking.vtt",
+      "subtitles/tutorial-booking.ass"
+    ],
+    "thumbnail": "thumbnails/tutorial-booking.png",
+    "narration": "narration/tutorial-booking-aligned.wav"
   }
 }

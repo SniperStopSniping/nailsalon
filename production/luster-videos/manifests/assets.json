@@ -14,8 +14,9 @@
     }
   ],
   "fonts": {
-    "dependency": "System-installed fonts for local rendering; document actual chosen font in render QA",
-    "redistributed": false
+    "dependency": "System-installed Verdana resolved by FFmpeg drawtext; explicit Verdana family for libass captions. Dependencies must be installed/licensed separately on each render machine.",
+    "redistributed": false,
+    "verification": "FFmpeg 9.0.2 verbose one-frame drawtext probe resolved System/Library/Fonts/Supplemental/Verdana.ttf; no font file included."
   },
   "existingSalonPhotosUsed": false,
   "tutorialAnnotations": {

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "id": "tutorial-booking",
-  "status": "blocked-awaiting-narration",
+  "status": "reference-candidate-awaiting-review",
   "title": "This is what your clients see",
   "format": {
     "width": 1920,
@@ -35,8 +35,10 @@
           "x": 0,
           "y": 0,
           "width": 390,
-          "height": 844
-        }
+          "height": 620
+        },
+        "app_x": 1130,
+        "note": "Editorial close-up of the real recording; no interface changes or speed compression."
       }
     },
     {
@@ -69,10 +71,12 @@
         "zoom": 1,
         "source_crop": {
           "x": 0,
-          "y": 0,
+          "y": 220,
           "width": 390,
-          "height": 844
-        }
+          "height": 440
+        },
+        "app_x": 1012,
+        "note": "Editorial close-up of the real recording; no interface changes or speed compression."
       },
       "clicks": [
         {
@@ -96,10 +100,12 @@
         "zoom": 1,
         "source_crop": {
           "x": 0,
-          "y": 0,
+          "y": 220,
           "width": 390,
-          "height": 844
-        }
+          "height": 440
+        },
+        "app_x": 1012,
+        "note": "Editorial close-up of the real recording; no interface changes or speed compression."
       },
       "clicks": [
         {
@@ -123,10 +129,12 @@
         "zoom": 1,
         "source_crop": {
           "x": 0,
-          "y": 0,
+          "y": 404,
           "width": 390,
-          "height": 844
-        }
+          "height": 440
+        },
+        "app_x": 1012,
+        "note": "Editorial close-up of the real recording; no interface changes or speed compression."
       },
       "clicks": [
         {
@@ -150,10 +158,12 @@
         "zoom": 1,
         "source_crop": {
           "x": 0,
-          "y": 0,
+          "y": 100,
           "width": 390,
-          "height": 844
-        }
+          "height": 560
+        },
+        "app_x": 1100,
+        "note": "Editorial close-up of the real recording; no interface changes or speed compression."
       },
       "clicks": [
         {
@@ -179,8 +189,10 @@
           "x": 0,
           "y": 0,
           "width": 390,
-          "height": 844
-        }
+          "height": 460
+        },
+        "app_x": 1030,
+        "note": "Editorial close-up of the real recording; no interface changes or speed compression."
       },
       "clicks": [
         {
@@ -204,10 +216,12 @@
         "zoom": 1,
         "source_crop": {
           "x": 0,
-          "y": 0,
+          "y": 100,
           "width": 390,
-          "height": 844
-        }
+          "height": 540
+        },
+        "app_x": 1088,
+        "note": "Editorial close-up of the real recording; no interface changes or speed compression."
       }
     },
     {
@@ -224,8 +238,10 @@
           "x": 0,
           "y": 0,
           "width": 390,
-          "height": 844
-        }
+          "height": 700
+        },
+        "app_x": 1164,
+        "note": "Editorial close-up of the real recording; no interface changes or speed compression."
       }
     },
     {
@@ -240,10 +256,12 @@
         "zoom": 1,
         "source_crop": {
           "x": 0,
-          "y": 0,
+          "y": 300,
           "width": 390,
-          "height": 844
-        }
+          "height": 544
+        },
+        "app_x": 1090,
+        "note": "Editorial close-up of the real recording; no interface changes or speed compression."
       },
       "clicks": [
         {
@@ -267,10 +285,12 @@
         "zoom": 1,
         "source_crop": {
           "x": 0,
-          "y": 0,
+          "y": 350,
           "width": 390,
-          "height": 844
-        }
+          "height": 494
+        },
+        "app_x": 1057,
+        "note": "Editorial close-up of the real recording; no interface changes or speed compression."
       },
       "clicks": [
         {
@@ -296,15 +316,17 @@
           "x": 0,
           "y": 0,
           "width": 390,
-          "height": 844
-        }
+          "height": 620
+        },
+        "app_x": 1130,
+        "note": "Editorial close-up of the real recording; no interface changes or speed compression."
       }
     }
   ],
   "outputs": {
     "clean": "exports/tutorial-booking.clean.mp4",
     "captioned": "exports/tutorial-booking.captioned.mp4",
-    "thumbnail": "exports/tutorial-booking.thumbnail.png",
+    "thumbnail": "thumbnails/tutorial-booking.png",
     "srt": "subtitles/tutorial-booking.srt",
     "vtt": "subtitles/tutorial-booking.vtt",
     "qa": "qa/tutorial-booking.json"
@@ -316,51 +338,132 @@
     "segments": [
       {
         "start": 4.3,
-        "end": 9,
+        "end": 8.5,
+        "text": "This is what your clients see when they open your booking page.",
+        "section_id": "opening"
+      },
+      {
+        "start": 8.95,
+        "end": 13.399999999999999,
+        "text": "They can explore your services and choose the appointment they want.",
+        "section_id": "service"
+      },
+      {
+        "start": 13.75,
+        "end": 21.75,
+        "text": "Here, Sarah chooses BIAB Overlay and adds optional Simple Nail Art. Then she taps Continue.",
+        "section_id": "extras"
+      },
+      {
+        "start": 24.15,
+        "end": 29.15,
+        "text": "Next, she chooses an available date and time. This studio has one technician.",
+        "section_id": "time"
+      },
+      {
+        "start": 31.15,
+        "end": 37.449999999999996,
+        "text": "The review screen shows the service, price, duration, time, and location.",
+        "section_id": "review"
+      },
+      {
+        "start": 37.85,
+        "end": 43.65,
+        "text": "She enters her name, email, and mobile number. The required fields are clearly marked.",
+        "section_id": "details"
+      },
+      {
+        "start": 45.1,
+        "end": 50.85,
+        "text": "She reads the appointment agreement and checks the required acknowledgment before continuing.",
+        "section_id": "agreement"
+      },
+      {
+        "start": 53.2,
+        "end": 57.400000000000006,
+        "text": "With the details reviewed, she taps Confirm appointment.",
+        "section_id": "confirm"
+      },
+      {
+        "start": 59.3,
+        "end": 64.55,
+        "text": "The confirmation screen shows that the booking is complete. Her time is reserved.",
+        "section_id": "confirmation"
+      }
+    ],
+    "timing_status": "Measured cached audio, local per-section transcription, reviewed sentence/phrase cue boundaries; human creative approval pending.",
+    "caption_segments": [
+      {
+        "start": 4.33,
+        "end": 8.35,
         "text": "This is what your clients see when they open your booking page."
       },
       {
-        "start": 9.2,
-        "end": 14,
+        "start": 9.0,
+        "end": 13.35,
         "text": "They can explore your services and choose the appointment they want."
       },
       {
-        "start": 14.2,
-        "end": 23.1,
-        "text": "Here, Sarah chooses BIAB Overlay and adds optional Simple Nail Art. Then she taps Continue."
+        "start": 13.86,
+        "end": 20.08,
+        "text": "Here, Sarah chooses BIAB Overlay and adds optional Simple Nail Art."
       },
       {
-        "start": 23.3,
-        "end": 30.3,
-        "text": "Next, she chooses an available date and time. This studio has one technician."
+        "start": 20.18,
+        "end": 21.75,
+        "text": "Then she taps Continue."
       },
       {
-        "start": 30.5,
-        "end": 36.1,
+        "start": 24.17,
+        "end": 27.21,
+        "text": "Next, she chooses an available date and time."
+      },
+      {
+        "start": 27.23,
+        "end": 29.15,
+        "text": "This studio has one technician."
+      },
+      {
+        "start": 31.18,
+        "end": 37.4,
         "text": "The review screen shows the service, price, duration, time, and location."
       },
       {
-        "start": 36.3,
-        "end": 44,
-        "text": "She enters her name, email, and mobile number. The required fields are clearly marked."
+        "start": 37.9,
+        "end": 41.45,
+        "text": "She enters her name, email, and mobile number."
       },
       {
-        "start": 44.2,
-        "end": 51.4,
-        "text": "She reads the appointment agreement and checks the required acknowledgment before continuing."
+        "start": 41.49,
+        "end": 43.65,
+        "text": "The required fields are clearly marked."
       },
       {
-        "start": 51.6,
-        "end": 56.5,
+        "start": 45.15,
+        "end": 47.42,
+        "text": "She reads the appointment agreement"
+      },
+      {
+        "start": 47.42,
+        "end": 50.8,
+        "text": "and checks the required acknowledgment before continuing."
+      },
+      {
+        "start": 53.25,
+        "end": 57.4,
         "text": "With the details reviewed, she taps Confirm appointment."
       },
       {
-        "start": 58,
-        "end": 64.5,
-        "text": "The confirmation screen shows that the booking is complete. Her time is reserved."
+        "start": 59.33,
+        "end": 62.94,
+        "text": "The confirmation screen shows that the booking is complete."
+      },
+      {
+        "start": 62.97,
+        "end": 64.45,
+        "text": "Her time is reserved."
       }
-    ],
-    "timing_status": "Proposed alignment only; must replace from final spoken audio"
+    ]
   },
   "layout": {
     "mode": "landscape-mobile-right",
@@ -374,13 +477,18 @@
     "label_wrap_chars": 28,
     "app_x": 1200,
     "app_y": 90,
-    "app_height": 920
+    "app_height": 920,
+    "disclosure_font_size": 28
   },
   "caption_style": {
-    "font_size": 28,
-    "margin_vertical": 240,
+    "font_size": 48,
+    "margin_vertical": 185,
     "margin_left": 120,
-    "alignment": 1
+    "alignment": 1,
+    "margin_right": 780,
+    "text_color": "#292421",
+    "outline_color": "#F7F1E8",
+    "outline_width": 0
   },
   "cursor_style": {
     "hand_size": 52,

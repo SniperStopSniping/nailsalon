@@ -29,9 +29,10 @@
     },
     {
       "id": "extras",
-      "text": "Here, Sarah chooses BIAB Overlay and adds optional Simple Nail Art. Then she taps Continue.",
+      "text": "Here, Sarah chooses B. I. A. B. Overlay and adds optional Simple Nail Art. Then she taps Continue.",
       "estimated_cad_cents": 5,
-      "reservation_cad_cents": 100
+      "reservation_cad_cents": 100,
+      "display_text": "Here, Sarah chooses BIAB Overlay and adds optional Simple Nail Art. Then she taps Continue."
     },
     {
       "id": "time",

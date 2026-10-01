@@ -65,16 +65,17 @@
   "futureCaptures": "capture-booking.mjs now records target coordinates and action intervals; synchronize these to encoded frames before editing.",
   "reviewStatus": "Reviewed all seven click targets against exported press frames; service and checkbox pulse/fade inspected separately.",
   "render": {
-    "path": "work/internal-drafts/tutorial-booking.silent.not-approval-ready.mp4",
+    "path": "exports/tutorial-booking.captioned.mp4",
     "durationSeconds": 66.1,
     "fps": 30,
     "dimensions": [
       1920,
       1080
     ],
-    "sha256": "e75baca5e7e6314fd91c16790da9f59aa2136bd1e816daf6b06df1881035450f",
+    "sha256": "9be0fdaeb1d5c22aeb8ddaa814f96118f9baab4fbe765cb3441d44356fbb195d",
     "fullDecode": "passed",
-    "finalNarration": "still missing"
+    "finalNarration": "Corrected cached narration aligned and normalized"
   },
-  "exportEvidence": "qa/cursor-review/edit-*.png and qa/cursor-video-properties.json"
+  "exportEvidence": "qa/final-frames/*.png and qa/reference-technical.json",
+  "framing": "Per-scene saved source crop and app_x override; hand mapping applies the same transform as the actual video."
 }

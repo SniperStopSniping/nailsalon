@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -100,7 +101,7 @@ def map_raw_click(scene: dict[str, Any], data: dict[str, Any], raw_x: float, raw
     zoom = float(framing.get("zoom", 1.0))
     layout = data.get("layout", {"mode": "legacy"})
     if layout.get("mode") == "landscape-mobile-right":
-        app_x, app_y, app_height = layout.get("app_x", 1200), layout.get("app_y", 90), layout.get("app_height", 920)
+        app_x, app_y, app_height = framing.get("app_x", layout.get("app_x", 1200)), layout.get("app_y", 90), layout.get("app_height", 920)
         scaled_height = int(round(app_height * zoom / 2) * 2)
         scale = scaled_height / crop_height
         scaled_width = int(round(crop_width * scale / 2) * 2)
@@ -173,9 +174,14 @@ def validate_timeline(data: dict[str, Any]) -> list[str]:
         if not isinstance(caption_style, dict):
             errors.append("caption_style must be an object when present.")
         else:
-            for key, lower, upper in (("font_size", 16, 48), ("margin_vertical", 40, 400), ("margin_left", 0, 600)):
+            for key, lower, upper in (("font_size", 24, 120), ("margin_vertical", 40, 400), ("margin_left", 0, 600), ("margin_right", 0, 1_200)):
                 if key in caption_style and (not isinstance(caption_style[key], int) or not lower <= caption_style[key] <= upper):
                     errors.append("caption_style.%s must be an integer between %s and %s." % (key, lower, upper))
+            for key in ("text_color", "outline_color"):
+                if key in caption_style and (not isinstance(caption_style[key], str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", caption_style[key])):
+                    errors.append("caption_style.%s must be a six-digit #RRGGBB hex color." % key)
+            if "outline_width" in caption_style and (not isinstance(caption_style["outline_width"], int) or not 0 <= caption_style["outline_width"] <= 4):
+                errors.append("caption_style.outline_width must be an integer between 0 and 4.")
             if "alignment" in caption_style and caption_style["alignment"] not in (1, 2, 3):
                 errors.append("caption_style.alignment must be 1, 2, or 3.")
         raw_cursor_style = data.get("cursor_style", {})
@@ -227,6 +233,8 @@ def validate_timeline(data: dict[str, Any]) -> list[str]:
                     zoom = framing.get("zoom", 1.0)
                     if not isinstance(zoom, (int, float)) or not 1.0 <= float(zoom) <= 1.08:
                         errors.append("Scene %s framing.zoom must be between 1.0 and 1.08." % index)
+                    if "app_x" in framing and (not isinstance(framing["app_x"], int) or not 0 <= framing["app_x"] <= 1_800):
+                        errors.append("Scene %s framing.app_x must be an integer between 0 and 1800." % index)
                 source_crop = framing.get("source_crop") if isinstance(framing, dict) else None
                 if source_crop is not None:
                     if not isinstance(source_crop, dict) or any(not isinstance(source_crop.get(key), int) for key in ("x", "y", "width", "height")):
@@ -290,6 +298,32 @@ def validate_timeline(data: dict[str, Any]) -> list[str]:
                         previous_end = float(end)
                     if not isinstance(text, str) or not text.strip():
                         errors.append("Narration segment %s must have text." % index)
+            caption_segments = narration.get("caption_segments")
+            if caption_segments is not None:
+                if not isinstance(caption_segments, list) or not caption_segments:
+                    errors.append("narration.caption_segments must contain at least one reviewed timed cue when present.")
+                else:
+                    previous_end = -1.0
+                    duration_limit = planned_duration(data) if isinstance(data.get("scenes"), list) and data["scenes"] else 0
+                    for index, segment in enumerate(caption_segments, start=1):
+                        if not isinstance(segment, dict):
+                            errors.append("Caption segment %s must be an object." % index)
+                            continue
+                        start, end, text = segment.get("start"), segment.get("end"), segment.get("text")
+                        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+                            errors.append("Caption segment %s must have numeric start/end." % index)
+                        elif start < 0 or end <= start or start < previous_end or end > duration_limit:
+                            errors.append("Caption segment %s has invalid or overlapping time range." % index)
+                        else:
+                            previous_end = float(end)
+                        if not isinstance(text, str) or not text.strip():
+                            errors.append("Caption segment %s must have text." % index)
+                        else:
+                            try:
+                                if len(split_caption(text)) != 1:
+                                    errors.append("Caption segment %s must fit one two-line cue; split it before export." % index)
+                            except PipelineError as error:
+                                errors.append("Caption segment %s: %s" % (index, error))
     except (PipelineError, KeyError, TypeError, ValueError) as error:
         errors.append(str(error))
     return errors
@@ -322,6 +356,13 @@ def split_caption(text: str, max_chars: int = 40) -> list[str]:
     return ["\n".join(lines[index:index + 2]) for index in range(0, len(lines), 2)]
 
 
+def subtitle_segments(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Prefer manually reviewed spoken-word cue timing when the timeline provides it."""
+    narration = data["narration"]
+    caption_segments = narration.get("caption_segments")
+    return caption_segments if isinstance(caption_segments, list) and caption_segments else narration["segments"]
+
+
 def subtitle_text(segments: Iterable[dict[str, Any]], vtt: bool) -> str:
     records: list[str] = ["WEBVTT", ""] if vtt else []
     separator = "." if vtt else ","
@@ -342,12 +383,71 @@ def subtitle_text(segments: Iterable[dict[str, Any]], vtt: bool) -> str:
 
 def write_subtitles(data: dict[str, Any]) -> tuple[Path, Path]:
     outputs = data["outputs"]
-    segments = data["narration"]["segments"]
+    segments = subtitle_segments(data)
     srt, vtt = resolve_relative(outputs["srt"]), resolve_relative(outputs["vtt"])
     for path, contents in ((srt, subtitle_text(segments, False)), (vtt, subtitle_text(segments, True))):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(contents, encoding="utf-8")
+    write_ass_subtitles(data, srt.with_suffix(".ass"))
     return srt, vtt
+
+
+def ass_timestamp(seconds: float) -> str:
+    """Return an ASS timestamp rounded to its centisecond precision."""
+    centiseconds = int(round(seconds * 100))
+    hours, remainder = divmod(centiseconds, 360_000)
+    minutes, remainder = divmod(remainder, 6_000)
+    whole_seconds, hundredths = divmod(remainder, 100)
+    return "%d:%02d:%02d.%02d" % (hours, minutes, whole_seconds, hundredths)
+
+
+def ass_dialogue_text(text: str) -> str:
+    """Escape text for an ASS dialogue event while preserving explicit line breaks."""
+    return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+
+
+def ass_color(hex_color: str) -> str:
+    """Convert a validated #RRGGBB color to ASS's &HAABBGGRR notation."""
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", hex_color):
+        raise PipelineError("ASS colors must be six-digit #RRGGBB hex values.")
+    red, green, blue = hex_color[1:3], hex_color[3:5], hex_color[5:7]
+    return "&H00%s%s%s" % (blue.upper(), green.upper(), red.upper())
+
+
+def ass_subtitle_text(data: dict[str, Any]) -> str:
+    """Build deterministic, output-resolution-aware ASS captions for FFmpeg/libass."""
+    width, height = data["format"]["width"], data["format"]["height"]
+    style = caption_style(data)
+    records = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        "PlayResX: %d" % width,
+        "PlayResY: %d" % height,
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
+        "Style: LusterCaptions,Verdana,%d,%s,&H000000FF,%s,&H00000000,0,0,0,0,100,100,0,0,1,%d,0,%d,%d,%d,%d,1" % (style["font_size"], ass_color(style["text_color"]), ass_color(style["outline_color"]), style["outline_width"], style["alignment"], style["margin_left"], style["margin_right"], style["margin_vertical"]),
+        "",
+        "[Events]",
+        "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
+    ]
+    for segment in subtitle_segments(data):
+        chunks = split_caption(str(segment["text"]))
+        start, end = float(segment["start"]), float(segment["end"])
+        interval = (end - start) / len(chunks)
+        for index, chunk in enumerate(chunks):
+            records.append(
+                "Dialogue: 0,%s,%s,LusterCaptions,,0,0,0,,%s"
+                % (ass_timestamp(start + interval * index), ass_timestamp(start + interval * (index + 1)), ass_dialogue_text(chunk))
+            )
+    return "\n".join(records) + "\n"
+
+
+def write_ass_subtitles(data: dict[str, Any], path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(ass_subtitle_text(data), encoding="utf-8")
+    return path
 
 
 def executable(name: str, env_name: str | None = None) -> str:
@@ -518,7 +618,7 @@ def scene_filter(index: int, scene: dict[str, Any], data: dict[str, Any], label_
         source_crop_filter = "crop=%d:%d:%d:%d," % (source_crop["width"], source_crop["height"], source_crop["x"], source_crop["y"])
     layout = data.get("layout", {"mode": "legacy"})
     if layout.get("mode") == "landscape-mobile-right":
-        app_x, app_y, app_height = layout.get("app_x", 1200), layout.get("app_y", 90), layout.get("app_height", 920)
+        app_x, app_y, app_height = framing.get("app_x", layout.get("app_x", 1200)), layout.get("app_y", 90), layout.get("app_height", 920)
         scaled_height = int(round(app_height * zoom / 2) * 2)
         crop_width, crop_height = (source_crop["width"], source_crop["height"]) if source_crop else (390, 844)
         app_width = int(round(app_height * crop_width / crop_height))
@@ -536,18 +636,22 @@ def scene_filter(index: int, scene: dict[str, Any], data: dict[str, Any], label_
     if label_file:
         editorial = editorial_style(data)
         filter_text += ",drawtext=textfile='%s':fontcolor=#B99A64:fontsize=%d:x=%d:y=%d" % (escape_filter_path(label_file), editorial["label_font_size"], editorial["label_x"], editorial["label_y"])
-    return "[%d:v]trim=duration=%.6f,setpts=PTS-STARTPTS,%s%s[v%d]" % (index, scene_duration(scene), source_crop_filter, filter_text, index)
+    return "[%d:v]trim=duration=%.6f,setpts=PTS-STARTPTS,%s%s,setsar=1[v%d]" % (index, scene_duration(scene), source_crop_filter, filter_text, index)
 
 
-def caption_style(data: dict[str, Any]) -> dict[str, int]:
+def caption_style(data: dict[str, Any]) -> dict[str, Any]:
     style = data.get("caption_style", {})
     layout = data.get("layout", {"mode": "legacy"})
     mobile_right = layout.get("mode") == "landscape-mobile-right"
     return {
-        "font_size": style.get("font_size", 25),
+        "font_size": style.get("font_size", 56),
         "margin_vertical": style.get("margin_vertical", 240 if mobile_right else 100),
         "margin_left": style.get("margin_left", 120 if mobile_right else 0),
+        "margin_right": style.get("margin_right", style.get("margin_left", 120 if mobile_right else 0)),
         "alignment": style.get("alignment", 1 if mobile_right else 2),
+        "text_color": style.get("text_color", "#FFFFFF"),
+        "outline_color": style.get("outline_color", "#292421"),
+        "outline_width": style.get("outline_width", 2),
     }
 
 
@@ -660,8 +764,8 @@ def render(data: dict[str, Any], internal_test: bool = False, internal_silent_dr
         filters.append("[%d:a]apad=whole_dur=%.6f[audio]" % (narration_index, expected_duration))
         command.extend(["-filter_complex", ";".join(filters), "-map", "[%s]" % output_label, "-map", "[audio]", "-t", "%.6f" % expected_duration, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(clean)])
         run(command)
-        style = caption_style(data)
-        subtitle_filter = "subtitles=filename='%s':force_style='FontSize=%d,PrimaryColour=&H00FFFFFF,OutlineColour=&H00292421,BorderStyle=1,Outline=2,Alignment=%d,MarginL=%d,MarginV=%d'" % (escape_filter_path(srt), style["font_size"], style["alignment"], style["margin_left"], style["margin_vertical"])
+        ass = srt.with_suffix(".ass")
+        subtitle_filter = "subtitles=filename='%s'" % escape_filter_path(ass)
         run([ffmpeg, "-y", "-i", str(clean), "-vf", subtitle_filter, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "copy", "-movflags", "+faststart", str(captioned)])
         run([ffmpeg, "-y", "-ss", "00:00:02.000", "-i", str(clean), "-frames:v", "1", str(thumbnail)])
     return {"clean": str(clean), "captioned": str(captioned), "thumbnail": str(thumbnail), "render_status": "reference-ready-not-final"}

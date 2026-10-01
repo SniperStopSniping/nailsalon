@@ -1,6 +1,6 @@
 # Luster video production
 
-The customer-booking tutorial has real footage and a **66.1-second silent internal edit**. It is **not approval-ready**: funded OpenAI narration access is missing. Narration, final caption timing, final exports, thumbnail, and full audiovisual review remain unfinished. No other video has been produced.
+The first customer-booking tutorial is a **66.1-second narrated reference for creative approval**. Clean and captioned 1920×1080/30 fps MP4s, SRT/WebVTT/ASS captions, a thumbnail, original recordings, cached narration and editable timelines are provided locally. Other seven videos are gated on user approval. Technical verification and remaining acceptance limitations are recorded in `QA.md` and `manifests/verification.json`.
 
 ## Application and release
 
@@ -58,7 +58,7 @@ node production/luster-videos/demo/capture-booking.mjs
 node production/luster-videos/demo/capture-booking.mjs --book
 ```
 
-`--book` refuses a second hero. Rebuild from saved media instead of booking again. The raw file is 780×1688, VP8, 25 fps, but effective app content is **390×844**, at the top left. DPR 2 did not increase detail. The timeline crops padding and scales real footage into a 920-pixel-high panel without altering the interface. Recapture at higher effective resolution if final readability review requires it.
+`--book` refuses a second hero. Rebuild from saved media instead of booking again. The raw file is 780×1688, VP8, 25 fps, but effective app content is **390×844**, at the top left. DPR 2 did not increase detail. The timeline crops padding and uses saved editorial close-ups around active controls in a 920-pixel-high panel without altering the interface. The establishing shot retains the full page. Crop positions and hand-click mappings are explicit editable data. Recapture at higher effective resolution if final readability review requires it.
 
 ## Assets and disclosure
 
@@ -68,9 +68,9 @@ Every planned export displays **AI-generated narration · Fictional demo salon �
 
 ## Narration and costs
 
-Required names in ignored, mode-0600 root `.env.video.local`: `OPENAI_API_KEY` and `VIDEO_NARRATION_FUNDED=true`. Configure locally, never in chat. Funded account and usable `gpt-4o-mini-tts` / `marin` access are prerequisites; neither is currently verified.
+Required names in ignored, mode-0600 root `.env.video.local`: `OPENAI_API_KEY` and `VIDEO_NARRATION_FUNDED=true`. Configure locally, never in chat. The user confirmed available API funds; API authentication/model listing and successful `gpt-4o-mini-tts` / `marin` generation were verified. The private narration key is excluded from the app runtime.
 
-`manifests/costs.json` separates estimates, reservations and actual charges under the CAD 50 all-in cap. Current checkpoint: **zero narration API calls, CAD 0 narration charges**, no external purchases. First-tutorial estimate is CAD 0.45; conservative reservation CAD 9 plus CAD 5 retry headroom. The built-in image tool does not expose its billing amount; this is not a claim that total account usage was free. No top-ups/subscriptions were purchased.
+`manifests/costs.json` separates estimates, reservations and actual charges under the CAD 50 all-in cap. Ten speech requests (nine original sections plus one explicit BIAB pronunciation correction) and two bounded automated audio listening reviews were made. CAD 12 remains conservatively reserved, with CAD 5 retry headroom. Planning estimate: CAD 1.20 all-in. Actual provider billing is pending; reservations and estimates are not invoices. Audio QA reports contain metered token usage. No subscriptions, purchases, top-ups, or automatic retries were made.
 
 Before paid generation, verify current official pricing, funding, model/voice access, and all-in FX/tax allowance, then update evidence and manifest gates. The producer uses a locked fixed ledger, bounded requests, one explicit attempt per uncached section, no automatic retries, and conservative reservations counted after generation. Tests use temporary ledgers. Do not delete/reset the real ledger to recover budget.
 
@@ -81,7 +81,7 @@ python3 production/luster-videos/tools/narration.py --sections narration-scripts
 python3 production/luster-videos/tools/narration.py --sections narration-scripts/tutorial-booking.sections.json --generate
 ```
 
-Listen to each original section and check pronunciation, then align measured audio and caption timings. `narration/tutorial-booking-aligned.wav` does not yet exist. Proposed cues and `.template.srt/.vtt` files are not final spoken-audio subtitles.
+Original WAV sections are retained, including the superseded BIAB take. Measured alignment is saved in `narration/tutorial-booking-aligned.wav`; the final SRT/WebVTT/ASS cues are based on the corrected spoken audio. Older `.template.srt/.vtt` files are planning examples only.
 
 ## Offline editing
 
@@ -95,12 +95,15 @@ python3 production/luster-videos/tools/video_pipeline.py validate --timeline tim
 python3 production/luster-videos/tools/video_pipeline.py render --timeline timelines/tutorial-booking.json --internal-silent-draft
 ```
 
-Silent rendering writes only to `work/internal-drafts/` with an unavoidable **INTERNAL SILENT DRAFT — NOT APPROVAL READY** label. Normal rendering refuses missing narration or recordings. After audio and timing review:
+Silent rendering writes only to `work/internal-drafts/` with an unavoidable **INTERNAL SILENT DRAFT — NOT APPROVAL READY** label. Normal rendering refuses missing narration or recordings. Offline rebuilding from the saved sections:
 
 ```sh
+python3 production/luster-videos/tools/align_narration.py --config timelines/tutorial-booking.audio.json
 python3 production/luster-videos/tools/video_pipeline.py subtitles --timeline timelines/tutorial-booking.json
 python3 production/luster-videos/tools/video_pipeline.py render --timeline timelines/tutorial-booking.json
 python3 production/luster-videos/tools/video_pipeline.py qa --timeline timelines/tutorial-booking.json
+python3 production/luster-videos/tools/qa_reference.py
+python3 production/luster-videos/tools/package_reference.py
 ```
 
 Rebuilds use saved media and make no paid calls. Scene order/ranges, duration, crop, zoom, framing, titles, narration, captions and export settings are editable JSON. Tutorial click annotations use a white hand pointer with a charcoal outline and a short champagne pulse. Each scene stores the actual control position and visually aligned source time; the introductory outcome preview has no clicks. Both clean and captioned versions inherit the same pointer animation. Original vector cursor graphics are in `graphics/`; the installed root `sharp` package rasterizes them into ignored render cache files. No app DOM or styling is modified. See `manifests/cursor-evidence.json` for source-frame evidence. Target: H.264/AAC, yuv420p, constant 30 fps, fast-start MP4, 1920×1080 landscape or 1080×1920 vertical.
@@ -110,14 +113,21 @@ Rebuilds use saved media and make no paid calls. Scene order/ranges, duration, c
 | Item | Location | State |
 |---|---|---|
 | Real customer recording | `recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm` | Captured, 98.16 seconds |
-| Editable cut | `timelines/tutorial-booking.json` | 66.1 seconds; audio alignment proposed |
+| Editable cut | `timelines/tutorial-booking.json` | 66.1 seconds; measured audio and reviewed caption cues |
 | Silent internal preview | `work/internal-drafts/tutorial-booking.silent.not-approval-ready.mp4` | Internal only |
-| Narration text/config | `narration-scripts/tutorial-booking.md`, `.sections.json` | Verified screen order; audio missing |
-| Final MP4s | `exports/` | Not produced |
-| Final subtitles/thumbnail | `subtitles/`, `thumbnails/` | Not produced |
+| Narration text/config | `narration-scripts/tutorial-booking.md`, `.sections.json` | Final script, corrected BIAB pronunciation, cached original WAVs |
+| Reference MP4s | `exports/tutorial-booking.clean.mp4`, `.captioned.mp4` | Rendered; user approval pending |
+| Reference subtitles/thumbnail | `subtitles/tutorial-booking.srt`, `.vtt`, `.ass`; `thumbnails/tutorial-booking.png` | Provided |
 | Local raw evidence | `qa/` | Ignored |
 | Durable verification | `manifests/verification.json`, `feature-coverage.json` | Partial acceptance documented |
 
-Before the reference approval gate: generate/listen to narration, align/check captions, finish thumbnail and both exports, inspect the full video with and without sound, and verify readability, pacing, clipping, drift, black frames, and playback. Native 200% text scaling, visual focus-ring audit, real-device testing, design draft/publication/link verification, and an unfamiliar reviewer's task-repeatability check remain pending. Keyboard traversal confirms focus ownership, not the visual sufficiency of each focus indicator.
+The full audio has automated listening/transcript review; the first review caught a missing A in BIAB, which was corrected. Local Whisper.cpp base.en transcriptions support reviewed sentence/phrase caption boundaries. Audio model judgments about naturalness vary; human creative listening approval remains pending. Visual review uses full-sequence contact sheets, control/caption frames, and browser playback verification. No human unfamiliar reviewer or physical-device test is available; these acceptance items remain pending. Native 200% text scaling, visually sufficient keyboard focus, design publication/link and team/follow-up checks are listed separately, not passed by implication.
 
 Produce the other seven videos only after user approval of the completed reference. Website embedding, public posting, ad purchases and a later feature library are outside scope.
+
+
+## Reference review and handoff
+
+Open `exports/review.html` through a loopback-only static server or play either MP4 directly. The source archive includes the selected generated photo, raw recording, original cached WAVs, aligned audio, scripts, editable scene/audio/caption configuration, subtitles, thumbnail, reports and rebuild documentation. It excludes environment files, private auth/runtime state, fonts, speech-model weights and unrelated application files. The archive and large media are ignored by Git.
+
+Local speech timestamp dependency: installed `whisper-cli` / Whisper.cpp with `ggml-base.en.bin` cached under ignored `work/models/`. Source: https://github.com/ggml-org/whisper.cpp and https://huggingface.co/ggerganov/whisper.cpp . It is optional for rebuilding the edit because the reviewed cues are saved. No weights or font files are redistributed.

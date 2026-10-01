@@ -1,6 +1,6 @@
 {
   "video": "tutorial-booking",
-  "status": "real customer footage captured; narration and final export pending",
+  "status": "Real customer recording with narrated clean/captioned reference exports; creative approval pending",
   "scenes": [
     {
       "id": "page",
@@ -55,5 +55,6 @@
     "Raw file is 780x1688 VP8 25fps, but true app content is 390x844 at top-left; timeline crops unused padding. DPR2 did not raise video detail.",
     "Both fixture salons began published; first-publication confirmation requires a draft salon for later footage.",
     "Client profile supports Notes & Photos, but no appointment photo is currently attached; do not narrate photos as demonstrated yet."
-  ]
+  ],
+  "framing": "Full page establishing shot plus saved editorial close-ups around actual controls. No DOM/CSS changes or speed compression."
 }

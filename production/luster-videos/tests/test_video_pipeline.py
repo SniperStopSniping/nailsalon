@@ -2,6 +2,7 @@ import copy
 import importlib.util
 import json
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -120,6 +121,23 @@ class TimelineValidationTests(unittest.TestCase):
         self.assertAlmostEqual(1412.56, x, places=2)
         self.assertAlmostEqual(550.0, y, places=1)
 
+    def test_scene_app_x_override_moves_render_and_clicks_without_changing_default(self):
+        data = template()
+        data["layout"] = {"mode": "landscape-mobile-right", "app_x": 1200}
+        scene = data["scenes"][0]
+        scene["framing"]["source_crop"] = {"x": 0, "y": 0, "width": 390, "height": 844}
+        default_x, default_y = pipeline.map_raw_click(scene, data, 195, 422)
+        scene["framing"]["app_x"] = 1320
+        self.assertEqual([], pipeline.validate_timeline(data))
+        overridden_x, overridden_y = pipeline.map_raw_click(scene, data, 195, 422)
+        self.assertEqual(120, overridden_x - default_x)
+        self.assertEqual(default_y, overridden_y)
+        self.assertIn("pad=1920:1080:1320:90:#F7F1E8", pipeline.scene_filter(0, scene, data))
+        del scene["framing"]["app_x"]
+        self.assertEqual((default_x, default_y), pipeline.map_raw_click(scene, data, 195, 422))
+        scene["framing"]["app_x"] = 1801
+        self.assertTrue(any("framing.app_x" in error for error in pipeline.validate_timeline(data)))
+
     def test_invalid_or_overlapping_clicks_are_rejected(self):
         data = template()
         scene = data["scenes"][0]
@@ -158,6 +176,69 @@ class SubtitleTests(unittest.TestCase):
         for cue in cues:
             self.assertLessEqual(len(cue.splitlines()), 2)
             self.assertTrue(all(len(line) <= 12 for line in cue.splitlines()))
+
+    def test_ass_subtitles_use_output_resolution_and_configured_pixel_style(self):
+        data = template()
+        data["format"].update({"width": 1920, "height": 1080})
+        data["caption_style"] = {"font_size": 56, "margin_vertical": 110, "margin_left": 80, "margin_right": 780, "alignment": 1, "text_color": "#292421", "outline_color": "#F7F1E8", "outline_width": 0}
+        data["narration"]["segments"] = [{"start": 0, "end": 5, "text": "Braces {stay literal} and captions retain two lines."}]
+        ass = pipeline.ass_subtitle_text(data)
+        self.assertIn("PlayResX: 1920", ass)
+        self.assertIn("PlayResY: 1080", ass)
+        self.assertIn("Style: LusterCaptions,Verdana,56", ass)
+        self.assertIn("&H00212429,&H000000FF,&H00E8F1F7", ass)
+        self.assertIn(",1,0,0,1,80,780,110,1", ass)
+        self.assertIn(",1,80,780,110,1", ass)
+        self.assertIn("Braces \\{stay literal\\} and captions\\Nretain two lines.", ass)
+        dialogue_lines = [line for line in ass.splitlines() if line.startswith("Dialogue:")]
+        self.assertTrue(dialogue_lines)
+        self.assertTrue(all(line.count("\\N") <= 1 for line in dialogue_lines))
+
+    def test_caption_color_fields_reject_non_hex_values(self):
+        data = template()
+        data["caption_style"] = {"text_color": "white;FontName=Injected", "outline_color": "#FFFFF", "outline_width": 5}
+        errors = pipeline.validate_timeline(data)
+        self.assertTrue(any("text_color" in error for error in errors))
+        self.assertTrue(any("outline_color" in error for error in errors))
+        self.assertTrue(any("outline_width" in error for error in errors))
+
+    def test_write_subtitles_keeps_srt_vtt_and_ass_sidecars_together(self):
+        data = template()
+        with tempfile.TemporaryDirectory() as temp:
+            data["outputs"]["srt"] = "subtitles/tutorial-booking.srt"
+            data["outputs"]["vtt"] = "subtitles/tutorial-booking.vtt"
+            with patch.object(pipeline, "ROOT", Path(temp)):
+                srt, vtt = pipeline.write_subtitles(data)
+                self.assertTrue(srt.is_file())
+                self.assertTrue(vtt.is_file())
+                ass = srt.with_suffix(".ass")
+                self.assertTrue(ass.is_file())
+                self.assertIn("PlayResX: 1920", ass.read_text(encoding="utf-8"))
+
+    def test_reviewed_caption_segments_drive_all_subtitle_formats(self):
+        data = template()
+        data["narration"]["caption_segments"] = [
+            {"start": 1.25, "end": 2.5, "text": "Reviewed first cue."},
+            {"start": 2.75, "end": 4.0, "text": "Reviewed second cue."},
+        ]
+        self.assertEqual([], pipeline.validate_timeline(data))
+        srt = pipeline.subtitle_text(pipeline.subtitle_segments(data), False)
+        vtt = pipeline.subtitle_text(pipeline.subtitle_segments(data), True)
+        ass = pipeline.ass_subtitle_text(data)
+        self.assertIn("00:00:01,250 --> 00:00:02,500", srt)
+        self.assertIn("00:00:02.750 --> 00:00:04.000", vtt)
+        self.assertIn("Dialogue: 0,0:00:01.25,0:00:02.50", ass)
+        self.assertNotIn(data["narration"]["segments"][0]["text"], srt)
+
+    def test_reviewed_caption_segments_reject_overlap_and_more_than_two_lines(self):
+        data = template()
+        data["narration"]["caption_segments"] = [
+            {"start": 1, "end": 3, "text": "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty"},
+            {"start": 2, "end": 4, "text": "Overlapping cue."},
+        ]
+        errors = pipeline.validate_timeline(data)
+        self.assertTrue(any("invalid or overlapping" in error for error in errors))
+        self.assertTrue(any("one two-line cue" in error for error in errors))
 
 
 class OfflineSafetyTests(unittest.TestCase):
@@ -202,7 +283,7 @@ class OfflineSafetyTests(unittest.TestCase):
         filter_text = pipeline.scene_filter(0, data["scenes"][0], data)
         self.assertIn("pad=1920:1080:1200:90:#F7F1E8", filter_text)
         self.assertIn("drawbox=x=1192:y=82", filter_text)
-        self.assertEqual({"font_size": 24, "margin_vertical": 110, "margin_left": 80, "alignment": 1}, pipeline.caption_style(data))
+        self.assertEqual({"font_size": 24, "margin_vertical": 110, "margin_left": 80, "margin_right": 80, "alignment": 1, "text_color": "#FFFFFF", "outline_color": "#292421", "outline_width": 2}, pipeline.caption_style(data))
 
     def test_mobile_right_editorial_defaults_are_readable_and_wrapped(self):
         data = template()
@@ -211,7 +292,7 @@ class OfflineSafetyTests(unittest.TestCase):
         self.assertEqual((120, 240, 60), (editorial["title_x"], editorial["title_y"], editorial["title_font_size"]))
         self.assertEqual((120, 520, 36), (editorial["label_x"], editorial["label_y"], editorial["label_font_size"]))
         self.assertEqual("This is what\nyour clients see", pipeline.wrap_editorial_text("This is what your clients see", 16))
-        self.assertEqual({"font_size": 25, "margin_vertical": 240, "margin_left": 120, "alignment": 1}, pipeline.caption_style(data))
+        self.assertEqual({"font_size": 56, "margin_vertical": 240, "margin_left": 120, "margin_right": 120, "alignment": 1, "text_color": "#FFFFFF", "outline_color": "#292421", "outline_width": 2}, pipeline.caption_style(data))
 
     def test_mobile_right_layout_is_landscape_only(self):
         data = template()

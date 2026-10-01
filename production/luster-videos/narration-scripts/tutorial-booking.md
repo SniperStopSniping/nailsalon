@@ -1,6 +1,6 @@
-# Customer booking narration — verified screen order, audio pending
+# Customer booking narration — final reference script
 
-The solo fixture has no technician-selection step and no optional marketing-consent field. Spoken timing and caption cues must be checked against generated audio.
+The solo fixture has no technician-selection step and no optional marketing-consent field. The generated audio and reviewed caption cues follow the recorded customer flow. The TTS input spells BIAB as B. I. A. B. to preserve all four letters; subtitles retain the service name BIAB Overlay.
 
 This is what your clients see when they open your booking page.
 

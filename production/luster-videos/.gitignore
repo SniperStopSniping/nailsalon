@@ -23,3 +23,6 @@ qa/
 # Python validation caches
 __pycache__/
 *.pyc
+
+# Source handoff archives are local media, never application history.
+*.zip
