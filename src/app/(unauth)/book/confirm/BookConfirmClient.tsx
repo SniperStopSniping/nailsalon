@@ -624,7 +624,7 @@ const BookingCard = ({
             <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
               {addOns.some(addOn => addOn.priceMode === 'manual_confirmation') ? 'Current booking subtotal' : 'Estimated total'}
             </p>
-            <p className="font-heading mt-1 text-2xl font-bold text-[var(--n5-accent)]">
+            <p data-testid="booking-receipt-total" className="font-heading mt-1 text-2xl font-bold text-[var(--n5-ink-main)]">
               {totalPriceDisplay ?? `$${totalPrice}`}
             </p>
           </div>
@@ -725,10 +725,11 @@ const BookingCard = ({
             </p>
           </div>
           <div
+            data-testid="booking-receipt-duration"
             className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold"
             style={{
               backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, var(--n5-bg-card))',
-              color: 'var(--n5-accent)',
+              color: 'var(--n5-ink-main)',
             }}
           >
             {formatDuration(totalDuration)}

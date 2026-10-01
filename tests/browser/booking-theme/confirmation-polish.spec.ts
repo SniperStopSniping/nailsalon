@@ -28,6 +28,8 @@ for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
     const inputColor = await name.evaluate(element => getComputedStyle(element).color);
 
     await expect(page.getByRole('heading', { name: 'Your contact details' })).toHaveCSS('color', inputColor);
+    await expect(page.getByTestId('booking-receipt-total')).toHaveCSS('color', inputColor);
+    await expect(page.getByTestId('booking-receipt-duration')).toHaveCSS('color', inputColor);
   });
 }
 
