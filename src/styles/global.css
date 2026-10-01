@@ -86,7 +86,7 @@
     --n5-space-2xl: 3rem;
 
     --n5-button-primary-bg: #d6a249;
-    --n5-button-primary-text: #ffffff;
+    --n5-button-primary-text: #3f2b24;
     --n5-button-secondary-bg: #ffffff;
     --n5-button-secondary-text: #3f2b24;
     --n5-button-ghost-text: #8a7e78;
@@ -474,7 +474,7 @@
 }
 
 .booking-confirm-page :where(input, button, a):focus-visible {
-  outline: 2px solid var(--n5-accent);
+  outline: 2px solid var(--booking-brand-state-border, var(--n5-ink-main));
   outline-offset: 3px;
 }
 

@@ -13,6 +13,8 @@ import { resolveCustomerSitePalettePreset } from '@/libs/customerSitePresentatio
 const query = new URLSearchParams(window.location.search);
 const step = query.get('step') ?? 'time';
 const palette = resolveCustomerSitePalettePreset(query.get('palette'));
+const legacyTheme = query.get('legacy-theme');
+const themeKey = legacyTheme ?? 'espresso';
 const services = [{ id: 'service-fixture', name: 'Russian Manicure', price: 35, duration: 35 }];
 const addOns = query.has('receipt-details')
   ? [{ id: 'addon-fixture', serviceId: 'service-fixture', serviceName: 'Russian Manicure', name: 'Simple Nail Art', price: 10, duration: 15, quantity: 2 }]
@@ -56,9 +58,9 @@ const salon = {
   id: 'synthetic-salon',
   slug: 'theme-fixture',
   name: 'Isla Nail Studio',
-  themeKey: 'espresso',
+  themeKey,
   status: 'active',
-  settings: null,
+  settings: query.has('primary-color') ? { bookingExperience: { primaryColor: query.get('primary-color') } } : null,
 } as ComponentProps<typeof PublicSalonPageShell>['salon'];
 const bookingPage = {
   layout: 'quick_book',
@@ -89,9 +91,9 @@ const bookingPage = {
 
 createRoot(document.getElementById('root')!).render(
   <PublicSalonPageShell
-    appearance={{ mode: 'theme', themeKey: 'espresso' }}
+    appearance={{ mode: query.has('custom-appearance') ? 'custom' : 'theme', themeKey: query.get('page-theme') ?? themeKey }}
     salon={salon}
-    bookingPage={{ ...bookingPage, sectionOrder: [...bookingPage.sectionOrder], hiddenSections: [] }}
+    bookingPage={{ ...bookingPage, siteStylePreset: legacyTheme ? undefined : bookingPage.siteStylePreset, sitePalettePreset: legacyTheme ? undefined : palette, sectionOrder: [...bookingPage.sectionOrder], hiddenSections: [] }}
     pageName={step === 'time' ? 'book-datetime' : step === 'tech' ? 'book-technician' : `book-${step}`}
   >
     {step === 'service' && (

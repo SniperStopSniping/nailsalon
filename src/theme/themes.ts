@@ -244,7 +244,7 @@ export const espressoTheme: EspressoTheme = {
   // ---------------------------------------------------------------------------
   buttons: {
     buttonPrimaryBg: '#D6A249', // Gold primary button background
-    buttonPrimaryText: '#ffffff', // White text on primary buttons
+    buttonPrimaryText: '#3F2B24', // Espresso text keeps the gold button readable
     buttonSecondaryBg: '#ffffff', // White secondary button background
     buttonSecondaryText: '#3F2B24', // Espresso text on secondary buttons
     buttonGhostText: '#8A7E78', // Taupe text for ghost buttons
@@ -465,7 +465,7 @@ export const pastelTheme: EspressoTheme = {
   // ---------------------------------------------------------------------------
   buttons: {
     buttonPrimaryBg: '#D6A249', // Gold primary button background
-    buttonPrimaryText: '#ffffff', // White text on primary buttons
+    buttonPrimaryText: '#3F2B24', // Espresso text keeps the gold button readable
     buttonSecondaryBg: '#ffffff', // White secondary button background
     buttonSecondaryText: '#3F2B24', // Espresso text on secondary buttons
     buttonGhostText: '#8A7E78', // Taupe text for ghost buttons

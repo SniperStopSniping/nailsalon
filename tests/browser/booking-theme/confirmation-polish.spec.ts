@@ -1,6 +1,16 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Locator, test } from '@playwright/test';
 
+import { getColorContrastRatio } from '../../../src/libs/bookingExperience';
 import { CUSTOMER_SITE_PALETTE_PRESETS } from '../../../src/libs/customerSitePresentation';
+
+async function primaryButtonContrast(control: Locator, property: 'color' | 'outline-color' = 'color') {
+  const colors = await control.evaluate((element, foregroundProperty) => {
+    const style = getComputedStyle(element);
+    const toHex = (rgb: string) => `#${(rgb.match(/\d+/g) ?? []).slice(0, 3).map(value => Number(value).toString(16).padStart(2, '0')).join('')}`;
+    return { background: toHex(style.backgroundColor), foreground: toHex(style.getPropertyValue(foregroundProperty)) };
+  }, property);
+  return getColorContrastRatio(colors.background, colors.foreground);
+}
 
 for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
   test(`${palette} confirmation has readable labels and usable inputs`, async ({ page }) => {
@@ -12,6 +22,7 @@ for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
     await name.focus();
 
     await expect(name).toHaveCSS('outline-style', 'solid');
+    expect(await primaryButtonContrast(name, 'outline-color')).toBeGreaterThanOrEqual(3);
     await expect(page.getByTestId('booking-receipt-when')).toContainText('1:45 PM');
     await expect(page.getByTestId('booking-receipt-services')).toContainText('Russian Manicure');
     await expect(page.getByText('Not booked yet. Confirm below to reserve your time.')).toBeVisible();
@@ -30,6 +41,58 @@ for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
     await expect(page.getByRole('heading', { name: 'Your contact details' })).toHaveCSS('color', inputColor);
     await expect(page.getByTestId('booking-receipt-total')).toHaveCSS('color', inputColor);
     await expect(page.getByTestId('booking-receipt-duration')).toHaveCSS('color', inputColor);
+
+    await name.fill('Fictional Palette Guest');
+    await page.getByLabel('Customer email').fill('palette@example.invalid');
+    await page.getByLabel('Customer phone').fill('4165550100');
+    const confirm = page.getByRole('button', { name: /Confirm appointment/ });
+
+    await expect(confirm).toBeEnabled();
+    expect(await primaryButtonContrast(confirm)).toBeGreaterThanOrEqual(4.5);
+  });
+}
+
+for (const theme of ['espresso', 'lavender', 'pastel', 'lavender&page-theme=espresso', 'espresso&page-theme=lavender', 'lavender&custom-appearance']) {
+  test(`${theme} legacy-theme review and management buttons have readable contrast`, async ({ page }) => {
+    await page.goto(`/?step=confirm&legacy-theme=${theme}`);
+    await page.getByLabel('Customer name').fill('Fictional Theme Guest');
+    await page.getByLabel('Customer email').fill('theme@example.invalid');
+    await page.getByLabel('Customer phone').fill('4165550100');
+    const confirm = page.getByRole('button', { name: /Confirm appointment/ });
+
+    await expect(confirm).toBeEnabled();
+    expect(await primaryButtonContrast(confirm)).toBeGreaterThanOrEqual(4.5);
+
+    await confirm.click();
+    const manage = page.getByRole('link', { name: 'Manage this appointment', exact: true });
+
+    await expect(manage).toBeVisible();
+    expect(await primaryButtonContrast(manage)).toBeGreaterThanOrEqual(4.5);
+  });
+}
+
+for (const { color, rgb } of [
+  { color: '#000000', rgb: 'rgb(0, 0, 0)' },
+  { color: '#FFFFFF', rgb: 'rgb(255, 255, 255)' },
+  { color: '#D6A249', rgb: 'rgb(214, 162, 73)' },
+]) {
+  test(`${color} custom-primary-only buttons keep their paired background and foreground`, async ({ page }) => {
+    await page.goto(`/?step=confirm&legacy-theme=espresso&primary-color=${encodeURIComponent(color)}`);
+    await page.getByLabel('Customer name').fill('Fictional Brand Guest');
+    await page.getByLabel('Customer email').fill('brand@example.invalid');
+    await page.getByLabel('Customer phone').fill('4165550100');
+    const confirm = page.getByRole('button', { name: /Confirm appointment/ });
+
+    await expect(confirm).toBeEnabled();
+    await expect(confirm).toHaveCSS('background-color', rgb);
+    expect(await primaryButtonContrast(confirm)).toBeGreaterThanOrEqual(4.5);
+
+    await confirm.click();
+    const manage = page.getByRole('link', { name: 'Manage this appointment', exact: true });
+
+    await expect(manage).toBeVisible();
+    await expect(manage).toHaveCSS('background-color', rgb);
+    expect(await primaryButtonContrast(manage)).toBeGreaterThanOrEqual(4.5);
   });
 }
 
@@ -108,6 +171,11 @@ for (const status of ['confirmed', 'pending'] as const) {
     await expect(page.getByTestId('booking-result-receipt')).toContainText('1h 5m');
     await expect(page.getByTestId('booking-result-receipt')).toContainText('100 Demo Lane, Toronto');
     await expect(page.getByTestId('booking-success-celebration')).toHaveCount(status === 'confirmed' ? 1 : 0);
+
+    if (status === 'confirmed') {
+      expect(await page.getByTestId('booking-receipt-when').evaluate(element => Boolean(element.compareDocumentPosition(document.querySelector('[data-testid="booking-success-celebration"]')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+    }
+
     await expect(page.getByRole('link', { name: 'Google Calendar', exact: true })).toHaveCount(status === 'confirmed' ? 1 : 0);
     await expect(page.getByRole('link', { name: 'Apple Calendar', exact: true })).toHaveCount(status === 'confirmed' ? 1 : 0);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

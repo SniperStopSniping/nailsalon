@@ -845,8 +845,8 @@ describe('BookConfirmClient', () => {
     const summary = screen.getByText('Appointment summary');
     const celebration = screen.getByTestId('booking-success-celebration');
 
-    expect(celebration.compareDocumentPosition(statusHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(statusHeading.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(summary.compareDocumentPosition(celebration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(statusHeading).toHaveFocus();
     expect(scrollToMock).toHaveBeenCalledWith({ top: 0, behavior: 'auto' });
     expect(screen.getByText('Your time is reserved.')).toBeInTheDocument();

@@ -1694,8 +1694,10 @@ const ConfirmContent = ({
             }
             className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
+              backgroundColor: 'var(--n5-button-primary-bg, var(--n5-accent))',
               borderRadius: n5.radiusMd,
               boxShadow: n5.shadowSm,
+              color: 'var(--n5-button-primary-text, #3F2B24)',
             }}
           >
             {isSubmitting
@@ -1871,27 +1873,6 @@ const SuccessContent = ({
             role="status"
             aria-live="polite"
           >
-            {!isPending && (
-              <motion.div
-                data-testid="booking-success-celebration"
-                aria-hidden="true"
-                initial={prefersReducedMotion ? undefined : { opacity: 0, scale: 0.88 }}
-                animate={prefersReducedMotion ? undefined : { opacity: 1, scale: 1 }}
-                transition={{ delay: 0.12, type: 'spring', stiffness: 260, damping: 18 }}
-                className="mb-3"
-              >
-                <div
-                  className="mx-auto flex size-10 items-center justify-center border"
-                  style={{
-                    borderRadius: n5.radiusPill,
-                    borderColor: 'color-mix(in srgb, var(--n5-success) 30%, var(--n5-border-muted))',
-                    backgroundColor: 'color-mix(in srgb, var(--n5-success) 12%, var(--n5-bg-card))',
-                  }}
-                >
-                  <Check className="size-5 text-[var(--n5-success)]" strokeWidth={2.5} />
-                </div>
-              </motion.div>
-            )}
             <h1
               ref={resultHeadingRef}
               data-testid="booking-result-heading"
@@ -1900,11 +1881,11 @@ const SuccessContent = ({
             >
               {isPending ? 'Request received' : 'Appointment confirmed'}
             </h1>
-            <p className="font-body text-sm text-[var(--n5-ink-muted)]">
-              {isPending
-                ? 'The salon will review your request before the appointment is confirmed.'
-                : 'Your time is reserved.'}
-            </p>
+            {isPending && (
+              <p className="font-body text-sm text-[var(--n5-ink-muted)]">
+                The salon will review your request before the appointment is confirmed.
+              </p>
+            )}
           </motion.header>
 
           <motion.div
@@ -1927,6 +1908,28 @@ const SuccessContent = ({
               totalPriceDisplay={totalPriceDisplay}
             />
           </motion.div>
+          {!isPending && (
+            <motion.div
+              data-testid="booking-success-celebration"
+              initial={prefersReducedMotion ? undefined : { opacity: 0, y: 6 }}
+              animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="flex items-center justify-center gap-2"
+            >
+              <div
+                aria-hidden="true"
+                className="flex size-8 shrink-0 items-center justify-center border"
+                style={{
+                  borderRadius: n5.radiusPill,
+                  borderColor: 'color-mix(in srgb, var(--n5-success) 30%, var(--n5-border-muted))',
+                  backgroundColor: 'color-mix(in srgb, var(--n5-success) 12%, var(--n5-bg-card))',
+                }}
+              >
+                <Check className="size-4 text-[var(--n5-success)]" strokeWidth={2.5} />
+              </div>
+              <p className="font-body text-sm text-[var(--n5-ink-main)]">Your time is reserved.</p>
+            </motion.div>
+          )}
         </div>
 
         {!isPending && rebookingSettings?.enabled && onBookNext && (
@@ -1966,8 +1969,10 @@ const SuccessContent = ({
                   href={manageUrl}
                   className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--n5-ink-main)] active:scale-[0.98]"
                   style={{
+                    backgroundColor: 'var(--n5-button-primary-bg, var(--n5-accent))',
                     borderRadius: n5.radiusMd,
                     boxShadow: n5.shadowSm,
+                    color: 'var(--n5-button-primary-text, #3F2B24)',
                   }}
                 >
                   <RefreshCw className="size-5" />
@@ -1976,7 +1981,7 @@ const SuccessContent = ({
               )
             : onManage
               ? (
-                  <button type="button" onClick={onManage} className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--n5-ink-main)]" style={{ borderRadius: n5.radiusMd }}>
+                  <button type="button" onClick={onManage} className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--n5-ink-main)]" style={{ backgroundColor: 'var(--n5-button-primary-bg, var(--n5-accent))', borderRadius: n5.radiusMd, color: 'var(--n5-button-primary-text, #3F2B24)' }}>
                     <RefreshCw className="size-5" />
                     <span>{isPending ? 'Manage this request' : 'Manage this appointment'}</span>
                   </button>
