@@ -701,7 +701,7 @@ const BookingCard = ({
                     name={technician.name}
                     imageUrl={technician.imageUrl}
                     className="size-full"
-                    fallbackClassName="border border-[var(--n5-border-muted)] bg-none bg-[var(--n5-bg-muted)] text-[var(--n5-ink-main)]"
+                    fallbackClassName="rounded-full bg-none bg-[var(--n5-bg-page)] text-[var(--n5-ink-main)]"
                     sizes="48px"
                   />
                 </div>
