@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 
 import { LusterClientSms } from '@/components/admin/LusterClientSms';
 import { SettingsModal } from '@/components/admin/SettingsModal';
+import { UsageBillingModal } from '@/components/admin/UsageBillingModal';
 import { AddSmsCreditsControl } from '@/components/super-admin/AddSmsCreditsControl';
 
 export function SmsBrowserFixture() {
@@ -45,11 +46,21 @@ function SuperAdminCreditsBrowserFixture() {
   );
 }
 
+function UsageBillingBrowserFixture() {
+  return (
+    <main className="owner-workspace-theme mx-auto min-h-screen max-w-md bg-stone-50 p-3">
+      <UsageBillingModal salonSlug="sms-fixture" onClose={() => {}} />
+    </main>
+  );
+}
+
 const fixture = new URLSearchParams(window.location.search).get('fixture');
 createRoot(document.getElementById('root')!).render(
   fixture === 'settings'
     ? <SettingsBrowserFixture />
     : fixture === 'super-admin-credits'
       ? <SuperAdminCreditsBrowserFixture />
-      : <SmsBrowserFixture />,
+      : fixture === 'usage-billing'
+        ? <UsageBillingBrowserFixture />
+        : <SmsBrowserFixture />,
 );

@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { POST } from './route';
+import { GET, POST } from './route';
 
 const mocks = vi.hoisted(() => ({
   currentUser: vi.fn(),
   requireRealSalonOwner: vi.fn(),
+  requireAdmin: vi.fn(),
+  getAdminImpersonationForAdmin: vi.fn(),
+  getStarterAllowanceStatus: vi.fn(),
+  select: vi.fn(),
   claimVerifiedStarterCredits: vi.fn(),
   checkEndpointRateLimit: vi.fn(),
   getClientIp: vi.fn(),
@@ -13,10 +17,15 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({ currentUser: mocks.currentUser }));
-vi.mock('@/libs/adminAuth', () => ({ requireRealSalonOwner: mocks.requireRealSalonOwner }));
+vi.mock('@/libs/adminAuth', () => ({
+  requireRealSalonOwner: mocks.requireRealSalonOwner,
+  requireAdmin: mocks.requireAdmin,
+  getAdminImpersonationForAdmin: mocks.getAdminImpersonationForAdmin,
+}));
+vi.mock('@/libs/billing/starterAllowanceStatus', () => ({ getStarterAllowanceStatus: mocks.getStarterAllowanceStatus }));
 vi.mock('@/libs/billing/businessIdentity', () => ({ BusinessIdentityError: class BusinessIdentityError extends Error {} }));
 vi.mock('@/libs/billing/verifiedStarterGrant', () => ({ claimVerifiedStarterCredits: mocks.claimVerifiedStarterCredits }));
-vi.mock('@/libs/DB', () => ({ db: { transaction: mocks.transaction } }));
+vi.mock('@/libs/DB', () => ({ db: { transaction: mocks.transaction, select: mocks.select } }));
 vi.mock('@/libs/rateLimit', () => ({
   checkEndpointRateLimit: mocks.checkEndpointRateLimit,
   getClientIp: mocks.getClientIp,
@@ -90,6 +99,19 @@ describe('POST /api/admin/salon/communications/starter-credits', () => {
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
   });
 
+  it.each(['OWNER_REQUIRED', 'IMPERSONATION_NOT_ALLOWED'])('preserves %s with credit-specific error copy', async (code) => {
+    mocks.requireRealSalonOwner.mockResolvedValue({
+      ok: false,
+      response: Response.json({ error: { code, message: 'owner assistant actions' } }, { status: 403 }),
+    });
+    const response = await POST(request({ salonId: 'salon_a' }));
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error).toMatchObject({ code, message: expect.stringContaining('owner account') });
+    expect(mocks.currentUser).not.toHaveBeenCalled();
+    expect(mocks.claimVerifiedStarterCredits).not.toHaveBeenCalled();
+  });
+
   it('does not accept caller-provided contact values', async () => {
     const response = await POST(request({
       salonId: 'salon_a',
@@ -145,5 +167,100 @@ describe('POST /api/admin/salon/communications/starter-credits', () => {
 
     expect(response.status).toBe(409);
     expect(mocks.claimVerifiedStarterCredits).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/admin/salon/communications/starter-credits', () => {
+  const getRequest = (salonId = 'salon_a') => new Request(`https://luster.test/api/admin/salon/communications/starter-credits?salonId=${salonId}`);
+  const ownerAdmin = { clerkUserId: 'user_owner', salons: [{ salonId: 'salon_a', role: 'owner' }] };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.requireAdmin.mockResolvedValue({ ok: true, admin: ownerAdmin });
+    mocks.getAdminImpersonationForAdmin.mockResolvedValue(null);
+    mocks.checkEndpointRateLimit.mockReturnValue({ allowed: true });
+    mocks.getClientIp.mockReturnValue('127.0.0.1');
+    mocks.currentUser.mockResolvedValue({ id: 'user_owner' });
+    mocks.getStarterAllowanceStatus.mockResolvedValue('verification_required');
+    mocks.select.mockReturnValue({ from: () => ({ where: () => ({ limit: async () => [{ deletedAt: null }] }) }) });
+    mocks.transaction.mockImplementation(async (callback: (tx: typeof transactionTx) => unknown) => callback(transactionTx));
+  });
+
+  it('reads saved verification without claiming, identity writes, or contacting Clerk', async () => {
+    mocks.getStarterAllowanceStatus.mockResolvedValue('verified');
+    const response = await GET(getRequest());
+
+    expect(await response.json()).toEqual({ data: { status: 'verified', canClaim: false } });
+    expect(mocks.getStarterAllowanceStatus).toHaveBeenCalledWith(transactionTx, 'salon_a');
+    expect(mocks.currentUser).not.toHaveBeenCalled();
+    expect(mocks.claimVerifiedStarterCredits).not.toHaveBeenCalled();
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it('allows verification only for a matching authenticated Clerk owner', async () => {
+    const response = await GET(getRequest());
+
+    expect(await response.json()).toEqual({ data: { status: 'verification_required', canClaim: true } });
+    expect(mocks.claimVerifiedStarterCredits).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: 'collaborator', admin: { clerkUserId: 'user_owner', salons: [{ salonId: 'salon_a', role: 'admin' }] }, impersonation: null, userId: 'user_owner' },
+    { label: 'super admin without membership', admin: { isSuperAdmin: true, clerkUserId: 'user_super', salons: [] }, impersonation: null, userId: 'user_super' },
+    { label: 'legacy owner session', admin: { ...ownerAdmin, clerkUserId: null }, impersonation: null, userId: 'user_owner' },
+    { label: 'impersonated owner', admin: ownerAdmin, impersonation: { salonId: 'salon_a' }, userId: 'user_owner' },
+    { label: 'mismatched Clerk session', admin: ownerAdmin, impersonation: null, userId: 'user_other' },
+  ])('does not offer a claim to $label', async ({ admin, impersonation, userId }) => {
+    mocks.requireAdmin.mockResolvedValue({ ok: true, admin });
+    mocks.getAdminImpersonationForAdmin.mockResolvedValue(impersonation);
+    mocks.currentUser.mockResolvedValue({ id: userId });
+    const response = await GET(getRequest());
+
+    expect(await response.json()).toEqual({ data: { status: 'verification_required', canClaim: false } });
+    expect(mocks.claimVerifiedStarterCredits).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403])('refuses unauthorized or wrong-tenant reads before billing lookup (%s)', async (status) => {
+    mocks.requireAdmin.mockResolvedValue({ ok: false, response: new Response('Denied', { status }) });
+    const response = await GET(getRequest('salon_other'));
+
+    expect(response.status).toBe(status);
+    expect(mocks.select).not.toHaveBeenCalled();
+    expect(mocks.getStarterAllowanceStatus).not.toHaveBeenCalled();
+  });
+
+  it('rate limits status reads before querying the database', async () => {
+    mocks.checkEndpointRateLimit.mockReturnValue({ allowed: false, retryAfterMs: 1000 });
+    mocks.rateLimitResponse.mockReturnValue(new Response('Limited', { status: 429 }));
+    const response = await GET(getRequest());
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(mocks.select).not.toHaveBeenCalled();
+  });
+
+  it('returns a non-cacheable error if the status lookup fails', async () => {
+    mocks.getStarterAllowanceStatus.mockRejectedValue(new Error('database unavailable'));
+    const response = await GET(getRequest());
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    expect((await response.json()).error.code).toBe('STARTER_STATUS_ERROR');
+  });
+
+  it('rejects a missing salon before reading its allowance', async () => {
+    mocks.select.mockReturnValue({ from: () => ({ where: () => ({ limit: async () => [] }) }) });
+    const response = await GET(getRequest());
+
+    expect(response.status).toBe(409);
+    expect(mocks.getStarterAllowanceStatus).not.toHaveBeenCalled();
+  });
+
+  it('rejects a deleted salon before reading its allowance', async () => {
+    mocks.select.mockReturnValue({ from: () => ({ where: () => ({ limit: async () => [{ deletedAt: new Date() }] }) }) });
+    const response = await GET(getRequest());
+
+    expect(response.status).toBe(409);
+    expect(mocks.getStarterAllowanceStatus).not.toHaveBeenCalled();
   });
 });

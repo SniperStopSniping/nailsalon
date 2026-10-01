@@ -1,9 +1,14 @@
 'use client';
 
 import { useClerk } from '@clerk/nextjs';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 type ClaimStatus = 'granted' | 'already_claimed' | 'verification_required' | 'identity_setup_required';
+type StarterCreditsStatus = 'verified' | 'verification_required' | 'unclaimed';
+type StatusState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; status: StarterCreditsStatus; canClaim: boolean }
+  | { kind: 'error' };
 
 type StarterSmsCreditsCardProps = {
   salonId: string;
@@ -12,60 +17,95 @@ type StarterSmsCreditsCardProps = {
   onClaimed: () => Promise<void> | void;
 };
 
-/**
- * The free allowance is claimed explicitly. It is intentionally not loaded or
- * granted when this panel opens, and it never asks the owner to type identity
- * data: the route reads verified primary contacts directly from Clerk.
- */
+const STATUS_ENDPOINT = '/api/admin/salon/communications/starter-credits';
+const VERIFIED_MESSAGE = 'Your free-text allowance has been verified. Your existing SMS credits are unchanged.';
+
+/** The server is the source of truth when the billing panel opens. */
 export function StarterSmsCreditsCard({
   salonId,
   hasKnownStarterCredits,
   onClaimed,
 }: StarterSmsCreditsCardProps) {
   const clerk = useClerk();
+  const currentSalonId = useRef(salonId);
+  currentSalonId.current = salonId;
+  const requestVersion = useRef(0);
+  const [statusState, setStatusState] = useState<StatusState>({ kind: 'loading' });
   const [claiming, setClaiming] = useState(false);
-  const [hidden, setHidden] = useState(false);
   const [completedMessage, setCompletedMessage] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [needsVerification, setNeedsVerification] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    const version = ++requestVersion.current;
+    setStatusState({ kind: 'loading' });
+    setClaiming(false);
+    setCompletedMessage(null);
+    setMessage(null);
+    setNeedsVerification(false);
+    try {
+      const query = new URLSearchParams({ salonId });
+      const response = await fetch(`${STATUS_ENDPOINT}?${query.toString()}`, { cache: 'no-store' });
+      const body = await response.json().catch(() => null);
+      const status = body?.data?.status;
+      const canClaim = body?.data?.canClaim;
+      if (!response.ok || (status !== 'verified' && status !== 'verification_required' && status !== 'unclaimed') || typeof canClaim !== 'boolean') {
+        throw new Error('status fetch failed');
+      }
+      if (requestVersion.current === version) {
+        setStatusState({ kind: 'ready', status, canClaim });
+      }
+    } catch {
+      if (requestVersion.current === version) {
+        setStatusState({ kind: 'error' });
+      }
+    }
+  }, [salonId]);
+
+  useEffect(() => {
+    void loadStatus();
+    return () => {
+      requestVersion.current += 1;
+    };
+  }, [loadStatus]);
 
   const openVerification = useCallback(() => {
     clerk.openUserProfile();
   }, [clerk]);
 
   const claim = useCallback(async () => {
-    if (claiming) {
+    if (claiming || statusState.kind !== 'ready' || !statusState.canClaim) {
       return;
     }
+    const version = ++requestVersion.current;
     try {
       setClaiming(true);
       setMessage(null);
       setNeedsVerification(false);
-      const response = await fetch('/api/admin/salon/communications/starter-credits', {
+      const response = await fetch(STATUS_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ salonId }),
       });
       const body = await response.json().catch(() => null);
       const status = body?.data?.status as ClaimStatus | undefined;
+      if (requestVersion.current !== version || currentSalonId.current !== salonId) {
+        return;
+      }
       if (!response.ok) {
         throw new Error(typeof body?.error?.message === 'string'
           ? body.error.message
           : 'Free texts could not be claimed. Please try again.');
       }
-      if (status === 'granted') {
+      if (status === 'granted' || status === 'already_claimed') {
         await onClaimed();
-        setHidden(true);
-        setCompletedMessage(hasKnownStarterCredits
-          ? 'Your free-text allowance has been verified. Your existing SMS credits are unchanged.'
-          : '100 free SMS credits have been added.');
-        return;
-      }
-      if (status === 'already_claimed') {
-        setHidden(true);
-        setCompletedMessage(hasKnownStarterCredits
-          ? 'Your free-text allowance has been verified. Your existing SMS credits are unchanged.'
-          : 'Your lifetime free-text allowance was already claimed.');
+        if (requestVersion.current !== version || currentSalonId.current !== salonId) {
+          return;
+        }
+        setCompletedMessage(status === 'granted' && !hasKnownStarterCredits && statusState.status === 'unclaimed'
+          ? '100 free SMS credits have been added.'
+          : VERIFIED_MESSAGE);
+        setStatusState({ kind: 'ready', status: 'verified', canClaim: false });
         return;
       }
       if (status === 'verification_required') {
@@ -75,50 +115,68 @@ export function StarterSmsCreditsCard({
       }
       setMessage('Free texts are temporarily unavailable. Please try again later or contact support.');
     } catch (error) {
+      if (requestVersion.current !== version || currentSalonId.current !== salonId) {
+        return;
+      }
       setMessage(error instanceof Error && error.message
         ? error.message
         : 'Free texts could not be claimed. Please try again.');
     } finally {
-      setClaiming(false);
+      if (requestVersion.current === version && currentSalonId.current === salonId) {
+        setClaiming(false);
+      }
     }
-  }, [claiming, hasKnownStarterCredits, onClaimed, salonId]);
+  }, [claiming, hasKnownStarterCredits, onClaimed, salonId, statusState]);
 
-  if (hidden) {
-    return completedMessage === null
-      ? null
-      : (
-          <p role="status" aria-live="polite" className="rounded-lg bg-green-50 p-3 text-[14px] text-green-800">
-            {completedMessage}
-          </p>
-        );
+  if (statusState.kind === 'loading') {
+    return (
+      <section aria-labelledby="starter-texts-heading" className="space-y-2 rounded-lg bg-gray-50 p-4 text-gray-900">
+        <h3 id="starter-texts-heading" className="text-[15px] font-medium">Free-text allowance</h3>
+        <p role="status" aria-live="polite" className="text-[14px] text-gray-700">Checking free-text allowance…</p>
+      </section>
+    );
+  }
+
+  if (statusState.kind === 'error') {
+    return (
+      <section aria-labelledby="starter-texts-heading" className="space-y-2 rounded-lg bg-pink-50 p-4 text-gray-900">
+        <h3 id="starter-texts-heading" className="text-[15px] font-medium">Free-text allowance</h3>
+        <p role="status" aria-live="polite" className="text-[14px] text-gray-700">We could not check your free-text allowance. Please try again.</p>
+        <button type="button" onClick={() => void loadStatus()} className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800">
+          Retry status check
+        </button>
+      </section>
+    );
+  }
+
+  if (statusState.status === 'verified') {
+    return <p role="status" aria-live="polite" className="rounded-lg bg-green-50 p-3 text-[14px] text-green-800">{completedMessage ?? VERIFIED_MESSAGE}</p>;
+  }
+
+  if (!statusState.canClaim) {
+    return (
+      <section aria-labelledby="starter-texts-heading" className="space-y-2 rounded-lg bg-pink-50 p-4 text-gray-900">
+        <h3 id="starter-texts-heading" className="text-[15px] font-medium">Free-text allowance</h3>
+        <p className="text-[14px] text-gray-700">Only the salon owner can verify the free-text allowance. Sign in with the owner account.</p>
+      </section>
+    );
   }
 
   return (
     <section aria-labelledby="starter-texts-heading" className="space-y-2 rounded-lg bg-pink-50 p-4 text-gray-900">
       <h3 id="starter-texts-heading" className="text-[15px] font-medium">
-        {hasKnownStarterCredits ? 'Verify your free-text allowance' : '100 free SMS credits'}
+        {hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify your free-text allowance' : '100 free SMS credits'}
       </h3>
       <p className="text-[14px] text-gray-700">
-        {hasKnownStarterCredits
+        {hasKnownStarterCredits || statusState.status === 'verification_required'
           ? 'Link your verified owner email and phone number to your existing lifetime allowance. Your SMS credit balance stays the same.'
           : 'One lifetime allowance linked to your verified owner email and phone number. Creating another salon does not reset it. Long text messages may use more than one SMS credit.'}
       </p>
-      <button
-        type="button"
-        onClick={claim}
-        disabled={claiming}
-        className="rounded-lg bg-gray-900 px-3 py-2 text-[14px] font-medium text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
-      >
-        {claiming
-          ? 'Verifying…'
-          : hasKnownStarterCredits ? 'Verify free-text allowance' : 'Claim 100 free texts'}
+      <button type="button" onClick={() => void claim()} disabled={claiming} className="rounded-lg bg-gray-900 px-3 py-2 text-[14px] font-medium text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none">
+        {claiming ? 'Verifying…' : hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify free-text allowance' : 'Claim 100 free texts'}
       </button>
       {needsVerification && (
-        <button
-          type="button"
-          onClick={openVerification}
-          className="ml-2 rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
-        >
+        <button type="button" onClick={openVerification} className="ml-2 rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800">
           Verify email and phone
         </button>
       )}
