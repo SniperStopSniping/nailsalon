@@ -1,3 +1,10 @@
+## [1.133.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.133.2...v1.133.3) (2026-10-01)
+
+
+### Bug Fixes
+
+* **sms:** persist free-text allowance verification status ([#340](https://github.com/SniperStopSniping/nailsalon/issues/340)) ([4b08249](https://github.com/SniperStopSniping/nailsalon/commit/4b082492735cadb6053508787396cb24acff9bde))
+
 ## [1.133.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.133.1...v1.133.2) (2026-09-30)
 
 
