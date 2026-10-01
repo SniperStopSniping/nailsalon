@@ -14,7 +14,7 @@ import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -152,6 +152,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   guard.requireSuperAdmin.mockResolvedValue(SUPER_ADMIN);
   rateLimit.checkEndpointRateLimit.mockReturnValue({ allowed: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('POST /api/super-admin/billing/refund-evidence — auth and input', () => {
@@ -368,6 +372,9 @@ describe('POST /api/super-admin/billing/refund-evidence — plan', () => {
 
 describe('POST /api/super-admin/billing/refund-evidence — apply', () => {
   it('voids live evidence, restores paid_through and re-evaluates windows', async () => {
+    // This proof needs the fixed September coverage window to still be current.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-15T12:00:00.000Z'));
     const start = new Date('2026-09-01T10:00:00.000Z');
     const end = new Date('2026-10-01T10:00:00.000Z');
     const { slug, subId, salonId, subscriptionRowId } = await seed({
