@@ -1,7 +1,7 @@
 'use client';
 
 import confetti from 'canvas-confetti';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   AlertCircle,
   Calendar,
@@ -13,7 +13,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
-  Star,
   User,
 } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -372,44 +371,19 @@ const triggerLuxuryConfetti = () => {
     return;
   }
 
-  const duration = 1200;
-  const end = Date.now() + duration;
   const colors = ['#D6A249', '#FDF7F0', '#3F2B24', '#FFFFFF'];
-
-  (function frame() {
-    confetti({
-      particleCount: 4,
-      angle: 60,
-      spread: 55,
-      origin: { x: 0.1, y: 0.8 },
-      colors,
-      zIndex: 9999,
-    });
-    confetti({
-      particleCount: 4,
-      angle: 120,
-      spread: 55,
-      origin: { x: 0.9, y: 0.8 },
-      colors,
-      zIndex: 9999,
-    });
-
-    if (Date.now() < end) {
-      requestAnimationFrame(frame);
-    }
-  }());
-
-  setTimeout(() => {
-    confetti({
-      particleCount: 150,
-      spread: 100,
-      origin: { y: 0.7 },
-      colors,
-      gravity: 1.2,
-      scalar: 1.2,
-      zIndex: 9999,
-    });
-  }, 200);
+  // Keep the moment celebratory without obscuring the newly confirmed receipt.
+  // This only runs for an actual confirmed appointment, never a pending request.
+  confetti({
+    particleCount: 26,
+    spread: 52,
+    startVelocity: 18,
+    origin: { y: 0.32 },
+    colors,
+    gravity: 1.05,
+    scalar: 0.82,
+    zIndex: 9999,
+  });
 };
 
 // --- Subcomponents ---
@@ -564,50 +538,6 @@ const QuickFactBadges = ({
   );
 };
 
-const SummaryRow = ({
-  icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  detail?: string | null;
-}) => (
-  <div
-    className="booking-detail-row flex items-start gap-3 rounded-2xl border px-4 py-3"
-    style={{
-      borderColor: 'var(--n5-border-muted)',
-      backgroundColor: 'color-mix(in srgb, var(--n5-bg-card) 72%, var(--n5-bg-page))',
-    }}
-  >
-    <div
-      className="flex size-10 shrink-0 items-center justify-center"
-      style={{
-        borderRadius: n5.radiusMd,
-        backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, var(--n5-bg-card))',
-        color: 'var(--n5-accent)',
-      }}
-    >
-      {icon}
-    </div>
-    <div className="min-w-0 flex-1">
-      <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-        {label}
-      </p>
-      <p className="font-body mt-1 text-sm font-semibold text-[var(--n5-ink-main)]">
-        {value}
-      </p>
-      {detail && (
-        <p className="font-body mt-1 text-xs leading-relaxed text-[var(--n5-ink-muted)]">
-          {detail}
-        </p>
-      )}
-    </div>
-  </div>
-);
-
 const BookingCard = ({
   services,
   addOns,
@@ -636,16 +566,26 @@ const BookingCard = ({
   /** Preformatted total (Smart Fit pricing) — falls back to the legacy `$n` render. */
   totalPriceDisplay?: string;
 }) => {
-  const serviceNames = [
-    ...services.map(s => s.name),
-    ...addOns.map((addOn) => {
-      const quantity = addOn.quantity > 1 ? ` x${addOn.quantity}` : '';
-      const price = addOn.priceMode === 'manual_confirmation'
-        ? 'price to be confirmed'
-        : addOn.priceDisplayText ?? `$${addOn.price}`;
-      return `${addOn.serviceName ? `${addOn.serviceName}: ` : ''}${addOn.name}${quantity} · ${price}`;
-    }),
-  ].join(' + ');
+  const addOnLabel = (addOn: AddOnSummary) => {
+    const quantity = addOn.quantity > 1 ? ` x${addOn.quantity}` : '';
+    const price = addOn.priceMode === 'manual_confirmation'
+      ? 'price to be confirmed'
+      : addOn.priceDisplayText ?? `$${addOn.price}`;
+    // The receipt already groups add-ons beneath the selected service. Remove
+    // only an exact repeated parent label; configured names and price text stay
+    // untouched, including names that merely start similarly.
+    const selectedService = services.length === 1 ? services[0] ?? null : null;
+    const repeatsSelectedService = selectedService !== null
+      && addOn.serviceName === selectedService.name
+      && (addOn.serviceId === undefined || addOn.serviceId === selectedService.id);
+    return `${repeatsSelectedService || !addOn.serviceName ? '' : `${addOn.serviceName}: `}${addOn.name}${quantity} · ${price}`;
+  };
+  const addOnKey = (addOn: AddOnSummary, index: number) => {
+    if (addOn.serviceId) {
+      return `${addOn.serviceId}:${addOn.id}`;
+    }
+    return `${addOn.serviceName ?? 'legacy'}:${addOn.id}:${index}`;
+  };
 
   const formatDate = (dateString: string) => {
     if (!dateString) {
@@ -689,14 +629,68 @@ const BookingCard = ({
             </p>
           </div>
         )}
-        contentClassName="space-y-3"
+        contentClassName="divide-y divide-[var(--n5-border-muted)]"
       >
         {addOns.some(addOn => addOn.priceMode === 'manual_confirmation') && (
-          <p data-testid="booking-manual-price-note" className="rounded-xl bg-[var(--n5-bg-muted)] px-3 py-2 text-xs font-semibold text-[var(--n5-ink-main)]">
+          <p data-testid="booking-manual-price-note" className="mb-4 rounded-xl bg-[var(--n5-bg-muted)] px-3 py-2 text-xs font-semibold text-[var(--n5-ink-main)]">
             Additional item: price to be confirmed by your nail tech. It is not included in this subtotal.
           </p>
         )}
-        <div className="booking-artist-row flex items-center gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: 'var(--n5-border-muted)' }}>
+        <div data-testid="booking-receipt-when" className="flex items-center gap-3 pb-4">
+          <div
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--n5-accent)]"
+            style={{ backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, var(--n5-bg-card))' }}
+          >
+            <Calendar aria-hidden="true" className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">When</p>
+            <p className="font-heading mt-1 text-xl font-semibold tracking-tight text-[var(--n5-ink-main)]">
+              {formatDate(dateStr)}
+            </p>
+            <p className="font-body mt-0.5 text-sm font-semibold text-[var(--n5-ink-main)]">{formatTime(timeStr)}</p>
+          </div>
+        </div>
+
+        <div data-testid="booking-receipt-services" className="py-4">
+          <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">Services</p>
+          <ul
+            data-public-surface="appointmentSummaryCard"
+            className="mt-2 space-y-1.5"
+            aria-label="Booked services"
+          >
+            {services.map(service => (
+              <li key={service.id} className="font-body text-sm font-semibold text-[var(--n5-ink-main)]">{service.name}</li>
+            ))}
+          </ul>
+          {addOns.length > 0 && (
+            <>
+              <p className="font-body mt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">Add-ons</p>
+              <ul
+                data-public-surface="appointmentSummaryCard"
+                data-testid="booking-receipt-add-ons"
+                className="mt-2 space-y-1.5"
+                aria-label="Booked add-ons"
+              >
+                {addOns.map((addOn, index) => (
+                  <li key={addOnKey(addOn, index)} className="font-body break-words text-sm leading-6 text-[var(--n5-ink-main)]">
+                    {addOnLabel(addOn)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {rewardsEnabled && (
+            <p className="font-body mt-3 text-xs leading-relaxed text-[var(--n5-ink-muted)]">
+              Estimated reward after completion: +
+              {pointsEarned.toLocaleString()}
+              {' '}
+              points
+            </p>
+          )}
+        </div>
+
+        <div className="booking-artist-row flex items-center gap-3 py-4">
           {technician
             ? (
                 <div
@@ -740,29 +734,20 @@ const BookingCard = ({
             {formatDuration(totalDuration)}
           </div>
         </div>
-
-        <SummaryRow
-          icon={<Star className="size-4" />}
-          label="Service"
-          value={serviceNames}
-          detail={rewardsEnabled
-            ? `Estimated reward after completion: +${pointsEarned.toLocaleString()} points`
-            : null}
-        />
-        <SummaryRow
-          icon={<Calendar className="size-4" />}
-          label="When"
-          value={`${formatDate(dateStr)} at ${formatTime(timeStr)}`}
-        />
         {location && (
-          <SummaryRow
-            icon={<MapPin className="size-4" />}
-            label="Location"
-            value={location.name}
-            detail={location.address
-              ? `${location.address}${location.city ? `, ${location.city}` : ''}`
-              : null}
-          />
+          <div className="flex items-start gap-3 pt-4">
+            <MapPin aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[var(--n5-accent)]" />
+            <div className="min-w-0">
+              <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">Location</p>
+              <p className="font-body mt-1 text-sm font-semibold text-[var(--n5-ink-main)]">{location.name}</p>
+              {location.address && (
+                <p className="font-body mt-1 text-xs leading-relaxed text-[var(--n5-ink-muted)]">
+                  {location.address}
+                  {location.city ? `, ${location.city}` : ''}
+                </p>
+              )}
+            </div>
+          </div>
         )}
       </SectionCard>
     </motion.div>
@@ -1827,6 +1812,9 @@ const SuccessContent = ({
 }) => {
   const t = useTranslations('BookingConfirmation');
   const isPending = bookingStatus === 'pending';
+  const prefersReducedMotion = useReducedMotion();
+  const resultHeadingRef = useRef<HTMLHeadingElement>(null);
+  const hasAnnouncedResultRef = useRef(false);
   const directionsUrl = buildGoogleMapsDirectionsUrl(location);
   const calendarStart = canonicalStartTime ? new Date(canonicalStartTime) : null;
   const calendarEnd = calendarStart ? new Date(calendarStart.getTime() + totalDuration * 60 * 1000) : null;
@@ -1838,6 +1826,19 @@ const SuccessContent = ({
       details: 'Booked through Luster. Use your private confirmation link to reschedule or cancel.',
     }).toString()}`
     : null;
+
+  // Confirmation replaces a long review form. Bring a fresh result into view
+  // once, then put focus on its status so keyboard and screen-reader users get
+  // the same clear arrival point. A ref prevents later receipt updates from
+  // repeatedly stealing focus.
+  useEffect(() => {
+    if (hasAnnouncedResultRef.current) {
+      return;
+    }
+    hasAnnouncedResultRef.current = true;
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+    resultHeadingRef.current?.focus({ preventScroll: true });
+  }, [prefersReducedMotion]);
 
   return (
     <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
@@ -1862,12 +1863,40 @@ const SuccessContent = ({
       <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-6">
         <div data-testid="booking-result-receipt" className="space-y-5">
           <motion.header
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center"
+            data-testid="booking-result-hero"
+            initial={prefersReducedMotion ? undefined : { opacity: 0, y: 12 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            className="mx-auto max-w-sm text-center"
             role="status"
+            aria-live="polite"
           >
-            <h1 className="font-heading mb-1 text-2xl font-bold text-[var(--n5-ink-main)]">
+            {!isPending && (
+              <motion.div
+                data-testid="booking-success-celebration"
+                aria-hidden="true"
+                initial={prefersReducedMotion ? undefined : { opacity: 0, scale: 0.88 }}
+                animate={prefersReducedMotion ? undefined : { opacity: 1, scale: 1 }}
+                transition={{ delay: 0.12, type: 'spring', stiffness: 260, damping: 18 }}
+                className="mb-3"
+              >
+                <div
+                  className="mx-auto flex size-10 items-center justify-center border"
+                  style={{
+                    borderRadius: n5.radiusPill,
+                    borderColor: 'color-mix(in srgb, var(--n5-success) 30%, var(--n5-border-muted))',
+                    backgroundColor: 'color-mix(in srgb, var(--n5-success) 12%, var(--n5-bg-card))',
+                  }}
+                >
+                  <Check className="size-5 text-[var(--n5-success)]" strokeWidth={2.5} />
+                </div>
+              </motion.div>
+            )}
+            <h1
+              ref={resultHeadingRef}
+              data-testid="booking-result-heading"
+              tabIndex={-1}
+              className="font-heading mb-1 text-2xl font-bold text-[var(--n5-ink-main)] outline-none"
+            >
               {isPending ? 'Request received' : 'Appointment confirmed'}
             </h1>
             <p className="font-body text-sm text-[var(--n5-ink-muted)]">
@@ -1903,24 +1932,6 @@ const SuccessContent = ({
           <ConfirmationRebookingCard settings={rebookingSettings} onBook={onBookNext} />
         )}
 
-        {!isPending && (
-          <motion.div
-            data-testid="booking-success-celebration"
-            aria-hidden="true"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.3, type: 'spring', stiffness: 200 }}
-            className="text-center"
-          >
-            <div
-              className="mx-auto flex size-12 items-center justify-center bg-[var(--n5-success)]"
-              style={{ borderRadius: n5.radiusPill }}
-            >
-              <Check className="size-6 text-white" strokeWidth={3} />
-            </div>
-          </motion.div>
-        )}
-
         {!isPending && policy.enabled && policy.showAfterConfirmation && policy.text && (
           <PolicyCard
             title="Please remember"
@@ -1952,7 +1963,7 @@ const SuccessContent = ({
             ? (
                 <a
                   href={manageUrl}
-                  className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
+                  className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--n5-ink-main)] active:scale-[0.98]"
                   style={{
                     borderRadius: n5.radiusMd,
                     boxShadow: n5.shadowSm,
@@ -1964,7 +1975,7 @@ const SuccessContent = ({
               )
             : onManage
               ? (
-                  <button type="button" onClick={onManage} className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)]" style={{ borderRadius: n5.radiusMd }}>
+                  <button type="button" onClick={onManage} className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--n5-ink-main)]" style={{ borderRadius: n5.radiusMd }}>
                     <RefreshCw className="size-5" />
                     <span>{isPending ? 'Manage this request' : 'Manage this appointment'}</span>
                   </button>

@@ -1,0 +1,38 @@
+# Customer review and confirmation receipt
+
+This focused visual change puts the appointment date and time first, separates services from their add-ons, and groups the artist, duration, and location in one receipt. The confirmed status appears before the receipt; a request awaiting salon approval keeps its pending status. Existing tenant colours, typography, totals, deposits, policies, consent, recovery, private management links, calendar links, and rebooking remain authoritative.
+
+The result scrolls to the top and focuses its heading once when it replaces the review form. Later receipt updates do not move focus again. The smaller success celebration honours reduced motion.
+
+## Source and isolation
+
+- Branch: `codex/luster-confirmation-polish`.
+- Fresh `origin/main` base: `f7949f85d3e998d85d6fb25199567d100212288c`.
+- Original checkout and video worktree are preserved.
+- Local application QA uses a separate clone of the fictional Atelier demo database, its own Redis namespace, and disabled/unconfigured external delivery and payment providers. No production customer data is used.
+- Before evidence comes from the real booking recording at released application SHA `3980197563c4ddc5774f6c5dcbfb8fe9f8827a6a`. The after screenshots remain development evidence until this change completes review and release. They are not final tutorial footage.
+
+## Reproduction
+
+Use the repository's Node 20 and committed package lock. The component harness renders the actual booking component and providers with explicit synthetic API fixtures; it is UI regression coverage, not evidence of a persisted booking.
+
+```sh
+npx vitest run 'src/app/(unauth)/book/confirm/BookConfirmClient.test.tsx'
+node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts confirmation-polish.spec.ts --output=test-results/booking-confirmation
+npm run check-types
+npm run lint
+npm run test:all
+npm run test:appointment-regression
+npm run build
+npm run security:check-secrets
+```
+
+Browser coverage includes the supported palettes, 320/375/1280 CSS-pixel widths, confirmed and pending results, correct receipt details, reduced motion, focus arrival, native keyboard navigation, and CSS text enlargement to 200%. Chromium and iPhone 13 WebKit are emulation; physical-device and native text-size acceptance remain pending. macOS WebKit uses Option-Tab to include links in keyboard navigation.
+
+## Review and release
+
+The static review found a shared add-on key collision. Composite service/add-on keys and a multi-service regression now cover it. Repeated service labels are removed only for an exact matching single service; combined bookings retain add-on ownership, quantities, and configured prices.
+
+Local focused validation passed: 132 booking-component tests, 17 architecture tests, 42 desktop/mobile browser checks, changed-source lint, and the secret scan. Two attempted local full-suite runs hit resource contention and were interrupted. The full run caught the missing public-surface classification, which was fixed and independently retested; it also encountered unrelated timeouts. The clean repository CI run is the remaining full-suite gate. Type checking, the production build, and the real demo journey are still in progress.
+
+Required CI, a healthy preview, resolved review conversations, and production SHA verification are required before final filming. The remaining seven videos stay behind approval of the updated customer-booking reference.

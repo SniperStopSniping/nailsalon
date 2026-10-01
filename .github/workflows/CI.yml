@@ -1181,6 +1181,9 @@ jobs:
       - name: Verify Next Visit settings and guest rebooking in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/nextVisitOffer/playwright.config.ts --output=test-results/next-visit-components
 
+      - name: Verify customer review and confirmation in desktop and mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts confirmation-polish.spec.ts --output=test-results/booking-confirmation
+
       - name: Verify appointment management and checkout in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/appointmentWorkflow/playwright.config.ts --output=test-results/appointment-workflow-components
 

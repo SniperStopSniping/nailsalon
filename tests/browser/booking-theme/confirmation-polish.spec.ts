@@ -12,8 +12,8 @@ for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
     await name.focus();
 
     await expect(name).toHaveCSS('outline-style', 'solid');
-    await expect(page.locator('.booking-detail-row')).toHaveCount(2);
-    await expect(page.locator('.booking-detail-row').first()).toHaveCSS('border-top-width', '1px');
+    await expect(page.getByTestId('booking-receipt-when')).toContainText('1:45 PM');
+    await expect(page.getByTestId('booking-receipt-services')).toContainText('Russian Manicure');
     await expect(page.getByText('Not booked yet. Confirm below to reserve your time.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
     await expect(page.locator('main > div').first().locator('svg')).toHaveCount(0);
@@ -76,3 +76,47 @@ test('synthetic confirmed receipt shows the next-booking prompt and opens its se
   await expect.poll(() => page.locator('html').getAttribute('data-next-booking-request')).toContain('/api/public/appointments/manage/private-token/next-booking?locale=en');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+for (const status of ['confirmed', 'pending'] as const) {
+  test(`${status} receipt arrives at its heading and keeps detailed booking information`, async ({ page, browserName }, info) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(`/?step=confirm&palette=luster_berry&receipt-details${status === 'pending' ? '&pending' : ''}`);
+    await page.getByRole('textbox', { name: 'Customer name' }).fill('Fictional Receipt Guest');
+    await page.getByRole('textbox', { name: 'Customer email' }).fill('receipt@example.invalid');
+    await page.getByRole('textbox', { name: 'Customer phone' }).fill('4165550100');
+    const submit = page.getByRole('button', { name: /Confirm appointment/ });
+
+    await submit.scrollIntoViewIfNeeded();
+    expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+    await submit.click();
+
+    const heading = page.getByTestId('booking-result-heading');
+    await expect(heading).toHaveText(status === 'confirmed' ? 'Appointment confirmed' : 'Request received');
+    await expect(heading).toBeFocused();
+    await expect.poll(() => page.evaluate(() => scrollY)).toBeLessThanOrEqual(1);
+    await expect(heading).toBeInViewport();
+    await expect(page.getByTestId('booking-receipt-when')).toContainText('1:45 PM');
+    await expect(page.getByTestId('booking-receipt-services')).toContainText('Russian Manicure');
+    await expect(page.getByTestId('booking-receipt-add-ons')).toContainText('Simple Nail Art x2 · $10');
+    await expect(page.getByTestId('booking-receipt-add-ons')).not.toContainText('Russian Manicure:');
+    await expect(page.getByTestId('booking-result-receipt')).toContainText('$55');
+    await expect(page.getByTestId('booking-result-receipt')).toContainText('1h 5m');
+    await expect(page.getByTestId('booking-result-receipt')).toContainText('100 Demo Lane, Toronto');
+    await expect(page.getByTestId('booking-success-celebration')).toHaveCount(status === 'confirmed' ? 1 : 0);
+    await expect(page.getByRole('link', { name: 'Google Calendar', exact: true })).toHaveCount(status === 'confirmed' ? 1 : 0);
+    await expect(page.getByRole('link', { name: 'Apple Calendar', exact: true })).toHaveCount(status === 'confirmed' ? 1 : 0);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`receipt-${status}.png`), fullPage: true });
+
+    // macOS WebKit skips links with plain Tab unless full keyboard access is
+    // enabled; Option-Tab includes links in the native navigation sequence.
+    await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+    const manage = page.getByRole('link', { name: status === 'confirmed' ? 'Manage this appointment' : 'Manage this request', exact: true });
+    await expect(manage).toBeFocused();
+    await expect(manage).toHaveCSS('outline-style', 'solid');
+    // CSS text enlargement exercises reflow; this is not a physical-device or
+    // native browser text-size setting verification.
+    await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}

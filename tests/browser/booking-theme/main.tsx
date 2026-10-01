@@ -14,9 +14,13 @@ const query = new URLSearchParams(window.location.search);
 const step = query.get('step') ?? 'time';
 const palette = resolveCustomerSitePalettePreset(query.get('palette'));
 const services = [{ id: 'service-fixture', name: 'Russian Manicure', price: 35, duration: 35 }];
+const addOns = query.has('receipt-details')
+  ? [{ id: 'addon-fixture', serviceId: 'service-fixture', serviceName: 'Russian Manicure', name: 'Simple Nail Art', price: 10, duration: 15, quantity: 2 }]
+  : [];
+const reviewedTotal = query.has('receipt-details') ? 55 : 35;
 const technician = { id: 'tech-fixture', name: 'Daniela', imageUrl: null };
 const bookingFlow = ['service', 'tech', 'time', 'confirm'] as const;
-const common = { services, totalPrice: 35, totalDuration: query.has('long') ? 210 : 35, technician, bookingFlow: [...bookingFlow] };
+const common = { services, totalPrice: reviewedTotal, totalDuration: query.has('long') ? 210 : query.has('receipt-details') ? 65 : 35, technician, bookingFlow: [...bookingFlow] };
 const date = '2026-09-12';
 const timeChoices = ['09:30', '10:15', '13:45', '14:00', '14:15', '16:15', '17:00', '18:00', '18:45', '19:30'];
 const count = Number(query.get('count') ?? 3);
@@ -41,7 +45,7 @@ window.fetch = async (input) => {
   if (requestPath === '/api/appointments') {
     return Response.json({ data: {
       appointmentId: 'synthetic-appointment',
-      appointment: { id: 'synthetic-appointment', status: 'confirmed' },
+      appointment: { id: 'synthetic-appointment', status: query.has('pending') ? 'pending' : 'confirmed' },
       manageUrl: '/en/theme-fixture/manage/private-token',
     } }, { status: 201 });
   }
@@ -113,6 +117,6 @@ createRoot(document.getElementById('root')!).render(
     )}
     {step === 'time' && <BookTimeClient {...common} locationName="Primary location" minimumNoticeMinutes={120} salonTimeZone="America/Toronto" closedWeekdays={[0]} />}
     {step === 'tech' && <BookTechClient {...common} technicians={[{ ...technician, bookable: true, unavailableReason: null, specialties: [], rating: 0, reviewCount: 0 }]} />}
-    {step === 'confirm' && <BookConfirmClient {...common} subtotalBeforeDiscount={35} discountAmount={0} salonSlug="theme-fixture" salonId="synthetic-salon" dateStr={date} timeStr="13:45" location={null} rebookingSettings={query.has('rebooking') ? { enabled: true, intervalWeeks: 3, message: 'Secure your next spot now.' } : undefined} />}
+    {step === 'confirm' && <BookConfirmClient {...common} addOns={addOns} subtotalBeforeDiscount={reviewedTotal} discountAmount={0} salonSlug="theme-fixture" salonId="synthetic-salon" dateStr={date} timeStr="13:45" canonicalStartTime={`${date}T13:45:00-04:00`} location={query.has('receipt-details') ? { id: 'location-fixture', name: 'Atelier Nail Studio — Demo', address: '100 Demo Lane', city: 'Toronto', state: null, zipCode: null } : null} rebookingSettings={query.has('rebooking') ? { enabled: true, intervalWeeks: 3, message: 'Secure your next spot now.' } : undefined} />}
   </PublicSalonPageShell>,
 );
