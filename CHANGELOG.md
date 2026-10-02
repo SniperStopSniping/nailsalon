@@ -1,3 +1,23 @@
+# [1.134.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.133.3...v1.134.0) (2026-10-02)
+
+
+### Bug Fixes
+
+* **booking:** apply confirmation reflow to receipt ([02d77b9](https://github.com/SniperStopSniping/nailsalon/commit/02d77b9d807c629cfbb8d71a7b368fc68f78e2c8))
+* **booking:** fill the compact confirmation background ([8b4cb24](https://github.com/SniperStopSniping/nailsalon/commit/8b4cb2424e095911645a462e40428fcdd0282706))
+* **booking:** improve receipt readability and contrast ([e76e73b](https://github.com/SniperStopSniping/nailsalon/commit/e76e73bc0b498f1b7964da3d65dfb20598046781))
+* **booking:** keep receipt values readable across themes ([1237550](https://github.com/SniperStopSniping/nailsalon/commit/12375504a25dd12f3428c1af7be1da48189fc484))
+* **booking:** pair button colours and lead with receipt facts ([ef26f2f](https://github.com/SniperStopSniping/nailsalon/commit/ef26f2fc753fce6aac2529022781aad5dbd1d4fd))
+* **booking:** smooth the receipt initials badge ([67975b2](https://github.com/SniperStopSniping/nailsalon/commit/67975b2b65bc341b21a211d60d9dbb6a50a0ad1b))
+* **ci:** validate only commits introduced by the pull request ([298052a](https://github.com/SniperStopSniping/nailsalon/commit/298052ad9c3c9f019aefd23af2edbcc2ccfc8190))
+* **deploy:** exclude private confirmation QA artifacts ([e518cf9](https://github.com/SniperStopSniping/nailsalon/commit/e518cf95670b66d5514186f28876ac7833c10b90))
+
+
+### Features
+
+* **booking:** compact the confirmed appointment screen ([45d11a6](https://github.com/SniperStopSniping/nailsalon/commit/45d11a6b61ab79a729806236ac933618841a7077))
+* **booking:** refine review and confirmation receipts ([097409c](https://github.com/SniperStopSniping/nailsalon/commit/097409c141e6581c916a1c34585ac9af4051b07c))
+
 ## [1.133.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.133.2...v1.133.3) (2026-10-01)
 
 
