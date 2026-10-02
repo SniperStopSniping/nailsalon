@@ -6,7 +6,8 @@ import messages from '@/locales/en.json';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
-const smsConsentLabel = messages.BookingConfirmation.review_sms_combined;
+const smsConsentLabel = messages.BookingConfirmation.review_sms_updates;
+const smsPromotionsLabel = messages.BookingConfirmation.review_sms_promotions;
 const scrollToMock = vi.fn();
 
 const { routerBack, routerPush, routerReplace, syncFromUrl, clearBookingState, fetchMock, windowOpen, navigationMock, bookingExperienceMock } = vi.hoisted(() => ({
@@ -345,24 +346,28 @@ describe('BookConfirmClient', () => {
     expect(screen.getByLabelText('Customer phone')).toHaveValue('4165550100');
   });
 
-  it('records one explicit choice for every message type in the combined label', async () => {
+  it('keeps appointment texts separate from optional salon promotions', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: { appointment: { id: 'consent-test' } } }), { status: 201 }));
     renderBasicConfirm();
     const area = screen.getByTestId('booking-sms-consent-area');
     const consent = within(area).getByRole('checkbox', { name: smsConsentLabel });
+    const promotions = within(area).getByRole('checkbox', { name: smsPromotionsLabel });
 
-    expect(within(area).getAllByRole('checkbox')).toHaveLength(1);
-    expect(consent).not.toBeChecked();
+    expect(within(area).getAllByRole('checkbox')).toHaveLength(2);
+    expect(consent).toBeChecked();
+    expect(promotions).not.toBeChecked();
     expect(consent).toHaveAccessibleDescription('Optional. Reply STOP anytime.');
+    expect(promotions).toHaveAccessibleDescription('Optional. Reply STOP anytime.');
     expect(within(area).getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/en/terms');
     expect(within(area).getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/en/privacy');
 
     fireEvent.click(consent);
+    fireEvent.click(promotions);
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
 
-    expect(body.smsConsent).toEqual({ granted: true, selection: 'explicit_on', wordingVersion: 'booking-sms-combined-v4' });
+    expect(body.smsConsent).toEqual({ granted: false, selection: 'explicit_off', wordingVersion: 'booking-sms-separated-v3', promotionsGranted: true });
   });
 
   it('separates add-ons from services while preserving configured labels, prices, and quantities', () => {
@@ -1029,13 +1034,14 @@ describe('BookConfirmClient', () => {
     expect(routerPush).not.toHaveBeenCalled();
   });
 
-  it.each(['default_on', 'default_off'] as const)('records untouched combined consent as default-off for a %s salon', async (smsBookingDefault) => {
+  it.each(['default_on', 'default_off'] as const)('preserves the %s appointment-text default without opting into promotions', async (smsBookingDefault) => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: { appointment: { id: 'appt_confirmed', status: 'confirmed' } },
     }), { status: 201 }));
     renderBasicConfirm({ smsBookingDefault });
 
-    expect(screen.getByRole('checkbox', { name: smsConsentLabel })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: smsConsentLabel }).matches(':checked')).toBe(smsBookingDefault === 'default_on');
+    expect(screen.getByRole('checkbox', { name: smsPromotionsLabel })).not.toBeChecked();
     expect(screen.getByText(smsConsentLabel)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
@@ -1043,19 +1049,19 @@ describe('BookConfirmClient', () => {
     expect(await screen.findByRole('heading', { name: 'Appointment confirmed' })).toBeInTheDocument();
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
       smsConsent: {
-        granted: false,
-        wordingVersion: 'booking-sms-combined-v4',
-        selection: 'default_off',
+        granted: smsBookingDefault === 'default_on',
+        wordingVersion: 'booking-sms-separated-v3',
+        selection: smsBookingDefault,
+        promotionsGranted: false,
       },
     });
   });
 
-  it('records checking then unchecking the combined control as an explicit opt-out', async () => {
+  it('records checking then unchecking appointment texts as an explicit opt-out without changing promotions', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: { appointment: { id: 'appt_confirmed', status: 'confirmed' } },
     }), { status: 201 }));
     renderBasicConfirm();
-    fireEvent.click(screen.getByRole('checkbox', { name: smsConsentLabel }));
     fireEvent.click(screen.getByRole('checkbox', { name: smsConsentLabel }));
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
@@ -1064,8 +1070,9 @@ describe('BookConfirmClient', () => {
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
       smsConsent: {
         granted: false,
-        wordingVersion: 'booking-sms-combined-v4',
+        wordingVersion: 'booking-sms-separated-v3',
         selection: 'explicit_off',
+        promotionsGranted: false,
       },
     });
   });
@@ -1085,7 +1092,7 @@ describe('BookConfirmClient', () => {
     await screen.findByRole('heading', { name: 'Appointment confirmed' });
 
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
-      smsConsent: { granted: true, selection: 'explicit_on' },
+      smsConsent: { granted: true, selection: 'explicit_on', promotionsGranted: false },
     });
   });
 
@@ -1096,6 +1103,7 @@ describe('BookConfirmClient', () => {
     renderBasicConfirm({ smsBookingDefault: 'disabled' });
 
     expect(screen.queryByRole('checkbox', { name: smsConsentLabel })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: smsPromotionsLabel })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
@@ -1152,9 +1160,10 @@ describe('BookConfirmClient', () => {
           clientEmail: 'ava@example.com',
           clientPhone: '4165550101',
           smsConsent: {
-            granted: false,
-            wordingVersion: 'booking-sms-combined-v4',
-            selection: 'default_off',
+            granted: true,
+            wordingVersion: 'booking-sms-separated-v3',
+            selection: 'default_on',
+            promotionsGranted: false,
           },
         }),
       }));
@@ -1167,14 +1176,13 @@ describe('BookConfirmClient', () => {
       await waitFor(() => expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled());
 
       fireEvent.click(screen.getByRole('checkbox', { name: smsConsentLabel }));
-      fireEvent.click(screen.getByRole('checkbox', { name: smsConsentLabel }));
       fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
       await waitFor(() => expect(normalBookingMock.confirm).toHaveBeenCalledTimes(1));
 
       expect(normalBookingMock.confirm.mock.calls[0]?.[0]).toMatchObject({
         booking: {
-          smsConsent: { granted: false, selection: 'explicit_off' },
+          smsConsent: { granted: false, selection: 'explicit_off', promotionsGranted: false },
         },
       });
       expect(fetchMock).not.toHaveBeenCalled();

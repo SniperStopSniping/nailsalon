@@ -426,10 +426,11 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     await page.getByLabel('Customer name').fill('Synthetic Browser Customer');
     await page.getByLabel('Customer email').fill(`browser-${randomUUID()}@example.invalid`);
     await page.getByLabel('Customer phone').fill('4165550199');
-    const smsConsent = page.getByRole('checkbox', { name: 'Text me appointment confirmations, reminders, review requests, and occasional salon promotions', exact: true });
-    await browserExpect(smsConsent).not.toBeChecked();
-    await browserExpect(page.getByTestId('booking-sms-consent-area').getByRole('checkbox')).toHaveCount(1);
-    await smsConsent.check();
+    const smsConsent = page.getByRole('checkbox', { name: 'Text me appointment confirmations, reminders, and review requests', exact: true });
+    const promotionsConsent = page.getByRole('checkbox', { name: 'Text me salon promotions', exact: true });
+    await browserExpect(smsConsent).toBeChecked();
+    await browserExpect(promotionsConsent).not.toBeChecked();
+    await browserExpect(page.getByTestId('booking-sms-consent-area').getByRole('checkbox')).toHaveCount(2);
     await browserExpect.poll(() => page.getByLabel('Customer phone').evaluate((element) => {
       for (let current: Element | null = element; current; current = current.parentElement) {
         if (Number(getComputedStyle(current).opacity) < 1) {
@@ -470,25 +471,25 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       expect.objectContaining({
         purpose: 'appointment_reminders',
         status: 'granted',
-        wordingVersion: 'booking-sms-combined-v4',
-        metadata: expect.objectContaining({ selection: 'explicit_on', selectionWasExplicit: true }),
+        wordingVersion: 'booking-sms-separated-v3',
+        metadata: expect.objectContaining({ selection: 'default_on', selectionWasExplicit: false }),
       }),
       expect.objectContaining({
         purpose: 'appointment_transactional',
         status: 'granted',
-        wordingVersion: 'booking-sms-combined-v4',
-        metadata: expect.objectContaining({ selection: 'explicit_on', selectionWasExplicit: true }),
+        wordingVersion: 'booking-sms-separated-v3',
+        metadata: expect.objectContaining({ selection: 'default_on', selectionWasExplicit: false }),
       }),
       expect.objectContaining({
         purpose: 'salon_promotions',
-        status: 'granted',
-        wordingVersion: 'booking-sms-combined-v4',
-        metadata: expect.objectContaining({ selection: 'explicit_on', selectionWasExplicit: true }),
+        status: 'revoked',
+        wordingVersion: 'booking-sms-separated-v3',
+        metadata: expect.objectContaining({ selection: 'default_off', selectionWasExplicit: false, promotionsGranted: false }),
       }),
     ]));
     expect(await database.select().from(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON))).toHaveLength(1);
 
-    // The same disclosed booking selection covers review requests, so the
+    // Appointment-text selection remains the review-request eligibility; the
     // scheduled-end scanner can materialize its intent without a fixture grant.
     const { materializeCompletedReviewTriggers, scanScheduledEndReviewTriggers } = await import('@/libs/reviewRequests.server');
     await scanScheduledEndReviewTriggers({ database, now: appointment.endTime });

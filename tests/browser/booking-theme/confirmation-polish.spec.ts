@@ -387,36 +387,47 @@ test('320px receipt supports enlarged text and user text-spacing without clippin
 });
 
 for (const width of [320, 390]) {
-  test(`combined SMS consent is compact, readable and keyboard usable at ${width}px`, async ({ page }, testInfo) => {
+  test(`appointment and promotional SMS choices stay separate, compact, readable and keyboard usable at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto('/?step=confirm&palette=blush_cocoa');
     const area = page.getByTestId('booking-sms-consent-area');
     const label = page.locator('#booking-sms-label');
+    const promotionsLabel = page.locator('#booking-sms-promotions-label');
     const helper = page.locator('#booking-sms-details');
-    const consent = area.getByRole('checkbox', { name: 'Text me appointment confirmations, reminders, review requests, and occasional salon promotions', exact: true });
+    const consent = area.getByRole('checkbox', { name: 'Text me appointment confirmations, reminders, and review requests', exact: true });
+    const promotions = area.getByRole('checkbox', { name: 'Text me salon promotions', exact: true });
 
-    await expect(area.getByRole('checkbox')).toHaveCount(1);
-    await expect(consent).not.toBeChecked();
+    await expect(area.getByRole('checkbox')).toHaveCount(2);
+    await expect(consent).toBeChecked();
+    await expect(promotions).not.toBeChecked();
     await expect(consent).toHaveAccessibleDescription('Optional. Reply STOP anytime.');
+    await expect(promotions).toHaveAccessibleDescription('Optional. Reply STOP anytime.');
 
     await expectReadableText(label, 14);
+    await expectReadableText(promotionsLabel, 14);
     await expectReadableText(helper, 12);
     // Read all rectangles in one frame: the card's entrance translation can
     // otherwise move between separate browser round trips and distort gaps.
-    const { labelBox, helperBox, legalBox, checkboxBox } = await area.evaluate((element) => {
+    const { labelBox, promotionsLabelBox, helperBox, helperTextX, legalBox, checkboxBox } = await area.evaluate((element) => {
       const bounds = (selector: string) => element.querySelector(selector)!.getBoundingClientRect().toJSON();
+      const helperRange = document.createRange();
+
+      helperRange.selectNodeContents(element.querySelector('#booking-sms-details')!);
 
       return {
         labelBox: bounds('#booking-sms-label'),
+        promotionsLabelBox: bounds('#booking-sms-promotions-label'),
         helperBox: bounds('#booking-sms-details'),
+        helperTextX: helperRange.getBoundingClientRect().x,
         legalBox: bounds('a'),
         checkboxBox: bounds('input[type="checkbox"]'),
       };
     });
 
-    expect(helperBox!.x).toBeCloseTo(labelBox!.x, 0);
-    expect(helperBox!.y - (labelBox!.y + labelBox!.height)).toBeGreaterThanOrEqual(6);
-    expect(helperBox!.y - (labelBox!.y + labelBox!.height)).toBeLessThanOrEqual(8);
+    expect(promotionsLabelBox!.y).toBeGreaterThan(labelBox!.y);
+    expect(helperTextX).toBeCloseTo(labelBox!.x, 0);
+    expect(helperBox!.y).toBeGreaterThan(promotionsLabelBox!.y);
+    expect(helperBox!.y - promotionsLabelBox!.y).toBeLessThanOrEqual(52);
     expect(legalBox!.y - (helperBox!.y + helperBox!.height)).toBeGreaterThanOrEqual(10);
     expect(legalBox!.y - (helperBox!.y + helperBox!.height)).toBeLessThanOrEqual(12);
     expect(Math.abs(checkboxBox!.y - labelBox!.y)).toBeLessThanOrEqual(3);
@@ -427,16 +438,16 @@ for (const width of [320, 390]) {
       expect(box!.height).toBeGreaterThanOrEqual(44);
       expect(box!.width).toBeGreaterThanOrEqual(44);
     }
-    await consent.focus();
+    await promotions.focus();
     await page.keyboard.press('Space');
 
-    await expect(consent).toBeChecked();
+    await expect(promotions).toBeChecked();
 
     await page.keyboard.press('Space');
 
-    await expect(consent).not.toBeChecked();
+    await expect(promotions).not.toBeChecked();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
-    await page.screenshot({ path: testInfo.outputPath('combined-consent-mobile.png'), fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('separate-sms-preferences-mobile.png'), fullPage: true });
   });
 }

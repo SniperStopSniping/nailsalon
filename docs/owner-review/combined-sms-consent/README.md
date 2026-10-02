@@ -1,14 +1,16 @@
-# Compact combined booking-text consent
+# Compact booking-text preferences
 
-The final booking review's Your details card now has one optional checkbox:
+The final booking review's Your details card keeps appointment texts separate from salon promotions:
 
-> Text me appointment confirmations, reminders, review requests, and occasional salon promotions
+> Text me appointment confirmations, reminders, and review requests
+>
+> Text me salon promotions (optional)
 >
 > Optional. Reply STOP anytime.
 
-The support line follows the main copy by 6px, and Terms · Privacy follows by 10px. Labels, theme tokens, legal-link destinations, 44px legal tap areas, and submission disabling are preserved. The appointment-policy checkbox remains separate and unchecked. Disabled SMS settings still hide the text choice.
+Appointment texts follow the salon's `default_on` or `default_off` setting; disabled SMS settings hide both choices. Promotions always start unchecked and only an affirmative promotion-checkbox action grants them. The server records that appointment and promotion decision separately using `booking-sms-separated-v3`. The existing STOP/provider suppression remains authoritative, and the appointment-policy checkbox remains separate and unchecked.
 
-Because the choice includes promotions, it starts unchecked for both enabled salon defaults. Checking grants all disclosed purposes; checking then unchecking revokes them. Booking remains possible without opting into texts. The combined wording uses `booking-sms-combined-v4`; the existing consent table/transaction stores the same decision for reminders, transactional messages and salon promotions. Untouched v4 is nonexplicit default-off, never a fabricated customer action. Existing v1/v2 history and v3 independent choices remain supported; provider/shared STOP still takes precedence.
+Older `booking-sms-combined-v4` records remain readable as historical choices; the new UI does not reinterpret them. Salon promotions cannot be inferred from an appointment-text default.
 
 CRTC reference: https://crtc.gc.ca/eng/com500/faq500.htm (prechecked boxes cannot establish express marketing consent).
 
