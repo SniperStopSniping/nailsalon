@@ -273,31 +273,33 @@ async function expectResultReceiptLeads(page: Page): Promise<void> {
   const order = await page.evaluate(() => {
     const receipt = document.querySelector('[data-testid="booking-result-receipt"]');
     const statusHeading = receipt?.querySelector('h1');
-    const summary = receipt?.querySelector('[data-testid="booking-confirmed-summary"]');
+    // Confirmed bookings use the compact summary card; a pending request keeps
+    // the fuller review card. Both expose the same first appointment fact.
+    const firstAppointmentFact = receipt?.querySelector('[data-testid="booking-receipt-when"]');
     const celebration = document.querySelector('[data-testid="booking-success-celebration"]');
     const manage = document.querySelector('[data-booking-result="confirmed"] [href*="/manage/"]');
 
     return {
-      statusBeforeSummary: Boolean(
+      statusBeforeFacts: Boolean(
         statusHeading
-        && summary
-        && (statusHeading.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING),
+        && firstAppointmentFact
+        && (statusHeading.compareDocumentPosition(firstAppointmentFact) & Node.DOCUMENT_POSITION_FOLLOWING),
       ),
-      celebrationBeforeSummary: celebration === null || Boolean(
+      celebrationBeforeFacts: celebration === null || Boolean(
         celebration
-        && summary
-        && (celebration.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING),
+        && firstAppointmentFact
+        && (celebration.compareDocumentPosition(firstAppointmentFact) & Node.DOCUMENT_POSITION_FOLLOWING),
       ),
-      summaryBeforeActions: manage === null || Boolean(
-        summary
-        && (summary.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING),
+      factsBeforeActions: manage === null || Boolean(
+        firstAppointmentFact
+        && (firstAppointmentFact.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING),
       ),
     };
   });
 
-  expect(order.statusBeforeSummary, 'Durable booking status must precede receipt facts.').toBe(true);
-  expect(order.celebrationBeforeSummary, 'The confirmation check must precede receipt facts.').toBe(true);
-  expect(order.summaryBeforeActions, 'Receipt facts must precede confirmation actions.').toBe(true);
+  expect(order.statusBeforeFacts, 'Durable booking status must precede receipt facts.').toBe(true);
+  expect(order.celebrationBeforeFacts, 'The confirmation check must precede receipt facts.').toBe(true);
+  expect(order.factsBeforeActions, 'Receipt facts must precede confirmation actions.').toBe(true);
 }
 
 async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
