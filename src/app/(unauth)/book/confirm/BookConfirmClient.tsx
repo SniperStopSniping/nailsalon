@@ -1395,8 +1395,8 @@ const ConfirmContent = ({
               </div>
             )}
             <div className="flex gap-4 text-sm text-[var(--n5-ink-main)]">
-              <a href={`/${locale}/terms`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-2">{t('terms')}</a>
-              <a href={`/${locale}/privacy`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-2">{t('privacy')}</a>
+              <a href={`/${locale}/terms`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('terms')}</a>
+              <a href={`/${locale}/privacy`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('privacy')}</a>
             </div>
           </SectionCard>
 

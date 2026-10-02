@@ -229,7 +229,7 @@ async function openConfiguredConfirmPage(
     waitUntil: 'domcontentloaded',
   });
 
-  await expect(page.getByRole('heading', { name: 'Review your appointment' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Review & confirm', exact: true })).toBeVisible();
 
   // The heading is present in streamed server HTML. Wait for React to attach
   // the controlled input's event props before filling it so a late hydration
@@ -1010,7 +1010,7 @@ test.describe('compact booking agreement and receipt', () => {
       });
       await page.goto(`${appPath('/book/confirm')}?${params}`, { waitUntil: 'domcontentloaded' });
 
-      await expect(page.getByRole('heading', { name: 'Review your appointment' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Review & confirm', exact: true })).toBeVisible();
 
       const name = page.getByLabel('Customer name');
 
@@ -1038,12 +1038,25 @@ test.describe('compact booking agreement and receipt', () => {
 
       await textUpdates.uncheck();
 
-      const agreement = page.getByTestId('booking-policy-before-confirmation');
+      const agreement = page.getByTestId('booking-policy-acknowledgment');
       const checkbox = agreement.getByRole('checkbox');
       const confirm = page.getByRole('button', { name: /confirm appointment/i });
 
-      await expect(agreement).toContainText('Please arrive on time.');
-      await expect(agreement).not.toContainText(/banned|no.shows/i);
+      const promotions = page.getByRole('checkbox', { name: 'Text me salon promotions', exact: true });
+
+      await expect(promotions).not.toBeChecked();
+
+      await page.getByRole('button', { name: 'View policy', exact: true }).click();
+
+      const policy = page.getByTestId('booking-review-policy-dialog');
+
+      await expect(policy).toContainText('Please arrive on time.');
+      await expect(policy).not.toContainText(/banned|no.shows/i);
+
+      await page.keyboard.press('Escape');
+
+      await expect(policy).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'View policy', exact: true })).toBeFocused();
       await expect(checkbox).not.toBeChecked();
       await expect(confirm).toBeDisabled();
       await expect(page.getByText(/block duplicate bookings/)).toHaveCount(0);
@@ -1068,7 +1081,8 @@ test.describe('compact booking agreement and receipt', () => {
       });
       expect(submitted?.smsConsent).toEqual({
         granted: false,
-        wordingVersion: 'booking-sms-all-v2',
+        wordingVersion: 'booking-sms-separated-v3',
+        promotionsGranted: false,
         selection: 'explicit_off',
       });
 

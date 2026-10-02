@@ -217,6 +217,15 @@ test('compact review keeps multi-service prices, pending add-ons, agreement, and
   await expect(summary.locator('img')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
 
+  for (const label of ['Terms', 'Privacy']) {
+    const link = page.getByRole('link', { name: label, exact: true });
+    const bounds = await link.boundingBox();
+
+    expect(bounds).not.toBeNull();
+    expect(bounds!.width).toBeGreaterThanOrEqual(44);
+    expect(bounds!.height).toBeGreaterThanOrEqual(44);
+  }
+
   const name = page.getByLabel('Customer name');
   await name.focus();
   await page.keyboard.type('Review Guest');
