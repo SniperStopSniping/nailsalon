@@ -458,10 +458,29 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     }
 
     expect(appointment).toMatchObject({ status: 'confirmed', completedAt: null });
-    expect(await database.select().from(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON))).toEqual(expect.arrayContaining([
-      expect.objectContaining({ purpose: 'appointment_reminders', status: 'granted' }),
-      expect.objectContaining({ purpose: 'appointment_transactional', status: 'granted' }),
-      expect.objectContaining({ purpose: 'salon_promotions', status: 'granted' }),
+    const consents = await database.select().from(schema.communicationConsentSchema)
+      .where(eq(schema.communicationConsentSchema.salonId, SALON));
+
+    expect(consents).toHaveLength(3);
+    expect(consents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        purpose: 'appointment_reminders',
+        status: 'granted',
+        wordingVersion: 'booking-sms-separated-v3',
+        metadata: expect.objectContaining({ selection: 'default_on', selectionWasExplicit: false }),
+      }),
+      expect.objectContaining({
+        purpose: 'appointment_transactional',
+        status: 'granted',
+        wordingVersion: 'booking-sms-separated-v3',
+        metadata: expect.objectContaining({ selection: 'default_on', selectionWasExplicit: false }),
+      }),
+      expect.objectContaining({
+        purpose: 'salon_promotions',
+        status: 'revoked',
+        wordingVersion: 'booking-sms-separated-v3',
+        metadata: expect.objectContaining({ promotionsGranted: false, selection: 'default_off', selectionWasExplicit: false }),
+      }),
     ]));
     expect(await database.select().from(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON))).toHaveLength(1);
 
