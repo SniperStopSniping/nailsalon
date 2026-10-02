@@ -426,7 +426,10 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     await page.getByLabel('Customer name').fill('Synthetic Browser Customer');
     await page.getByLabel('Customer email').fill(`browser-${randomUUID()}@example.invalid`);
     await page.getByLabel('Customer phone').fill('4165550199');
-    await browserExpect(page.getByRole('checkbox', { name: 'Text updates' })).toBeChecked();
+    const smsConsent = page.getByRole('checkbox', { name: 'Text me appointment confirmations, reminders, review requests, and occasional salon promotions', exact: true });
+    await browserExpect(smsConsent).not.toBeChecked();
+    await browserExpect(page.getByTestId('booking-sms-consent-area').getByRole('checkbox')).toHaveCount(1);
+    await smsConsent.check();
     await browserExpect.poll(() => page.getByLabel('Customer phone').evaluate((element) => {
       for (let current: Element | null = element; current; current = current.parentElement) {
         if (Number(getComputedStyle(current).opacity) < 1) {
@@ -467,20 +470,20 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       expect.objectContaining({
         purpose: 'appointment_reminders',
         status: 'granted',
-        wordingVersion: 'booking-sms-separated-v3',
-        metadata: expect.objectContaining({ selection: 'default_on', selectionWasExplicit: false }),
+        wordingVersion: 'booking-sms-combined-v4',
+        metadata: expect.objectContaining({ selection: 'explicit_on', selectionWasExplicit: true }),
       }),
       expect.objectContaining({
         purpose: 'appointment_transactional',
         status: 'granted',
-        wordingVersion: 'booking-sms-separated-v3',
-        metadata: expect.objectContaining({ selection: 'default_on', selectionWasExplicit: false }),
+        wordingVersion: 'booking-sms-combined-v4',
+        metadata: expect.objectContaining({ selection: 'explicit_on', selectionWasExplicit: true }),
       }),
       expect.objectContaining({
         purpose: 'salon_promotions',
-        status: 'revoked',
-        wordingVersion: 'booking-sms-separated-v3',
-        metadata: expect.objectContaining({ promotionsGranted: false, selection: 'default_off', selectionWasExplicit: false }),
+        status: 'granted',
+        wordingVersion: 'booking-sms-combined-v4',
+        metadata: expect.objectContaining({ selection: 'explicit_on', selectionWasExplicit: true }),
       }),
     ]));
     expect(await database.select().from(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON))).toHaveLength(1);

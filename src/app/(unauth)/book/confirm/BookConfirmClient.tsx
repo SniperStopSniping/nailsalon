@@ -30,7 +30,7 @@ import { useBookingState } from '@/hooks/useBookingState';
 import type { BookingStep } from '@/libs/bookingFlow';
 import type { BookingBasket } from '@/libs/bookingParams';
 import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
-import { BOOKING_SMS_SEPARATED_WORDING_VERSION } from '@/libs/bookingSmsConsent';
+import { BOOKING_SMS_COMBINED_WORDING_VERSION } from '@/libs/bookingSmsConsent';
 import { computeCheckoutTotals, type ResolvedTaxConfig } from '@/libs/checkoutTotals';
 import type { CustomerBookingStatus } from '@/libs/customerAssistant/bookingOperationContracts';
 import { canStartAnotherBooking, startAnotherBooking } from '@/libs/customerAssistant/newBooking.client';
@@ -122,7 +122,7 @@ export type LocationSummary = {
 
 type SmsBookingDefault = 'default_on' | 'default_off' | 'disabled';
 type SmsConsentSelection = Exclude<SmsBookingDefault, 'disabled'> | 'explicit_on' | 'explicit_off';
-const SMS_CONSENT_WORDING_VERSION = BOOKING_SMS_SEPARATED_WORDING_VERSION;
+const SMS_CONSENT_WORDING_VERSION = BOOKING_SMS_COMBINED_WORDING_VERSION;
 
 type BookConfirmClientProps = {
   rebookingSettings?: RebookingPromptSettings;
@@ -1074,14 +1074,12 @@ const ConfirmContent = ({
   guestEmail,
   guestPhone,
   smsConsent,
-  promotionsConsent,
   smsBookingDefault,
   bookingError,
   onGuestNameChange,
   onGuestEmailChange,
   onGuestPhoneChange,
   onSmsConsentChange,
-  onPromotionsConsentChange,
   smartFitOffer,
   totalPriceDisplay,
   smartFitSuggestion,
@@ -1122,14 +1120,12 @@ const ConfirmContent = ({
   guestEmail: string;
   guestPhone: string;
   smsConsent: boolean;
-  promotionsConsent: boolean;
   smsBookingDefault: SmsBookingDefault;
   bookingError?: string | null;
   onGuestNameChange: (value: string) => void;
   onGuestEmailChange: (value: string) => void;
   onGuestPhoneChange: (value: string) => void;
   onSmsConsentChange: (value: boolean) => void;
-  onPromotionsConsentChange: (value: boolean) => void;
   smartFitOffer: CustomerSmartFitOffer | null;
   totalPriceDisplay: string;
   smartFitSuggestion: SmartFitSuggestion | null;
@@ -1153,7 +1149,6 @@ const ConfirmContent = ({
   salonConfirmsManually: boolean;
 }) => {
   const t = useTranslations('BookingConfirmation');
-  const { salonName } = useSalon();
   const params = useParams();
   const locale = typeof params?.locale === 'string' ? params.locale : 'en';
   // Focus and announcement management for the one nearby suggestion: both
@@ -1362,7 +1357,7 @@ const ConfirmContent = ({
             description={t('review_details_description')}
             className="border-[var(--n5-border)] bg-[var(--n5-bg-card)] shadow-sm"
             headerClassName="px-4 pb-2 pt-3"
-            contentClassName="space-y-2 px-4 pb-3 pt-0"
+            contentClassName="space-y-2 px-4 pb-2 pt-0"
           >
             {[
               { key: 'name', label: t('review_name'), ariaLabel: 'Customer name', value: guestName, onChange: onGuestNameChange, type: 'text', autoComplete: 'name', inputMode: 'text' as const, error: getContactDetailsBlocker({ name: guestName, email: 'valid@example.invalid', phone: '4165550100' }) },
@@ -1378,25 +1373,23 @@ const ConfirmContent = ({
                 {field.error && (touchedFields[field.key] || field.error === contactBlocker) && <p id={`${contactId}-${field.key}-error`} data-testid={field.error === contactBlocker ? 'contact-blocker-hint' : undefined} role="status" className="mt-1 text-sm leading-5 text-[var(--n5-ink-main)]">{field.error}</p>}
               </div>
             ))}
-            {smsBookingDefault !== 'disabled' && (
-              <div className="space-y-1 pt-1 text-sm leading-5 text-[var(--n5-ink-main)]">
-                <label className="flex min-h-11 cursor-pointer items-start gap-3">
-                  <input aria-label="Text updates" aria-describedby="booking-sms-details" type="checkbox" disabled={isSubmitting} checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="mt-1 size-5 shrink-0 accent-[var(--n5-accent)] disabled:cursor-not-allowed" />
-                  <span>{t('review_sms_updates')}</span>
-                </label>
-                <label className="flex min-h-11 cursor-pointer items-start gap-3">
-                  <input aria-label={t('review_sms_promotions')} aria-describedby="booking-sms-details" type="checkbox" disabled={isSubmitting} checked={promotionsConsent} onChange={event => onPromotionsConsentChange(event.target.checked)} className="mt-1 size-5 shrink-0 accent-[var(--n5-accent)] disabled:cursor-not-allowed" />
-                  <span>
-                    {t('review_sms_promotions')}
-                    <span className="ml-1">{t('review_optional')}</span>
-                  </span>
-                </label>
-                <p id="booking-sms-details">{t('sms_details', { salon: salonName })}</p>
+            <div data-testid="booking-sms-consent-area" className="pt-1">
+              {smsBookingDefault !== 'disabled' && (
+                <div>
+                  <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm leading-5 text-[var(--n5-ink-main)]">
+                    <input aria-labelledby="booking-sms-label" aria-describedby="booking-sms-details" type="checkbox" disabled={isSubmitting} checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="mt-0.5 size-5 shrink-0 accent-[var(--n5-accent)] disabled:cursor-not-allowed" />
+                    <span>
+                      <span id="booking-sms-label" className="block">{t('review_sms_combined')}</span>
+                      <span id="booking-sms-details" className="mt-1.5 block text-xs leading-5 text-[var(--n5-ink-muted)]">{t('review_sms_optional')}</span>
+                    </span>
+                  </label>
+                </div>
+              )}
+              <div className={`${smsBookingDefault !== 'disabled' ? 'mt-2.5' : ''} flex items-center gap-2 text-sm text-[var(--n5-ink-main)]`}>
+                <a href={`/${locale}/terms`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('terms')}</a>
+                <span aria-hidden="true">·</span>
+                <a href={`/${locale}/privacy`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('privacy')}</a>
               </div>
-            )}
-            <div className="flex gap-4 text-sm text-[var(--n5-ink-main)]">
-              <a href={`/${locale}/terms`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('terms')}</a>
-              <a href={`/${locale}/privacy`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('privacy')}</a>
             </div>
           </SectionCard>
 
@@ -2253,14 +2246,10 @@ export function BookConfirmClient({
   const [guestName, setGuestName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
-  // The default describes the salon's pre-selected choice, not a customer
-  // action. Keep its provenance separate so a checked, untouched control is
-  // never recorded as an explicit opt-in.
-  const [smsConsent, setSmsConsent] = useState(() => smsBookingDefault === 'default_on');
-  const [promotionsConsent, setPromotionsConsent] = useState(false);
-  const [smsConsentSelection, setSmsConsentSelection] = useState<SmsConsentSelection>(() => (
-    smsBookingDefault === 'default_off' ? 'default_off' : 'default_on'
-  ));
+  // Promotions are part of this optional combined choice. Only a customer
+  // interaction can grant it; an untouched checkbox is an audited default-off.
+  const [smsConsent, setSmsConsent] = useState(false);
+  const [smsConsentSelection, setSmsConsentSelection] = useState<SmsConsentSelection>('default_off');
 
   const handleSmsConsentChange = useCallback((granted: boolean) => {
     setSmsConsent(granted);
@@ -2595,7 +2584,7 @@ export function BookConfirmClient({
     clientEmail: guestEmail.trim().toLowerCase(),
     clientPhone: guestPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''),
     smsConsent: smsBookingDefault !== 'disabled'
-      ? { granted: smsConsent, wordingVersion: SMS_CONSENT_WORDING_VERSION, selection: smsConsentSelection, promotionsGranted: promotionsConsent }
+      ? { granted: smsConsent, wordingVersion: SMS_CONSENT_WORDING_VERSION, selection: smsConsentSelection }
       : null,
     canonicalStartTime,
     appointmentDate: dateStr,
@@ -2732,7 +2721,6 @@ export function BookConfirmClient({
           smsConsent: {
             granted: smsConsent,
             wordingVersion: SMS_CONSENT_WORDING_VERSION,
-            promotionsGranted: promotionsConsent,
             selection: smsConsentSelection,
           },
         }),
@@ -3162,7 +3150,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [addOns, salonName, salonTimeZone, technician, displayedConfirmationMode, isAssistantHandoff, bookingFlowMarker, salonId, recoveringHandoff, publicRecoveryPending, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingBasket, basketReviewFingerprint, bookingTotals, campaignPromotionPreview, campaignToken, nextVisitQuoteExpectation, canonicalStartTime, checkPublicRecovery, completeManualBooking, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsConsentSelection, promotionsConsent, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
+  }, [addOns, salonName, salonTimeZone, technician, displayedConfirmationMode, isAssistantHandoff, bookingFlowMarker, salonId, recoveringHandoff, publicRecoveryPending, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingBasket, basketReviewFingerprint, bookingTotals, campaignPromotionPreview, campaignToken, nextVisitQuoteExpectation, canonicalStartTime, checkPublicRecovery, completeManualBooking, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);
@@ -3535,14 +3523,12 @@ export function BookConfirmClient({
         guestEmail={guestEmail}
         guestPhone={guestPhone}
         smsConsent={smsConsent}
-        promotionsConsent={promotionsConsent}
         smsBookingDefault={smsBookingDefault}
         bookingError={checkingPublicRecovery ? null : bookingError}
         onGuestNameChange={setGuestName}
         onGuestEmailChange={setGuestEmail}
         onGuestPhoneChange={setGuestPhone}
         onSmsConsentChange={handleSmsConsentChange}
-        onPromotionsConsentChange={setPromotionsConsent}
         smartFitOffer={smartFitOffer}
         totalPriceDisplay={totalPriceDisplay}
         smartFitSuggestion={smartFitSuggestion}

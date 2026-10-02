@@ -1,10 +1,12 @@
 import {
+  BOOKING_SMS_COMBINED_WORDING_VERSION,
   BOOKING_SMS_EXPANDED_PURPOSES,
   BOOKING_SMS_WORDING_VERSION,
   includesExpandedBookingSmsPurposes,
   resolveBookingSmsConsentDecision,
   resolveBookingSmsMode,
   shouldRecordBookingSmsConsent,
+  usesAuthoritativeBookingSmsChoice,
 } from './bookingSmsConsent';
 
 describe('booking SMS reminder preference', () => {
@@ -12,6 +14,9 @@ describe('booking SMS reminder preference', () => {
     expect(BOOKING_SMS_EXPANDED_PURPOSES).toEqual(['appointment_transactional', 'salon_promotions']);
     expect(includesExpandedBookingSmsPurposes(BOOKING_SMS_WORDING_VERSION)).toBe(true);
     expect(includesExpandedBookingSmsPurposes('booking-sms-reminders-v1')).toBe(false);
+    expect(includesExpandedBookingSmsPurposes(BOOKING_SMS_COMBINED_WORDING_VERSION)).toBe(true);
+    expect(usesAuthoritativeBookingSmsChoice(BOOKING_SMS_COMBINED_WORDING_VERSION)).toBe(true);
+    expect(usesAuthoritativeBookingSmsChoice('booking-sms-reminders-v1')).toBe(false);
   });
 
   it('defaults new and malformed salon settings to default on', () => {
@@ -58,5 +63,32 @@ describe('booking SMS reminder preference', () => {
       selection: 'default_off',
       legacyDefaultOff: true,
     })).toMatchObject({ status: 'revoked', isExplicit: false });
+  });
+
+  it('keeps combined v4 unchecked by default even when the salon default is on', () => {
+    expect(resolveBookingSmsConsentDecision('default_on', {
+      granted: false,
+      wordingVersion: BOOKING_SMS_COMBINED_WORDING_VERSION,
+      selection: 'default_off',
+    })).toEqual({ status: 'revoked', selection: 'default_off', isExplicit: false });
+  });
+
+  it('accepts explicit v4 choices but rejects a default-on or split promotional payload', () => {
+    expect(resolveBookingSmsConsentDecision('default_on', {
+      granted: true,
+      wordingVersion: BOOKING_SMS_COMBINED_WORDING_VERSION,
+      selection: 'explicit_on',
+    })).toEqual({ status: 'granted', selection: 'explicit_on', isExplicit: true });
+    expect(resolveBookingSmsConsentDecision('default_on', {
+      granted: true,
+      wordingVersion: BOOKING_SMS_COMBINED_WORDING_VERSION,
+      selection: 'default_on',
+    })).toBeNull();
+    expect(resolveBookingSmsConsentDecision('default_on', {
+      granted: false,
+      wordingVersion: BOOKING_SMS_COMBINED_WORDING_VERSION,
+      selection: 'default_off',
+      promotionsGranted: false,
+    })).toBeNull();
   });
 });

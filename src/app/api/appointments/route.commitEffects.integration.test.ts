@@ -551,6 +551,52 @@ describe('public-booking appointment SMS preference', () => {
     ]));
   });
 
+  it('persists one combined v4 choice for every disclosed SMS purpose', async () => {
+    const phone = freshPhone();
+    await seedRewardFixture(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+
+    const response = await postBooking({
+      startTime: at(futureDate(83), '12:00').toISOString(),
+      smsConsent: {
+        granted: false,
+        wordingVersion: 'booking-sms-combined-v4',
+        selection: 'default_off',
+      },
+    });
+
+    expect(response.status).toBe(201);
+    expect((await response.json()).data.smsReminderStatus).toBe('customer_disabled');
+
+    const rows = await db.select().from(schema.communicationConsentSchema)
+      .where(eq(schema.communicationConsentSchema.recipient, phone));
+
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ purpose: 'appointment_reminders', status: 'revoked', wordingVersion: 'booking-sms-combined-v4', metadata: expect.objectContaining({ selection: 'default_off', selectionWasExplicit: false }) }),
+      expect.objectContaining({ purpose: 'appointment_transactional', status: 'revoked', wordingVersion: 'booking-sms-combined-v4', metadata: expect.objectContaining({ selection: 'default_off', selectionWasExplicit: false }) }),
+      expect.objectContaining({ purpose: 'salon_promotions', status: 'revoked', wordingVersion: 'booking-sms-combined-v4', metadata: expect.objectContaining({ selection: 'default_off', selectionWasExplicit: false }) }),
+    ]));
+  });
+
+  it('rejects a combined v4 payload that attempts to split promotional consent', async () => {
+    const phone = freshPhone();
+    await seedRewardFixture(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+
+    const response = await postBooking({
+      startTime: at(futureDate(83), '13:00').toISOString(),
+      smsConsent: {
+        granted: false,
+        wordingVersion: 'booking-sms-combined-v4',
+        selection: 'default_off',
+        promotionsGranted: false,
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+  });
+
   it('records an explicit off selection after a historical grant', async () => {
     const phone = freshPhone();
     await seedRewardFixture(phone);
