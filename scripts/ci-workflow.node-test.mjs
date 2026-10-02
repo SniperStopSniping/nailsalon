@@ -51,6 +51,16 @@ test('cancellation is scoped to a PR, with unique non-PR run groups', () => {
   assert.equal(workflow.concurrency['cancel-in-progress'], '${{ github.event_name == \'pull_request\' }}');
 });
 
+test('commitlint checks only commits introduced beyond the current PR base branch', () => {
+  const step = jobs['test-core'].steps.find(candidate => candidate.name === 'Validate commits introduced by the PR');
+  assert.equal(step.if, 'github.event_name == \'pull_request\'');
+  assert.equal(step.env.PR_BASE_BRANCH, '${{ github.base_ref }}');
+  assert.equal(step.env.PR_HEAD_SHA, '${{ github.event.pull_request.head.sha }}');
+  assert.match(step.run, /node scripts\/validate-pr-commits\.mjs/);
+  assert.match(step.run, /--base-branch "\$PR_BASE_BRANCH"/);
+  assert.match(step.run, /--head "\$PR_HEAD_SHA"/);
+});
+
 test('native Vitest shard selection covers every discovered test file exactly once', async () => {
   // Vitest 2 list --filesOnly ignores --shard; use the installed run sequencer.
   const files = execFileSync(process.execPath, [
