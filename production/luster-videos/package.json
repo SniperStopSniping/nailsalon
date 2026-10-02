@@ -1,0 +1,15 @@
+{
+  "name": "luster-video-production",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Offline, reproducible video assembly for approved Luster recordings.",
+  "scripts": {
+    "video:validate": "python3 tools/video_pipeline.py validate --timeline timelines/tutorial-booking.json",
+    "video:subtitles": "python3 tools/video_pipeline.py subtitles --timeline timelines/tutorial-booking.json",
+    "video:render": "python3 tools/video_pipeline.py render --timeline timelines/tutorial-booking.json",
+    "video:qa": "python3 tools/video_pipeline.py qa --timeline timelines/tutorial-booking.json",
+    "video:test": "python3 -m unittest discover -s tests -v",
+    "video:draft": "python3 tools/video_pipeline.py render --timeline timelines/tutorial-booking.json --internal-silent-draft",
+    "narration:plan": "python3 tools/narration.py --sections narration-scripts/tutorial-booking.sections.json"
+  }
+}

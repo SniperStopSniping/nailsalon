@@ -1,0 +1,60 @@
+{
+  "video": "tutorial-booking",
+  "status": "Real customer recording with narrated clean/captioned reference exports; creative approval pending",
+  "scenes": [
+    {
+      "id": "page",
+      "claim": "Clients open the public booking page",
+      "evidenceStatus": "verified in recorded UI",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm"
+    },
+    {
+      "id": "service",
+      "claim": "Select BIAB Overlay and compatible Simple Nail Art",
+      "evidenceStatus": "verified in recorded UI",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm"
+    },
+    {
+      "id": "technician",
+      "claim": "Solo configuration omits technician selection; removed from narration",
+      "evidenceStatus": "not present in solo flow",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm"
+    },
+    {
+      "id": "time",
+      "claim": "Only genuinely available appointments",
+      "evidenceStatus": "verified in recorded UI",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm"
+    },
+    {
+      "id": "details",
+      "claim": "Guest enters contact details and required acknowledgments",
+      "evidenceStatus": "verified in recorded UI",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm"
+    },
+    {
+      "id": "confirmation",
+      "claim": "Booking created and confirmation displayed",
+      "evidenceStatus": "verified in recorded UI",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm"
+    },
+    {
+      "id": "persistence",
+      "claim": "Same hero booking persists and is visible to authorized owner; QA only",
+      "evidenceStatus": "verified in owner UI after reload plus read-only database checks",
+      "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm"
+    }
+  ],
+  "applicationSHA": "3980197563c4ddc5774f6c5dcbfb8fe9f8827a6a",
+  "evidence": "qa/booking-capture-events.json",
+  "continuity": "qa/continuity-report.json",
+  "deviations": [
+    "Public salon root starts at services, not a separate marketing homepage.",
+    "Required agreement present; optional marketing consent absent in this configuration.",
+    "Reload displays Booking received recovery receipt, distinct from initial confirmation.",
+    "Raw file is 780x1688 VP8 25fps, but true app content is 390x844 at top-left; timeline crops unused padding. DPR2 did not raise video detail.",
+    "Both fixture salons began published; first-publication confirmation requires a draft salon for later footage.",
+    "Client profile supports Notes & Photos, but no appointment photo is currently attached; do not narrate photos as demonstrated yet."
+  ],
+  "framing": "Full page establishing shot plus saved editorial close-ups around actual controls. No DOM/CSS changes or speed compression."
+}

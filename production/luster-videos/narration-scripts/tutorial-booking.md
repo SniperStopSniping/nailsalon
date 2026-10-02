@@ -1,0 +1,23 @@
+# Customer booking narration — final reference script
+
+The solo fixture has no technician-selection step and no optional marketing-consent field. The generated audio and reviewed caption cues follow the recorded customer flow. The TTS input spells BIAB as B. I. A. B. to preserve all four letters; subtitles retain the service name BIAB Overlay.
+
+This is what your clients see when they open your booking page.
+
+They can explore your services and choose the appointment they want.
+
+Here, Sarah chooses BIAB Overlay and adds optional Simple Nail Art. Then she taps Continue.
+
+Next, she chooses an available date and time. This studio has one technician.
+
+The review screen shows the service, price, duration, time, and location.
+
+She enters her name, email, and mobile number. The required fields are clearly marked.
+
+She reads the appointment agreement and checks the required acknowledgment before continuing.
+
+With the details reviewed, she taps Confirm appointment.
+
+The confirmation screen shows that the booking is complete. Her time is reserved.
+
+Voice: gpt-4o-mini-tts / marin. Pronounce BIAB as B I A B; Luster as LUSS-ter. No music.
