@@ -1,3 +1,17 @@
+# [1.135.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.134.0...v1.135.0) (2026-10-02)
+
+
+### Bug Fixes
+
+* **booking:** preserve review tap targets and browser assertions ([3380887](https://github.com/SniperStopSniping/nailsalon/commit/3380887a8eb31a15acfe26035631446d7b013e0c))
+* **booking:** record appointment and promotional text choices separately ([8881fb1](https://github.com/SniperStopSniping/nailsalon/commit/8881fb14fa7f20ef3cb35ec52d0f029593d7f50f))
+* **booking:** wrap summary controls at enlarged text sizes ([b247783](https://github.com/SniperStopSniping/nailsalon/commit/b247783f197f1b61617072187262449d5abb1f38))
+
+
+### Features
+
+* **booking:** simplify the final review and confirm step ([6892a8a](https://github.com/SniperStopSniping/nailsalon/commit/6892a8ae8eee455ee0fb4a9cbf5a791604332384))
+
 # [1.134.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.133.3...v1.134.0) (2026-10-02)
 
 
