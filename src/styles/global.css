@@ -574,3 +574,8 @@ body:has([data-booking-result='confirmed']) [data-testid='public-salon-footer'] 
 body:has([data-booking-result='confirmed']) [data-testid='public-salon-footer'] a {
   color: inherit;
 }
+
+/* Short confirmations still fill the viewport with the salon page colour. */
+body:has([data-booking-result='confirmed']) {
+  background-color: var(--n5-bg-page, #fdf7f0);
+}
