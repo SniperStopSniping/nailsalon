@@ -64,7 +64,7 @@ for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
     expect(await primaryButtonContrast(name, 'outline-color')).toBeGreaterThanOrEqual(3);
     await expect(page.getByTestId('booking-receipt-when')).toContainText('1:45 PM');
     await expect(page.getByTestId('booking-receipt-services')).toContainText('Russian Manicure');
-    await expect(page.getByText('Not booked yet. Confirm below to reserve your time.')).toBeVisible();
+    await expect(page.getByText('Almost done — confirm below to reserve your time.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
     await expect(page.locator('main > div').first().locator('svg')).toHaveCount(0);
 
@@ -77,8 +77,8 @@ for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
 
     const inputColor = await name.evaluate(element => getComputedStyle(element).color);
 
-    await expect(page.getByRole('heading', { name: 'Your contact details' })).toHaveCSS('color', inputColor);
-    await expect(page.getByTestId('booking-receipt-total')).toHaveCSS('color', inputColor);
+    await expect(page.getByRole('heading', { name: 'Your details' })).toHaveCSS('color', inputColor);
+    await expect(page.getByTestId('booking-estimated-total')).toHaveCSS('color', inputColor);
     await expect(page.getByTestId('booking-receipt-duration')).toHaveCSS('color', inputColor);
 
     await name.fill('Fictional Palette Guest');
@@ -90,7 +90,7 @@ for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
     expect(await primaryButtonContrast(confirm)).toBeGreaterThanOrEqual(4.5);
 
     await expectReadableText(page.locator('.booking-review-summary p, .booking-review-summary li'), 14);
-    const changeSelection = page.getByRole('button', { name: 'Change time or services', exact: true });
+    const changeSelection = page.getByRole('button', { name: 'Edit', exact: true });
 
     expect(await renderedContrast(changeSelection)).toBeGreaterThanOrEqual(4.5);
     expect(await renderedContrast(name, 'border-top-color')).toBeGreaterThanOrEqual(3);
@@ -200,6 +200,51 @@ test('synthetic confirmed receipt shows the next-booking prompt and opens its se
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test('compact review keeps multi-service prices, pending add-ons, agreement, and mobile typing usable', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto('/?step=confirm&palette=luster_berry&review-multi&review-policy');
+
+  const summary = page.getByTestId('booking-review-summary');
+
+  await expect(summary).toContainText('Russian Manicure with detailed cuticle care and a long custom finish');
+  await expect(summary).toContainText('$35.00');
+  await expect(summary).toContainText('Pedicure with a sheer pink finish');
+  await expect(summary).toContainText('$45.00');
+  await expect(summary).toContainText('Simple Nail Art');
+  await expect(summary).toContainText('$10.00');
+  await expect(summary).toContainText('Custom hand-painted design consultation');
+  await expect(summary).toContainText('Price to be confirmed');
+  await expect(summary.locator('img')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
+
+  const name = page.getByLabel('Customer name');
+  await name.focus();
+  await page.keyboard.type('Review Guest');
+
+  await expect(name).toHaveValue('Review Guest');
+  await expect(name).toHaveCSS('font-size', '16px');
+
+  await page.getByLabel('Customer email').focus();
+
+  await expect(page.getByText('Enter a valid email address to continue.')).toBeVisible();
+
+  const confirm = page.getByRole('button', { name: /Confirm appointment/ });
+
+  await expect(confirm).toBeDisabled();
+  await expect(page.getByRole('checkbox', { name: /I agree to the appointment policy/ })).not.toBeChecked();
+
+  await page.getByRole('button', { name: 'View policy' }).click();
+  const dialog = page.getByTestId('booking-review-policy-dialog');
+
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Changes or cancellations must be made at least 24 hours');
+
+  await page.getByRole('button', { name: 'Close policy' }).click();
+
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 for (const status of ['confirmed', 'pending'] as const) {
   test(`${status} receipt arrives at its heading and keeps detailed booking information`, async ({ page, browserName }, info) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -224,7 +269,7 @@ for (const status of ['confirmed', 'pending'] as const) {
     await expect(page.getByTestId('booking-receipt-when')).toContainText('1:45 PM');
     await expect(page.getByTestId('booking-receipt-services')).toContainText('Russian Manicure');
     await expect(page.getByTestId('booking-receipt-add-ons')).toContainText(
-      status === 'confirmed' ? 'Simple Nail Art x2 ($10)' : 'Simple Nail Art x2 · $10',
+      status === 'confirmed' ? 'Simple Nail Art x2 ($20.00)' : 'Simple Nail Art x2 · $20.00',
     );
     await expect(page.getByTestId('booking-receipt-add-ons')).not.toContainText('Russian Manicure:');
     await expect(page.getByTestId('booking-result-receipt')).toContainText('$55');

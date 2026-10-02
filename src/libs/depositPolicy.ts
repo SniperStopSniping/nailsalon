@@ -463,6 +463,18 @@ export function isDepositGovernedBySystem(policy: ResolvedDepositPolicy): boolea
   return policy.active === true;
 }
 
+/** Display-only: an unavailable collection path is not a no-deposit promise. */
+export function canDiscloseNoDepositRequired(policy: ResolvedDepositPolicy, charge: DepositCharge): boolean {
+  if (charge.required) {
+    return false;
+  }
+  if (policy.active) {
+    return charge.reason === 'below_minimum_charge';
+  }
+  return charge.reason === 'policy_inactive'
+    && (policy.reason === 'disabled' || policy.reason === 'not_configured');
+}
+
 /**
  * The single disclosure-comparand combiner. The confirm page calls THIS and
  * performs no cents arithmetic of its own.

@@ -7,6 +7,7 @@ import {
   buildDepositCardNotices,
   buildDepositDisclosure,
   buildDepositDisclosureFingerprint,
+  canDiscloseNoDepositRequired,
   DEPOSIT_CURRENCY,
   DEPOSIT_FINGERPRINT_NONE,
   DEPOSIT_ISO_CURRENCY,
@@ -603,5 +604,35 @@ describe('test 9b — isDepositGovernedBySystem is narrow by design', () => {
     for (const reason of reasons) {
       expect(isDepositGovernedBySystem(inactivePolicy(reason))).toBe(false);
     }
+  });
+});
+
+describe('review no-deposit disclosure is conservative', () => {
+  it.each<DepositPolicyInactiveReason>([
+    'collection_not_live',
+    'not_entitled',
+    'owner_confirmation_required',
+    'account_not_connected',
+    'account_not_charge_ready',
+    'readiness_never_synced',
+    'currency_unsupported',
+    'undetermined',
+  ])('does not turn %s into a no-deposit promise', (reason) => {
+    const policy = inactivePolicy(reason);
+
+    expect(canDiscloseNoDepositRequired(policy, resolveDepositChargeForTotal(policy, 3500, { mode: 'disclosure' }))).toBe(false);
+  });
+
+  it.each<DepositPolicyInactiveReason>(['disabled', 'not_configured'])('allows a known %s policy', (reason) => {
+    const policy = inactivePolicy(reason);
+
+    expect(canDiscloseNoDepositRequired(policy, resolveDepositChargeForTotal(policy, 3500, { mode: 'disclosure' }))).toBe(true);
+  });
+
+  it('allows the system minimum-charge waiver, never a required charge or reschedule', () => {
+    expect(canDiscloseNoDepositRequired(ACTIVE_POLICY, { required: false, reason: 'below_minimum_charge' })).toBe(true);
+    expect(canDiscloseNoDepositRequired(ACTIVE_POLICY, { required: false, reason: 'reschedule' })).toBe(false);
+    expect(canDiscloseNoDepositRequired(ACTIVE_POLICY, { required: false, reason: 'invalid_total' })).toBe(false);
+    expect(canDiscloseNoDepositRequired(ACTIVE_POLICY, { required: true, amountCents: 2500, currency: DEPOSIT_CURRENCY })).toBe(false);
   });
 });

@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
-import { CustomerAssistantLauncher } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
@@ -11,10 +10,10 @@ import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { BOOKING_SMS_WORDING_VERSION } from '@/libs/bookingSmsConsent';
 import { getClientSession } from '@/libs/clientAuth';
-import { isCustomerAssistantEnabledForSalon } from '@/libs/customerAssistant/access.server';
 import {
   buildDepositDisclosure,
   buildDepositDisclosureFingerprint,
+  canDiscloseNoDepositRequired,
   isDepositGovernedBySystem,
   resolveDepositChargeForTotal,
   resolveDisclosureTotalCents,
@@ -380,6 +379,8 @@ export default async function BookConfirmPage(
     name: service.name,
     price: service.priceCents / 100,
     duration: service.durationMinutes,
+    imageUrl: service.imageUrl,
+    priceDisplayText: service.priceDisplayText,
   }));
   const campaignResolution = await resolvePublicRetentionCampaignPreview({
     token: searchParams.campaign ?? null,
@@ -555,15 +556,14 @@ export default async function BookConfirmPage(
             salon.phone ?? null,
             activeBookingPageContentSide.locationDisplayMode,
           )}
+          depositNotRequired={canDiscloseNoDepositRequired(depositPolicy, depositCharge)}
           depositDisclosure={depositDisclosure}
           depositNoticeSuppressed={depositNoticeSuppressed}
           depositFingerprint={depositFingerprint}
           // Use the same canonical booking setting as the appointment writer.
           salonConfirmsManually={bookingConfig.confirmationMode === 'request_approval' || (!depositCharge.required && resolvedTechnicianContext.resolvedSelection.l1ConfirmationMode === 'request_approval')}
         />
-        {!ownerPreviewState.isPreviewing && isCustomerAssistantEnabledForSalon(salon.slug) && (
-          <CustomerAssistantLauncher salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} campaignToken={searchParams.campaign ?? null} />
-        )}
+
       </Suspense>
     </PublicSalonPageShell>
   );
