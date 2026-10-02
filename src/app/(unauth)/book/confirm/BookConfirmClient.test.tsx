@@ -6,6 +6,8 @@ import messages from '@/locales/en.json';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
+const scrollToMock = vi.fn();
+
 const { routerBack, routerPush, routerReplace, syncFromUrl, clearBookingState, fetchMock, windowOpen, navigationMock, bookingExperienceMock } = vi.hoisted(() => ({
   bookingExperienceMock: {
     confirmationMessage: null as string | null,
@@ -189,6 +191,12 @@ describe('BookConfirmClient', () => {
     clearBookingState.mockReset();
     navigationMock.searchParams = new URLSearchParams('techId=tech_1');
     vi.stubGlobal('fetch', fetchMock);
+    Object.defineProperty(window, 'scrollTo', {
+      configurable: true,
+      value: scrollToMock,
+      writable: true,
+    });
+    scrollToMock.mockReset();
     window.open = windowOpen;
     sessionStorage.clear();
     sessionStorage.setItem('luster_booking_contact', JSON.stringify({
@@ -313,11 +321,10 @@ describe('BookConfirmClient', () => {
     consoleError.mockRestore();
   });
 
-  it('labels basket add-ons with their service, configured price text, and quantity', () => {
+  it('separates add-ons from services while preserving configured labels, prices, and quantities', () => {
     renderBasicConfirm({
       services: [
         { id: 'srv_manicure', name: 'Gel Manicure', price: 45, duration: 45 },
-        { id: 'srv_pedicure', name: 'Gel Pedicure', price: 55, duration: 55 },
       ],
       addOns: [
         {
@@ -331,8 +338,8 @@ describe('BookConfirmClient', () => {
           priceDisplayText: '$10',
         },
         {
-          serviceId: 'srv_pedicure',
-          serviceName: 'Gel Pedicure',
+          serviceId: 'srv_unmatched',
+          serviceName: 'Gel Manicure',
           id: 'removal',
           name: 'Removal from another salon',
           quantity: 1,
@@ -341,8 +348,8 @@ describe('BookConfirmClient', () => {
           priceDisplayText: '$15+',
         },
         {
-          serviceId: 'srv_pedicure',
-          serviceName: 'Gel Pedicure',
+          serviceId: 'srv_unmatched',
+          serviceName: 'Gel Manicure',
           id: 'repair',
           name: 'Nail repair',
           quantity: 1,
@@ -350,14 +357,70 @@ describe('BookConfirmClient', () => {
           duration: 10,
           priceMode: 'manual_confirmation',
         },
+        {
+          serviceId: 'srv_custom',
+          serviceName: 'Gel Manicure Deluxe',
+          id: 'custom-chrome',
+          name: 'Custom Chrome Finish',
+          quantity: 3,
+          price: 27,
+          duration: 15,
+          priceDisplayText: 'from $9',
+        },
       ],
       totalPrice: 135,
       totalDuration: 145,
     });
 
-    expect(screen.getByText(/Gel Manicure: French Tips x2 · \$10/)).toBeInTheDocument();
-    expect(screen.getByText(/Gel Pedicure: Removal from another salon · \$15\+/)).toBeInTheDocument();
-    expect(screen.getByText(/Gel Pedicure: Nail repair · price to be confirmed/)).toBeInTheDocument();
+    const servicesSection = screen.getByTestId('booking-receipt-services');
+    const addOnsSection = screen.getByTestId('booking-receipt-add-ons');
+
+    expect(servicesSection).toHaveTextContent('Gel Manicure');
+    expect(addOnsSection).toHaveTextContent('French Tips x2 · $10');
+    expect(addOnsSection).toHaveTextContent('Gel Manicure: Removal from another salon · $15+');
+    expect(addOnsSection).toHaveTextContent('Gel Manicure: Nail repair · price to be confirmed');
+    // Only exact parent matches are de-duplicated. A similar configured parent
+    // label and all of its custom text remain intact.
+    expect(addOnsSection).toHaveTextContent('Gel Manicure Deluxe: Custom Chrome Finish x3 · from $9');
+    expect(addOnsSection).not.toHaveTextContent('Gel Manicure: French Tips');
+  });
+
+  it('keeps service associations when a combined booking reuses an add-on ID', () => {
+    renderBasicConfirm({
+      services: [
+        { id: 'srv_manicure', name: 'Gel Manicure', price: 45, duration: 45 },
+        { id: 'srv_pedicure', name: 'Gel Pedicure', price: 55, duration: 55 },
+      ],
+      addOns: [
+        {
+          serviceId: 'srv_manicure',
+          serviceName: 'Gel Manicure',
+          id: 'french',
+          name: 'French Tips',
+          quantity: 1,
+          price: 10,
+          duration: 15,
+          priceDisplayText: '$10',
+        },
+        {
+          serviceId: 'srv_pedicure',
+          serviceName: 'Gel Pedicure',
+          id: 'french',
+          name: 'French Tips',
+          quantity: 1,
+          price: 15,
+          duration: 15,
+          priceDisplayText: '$15+',
+        },
+      ],
+      totalPrice: 125,
+      totalDuration: 130,
+    });
+
+    const addOnsSection = screen.getByTestId('booking-receipt-add-ons');
+
+    expect(addOnsSection).toHaveTextContent('Gel Manicure: French Tips · $10');
+    expect(addOnsSection).toHaveTextContent('Gel Pedicure: French Tips · $15+');
   });
 
   it('shows the shared salon message only after unchanged confirmed appointment details', async () => {
@@ -767,7 +830,7 @@ describe('BookConfirmClient', () => {
     expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
   });
 
-  it('puts durable confirmed status and receipt before supporting celebration', async () => {
+  it('puts the confirmed arrival before the receipt and focuses it once', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: {
         appointment: { id: 'appt_confirmed', status: 'confirmed' },
@@ -784,6 +847,8 @@ describe('BookConfirmClient', () => {
 
     expect(statusHeading.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(summary.compareDocumentPosition(celebration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(statusHeading).toHaveFocus();
+    expect(scrollToMock).toHaveBeenCalledWith({ top: 0, behavior: 'auto' });
     expect(screen.getByText('Your time is reserved.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /manage this appointment/i })).toBeInTheDocument();
   });

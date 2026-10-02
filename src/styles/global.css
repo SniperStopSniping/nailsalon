@@ -86,7 +86,7 @@
     --n5-space-2xl: 3rem;
 
     --n5-button-primary-bg: #d6a249;
-    --n5-button-primary-text: #ffffff;
+    --n5-button-primary-text: #3f2b24;
     --n5-button-secondary-bg: #ffffff;
     --n5-button-secondary-text: #3f2b24;
     --n5-button-ghost-text: #8a7e78;
@@ -458,15 +458,28 @@
 }
 
 .booking-review-summary-header {
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
 }
 
 .booking-review-summary-header > :first-child {
-  flex-basis: 7rem;
+  flex-basis: auto;
 }
 
-.booking-confirm-page :where(h1, h3, p, label, button) {
+.booking-confirm-page :where(h1, h3, p, label, button, a) {
   overflow-wrap: anywhere;
+}
+
+.booking-review-summary-header h3,
+.booking-review-summary-header > :first-child > p {
+  line-height: 1.5;
+}
+
+.booking-confirm-page input:not([type='checkbox']) {
+  font-size: 1rem;
+  line-height: 1.5;
+  border-color: var(--booking-brand-state-border, var(--n5-ink-main));
 }
 
 .booking-review-summary .booking-artist-row {
@@ -474,7 +487,7 @@
 }
 
 .booking-confirm-page :where(input, button, a):focus-visible {
-  outline: 2px solid var(--n5-accent);
+  outline: 2px solid var(--booking-brand-state-border, var(--n5-ink-main));
   outline-offset: 3px;
 }
 
