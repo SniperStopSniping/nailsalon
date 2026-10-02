@@ -102,7 +102,7 @@ test('guest can book without OTP and receive an appointment management link', as
 
   const originalConfirmationUrl = page.url();
 
-  await expect(page.getByRole('heading', { name: /review your appointment/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Review & confirm', exact: true })).toBeVisible();
 
   await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
   await page.getByLabel('Customer email').fill(`guest+${Date.now()}@example.com`);
@@ -128,7 +128,7 @@ test('guest can book without OTP and receive an appointment management link', as
   expect(originalAppointmentId).toBeTruthy();
 
   await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
-  await expect(page.getByRole('link', { name: /manage this appointment/i })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Manage appointment', exact: true })).toBeVisible();
 
   const token = new URL(manageUrl!, page.url()).pathname.split('/').filter(Boolean).at(-1);
   const cancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(token!)}`, {
@@ -147,7 +147,7 @@ test('guest can book without OTP and receive an appointment management link', as
 
   await page.goto(originalConfirmationUrl, { waitUntil: 'domcontentloaded' });
 
-  await expect(page.getByRole('heading', { name: /review your appointment/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Review & confirm', exact: true })).toBeVisible();
 
   await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
   await page.getByLabel('Customer email').fill(`guest+${Date.now()}@example.com`);

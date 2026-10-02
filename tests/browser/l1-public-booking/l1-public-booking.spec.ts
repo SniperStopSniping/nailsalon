@@ -88,13 +88,14 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
   const selectionUrl = new URL(page.url());
   await selectBookableSlotFromApi(page, { technicianId: selectionUrl.searchParams.get('techId') === 'any' ? null : selectionUrl.searchParams.get('techId'), startDayOffset: 3, baseServiceId: SERVICE, selectedAddOns: selectionUrl.searchParams.get('selectedAddOns'), locationId: selectionUrl.searchParams.get('locationId') });
 
-  await expect(page.getByRole('heading', { name: /review your appointment/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Review & confirm', exact: true })).toBeVisible();
 
   const phone = page.getByLabel('Customer phone', { exact: true });
   const textUpdates = page.getByRole('checkbox', { name: 'Text updates', exact: true });
 
   await expect(phone).toHaveAttribute('required', '');
   await expect(textUpdates).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Text me salon promotions', exact: true })).not.toBeChecked();
   await expect.poll(() => phone.evaluate((element) => {
     for (let current: Element | null = element; current; current = current.parentElement) {
       if (Number(getComputedStyle(current).opacity) < 1) {
@@ -115,6 +116,12 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
   const body = await response.json();
 
   expect(response.status(), JSON.stringify(body)).toBe(201);
+  expect(response.request().postDataJSON().smsConsent).toEqual({
+    granted: false,
+    selection: 'explicit_off',
+    wordingVersion: 'booking-sms-separated-v3',
+    promotionsGranted: false,
+  });
   await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
 
   await page.screenshot({ path: path.join(process.cwd(), `artifacts/l1-public-booking/${testInfo.project.name}-confirmed.png`), fullPage: true, animations: 'disabled' });
