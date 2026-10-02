@@ -31,7 +31,8 @@ payment collection behaviour is introduced.
 
 The assistant launcher is omitted from this route. Tenant palettes, fonts and
 button foreground/background pairings remain in the existing theme system.
-English and French copy are synchronized.
+English and French copy are synchronized. The summary header wraps its date,
+time and Edit action when enlarged text needs more room.
 
 ## Verification
 

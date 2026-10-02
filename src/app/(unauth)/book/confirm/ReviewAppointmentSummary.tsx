@@ -87,15 +87,15 @@ export function ReviewAppointmentSummary({ services, addOns, technician, dateStr
 
   return (
     <section data-testid="booking-review-summary" data-public-surface="appointmentSummaryCard" aria-label={t('review_summary_label')} className="booking-review-summary rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-[var(--n5-ink-main)] shadow-sm">
-      <div data-testid="booking-receipt-when" className="flex items-center gap-3 border-b border-[var(--n5-border-muted)] pb-3">
+      <div data-testid="booking-receipt-when" className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--n5-border-muted)] pb-3">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, var(--n5-bg-card))' }}>
           <Calendar aria-hidden="true" className="size-5" />
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="font-heading text-xl font-semibold leading-7">{dateLabel}</p>
-          <p className="text-lg font-semibold leading-6">{timeLabel}</p>
+        <div className="min-w-0 flex-1 basis-[100px]">
+          <p className="break-words font-heading text-xl font-semibold leading-7">{dateLabel}</p>
+          <p className="break-words text-lg font-semibold leading-6">{timeLabel}</p>
         </div>
-        <button type="button" onClick={onEdit} disabled={disabled} className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-60">
+        <button type="button" onClick={onEdit} disabled={disabled} className="ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-60">
           <Pencil aria-hidden="true" className="size-4" />
           {t('review_edit')}
         </button>
