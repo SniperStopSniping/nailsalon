@@ -585,6 +585,8 @@ for (const viewport of [
             const confirm = [...document.querySelectorAll('button')]
               .find(button => button.textContent?.includes('Confirming your appointment'));
             const contactName = document.querySelector<HTMLInputElement>('[aria-label="Customer name"]');
+            const summary = document.querySelector('[data-testid="booking-review-summary"]');
+            const summaryBounds = summary?.getBoundingClientRect();
             Reflect.set(window, '__stage3bPendingSnapshot', {
               confirmDisabled: confirm instanceof HTMLButtonElement && confirm.disabled,
               contactDisabled: contactName?.disabled === true,
@@ -594,7 +596,8 @@ for (const viewport of [
                 && document.body.scrollWidth <= document.body.clientWidth,
               pendingText: pending.textContent,
               serviceVisible: document.body.textContent?.includes(serviceName) === true,
-              summaryVisible: document.body.textContent?.includes('Appointment summary') === true,
+              summaryVisible: Boolean(summaryBounds && summaryBounds.width > 0 && summaryBounds.height > 0
+                && summary?.textContent?.includes(serviceName)),
             });
             observer?.disconnect();
           };
