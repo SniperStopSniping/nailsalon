@@ -91,11 +91,11 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
   await expect(page.getByRole('heading', { name: 'Review & confirm', exact: true })).toBeVisible();
 
   const phone = page.getByLabel('Customer phone', { exact: true });
-  const textUpdates = page.getByRole('checkbox', { name: 'Text updates', exact: true });
+  const textUpdates = page.getByRole('checkbox', { name: 'Text me appointment confirmations, reminders, review requests, and occasional salon promotions', exact: true });
 
   await expect(phone).toHaveAttribute('required', '');
-  await expect(textUpdates).toBeChecked();
-  await expect(page.getByRole('checkbox', { name: 'Text me salon promotions', exact: true })).not.toBeChecked();
+  await expect(textUpdates).not.toBeChecked();
+  await expect(page.getByTestId('booking-sms-consent-area').getByRole('checkbox')).toHaveCount(1);
   await expect.poll(() => phone.evaluate((element) => {
     for (let current: Element | null = element; current; current = current.parentElement) {
       if (Number(getComputedStyle(current).opacity) < 1) {
@@ -109,7 +109,7 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
   await page.getByLabel('Customer name', { exact: true }).fill('Synthetic L1 Customer');
   await page.getByLabel('Customer email', { exact: true }).fill(`l1-${randomUUID()}@example.invalid`);
   await phone.fill('4165550199');
-  await textUpdates.uncheck();
+  await textUpdates.check();
   const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/appointments') && response.request().method() === 'POST');
   await page.getByRole('button', { name: /confirm appointment/i }).click();
   const response = await responsePromise;
@@ -117,10 +117,9 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
 
   expect(response.status(), JSON.stringify(body)).toBe(201);
   expect(response.request().postDataJSON().smsConsent).toEqual({
-    granted: false,
-    selection: 'explicit_off',
-    wordingVersion: 'booking-sms-separated-v3',
-    promotionsGranted: false,
+    granted: true,
+    selection: 'explicit_on',
+    wordingVersion: 'booking-sms-combined-v4',
   });
   await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
 
@@ -132,6 +131,19 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
   const appointment = appointments.rows[0];
 
   expect(appointment).toMatchObject({ total_price: 5500, total_duration_minutes: 50 });
+
+  const consent = await database.query(
+    `SELECT purpose, status, wording_version, metadata FROM communication_consent
+     WHERE salon_id = $1 AND metadata ->> 'appointmentId' = $2 ORDER BY purpose`,
+    [SALON, appointment.id],
+  );
+
+  expect(consent.rows).toHaveLength(3);
+  expect(consent.rows.map(row => row.purpose)).toEqual(['appointment_reminders', 'appointment_transactional', 'salon_promotions']);
+
+  for (const row of consent.rows) {
+    expect(row).toMatchObject({ status: 'granted', wording_version: 'booking-sms-combined-v4', metadata: { selection: 'explicit_on', selectionWasExplicit: true } });
+  }
 
   const additions = await database.query('SELECT add_on_id, quantity_snapshot FROM appointment_add_on WHERE appointment_id = $1 ORDER BY add_on_id', [appointment.id]);
 

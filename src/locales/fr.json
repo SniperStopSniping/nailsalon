@@ -303,6 +303,8 @@
     "review_phone": "Téléphone mobile",
     "review_required": "Obligatoire",
     "review_optional": "(facultatif)",
+    "review_sms_combined": "M’envoyer par texto les confirmations et rappels de rendez-vous, les demandes d’avis et les promotions occasionnelles du salon",
+    "review_sms_optional": "Facultatif. Répondez STOP en tout temps.",
     "review_sms_updates": "M’envoyer par texto les confirmations et rappels de rendez-vous et les demandes d’avis",
     "review_sms_promotions": "M’envoyer par texto les promotions du salon",
     "review_deposit_credit": "L’acompte sera déduit du total de votre rendez-vous.",

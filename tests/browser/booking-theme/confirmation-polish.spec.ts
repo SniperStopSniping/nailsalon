@@ -385,3 +385,50 @@ test('320px receipt supports enlarged text and user text-spacing without clippin
     expect(await control.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   }
 });
+
+for (const width of [320, 390]) {
+  test(`combined SMS consent is compact, readable and keyboard usable at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/?step=confirm&palette=blush_cocoa');
+    const area = page.getByTestId('booking-sms-consent-area');
+    const label = page.locator('#booking-sms-label');
+    const helper = page.locator('#booking-sms-details');
+    const consent = area.getByRole('checkbox', { name: 'Text me appointment confirmations, reminders, review requests, and occasional salon promotions', exact: true });
+
+    await expect(area.getByRole('checkbox')).toHaveCount(1);
+    await expect(consent).not.toBeChecked();
+    await expect(consent).toHaveAccessibleDescription('Optional. Reply STOP anytime.');
+
+    await expectReadableText(label, 14);
+    await expectReadableText(helper, 12);
+    const labelBox = await label.boundingBox();
+    const helperBox = await helper.boundingBox();
+    const legalBox = await area.getByRole('link', { name: 'Terms', exact: true }).boundingBox();
+    const checkboxBox = await consent.boundingBox();
+
+    expect(helperBox!.x).toBeCloseTo(labelBox!.x, 0);
+    expect(helperBox!.y - (labelBox!.y + labelBox!.height)).toBeGreaterThanOrEqual(6);
+    expect(helperBox!.y - (labelBox!.y + labelBox!.height)).toBeLessThanOrEqual(8);
+    expect(legalBox!.y - (helperBox!.y + helperBox!.height)).toBeGreaterThanOrEqual(10);
+    expect(legalBox!.y - (helperBox!.y + helperBox!.height)).toBeLessThanOrEqual(12);
+    expect(Math.abs(checkboxBox!.y - labelBox!.y)).toBeLessThanOrEqual(3);
+
+    for (const link of await area.getByRole('link').all()) {
+      const box = await link.boundingBox();
+
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+    }
+    await consent.focus();
+    await page.keyboard.press('Space');
+
+    await expect(consent).toBeChecked();
+
+    await page.keyboard.press('Space');
+
+    await expect(consent).not.toBeChecked();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+    await page.screenshot({ path: testInfo.outputPath('combined-consent-mobile.png'), fullPage: true });
+  });
+}

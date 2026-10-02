@@ -1026,9 +1026,9 @@ test.describe('compact booking agreement and receipt', () => {
       // Public text preference remains visible on a compact phone even
       // when a local fixture has no live SMS sender. Delivery stays server-
       // gated, while this selection records the customer’s choice.
-      const textUpdates = page.getByRole('checkbox', { name: 'Text updates' });
+      const textUpdates = page.getByRole('checkbox', { name: 'Text me appointment confirmations, reminders, review requests, and occasional salon promotions' });
 
-      await expect(textUpdates).toBeChecked();
+      await expect(textUpdates).not.toBeChecked();
       await expect.poll(() => textUpdates.locator('..').evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
 
       for (const name of ['Terms', 'Privacy']) {
@@ -1037,17 +1037,17 @@ test.describe('compact booking agreement and receipt', () => {
         await expect.poll(() => link.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
         await expect.poll(() => link.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThanOrEqual(44);
       }
-      await page.screenshot({ path: testInfo.outputPath('texts-default-on.png'), fullPage: true });
+      await page.screenshot({ path: testInfo.outputPath('texts-combined-default-off.png'), fullPage: true });
 
+      await textUpdates.check();
       await textUpdates.uncheck();
 
       const agreement = page.getByTestId('booking-policy-acknowledgment');
       const checkbox = agreement.getByRole('checkbox');
       const confirm = page.getByRole('button', { name: /confirm appointment/i });
 
-      const promotions = page.getByRole('checkbox', { name: 'Text me salon promotions', exact: true });
-
-      await expect(promotions).not.toBeChecked();
+      await expect(page.getByTestId('booking-sms-consent-area').getByRole('checkbox')).toHaveCount(1);
+      await expect(page.getByText('Optional. Reply STOP anytime.', { exact: true })).toBeVisible();
 
       await page.getByRole('button', { name: 'View policy', exact: true }).click();
 
@@ -1084,8 +1084,7 @@ test.describe('compact booking agreement and receipt', () => {
       });
       expect(submitted?.smsConsent).toEqual({
         granted: false,
-        wordingVersion: 'booking-sms-separated-v3',
-        promotionsGranted: false,
+        wordingVersion: 'booking-sms-combined-v4',
         selection: 'explicit_off',
       });
 

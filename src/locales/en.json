@@ -303,6 +303,8 @@
     "review_phone": "Mobile phone",
     "review_required": "Required",
     "review_optional": "(optional)",
+    "review_sms_combined": "Text me appointment confirmations, reminders, review requests, and occasional salon promotions",
+    "review_sms_optional": "Optional. Reply STOP anytime.",
     "review_sms_updates": "Text me appointment confirmations, reminders, and review requests",
     "review_sms_promotions": "Text me salon promotions",
     "review_deposit_credit": "The deposit will be applied to your appointment total.",
