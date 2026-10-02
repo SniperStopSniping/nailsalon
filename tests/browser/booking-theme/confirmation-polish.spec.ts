@@ -401,10 +401,18 @@ for (const width of [320, 390]) {
 
     await expectReadableText(label, 14);
     await expectReadableText(helper, 12);
-    const labelBox = await label.boundingBox();
-    const helperBox = await helper.boundingBox();
-    const legalBox = await area.getByRole('link', { name: 'Terms', exact: true }).boundingBox();
-    const checkboxBox = await consent.boundingBox();
+    // Read all rectangles in one frame: the card's entrance translation can
+    // otherwise move between separate browser round trips and distort gaps.
+    const { labelBox, helperBox, legalBox, checkboxBox } = await area.evaluate((element) => {
+      const bounds = (selector: string) => element.querySelector(selector)!.getBoundingClientRect().toJSON();
+
+      return {
+        labelBox: bounds('#booking-sms-label'),
+        helperBox: bounds('#booking-sms-details'),
+        legalBox: bounds('a'),
+        checkboxBox: bounds('input[type="checkbox"]'),
+      };
+    });
 
     expect(helperBox!.x).toBeCloseTo(labelBox!.x, 0);
     expect(helperBox!.y - (labelBox!.y + labelBox!.height)).toBeGreaterThanOrEqual(6);
