@@ -101,19 +101,12 @@ for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
     await expect(page.getByTestId('booking-result-heading')).toBeVisible();
     await expect.poll(() => page.locator('main [style*="opacity"]').evaluateAll(elements => elements.every(element => getComputedStyle(element).opacity === '1'))).toBe(true);
 
-    await expectReadableText(page.locator('.booking-review-summary p, .booking-review-summary li'), 14);
+    await expectReadableText(page.getByTestId('booking-confirmed-summary').locator('p'), 14);
     await expectReadableText(page.locator('main a, main button'), 14);
-    await expectReadableText(page.locator('[data-booking-avatar-fallback] span'), 14);
 
+    await expect(page.getByTestId('booking-confirmed-summary')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Appointment summary', exact: true })).toHaveCount(0);
     expect(await renderedContrast(page.getByTestId('booking-success-celebration').locator('svg'))).toBeGreaterThanOrEqual(3);
-
-    const title = page.getByRole('heading', { name: 'Appointment summary', exact: true });
-    const titleBox = (await title.boundingBox())!;
-    const priceBox = (await page.getByTestId('booking-receipt-total').boundingBox())!;
-    const titleLineHeight = await title.evaluate(element => Number.parseFloat(getComputedStyle(element).lineHeight));
-
-    expect(titleBox.height).toBeLessThanOrEqual(titleLineHeight + 1);
-    expect(priceBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
   });
 }
 
@@ -129,7 +122,7 @@ for (const theme of ['espresso', 'lavender', 'pastel', 'lavender&page-theme=espr
     expect(await primaryButtonContrast(confirm)).toBeGreaterThanOrEqual(4.5);
 
     await confirm.click();
-    const manage = page.getByRole('link', { name: 'Manage this appointment', exact: true });
+    const manage = page.getByRole('link', { name: 'Manage appointment', exact: true });
 
     await expect(manage).toBeVisible();
     expect(await primaryButtonContrast(manage)).toBeGreaterThanOrEqual(4.5);
@@ -153,7 +146,7 @@ for (const { color, rgb } of [
     expect(await primaryButtonContrast(confirm)).toBeGreaterThanOrEqual(4.5);
 
     await confirm.click();
-    const manage = page.getByRole('link', { name: 'Manage this appointment', exact: true });
+    const manage = page.getByRole('link', { name: 'Manage appointment', exact: true });
 
     await expect(manage).toBeVisible();
     await expect(manage).toHaveCSS('background-color', rgb);
@@ -230,7 +223,9 @@ for (const status of ['confirmed', 'pending'] as const) {
     await expect(heading).toBeInViewport();
     await expect(page.getByTestId('booking-receipt-when')).toContainText('1:45 PM');
     await expect(page.getByTestId('booking-receipt-services')).toContainText('Russian Manicure');
-    await expect(page.getByTestId('booking-receipt-add-ons')).toContainText('Simple Nail Art x2 · $10');
+    await expect(page.getByTestId('booking-receipt-add-ons')).toContainText(
+      status === 'confirmed' ? 'Simple Nail Art x2 ($10)' : 'Simple Nail Art x2 · $10',
+    );
     await expect(page.getByTestId('booking-receipt-add-ons')).not.toContainText('Russian Manicure:');
     await expect(page.getByTestId('booking-result-receipt')).toContainText('$55');
     await expect(page.getByTestId('booking-result-receipt')).toContainText('1h 5m');
@@ -238,29 +233,59 @@ for (const status of ['confirmed', 'pending'] as const) {
     await expect(page.getByTestId('booking-success-celebration')).toHaveCount(status === 'confirmed' ? 1 : 0);
 
     if (status === 'confirmed') {
-      expect(await page.getByTestId('booking-receipt-when').evaluate(element => Boolean(element.compareDocumentPosition(document.querySelector('[data-testid="booking-success-celebration"]')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+      const summary = page.getByTestId('booking-confirmed-summary');
+
+      await expect(summary).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Appointment summary', exact: true })).toHaveCount(0);
+      expect(await heading.evaluate((element, summaryElement) => Boolean(
+        element.compareDocumentPosition(summaryElement as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ), await summary.elementHandle())).toBe(true);
     }
 
-    await expect(page.getByRole('link', { name: 'Google Calendar', exact: true })).toHaveCount(status === 'confirmed' ? 1 : 0);
-    await expect(page.getByRole('link', { name: 'Apple Calendar', exact: true })).toHaveCount(status === 'confirmed' ? 1 : 0);
+    const calendar = page.getByRole('button', { name: 'Add to calendar', exact: true });
+
+    await expect(calendar).toHaveCount(status === 'confirmed' ? 1 : 0);
+
+    if (status === 'confirmed') {
+      await calendar.focus();
+      await page.keyboard.press('Enter');
+      const calendarMenu = page.getByRole('menu');
+
+      await expect(calendarMenu).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Google Calendar', exact: true })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Apple Calendar', exact: true })).toBeVisible();
+
+      await page.keyboard.press('Escape');
+
+      await expect(calendarMenu).toHaveCount(0);
+      await expect(calendar).toBeFocused();
+    }
+
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await expect.poll(() => page.locator('main [style*="opacity"]').evaluateAll(elements => elements.every(element => getComputedStyle(element).opacity === '1'))).toBe(true);
 
     await page.screenshot({ path: info.outputPath(`receipt-${status}.png`), fullPage: true });
 
-    // macOS WebKit skips links with plain Tab unless full keyboard access is
-    // enabled; Option-Tab includes links in the native navigation sequence.
-    await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
-    const manage = page.getByRole('link', { name: status === 'confirmed' ? 'Manage this appointment' : 'Manage this request', exact: true });
+    if (status !== 'confirmed') {
+      // macOS WebKit skips links with plain Tab unless full keyboard access is
+      // enabled; Option-Tab includes links in the native navigation sequence.
+      await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+      const manage = page.getByRole('link', { name: 'Manage this request', exact: true });
 
-    await expect(manage).toBeFocused();
-    await expect(manage).toHaveCSS('outline-style', 'solid');
+      await expect(manage).toBeFocused();
+      await expect(manage).toHaveCSS('outline-style', 'solid');
+    }
 
     // CSS text enlargement exercises reflow; this is not a physical-device or
     // native browser text-size setting verification.
     await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
 
-    await expect(page.getByRole('heading', { name: 'Appointment summary', exact: true })).toHaveCSS('overflow-wrap', 'anywhere');
+    if (status === 'confirmed') {
+      await expect(page.getByTestId('booking-confirmed-summary')).toBeVisible();
+    } else {
+      await expect(page.getByRole('heading', { name: 'Appointment summary', exact: true })).toHaveCSS('overflow-wrap', 'anywhere');
+    }
+
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
     await page.screenshot({ path: info.outputPath(`receipt-${status}-text-200.png`), fullPage: true });

@@ -17,7 +17,7 @@ const legacyTheme = query.get('legacy-theme');
 const themeKey = legacyTheme ?? 'espresso';
 const services = [{ id: 'service-fixture', name: 'Russian Manicure', price: 35, duration: 35 }];
 const addOns = query.has('receipt-details')
-  ? [{ id: 'addon-fixture', serviceId: 'service-fixture', serviceName: 'Russian Manicure', name: 'Simple Nail Art', price: 10, duration: 15, quantity: 2 }]
+  ? [{ id: 'addon-fixture', serviceId: 'service-fixture', serviceName: 'Russian Manicure', name: 'Simple Nail Art', price: 10, duration: 15, quantity: 2, priceDisplayText: '$10' }]
   : [];
 const reviewedTotal = query.has('receipt-details') ? 55 : 35;
 const technician = { id: 'tech-fixture', name: 'Daniela', imageUrl: null };

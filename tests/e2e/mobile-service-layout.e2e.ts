@@ -273,25 +273,31 @@ async function expectResultReceiptLeads(page: Page): Promise<void> {
   const order = await page.evaluate(() => {
     const receipt = document.querySelector('[data-testid="booking-result-receipt"]');
     const statusHeading = receipt?.querySelector('h1');
-    const summaryHeading = [...(receipt?.querySelectorAll('h3') ?? [])]
-      .find(element => element.textContent?.trim() === 'Appointment summary');
+    const summary = receipt?.querySelector('[data-testid="booking-confirmed-summary"]');
     const celebration = document.querySelector('[data-testid="booking-success-celebration"]');
+    const manage = document.querySelector('[data-booking-result="confirmed"] [href*="/manage/"]');
 
     return {
       statusBeforeSummary: Boolean(
         statusHeading
-        && summaryHeading
-        && (statusHeading.compareDocumentPosition(summaryHeading) & Node.DOCUMENT_POSITION_FOLLOWING),
+        && summary
+        && (statusHeading.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING),
       ),
-      summaryBeforeCelebration: celebration === null || Boolean(
-        summaryHeading
-        && (summaryHeading.compareDocumentPosition(celebration) & Node.DOCUMENT_POSITION_FOLLOWING),
+      celebrationBeforeSummary: celebration === null || Boolean(
+        celebration
+        && summary
+        && (celebration.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING),
+      ),
+      summaryBeforeActions: manage === null || Boolean(
+        summary
+        && (summary.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING),
       ),
     };
   });
 
   expect(order.statusBeforeSummary, 'Durable booking status must precede receipt facts.').toBe(true);
-  expect(order.summaryBeforeCelebration, 'Receipt facts must precede celebration.').toBe(true);
+  expect(order.celebrationBeforeSummary, 'The confirmation check must precede receipt facts.').toBe(true);
+  expect(order.summaryBeforeActions, 'Receipt facts must precede confirmation actions.').toBe(true);
 }
 
 async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
@@ -1064,16 +1070,34 @@ test.describe('compact booking agreement and receipt', () => {
         selection: 'explicit_off',
       });
 
-      const manage = page.getByRole('link', { name: 'Manage this appointment' });
+      const manage = page.getByRole('link', { name: 'Manage appointment' });
 
       await expect(manage).toHaveAttribute('href', manageUrl);
       await expect.poll(() => manage.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
       await expect.poll(() => manage.evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(48);
-      await expect(page.getByRole('link', { name: 'Apple Calendar' })).toHaveAttribute('href', `${manageUrl}/calendar.ics`);
-      await expect(page.getByRole('button', { name: 'Back to booking' })).toBeVisible();
+
+      const calendar = page.getByRole('button', { name: 'Add to calendar' });
+
+      await calendar.focus();
+      await page.keyboard.press('Enter');
+      const calendarMenu = page.getByRole('menu');
+      const appleCalendar = page.getByRole('menuitem', { name: 'Apple Calendar' });
+
+      await expect(calendarMenu).toBeVisible();
+      await expect(appleCalendar).toHaveAttribute('href', `${manageUrl}/calendar.ics`);
+
+      await page.keyboard.press('Escape');
+
+      await expect(calendarMenu).toHaveCount(0);
+      await expect(calendar).toBeFocused();
+      await expect(page.getByRole('button', { name: 'Book another appointment' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Back to booking' })).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       await expect(manage.locator('..')).toHaveCSS('opacity', '1');
-      await expect(page.getByText('We’re looking forward to your visit.').locator('../..')).toHaveCSS('opacity', '1');
+      await expect(page.getByText('Change or cancel up to 24 hours before your appointment.')).toBeVisible();
+      await expect(page.getByTestId('booking-confirmed-summary')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Appointment summary' })).toHaveCount(0);
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
 
       await page.evaluate(() => window.scrollTo(0, 0));
 

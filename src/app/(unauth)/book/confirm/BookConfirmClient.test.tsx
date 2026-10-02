@@ -423,6 +423,38 @@ describe('BookConfirmClient', () => {
     expect(addOnsSection).toHaveTextContent('Gel Pedicure: French Tips · $15+');
   });
 
+  it('keeps multi-service add-ons attached to their service and discloses manual pricing in the compact confirmed receipt', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        appointment: { id: 'appt_compact_multi', status: 'confirmed' },
+        manageUrl: 'https://salon-a.test/en/salon-a/manage/compact-multi',
+      },
+    }), { status: 201 }));
+
+    renderBasicConfirm({
+      services: [
+        { id: 'srv_manicure', name: 'Gel Manicure', price: 45, duration: 45 },
+        { id: 'srv_pedicure', name: 'Gel Pedicure', price: 55, duration: 55 },
+      ],
+      addOns: [
+        { serviceId: 'srv_manicure', serviceName: 'Gel Manicure', id: 'french', name: 'French Tips', quantity: 1, price: 10, duration: 15, priceDisplayText: '$10' },
+        { serviceId: 'srv_pedicure', serviceName: 'Gel Pedicure', id: 'french', name: 'French Tips', quantity: 2, price: 20, duration: 20 },
+        { serviceId: 'srv_pedicure', serviceName: 'Gel Pedicure', id: 'repair', name: 'Nail repair', quantity: 1, price: 0, duration: 10, priceMode: 'manual_confirmation' },
+      ],
+      totalPrice: 130,
+      totalDuration: 145,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    const receipt = await screen.findByTestId('booking-confirmed-summary');
+
+    expect(within(receipt).getByTestId('booking-receipt-services')).toHaveTextContent('Gel Manicure + French Tips ($10)');
+    expect(within(receipt).getByTestId('booking-receipt-services')).toHaveTextContent('Gel Pedicure + French Tips x2 + Nail repair (price to be confirmed)');
+    expect(within(receipt).getByTestId('booking-manual-price-note')).toHaveTextContent('not included in this subtotal');
+    expect(within(receipt).getByTestId('booking-receipt-total')).toHaveTextContent('$130');
+  });
+
   it('shows the shared salon message only after unchanged confirmed appointment details', async () => {
     bookingExperienceMock.confirmationMessage = 'Please arrive 10 minutes early.\nWe look forward to seeing you.';
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
@@ -455,12 +487,12 @@ describe('BookConfirmClient', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     const message = await screen.findByTestId('booking-confirmation-message');
-    const details = screen.getByText('Appointment summary');
+    const details = screen.getByTestId('booking-confirmed-summary');
 
     expect(message).toHaveTextContent('Please arrive 10 minutes early. We look forward to seeing you.');
     expect(message).toHaveClass('break-words', 'whitespace-pre-line');
     expect(details.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole('link', { name: /manage this appointment/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /manage appointment/i })).toHaveAttribute(
       'href',
       'https://salon-a.test/en/salon-a/manage/private-token',
     );
@@ -497,7 +529,7 @@ describe('BookConfirmClient', () => {
     renderBasicConfirm({ salonId: 'salon_internal_a' });
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
-    await screen.findByText('Appointment summary');
+    await screen.findByTestId('booking-confirmed-summary');
 
     expect(publicRecoveryMock.begin).toHaveBeenCalledWith(expect.objectContaining({
       salonId: 'salon_internal_a',
@@ -571,7 +603,7 @@ describe('BookConfirmClient', () => {
     expect(screen.getByText(/awaiting salon approval/i)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Start another booking' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Book another appointment' }));
 
     expect(publicRecoveryMock.clear).toHaveBeenCalledWith('salon_internal_a');
     expect(clearBookingState).toHaveBeenCalledTimes(1);
@@ -838,19 +870,20 @@ describe('BookConfirmClient', () => {
       },
     }), { status: 201 }));
 
-    renderBasicConfirm();
+    renderBasicConfirm({ clientChangeCutoffHours: 48 });
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     const statusHeading = await screen.findByRole('heading', { name: 'Appointment confirmed' });
-    const summary = screen.getByText('Appointment summary');
-    const celebration = screen.getByTestId('booking-success-celebration');
+    const summary = screen.getByTestId('booking-confirmed-summary');
 
     expect(statusHeading.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(summary.compareDocumentPosition(celebration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(statusHeading).toHaveFocus();
     expect(scrollToMock).toHaveBeenCalledWith({ top: 0, behavior: 'auto' });
-    expect(screen.getByText('Your time is reserved.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /manage this appointment/i })).toBeInTheDocument();
+    expect(screen.getByTestId('booking-success-celebration')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.queryByText('Your time is reserved.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Appointment summary')).not.toBeInTheDocument();
+    expect(screen.getByText('Change or cancel up to 48 hours before your appointment.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /manage appointment/i })).toBeInTheDocument();
   });
 
   it('shows configurable encouragement after confirmation and opens a server-validated next booking', async () => {
@@ -865,7 +898,7 @@ describe('BookConfirmClient', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
     const heading = await screen.findByText('Why not book your next visit now?');
 
-    expect(screen.getByText('Appointment summary').compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('booking-confirmed-summary').compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText('We recommend visiting every 4 weeks.')).toBeVisible();
     expect(screen.getByText('Choose your next spot.')).toBeVisible();
 
@@ -2092,12 +2125,12 @@ describe('BookConfirmClient', () => {
       fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
       const reminder = await screen.findByTestId('booking-policy-after-confirmation');
-      const summary = screen.getByText('Appointment summary');
-      const manage = screen.getByRole('link', { name: /manage this appointment/i });
+      const summary = screen.getByTestId('booking-confirmed-summary');
+      const manage = screen.getByRole('link', { name: /manage appointment/i });
       const expand = within(reminder).getByRole('button', { name: 'View full policy' });
 
       expect(summary.compareDocumentPosition(reminder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(reminder.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(manage.compareDocumentPosition(reminder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(reminder).toHaveTextContent('Please remember');
       expect(expand).toHaveAttribute('aria-expanded', 'false');
       expect(expand).toHaveClass(
@@ -2160,7 +2193,7 @@ describe('BookConfirmClient', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
-    const manageAction = await screen.findByRole('link', { name: /manage this appointment/i });
+    const manageAction = await screen.findByRole('link', { name: /manage appointment/i });
 
     expect(manageAction).toHaveAttribute('href', manageUrl);
     expect(screen.queryByRole('button', { name: /how to pay/i })).not.toBeInTheDocument();
@@ -2202,7 +2235,7 @@ describe('BookConfirmClient', () => {
       .toBeInTheDocument();
     expect(screen.getByRole('link', { name: /find my booking to receive a secure management link/i }))
       .toHaveAttribute('href', '/en/salon-a/find-booking');
-    expect(screen.queryByRole('link', { name: /manage this appointment/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /manage appointment/i })).not.toBeInTheDocument();
     expect(screen.queryByText('appt_private_123')).not.toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain('/change-appointment');
   });
@@ -2237,8 +2270,13 @@ describe('BookConfirmClient', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
-    const googleCalendar = await screen.findByRole('link', { name: /google calendar/i });
-    const appleCalendar = screen.getByRole('link', { name: /apple calendar/i });
+    const calendar = await screen.findByRole('button', { name: 'Add to calendar' });
+
+    calendar.focus();
+    fireEvent.keyDown(calendar, { key: 'Enter' });
+
+    const googleCalendar = await screen.findByRole('menuitem', { name: /google calendar/i });
+    const appleCalendar = screen.getByRole('menuitem', { name: /apple calendar/i });
 
     expect(googleCalendar).toHaveAttribute(
       'href',
@@ -2246,6 +2284,12 @@ describe('BookConfirmClient', () => {
     );
     expect(googleCalendar).toHaveAttribute('target', '_blank');
     expect(appleCalendar).toHaveAttribute('href', `${manageUrl}/calendar.ics`);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+
+    expect(calendar).toHaveFocus();
   });
 
   it('keeps passive earned-points context without exposing a rewards account action', async () => {
@@ -3385,7 +3429,7 @@ describe('BookConfirmClient deposit disclosure', () => {
 
     renderClient({ depositDisclosure: null, depositFingerprint: 'deposit-v1:none' });
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
-    await screen.findByText('Appointment summary');
+    await screen.findByTestId('booking-confirmed-summary');
 
     expect(fetchMock.mock.calls.length).toBe(1);
     expect(screen.queryByTestId('booking-deposit-disclosure')).not.toBeInTheDocument();
@@ -3402,7 +3446,7 @@ describe('BookConfirmClient deposit disclosure', () => {
       depositFingerprint: 'deposit-v1:cad:1800',
     });
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
-    await screen.findByText('Appointment summary');
+    await screen.findByTestId('booking-confirmed-summary');
 
     expect(fetchMock.mock.calls.length).toBe(1);
     expect(screen.queryByTestId('booking-deposit-disclosure')).not.toBeInTheDocument();

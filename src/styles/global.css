@@ -552,3 +552,25 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Compact attribution only after a confirmed result. Other public pages keep
+   their recovery/owner links and existing free-plan attribution eligibility. */
+body:has([data-booking-result='confirmed']) [data-testid='public-salon-footer'] {
+  background: var(--n5-bg-page, #fdf7f0);
+  color: var(--n5-ink-main, #3f2b24);
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+body:has([data-booking-result='confirmed']) [data-testid='public-salon-footer'] [data-footer-utility] {
+  display: none;
+}
+
+[data-booking-result='confirmed'] .booking-confirm-secondary {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+body:has([data-booking-result='confirmed']) [data-testid='public-salon-footer'] a {
+  color: inherit;
+}
