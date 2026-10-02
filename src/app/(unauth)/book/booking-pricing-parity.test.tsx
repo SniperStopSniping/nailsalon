@@ -403,7 +403,7 @@ describe('booking pricing parity', () => {
     expect(timeProps.totalDuration).toBe(confirmProps.totalDuration);
     // Confirm also receives catalog presentation fields for its compact receipt.
     // Compare every canonical price/duration field independently of that metadata.
-    expect(confirmProps.services).toEqual(timeProps.services.map((service: Record<string, unknown>, index: number) => ({
+    expect(confirmProps.services).toEqual((timeProps.services as Array<Record<string, unknown>>).map((service, index) => ({
       ...service,
       imageUrl: resolvedSelection.services[index]?.imageUrl,
       priceDisplayText: resolvedSelection.services[index]?.priceDisplayText,

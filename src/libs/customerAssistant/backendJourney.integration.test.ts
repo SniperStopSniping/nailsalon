@@ -458,6 +458,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     }
 
     expect(appointment).toMatchObject({ status: 'confirmed', completedAt: null });
+
     const consents = await database.select().from(schema.communicationConsentSchema)
       .where(eq(schema.communicationConsentSchema.salonId, SALON));
 
