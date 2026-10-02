@@ -2,7 +2,11 @@ import 'server-only';
 
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
-import { BOOKING_SMS_SEPARATED_WORDING_VERSION, type BookingSmsSelection } from '@/libs/bookingSmsConsent';
+import {
+  BOOKING_SMS_AUTHORITATIVE_WORDING_VERSIONS,
+  type BookingSmsSelection,
+  usesAuthoritativeBookingSmsChoice,
+} from '@/libs/bookingSmsConsent';
 import { db } from '@/libs/DB';
 import { isValidPhone } from '@/libs/phone';
 import { hasGlobalSuppression, normalizeConsentRecipient } from '@/libs/smsConsentShared';
@@ -35,7 +39,8 @@ function resolveEligibility(input: {
   if (input.sharedStopped || input.providerStopped) {
     return { state: 'opted_out', selection: null };
   }
-  const independentlyRecordedChoice = input.purposeChoice?.wordingVersion === BOOKING_SMS_SEPARATED_WORDING_VERSION
+  const independentlyRecordedChoice = input.purposeChoice !== undefined
+    && usesAuthoritativeBookingSmsChoice(input.purposeChoice.wordingVersion)
     && !(input.explicitChoice?.selection === 'explicit_off'
       && input.explicitChoice.createdAt.getTime() > input.purposeChoice.createdAt.getTime());
   if (independentlyRecordedChoice && input.purposeChoice) {
@@ -138,7 +143,8 @@ export async function getClientSmsPurposeEligibility(input: {
         eq(communicationConsentSchema.channel, 'sms'),
         sql`${communicationConsentSchema.metadata} ->> 'selection' in ('explicit_on', 'explicit_off')`,
         sql`${communicationConsentSchema.source} <> 'twilio_inbound'`,
-        sql`${communicationConsentSchema.wordingVersion} <> ${BOOKING_SMS_SEPARATED_WORDING_VERSION}`,
+        sql`${communicationConsentSchema.wordingVersion} <> ${BOOKING_SMS_AUTHORITATIVE_WORDING_VERSIONS[0]}`,
+        sql`${communicationConsentSchema.wordingVersion} <> ${BOOKING_SMS_AUTHORITATIVE_WORDING_VERSIONS[1]}`,
       ))
       .orderBy(desc(communicationConsentSchema.createdAt), desc(communicationConsentSchema.id)).limit(1),
     database.select({ id: salonClientSchema.id }).from(salonClientSchema)
@@ -208,7 +214,8 @@ export async function getClientSmsPurposeEligibilityBatch(input: {
       inArray(communicationConsentSchema.recipient, recipients),
       sql`${communicationConsentSchema.metadata} ->> 'selection' in ('explicit_on', 'explicit_off')`,
       sql`${communicationConsentSchema.source} <> 'twilio_inbound'`,
-      sql`${communicationConsentSchema.wordingVersion} <> ${BOOKING_SMS_SEPARATED_WORDING_VERSION}`,
+      sql`${communicationConsentSchema.wordingVersion} <> ${BOOKING_SMS_AUTHORITATIVE_WORDING_VERSIONS[0]}`,
+      sql`${communicationConsentSchema.wordingVersion} <> ${BOOKING_SMS_AUTHORITATIVE_WORDING_VERSIONS[1]}`,
     )).orderBy(communicationConsentSchema.recipient, desc(communicationConsentSchema.createdAt), desc(communicationConsentSchema.id)),
     db.selectDistinctOn([communicationConsentSchema.recipient], {
       recipient: communicationConsentSchema.recipient,

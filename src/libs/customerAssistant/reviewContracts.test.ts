@@ -43,4 +43,32 @@ describe('customer review SMS consent contract', () => {
       },
     }).success).toBe(false);
   });
+
+  it('accepts the combined v4 choice but rejects a split promotional payload or default-on', () => {
+    expect(customerReviewRequestSchema.safeParse({
+      ...request,
+      smsConsent: {
+        granted: false,
+        selection: 'default_off',
+        wordingVersion: 'booking-sms-combined-v4',
+      },
+    }).success).toBe(true);
+    expect(customerReviewRequestSchema.safeParse({
+      ...request,
+      smsConsent: {
+        granted: false,
+        selection: 'default_off',
+        wordingVersion: 'booking-sms-combined-v4',
+        promotionsGranted: false,
+      },
+    }).success).toBe(false);
+    expect(customerReviewRequestSchema.safeParse({
+      ...request,
+      smsConsent: {
+        granted: true,
+        selection: 'default_on',
+        wordingVersion: 'booking-sms-combined-v4',
+      },
+    }).success).toBe(false);
+  });
 });

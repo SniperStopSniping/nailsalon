@@ -77,6 +77,7 @@ import {
   validatePublicBookingSelection,
 } from '@/libs/bookingQuote';
 import {
+  BOOKING_SMS_COMBINED_WORDING_VERSION,
   BOOKING_SMS_EXPANDED_PURPOSES,
   includesExpandedBookingSmsPurposes,
   resolveBookingSmsConsentDecision,
@@ -355,6 +356,10 @@ const createAppointmentSchema = z.object({
     wordingVersion: z.string().min(1).max(50),
     selection: z.enum(['default_on', 'default_off', 'explicit_on', 'explicit_off']).optional(),
     promotionsGranted: z.boolean().optional(),
+  }).superRefine((value, context) => {
+    if (value.wordingVersion === BOOKING_SMS_COMBINED_WORDING_VERSION && value.promotionsGranted !== undefined) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Combined SMS consent cannot include a separate promotion selection', path: ['promotionsGranted'] });
+    }
   }).optional(),
   startTime: z.string().datetime({ message: 'Invalid datetime format. Use ISO 8601.' }),
   appointmentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'appointmentDate must be YYYY-MM-DD').optional(),

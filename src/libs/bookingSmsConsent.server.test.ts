@@ -138,6 +138,70 @@ describe('appointment reminder preference reader', () => {
     expect(batch).toEqual(new Map([['4165550187', true], ['4165550186', false]]));
   });
 
+  it('keeps an unchecked combined v4 choice off for every purpose and appointment delivery', async () => {
+    const { getClientSmsPurposeEligibility, getClientSmsPurposeEligibilityBatch } = await import('./clientSmsEligibility.server');
+    const { getAppointmentSmsDeliveryPreference } = await import('./bookingSmsConsent.server');
+    const phone = '4165550185';
+    await database.insert(schema.salonClientSchema).values({ id: 'combined-default-off-a', salonId: 'prefs-a', phone });
+    for (const purpose of ['appointment_reminders', 'appointment_transactional', 'salon_promotions'] as const) {
+      await preference(phone, 'revoked', {
+        purpose,
+        wordingVersion: 'booking-sms-combined-v4',
+        metadata: {
+          appointmentId: 'combined-default-off-booking',
+          selection: 'default_off',
+          selectionWasExplicit: false,
+        },
+      });
+
+      expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone, purpose })).toMatchObject({
+        state: 'customer_disabled',
+        selection: 'default_off',
+      });
+    }
+
+    expect(await getClientSmsPurposeEligibilityBatch({ salonId: 'prefs-a', phones: [phone], purpose: 'salon_promotions' }))
+      .toEqual(new Map([[phone, false]]));
+    expect(await getAppointmentSmsDeliveryPreference({
+      salonId: 'prefs-a',
+      phone,
+      appointmentId: 'combined-default-off-booking',
+    })).toMatchObject({ state: 'customer_disabled', selection: 'default_off' });
+  });
+
+  it.each([
+    { wordingVersion: 'booking-sms-reminders-v1', phone: '4165550106', state: 'enabled', selection: 'explicit_on' },
+    { wordingVersion: 'booking-sms-separated-v3', phone: '4165550107', state: 'customer_disabled', selection: 'default_off' },
+    { wordingVersion: 'booking-sms-combined-v4', phone: '4165550108', state: 'customer_disabled', selection: 'default_off' },
+  ])('preserves per-appointment default-off semantics for $wordingVersion after a newer opt-in', async ({ wordingVersion, phone, state, selection }) => {
+    const { getAppointmentSmsDeliveryPreference } = await import('./bookingSmsConsent.server');
+
+    await database.insert(schema.salonClientSchema).values({ id: `older-default-${phone}`, salonId: 'prefs-a', phone });
+    await preference(phone, 'revoked', { wordingVersion, metadata: { appointmentId: 'older-default', selection: 'default_off', selectionWasExplicit: false } });
+    await preference(phone, 'granted', { wordingVersion: 'booking-sms-combined-v4', metadata: { appointmentId: 'newer-opt-in', selection: 'explicit_on', selectionWasExplicit: true } });
+
+    expect(await getAppointmentSmsDeliveryPreference({ salonId: 'prefs-a', phone, appointmentId: 'older-default' }))
+      .toMatchObject({ state, selection });
+  });
+
+  it('keeps shared sender STOP authoritative after a later combined opt-in', async () => {
+    const { getClientSmsPurposeEligibility, getClientSmsPurposeEligibilityBatch } = await import('./clientSmsEligibility.server');
+    const { getAppointmentSmsDeliveryPreference } = await import('./bookingSmsConsent.server');
+    const phone = '4165550109';
+
+    await database.insert(schema.salonClientSchema).values({ id: 'combined-stop-a', salonId: 'prefs-a', phone });
+    await database.insert(schema.smsGlobalConsentEventSchema).values({ id: 'combined-stop', senderIdentity: 'test-sender', recipient: phone, state: 'suppressed', source: 'twilio_inbound' });
+    for (const purpose of ['appointment_reminders', 'appointment_transactional', 'salon_promotions'] as const) {
+      await preference(phone, 'granted', { purpose, wordingVersion: 'booking-sms-combined-v4', metadata: { appointmentId: 'combined-stop-appointment', selection: 'explicit_on', selectionWasExplicit: true } });
+
+      expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone, purpose })).toMatchObject({ state: 'opted_out' });
+      expect(await getClientSmsPurposeEligibilityBatch({ salonId: 'prefs-a', phones: [phone], purpose })).toEqual(new Map([[phone, false]]));
+    }
+
+    expect(await getAppointmentSmsDeliveryPreference({ salonId: 'prefs-a', phone, appointmentId: 'combined-stop-appointment' }))
+      .toMatchObject({ state: 'opted_out' });
+  });
+
   it('batches promotional and appointment eligibility with the same result as individual send checks', async () => {
     const { getClientSmsPurposeEligibilityBatch, getClientSmsPurposeEligibility } = await import('./clientSmsEligibility.server');
     await database.insert(schema.salonClientSchema).values([

@@ -1,6 +1,13 @@
 import { z } from 'zod';
 
-import { BOOKING_SMS_SELECTIONS, BOOKING_SMS_SEPARATED_WORDING_VERSION, BOOKING_SMS_WORDING_VERSION, type BookingSmsMode, type BookingSmsSelection } from '@/libs/bookingSmsConsent';
+import {
+  BOOKING_SMS_COMBINED_WORDING_VERSION,
+  BOOKING_SMS_SELECTIONS,
+  BOOKING_SMS_SEPARATED_WORDING_VERSION,
+  BOOKING_SMS_WORDING_VERSION,
+  type BookingSmsMode,
+  type BookingSmsSelection,
+} from '@/libs/bookingSmsConsent';
 
 import type { CustomerBookingOperationReference } from './bookingOperationContracts';
 import { customerContactRequestSchema } from './contact';
@@ -13,6 +20,7 @@ export const customerReviewRequestSchema = z.object({
   smsConsent: z.union([
     z.object({ granted: z.boolean(), wordingVersion: z.enum(['booking-sms-reminders-v1', BOOKING_SMS_WORDING_VERSION]), selection: z.enum(BOOKING_SMS_SELECTIONS) }).strict(),
     z.object({ granted: z.boolean(), wordingVersion: z.literal(BOOKING_SMS_SEPARATED_WORDING_VERSION), selection: z.enum(BOOKING_SMS_SELECTIONS), promotionsGranted: z.boolean().optional() }).strict(),
+    z.object({ granted: z.boolean(), wordingVersion: z.literal(BOOKING_SMS_COMBINED_WORDING_VERSION), selection: z.enum(['default_off', 'explicit_on', 'explicit_off']) }).strict(),
   ]).optional(),
 }).strict();
 
