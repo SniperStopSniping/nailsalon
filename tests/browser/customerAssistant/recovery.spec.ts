@@ -113,7 +113,7 @@ async function openConfirm(page: Page) {
   await page.setViewportSize({ width: 320, height: 844 });
   await page.goto(`/en/${SALON_SLUG}/book/confirm`);
 
-  await expect(page.getByRole('heading', { name: 'Review your appointment' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Review & confirm' })).toBeVisible();
 }
 
 async function fillGuestDetails(page: Page) {
