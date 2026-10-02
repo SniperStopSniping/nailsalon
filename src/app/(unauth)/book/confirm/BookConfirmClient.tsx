@@ -1,9 +1,10 @@
 'use client';
 
-import confetti from 'canvas-confetti';
-import { motion } from 'framer-motion';
+import { Content as CalendarMenuContent } from '@radix-ui/react-dropdown-menu';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   AlertCircle,
+  ArrowRight,
   Calendar,
   Check,
   ChevronLeft,
@@ -13,7 +14,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
-  Star,
   User,
 } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -24,6 +24,7 @@ import { ConfirmationRebookingCard } from '@/components/booking/ConfirmationRebo
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { BookingStatusCard } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import { useHoldCountdown } from '@/components/deposits/HoldCountdown';
+import { DropdownMenu, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { SectionCard } from '@/components/ui/section-card';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
@@ -362,56 +363,6 @@ const formatTime12h = (timeString: string) => {
   return `${displayHour}:${minutes} ${ampm}`;
 };
 
-const triggerLuxuryConfetti = () => {
-  if (typeof window !== 'undefined') {
-    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
-    if (mq?.matches) {
-      return;
-    }
-  } else {
-    return;
-  }
-
-  const duration = 1200;
-  const end = Date.now() + duration;
-  const colors = ['#D6A249', '#FDF7F0', '#3F2B24', '#FFFFFF'];
-
-  (function frame() {
-    confetti({
-      particleCount: 4,
-      angle: 60,
-      spread: 55,
-      origin: { x: 0.1, y: 0.8 },
-      colors,
-      zIndex: 9999,
-    });
-    confetti({
-      particleCount: 4,
-      angle: 120,
-      spread: 55,
-      origin: { x: 0.9, y: 0.8 },
-      colors,
-      zIndex: 9999,
-    });
-
-    if (Date.now() < end) {
-      requestAnimationFrame(frame);
-    }
-  }());
-
-  setTimeout(() => {
-    confetti({
-      particleCount: 150,
-      spread: 100,
-      origin: { y: 0.7 },
-      colors,
-      gravity: 1.2,
-      scalar: 1.2,
-      zIndex: 9999,
-    });
-  }, 200);
-};
-
 // --- Subcomponents ---
 
 const POLICY_COLLAPSE_THRESHOLDS = {
@@ -564,50 +515,6 @@ const QuickFactBadges = ({
   );
 };
 
-const SummaryRow = ({
-  icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  detail?: string | null;
-}) => (
-  <div
-    className="booking-detail-row flex items-start gap-3 rounded-2xl border px-4 py-3"
-    style={{
-      borderColor: 'var(--n5-border-muted)',
-      backgroundColor: 'color-mix(in srgb, var(--n5-bg-card) 72%, var(--n5-bg-page))',
-    }}
-  >
-    <div
-      className="flex size-10 shrink-0 items-center justify-center"
-      style={{
-        borderRadius: n5.radiusMd,
-        backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, var(--n5-bg-card))',
-        color: 'var(--n5-accent)',
-      }}
-    >
-      {icon}
-    </div>
-    <div className="min-w-0 flex-1">
-      <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-        {label}
-      </p>
-      <p className="font-body mt-1 text-sm font-semibold text-[var(--n5-ink-main)]">
-        {value}
-      </p>
-      {detail && (
-        <p className="font-body mt-1 text-xs leading-relaxed text-[var(--n5-ink-muted)]">
-          {detail}
-        </p>
-      )}
-    </div>
-  </div>
-);
-
 const BookingCard = ({
   services,
   addOns,
@@ -636,16 +543,26 @@ const BookingCard = ({
   /** Preformatted total (Smart Fit pricing) — falls back to the legacy `$n` render. */
   totalPriceDisplay?: string;
 }) => {
-  const serviceNames = [
-    ...services.map(s => s.name),
-    ...addOns.map((addOn) => {
-      const quantity = addOn.quantity > 1 ? ` x${addOn.quantity}` : '';
-      const price = addOn.priceMode === 'manual_confirmation'
-        ? 'price to be confirmed'
-        : addOn.priceDisplayText ?? `$${addOn.price}`;
-      return `${addOn.serviceName ? `${addOn.serviceName}: ` : ''}${addOn.name}${quantity} · ${price}`;
-    }),
-  ].join(' + ');
+  const addOnLabel = (addOn: AddOnSummary) => {
+    const quantity = addOn.quantity > 1 ? ` x${addOn.quantity}` : '';
+    const price = addOn.priceMode === 'manual_confirmation'
+      ? 'price to be confirmed'
+      : addOn.priceDisplayText ?? `$${addOn.price}`;
+    // The receipt already groups add-ons beneath the selected service. Remove
+    // only an exact repeated parent label; configured names and price text stay
+    // untouched, including names that merely start similarly.
+    const selectedService = services.length === 1 ? services[0] ?? null : null;
+    const repeatsSelectedService = selectedService !== null
+      && addOn.serviceName === selectedService.name
+      && (addOn.serviceId === undefined || addOn.serviceId === selectedService.id);
+    return `${repeatsSelectedService || !addOn.serviceName ? '' : `${addOn.serviceName}: `}${addOn.name}${quantity} · ${price}`;
+  };
+  const addOnKey = (addOn: AddOnSummary, index: number) => {
+    if (addOn.serviceId) {
+      return `${addOn.serviceId}:${addOn.id}`;
+    }
+    return `${addOn.serviceName ?? 'legacy'}:${addOn.id}:${index}`;
+  };
 
   const formatDate = (dateString: string) => {
     if (!dateString) {
@@ -680,23 +597,77 @@ const BookingCard = ({
         className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
         headerClassName="booking-review-summary-header"
         actions={(
-          <div className="text-right">
-            <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <p className="font-body text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">
               {addOns.some(addOn => addOn.priceMode === 'manual_confirmation') ? 'Current booking subtotal' : 'Estimated total'}
             </p>
-            <p className="font-heading mt-1 text-2xl font-bold text-[var(--n5-accent)]">
+            <p data-testid="booking-receipt-total" className="font-heading text-2xl font-semibold leading-8 text-[var(--n5-ink-main)]">
               {totalPriceDisplay ?? `$${totalPrice}`}
             </p>
           </div>
         )}
-        contentClassName="space-y-3"
+        contentClassName="divide-y divide-[var(--n5-border-muted)]"
       >
         {addOns.some(addOn => addOn.priceMode === 'manual_confirmation') && (
-          <p data-testid="booking-manual-price-note" className="rounded-xl bg-[var(--n5-bg-muted)] px-3 py-2 text-xs font-semibold text-[var(--n5-ink-main)]">
+          <p data-testid="booking-manual-price-note" className="mb-4 rounded-xl bg-[var(--n5-bg-muted)] px-3 py-2 text-sm font-semibold text-[var(--n5-ink-main)]">
             Additional item: price to be confirmed by your nail tech. It is not included in this subtotal.
           </p>
         )}
-        <div className="booking-artist-row flex items-center gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: 'var(--n5-border-muted)' }}>
+        <div data-testid="booking-receipt-when" className="flex items-center gap-3 pb-4">
+          <div
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--n5-ink-main)]"
+            style={{ backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, var(--n5-bg-card))' }}
+          >
+            <Calendar aria-hidden="true" className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-body text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">When</p>
+            <p className="font-heading mt-1 text-2xl font-semibold leading-8 text-[var(--n5-ink-main)]">
+              {formatDate(dateStr)}
+            </p>
+            <p className="font-body mt-0.5 text-base font-semibold leading-6 text-[var(--n5-ink-main)]">{formatTime(timeStr)}</p>
+          </div>
+        </div>
+
+        <div data-testid="booking-receipt-services" className="py-4">
+          <p className="font-body text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">Services</p>
+          <ul
+            data-public-surface="appointmentSummaryCard"
+            className="mt-2 space-y-1.5"
+            aria-label="Booked services"
+          >
+            {services.map(service => (
+              <li key={service.id} className="font-body text-base font-semibold leading-6 text-[var(--n5-ink-main)]">{service.name}</li>
+            ))}
+          </ul>
+          {addOns.length > 0 && (
+            <>
+              <p className="font-body mt-3 text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">Add-ons</p>
+              <ul
+                data-public-surface="appointmentSummaryCard"
+                data-testid="booking-receipt-add-ons"
+                className="mt-2 space-y-1.5"
+                aria-label="Booked add-ons"
+              >
+                {addOns.map((addOn, index) => (
+                  <li key={addOnKey(addOn, index)} className="font-body break-words text-base leading-6 text-[var(--n5-ink-main)]">
+                    {addOnLabel(addOn)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {rewardsEnabled && (
+            <p className="font-body mt-3 text-sm leading-6 text-[var(--n5-ink-muted)]">
+              Estimated reward after completion: +
+              {pointsEarned.toLocaleString()}
+              {' '}
+              points
+            </p>
+          )}
+        </div>
+
+        <div className="booking-artist-row flex items-center gap-3 py-4">
           {technician
             ? (
                 <div
@@ -707,6 +678,7 @@ const BookingCard = ({
                     name={technician.name}
                     imageUrl={technician.imageUrl}
                     className="size-full"
+                    fallbackClassName="rounded-full bg-none bg-[var(--n5-bg-page)] text-[var(--n5-ink-main)]"
                     sizes="48px"
                   />
                 </div>
@@ -719,50 +691,42 @@ const BookingCard = ({
                     backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, var(--n5-bg-card))',
                   }}
                 >
-                  <User className="size-5 text-[var(--n5-accent)]" />
+                  <User aria-hidden="true" className="size-5 text-[var(--n5-ink-main)]" />
                 </div>
               )}
           <div className="min-w-0 flex-1">
-            <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+            <p className="font-body text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">
               Artist
             </p>
-            <p className="font-body mt-1 text-sm font-semibold text-[var(--n5-ink-main)]">
+            <p className="font-body mt-1 text-base font-semibold leading-6 text-[var(--n5-ink-main)]">
               {technician?.name ?? 'Any available artist'}
             </p>
           </div>
           <div
-            className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold"
+            data-testid="booking-receipt-duration"
+            className="shrink-0 rounded-full px-3 py-1 text-sm font-semibold leading-5"
             style={{
               backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, var(--n5-bg-card))',
-              color: 'var(--n5-accent)',
+              color: 'var(--n5-ink-main)',
             }}
           >
             {formatDuration(totalDuration)}
           </div>
         </div>
-
-        <SummaryRow
-          icon={<Star className="size-4" />}
-          label="Service"
-          value={serviceNames}
-          detail={rewardsEnabled
-            ? `Estimated reward after completion: +${pointsEarned.toLocaleString()} points`
-            : null}
-        />
-        <SummaryRow
-          icon={<Calendar className="size-4" />}
-          label="When"
-          value={`${formatDate(dateStr)} at ${formatTime(timeStr)}`}
-        />
         {location && (
-          <SummaryRow
-            icon={<MapPin className="size-4" />}
-            label="Location"
-            value={location.name}
-            detail={location.address
-              ? `${location.address}${location.city ? `, ${location.city}` : ''}`
-              : null}
-          />
+          <div className="flex items-start gap-3 pt-4">
+            <MapPin aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-[var(--n5-ink-main)]" />
+            <div className="min-w-0">
+              <p className="font-body text-sm font-medium leading-5 text-[var(--n5-ink-muted)]">Location</p>
+              <p className="font-body mt-1 text-base font-semibold leading-6 text-[var(--n5-ink-main)]">{location.name}</p>
+              {location.address && (
+                <p className="font-body mt-1 text-sm leading-6 text-[var(--n5-ink-muted)]">
+                  {location.address}
+                  {location.city ? `, ${location.city}` : ''}
+                </p>
+              )}
+            </div>
+          </div>
         )}
       </SectionCard>
     </motion.div>
@@ -1454,24 +1418,24 @@ const ConfirmContent = ({
             className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
             contentClassName="space-y-3 pt-0"
           >
-            <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+            <label className="block text-sm font-semibold text-[var(--n5-ink-muted)]">
               <span className="flex items-baseline justify-between gap-2">
                 Name
-                <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]">Required</span>
+                <span className="text-xs font-medium text-[var(--n5-ink-muted)]">Required</span>
               </span>
               <input aria-label="Customer name" required aria-required="true" autoComplete="name" disabled={isSubmitting} value={guestName} onChange={event => onGuestNameChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
             </label>
-            <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+            <label className="block text-sm font-semibold text-[var(--n5-ink-muted)]">
               <span className="flex items-baseline justify-between gap-2">
                 Email
-                <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]">Required</span>
+                <span className="text-xs font-medium text-[var(--n5-ink-muted)]">Required</span>
               </span>
               <input aria-label="Customer email" required aria-required="true" type="email" autoComplete="email" disabled={isSubmitting} value={guestEmail} onChange={event => onGuestEmailChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
             </label>
-            <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
+            <label className="block text-sm font-semibold text-[var(--n5-ink-muted)]">
               <span className="flex items-baseline justify-between gap-2">
                 Mobile phone
-                <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]">Required</span>
+                <span className="text-xs font-medium text-[var(--n5-ink-muted)]">Required</span>
               </span>
               <input aria-label="Customer phone" required aria-required="true" type="tel" inputMode="tel" autoComplete="tel" disabled={isSubmitting} value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
             </label>
@@ -1708,8 +1672,10 @@ const ConfirmContent = ({
             }
             className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
+              backgroundColor: 'var(--n5-button-primary-bg, var(--n5-accent))',
               borderRadius: n5.radiusMd,
               boxShadow: n5.shadowSm,
+              color: 'var(--n5-button-primary-text, #3F2B24)',
             }}
           >
             {isSubmitting
@@ -1750,10 +1716,10 @@ const ConfirmContent = ({
               triggerHaptic('select');
               onEditSelection();
             }}
-            className="font-body flex min-h-11 w-full items-center justify-center gap-2 border px-3 py-2.5 text-sm font-semibold text-[var(--n5-accent)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            className="font-body flex min-h-11 w-full items-center justify-center gap-2 border px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               borderRadius: n5.radiusMd,
-              borderColor: 'var(--n5-accent)',
+              borderColor: 'var(--booking-brand-state-border, var(--n5-ink-main))',
             }}
           >
             <RefreshCw className="size-4" />
@@ -1762,6 +1728,108 @@ const ConfirmContent = ({
         </motion.div>
       </main>
     </div>
+  );
+};
+
+const ConfirmedReceipt = ({
+  services,
+  addOns,
+  technician,
+  totalDuration,
+  totalPriceDisplay,
+  dateStr,
+  timeStr,
+  location,
+}: {
+  services: ServiceSummary[];
+  addOns: AddOnSummary[];
+  technician: TechnicianSummary;
+  totalDuration: number;
+  totalPriceDisplay: string;
+  dateStr: string;
+  timeStr: string;
+  location: LocationSummary;
+}) => {
+  const date = dateStr ? new Date(`${dateStr}T00:00:00`) : null;
+  const dateLabel = date && !Number.isNaN(date.getTime())
+    ? date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    : 'Not selected';
+  const matchingService = (addOn: AddOnSummary) => services.find(service => (
+    addOn.serviceId ? addOn.serviceId === service.id : addOn.serviceName ? addOn.serviceName === service.name : services.length === 1
+  ));
+  const addOnName = (addOn: AddOnSummary) => `${addOn.name}${addOn.quantity > 1 ? ` x${addOn.quantity}` : ''}${addOn.priceMode === 'manual_confirmation' ? ' (price to be confirmed)' : addOn.priceDisplayText ? ` (${addOn.priceDisplayText})` : ''}`;
+  const manualPricing = addOns.some(addOn => addOn.priceMode === 'manual_confirmation');
+
+  return (
+    <section
+      data-testid="booking-confirmed-summary"
+      data-public-surface="appointmentSummaryCard"
+      aria-label="Appointment details"
+      className="divide-y divide-[var(--n5-border-muted)] rounded-3xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 text-[var(--n5-ink-main)] shadow-sm"
+    >
+      <div data-testid="booking-receipt-when" className="flex items-center gap-3 py-4">
+        <Calendar aria-hidden="true" className="size-5 shrink-0" />
+        <p className="font-heading min-w-0 text-[1.375rem] font-semibold leading-7">
+          {dateLabel}
+          {' · '}
+          {formatTime12h(timeStr)}
+        </p>
+      </div>
+      <div data-testid="booking-receipt-services" className="flex items-start gap-3 py-3">
+        <Sparkles aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+        <div className="min-w-0 space-y-1">
+          {services.map(service => (
+            <p key={service.id} className="font-body text-base font-semibold leading-6">
+              {service.name}
+              {addOns.filter(addOn => matchingService(addOn)?.id === service.id).map(addOn => (
+                <span data-testid="booking-receipt-add-ons" key={`${service.id}:${addOn.id}`}>
+                  {' + '}
+                  {addOnName(addOn)}
+                </span>
+              ))}
+            </p>
+          ))}
+          {addOns.filter(addOn => !matchingService(addOn)).map(addOn => (
+            <p data-testid="booking-receipt-add-ons" key={`${addOn.serviceId ?? addOn.serviceName ?? 'legacy'}:${addOn.id}`} className="font-body text-base leading-6">
+              {addOn.serviceName ? `${addOn.serviceName}: ` : ''}
+              {addOnName(addOn)}
+            </p>
+          ))}
+          <p className="font-body text-sm leading-5">
+            <span data-testid="booking-receipt-duration">{formatDuration(totalDuration)}</span>
+            {' · '}
+            <span data-testid="booking-receipt-total">{totalPriceDisplay.endsWith('.00') ? totalPriceDisplay.slice(0, -3) : totalPriceDisplay}</span>
+          </p>
+          {manualPricing && (
+            <p data-testid="booking-manual-price-note" className="font-body text-sm leading-5">
+              Additional item: price to be confirmed by your nail tech. It is not included in this subtotal.
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-start gap-3 py-3">
+        <User aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+        <div className="min-w-0">
+          <p className="font-body text-sm leading-5">Artist</p>
+          <p className="font-body text-base font-semibold leading-6">{technician?.name ?? 'Any available artist'}</p>
+        </div>
+      </div>
+      {location && (
+        <div className="flex items-start gap-3 py-3">
+          <MapPin aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-body text-sm leading-5">Location</p>
+            <p className="font-body text-base font-semibold leading-6">{location.name}</p>
+            {location.address && (
+              <p className="font-body text-sm leading-5">
+                {location.address}
+                {location.city ? `, ${location.city}` : ''}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
   );
 };
 
@@ -1827,6 +1895,9 @@ const SuccessContent = ({
 }) => {
   const t = useTranslations('BookingConfirmation');
   const isPending = bookingStatus === 'pending';
+  const prefersReducedMotion = useReducedMotion();
+  const resultHeadingRef = useRef<HTMLHeadingElement>(null);
+  const hasAnnouncedResultRef = useRef(false);
   const directionsUrl = buildGoogleMapsDirectionsUrl(location);
   const calendarStart = canonicalStartTime ? new Date(canonicalStartTime) : null;
   const calendarEnd = calendarStart ? new Date(calendarStart.getTime() + totalDuration * 60 * 1000) : null;
@@ -1839,42 +1910,90 @@ const SuccessContent = ({
     }).toString()}`
     : null;
 
+  const hasCalendarAction = !isPending && Boolean(googleCalendarUrl || manageUrl);
+
+  // Confirmation replaces a long review form. Bring a fresh result into view
+  // once, then put focus on its status so keyboard and screen-reader users get
+  // the same clear arrival point. A ref prevents later receipt updates from
+  // repeatedly stealing focus.
+  useEffect(() => {
+    if (hasAnnouncedResultRef.current) {
+      return;
+    }
+    hasAnnouncedResultRef.current = true;
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+    resultHeadingRef.current?.focus({ preventScroll: true });
+  }, [prefersReducedMotion]);
+
   return (
-    <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
+    <div
+      data-booking-result={bookingStatus}
+      className={`booking-confirm-page bg-[var(--n5-bg-page)] ${isPending ? 'min-h-screen' : ''}`}
+      style={{ fontFamily: n5.fontBody }}
+    >
       {recoveryError && <p role="alert" className="p-4">{recoveryError}</p>}
-      {/* Navbar */}
-      <nav
-        data-public-surface="bookingProgressHeader"
-        className="sticky top-0 z-40 flex items-center justify-between border-b px-5 py-3 backdrop-blur-md"
-        style={{
-          backgroundColor: 'color-mix(in srgb, var(--n5-bg-page) 80%, transparent)',
-          borderColor: 'var(--n5-border-muted)',
-        }}
-      >
-        <div className="w-10" />
-        <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
-          {isPending ? 'Request received' : 'Confirmed'}
-        </span>
-        <div className="w-10" />
-      </nav>
+      {isPending && (
+        <nav
+          data-public-surface="bookingProgressHeader"
+          className="sticky top-0 z-40 flex items-center justify-between border-b px-5 py-3 backdrop-blur-md"
+          style={{
+            backgroundColor: 'color-mix(in srgb, var(--n5-bg-page) 80%, transparent)',
+            borderColor: 'var(--n5-border-muted)',
+          }}
+        >
+          <div className="w-10" />
+          <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
+            {isPending ? 'Request received' : 'Confirmed'}
+          </span>
+          <div className="w-10" />
+        </nav>
+      )}
 
       {/* Main Content */}
-      <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-6">
-        <div data-testid="booking-result-receipt" className="space-y-5">
+      <main className="mx-auto max-w-lg space-y-4 px-5 pb-5 pt-6">
+        <div data-testid="booking-result-receipt" className="space-y-4">
           <motion.header
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center"
+            data-testid="booking-result-hero"
+            initial={prefersReducedMotion ? undefined : { opacity: 0, y: 12 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+            className="mx-auto max-w-sm text-center"
             role="status"
+            aria-live="polite"
           >
-            <h1 className="font-heading mb-1 text-2xl font-bold text-[var(--n5-ink-main)]">
-              {isPending ? 'Request received' : 'Appointment confirmed'}
+            {!isPending && (
+              <div
+                data-testid="booking-success-celebration"
+                aria-hidden="true"
+                className="mx-auto mb-2 flex size-8 items-center justify-center rounded-full border"
+                style={{
+                  borderColor: 'color-mix(in srgb, var(--n5-success) 30%, var(--n5-border-muted))',
+                  backgroundColor: 'color-mix(in srgb, var(--n5-success) 12%, var(--n5-bg-card))',
+                  color: 'color-mix(in srgb, var(--n5-success) 35%, var(--n5-ink-main))',
+                }}
+              >
+                <Check className="size-4" strokeWidth={2.5} />
+              </div>
+            )}
+            <h1
+              ref={resultHeadingRef}
+              data-testid="booking-result-heading"
+              tabIndex={-1}
+              className="font-heading text-2xl font-semibold leading-8 text-[var(--n5-ink-main)] outline-none"
+            >
+              {isPending ? 'Request received' : t('compact_confirmed')}
             </h1>
-            <p className="font-body text-sm text-[var(--n5-ink-muted)]">
-              {isPending
-                ? 'The salon will review your request before the appointment is confirmed.'
-                : 'Your time is reserved.'}
-            </p>
+            {!isPending && (
+              <p className="font-body mt-1 text-base leading-6 text-[var(--n5-ink-main)]">
+                {technician?.name?.trim()
+                  ? t('booked_with_artist', { name: technician.name.trim().split(/\s+/)[0] ?? technician.name })
+                  : t('booked_without_artist')}
+              </p>
+            )}
+            {isPending && (
+              <p className="font-body text-sm text-[var(--n5-ink-muted)]">
+                The salon will review your request before the appointment is confirmed.
+              </p>
+            )}
           </motion.header>
 
           <motion.div
@@ -1882,43 +2001,143 @@ const SuccessContent = ({
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.15 }}
           >
-            <BookingCard
-              services={services}
-              addOns={addOns}
-              technician={technician}
-              totalPrice={totalPrice}
-              totalDuration={totalDuration}
-              dateStr={dateStr}
-              timeStr={timeStr}
-              pointsEarned={pointsEarned}
-              location={location}
-              rewardsEnabled={rewardsEnabled}
-              resultStatus={bookingStatus}
-              totalPriceDisplay={totalPriceDisplay}
-            />
+            {isPending
+              ? (
+                  <BookingCard
+                    services={services}
+                    addOns={addOns}
+                    technician={technician}
+                    totalPrice={totalPrice}
+                    totalDuration={totalDuration}
+                    dateStr={dateStr}
+                    timeStr={timeStr}
+                    pointsEarned={pointsEarned}
+                    location={location}
+                    rewardsEnabled={rewardsEnabled}
+                    resultStatus={bookingStatus}
+                    totalPriceDisplay={totalPriceDisplay}
+                  />
+                )
+              : (
+                  <ConfirmedReceipt
+                    services={services}
+                    addOns={addOns}
+                    technician={technician}
+                    totalDuration={totalDuration}
+                    totalPriceDisplay={totalPriceDisplay}
+                    dateStr={dateStr}
+                    timeStr={timeStr}
+                    location={location}
+                  />
+                )}
           </motion.div>
         </div>
 
+        {/* Action Buttons */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="space-y-3"
+        >
+          {manageUrl
+            ? (
+                <a
+                  href={manageUrl}
+                  className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--n5-ink-main)] active:scale-[0.98]"
+                  style={{
+                    backgroundColor: 'var(--n5-button-primary-bg, var(--n5-accent))',
+                    borderRadius: n5.radiusPill,
+                    boxShadow: n5.shadowSm,
+                    color: 'var(--n5-button-primary-text, #3F2B24)',
+                  }}
+                >
+                  {isPending && <RefreshCw aria-hidden="true" className="size-5" />}
+                  <span>{isPending ? 'Manage this request' : t('manage_appointment')}</span>
+                  {!isPending && <ArrowRight aria-hidden="true" className="size-4" />}
+                </a>
+              )
+            : onManage
+              ? (
+                  <button type="button" onClick={onManage} className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--n5-ink-main)]" style={{ backgroundColor: 'var(--n5-button-primary-bg, var(--n5-accent))', borderRadius: n5.radiusPill, color: 'var(--n5-button-primary-text, #3F2B24)' }}>
+                    {isPending && <RefreshCw aria-hidden="true" className="size-5" />}
+                    <span>{isPending ? 'Manage this request' : t('manage_appointment')}</span>
+                    {!isPending && <ArrowRight aria-hidden="true" className="size-4" />}
+                  </button>
+                )
+              : (
+                  <div
+                    role="status"
+                    className="rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-sm leading-relaxed text-[var(--n5-ink-muted)]"
+                  >
+                    <p>
+                      {isPending
+                        ? 'Your request was received, but its private management link is not available on this screen.'
+                        : 'Your appointment is confirmed, but its private management link is not available on this screen.'}
+                    </p>
+                    <a
+                      href={findBookingUrl}
+                      className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--n5-ink-main)] underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                    >
+                      Find my booking to receive a secure management link
+                    </a>
+                  </div>
+                )}
+
+          <div className={`grid gap-2 ${hasCalendarAction && directionsUrl ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {hasCalendarAction && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="booking-confirm-secondary font-body flex min-h-11 items-center justify-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--booking-brand-state-border, var(--n5-ink-main))' }}>
+                    <Calendar aria-hidden="true" className="size-4 shrink-0" />
+                    {t('add_to_calendar')}
+                  </button>
+                </DropdownMenuTrigger>
+                <CalendarMenuContent align="start" sideOffset={4} className="z-50 w-56 min-w-0 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-1 text-sm text-[var(--n5-ink-main)] shadow-md">
+                  {googleCalendarUrl && (
+                    <DropdownMenuItem asChild className="min-h-11 focus:bg-[var(--n5-bg-page)] focus:text-[var(--n5-ink-main)]">
+                      <a href={googleCalendarUrl} target="_blank" rel="noreferrer">Google Calendar</a>
+                    </DropdownMenuItem>
+                  )}
+                  {manageUrl && (
+                    <DropdownMenuItem asChild className="min-h-11 focus:bg-[var(--n5-bg-page)] focus:text-[var(--n5-ink-main)]">
+                      <a href={`${manageUrl}/calendar.ics`}>Apple Calendar</a>
+                    </DropdownMenuItem>
+                  )}
+                </CalendarMenuContent>
+              </DropdownMenu>
+            )}
+            {directionsUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('select');
+                  onOpenDirections();
+                }}
+                className="booking-confirm-secondary font-body flex min-h-11 items-center justify-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold text-[var(--n5-ink-main)]"
+                style={{ borderColor: 'var(--booking-brand-state-border, var(--n5-ink-main))' }}
+              >
+                <MapPin aria-hidden="true" className="size-4 shrink-0" />
+                Directions
+              </button>
+            )}
+          </div>
+          {onStartAnother && (
+            <button type="button" onClick={onStartAnother} className="font-body flex min-h-11 w-full items-center justify-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--booking-brand-state-border, var(--n5-ink-main))' }}>
+              <Calendar aria-hidden="true" className="size-4 shrink-0" />
+              {t('book_another_appointment')}
+            </button>
+          )}
+          {isPending && (
+            <button type="button" onClick={onGoHome} className="font-body flex min-h-11 w-full items-center justify-center gap-2 text-sm font-semibold text-[var(--n5-ink-main)]">
+              <Home aria-hidden="true" className="size-4" />
+              Back to booking
+            </button>
+          )}
+        </motion.div>
+
         {!isPending && rebookingSettings?.enabled && onBookNext && (
           <ConfirmationRebookingCard settings={rebookingSettings} onBook={onBookNext} />
-        )}
-
-        {!isPending && (
-          <motion.div
-            data-testid="booking-success-celebration"
-            aria-hidden="true"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.3, type: 'spring', stiffness: 200 }}
-            className="text-center"
-          >
-            <div
-              className="mx-auto flex size-12 items-center justify-center bg-[var(--n5-success)]"
-              style={{ borderRadius: n5.radiusPill }}
-            >
-              <Check className="size-6 text-white" strokeWidth={3} />
-            </div>
-          </motion.div>
         )}
 
         {!isPending && policy.enabled && policy.showAfterConfirmation && policy.text && (
@@ -1941,107 +2160,14 @@ const SuccessContent = ({
           </motion.div>
         )}
 
-        {/* Action Buttons */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="space-y-3"
-        >
-          {manageUrl
-            ? (
-                <a
-                  href={manageUrl}
-                  className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
-                  style={{
-                    borderRadius: n5.radiusMd,
-                    boxShadow: n5.shadowSm,
-                  }}
-                >
-                  <RefreshCw className="size-5" />
-                  <span>{isPending ? 'Manage this request' : 'Manage this appointment'}</span>
-                </a>
-              )
-            : onManage
-              ? (
-                  <button type="button" onClick={onManage} className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)]" style={{ borderRadius: n5.radiusMd }}>
-                    <RefreshCw className="size-5" />
-                    <span>{isPending ? 'Manage this request' : 'Manage this appointment'}</span>
-                  </button>
-                )
-              : (
-                  <div
-                    role="status"
-                    className="rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-sm leading-relaxed text-[var(--n5-ink-muted)]"
-                  >
-                    <p>
-                      {isPending
-                        ? 'Your request was received, but its private management link is not available on this screen.'
-                        : 'Your appointment is confirmed, but its private management link is not available on this screen.'}
-                    </p>
-                    <a
-                      href={findBookingUrl}
-                      className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--n5-accent)] underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                    >
-                      Find my booking to receive a secure management link
-                    </a>
-                  </div>
-                )}
-
-          {!isPending && (googleCalendarUrl || manageUrl) && (
-            <div className="grid grid-cols-2 gap-2">
-              {googleCalendarUrl && (
-                <a href={googleCalendarUrl} target="_blank" rel="noreferrer" className="font-body flex min-h-11 items-center justify-center gap-1.5 rounded-xl border p-2 text-center text-xs font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
-                  <Calendar className="size-4" />
-                  Google Calendar
-                </a>
-              )}
-              {manageUrl && (
-                <a href={`${manageUrl}/calendar.ics`} className="font-body flex min-h-11 items-center justify-center gap-1.5 rounded-xl border p-2 text-center text-xs font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
-                  <Calendar className="size-4" />
-                  Apple Calendar
-                </a>
-              )}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1">
-            {directionsUrl && (
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic('select');
-                  onOpenDirections();
-                }}
-                className="font-body inline-flex min-h-11 items-center justify-center gap-1.5 p-2 text-xs font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
-                style={{
-                  borderRadius: n5.radiusMd,
-                  borderColor: 'var(--n5-border)',
-                }}
-              >
-                <MapPin className="size-4 text-[var(--n5-accent)]" />
-                <span>Directions</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                triggerHaptic('select');
-                onGoHome();
-              }}
-              className="font-body inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl p-2 text-xs font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
-              style={{ borderColor: 'var(--n5-border)' }}
-            >
-              <Home className="size-4" />
-              <span>Back to booking</span>
-            </button>
-            {onStartAnother && (
-              <button type="button" onClick={onStartAnother} className="font-body inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl p-2 text-xs font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]">
-                <span>Start another booking</span>
-              </button>
-            )}
-          </div>
-        </motion.div>
+        {!isPending && rewardsEnabled && (
+          <p className="font-body text-center text-sm leading-6 text-[var(--n5-ink-main)]">
+            Estimated reward after completion: +
+            {pointsEarned.toLocaleString()}
+            {' '}
+            points
+          </p>
+        )}
 
         {/* Footer */}
         <motion.div
@@ -2050,37 +2176,26 @@ const SuccessContent = ({
           transition={{ delay: 0.6 }}
           className="pt-1 text-center"
         >
-          <div className="mb-2 flex items-center justify-center gap-2">
-            {!isPending && <Sparkles className="size-4 text-[var(--n5-accent)]" />}
-            <span className="font-body text-sm text-[var(--n5-ink-muted)]">
-              {isPending ? 'The salon will review your request.' : 'We’re looking forward to your visit.'}
-            </span>
-            {!isPending && <Sparkles className="size-4 text-[var(--n5-accent)]" />}
-          </div>
           <>
             {smsReminderStatus === 'enabled' && smsConsentGranted && (
-              <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+              <p className="font-body text-sm leading-6 text-[var(--n5-ink-muted)]">
                 {t('sms_saved')}
               </p>
             )}
             {smsReminderStatus === 'customer_disabled' && (
-              <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+              <p className="font-body text-sm leading-6 text-[var(--n5-ink-muted)]">
                 {t('sms_off')}
               </p>
             )}
             {smsReminderStatus === 'opted_out' && (
-              <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+              <p className="font-body text-sm leading-6 text-[var(--n5-ink-muted)]">
                 {t('sms_opted_out')}
               </p>
             )}
           </>
           {!isPending && (
-            <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
-              You can change or cancel up to
-              {' '}
-              {clientChangeCutoffHours}
-              {' '}
-              hours before
+            <p className="font-body mt-0.5 text-sm leading-6 text-[var(--n5-ink-muted)]">
+              {t('cancellation_cutoff', { hours: clientChangeCutoffHours })}
             </p>
           )}
         </motion.div>
@@ -2404,7 +2519,6 @@ export function BookConfirmClient({
     if (resultStatus === 'confirmed') {
       setTimeout(() => {
         triggerHaptic('success');
-        triggerLuxuryConfetti();
       }, 300);
     }
   }, [navigateToCheckout, salonSlug]);

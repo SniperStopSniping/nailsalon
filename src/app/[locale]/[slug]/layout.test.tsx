@@ -331,6 +331,14 @@ describe('SlugTenantLayout — draft bookingPage config on an already-published 
     expect(probe.layout).toBe('quick_book');
     expect(probe.bookingTimeZone).toBe('America/Vancouver');
     expect(probe.ownerPreview).toEqual({ isPreviewing: false, actorType: null });
+
+    // The compact confirmation view scopes its utility-link suppression to a
+    // confirmed receipt. The ordinary public footer remains fully reachable.
+    const footer = screen.getByTestId('public-salon-footer');
+
+    expect(footer).toHaveTextContent('Free booking by Luster');
+    expect(footer.querySelectorAll('[data-footer-utility]')).toHaveLength(4);
+    expect(footer.querySelector('[data-footer-utility][href*="find-booking"]')).toBeInTheDocument();
   });
 
   it('the correct owner previewing a published salon sees the DRAFT config, with ownerPreview context threaded through — no banner from the layout itself', async () => {

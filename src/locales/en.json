@@ -285,6 +285,13 @@
     "error_correct": "Could not correct this no-show."
   },
   "BookingConfirmation": {
+    "compact_confirmed": "Appointment confirmed",
+    "booked_with_artist": "You’re booked with {name}.",
+    "booked_without_artist": "You’re booked.",
+    "manage_appointment": "Manage appointment",
+    "add_to_calendar": "Add to calendar",
+    "book_another_appointment": "Book another appointment",
+    "cancellation_cutoff": "Change or cancel up to {hours} hours before your appointment.",
     "next_visit_title": "Why not book your next visit now?",
     "next_visit_interval": "We recommend visiting every {weeks} weeks.",
     "next_visit_interval_one": "We recommend visiting every week.",

@@ -8,3 +8,12 @@ prototypes/site-builder-v2-booking-integration-lab/src/**/*.labtest.*
 prototypes/site-builder-v2-booking-integration-lab/src/**/*.test.*
 prototypes/site-builder-v2-booking-integration-lab/src/**/*.unit.*
 prototypes/site-builder-v2-booking-integration-lab/src/**/*.spec.*
+
+# Local QA, secrets and production media never belong in a deployment.
+local/
+.env*
+**/.env*
+!.env.example
+production/luster-videos/
+test-results/
+playwright-report/

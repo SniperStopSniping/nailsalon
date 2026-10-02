@@ -198,7 +198,7 @@ jobs:
       - run: npm ci
 
       - name: Test CI evidence and cancellation contracts
-        run: node --test scripts/ci-workflow.node-test.mjs
+        run: node --test scripts/ci-workflow.node-test.mjs scripts/validate-pr-commits.node-test.mjs
 
       # The deposits ladder is additive by construction. These paths carry the
       # SaaS billing surface, dependency manifests, migration set, deploy
@@ -1031,8 +1031,14 @@ jobs:
         # source-map upload coverage.
 
       - if: github.event_name == 'pull_request'
-        name: Validate all commits from PR
-        run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+        name: Validate commits introduced by the PR
+        env:
+          PR_BASE_BRANCH: ${{ github.base_ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          node scripts/validate-pr-commits.mjs
+          --base-branch "$PR_BASE_BRANCH"
+          --head "$PR_HEAD_SHA"
 
       - name: Linter
         run: npm run lint
@@ -1180,6 +1186,9 @@ jobs:
 
       - name: Verify Next Visit settings and guest rebooking in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/nextVisitOffer/playwright.config.ts --output=test-results/next-visit-components
+
+      - name: Verify customer review and confirmation in desktop and mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts confirmation-polish.spec.ts --output=test-results/booking-confirmation
 
       - name: Verify appointment management and checkout in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/appointmentWorkflow/playwright.config.ts --output=test-results/appointment-workflow-components

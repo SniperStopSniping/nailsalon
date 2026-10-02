@@ -166,7 +166,7 @@ test('a deliberate new booking clears only the resolved receipt and accepts a ne
 
   await expect(page.getByRole('heading', { name: 'Appointment confirmed' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Start another booking' }).click();
+  await page.getByRole('button', { name: 'Book another appointment', exact: true }).click();
 
   expect(await page.evaluate(key => sessionStorage.getItem(key), ATTEMPT_STORAGE_KEY)).toBeNull();
 
