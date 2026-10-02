@@ -9,7 +9,6 @@ import {
   Check,
   ChevronLeft,
   Home,
-  Info,
   MapPin,
   RefreshCw,
   ShieldCheck,
@@ -31,7 +30,7 @@ import { useBookingState } from '@/hooks/useBookingState';
 import type { BookingStep } from '@/libs/bookingFlow';
 import type { BookingBasket } from '@/libs/bookingParams';
 import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
-import { BOOKING_SMS_WORDING_VERSION } from '@/libs/bookingSmsConsent';
+import { BOOKING_SMS_SEPARATED_WORDING_VERSION } from '@/libs/bookingSmsConsent';
 import { computeCheckoutTotals, type ResolvedTaxConfig } from '@/libs/checkoutTotals';
 import type { CustomerBookingStatus } from '@/libs/customerAssistant/bookingOperationContracts';
 import { canStartAnotherBooking, startAnotherBooking } from '@/libs/customerAssistant/newBooking.client';
@@ -55,8 +54,6 @@ import {
   resolvePublicBookingAttempt,
 } from '@/libs/publicBookingRecovery.client';
 import { DEFAULT_REBOOKING_PROMPT_SETTINGS, type RebookingPromptSettings } from '@/libs/rebookingPromptSettings';
-import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
-import { resolveSectionDecisionPlan, shouldRenderSection } from '@/libs/sectionRegistry';
 import {
   buildSmartFitExpectationFields,
   buildSmartFitSuggestionContextKey,
@@ -82,6 +79,8 @@ import { n5 } from '@/theme';
 import { formatDuration } from '@/utils/Helpers';
 
 import { ExistingAppointmentOptions } from './ExistingAppointmentOptions';
+import { ReviewAppointmentSummary } from './ReviewAppointmentSummary';
+import { ReviewPolicyAgreement } from './ReviewPolicyAgreement';
 
 // --- Types ---
 
@@ -90,6 +89,8 @@ export type ServiceSummary = {
   name: string;
   price: number;
   duration: number;
+  imageUrl?: string | null;
+  priceDisplayText?: string | null;
 };
 
 export type AddOnSummary = {
@@ -121,7 +122,7 @@ export type LocationSummary = {
 
 type SmsBookingDefault = 'default_on' | 'default_off' | 'disabled';
 type SmsConsentSelection = Exclude<SmsBookingDefault, 'disabled'> | 'explicit_on' | 'explicit_off';
-const SMS_CONSENT_WORDING_VERSION = BOOKING_SMS_WORDING_VERSION;
+const SMS_CONSENT_WORDING_VERSION = BOOKING_SMS_SEPARATED_WORDING_VERSION;
 
 type BookConfirmClientProps = {
   rebookingSettings?: RebookingPromptSettings;
@@ -181,6 +182,8 @@ type BookConfirmClientProps = {
   depositDisclosure?: { label: string; amountCents: number } | null;
   /** True only while the system is actually collecting — suppresses the owner's chip. */
   depositNoticeSuppressed?: boolean;
+  /** Server resolved the deposit requirement, excluding unknown estimates. */
+  depositNotRequired?: boolean;
   /**
    * MONEY-PATH FIELD, not a display prop. Echoed on EVERY booking POST so the
    * downstream booking PR can tell, before its transaction, whether this client
@@ -448,70 +451,6 @@ const PolicyCard = ({
       </div>
       {children}
     </section>
-  );
-};
-
-const QuickFactBadges = ({
-  quickFacts,
-  suppressDepositNotice = false,
-}: {
-  quickFacts: ConfirmationQuickFacts;
-  /**
-   * Suppressed ONLY while the system is actually collecting — never when the
-   * account is broken, the currency is wrong, or the policy could not be
-   * determined. In those states the system publishes nothing, and deleting the
-   * owner's own chip would leave the client with no deposit information at all.
-   */
-  suppressDepositNotice?: boolean;
-}) => {
-  const effectiveQuickFacts: ConfirmationQuickFacts = suppressDepositNotice
-    ? {
-        ...quickFacts,
-        depositNotice: { ...quickFacts.depositNotice, enabled: false },
-      }
-    : quickFacts;
-  const bookingFactsPlan = resolveSectionDecisionPlan({
-    order: [],
-    hiddenSections: [],
-    content: {
-      ...EMPTY_SALON_CONTENT,
-      policies: { ...EMPTY_SALON_CONTENT.policies, quickFacts: effectiveQuickFacts },
-    },
-  });
-  const enabledFacts = [
-    { key: 'appointmentOnly', ...effectiveQuickFacts.appointmentOnly },
-    { key: 'depositNotice', ...effectiveQuickFacts.depositNotice },
-    { key: 'cancellationNotice', ...effectiveQuickFacts.cancellationNotice },
-  ].filter(
-    (fact): fact is { key: string; enabled: true; label: string } =>
-      fact.enabled && typeof fact.label === 'string' && fact.label.trim().length > 0,
-  ).map(fact => ({ ...fact, label: fact.label.trim() }));
-
-  if (!shouldRenderSection(bookingFactsPlan, 'bookingFacts')) {
-    return null;
-  }
-
-  return (
-    <ul
-      data-public-surface="bookingFacts"
-      data-testid="booking-quick-facts"
-      aria-label="Booking quick facts"
-      className="flex flex-wrap gap-2"
-    >
-      {enabledFacts.map(fact => (
-        <li
-          key={fact.key}
-          className="font-body inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold text-[var(--n5-ink-main)]"
-          style={{
-            borderColor: 'color-mix(in srgb, var(--n5-accent) 22%, var(--n5-border-muted))',
-            backgroundColor: 'color-mix(in srgb, var(--n5-accent) 6%, var(--n5-bg-card))',
-          }}
-        >
-          <Info aria-hidden="true" className="size-3.5 shrink-0 text-[var(--n5-accent)]" />
-          <span className="min-w-0 break-words">{fact.label}</span>
-        </li>
-      ))}
-    </ul>
   );
 };
 
@@ -1114,7 +1053,6 @@ const ConfirmContent = ({
   services,
   addOns,
   technician,
-  totalPrice,
   totalDuration,
   dateStr,
   timeStr,
@@ -1136,12 +1074,14 @@ const ConfirmContent = ({
   guestEmail,
   guestPhone,
   smsConsent,
+  promotionsConsent,
   smsBookingDefault,
   bookingError,
   onGuestNameChange,
   onGuestEmailChange,
   onGuestPhoneChange,
   onSmsConsentChange,
+  onPromotionsConsentChange,
   smartFitOffer,
   totalPriceDisplay,
   smartFitSuggestion,
@@ -1152,6 +1092,8 @@ const ConfirmContent = ({
   depositDisclosure,
   bookingFinancialEstimate,
   depositNoticeSuppressed,
+  depositNotRequired,
+  currency,
   policyAcknowledged,
   onPolicyAcknowledgmentChange,
   salonConfirmsManually,
@@ -1159,7 +1101,6 @@ const ConfirmContent = ({
   services: ServiceSummary[];
   addOns: AddOnSummary[];
   technician: TechnicianSummary;
-  totalPrice: number;
   totalDuration: number;
   dateStr: string;
   timeStr: string;
@@ -1181,12 +1122,14 @@ const ConfirmContent = ({
   guestEmail: string;
   guestPhone: string;
   smsConsent: boolean;
+  promotionsConsent: boolean;
   smsBookingDefault: SmsBookingDefault;
   bookingError?: string | null;
   onGuestNameChange: (value: string) => void;
   onGuestEmailChange: (value: string) => void;
   onGuestPhoneChange: (value: string) => void;
   onSmsConsentChange: (value: boolean) => void;
+  onPromotionsConsentChange: (value: boolean) => void;
   smartFitOffer: CustomerSmartFitOffer | null;
   totalPriceDisplay: string;
   smartFitSuggestion: SmartFitSuggestion | null;
@@ -1197,6 +1140,8 @@ const ConfirmContent = ({
   depositDisclosure: { label: string; amountCents: number } | null;
   bookingFinancialEstimate: BookingFinancialEstimate | null;
   depositNoticeSuppressed: boolean;
+  depositNotRequired: boolean;
+  currency: string;
   policyAcknowledged: boolean;
   onPolicyAcknowledgmentChange: (value: boolean) => void;
   /**
@@ -1215,7 +1160,8 @@ const ConfirmContent = ({
   // actions unmount the banner (and the focused button with it), so focus
   // moves to the confirm button and a polite live region states the outcome.
   const confirmActionRef = useRef<HTMLButtonElement>(null);
-  const acknowledgmentHelpId = useId();
+  const contactId = useId();
+  const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({});
   const [smartFitOutcomeAnnouncement, setSmartFitOutcomeAnnouncement] = useState<string | null>(null);
 
   const contactBlocker = getContactDetailsBlocker({
@@ -1260,7 +1206,7 @@ const ConfirmContent = ({
   const showsDepositLine = (bookingFinancialEstimate?.depositDueCents ?? 0) > 0;
   const showsTaxLine = Boolean(bookingFinancialEstimate?.taxLabel);
   const estimateExplainer = [
-    showsDepositLine ? 'The deposit is money already paid toward the appointment.' : null,
+    showsDepositLine ? t('review_deposit_credit') : null,
     showsTaxLine
       ? (showsDepositLine
           ? 'Tax is estimated on the full taxable service subtotal before that payment credit.'
@@ -1288,22 +1234,20 @@ const ConfirmContent = ({
           className="font-body inline-flex min-h-11 min-w-11 items-center text-sm font-medium text-[var(--n5-ink-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <ChevronLeft aria-hidden="true" className="mr-1 size-4" />
-          Back
+          {t('review_back')}
         </button>
-        <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
-          Confirm
-        </span>
+
         <div className="w-11" />
       </nav>
 
-      <main aria-busy={isSubmitting} className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-3">
+      <main aria-busy={isSubmitting} className="mx-auto max-w-lg space-y-3 px-4 pb-8 pt-2">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-center"
         >
-          <h1 className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
-            Review your appointment
+          <h1 className="font-heading mb-2 text-2xl font-semibold text-[var(--n5-ink-main)]">
+            {t('review_title')}
           </h1>
           <p className="font-body mx-auto max-w-sm text-sm leading-relaxed text-[var(--n5-ink-muted)]">
             {recoveryUnresolved
@@ -1314,7 +1258,7 @@ const ConfirmContent = ({
                   ? estimatedDepositDueCents > 0
                     ? 'Pay the required deposit to send your request. The salon will review it before the appointment is confirmed.'
                     : 'Nothing is booked yet. Send your request below for the salon to review.'
-                  : 'Not booked yet. Confirm below to reserve your time.'}
+                  : t('review_description')}
           </p>
         </motion.div>
 
@@ -1332,22 +1276,23 @@ const ConfirmContent = ({
         )}
 
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
+          transition={{ duration: 0.2 }}
         >
-          <BookingCard
+          <ReviewAppointmentSummary
             services={services}
             addOns={addOns}
             technician={technician}
-            totalPrice={totalPrice}
             totalDuration={totalDuration}
             dateStr={dateStr}
             timeStr={timeStr}
             pointsEarned={pointsEarned}
             location={location}
+            currency={currency}
             rewardsEnabled={rewardsEnabled}
-            totalPriceDisplay={totalPriceDisplay}
+            disabled={isSubmitting}
+            onEdit={onEditSelection}
           />
         </motion.div>
 
@@ -1358,7 +1303,7 @@ const ConfirmContent = ({
 
         {smartFitSuggestion && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.35 }}
           >
@@ -1407,51 +1352,52 @@ const ConfirmContent = ({
         )}
 
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
+          transition={{ duration: 0.2 }}
           className="space-y-3"
         >
           <SectionCard
-            title="Your contact details"
-            description={t('contact_description')}
-            className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
-            contentClassName="space-y-3 pt-0"
+            title={t('review_details_title')}
+            description={t('review_details_description')}
+            className="border-[var(--n5-border)] bg-[var(--n5-bg-card)] shadow-sm"
+            headerClassName="px-4 pb-2 pt-3"
+            contentClassName="space-y-2 px-4 pb-3 pt-0"
           >
-            <label className="block text-sm font-semibold text-[var(--n5-ink-muted)]">
-              <span className="flex items-baseline justify-between gap-2">
-                Name
-                <span className="text-xs font-medium text-[var(--n5-ink-muted)]">Required</span>
-              </span>
-              <input aria-label="Customer name" required aria-required="true" autoComplete="name" disabled={isSubmitting} value={guestName} onChange={event => onGuestNameChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
-            </label>
-            <label className="block text-sm font-semibold text-[var(--n5-ink-muted)]">
-              <span className="flex items-baseline justify-between gap-2">
-                Email
-                <span className="text-xs font-medium text-[var(--n5-ink-muted)]">Required</span>
-              </span>
-              <input aria-label="Customer email" required aria-required="true" type="email" autoComplete="email" disabled={isSubmitting} value={guestEmail} onChange={event => onGuestEmailChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
-            </label>
-            <label className="block text-sm font-semibold text-[var(--n5-ink-muted)]">
-              <span className="flex items-baseline justify-between gap-2">
-                Mobile phone
-                <span className="text-xs font-medium text-[var(--n5-ink-muted)]">Required</span>
-              </span>
-              <input aria-label="Customer phone" required aria-required="true" type="tel" inputMode="tel" autoComplete="tel" disabled={isSubmitting} value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
-            </label>
+            {[
+              { key: 'name', label: t('review_name'), ariaLabel: 'Customer name', value: guestName, onChange: onGuestNameChange, type: 'text', autoComplete: 'name', inputMode: 'text' as const, error: getContactDetailsBlocker({ name: guestName, email: 'valid@example.invalid', phone: '4165550100' }) },
+              { key: 'email', label: t('review_email'), ariaLabel: 'Customer email', value: guestEmail, onChange: onGuestEmailChange, type: 'email', autoComplete: 'email', inputMode: 'email' as const, error: getContactDetailsBlocker({ name: 'Guest', email: guestEmail, phone: '4165550100' }) },
+              { key: 'phone', label: t('review_phone'), ariaLabel: 'Customer phone', value: guestPhone, onChange: onGuestPhoneChange, type: 'tel', autoComplete: 'tel', inputMode: 'tel' as const, error: getContactDetailsBlocker({ name: 'Guest', email: 'valid@example.invalid', phone: guestPhone }) },
+            ].map(field => (
+              <div key={field.key}>
+                <label htmlFor={`${contactId}-${field.key}`} className="block text-sm font-semibold leading-5 text-[var(--n5-ink-main)]">
+                  {field.label}
+                  <span className="ml-2 text-xs font-normal">{t('review_required')}</span>
+                </label>
+                <input id={`${contactId}-${field.key}`} aria-label={field.ariaLabel} required aria-required="true" aria-invalid={Boolean(touchedFields[field.key] && field.error)} aria-describedby={field.error && (touchedFields[field.key] || field.error === contactBlocker) ? `${contactId}-${field.key}-error` : undefined} type={field.type} inputMode={field.inputMode} autoComplete={field.autoComplete} disabled={isSubmitting} value={field.value} onChange={event => field.onChange(event.target.value)} onBlur={() => setTouchedFields(current => ({ ...current, [field.key]: true }))} className="mt-1 min-h-11 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] px-3 py-2 text-base text-[var(--n5-ink-main)] focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
+                {field.error && (touchedFields[field.key] || field.error === contactBlocker) && <p id={`${contactId}-${field.key}-error`} data-testid={field.error === contactBlocker ? 'contact-blocker-hint' : undefined} role="status" className="mt-1 text-sm leading-5 text-[var(--n5-ink-main)]">{field.error}</p>}
+              </div>
+            ))}
             {smsBookingDefault !== 'disabled' && (
-              <div className="space-y-1 text-xs leading-4 text-[var(--n5-ink-muted)]">
-                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-[var(--n5-ink-main)]">
-                  <input aria-label="Text updates" aria-describedby="booking-sms-details" type="checkbox" disabled={isSubmitting} checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="size-4 shrink-0 accent-[var(--n5-accent)] disabled:cursor-not-allowed" />
-                  <span>{t('sms_label')}</span>
+              <div className="space-y-1 pt-1 text-sm leading-5 text-[var(--n5-ink-main)]">
+                <label className="flex min-h-11 cursor-pointer items-start gap-3">
+                  <input aria-label="Text updates" aria-describedby="booking-sms-details" type="checkbox" disabled={isSubmitting} checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="mt-1 size-5 shrink-0 accent-[var(--n5-accent)] disabled:cursor-not-allowed" />
+                  <span>{t('review_sms_updates')}</span>
+                </label>
+                <label className="flex min-h-11 cursor-pointer items-start gap-3">
+                  <input aria-label={t('review_sms_promotions')} aria-describedby="booking-sms-details" type="checkbox" disabled={isSubmitting} checked={promotionsConsent} onChange={event => onPromotionsConsentChange(event.target.checked)} className="mt-1 size-5 shrink-0 accent-[var(--n5-accent)] disabled:cursor-not-allowed" />
+                  <span>
+                    {t('review_sms_promotions')}
+                    <span className="ml-1">{t('review_optional')}</span>
+                  </span>
                 </label>
                 <p id="booking-sms-details">{t('sms_details', { salon: salonName })}</p>
-                <div className="flex gap-3">
-                  <a href={`/${locale}/terms`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('terms')}</a>
-                  <a href={`/${locale}/privacy`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('privacy')}</a>
-                </div>
               </div>
             )}
+            <div className="flex gap-4 text-sm text-[var(--n5-ink-main)]">
+              <a href={`/${locale}/terms`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('terms')}</a>
+              <a href={`/${locale}/privacy`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('privacy')}</a>
+            </div>
           </SectionCard>
 
           {createsRequest && <p className="text-sm text-[var(--n5-ink-muted)]">{t('request_notice')}</p>}
@@ -1543,119 +1489,56 @@ const ConfirmContent = ({
             </div>
           )}
 
-          <QuickFactBadges
-            quickFacts={quickFacts}
-            suppressDepositNotice={depositNoticeSuppressed}
-          />
-
-          {/*
-            The system's own deposit statement, rendered from its OWN element
-            rather than through `quickFacts` / `bookingExperience`: that path is
-            plan-entitlement-gated and returns null for free-plan salons.
-          */}
-          {depositDisclosure && (
-            <p
-              data-public-surface="depositDisclosure"
-              data-testid="booking-deposit-disclosure"
-              className="font-body rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-sm text-[var(--n5-ink-main)]"
-            >
-              {depositDisclosure.label}
-            </p>
-          )}
-
-          {bookingFinancialEstimate && (
-            <div
-              data-testid="booking-financial-estimate"
-              className="font-body space-y-1.5 rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-sm text-[var(--n5-ink-main)]"
-            >
-              <div className="flex justify-between gap-3">
-                <span>{discountAmount > 0 ? 'Services after discount' : 'Services'}</span>
-                <span>{formatMoney(bookingFinancialEstimate.serviceSubtotalCents, bookingFinancialEstimate.currency)}</span>
-              </div>
-              {bookingFinancialEstimate.taxLabel && (
-                <div className="flex justify-between gap-3">
-                  <span>{bookingFinancialEstimate.taxLabel}</span>
-                  <span>{formatMoney(bookingFinancialEstimate.taxAmountCents, bookingFinancialEstimate.currency)}</span>
-                </div>
-              )}
-              <div className="flex justify-between gap-3 border-t border-[var(--n5-border-muted)] pt-1.5 font-semibold">
-                <span>Estimated appointment total</span>
-                <span data-testid="booking-estimated-total">
-                  {formatMoney(bookingFinancialEstimate.totalDueCents, bookingFinancialEstimate.currency)}
-                </span>
-              </div>
-              {bookingFinancialEstimate.depositDueCents > 0 && (
-                <>
-                  <div className="flex justify-between gap-3">
-                    <span>Deposit due now</span>
-                    <span data-testid="booking-deposit-due">
-                      {formatMoney(bookingFinancialEstimate.depositDueCents, bookingFinancialEstimate.currency)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-3 font-semibold">
-                    <span>Estimated balance after deposit</span>
-                    <span data-testid="booking-balance-after-deposit">
-                      {formatMoney(bookingFinancialEstimate.remainingAfterDepositCents, bookingFinancialEstimate.currency)}
-                    </span>
-                  </div>
-                </>
-              )}
-              {estimateExplainer && (
-                <p className="pt-1 text-xs leading-5 text-[var(--n5-ink-muted)]">
-                  {estimateExplainer}
-                </p>
-              )}
+          <section data-public-surface="depositDisclosure" data-testid="booking-review-closing" aria-label={t('review_total_agreement')} className="space-y-2 rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-[var(--n5-ink-main)] shadow-sm">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <span className="text-sm font-medium">{t('review_total')}</span>
+              <span data-testid="booking-estimated-total" className="text-xl font-semibold leading-7">{totalPriceDisplay}</span>
             </div>
-          )}
-
-          {policy.enabled
-          && (policy.showBeforeConfirmation || acknowledgmentRequired)
-          && policy.text && (
-            <PolicyCard
-              key={policy.version ?? `${policy.title}:${policy.text}`}
-              title={policy.title ?? 'Booking policy'}
-              text={policy.text}
-              placement="beforeConfirmation"
-            >
-              {acknowledgmentRequired && (
-                <div
-                  data-testid="booking-policy-acknowledgment"
-                  className="mt-3 border-t border-[var(--n5-border-muted)] pt-3"
-                >
-                  <label className="flex items-start gap-3 text-sm leading-6 text-[var(--n5-ink-main)]">
-                    <input
-                      aria-describedby={
-                        policyAcknowledged ? undefined : acknowledgmentHelpId
-                      }
-                      aria-required="true"
-                      required
-                      type="checkbox"
-                      disabled={isSubmitting}
-                      checked={policyAcknowledged}
-                      onChange={event =>
-                        onPolicyAcknowledgmentChange(event.target.checked)}
-                      className="mt-1 size-4 shrink-0 rounded border-[var(--n5-border)] text-[var(--n5-accent)] focus:ring-[var(--n5-accent)]"
-                    />
-                    <span className="min-w-0 whitespace-pre-line break-words">
-                      {policy.acknowledgment.text}
-                    </span>
-                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--n5-ink-muted)]">
-                      Required
-                    </span>
-                  </label>
-                  {!policyAcknowledged && (
-                    <p
-                      id={acknowledgmentHelpId}
-                      role="status"
-                      className="font-body mt-2 text-xs font-semibold text-[var(--n5-ink-muted)]"
-                    >
-                      Check the box to confirm your appointment.
-                    </p>
-                  )}
+            {depositDisclosure
+              ? (
+                  <p data-public-surface="depositDisclosure" data-testid="booking-deposit-disclosure" className="text-sm leading-5">{depositDisclosure.label}</p>
+                )
+              : !depositNoticeSuppressed && quickFacts.depositNotice.enabled && quickFacts.depositNotice.label?.trim()
+                  ? (
+                      <p data-public-surface="bookingFacts" data-testid="booking-deposit-notice" className="text-sm leading-5">{quickFacts.depositNotice.label}</p>
+                    )
+                  : depositNotRequired
+                    ? (
+                        <p data-testid="booking-no-deposit" className="text-sm leading-5">{t('review_no_deposit')}</p>
+                      )
+                    : null}
+            {quickFacts.cancellationNotice.enabled && quickFacts.cancellationNotice.label?.trim() && <p data-public-surface="bookingFacts" className="text-sm leading-5">{quickFacts.cancellationNotice.label}</p>}
+            {bookingFinancialEstimate && (addOns.length > 0 || services.length > 1 || discountAmount > 0 || smartFitOffer || showsTaxLine || showsDepositLine) && (
+              <div data-testid="booking-financial-estimate" className="space-y-1 border-t border-[var(--n5-border-muted)] pt-2 text-sm leading-5">
+                <div className="flex justify-between gap-3">
+                  <span>{discountAmount > 0 ? 'Services after discount' : 'Services'}</span>
+                  <span>{formatMoney(bookingFinancialEstimate.serviceSubtotalCents, bookingFinancialEstimate.currency)}</span>
                 </div>
-              )}
-            </PolicyCard>
-          )}
+                {bookingFinancialEstimate.taxLabel && (
+                  <div className="flex justify-between gap-3">
+                    <span>{bookingFinancialEstimate.taxLabel}</span>
+                    <span>{formatMoney(bookingFinancialEstimate.taxAmountCents, bookingFinancialEstimate.currency)}</span>
+                  </div>
+                )}
+                {bookingFinancialEstimate.depositDueCents > 0 && (
+                  <>
+                    <div className="flex justify-between gap-3">
+                      <span>Deposit due now</span>
+                      <span data-testid="booking-deposit-due">{formatMoney(bookingFinancialEstimate.depositDueCents, bookingFinancialEstimate.currency)}</span>
+                    </div>
+                    <div className="flex justify-between gap-3 font-semibold">
+                      <span>Estimated balance after deposit</span>
+                      <span data-testid="booking-balance-after-deposit">{formatMoney(bookingFinancialEstimate.remainingAfterDepositCents, bookingFinancialEstimate.currency)}</span>
+                    </div>
+                  </>
+                )}
+                {estimateExplainer && <p className="pt-1 text-sm leading-5">{estimateExplainer}</p>}
+              </div>
+            )}
+            {policy.enabled && (policy.showBeforeConfirmation || acknowledgmentRequired) && policy.text && (
+              <ReviewPolicyAgreement key={policy.version ?? `${policy.title}:${policy.text}`} title={policy.title} text={policy.text} acknowledgmentText={policy.acknowledgment?.text} required={acknowledgmentRequired} acknowledged={policyAcknowledged} disabled={isSubmitting} onChange={onPolicyAcknowledgmentChange} />
+            )}
+          </section>
 
           <button
             ref={confirmActionRef}
@@ -1670,7 +1553,7 @@ const ConfirmContent = ({
               || contactBlocker !== null
               || (acknowledgmentRequired && !policyAcknowledged)
             }
-            className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            className="font-body flex min-h-12 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-4 py-3 text-base font-semibold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               backgroundColor: 'var(--n5-button-primary-bg, var(--n5-accent))',
               borderRadius: n5.radiusMd,
@@ -1703,28 +1586,6 @@ const ConfirmContent = ({
             </p>
           )}
 
-          {!isSubmitting && contactBlocker && (
-            <p data-testid="contact-blocker-hint" role="status" className="text-center text-xs text-[var(--n5-ink-muted)]">
-              {contactBlocker}
-            </p>
-          )}
-
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={() => {
-              triggerHaptic('select');
-              onEditSelection();
-            }}
-            className="font-body flex min-h-11 w-full items-center justify-center gap-2 border px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-            style={{
-              borderRadius: n5.radiusMd,
-              borderColor: 'var(--booking-brand-state-border, var(--n5-ink-main))',
-            }}
-          >
-            <RefreshCw className="size-4" />
-            <span>Change time or services</span>
-          </button>
         </motion.div>
       </main>
     </div>
@@ -2243,6 +2104,7 @@ export function BookConfirmClient({
   salonPhone = null,
   depositDisclosure = null,
   depositNoticeSuppressed = false,
+  depositNotRequired = false,
   depositFingerprint = DEPOSIT_FINGERPRINT_NONE,
   salonConfirmsManually = false,
   salonId,
@@ -2395,6 +2257,7 @@ export function BookConfirmClient({
   // action. Keep its provenance separate so a checked, untouched control is
   // never recorded as an explicit opt-in.
   const [smsConsent, setSmsConsent] = useState(() => smsBookingDefault === 'default_on');
+  const [promotionsConsent, setPromotionsConsent] = useState(false);
   const [smsConsentSelection, setSmsConsentSelection] = useState<SmsConsentSelection>(() => (
     smsBookingDefault === 'default_off' ? 'default_off' : 'default_on'
   ));
@@ -2688,7 +2551,7 @@ export function BookConfirmClient({
     ? formatMoney(bookingTotals.totalDueCents, currency)
     : smartFitOffer
       ? formatMoney(smartFitOffer.discountedPriceCents, currency)
-      : `$${totalPrice}`;
+      : formatMoney(Math.round(totalPrice * 100), currency);
   const depositDueCents = displayedDeposit?.amountCents ?? 0;
   const bookingFinancialEstimate: BookingFinancialEstimate | null = bookingTotals
     ? {
@@ -2732,7 +2595,7 @@ export function BookConfirmClient({
     clientEmail: guestEmail.trim().toLowerCase(),
     clientPhone: guestPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''),
     smsConsent: smsBookingDefault !== 'disabled'
-      ? { granted: smsConsent, wordingVersion: SMS_CONSENT_WORDING_VERSION, selection: smsConsentSelection }
+      ? { granted: smsConsent, wordingVersion: SMS_CONSENT_WORDING_VERSION, selection: smsConsentSelection, promotionsGranted: promotionsConsent }
       : null,
     canonicalStartTime,
     appointmentDate: dateStr,
@@ -2869,6 +2732,7 @@ export function BookConfirmClient({
           smsConsent: {
             granted: smsConsent,
             wordingVersion: SMS_CONSENT_WORDING_VERSION,
+            promotionsGranted: promotionsConsent,
             selection: smsConsentSelection,
           },
         }),
@@ -3298,7 +3162,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [addOns, salonName, salonTimeZone, technician, displayedConfirmationMode, isAssistantHandoff, salonId, recoveringHandoff, publicRecoveryPending, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingBasket, basketReviewFingerprint, bookingTotals, campaignPromotionPreview, campaignToken, nextVisitQuoteExpectation, canonicalStartTime, checkPublicRecovery, completeManualBooking, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
+  }, [addOns, salonName, salonTimeZone, technician, displayedConfirmationMode, isAssistantHandoff, bookingFlowMarker, salonId, recoveringHandoff, publicRecoveryPending, resolvedTotalPriceCents, totalDuration, locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingBasket, basketReviewFingerprint, bookingTotals, campaignPromotionPreview, campaignToken, nextVisitQuoteExpectation, canonicalStartTime, checkPublicRecovery, completeManualBooking, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsConsentSelection, promotionsConsent, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);
@@ -3635,7 +3499,6 @@ export function BookConfirmClient({
         services={services}
         addOns={addOns}
         technician={technician}
-        totalPrice={resolvedTotalPrice}
         totalDuration={resolvedTotalDuration}
         dateStr={dateStr}
         timeStr={timeStr}
@@ -3646,7 +3509,22 @@ export function BookConfirmClient({
         campaignPromotionPreview={campaignPromotionPreview}
         campaignMessage={campaignMessage}
         onConfirm={createBooking}
-        onEditSelection={() => router.back()}
+        onEditSelection={() => router.push(buildBookingUrl('/book/time', {
+          salonSlug,
+          serviceIds: services.map(service => service.id),
+          baseServiceId,
+          selectedAddOns,
+          bookingBasket,
+          techId: techId || technician?.id || 'any',
+          locationId: location?.id ?? urlLocationId,
+          date: dateStr,
+          time: timeStr,
+          startTime: canonicalStartTime,
+          originalAppointmentId,
+          manageToken,
+          campaignToken,
+          bookingFlow: isAssistantHandoff ? 'assistant' : null,
+        }, { routeSalonSlug, locale }))}
         isSubmitting={isBooking || publicRecoveryPending}
         isRecoveringBooking={recoveringHandoff || checkingPublicRecovery}
         recoveryUnresolved={publicRecoveryPending}
@@ -3657,12 +3535,14 @@ export function BookConfirmClient({
         guestEmail={guestEmail}
         guestPhone={guestPhone}
         smsConsent={smsConsent}
+        promotionsConsent={promotionsConsent}
         smsBookingDefault={smsBookingDefault}
         bookingError={checkingPublicRecovery ? null : bookingError}
         onGuestNameChange={setGuestName}
         onGuestEmailChange={setGuestEmail}
         onGuestPhoneChange={setGuestPhone}
         onSmsConsentChange={handleSmsConsentChange}
+        onPromotionsConsentChange={setPromotionsConsent}
         smartFitOffer={smartFitOffer}
         totalPriceDisplay={totalPriceDisplay}
         smartFitSuggestion={smartFitSuggestion}
@@ -3673,6 +3553,8 @@ export function BookConfirmClient({
         depositDisclosure={displayedDeposit ?? null}
         bookingFinancialEstimate={bookingFinancialEstimate}
         depositNoticeSuppressed={depositNoticeSuppressed}
+        depositNotRequired={depositNotRequired && !displayedDeposit}
+        currency={currency}
         policyAcknowledged={policyAcknowledged}
         onPolicyAcknowledgmentChange={setPolicyAcknowledged}
         salonConfirmsManually={displayedConfirmationMode === 'request_approval'}

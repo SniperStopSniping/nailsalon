@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { BOOKING_SMS_SELECTIONS, type BookingSmsMode, type BookingSmsSelection } from '@/libs/bookingSmsConsent';
+import { BOOKING_SMS_SELECTIONS, BOOKING_SMS_SEPARATED_WORDING_VERSION, BOOKING_SMS_WORDING_VERSION, type BookingSmsMode, type BookingSmsSelection } from '@/libs/bookingSmsConsent';
 
 import type { CustomerBookingOperationReference } from './bookingOperationContracts';
 import { customerContactRequestSchema } from './contact';
@@ -10,7 +10,10 @@ export const customerReviewRequestSchema = z.object({
   conversation: z.string().min(1).max(24_576),
   contact: customerContactRequestSchema,
   expectedRevision: z.number().int().min(0).optional(),
-  smsConsent: z.object({ granted: z.boolean(), wordingVersion: z.enum(['booking-sms-reminders-v1', 'booking-sms-all-v2']), selection: z.enum(BOOKING_SMS_SELECTIONS) }).strict().optional(),
+  smsConsent: z.union([
+    z.object({ granted: z.boolean(), wordingVersion: z.enum(['booking-sms-reminders-v1', BOOKING_SMS_WORDING_VERSION]), selection: z.enum(BOOKING_SMS_SELECTIONS) }).strict(),
+    z.object({ granted: z.boolean(), wordingVersion: z.literal(BOOKING_SMS_SEPARATED_WORDING_VERSION), selection: z.enum(BOOKING_SMS_SELECTIONS), promotionsGranted: z.boolean().optional() }).strict(),
+  ]).optional(),
 }).strict();
 
 export type CustomerReviewRequest = z.infer<typeof customerReviewRequestSchema>;

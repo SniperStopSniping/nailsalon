@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
-import type { BookingSmsSelection } from '@/libs/bookingSmsConsent';
+import { BOOKING_SMS_SEPARATED_WORDING_VERSION, type BookingSmsSelection } from '@/libs/bookingSmsConsent';
 import { db } from '@/libs/DB';
 import { isValidPhone } from '@/libs/phone';
 import { hasGlobalSuppression, normalizeConsentRecipient } from '@/libs/smsConsentShared';
@@ -19,6 +19,7 @@ type ConsentChoice = {
   status: string;
   metadata: Record<string, unknown> | null;
   createdAt: Date;
+  wordingVersion: string;
 };
 
 function resolveEligibility(input: {
@@ -26,7 +27,7 @@ function resolveEligibility(input: {
   purposeChoice?: ConsentChoice;
   reminderChoice?: ConsentChoice;
   transactionalChoice?: ConsentChoice;
-  explicitSelection?: string | null;
+  explicitChoice?: { selection: string; createdAt: Date };
   hasActiveClient: boolean;
   providerStopped: boolean;
   sharedStopped: boolean;
@@ -34,7 +35,19 @@ function resolveEligibility(input: {
   if (input.sharedStopped || input.providerStopped) {
     return { state: 'opted_out', selection: null };
   }
-  if (input.explicitSelection === 'explicit_off') {
+  const independentlyRecordedChoice = input.purposeChoice?.wordingVersion === BOOKING_SMS_SEPARATED_WORDING_VERSION
+    && !(input.explicitChoice?.selection === 'explicit_off'
+      && input.explicitChoice.createdAt.getTime() > input.purposeChoice.createdAt.getTime());
+  if (independentlyRecordedChoice && input.purposeChoice) {
+    const recordedSelection = input.purposeChoice.metadata?.selection;
+    return {
+      state: input.purposeChoice.status === 'granted' ? 'enabled' : 'customer_disabled',
+      selection: ['default_on', 'default_off', 'explicit_on', 'explicit_off'].includes(String(recordedSelection))
+        ? recordedSelection as BookingSmsSelection
+        : null,
+    };
+  }
+  if (input.explicitChoice?.selection === 'explicit_off') {
     return { state: 'customer_disabled', selection: 'explicit_off' };
   }
 
@@ -106,18 +119,18 @@ export async function getClientSmsPurposeEligibility(input: {
         eq(communicationConsentSchema.purpose, 'appointment_transactional'),
         eq(communicationConsentSchema.source, 'twilio_inbound'),
       )).orderBy(desc(communicationConsentSchema.createdAt), desc(communicationConsentSchema.id)).limit(1),
-    database.select({ status: communicationConsentSchema.status, metadata: communicationConsentSchema.metadata, createdAt: communicationConsentSchema.createdAt })
+    database.select({ status: communicationConsentSchema.status, metadata: communicationConsentSchema.metadata, createdAt: communicationConsentSchema.createdAt, wordingVersion: communicationConsentSchema.wordingVersion })
       .from(communicationConsentSchema).where(consentWhere(input.purpose))
       .orderBy(desc(communicationConsentSchema.createdAt), desc(communicationConsentSchema.id)).limit(1),
-    database.select({ status: communicationConsentSchema.status, metadata: communicationConsentSchema.metadata, createdAt: communicationConsentSchema.createdAt })
+    database.select({ status: communicationConsentSchema.status, metadata: communicationConsentSchema.metadata, createdAt: communicationConsentSchema.createdAt, wordingVersion: communicationConsentSchema.wordingVersion })
       .from(communicationConsentSchema).where(consentWhere(input.purpose === 'appointment_reminders' ? 'appointment_transactional' : 'appointment_reminders'))
       .orderBy(desc(communicationConsentSchema.createdAt), desc(communicationConsentSchema.id)).limit(1),
     input.purpose === 'salon_promotions'
-      ? database.select({ status: communicationConsentSchema.status, metadata: communicationConsentSchema.metadata, createdAt: communicationConsentSchema.createdAt })
+      ? database.select({ status: communicationConsentSchema.status, metadata: communicationConsentSchema.metadata, createdAt: communicationConsentSchema.createdAt, wordingVersion: communicationConsentSchema.wordingVersion })
         .from(communicationConsentSchema).where(consentWhere('appointment_transactional'))
         .orderBy(desc(communicationConsentSchema.createdAt), desc(communicationConsentSchema.id)).limit(1)
       : Promise.resolve([]),
-    database.select({ selection: sql<string>`${communicationConsentSchema.metadata} ->> 'selection'` })
+    database.select({ selection: sql<string>`${communicationConsentSchema.metadata} ->> 'selection'`, createdAt: communicationConsentSchema.createdAt })
       .from(communicationConsentSchema)
       .where(and(
         eq(communicationConsentSchema.salonId, input.salonId),
@@ -125,6 +138,7 @@ export async function getClientSmsPurposeEligibility(input: {
         eq(communicationConsentSchema.channel, 'sms'),
         sql`${communicationConsentSchema.metadata} ->> 'selection' in ('explicit_on', 'explicit_off')`,
         sql`${communicationConsentSchema.source} <> 'twilio_inbound'`,
+        sql`${communicationConsentSchema.wordingVersion} <> ${BOOKING_SMS_SEPARATED_WORDING_VERSION}`,
       ))
       .orderBy(desc(communicationConsentSchema.createdAt), desc(communicationConsentSchema.id)).limit(1),
     database.select({ id: salonClientSchema.id }).from(salonClientSchema)
@@ -147,7 +161,7 @@ export async function getClientSmsPurposeEligibility(input: {
     transactionalChoice: input.purpose === 'appointment_transactional'
       ? purposeRows[0]
       : input.purpose === 'appointment_reminders' ? reminderRows[0] : transactionalRows[0],
-    explicitSelection: explicitChoices[0]?.selection,
+    explicitChoice: explicitChoices[0],
     hasActiveClient: clients.length > 0,
     providerStopped: provider[0]?.status === 'revoked',
     sharedStopped,
@@ -175,6 +189,7 @@ export async function getClientSmsPurposeEligibilityBatch(input: {
       status: communicationConsentSchema.status,
       metadata: communicationConsentSchema.metadata,
       createdAt: communicationConsentSchema.createdAt,
+      wordingVersion: communicationConsentSchema.wordingVersion,
     }).from(communicationConsentSchema).where(and(
       eq(communicationConsentSchema.salonId, input.salonId),
       eq(communicationConsentSchema.channel, 'sms'),
@@ -186,12 +201,14 @@ export async function getClientSmsPurposeEligibilityBatch(input: {
     db.selectDistinctOn([communicationConsentSchema.recipient], {
       recipient: communicationConsentSchema.recipient,
       selection: sql<string>`${communicationConsentSchema.metadata} ->> 'selection'`,
+      createdAt: communicationConsentSchema.createdAt,
     }).from(communicationConsentSchema).where(and(
       eq(communicationConsentSchema.salonId, input.salonId),
       eq(communicationConsentSchema.channel, 'sms'),
       inArray(communicationConsentSchema.recipient, recipients),
       sql`${communicationConsentSchema.metadata} ->> 'selection' in ('explicit_on', 'explicit_off')`,
       sql`${communicationConsentSchema.source} <> 'twilio_inbound'`,
+      sql`${communicationConsentSchema.wordingVersion} <> ${BOOKING_SMS_SEPARATED_WORDING_VERSION}`,
     )).orderBy(communicationConsentSchema.recipient, desc(communicationConsentSchema.createdAt), desc(communicationConsentSchema.id)),
     db.selectDistinctOn([communicationConsentSchema.recipient], {
       recipient: communicationConsentSchema.recipient,
@@ -219,7 +236,7 @@ export async function getClientSmsPurposeEligibilityBatch(input: {
     )).orderBy(smsGlobalConsentEventSchema.recipient, desc(smsGlobalConsentEventSchema.seq))
     : [];
   const choiceMap = new Map(choices.map(row => [`${row.recipient}:${row.purpose}`, row]));
-  const explicitMap = new Map(explicitChoices.map(row => [row.recipient, row.selection]));
+  const explicitMap = new Map(explicitChoices.map(row => [row.recipient, { selection: row.selection, createdAt: row.createdAt }]));
   const providerMap = new Map(providerEvents.map(row => [row.recipient, row.status]));
   const globalMap = new Map(globalEvents.map(row => [row.recipient, row.state]));
   const activePhones = new Set(clients.map(row => normalizeConsentRecipient(row.phone)).filter(phone => recipientSet.has(phone)));
@@ -229,7 +246,7 @@ export async function getClientSmsPurposeEligibilityBatch(input: {
       purposeChoice: choiceMap.get(`${recipient}:${input.purpose}`),
       reminderChoice: choiceMap.get(`${recipient}:appointment_reminders`),
       transactionalChoice: choiceMap.get(`${recipient}:appointment_transactional`),
-      explicitSelection: explicitMap.get(recipient),
+      explicitChoice: explicitMap.get(recipient),
       hasActiveClient: activePhones.has(recipient),
       providerStopped: providerMap.get(recipient) === 'revoked',
       sharedStopped: globalMap.get(recipient) === 'suppressed',

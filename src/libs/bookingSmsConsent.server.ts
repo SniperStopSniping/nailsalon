@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, desc, eq, sql } from 'drizzle-orm';
 
-import { BOOKING_SMS_SELECTIONS, type BookingSmsSelection } from '@/libs/bookingSmsConsent';
+import { BOOKING_SMS_SELECTIONS, BOOKING_SMS_SEPARATED_WORDING_VERSION, type BookingSmsSelection } from '@/libs/bookingSmsConsent';
 import { getClientSmsPurposeEligibility } from '@/libs/clientSmsEligibility.server';
 import { db } from '@/libs/DB';
 import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
@@ -44,7 +44,7 @@ export async function getAppointmentSmsDeliveryPreference(input: {
   if (preference.state === 'opted_out') {
     return preference;
   }
-  const [appointmentDecision] = await database.select({ status: communicationConsentSchema.status, metadata: communicationConsentSchema.metadata })
+  const [appointmentDecision] = await database.select({ status: communicationConsentSchema.status, metadata: communicationConsentSchema.metadata, wordingVersion: communicationConsentSchema.wordingVersion })
     .from(communicationConsentSchema)
     .where(and(
       eq(communicationConsentSchema.salonId, input.salonId),
@@ -61,7 +61,9 @@ export async function getAppointmentSmsDeliveryPreference(input: {
     return { state: 'salon_disabled', selection: null };
   }
   if (appointmentDecision?.status === 'revoked'
-    && !(appointmentDecision.metadata?.selection === 'default_off' && appointmentDecision.metadata?.selectionWasExplicit !== true)) {
+    && !(appointmentDecision.wordingVersion !== BOOKING_SMS_SEPARATED_WORDING_VERSION
+      && appointmentDecision.metadata?.selection === 'default_off'
+      && appointmentDecision.metadata?.selectionWasExplicit !== true)) {
     const selection = appointmentDecision.metadata?.selection;
     return { state: 'customer_disabled', selection: BOOKING_SMS_SELECTIONS.includes(selection as BookingSmsSelection) ? selection as BookingSmsSelection : null };
   }

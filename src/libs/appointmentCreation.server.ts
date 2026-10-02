@@ -82,6 +82,7 @@ import {
   resolveBookingSmsConsentDecision,
   resolveBookingSmsMode,
   shouldRecordBookingSmsConsent,
+  usesSeparatedBookingSmsConsent,
 } from '@/libs/bookingSmsConsent';
 import type { CatalogSelectionInput } from '@/libs/catalogDomain';
 import type {
@@ -353,6 +354,7 @@ const createAppointmentSchema = z.object({
     granted: z.boolean(),
     wordingVersion: z.string().min(1).max(50),
     selection: z.enum(['default_on', 'default_off', 'explicit_on', 'explicit_off']).optional(),
+    promotionsGranted: z.boolean().optional(),
   }).optional(),
   startTime: z.string().datetime({ message: 'Invalid datetime format. Use ISO 8601.' }),
   appointmentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'appointmentDate must be YYYY-MM-DD').optional(),
@@ -1511,6 +1513,9 @@ async function createAppointmentFromRequestCore(
             granted: normalizedSmsConsent.granted,
             wordingVersion: normalizedSmsConsent.wordingVersion,
             selection: normalizedSmsConsent.selection,
+            ...(usesSeparatedBookingSmsConsent(normalizedSmsConsent.wordingVersion)
+              ? { promotionsGranted: normalizedSmsConsent.promotionsGranted === true }
+              : {}),
           }
         : null,
       startTime: canonicalStartTime,
@@ -3225,6 +3230,24 @@ async function createAppointmentFromRequestCore(
         .orderBy(desc(communicationConsentSchema.createdAt))
         .limit(1);
       const providerOptedOut = sharedProviderOptOut || providerPreference?.status === 'revoked';
+      const separatedConsent = usesSeparatedBookingSmsConsent(normalizedSmsConsent.wordingVersion);
+      const promotionGranted = separatedConsent
+        ? normalizedSmsConsent.promotionsGranted === true
+        : bookingSmsConsentDecision.status === 'granted';
+      const consentForPurpose = (purpose: (typeof BOOKING_SMS_EXPANDED_PURPOSES)[number]) => ({
+        status: separatedConsent && purpose === 'salon_promotions'
+          ? promotionGranted ? 'granted' as const : 'revoked' as const
+          : bookingSmsConsentDecision.status,
+        selection: separatedConsent && purpose === 'salon_promotions'
+          ? promotionGranted ? 'explicit_on' as const : 'default_off' as const
+          : bookingSmsConsentDecision.selection,
+        selectionWasExplicit: separatedConsent && purpose === 'salon_promotions'
+          ? promotionGranted
+          : bookingSmsConsentDecision.isExplicit,
+        ...(separatedConsent && purpose === 'salon_promotions'
+          ? { promotionsGranted: promotionGranted }
+          : {}),
+      });
 
       if (providerOptedOut) {
         const now = new Date();
@@ -3252,25 +3275,31 @@ async function createAppointmentFromRequestCore(
           },
         });
         if (includesExpandedBookingSmsPurposes(normalizedSmsConsent.wordingVersion)) {
-          await tx.insert(communicationConsentSchema).values(BOOKING_SMS_EXPANDED_PURPOSES.map(purpose => ({
-            id: crypto.randomUUID(),
-            salonId: salon.id,
-            recipient,
-            channel: 'sms',
-            purpose,
-            status: 'revoked',
-            wordingVersion: normalizedSmsConsent.wordingVersion,
-            source: 'public_booking',
-            grantedAt: null,
-            revokedAt: now,
-            metadata: {
-              appointmentId: args.appointmentId,
-              preferenceScope: purpose,
-              selection: bookingSmsConsentDecision.selection,
-              selectionWasExplicit: bookingSmsConsentDecision.isExplicit,
-              suppression: 'provider_opt_out',
-            },
-          })));
+          await tx.insert(communicationConsentSchema).values(BOOKING_SMS_EXPANDED_PURPOSES.map((purpose) => {
+            const purposeConsent = consentForPurpose(purpose);
+            return {
+              id: crypto.randomUUID(),
+              salonId: salon.id,
+              recipient,
+              channel: 'sms',
+              purpose,
+              status: 'revoked',
+              wordingVersion: normalizedSmsConsent.wordingVersion,
+              source: 'public_booking',
+              grantedAt: null,
+              revokedAt: now,
+              metadata: {
+                appointmentId: args.appointmentId,
+                preferenceScope: purpose,
+                selection: purposeConsent.selection,
+                selectionWasExplicit: purposeConsent.selectionWasExplicit,
+                ...(separatedConsent && purpose === 'salon_promotions'
+                  ? { promotionsGranted: purposeConsent.promotionsGranted }
+                  : {}),
+                suppression: 'provider_opt_out',
+              },
+            };
+          }));
         }
         effectiveSmsConsentGranted = false;
         smsReminderStatus = 'opted_out';
@@ -3304,24 +3333,30 @@ async function createAppointmentFromRequestCore(
         },
       });
       if (includesExpandedBookingSmsPurposes(normalizedSmsConsent.wordingVersion)) {
-        await tx.insert(communicationConsentSchema).values(BOOKING_SMS_EXPANDED_PURPOSES.map(purpose => ({
-          id: crypto.randomUUID(),
-          salonId: salon.id,
-          recipient,
-          channel: 'sms',
-          purpose,
-          status: bookingSmsConsentDecision.status,
-          wordingVersion: normalizedSmsConsent.wordingVersion,
-          source: 'public_booking',
-          grantedAt: bookingSmsConsentDecision.status === 'granted' ? now : null,
-          revokedAt: bookingSmsConsentDecision.status === 'revoked' ? now : null,
-          metadata: {
-            appointmentId: args.appointmentId,
-            preferenceScope: purpose,
-            selection: bookingSmsConsentDecision.selection,
-            selectionWasExplicit: bookingSmsConsentDecision.isExplicit,
-          },
-        })));
+        await tx.insert(communicationConsentSchema).values(BOOKING_SMS_EXPANDED_PURPOSES.map((purpose) => {
+          const purposeConsent = consentForPurpose(purpose);
+          return {
+            id: crypto.randomUUID(),
+            salonId: salon.id,
+            recipient,
+            channel: 'sms',
+            purpose,
+            status: purposeConsent.status,
+            wordingVersion: normalizedSmsConsent.wordingVersion,
+            source: 'public_booking',
+            grantedAt: purposeConsent.status === 'granted' ? now : null,
+            revokedAt: purposeConsent.status === 'revoked' ? now : null,
+            metadata: {
+              appointmentId: args.appointmentId,
+              preferenceScope: purpose,
+              selection: purposeConsent.selection,
+              selectionWasExplicit: purposeConsent.selectionWasExplicit,
+              ...(separatedConsent && purpose === 'salon_promotions'
+                ? { promotionsGranted: purposeConsent.promotionsGranted }
+                : {}),
+            },
+          };
+        }));
       }
       const preference = await getClientSmsPurposeEligibility({
         salonId: salon.id,

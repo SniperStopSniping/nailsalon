@@ -11,7 +11,7 @@ async function resolveWorkingServiceId(page: Page): Promise<string> {
   for (const serviceId of SERVICE_ID_CANDIDATES) {
     await page.goto(`${appPath('/book/confirm')}?salonSlug=${e2eConfig.salonSlug}&serviceIds=${serviceId}&techId=any&date=2030-03-20&time=10:00`);
 
-    const reviewVisible = await page.getByRole('heading', { name: /review your appointment/i }).isVisible({ timeout: 3000 }).catch(() => false);
+    const reviewVisible = await page.getByRole('heading', { name: 'Review & confirm', exact: true }).isVisible({ timeout: 3000 }).catch(() => false);
 
     if (reviewVisible) {
       return serviceId;
@@ -247,7 +247,7 @@ test.describe('Customer journeys', () => {
 
     await page.goto(`${appPath('/book/confirm')}?salonSlug=${e2eConfig.salonSlug}&serviceIds=${serviceId}&techId=any&date=2030-03-20&time=10:00`);
 
-    await expect(page.getByRole('heading', { name: /review your appointment/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Review & confirm', exact: true })).toBeVisible();
     await expect(page.getByTestId('signed-in-notice')).toHaveCount(0);
     await expect(page.getByLabel('Customer name')).toHaveValue('');
     await expect(page.getByLabel('Customer email')).toHaveValue('');
@@ -265,7 +265,7 @@ test.describe('Customer journeys', () => {
     await expect.poll(() => appointmentPostCount).toBe(1);
     await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
 
-    const manageLink = page.getByRole('link', { name: /manage this appointment/i });
+    const manageLink = page.getByRole('link', { name: 'Manage appointment', exact: true });
 
     await expect(manageLink).toBeVisible();
     await expect(manageLink).toHaveAttribute('href', canonicalManageUrl);
@@ -340,7 +340,7 @@ test.describe('Customer journeys', () => {
       recoveryUrl.searchParams.get('salonSlug'),
     ]).toContain(e2eConfig.salonSlug);
 
-    await expect(page.getByRole('link', { name: /manage this appointment/i })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Manage appointment', exact: true })).toHaveCount(0);
     await expect(page.locator('a[href*="/change-appointment"]')).toHaveCount(0);
     await expect(page.getByText('appt_without_manage_url', { exact: true })).toHaveCount(0);
     expect(legacyAuthRequests).toEqual([]);
