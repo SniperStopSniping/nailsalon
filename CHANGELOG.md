@@ -1,3 +1,11 @@
+## [1.135.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.135.0...v1.135.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **booking:** compact text consent into one optional choice ([1aa7450](https://github.com/SniperStopSniping/nailsalon/commit/1aa7450b7f71fe79ed6d5a8f921353d5eaf14e87))
+* **booking:** record explicit combined text consent ([7a80ac2](https://github.com/SniperStopSniping/nailsalon/commit/7a80ac23285306f0481258971ed958dd3d366842))
+
 # [1.135.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.134.0...v1.135.0) (2026-10-02)
 
 
