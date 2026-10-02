@@ -37,6 +37,6 @@ Exact current-head commands/results, screenshots, real-booking persistence and d
 
 ## Release gate
 
-Hosted Preview remains blocked until its separate nonproduction database host/marker, APP_ENV=preview and Development/test provider pairs are verified. Do not connect to its unverified database or deploy around the environment guard. The local runner refuses fallback dotenv files.
+A local Vercel env pull writes [SENSITIVE] for protected values; these placeholders cannot establish missing or invalid credentials. Verify the hosted Preview build/runtime isolation guards and database marker, plus independent Neon project metadata. Keep messaging, calendar and payments inactive while checking fictional bookings. The local runner refuses fallback dotenv files. Deployment source preflight must exclude local QA, private dotenv and media artifacts through .vercelignore.
 
 Required current-head CI, a healthy Preview, resolved reviews and protected-main production SHA verification precede release and final filming. Approval of the updated customer-booking reference precedes production of the remaining seven videos. Rollback is a reviewed revert of the scoped UI changes; no schema, public API, authentication, billing or delivery change is introduced.
