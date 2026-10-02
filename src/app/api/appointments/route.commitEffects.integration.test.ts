@@ -524,6 +524,33 @@ describe('public-booking appointment SMS preference', () => {
     });
   });
 
+  it('persists separate v3 appointment and promotional decisions', async () => {
+    const phone = freshPhone();
+    await seedRewardFixture(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+
+    const response = await postBooking({
+      startTime: at(futureDate(83), '11:00').toISOString(),
+      smsConsent: {
+        granted: true,
+        wordingVersion: 'booking-sms-separated-v3',
+        selection: 'default_on',
+        promotionsGranted: false,
+      },
+    });
+
+    expect(response.status).toBe(201);
+
+    const rows = await db.select().from(schema.communicationConsentSchema)
+      .where(eq(schema.communicationConsentSchema.recipient, phone));
+
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ purpose: 'appointment_reminders', status: 'granted', wordingVersion: 'booking-sms-separated-v3', metadata: expect.objectContaining({ selection: 'default_on' }) }),
+      expect.objectContaining({ purpose: 'appointment_transactional', status: 'granted', wordingVersion: 'booking-sms-separated-v3', metadata: expect.objectContaining({ selection: 'default_on' }) }),
+      expect.objectContaining({ purpose: 'salon_promotions', status: 'revoked', wordingVersion: 'booking-sms-separated-v3', metadata: expect.objectContaining({ selection: 'default_off', selectionWasExplicit: false, promotionsGranted: false }) }),
+    ]));
+  });
+
   it('records an explicit off selection after a historical grant', async () => {
     const phone = freshPhone();
     await seedRewardFixture(phone);
@@ -581,7 +608,7 @@ describe('public-booking appointment SMS preference', () => {
 
     const response = await postBooking({
       startTime: at(futureDate(85), '10:00').toISOString(),
-      smsConsent: { granted: true, wordingVersion: 'booking-sms-reminders-v1', selection: 'default_on' },
+      smsConsent: { granted: true, wordingVersion: 'booking-sms-separated-v3', selection: 'default_on', promotionsGranted: true },
     });
 
     expect(response.status).toBe(201);
@@ -592,6 +619,11 @@ describe('public-booking appointment SMS preference', () => {
 
     expect(rows.some(row => row.source === 'twilio_inbound' && row.status === 'revoked')).toBe(true);
     expect(rows.some(row => row.purpose === 'appointment_reminders' && row.status === 'granted')).toBe(false);
+    expect(rows.filter(row => row.source === 'public_booking')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ purpose: 'appointment_reminders', status: 'revoked', wordingVersion: 'booking-sms-separated-v3' }),
+      expect.objectContaining({ purpose: 'appointment_transactional', status: 'revoked', wordingVersion: 'booking-sms-separated-v3' }),
+      expect.objectContaining({ purpose: 'salon_promotions', status: 'revoked', wordingVersion: 'booking-sms-separated-v3', metadata: expect.objectContaining({ promotionsGranted: true, suppression: 'provider_opt_out' }) }),
+    ]));
   });
 
   it('records a tenant-scoped appointment gate when booking SMS is disabled', async () => {
@@ -719,6 +751,40 @@ describe('D4.5 — the idempotency contract is unchanged', () => {
     const appointments = await db.select().from(schema.appointmentSchema);
 
     expect(appointments).toHaveLength(1);
+  });
+
+  it('rejects a retry that changes only the independent v3 promotional choice', async () => {
+    const phone = freshPhone();
+    await seedRewardFixture(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+
+    const startTime = at(futureDate(84), '10:00').toISOString();
+    const idempotencyKey = 'commit-effects-v3-promotion-fingerprint';
+    const first = await postBooking({
+      startTime,
+      smsConsent: {
+        granted: true,
+        wordingVersion: 'booking-sms-separated-v3',
+        selection: 'default_on',
+        promotionsGranted: false,
+      },
+    }, idempotencyKey);
+
+    expect(first.status).toBe(201);
+
+    const changed = await postBooking({
+      startTime,
+      smsConsent: {
+        granted: true,
+        wordingVersion: 'booking-sms-separated-v3',
+        selection: 'default_on',
+        promotionsGranted: true,
+      },
+    }, idempotencyKey);
+
+    expect(changed.status).toBe(409);
+    await expect(changed.json()).resolves.toMatchObject({ error: { code: 'IDEMPOTENCY_KEY_REUSE' } });
+    expect(await db.select().from(schema.appointmentSchema)).toHaveLength(1);
   });
 });
 

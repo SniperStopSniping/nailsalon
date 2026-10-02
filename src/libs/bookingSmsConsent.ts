@@ -1,9 +1,16 @@
 /** Public-booking text preference and its auditable wording version. */
 export const BOOKING_SMS_WORDING_VERSION = 'booking-sms-all-v2';
+/** Appointment texts and salon promotions are separately consented in v3. */
+export const BOOKING_SMS_SEPARATED_WORDING_VERSION = 'booking-sms-separated-v3';
 export const BOOKING_SMS_EXPANDED_PURPOSES = ['appointment_transactional', 'salon_promotions'] as const;
 
 export function includesExpandedBookingSmsPurposes(wordingVersion: string): boolean {
-  return wordingVersion === BOOKING_SMS_WORDING_VERSION;
+  return wordingVersion === BOOKING_SMS_WORDING_VERSION
+    || wordingVersion === BOOKING_SMS_SEPARATED_WORDING_VERSION;
+}
+
+export function usesSeparatedBookingSmsConsent(wordingVersion: string): boolean {
+  return wordingVersion === BOOKING_SMS_SEPARATED_WORDING_VERSION;
 }
 export const BOOKING_SMS_MODES = ['default_on', 'default_off', 'disabled'] as const;
 export type BookingSmsMode = (typeof BOOKING_SMS_MODES)[number];
@@ -20,6 +27,8 @@ export type BookingSmsConsentInput = {
   granted: boolean;
   wordingVersion: string;
   selection: BookingSmsSelection;
+  /** v3 only. Missing is an unselected promotional consent. */
+  promotionsGranted?: boolean;
   /** Only for payloads emitted by the retired default-off confirm control. */
   legacyDefaultOff?: boolean;
 };

@@ -2,7 +2,7 @@ import 'server-only';
 
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { resolveRequiredBookingPolicy } from '@/libs/bookingPolicyAcknowledgment';
-import { resolveBookingSmsConsentDecision, resolveBookingSmsMode } from '@/libs/bookingSmsConsent';
+import { type BookingSmsConsentInput, resolveBookingSmsConsentDecision, resolveBookingSmsMode } from '@/libs/bookingSmsConsent';
 import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { buildDepositDisclosure, buildDepositDisclosureFingerprint, resolveDepositChargeForTotal } from '@/libs/depositPolicy';
 import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
@@ -49,7 +49,7 @@ export async function prepareCustomerBookingQuote(args: {
   preference: CustomerDatePreference;
   startTime: string;
   contact: CustomerContact;
-  smsConsent?: { granted: boolean; wordingVersion: string; selection: 'default_on' | 'default_off' | 'explicit_on' | 'explicit_off' };
+  smsConsent?: BookingSmsConsentInput;
   /** Opaque guest capability. It is resolved server-side and never stored in material. */
   campaignToken?: string;
   now?: Date;

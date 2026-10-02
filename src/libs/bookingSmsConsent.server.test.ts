@@ -98,6 +98,46 @@ describe('appointment reminder preference reader', () => {
     }
   });
 
+  it('keeps v3 appointment and promotional choices independent, including the unselected promotional default', async () => {
+    const { getClientSmsPurposeEligibility, getClientSmsPurposeEligibilityBatch } = await import('./clientSmsEligibility.server');
+    await database.insert(schema.salonClientSchema).values([
+      { id: 'separated-granted-a', salonId: 'prefs-a', phone: '4165550187' },
+      { id: 'separated-default-off-a', salonId: 'prefs-a', phone: '4165550186' },
+    ]);
+    await preference('4165550187', 'revoked', {
+      wordingVersion: 'booking-sms-separated-v3',
+      metadata: { selection: 'explicit_off', selectionWasExplicit: true },
+    });
+    await preference('4165550187', 'revoked', {
+      purpose: 'appointment_transactional',
+      wordingVersion: 'booking-sms-separated-v3',
+      metadata: { selection: 'explicit_off', selectionWasExplicit: true },
+    });
+    await preference('4165550187', 'granted', {
+      purpose: 'salon_promotions',
+      wordingVersion: 'booking-sms-separated-v3',
+      metadata: { selection: 'explicit_on', selectionWasExplicit: true, promotionsGranted: true },
+    });
+    await preference('4165550186', 'revoked', {
+      purpose: 'salon_promotions',
+      wordingVersion: 'booking-sms-separated-v3',
+      metadata: { selection: 'default_off', selectionWasExplicit: false, promotionsGranted: false },
+    });
+    await preference('4165550186', 'granted', {
+      wordingVersion: 'booking-sms-reminders-v1',
+      metadata: { selection: 'explicit_on', selectionWasExplicit: true },
+    });
+
+    expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone: '4165550187', purpose: 'appointment_reminders' })).toMatchObject({ state: 'customer_disabled' });
+    expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone: '4165550187', purpose: 'appointment_transactional' })).toMatchObject({ state: 'customer_disabled' });
+    expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone: '4165550187', purpose: 'salon_promotions' })).toMatchObject({ state: 'enabled', selection: 'explicit_on' });
+    expect(await getClientSmsPurposeEligibility({ salonId: 'prefs-a', phone: '4165550186', purpose: 'salon_promotions' })).toMatchObject({ state: 'customer_disabled', selection: 'default_off' });
+
+    const batch = await getClientSmsPurposeEligibilityBatch({ salonId: 'prefs-a', phones: ['4165550187', '4165550186'], purpose: 'salon_promotions' });
+
+    expect(batch).toEqual(new Map([['4165550187', true], ['4165550186', false]]));
+  });
+
   it('batches promotional and appointment eligibility with the same result as individual send checks', async () => {
     const { getClientSmsPurposeEligibilityBatch, getClientSmsPurposeEligibility } = await import('./clientSmsEligibility.server');
     await database.insert(schema.salonClientSchema).values([
