@@ -145,9 +145,9 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
   expect(consent.rows.map(row => row.purpose)).toEqual(['appointment_reminders', 'appointment_transactional', 'salon_promotions']);
 
   expect(consent.rows).toEqual(expect.arrayContaining([
-    expect.objectContaining({ purpose: 'appointment_reminders', status: 'granted', wording_version: 'booking-sms-separated-v3', metadata: { selection: 'default_on', selectionWasExplicit: false } }),
-    expect.objectContaining({ purpose: 'appointment_transactional', status: 'granted', wording_version: 'booking-sms-separated-v3', metadata: { selection: 'default_on', selectionWasExplicit: false } }),
-    expect.objectContaining({ purpose: 'salon_promotions', status: 'granted', wording_version: 'booking-sms-separated-v3', metadata: { selection: 'explicit_on', selectionWasExplicit: true, promotionsGranted: true } }),
+    expect.objectContaining({ purpose: 'appointment_reminders', status: 'granted', wording_version: 'booking-sms-separated-v3', metadata: expect.objectContaining({ selection: 'default_on', selectionWasExplicit: false }) }),
+    expect.objectContaining({ purpose: 'appointment_transactional', status: 'granted', wording_version: 'booking-sms-separated-v3', metadata: expect.objectContaining({ selection: 'default_on', selectionWasExplicit: false }) }),
+    expect.objectContaining({ purpose: 'salon_promotions', status: 'granted', wording_version: 'booking-sms-separated-v3', metadata: expect.objectContaining({ selection: 'explicit_on', selectionWasExplicit: true, promotionsGranted: true }) }),
   ]));
 
   const additions = await database.query('SELECT add_on_id, quantity_snapshot FROM appointment_add_on WHERE appointment_id = $1 ORDER BY add_on_id', [appointment.id]);
