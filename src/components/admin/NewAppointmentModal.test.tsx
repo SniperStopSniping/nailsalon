@@ -270,7 +270,7 @@ describe('NewAppointmentModal Google conversion session', () => {
     render(
       <NewAppointmentModal {...modalProps({
         googleEventPrefill: null,
-        clientPrefill: { name: 'Retry client', phone: '4165550198', serviceId: 'service_1', technicianId: 'tech_1' },
+        clientPrefill: { name: 'Retry client', phone: '4165550198', email: null, serviceId: 'service_1', technicianId: 'tech_1' },
         onSuccess,
       })}
       />,
@@ -295,7 +295,7 @@ describe('NewAppointmentModal Google conversion session', () => {
     render(
       <NewAppointmentModal {...modalProps({
         googleEventPrefill: null,
-        clientPrefill: { name: 'Edit client', phone: '4165550198', serviceId: 'service_1', technicianId: 'tech_1' },
+        clientPrefill: { name: 'Edit client', phone: '4165550198', email: null, serviceId: 'service_1', technicianId: 'tech_1' },
       })}
       />,
     );
