@@ -181,11 +181,20 @@ export function NewAppointmentModal({
   const activeGoogleSessionIdRef = useRef<string | null>(null);
   const sourceFingerprintRef = useRef<string | null>(null);
   const idempotencyKeyRef = useRef<string | null>(null);
+  const submittedPayloadRef = useRef<string | null>(null);
   const submittingRef = useRef(false);
   const pendingTechDefaultRef = useRef(false);
   const pendingGoogleServiceNameRef = useRef<string | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
 
   const draftKey = salonSlug ? `luster:new-appointment-draft:${salonSlug}` : null;
+
+  useEffect(() => {
+    if (isOpen && !loading && error && errorRef.current) {
+      errorRef.current.focus({ preventScroll: true });
+      errorRef.current.scrollIntoView?.({ block: 'nearest' });
+    }
+  }, [error, isOpen, loading]);
 
   useEffect(() => {
     if (!isOpen || !googleEventPrefill) {
@@ -197,6 +206,7 @@ export function NewAppointmentModal({
     activeGoogleSessionIdRef.current = googleEventPrefill.id;
     sourceFingerprintRef.current = googleEventFingerprint(googleEventPrefill);
     idempotencyKeyRef.current = createIdempotencyKey();
+    submittedPayloadRef.current = null;
     const start = new Date(googleEventPrefill.startTime);
     const parsedTitle = parseGoogleEventTitle(googleEventPrefill.title);
     setSelectedDate(formatDateForInput(start));
@@ -398,6 +408,7 @@ export function NewAppointmentModal({
       activeGoogleSessionIdRef.current = null;
       sourceFingerprintRef.current = null;
       idempotencyKeyRef.current = null;
+      submittedPayloadRef.current = null;
       submittingRef.current = false;
       pendingGoogleServiceNameRef.current = null;
     }
@@ -488,6 +499,7 @@ export function NewAppointmentModal({
       return;
     }
 
+    let serverFailureMessage: string | null = null;
     try {
       submittingRef.current = true;
       setSubmitting(true);
@@ -498,8 +510,29 @@ export function NewAppointmentModal({
       const [year, month, day] = selectedDate.split('-').map(Number);
       const [hours, minutes] = selectedTime.split(':').map(Number);
       const startTime = new Date(year!, month! - 1, day, hours, minutes);
-      const idempotencyKey = idempotencyKeyRef.current ?? createIdempotencyKey();
+      const requestBody = JSON.stringify({
+        salonSlug,
+        serviceIds: selectedServiceIds,
+        technicianId: selectedTechnicianId,
+        clientPhone,
+        clientName: clientName || undefined,
+        clientEmail: clientEmail || undefined,
+        startTime: startTime.toISOString(),
+        googleEventReviewId: googleEventPrefill?.id,
+        durationMinutesOverride: googleEventPrefill ? parsedDurationOverride : undefined,
+        notes: googleEventPrefill ? notes.trim() || undefined : undefined,
+        priceCentsOverride: googleEventPrefill && priceOverride !== ''
+          ? Math.round(Number(priceOverride) * 100)
+          : undefined,
+        campaignToken: clientPrefill?.nextVisitOffer?.campaignToken,
+      });
+      // A lost response may follow a committed appointment. Keep the same
+      // identity for an unchanged retry so the server can replay its result.
+      // An edited request needs a fresh identity to avoid payload-key reuse.
+      const payloadChanged = submittedPayloadRef.current !== null && submittedPayloadRef.current !== requestBody;
+      const idempotencyKey = payloadChanged ? createIdempotencyKey() : idempotencyKeyRef.current ?? createIdempotencyKey();
       idempotencyKeyRef.current = idempotencyKey;
+      submittedPayloadRef.current = requestBody;
 
       const response = await fetch('/api/appointments', {
         method: 'POST',
@@ -507,22 +540,7 @@ export function NewAppointmentModal({
           'Content-Type': 'application/json',
           'Idempotency-Key': idempotencyKey,
         },
-        body: JSON.stringify({
-          salonSlug,
-          serviceIds: selectedServiceIds,
-          technicianId: selectedTechnicianId,
-          clientPhone,
-          clientName: clientName || undefined,
-          clientEmail: clientEmail || undefined,
-          startTime: startTime.toISOString(),
-          googleEventReviewId: googleEventPrefill?.id,
-          durationMinutesOverride: googleEventPrefill ? parsedDurationOverride : undefined,
-          notes: googleEventPrefill ? notes.trim() || undefined : undefined,
-          priceCentsOverride: googleEventPrefill && priceOverride !== ''
-            ? Math.round(Number(priceOverride) * 100)
-            : undefined,
-          campaignToken: clientPrefill?.nextVisitOffer?.campaignToken,
-        }),
+        body: requestBody,
       });
 
       const result = await response.json();
@@ -536,7 +554,8 @@ export function NewAppointmentModal({
           setSourceChanged(true);
           onRefreshGoogleEvent?.();
         }
-        throw new Error(result.error?.message || 'Failed to create appointment');
+        serverFailureMessage = result.error?.message || 'Failed to create appointment';
+        throw new Error(serverFailureMessage!);
       }
 
       // Success
@@ -546,13 +565,9 @@ export function NewAppointmentModal({
       notifyAppointmentDataChanged();
       onSuccess?.();
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create appointment');
+    } catch {
+      setError(serverFailureMessage || 'We couldn’t confirm whether the appointment was saved. Retry with the same details to check, or check your calendar before changing them.');
       setSubmitFailed(true);
-      // A failed attempt created nothing to dedupe against — rotate the key
-      // so "Retry conversion" is a fresh request instead of colliding with
-      // the previous attempt's still-held booking lock.
-      idempotencyKeyRef.current = createIdempotencyKey();
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -655,7 +670,7 @@ export function NewAppointmentModal({
                 <div className="space-y-6">
                   {/* Error Message */}
                   {error && (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-3" role="alert" data-testid="new-appointment-error">
+                    <div ref={errorRef} tabIndex={-1} className="rounded-lg border border-red-200 bg-red-50 p-3" role="alert" data-testid="new-appointment-error">
                       <p className="text-sm text-red-700">{error}</p>
                     </div>
                   )}

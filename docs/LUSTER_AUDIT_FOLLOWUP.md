@@ -28,9 +28,9 @@
 
 | Package | Required evidence | Status |
 | --- | --- | --- |
-| Public booking | UI submission, receipt, unique stored appointment, owner/client agreement, reload | Baseline solo/no-deposit passed in mobile Chromium and WebKit; HTTPS recovery and other variants pending |
+| Public booking | UI submission, receipt, unique stored appointment, owner/client agreement, reload | Baseline fixture/no-deposit passed in mobile Chromium and WebKit; HTTPS recovery and other variants pending |
 | Customer management | UI reschedule, cancellation, back, failure/retry, rebook | Baseline reschedule/cancel passed; reschedule/cancel, both network recovery paths and consistent cancelled badge passed in both mobile browsers; rebook pending |
-| Owner lifecycle | Contextual creation, edit, reschedule, start/complete, applicable payment record | Pending |
+| Owner lifecycle | Contextual creation, edit, reschedule, start/complete, applicable payment record | Creation, reload, edit, start, cash completion, receipt and rebooking passed in mobile Chromium/WebKit and desktop; alternate entry points and failure branches in progress |
 | Booking variations | Solo/team, approval, deposit, conflicts, duration changes, double submit | Pending |
 | Services | Ordinary service/add-on save, active state, public result, history preservation | Pending |
 | Roles/setup | Onboarding, initial publication, staff actions, tenant boundaries, platform administration | Pending |
@@ -75,7 +75,7 @@ The first scoped repair changes customer cancellation feedback/recovery, refresh
 - Scoped ESLint: passed.
 - Production build: passed, including TypeScript validation.
 - Mobile UI rerun: **6 scenarios passed, zero skips**, covering the complete scoped journey and both failure modes in Chromium and WebKit. Successful cancellation updates the badge before screenshot capture. S92, S93 and S95 were visually reviewed for readable copy and consistent status; the captures have no horizontal overflow.
-- Hosted preview, CI, review, merge and production SHA verification: pending.
+- PR #345: all 21 CI jobs passed, no unresolved review threads, exact-head preview READY, merged as `f0346feae1bcb1efb8491d317fc4bd0decaaba1c`. Production was READY and `https://www.lustergel.app/api/health` reported `status: ok`, `gitSha: f0346fe` at 2026-10-03T22:07:26.306Z. Preview health was degraded because Redis/outbound integrations were absent; its root and robots routes returned 200. The lifecycle evidence remains isolated-local evidence, not hosted-provider verification.
 
 The live Isla salon has not been used for mutation or messaging tests. Physical-phone use, hosted HTTPS receipt recovery and actual provider delivery remain unverified.
 
@@ -107,3 +107,67 @@ flowchart TD
 ```
 
 **Observed strengths:** direct private entry, preserved appointment/client identity when moving, clear return link, and a confirmation before cancellation. **Repairs in this package:** reliable failure recovery, consistent cancelled status, and no unsupported email claim. **Remaining checks:** cutoff errors, expired/invalid links, same-time selection, no-availability recovery, rebooking, payment/approval variations, desktop, keyboard and physical devices. Existing API tests cover several rules but are not substituted for those UI observations.
+
+
+## Owner appointment follow-up (2026-10-03)
+
+**Baseline:** released main `f0346fea`, separate `codex/luster-owner-lifecycle-audit` worktree. The original local runtime was retained for baseline evidence; the repair runtime uses a separate local port. Both use the attested disposable database. Actual app mutations are synthetic. Cash means a stored payment record in this test, not a real money exchange.
+
+**Fixture clarification:** the seeded salon has its free-solo flag enabled but the owner calendar visibly lists Daniela, Jenny and Tiffany. The owner test explicitly chose Daniela. This is not proof of the one-eligible-technician experience; the single-technician configuration remains a separate case. Owner access is still supported super-admin impersonation, not real Clerk owner/staff authentication.
+
+### Completed evidence
+
+Three final baseline runs passed with zero skips: Chromium at 390 × 844, mobile WebKit/iPhone 13 at 390 × 664 CSS pixels, and Chromium at 1440 × 1000. Each run:
+
+1. Opens Today → New Appointment (S19); enters a date/time, synthetic client, technician and service; submits through the real UI.
+2. Reloads, opens Calendar → selected date → appointment (S94), and checks the single persisted appointment and client identity.
+3. Uses Edit / reschedule in S94, changes the time, saves, reloads and opens the same appointment ID.
+4. Starts the appointment and verifies `in_progress`; opens completion (S96), selects Cash, reviews (S97), goes Back once and returns to Review.
+5. Chooses Complete, then Complete without photo in the optional-photo prompt (S98). Checks S99, the persisted completed record, one cash ledger entry and zero balance.
+6. Opens the receipt (S100), reloads and reopens the completed appointment. Rebook client opens S19 with the client name, phone, email, service and technician carried over. Saving the next visit creates a second appointment linked to the same client; the prior visit remains completed.
+
+This verifies existing rebooking prefills. Do not specify them as missing functionality. It does not prove calendar-time entry, client-profile entry, walk-ins, staff authorization, tax/deposit variants, partial payment, real provider behavior, or a physical phone. The test uses future appointments to isolate its data; it does not simulate elapsed service time.
+
+### F12 — Complete and rebook a visit
+
+**Role:** owner. **Start:** S94, opened from Calendar after selecting a date and appointment. **Goal:** record the completed service and payment, optionally arrange the next visit.
+
+```mermaid
+flowchart TD
+  S94[S94 Appointment details] -->|Start appointment, if needed| Working[S94 In progress]
+  S94 -->|Mark completed| S96[S96 Completion form]
+  Working -->|Complete appointment| S96
+  S96 -->|Review| S97[S97 Review totals and payment]
+  S97 -->|Back| S96
+  S97 -->|Complete; optional photo absent| S98[S98 Photo choice]
+  S98 -->|Complete without photo| S99[S99 Completed]
+  S99 -->|View receipt| S100[S100 Receipt]
+  S99 -->|Rebook client| S19[S19 Prefilled appointment form]
+  S94 -->|Completed visit: Rebook client| S19
+  S19 -->|Choose next date/time and create| Next[S94 New visit, same client]
+```
+
+Receipt and rebooking are optional branches. The test toured both to establish coverage; they are not required to complete a visit. S96 cancellation/discard and S98 Add photo are visible branches still awaiting their own execution.
+
+### Screen decisions and practical critique
+
+| Reference | Evidence and strengths | Recommendation / priority |
+| --- | --- | --- |
+| S19 | One form, searchable service list, price/duration summary and reachable fixed Create action; working rebook prefills. Mobile requires scrolling between contact and services inside an 80%-height modal, with another scroll area for the services. | Refine-first: prototype a better-sized single form and compact selection. Keep the existing footer and prefills. Medium design issue; not proof that a wizard would help. |
+| S94 | Creation and time edits persist; Start and Complete actions work; completed record exposes receipt and rebooking. | Preserve this shared panel. Evaluate error/conflict and keyboard paths before proposing structural change. |
+| S96 | Service and totals precede payment. Cash, amount and Review are usable; fixed action stays accessible. | Keep. On shorter mobile views the amount field needs a separate scroll; assess compact totals as a design refinement. Low/medium, not a functional failure. |
+| S97 | Review and Back work; going Back does not complete the appointment. | Keep; partial payment and tax/deposit disclosures remain separate checks. |
+| S98 | Offers a real choice to finish without an optional photo; completion persists. | Keep optional behavior. Add-photo/upload and required-photo configurations still need execution. |
+| S99 | Clear completed/paid result, remaining balance, receipt and rebook actions. | Refine the payment labels: this one cash payment appears under both Other payments and Already paid. The stored ledger has exactly one entry, so this is a wording/hierarchy concern, not duplicate charging. Medium. |
+| S100 | Receipt shows service, total, recorded cash payment and zero balance; available after reload. | Keep. A future appointment completed now yields different visit/payment dates in this synthetic test; do not report that as a date bug. |
+
+### Confirmed creation-retry defect
+
+**High, observed, S19 / F02:** the original form generates a new idempotency key in every submit failure handler. A real UI test let the server commit a 201, then dropped only the response. The form showed a raw network error. Retrying the unchanged form produced two confirmed appointments for the same client and start time, assigned to different technicians. Baseline screenshot, trace, request result and attested database evidence are preserved.
+
+The scoped repair retains a request identity for unchanged retries, rotates it when the request payload changes, and explains an uncertain save outcome. Existing server replay and failure-lock release behavior is reused; no scheduling, payment, authorization or database rule is changed. Final browser verification passed all six scenarios with zero skips, including viewport/focus and original-record replay checks in all three projects. Production build, TypeScript and scoped ESLint passed. Hosted preview and release gates are pending. Closing/reopening after uncertainty, Redis outage, expired cache, malformed response and stalled-request behavior remain separate checks; do not generalize the bounded replay test to those cases.
+
+
+A second **observed defect, medium, S19 / F02** was reproduced with the browser viewport assertion: after submission from the service section, the new error banner had a viewport intersection ratio of zero. Merely asserting that the element existed/was CSS-visible did not establish that the owner could see it. The repair focuses the alert and scrolls it into the form viewport. The regression now checks both viewport presence and keyboard focus before retrying.
+
+Focused component/checkout/API-effect regression: 88 tests passed across three files. The ordinary creation retry keeps its request body/key; editing the failed payload uses a different key; the existing Google-conversion server-failure test now reflects server-side failed-lock release instead of requiring unsafe unconditional key rotation. A clean-environment secret scan passed. Running that scan with the synthetic login environment produced fixture-phone literal matches in existing files; the scanner and those fixtures were unchanged.
