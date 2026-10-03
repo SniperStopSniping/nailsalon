@@ -1,3 +1,10 @@
+## [1.135.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.135.1...v1.135.2) (2026-10-03)
+
+
+### Bug Fixes
+
+* recover customer cancellation and clarify booking feedback ([#345](https://github.com/SniperStopSniping/nailsalon/issues/345)) ([f0346fe](https://github.com/SniperStopSniping/nailsalon/commit/f0346feae1bcb1efb8491d317fc4bd0decaaba1c))
+
 ## [1.135.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.135.0...v1.135.1) (2026-10-02)
 
 
