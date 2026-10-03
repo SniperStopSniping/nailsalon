@@ -237,7 +237,7 @@ export function RescheduleAppointmentClient(props: Props) {
         <p className="mt-3 text-sm leading-6 text-stone-600">
           {done.status === 'unchanged'
             ? 'You picked the time you already had, so nothing was changed and no confirmation was sent.'
-            : 'We have updated your booking and emailed you the new details.'}
+            : 'We have updated your booking. View your appointment for the latest details.'}
         </p>
         <a href={props.manageHref} className="mt-6 inline-flex rounded-full bg-stone-900 px-5 py-3 text-sm font-semibold text-white">
           Back to my appointment
