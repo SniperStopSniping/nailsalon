@@ -29,6 +29,7 @@ const {
 });
 
 vi.mock('server-only', () => ({}));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock('@/components/appointments/RebookingPrompt', () => ({ RebookingPrompt: () => <div data-testid="rebooking-prompt" /> }));
 vi.mock('@/components/appointments/NextVisitOfferRebook', () => ({ NextVisitOfferRebook: () => <div data-testid="legacy-offer-rebook" /> }));
 

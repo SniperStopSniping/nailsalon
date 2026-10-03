@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 /**
@@ -20,18 +21,33 @@ import { useState } from 'react';
  * in this same view.
  */
 export function ManageAppointmentActions({ token, rescheduleUrl, appointmentStatus, isActive, canChange, cutoffHours, salonPhone }: { token: string; rescheduleUrl: string; appointmentStatus?: string; isActive: boolean; canChange: boolean; cutoffHours: number; salonPhone?: string | null }) {
+  const router = useRouter();
   const [status, setStatus] = useState<'idle' | 'working' | 'cancelled' | 'error'>(appointmentStatus ? appointmentStatus === 'cancelled' ? 'cancelled' : 'idle' : isActive ? 'idle' : 'cancelled');
   async function cancel() {
     if (!window.confirm('Cancel this appointment?')) {
       return;
     }
     setStatus('working');
-    const response = await fetch(`/api/public/appointments/manage/${encodeURIComponent(token)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'cancel', reason: 'client_request' }),
-    });
-    setStatus(response.ok ? 'cancelled' : 'error');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch(`/api/public/appointments/manage/${encodeURIComponent(token)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel', reason: 'client_request' }),
+        signal: controller.signal,
+      });
+      setStatus(response.ok ? 'cancelled' : 'error');
+      if (response.ok) {
+        router.refresh();
+      }
+    } catch {
+      // A lost response cannot tell us whether the server committed the change.
+      // Keep recovery available without presenting an unverified cancellation.
+      setStatus('error');
+    } finally {
+      clearTimeout(timeout);
+    }
   }
   if (status === 'cancelled') {
     return <div className="rounded-2xl bg-stone-100 p-4 text-center text-sm font-medium text-stone-700">This appointment is cancelled.</div>;
@@ -60,7 +76,12 @@ export function ManageAppointmentActions({ token, rescheduleUrl, appointmentStat
     <div className="grid gap-3 sm:grid-cols-2">
       <a href={rescheduleUrl} className="rounded-full bg-stone-900 px-5 py-3 text-center text-sm font-semibold text-white">Choose a new time</a>
       <button type="button" disabled={status === 'working'} onClick={cancel} className="rounded-full border border-red-200 px-5 py-3 text-sm font-semibold text-red-700 disabled:opacity-50">{status === 'working' ? 'Cancelling…' : 'Cancel appointment'}</button>
-      {status === 'error' && <p className="text-sm text-red-700 sm:col-span-2">The appointment could not be cancelled. Refresh and try again.</p>}
+      {status === 'error' && (
+        <div role="alert" className="text-sm text-red-700 sm:col-span-2">
+          <p>We couldn’t confirm the cancellation. Refresh to check your appointment, then try again if needed.</p>
+          <button type="button" onClick={() => window.location.reload()} className="mt-2 min-h-11 font-semibold underline underline-offset-4">Refresh appointment</button>
+        </div>
+      )}
     </div>
   );
 }

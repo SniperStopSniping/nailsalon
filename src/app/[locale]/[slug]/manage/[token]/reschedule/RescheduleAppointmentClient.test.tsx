@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RescheduleAppointmentClient } from './RescheduleAppointmentClient';
@@ -59,5 +59,18 @@ describe('RescheduleAppointmentClient financial presentation', () => {
       .toHaveTextContent('Financial details are under review');
     expect(screen.queryByTestId('reschedule-price-summary')).not.toBeInTheDocument();
     expect(screen.queryByText('$100.00 CAD')).not.toBeInTheDocument();
+  });
+
+  it('confirms a saved move without claiming an email was delivered', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ slots: [{ time: '11:00', startTime: '2026-08-20T15:00:00Z' }], bookedSlots: [] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { status: 'rescheduled' } }))));
+    render(<RescheduleAppointmentClient {...baseProps} />);
+    fireEvent.click(await screen.findByRole('button', { name: '11:00 AM' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm new time' }));
+
+    expect(await screen.findByRole('heading', { name: 'Your appointment has been moved' })).toBeInTheDocument();
+    expect(screen.getByText('We have updated your booking. View your appointment for the latest details.')).toBeInTheDocument();
+    expect(screen.queryByText(/emailed you/)).not.toBeInTheDocument();
   });
 });
