@@ -257,6 +257,62 @@ describe('NewAppointmentModal Google conversion session', () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
   });
 
+  it('reuses the request identity after an uncertain ordinary appointment save', async () => {
+    let attempts = 0;
+    installDefaultFetch(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new TypeError('Failed to fetch');
+      }
+      return jsonResponse({ appointmentId: 'appt_replayed' }, 201);
+    });
+    const onSuccess = vi.fn();
+    render(
+      <NewAppointmentModal {...modalProps({
+        googleEventPrefill: null,
+        clientPrefill: { name: 'Retry client', phone: '4165550198', serviceId: 'service_1', technicianId: 'tech_1' },
+        onSuccess,
+      })}
+      />,
+    );
+    await waitForForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
+
+    expect(await screen.findByTestId('new-appointment-error')).toHaveTextContent('We couldn’t confirm whether the appointment was saved.');
+    expect(screen.getByTestId('new-appointment-error')).toHaveFocus();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    const requests = postCalls().map(([, init]) => init as RequestInit);
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.body).toBe(requests[0]!.body);
+    expect(new Headers(requests[1]!.headers).get('Idempotency-Key')).toBe(new Headers(requests[0]!.headers).get('Idempotency-Key'));
+  });
+
+  it('creates a fresh request identity when an owner edits the failed request', async () => {
+    installDefaultFetch(async () => jsonResponse({ error: { code: 'SLOT_UNAVAILABLE', message: 'Choose another time' } }, 409));
+    render(
+      <NewAppointmentModal {...modalProps({
+        googleEventPrefill: null,
+        clientPrefill: { name: 'Edit client', phone: '4165550198', serviceId: 'service_1', technicianId: 'tech_1' },
+      })}
+      />,
+    );
+    await waitForForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
+
+    expect(await screen.findByTestId('new-appointment-error')).toHaveTextContent('Choose another time');
+
+    fireEvent.change(screen.getByLabelText('Client Name (optional)'), { target: { value: 'Corrected name' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
+    await waitFor(() => expect(postCalls()).toHaveLength(2));
+    const requests = postCalls().map(([, init]) => init as RequestInit);
+
+    expect(requests[1]!.body).not.toBe(requests[0]!.body);
+    expect(new Headers(requests[1]!.headers).get('Idempotency-Key')).not.toBe(new Headers(requests[0]!.headers).get('Idempotency-Key'));
+  });
+
   it('closes after a successful conversion and sends conversion-only fields', async () => {
     const onSuccess = vi.fn();
     const onClose = vi.fn();
@@ -368,7 +424,7 @@ describe('NewAppointmentModal Google conversion session', () => {
     expect(body.googleEventReviewId).toBe('google_event_1');
   });
 
-  it('rotates the idempotency key after a failed submit so retry is a fresh request', async () => {
+  it('keeps the idempotency key on an unchanged server-failure retry', async () => {
     installDefaultFetch(async () => jsonResponse({
       error: { code: 'INTERNAL_ERROR', message: 'Something went wrong' },
     }, 500));
@@ -391,7 +447,9 @@ describe('NewAppointmentModal Google conversion session', () => {
 
     expect(firstKey).toBeTruthy();
     expect(secondKey).toBeTruthy();
-    expect(secondKey).not.toBe(firstKey);
+    // The server releases failed booking locks. Rotating here would also
+    // turn an uncertain committed save into a second creation request.
+    expect(secondKey).toBe(firstKey);
   });
 });
 

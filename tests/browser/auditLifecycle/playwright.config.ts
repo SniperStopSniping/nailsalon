@@ -22,5 +22,6 @@ export default defineConfig({
     { name: 'setup', testDir: path.resolve(__dirname, '../../e2e'), testMatch: 'auth.setup.ts' },
     { name: 'audit-chromium', dependencies: ['setup'], use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 } } },
     { name: 'audit-webkit', dependencies: ['setup'], use: { ...devices['iPhone 13'] } },
+    { name: 'audit-desktop', dependencies: ['setup'], use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } } },
   ],
 });
