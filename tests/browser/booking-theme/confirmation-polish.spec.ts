@@ -200,6 +200,37 @@ test('synthetic confirmed receipt shows the next-booking prompt and opens its se
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test('current confirmation rebooking stays usable at 320px with doubled text and keyboard activation', async ({ page }, info) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/?step=confirm&palette=luster_berry&rebooking&rebooking-long');
+  await page.getByRole('textbox', { name: 'Customer name' }).fill('Synthetic Rebooking Guest');
+  await page.getByRole('textbox', { name: 'Customer email' }).fill('rebooking@example.invalid');
+  await page.getByRole('textbox', { name: 'Customer phone' }).fill('4165550100');
+  await page.getByRole('button', { name: /Confirm appointment/ }).click();
+  const region = page.getByRole('region', { name: 'Why not book your next visit now?' });
+
+  await expect(region).toBeVisible();
+  await expect(region).toContainText('x'.repeat(300));
+
+  await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+  const next = region.getByRole('button', { name: 'Book my next appointment' });
+  await next.scrollIntoViewIfNeeded();
+  await next.focus();
+
+  await expect(next).toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(await next.evaluate((button) => {
+    const rect = button.getBoundingClientRect();
+    return rect.height >= 44 && rect.left >= 0 && rect.right <= innerWidth;
+  })).toBe(true);
+
+  await page.screenshot({ path: info.outputPath('current-confirmation-rebooking-320-text-200.png'), fullPage: true });
+  await page.keyboard.press('Enter');
+
+  await expect.poll(() => page.locator('html').getAttribute('data-navigation')).toBe('/en/theme-fixture/book/time?serviceIds=service-fixture&techId=tech-fixture');
+});
+
 test('compact review keeps multi-service prices, pending add-ons, agreement, and mobile typing usable', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await page.goto('/?step=confirm&palette=luster_berry&review-multi&review-policy');
