@@ -587,6 +587,20 @@ export const getQuickBookLayoutsByFamily = (
   family: QuickBookLayoutFamily,
 ): QuickBookLayoutDefinition[] => QUICK_BOOK_LAYOUTS.filter(layout => layout.family === family);
 
+/** Saved layouts remain valid and renderable after they leave the chooser. */
+export const RETIRED_QUICK_BOOK_LAYOUT_IDS: readonly QuickBookLayoutId[] = ['editorial', 'hub_menu'];
+
+export const isRetiredQuickBookLayout = (id: string): boolean =>
+  (RETIRED_QUICK_BOOK_LAYOUT_IDS as readonly string[]).includes(id);
+
+/** Keep the current saved choice visible until its owner chooses a replacement. */
+export const getSelectableQuickBookLayoutsByFamily = (
+  family: QuickBookLayoutFamily,
+  currentLayout?: QuickBookLayoutId,
+): QuickBookLayoutDefinition[] => getQuickBookLayoutsByFamily(family).filter(layout => (
+  !isRetiredQuickBookLayout(layout.id) || layout.id === currentLayout
+));
+
 /**
  * At most two short, positive labels for a layout card. The preview is the
  * primary signal; these exist to prevent a poor choice, not to replace it.

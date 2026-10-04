@@ -140,6 +140,55 @@ test('Quick Book cards preview the latest choice and restore the chooser through
   expect((await savedState(page)).recipe.quickBookLayout).toBe('asymmetric_luxe');
 });
 
+test('retires weak choices while preserving a resumed saved layout until its owner switches', async ({ page }) => {
+  await fixtureAt(page, 'about_design');
+  const choices = page.getByRole('group', { name: 'Quick Book layouts' });
+
+  await expect(choices.locator('button')).toHaveCount(20);
+  await expect(choices.locator('[data-qb-layout="editorial"]')).toHaveCount(0);
+  await expect(choices.locator('[data-qb-layout="hub_menu"]')).toHaveCount(0);
+  await expect(choices.locator('[data-qb-layout="editorial_split"]')).toBeVisible();
+
+  // Seed after the old document has flushed its autosave during reload.
+  await page.addInitScript((key) => {
+    const layout = sessionStorage.getItem('layout-audit-resume');
+    if (layout) {
+      const state = JSON.parse(localStorage.getItem(key)!);
+      state.recipe.quickBookLayout = layout;
+      localStorage.setItem(key, JSON.stringify(state));
+      sessionStorage.removeItem('layout-audit-resume');
+    }
+  }, STORAGE_KEY);
+
+  for (const layout of ['editorial', 'hub_menu']) {
+    await page.evaluate(layout => sessionStorage.setItem('layout-audit-resume', layout), layout);
+    await page.reload();
+    const before = await savedState(page);
+    const card = choices.locator(`button:has([data-qb-layout="${layout}"])`);
+
+    await expect(choices.locator('button')).toHaveCount(21);
+    await expect(card).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText(/Your saved .* layout is kept/)).toBeVisible();
+
+    await card.click();
+    const dialog = page.getByRole('dialog', { name: 'Preview your Quick Book layout' });
+
+    await expect(dialog.locator('[data-quick-book-layout]')).toHaveAttribute('data-quick-book-layout', layout);
+
+    await dialog.getByRole('button', { name: 'Try another layout' }).click();
+
+    expect((await savedState(page)).profile).toEqual(before.profile);
+    expect((await savedState(page)).recipe.quickBookLayout).toBe(layout);
+
+    await choices.locator('button:has([data-qb-layout="compact_dropdown"])').click();
+    await dialog.getByRole('button', { name: 'Try another layout' }).click();
+    await page.reload();
+
+    await expect(choices.locator('button')).toHaveCount(20);
+    expect((await savedState(page)).recipe.quickBookLayout).toBe('compact_dropdown');
+  }
+});
+
 test('booking cards preview the latest service layout at booking and accept exactly once', async ({ page }) => {
   await fixtureAt(page, 'booking_layout');
   const card = page.locator('[data-layout-option="clean_list"]');

@@ -8,7 +8,7 @@ import { createDanielaFixtureState } from '../fixtures';
 import { SITE_PALETTE_BY_ID } from '../model/palettes';
 import type { OnboardingLabState } from '../model/types';
 import { ONBOARDING_STYLE_ROLES } from '../preview/OnboardingSitePreview';
-import { QUICK_BOOK_LAYOUTS } from '../quick-book/layouts';
+import { QUICK_BOOK_LAYOUTS, RETIRED_QUICK_BOOK_LAYOUT_IDS } from '../quick-book/layouts';
 import { QuickBookLayoutScreen } from './DesignScreens';
 
 vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
@@ -16,7 +16,7 @@ vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
 }));
 
 describe('QuickBookLayoutScreen', () => {
-  it('offers every registered layout and previews new and already selected choices', async () => {
+  it('offers current layouts and previews new and already selected choices', async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
     const onFullPreview = vi.fn();
@@ -54,12 +54,12 @@ describe('QuickBookLayoutScreen', () => {
 
     const layoutGroup = screen.getByRole('group', { name: 'Quick Book layouts' });
 
-    expect(layoutGroup.querySelectorAll('button')).toHaveLength(QUICK_BOOK_LAYOUTS.length);
+    expect(layoutGroup.querySelectorAll('button')).toHaveLength(QUICK_BOOK_LAYOUTS.length - RETIRED_QUICK_BOOK_LAYOUT_IDS.length);
     expect(layoutGroup.querySelectorAll('[data-layout-family]')).toHaveLength(3);
 
     const posters = layoutGroup.querySelectorAll<HTMLElement>('.qb-poster');
 
-    expect(posters).toHaveLength(QUICK_BOOK_LAYOUTS.length);
+    expect(posters).toHaveLength(QUICK_BOOK_LAYOUTS.length - RETIRED_QUICK_BOOK_LAYOUT_IDS.length);
 
     for (const poster of posters) {
       expect(poster.style.getPropertyValue('--qb-ground')).toBe(
@@ -96,16 +96,19 @@ describe('QuickBookLayoutScreen', () => {
       expect(onFullPreview).toHaveBeenCalledTimes(2);
     });
 
-    await user.click(screen.getByRole('button', { name: /^Editorial Elegant/u }));
+    expect(screen.queryByRole('button', { name: /^Editorial Elegant/u })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Hub Menu/u })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^Editorial Split/u }));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^Editorial Elegant/u }))
+      expect(screen.getByRole('button', { name: /^Editorial Split/u }))
         .toHaveAttribute('aria-pressed', 'true');
       expect(onFullPreview).toHaveBeenCalledTimes(3);
     });
 
     expect(screen.getAllByText('Isla Nail Studio').length).toBeGreaterThan(0);
-    expect(screen.getByText('Editorial selected')).toBeVisible();
+    expect(screen.getByText('Editorial Split selected')).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Preview selected layout' }));
 

@@ -80,7 +80,8 @@ import {
 import {
   describeQuickBookLayoutCapabilities,
   describeQuickBookNameAdvisory,
-  getQuickBookLayoutsByFamily,
+  getSelectableQuickBookLayoutsByFamily,
+  isRetiredQuickBookLayout,
   QUICK_BOOK_LAYOUT_FAMILIES,
   QUICK_BOOK_LAYOUT_FAMILY_LABELS,
   QUICK_BOOK_LAYOUTS,
@@ -1031,6 +1032,9 @@ export function QuickBookLayoutScreen({
         className="onboarding-quick-book-layout-families"
         role="group"
       >
+        {isRetiredQuickBookLayout(state.recipe.quickBookLayout)
+          ? <p>{`Your saved ${selectedLayout.label} layout is kept. You can preview it or choose another layout.`}</p>
+          : null}
         {QUICK_BOOK_LAYOUT_FAMILIES.map((family) => {
           const familyMeta = QUICK_BOOK_LAYOUT_FAMILY_LABELS[family];
           return (
@@ -1045,7 +1049,7 @@ export function QuickBookLayoutScreen({
                 <p>{familyMeta.description}</p>
               </header>
               <div className="onboarding-quick-book-layout-grid">
-                {getQuickBookLayoutsByFamily(family).map((layout) => {
+                {getSelectableQuickBookLayoutsByFamily(family, state.recipe.quickBookLayout).map((layout) => {
                   const selected = state.recipe.quickBookLayout === layout.id;
                   const capabilities = describeQuickBookLayoutCapabilities(layout);
                   // Guidance, not a gate: any layout stays selectable.

@@ -29,7 +29,8 @@ import {
   describeQuickBookLayoutCapabilities,
   describeQuickBookNameAdvisory,
   getQuickBookLayout,
-  getQuickBookLayoutsByFamily,
+  getSelectableQuickBookLayoutsByFamily,
+  isRetiredQuickBookLayout,
   QUICK_BOOK_LAYOUT_FAMILIES,
   QUICK_BOOK_LAYOUT_FAMILY_LABELS,
   type QuickBookLayoutDefinition,
@@ -244,6 +245,9 @@ export function BookingPageLayoutChooser({
 
   return (
     <div className="space-y-6" data-testid="quick-book-layout-chooser">
+      {isRetiredQuickBookLayout(selectedId)
+        ? <p className="text-sm text-[var(--owner-muted)]">{`Your saved ${selected.label} layout is kept. You can preview it or choose another layout.`}</p>
+        : null}
       {QUICK_BOOK_LAYOUT_FAMILIES.map((family) => {
         const meta = QUICK_BOOK_LAYOUT_FAMILY_LABELS[family];
         return (
@@ -251,7 +255,7 @@ export function BookingPageLayoutChooser({
             <legend className="px-2 text-xl font-semibold">{meta.title}</legend>
             <p className="mb-3 text-xs text-[var(--owner-muted)]">{meta.description}</p>
             <div className="grid grid-cols-2 gap-3">
-              {getQuickBookLayoutsByFamily(family).map(layout => (
+              {getSelectableQuickBookLayoutsByFamily(family, selectedId).map(layout => (
                 <LayoutCard
                   content={content}
                   disabled={disabled}
