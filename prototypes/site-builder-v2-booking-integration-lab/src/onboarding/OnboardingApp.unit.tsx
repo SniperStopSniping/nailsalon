@@ -208,7 +208,7 @@ type BrowserHistoryEntry = {
     | { kind: 'plan' }
     | {
       kind: 'preview';
-      source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview';
+      source: 'starting_preview' | 'about' | 'about_design' | 'booking_layout' | 'site_style' | 'final_preview';
     };
   screen: OnboardingLabState['progress']['currentScreen'];
 };
@@ -278,6 +278,7 @@ describe('OnboardingApp handoff boundaries', () => {
     assetProviderMocks.coordinator = null;
     assetProviderMocks.repository = null;
     installMatchMedia();
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
     window.history.replaceState({}, '', '/');
     window.localStorage.removeItem(SITE_BUILDER_STORAGE_KEY);
     window.localStorage.removeItem(ONBOARDING_STORAGE_KEY);
@@ -479,6 +480,50 @@ describe('OnboardingApp handoff boundaries', () => {
       dispatchBrowserHistoryEntry(entries.policies);
       await expectFocusedHeadingAtTop('Set clear expectations');
     }
+  });
+
+  it('renders the newest Quick Book choice, restores its trigger, and accepts once', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('about_design');
+    state.recipe.starter = 'quick_book';
+    renderAt(state);
+    const baseEntry = currentBrowserHistoryEntry();
+    const card = screen.getByRole('button', { name: /^Hero Banner/u });
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => undefined);
+
+    await user.click(card);
+    let dialog = screen.getByRole('dialog', { name: 'Preview your Quick Book layout' });
+
+    expect(dialog.querySelector('[data-quick-book-layout="hero_banner"]')).toBeInTheDocument();
+    expect(dialog.querySelector('.onboarding-preview-stage')).toHaveAttribute('data-preview-initial-target', 'top');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Try another layout' }));
+    dispatchBrowserHistoryEntry(baseEntry);
+    await waitFor(() => expect(card).toHaveFocus());
+
+    expect(card).toHaveAttribute('aria-pressed', 'true');
+
+    await waitFor(() => expect(parseOnboardingState(localStorage.getItem(ONBOARDING_STORAGE_KEY)!).state?.recipe.quickBookLayout).toBe('hero_banner'));
+
+    await user.click(card);
+    dialog = screen.getByRole('dialog', { name: 'Preview your Quick Book layout' });
+
+    expect(dialog.querySelector('[data-quick-book-layout="hero_banner"]')).toBeInTheDocument();
+
+    const accept = within(dialog).getByRole('button', { name: /^Continue$/u });
+    back.mockClear();
+    fireEvent.click(accept);
+    fireEvent.click(accept);
+
+    expect(back).toHaveBeenCalledOnce();
+
+    dispatchBrowserHistoryEntry(baseEntry);
+    await expectFocusedHeadingAtTop('Set clear expectations');
+    await waitFor(() => {
+      const saved = parseOnboardingState(localStorage.getItem(ONBOARDING_STORAGE_KEY)!);
+
+      expect(saved.state?.progress.screenHistory.filter(id => id === 'policies')).toHaveLength(1);
+    });
   });
 
   it('treats a full Preview as its own browser Back and Forward entry', async () => {
