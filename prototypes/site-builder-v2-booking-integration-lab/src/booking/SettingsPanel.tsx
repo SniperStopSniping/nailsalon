@@ -18,7 +18,7 @@ export type BookingSettingsPanelProps = {
   settings: BookingSectionPresentationSettings;
   showIntro?: boolean;
   onChange: (settings: BookingSectionPresentationSettings) => void;
-  onLayoutChange?: (layout: BookingMenuLayout) => void;
+  onLayoutChange?: (layout: BookingMenuLayout, trigger?: HTMLButtonElement) => void;
   onReset?: () => void;
 };
 
@@ -348,9 +348,9 @@ export function BookingSettingsPanel({
 }: BookingSettingsPanelProps) {
   const id = useId();
 
-  const chooseLayout = (layout: BookingMenuLayout) => {
+  const chooseLayout = (layout: BookingMenuLayout, trigger: HTMLButtonElement) => {
     if (onLayoutChange) {
-      onLayoutChange(layout);
+      onLayoutChange(layout, trigger);
       return;
     }
     onChange(switchBookingLayout(settings, layout));
@@ -397,7 +397,7 @@ export function BookingSettingsPanel({
                 type="button"
                 aria-pressed={settings.layout === layout}
                 data-layout-option={layout}
-                onClick={() => chooseLayout(layout)}
+                onClick={event => chooseLayout(layout, event.currentTarget)}
               >
                 <LayoutMiniature layout={layout} />
                 <span className="booking-layout-option-copy">

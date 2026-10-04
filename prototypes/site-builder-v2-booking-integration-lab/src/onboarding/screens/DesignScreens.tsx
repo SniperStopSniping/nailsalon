@@ -931,7 +931,6 @@ export function AboutDesignScreen({
 }
 
 export function QuickBookLayoutScreen({
-  document,
   onBack,
   onContinue,
   onFullPreview,
@@ -940,7 +939,7 @@ export function QuickBookLayoutScreen({
 }: SharedScreenProps & {
   document: SiteBuilderDocument | null;
   onContinue: () => void;
-  onFullPreview: () => void;
+  onFullPreview: (trigger?: HTMLElement) => void;
 }) {
   const feedback = useFeedback();
   const selectedLayout = QUICK_BOOK_LAYOUTS.find(
@@ -1061,15 +1060,13 @@ export function QuickBookLayoutScreen({
                       data-selected={selected ? 'true' : 'false'}
                       key={layout.id}
                       type="button"
-                      onClick={() => {
-                        if (selected) {
-                          return;
-                        }
+                      onClick={(event) => {
                         feedback.send({ kind: 'selection' });
                         onUpdate(current => ({
                           ...current,
                           recipe: { ...current.recipe, quickBookLayout: layout.id as QuickBookLayoutId },
                         }));
+                        onFullPreview(event.currentTarget);
                       }}
                     >
                       <QuickBookLayoutPoster {...posterProps} layout={layout.id as QuickBookLayoutId} />
@@ -1095,7 +1092,7 @@ export function QuickBookLayoutScreen({
                               <em>
                                 <Check aria-hidden="true" size={14} />
                                 {' '}
-                                Previewing
+                                Selected
                               </em>
                             )
                           : null}
@@ -1126,33 +1123,16 @@ export function QuickBookLayoutScreen({
             </p>
           )
         : null}
-      <p aria-live="polite" className="onboarding-about-design-selection-status">
-        {selectedLayout.label}
-        {' '}
-        selected
-      </p>
-      <section
-        aria-labelledby="quick-book-layout-preview-heading"
-        className="onboarding-designer-preview onboarding-about-design-preview onboarding-quick-book-layout-preview"
-      >
-        <div className="onboarding-quick-book-layout-preview__heading">
-          <span>
-            <small>LIVE PREVIEW</small>
-            <h2 id="quick-book-layout-preview-heading">See this layout on your site</h2>
-          </span>
-          <strong>{selectedLayout.label}</strong>
-        </div>
-        <OnboardingSitePreview
-          document={document}
-          initialTarget="top"
-          label={`Selected Quick Book layout preview: ${selectedLayout.label}`}
-          quickBookPhase="final"
-          state={state}
-        />
-        <button className="onboarding-full-preview-button" type="button" onClick={onFullPreview}>
-          View full preview
+      <div className="onboarding-layout-preview-summary">
+        <p aria-live="polite" className="onboarding-about-design-selection-status">
+          {selectedLayout.label}
+          {' '}
+          selected
+        </p>
+        <button className="onboarding-full-preview-button" type="button" onClick={event => onFullPreview(event.currentTarget)}>
+          Preview selected layout
         </button>
-      </section>
+      </div>
       <StickyOnboardingActions
         backLabel="Back to edit About"
         primaryFirst

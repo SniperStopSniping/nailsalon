@@ -4727,6 +4727,25 @@ body:has(.onboarding-app) {
   margin-bottom: 0;
 }
 
+.onboarding-layout-preview-summary {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.onboarding-layout-preview-summary .onboarding-about-design-selection-status {
+  margin: 0;
+}
+
+.onboarding-layout-preview-summary .onboarding-full-preview-button {
+  width: auto;
+  min-height: 44px;
+  margin: 0;
+}
+
 .onboarding-overlay-actions {
   position: relative;
   z-index: 2;

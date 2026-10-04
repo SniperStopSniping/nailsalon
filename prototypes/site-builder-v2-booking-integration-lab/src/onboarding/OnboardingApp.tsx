@@ -439,7 +439,7 @@ const previewFor = (
     includeOptionalSections={false}
     interactionMode="scrollable"
     label={label}
-    quickBookPhase="identity"
+    quickBookPhase="business"
     state={state}
   />
 );
@@ -491,6 +491,21 @@ export function OnboardingApp({
   const historyInitializedRef = useRef(false);
   const applyingPopStateRef = useRef(false);
   const continueAfterPreviewCloseRef = useRef(false);
+  const previewClosingRef = useRef(false);
+  const previewReturnRef = useRef<{ trigger: HTMLElement | null; x: number; y: number } | null>(null);
+
+  const restorePreviewChooser = useCallback(() => {
+    const origin = previewReturnRef.current;
+    if (!origin) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      window.scrollTo(origin.x, origin.y);
+      if (origin.trigger?.isConnected && !origin.trigger.closest('[inert]')) {
+        origin.trigger.focus({ preventScroll: true });
+      }
+    });
+  }, []);
   const cleanupRetrySignatureRef = useRef('');
   const recipeSyncSignatureRef = useRef('');
   const profileMediaOperationsRef = useRef(0);
@@ -842,16 +857,22 @@ export function OnboardingApp({
           }
           if (previousOverlay?.kind === 'preview') {
             onboarding.recordEvent({ source: previousOverlay.source, type: 'preview_closed' });
-          }
-          if (previousOverlay?.kind === 'preview' && continueAfterPreviewCloseRef.current) {
+            const continueSetup = continueAfterPreviewCloseRef.current;
             continueAfterPreviewCloseRef.current = false;
-            onboarding.continueFlow();
+            previewClosingRef.current = false;
+            if (continueSetup) {
+              onboarding.continueFlow();
+            } else {
+              restorePreviewChooser();
+            }
           }
         }
         return;
       }
 
       setPreviewSource(null);
+      continueAfterPreviewCloseRef.current = false;
+      previewClosingRef.current = false;
       setGalleryOpen(false);
       setCanvaOpen(false);
       setPlanOpen(false);
@@ -871,6 +892,7 @@ export function OnboardingApp({
     onboarding.continueFlow,
     onboarding.navigateFromBrowser,
     onboarding.recordEvent,
+    restorePreviewChooser,
     selectedStarter,
   ]);
 
@@ -896,7 +918,17 @@ export function OnboardingApp({
     onboarding.back();
   };
 
-  const openPreview = (source: PreviewSource) => {
+  const openPreview = (source: PreviewSource, trigger?: HTMLElement) => {
+    if (browserOverlayRef.current?.kind === 'preview') {
+      return;
+    }
+    previewClosingRef.current = false;
+    continueAfterPreviewCloseRef.current = false;
+    previewReturnRef.current = {
+      trigger: trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null),
+      x: window.scrollX,
+      y: window.scrollY,
+    };
     onboarding.recordEvent({ source, type: 'preview_opened' });
     const onboardingCursor = browserCursorRef.current + 1;
     browserCursorRef.current = onboardingCursor;
@@ -913,6 +945,12 @@ export function OnboardingApp({
     setPreviewSource(source);
   };
   const dismissPreview = (continueSetup = false) => {
+    // history.back() resolves asynchronously; repeated taps must consume only
+    // the overlay entry and advance the flow at most once.
+    if (previewClosingRef.current || !previewSource) {
+      return;
+    }
+    previewClosingRef.current = true;
     continueAfterPreviewCloseRef.current = continueSetup;
     if (browserOverlayRef.current?.kind === 'preview' && browserCursorRef.current > 0) {
       window.history.back();
@@ -923,9 +961,12 @@ export function OnboardingApp({
     }
     browserOverlayRef.current = null;
     setPreviewSource(null);
+    previewClosingRef.current = false;
     if (continueSetup) {
       continueAfterPreviewCloseRef.current = false;
       onboarding.continueFlow();
+    } else {
+      restorePreviewChooser();
     }
   };
 
@@ -1523,7 +1564,7 @@ export function OnboardingApp({
         );
       case 'about_design':
         return onboarding.state.recipe.starter === 'quick_book'
-          ? <QuickBookLayoutScreen document={lab.document} onBack={goBack} onContinue={onboarding.continueFlow} onFullPreview={() => openPreview('about_design')} onUpdate={updateState} state={onboarding.state} />
+          ? <QuickBookLayoutScreen document={lab.document} onBack={goBack} onContinue={onboarding.continueFlow} onFullPreview={trigger => openPreview('about_design', trigger)} onUpdate={updateState} state={onboarding.state} />
           : <AboutDesignScreen document={lab.document} onBack={goBack} onContinue={onboarding.continueFlow} onFullPreview={() => openPreview('about_design')} onUpdate={updateState} state={onboarding.state} />;
       case 'policies':
         return (
@@ -1558,7 +1599,7 @@ export function OnboardingApp({
               }
             }}
             onContinue={onboarding.continueFlow}
-            onFullPreview={() => openPreview('booking_layout')}
+            onFullPreview={trigger => openPreview('booking_layout', trigger)}
             state={onboarding.state}
           />
         );
@@ -1705,7 +1746,9 @@ export function OnboardingApp({
         document={lab.document}
         onClose={() => dismissPreview(false)}
         onContinue={() => {
-          dismissPreview(previewSource === 'starting_preview');
+          dismissPreview(previewSource === 'starting_preview'
+            || previewSource === 'booking_layout'
+            || (previewSource === 'about_design' && onboarding.state.recipe.starter === 'quick_book'));
         }}
         open={previewSource !== null}
         source={previewSource ?? 'starting_preview'}

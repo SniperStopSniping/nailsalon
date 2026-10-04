@@ -33,6 +33,8 @@ export function SetupPreviewOverlay({
   const [device, setDevice] = useState<OnboardingPreviewDevice>('phone');
   const returnActionsId = useId();
   const returnActionsRef = useRef<HTMLElement>(null);
+  const layoutSelection = source === 'booking_layout'
+    || (source === 'about_design' && state.recipe.starter === 'quick_book');
   const title = source === 'starting_preview'
     ? 'Preview your starting site'
     : source === 'booking_layout'
@@ -45,15 +47,15 @@ export function SetupPreviewOverlay({
             ? 'Preview your look'
             : 'Preview your site';
   const resolvedInitialTarget = initialTarget
-    ?? (source === 'about'
-      || (source === 'about_design' && state.recipe.starter !== 'quick_book')
-      ? 'about'
-      : 'top');
-  const quickBookPhase: QuickBookPreviewPhase = source === 'starting_preview'
-    ? 'identity'
-    : source === 'site_style'
-      ? 'business'
-      : 'final';
+    ?? (source === 'booking_layout'
+      ? 'booking'
+      : source === 'about'
+        || (source === 'about_design' && state.recipe.starter !== 'quick_book')
+        ? 'about'
+        : 'top');
+  const quickBookPhase: QuickBookPreviewPhase = source === 'starting_preview' || source === 'site_style'
+    ? 'business'
+    : 'final';
 
   return (
     <Dialog
@@ -109,9 +111,9 @@ export function SetupPreviewOverlay({
           id={returnActionsId}
           tabIndex={-1}
         >
-          <button type="button" onClick={onClose}>Back</button>
+          <button type="button" onClick={onClose}>{layoutSelection ? 'Try another layout' : 'Back'}</button>
           <button className="is-primary" type="button" onClick={onContinue}>
-            {source === 'starting_preview' ? 'Continue setup' : 'Return to setup'}
+            {layoutSelection ? 'Continue' : source === 'starting_preview' ? 'Continue setup' : 'Return to setup'}
           </button>
         </footer>
       </div>

@@ -16,7 +16,7 @@ vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
 }));
 
 describe('QuickBookLayoutScreen', () => {
-  it('offers every registered data-preserving layout and updates the canonical live preview', async () => {
+  it('offers every registered layout and previews new and already selected choices', async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
     const onFullPreview = vi.fn();
@@ -79,8 +79,11 @@ describe('QuickBookLayoutScreen', () => {
       .toHaveAttribute('data-qb-image', 'default');
     expect(screen.getByRole('button', { name: /^Compact Dropdown/u }))
       .toHaveAttribute('aria-pressed', 'true');
-    expect(document.querySelector('[data-quick-book-layout="compact_dropdown"]'))
-      .toBeInTheDocument();
+    expect(document.querySelector('.onboarding-preview-stage')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^Compact Dropdown/u }));
+
+    expect(onFullPreview).toHaveBeenCalledOnce();
 
     // A layout without a default image area shows no default note…
     expect(screen.queryByTestId('quick-book-layout-default-note')).not.toBeInTheDocument();
@@ -90,8 +93,7 @@ describe('QuickBookLayoutScreen', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('quick-book-layout-default-note')).toHaveTextContent(/default cover/u);
-      expect(document.querySelector('[data-quick-book-layout="hero_banner"] .qb-cover[data-qb-image="default"]'))
-        .toBeInTheDocument();
+      expect(onFullPreview).toHaveBeenCalledTimes(2);
     });
 
     await user.click(screen.getByRole('button', { name: /^Editorial Elegant/u }));
@@ -99,16 +101,15 @@ describe('QuickBookLayoutScreen', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /^Editorial Elegant/u }))
         .toHaveAttribute('aria-pressed', 'true');
-      expect(document.querySelector('[data-quick-book-layout="editorial"]'))
-        .toBeInTheDocument();
+      expect(onFullPreview).toHaveBeenCalledTimes(3);
     });
 
     expect(screen.getAllByText('Isla Nail Studio').length).toBeGreaterThan(0);
     expect(screen.getByText('Editorial selected')).toBeVisible();
 
-    await user.click(screen.getByRole('button', { name: 'View full preview' }));
+    await user.click(screen.getByRole('button', { name: 'Preview selected layout' }));
 
-    expect(onFullPreview).toHaveBeenCalledOnce();
+    expect(onFullPreview).toHaveBeenCalledTimes(4);
 
     await user.click(screen.getByRole('button', { name: 'Use this layout' }));
 
