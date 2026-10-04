@@ -80,7 +80,9 @@ for (const viewport of VIEWPORTS) {
         name: starter === 'quick_book' ? 'Quick Book layouts' : 'About design presets',
         exact: true,
       });
-      const preview = screen.locator(':scope > .onboarding-about-design-preview');
+      const preview = screen.locator(starter === 'quick_book'
+        ? ':scope > .onboarding-layout-preview-summary'
+        : ':scope > .onboarding-about-design-preview');
       const previewStage = preview.locator('.onboarding-preview-stage');
       const actions = screen.locator(':scope > .sticky-onboarding-actions[aria-label="Onboarding actions"]');
       const primary = actions.getByRole('button', {
@@ -99,7 +101,7 @@ for (const viewport of VIEWPORTS) {
         geometry(heading),
         geometry(choices),
         geometry(preview),
-        geometry(previewStage),
+        starter === 'quick_book' ? null : geometry(previewStage),
         stages.evaluateAll(elements => elements.map((element) => {
           const box = element.getBoundingClientRect();
           return { x: box.x, y: box.y, right: box.right, width: box.width };
@@ -121,8 +123,15 @@ for (const viewport of VIEWPORTS) {
       expect.soft(previewBox.y, 'preview follows all layout choices').toBeGreaterThanOrEqual(choicesBox.bottom - 2);
       expect.soft(previewBox.width, 'preview retains the available content width')
         .toBeGreaterThanOrEqual(Math.min(920, screenBox.contentWidth) * 0.9);
-      expect.soft(previewStageBox.width, 'customer preview itself is not collapsed')
-        .toBeGreaterThanOrEqual(Math.min(340, screenBox.contentWidth * 0.7));
+
+      if (previewStageBox) {
+        expect.soft(previewStageBox.width, 'customer preview itself is not collapsed')
+          .toBeGreaterThanOrEqual(Math.min(340, screenBox.contentWidth * 0.7));
+      } else {
+        await expect(preview.getByRole('button', { name: 'Preview selected layout' })).toBeVisible();
+        await expect(screen.locator('.onboarding-preview-stage')).toHaveCount(0);
+      }
+
       expect.soft(Math.max(...stageBoxes.map(box => box.y)) - Math.min(...stageBoxes.map(box => box.y)), 'all five progress stages stay on one row')
         .toBeLessThanOrEqual(2);
 

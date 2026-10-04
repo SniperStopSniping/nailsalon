@@ -1,3 +1,11 @@
+## [1.135.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.135.2...v1.135.3) (2026-10-04)
+
+
+### Bug Fixes
+
+* **onboarding:** preview layout choices in setup popups ([#348](https://github.com/SniperStopSniping/nailsalon/issues/348)) ([bd7687a](https://github.com/SniperStopSniping/nailsalon/commit/bd7687aa02760860dc3284c118bf11f842e857b0))
+* prevent duplicate owner appointments on save retry ([#346](https://github.com/SniperStopSniping/nailsalon/issues/346)) ([1017437](https://github.com/SniperStopSniping/nailsalon/commit/101743755365758e4c265b7104904f3ab730c0df))
+
 ## [1.135.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.135.1...v1.135.2) (2026-10-03)
 
 
