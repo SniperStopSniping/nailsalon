@@ -1,51 +1,23 @@
 'use client';
 
-/**
- * Usage & Billing modal — Gate C4 (§10.1/§10.2) and the §8.10 foundation.
- *
- * One primary, understandable number first ("277 SMS credits remaining"),
- * then the optional breakdown (monthly / starter / purchased / bonus) — no
- * lot or reservation vocabulary anywhere. Message history arrives already
- * masked and friendly from the usage API; this component never sees a raw
- * recipient or provider error. Buy More drives the server-authoritative
- * top-up checkout; Manage billing opens the Stripe Billing Portal. All
- * controls are reduced-motion safe (CSS only).
- */
 import { X } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { StarterSmsCreditsCard } from '@/components/admin/StarterSmsCreditsCard';
 import { DialogShell } from '@/components/ui/dialog-shell';
+import { SMS_BALANCE_CHANGED_EVENT, textBalanceState } from '@/libs/commercialPolicy';
 
 type UsagePayload = {
   salonId: string;
   usage: {
     availableCredits: number;
-    monthlyCredits: number;
     starterCredits: number;
-    purchasedCredits: number;
-    bonusCredits: number;
-    monthlyAllowance: number;
-    resetsAt: string | null;
-    blockedMessages: number;
-    /** Credits held for texts that are queued/sending but not yet settled. */
     pendingCredits?: number;
-    plan: {
-      displayName: string;
-      cadence: string;
-      status: string;
-      paidThrough: string;
-      cancelAtPeriodEnd: boolean;
-      /** §6.5a owner-facing status truth (G18) — plain English, never null when plan is set. */
-      entitlement: {
-        status: string;
-        paidThrough: string | null;
-        grantsEligible: boolean;
-        label: string;
-      };
-    } | null;
+    blockedMessages: number;
+    plan: { paidThrough: string; cancelAtPeriodEnd: boolean } | null;
   };
   creditPurchasesAvailable?: boolean;
+  canPurchaseCredits?: boolean;
   topupOffers: Array<{ key: string; credits: number; priceCents: number }>;
   history: Array<{
     id: string;
@@ -56,50 +28,13 @@ type UsagePayload = {
     scheduledFor: string;
     sentAt: string | null;
     creditsUsed: number;
-    /** Minutes-before-appointment this reminder was scheduled at, when known. */
-    reminderLeadMinutes: number | null;
     failureReason: string | null;
   }>;
   nextCursor: string | null;
 };
 
-/** Which grouped section of message history an entry belongs in. */
-type HistoryCategory = 'all' | 'confirmations' | '24h' | '1h' | 'cancellations' | 'other';
-
-type TopupItem = {
-  id: string;
-  offerKey: string;
-  credits: number;
-  priceCents: number;
-  currency: string;
-  status: 'pending' | 'fulfilled' | 'expired' | 'refunded' | 'disputed' | 'reversed';
-  holdState: 'held' | null;
-  createdAt: string;
-  fulfilledAt: string | null;
-  reversedAt: string | null;
-};
-
-type TopupsPayload = {
-  available: boolean;
-  items: TopupItem[];
-  nextCursor: string | null;
-};
-
-type UsageBillingModalProps = {
-  salonSlug: string;
-  onClose: () => void;
-};
-
-const TOPUP_STATUS_LABELS: Record<TopupItem['status'], string> = {
-  pending: 'Pending',
-  fulfilled: 'Fulfilled',
-  expired: 'Expired',
-  refunded: 'Refunded',
-  disputed: 'Disputed',
-  reversed: 'Reversed',
-};
-
 const EVENT_LABELS: Record<string, string> = {
+  salon_invite: 'Salon invitation',
   booking_confirmation: 'Booking confirmation',
   appointment_reminder: 'Appointment reminder',
   appointment_cancelled: 'Cancellation notice',
@@ -108,7 +43,7 @@ const EVENT_LABELS: Record<string, string> = {
   deposit_refunded: 'Deposit refund',
   balance_reminder: 'Balance reminder',
   manual_reminder: 'Manual reminder',
-  manual_text: 'Manual text',
+  manual_text: 'Manual client text',
   booking_request_received: 'Booking request received',
   booking_request_approved: 'Booking confirmed',
   booking_request_declined: 'Booking request declined',
@@ -117,602 +52,291 @@ const EVENT_LABELS: Record<string, string> = {
   owner_appointment_cancelled: 'Cancellation alert',
   tech_new_booking: 'Technician booking alert',
   tech_appointment_cancelled: 'Technician cancellation alert',
+  review_request: 'Review request',
+  rebooking_reminder: 'Rebooking reminder',
+  follow_up: 'Follow-up',
+  campaign: 'Campaign',
 };
 
 const STATUS_LABELS: Record<string, string> = {
   sent: 'Sent',
+  delivered: 'Delivered',
   queued: 'Queued',
   accepted: 'Queued',
-  delivered: 'Delivered',
-  customer_disabled: 'Reminders disabled by customer',
-  booking_disabled: 'Disabled for this booking',
-  opted_out: 'STOP / opted out',
-  provider_blocked: 'Provider blocked',
-  undelivered: 'Undelivered',
   pending: 'Scheduled',
   claimed: 'Sending',
   sending: 'Sending',
   failed: 'Send failed',
+  undelivered: 'Undelivered',
   canceled: 'Cancelled',
   suppressed: 'Not sent',
   expired: 'Expired',
   blocked_no_credit: 'Waiting for credits',
-  send_outcome_unknown: 'Confirming delivery',
+  send_outcome_unknown: 'Checking delivery',
+  opted_out: 'Opted out',
+  customer_disabled: 'Disabled by customer',
+  booking_disabled: 'Disabled for this booking',
+  provider_blocked: 'Provider blocked',
 };
 
-const CATEGORY_LABELS: Record<Exclude<HistoryCategory, 'all'>, string> = {
-  'confirmations': 'Confirmations',
-  '24h': '24-hour reminders',
-  '1h': '1-hour reminders',
-  'cancellations': 'Cancellations',
-  'other': 'Other messages',
-};
-
-/**
- * Groups a history row the way owners think about their messages, not the
- * way the ledger stores them — a saved lead time (§ reminderLeadMinutes)
- * beats guessing from the current settings, since settings can change after
- * the message went out.
- */
-function historyCategory(entry: UsagePayload['history'][number]): Exclude<HistoryCategory, 'all'> {
-  if (entry.eventType === 'booking_confirmation' || entry.eventType === 'booking_request_approved') {
-    return 'confirmations';
-  }
-  if (entry.eventType === 'appointment_reminder' && entry.reminderLeadMinutes === 1440) {
-    return '24h';
-  }
-  if (entry.eventType === 'appointment_reminder' && entry.reminderLeadMinutes === 60) {
-    return '1h';
-  }
-  if (entry.eventType.includes('cancelled')) {
-    return 'cancellations';
-  }
-  return 'other';
-}
-
-/**
- * Net SMS credits actually charged for this message — email and
- * fully-refunded/cancelled texts never draw credits, so this is never a
- * synonym for "a message was sent".
- */
-function creditLabel(entry: UsagePayload['history'][number]): string {
-  if (entry.channel !== 'sms') {
-    return 'Email included · no SMS credits';
-  }
-  if (entry.creditsUsed === 0) {
-    return 'No SMS credits charged';
-  }
-  return `${entry.creditsUsed} SMS credit${entry.creditsUsed === 1 ? '' : 's'} charged`;
-}
-
-export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps) {
-  const currentSalonSlug = useRef(salonSlug);
-  currentSalonSlug.current = salonSlug;
+export function UsageBillingModal({ salonSlug, onClose }: { salonSlug: string; onClose: () => void }) {
   const [data, setData] = useState<UsagePayload | null>(null);
+  const [dataSalon, setDataSalon] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [portalLoading, setPortalLoading] = useState(false);
   const [buying, setBuying] = useState<string | null>(null);
   const [buyError, setBuyError] = useState<string | null>(null);
-  // OP-1 (owner authorization 2026-09-16): the Portal route can now refuse a
-  // collaborator with `403 OWNER_REQUIRED`, and that route has no dark switch
-  // (D9) — it is live for legacy-flow customers today. Without somewhere to
-  // put the refusal, the button would flip back to its idle label and say
-  // nothing at all, which reads as a broken button rather than a rule.
-  const [portalError, setPortalError] = useState<string | null>(null);
-  const [historyFilter, setHistoryFilter] = useState<HistoryCategory>('all');
-  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await fetch(`/api/admin/salon/communications/usage?salonSlug=${salonSlug}`);
-        if (!response.ok) {
-          throw new Error('usage fetch failed');
-        }
-        const body = await response.json();
-        if (!cancelled) {
-          setData(body.data);
-        }
-      } catch {
-        if (!cancelled) {
-          setError('Could not load usage. Please try again.');
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [salonSlug]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const currentSalon = useRef(salonSlug);
+  currentSalon.current = salonSlug;
+  const version = useRef(0);
 
   const refreshUsage = useCallback(async () => {
-    const response = await fetch(`/api/admin/salon/communications/usage?salonSlug=${salonSlug}`);
+    const requestVersion = ++version.current;
+    const response = await fetch(`/api/admin/salon/communications/usage?salonSlug=${encodeURIComponent(salonSlug)}`, { cache: 'no-store' });
     if (!response.ok) {
-      throw new Error('usage fetch failed');
+      throw new Error('usage unavailable');
     }
     const body = await response.json();
-    if (currentSalonSlug.current === salonSlug) {
-      setData(body.data);
+    if (currentSalon.current === salonSlug && requestVersion === version.current) {
+      setDataSalon(salonSlug);
+      setData(current => current && current.salonId === body.data.salonId && current.history.length > body.data.history.length
+        ? { ...body.data, history: [...new Map([...body.data.history, ...current.history.filter(row => !body.data.history.some((fresh: { id: string }) => fresh.id === row.id))].map(row => [row.id, row])).values()], nextCursor: current.nextCursor }
+        : body.data);
+      setError(null);
     }
   }, [salonSlug]);
 
-  // Message history — a second page on demand (distinct from the top-ups
-  // "Load more" below, which pages a different endpoint).
-  const loadMoreHistory = useCallback(async () => {
-    if (data === null || data.nextCursor === null || loadingMoreHistory) {
+  useEffect(() => {
+    let active = true;
+    setData(null);
+    setLoading(true);
+    setError(null);
+    setBuying(null);
+    setLoadingMore(false);
+    setBuyError(null);
+    const refresh = () => void refreshUsage().catch(() => {
+      if (active) {
+        setError('Could not load usage. Please try again.');
+      }
+    }).finally(() => {
+      if (active) {
+        setLoading(false);
+      }
+    });
+    refresh();
+    window.addEventListener('focus', refresh);
+    window.addEventListener(SMS_BALANCE_CHANGED_EVENT, refresh);
+    const timer = window.setInterval(refresh, 10000);
+    return () => {
+      active = false;
+      version.current += 1;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener(SMS_BALANCE_CHANGED_EVENT, refresh);
+    };
+  }, [refreshUsage]);
+
+  const loadMore = async () => {
+    if (!data?.nextCursor || loadingMore) {
       return;
     }
+    const requestedSalon = salonSlug;
+    const cursor = data.nextCursor;
+    setLoadingMore(true);
     try {
-      setLoadingMoreHistory(true);
-      setHistoryError(null);
-      const query = new URLSearchParams({ salonSlug, cursor: data.nextCursor });
-      const response = await fetch(`/api/admin/salon/communications/usage?${query.toString()}`);
+      const query = new URLSearchParams({ salonSlug, cursor });
+      const response = await fetch(`/api/admin/salon/communications/usage?${query}`, { cache: 'no-store' });
       if (!response.ok) {
-        throw new Error('history fetch failed');
+        throw new Error('history unavailable');
       }
       const body = await response.json();
-      setData(current => current === null
-        ? current
-        : { ...current, history: [...current.history, ...body.data.history], nextCursor: body.data.nextCursor });
-    } catch {
-      setHistoryError('Could not load more history. Please try again.');
-    } finally {
-      setLoadingMoreHistory(false);
-    }
-  }, [data, loadingMoreHistory, salonSlug]);
-
-  const groupedHistory = useMemo(() => {
-    const groups: Record<Exclude<HistoryCategory, 'all'>, UsagePayload['history']> = {
-      'confirmations': [],
-      '24h': [],
-      '1h': [],
-      'cancellations': [],
-      'other': [],
-    };
-    data?.history.forEach((entry) => {
-      groups[historyCategory(entry)].push(entry);
-    });
-    return groups;
-  }, [data?.history]);
-
-  // --- Top-ups tab (G17) ---------------------------------------------------
-  const [topups, setTopups] = useState<TopupItem[] | null>(null);
-  const [topupsAvailable, setTopupsAvailable] = useState<boolean | null>(null);
-  const [topupsCursor, setTopupsCursor] = useState<string | null>(null);
-  const [topupsLoading, setTopupsLoading] = useState(false);
-  const [topupsLoadingMore, setTopupsLoadingMore] = useState(false);
-  const [topupsError, setTopupsError] = useState<string | null>(null);
-  const salonIdForTopups = data?.salonId ?? null;
-
-  useEffect(() => {
-    if (salonIdForTopups === null) {
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setTopupsLoading(true);
-      setTopupsError(null);
-      try {
-        const response = await fetch(`/api/billing/topups?salonId=${salonIdForTopups}&limit=20`);
-        if (!response.ok) {
-          throw new Error('topups fetch failed');
-        }
-        const body: TopupsPayload = await response.json();
-        if (!cancelled) {
-          setTopupsAvailable(body.available);
-          setTopups(body.items);
-          setTopupsCursor(body.nextCursor);
-        }
-      } catch {
-        if (!cancelled) {
-          setTopupsAvailable(false);
-          setTopups([]);
-          setTopupsCursor(null);
-          setTopupsError('Could not load top-up history. Please try again.');
-        }
-      } finally {
-        if (!cancelled) {
-          setTopupsLoading(false);
-        }
+      if (currentSalon.current === requestedSalon) {
+        setData(current => current && current.salonId === body.data.salonId
+          ? { ...current, history: [...new Map([...current.history, ...body.data.history].map(row => [row.id, row])).values()], nextCursor: body.data.nextCursor }
+          : current);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // Fetches exactly once per salon — "Load more" below drives every
-    // subsequent page, never a re-fetch loop.
-  }, [salonIdForTopups]);
-
-  const loadMoreTopups = useCallback(async () => {
-    if (salonIdForTopups === null || topupsCursor === null || topupsLoadingMore) {
-      return;
-    }
-    try {
-      setTopupsLoadingMore(true);
-      setTopupsError(null);
-      const response = await fetch(
-        `/api/billing/topups?salonId=${salonIdForTopups}&limit=20&cursor=${encodeURIComponent(topupsCursor)}`,
-      );
-      if (!response.ok) {
-        throw new Error('topups fetch failed');
-      }
-      const body: TopupsPayload = await response.json();
-      setTopups(current => [...(current ?? []), ...body.items]);
-      setTopupsCursor(body.nextCursor);
     } catch {
-      setTopupsError('Could not load more top-ups. Please try again.');
+      if (currentSalon.current === requestedSalon) {
+        setError('Could not load more history. Please try again.');
+      }
     } finally {
-      setTopupsLoadingMore(false);
+      if (currentSalon.current === requestedSalon) {
+        setLoadingMore(false);
+      }
     }
-  }, [salonIdForTopups, topupsCursor, topupsLoadingMore]);
+  };
 
-  const openPortal = useCallback(async () => {
-    if (portalLoading) {
+  const buyTopup = async (key: string) => {
+    if (!data || buying || !data.creditPurchasesAvailable || data.canPurchaseCredits !== true) {
       return;
     }
+    const requestedSalon = salonSlug;
+    setBuying(key);
+    setBuyError(null);
     try {
-      setPortalLoading(true);
-      setPortalError(null);
+      const response = await fetch('/api/billing/checkout/topup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonId: data.salonId, topupOfferKey: key }),
+      });
+      const body = await response.json();
+      if (currentSalon.current !== requestedSalon) {
+        return;
+      }
+      if (response.ok && body.data?.url) {
+        window.location.assign(body.data.url);
+        return;
+      }
+      setBuyError(body.error?.message || 'Could not start the purchase. Please try again.');
+    } catch {
+      if (currentSalon.current === requestedSalon) {
+        setBuyError('Could not start the purchase. Please try again.');
+      }
+    } finally {
+      if (currentSalon.current === requestedSalon) {
+        setBuying(null);
+      }
+    }
+  };
+
+  const openPortal = async () => {
+    const requestedSalon = salonSlug;
+    try {
       const response = await fetch('/api/billing/portal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ salonId: data?.salonId, salonSlug }),
       });
       const body = await response.json();
-      if (body.url) {
+      if (currentSalon.current !== requestedSalon) {
+        return;
+      }
+      if (response.ok && body.url) {
         window.location.assign(body.url);
-        return;
-      }
-      // A refusal the caller can act on (OWNER_REQUIRED above all) carries a
-      // message written for the owner; show it verbatim rather than inventing
-      // a retry prompt for something retrying cannot fix.
-      setPortalError(typeof body?.error?.message === 'string' && body.error.message !== ''
-        ? body.error.message
-        : 'Could not open the billing portal. Please try again.');
-    } catch {
-      setPortalError('Could not open the billing portal. Please try again.');
-    } finally {
-      setPortalLoading(false);
-    }
-  }, [portalLoading, salonSlug, data]);
-
-  const buyTopup = useCallback(async (topupOfferKey: string) => {
-    if (buying !== null || data?.creditPurchasesAvailable !== true
-      || !data.topupOffers.some(offer => offer.key === topupOfferKey)) {
-      return;
-    }
-    try {
-      setBuying(topupOfferKey);
-      setBuyError(null);
-      const response = await fetch('/api/billing/checkout/topup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonId: data?.salonId, topupOfferKey }),
-      });
-      const body = await response.json();
-      if (response.ok && body.data?.url) {
-        window.location.assign(body.data.url);
-        return;
-      }
-      if (['TOPUPS_DISABLED', 'PRICE_UNCONFIGURED'].includes(body.error?.code)) {
-        setData(current => current?.salonId === data.salonId
-          ? { ...current, creditPurchasesAvailable: false, topupOffers: [] }
-          : current);
-      } else if (typeof body?.error?.message === 'string' && body.error.message !== ''
-        && ['OWNER_REQUIRED', 'CHECKOUT_IN_PROGRESS', 'CHECKOUT_PENDING_RECONCILIATION'].includes(body.error?.code)) {
-        // OP-1 / OP-2 (2026-09-16): these refusals are rules, not faults.
-        // "Please try again" would be a lie for all three — a collaborator
-        // will never succeed, and a caller with another checkout open or
-        // pending verification must finish or outwait it. Show what the route
-        // actually said.
-        setBuyError(body.error.message);
       } else {
-        setBuyError('Could not start the purchase. Please try again.');
+        setBuyError(body.error?.message || 'Could not open past billing.');
       }
     } catch {
-      setBuyError('Could not start the purchase. Please try again.');
-    } finally {
-      setBuying(null);
+      if (currentSalon.current === requestedSalon) {
+        setBuyError('Could not open past billing.');
+      }
     }
-  }, [buying, data]);
+  };
 
-  const usage = data?.usage ?? null;
-
+  const usage = dataSalon === salonSlug ? data?.usage : null;
+  const balanceState = usage ? textBalanceState(usage.availableCredits) : null;
+  const history = data?.history.filter(row => row.channel === 'sms') ?? [];
   return (
-    <DialogShell
-      isOpen
-      onClose={onClose}
-      alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
-      maxWidthClassName="max-w-xl"
-      contentClassName="max-h-[90vh] overflow-hidden rounded-t-[20px] bg-white shadow-xl sm:rounded-[20px]"
-    >
+    <DialogShell isOpen onClose={onClose} alignClassName="items-end justify-center p-0 sm:items-center sm:p-4" maxWidthClassName="max-w-xl" contentClassName="max-h-[90vh] overflow-hidden rounded-t-[20px] bg-[var(--owner-surface,#fffdfb)] shadow-xl sm:rounded-[20px]">
       <div role="dialog" aria-modal="true" aria-labelledby="usage-billing-title">
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <h2 id="usage-billing-title" className="text-lg font-semibold text-gray-900">Usage & billing</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close usage and billing"
-            className="flex size-11 items-center justify-center rounded-full bg-gray-100 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
-          >
-            <X className="size-4 text-gray-600" />
+        <div className="flex items-center justify-between border-b border-[var(--owner-line,#dfd1d4)] px-5 py-4">
+          <h2 id="usage-billing-title" className="text-lg font-semibold text-[var(--owner-ink,#30262a)]">Usage &amp; Top Ups</h2>
+          <button type="button" onClick={onClose} aria-label="Close usage and top ups" className="flex size-11 items-center justify-center rounded-full bg-[var(--owner-ground,#f8f2ed)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+            <X className="size-4" />
           </button>
         </div>
-
-        <div className="max-h-[calc(90vh-70px)] space-y-6 overflow-y-auto p-5">
-          {loading && (
-            <p role="status" aria-live="polite" className="text-[14px] text-gray-500">
-              Loading usage…
-            </p>
+        <div className="max-h-[calc(90vh-76px)] space-y-6 overflow-y-auto p-5 text-[var(--owner-ink,#30262a)]">
+          {loading && <p role="status">Loading usage…</p>}
+          {error && (
+            <div role="alert">
+              <p>{error}</p>
+              <button type="button" onClick={() => void refreshUsage().catch(() => setError('Could not load usage. Please try again.'))} className="min-h-11 underline">Try again</button>
+            </div>
           )}
-          {error && <p className="text-[14px] text-red-600">{error}</p>}
-
-          {usage && (
+          {usage && data && (
             <>
-              {/* §6.5a status banner (G18): above the credit meter whenever a
-                  subscription exists and its status is not the ordinary
-                  "active" case — amber when it also stops new grants. */}
-              {usage.plan !== null && usage.plan.entitlement.status !== 'active' && (
-                <p
-                  role="status"
-                  aria-live="polite"
-                  className={
-                    usage.plan.entitlement.grantsEligible
-                      ? 'rounded-lg bg-blue-50 p-3 text-[14px] text-blue-800'
-                      : 'rounded-lg bg-amber-50 p-3 text-[14px] text-amber-800'
-                  }
-                >
-                  {usage.plan.entitlement.label}
-                </p>
-              )}
-
-              {/* §10.2: one primary number first. */}
-              <section aria-labelledby="credits-heading" className="space-y-2">
-                <h3 id="credits-heading" className="sr-only">SMS credits</h3>
-                <p className="text-2xl font-semibold text-gray-900">
+              <section aria-labelledby="credits-heading">
+                <h3 id="credits-heading" className="text-sm text-[var(--owner-muted,#706267)]">Current text balance</h3>
+                <p className="mt-1 text-3xl font-semibold">
                   {usage.availableCredits}
                   {' '}
-                  SMS credits remaining
+                  texts remaining
                 </p>
-                <ul className="space-y-1 text-[14px] text-gray-600">
-                  {usage.monthlyAllowance > 0 && (
-                    <li>
-                      {usage.monthlyAllowance - usage.monthlyCredits}
-                      {' '}
-                      of
-                      {' '}
-                      {usage.monthlyAllowance}
-                      {' '}
-                      monthly credits used
-                      {usage.resetsAt !== null && ` · resets ${new Date(usage.resetsAt).toLocaleDateString()}`}
-                    </li>
-                  )}
-                  {usage.starterCredits > 0 && (
-                    <li>
-                      {usage.starterCredits}
-                      {' '}
-                      starter credits (do not renew)
-                    </li>
-                  )}
-                  {usage.purchasedCredits > 0 && (
-                    <li>
-                      {usage.purchasedCredits}
-                      {' '}
-                      purchased credits (never expire)
-                    </li>
-                  )}
-                  {usage.bonusCredits > 0 && (
-                    <li>
-                      {usage.bonusCredits}
-                      {' '}
-                      bonus credits
-                    </li>
-                  )}
-                  <li>Email confirmations and reminders are always included.</li>
-                </ul>
-                {usage.blockedMessages > 0 && (
-                  <p className="rounded-lg bg-amber-50 p-3 text-[14px] text-amber-800">
-                    {usage.blockedMessages}
-                    {' '}
-                    text
-                    {usage.blockedMessages === 1 ? ' is' : 's are'}
-                    {' '}
-                    waiting for credits. Email delivery continues.
-                  </p>
+                <p className="mt-2 text-sm text-[var(--owner-muted,#706267)]">All features included. No monthly subscription.</p>
+                <p className="mt-1 text-sm text-[var(--owner-muted,#706267)]">Purchased texts never expire.</p>
+                {balanceState !== 'healthy' && (
+                  <div role="status" className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+                    <p>{balanceState === 'empty' ? 'You’re out of text credits. Add more texts to continue sending reminders and messages.' : 'Your text balance is getting low. Top up when you need more.'}</p>
+                    <a href="#buymore-heading" className="inline-flex min-h-11 items-center font-semibold underline">Top up now</a>
+                  </div>
                 )}
-                {usage.pendingCredits !== undefined && usage.pendingCredits > 0 && (
-                  <p className="rounded-lg bg-blue-50 p-3 text-[14px] text-blue-800">
+                {!!usage.pendingCredits && (
+                  <p className="mt-2 text-sm">
                     {usage.pendingCredits}
                     {' '}
-                    credit
-                    {usage.pendingCredits === 1 ? ' is' : 's are'}
+                    text credits set aside for messages being sent.
+                  </p>
+                )}
+                {usage.blockedMessages > 0 && (
+                  <p className="mt-2 text-sm">
+                    {usage.blockedMessages}
                     {' '}
-                    set aside for texts being sent.
+                    texts waiting for credits. The rest of your app is available.
                   </p>
                 )}
               </section>
-
-              {usage.plan === null && (
-                <StarterSmsCreditsCard
-                  key={data!.salonId}
-                  salonId={data!.salonId}
-                  hasKnownStarterCredits={usage.starterCredits > 0}
-                  onClaimed={refreshUsage}
-                />
-              )}
-
-              <section aria-labelledby="plan-heading" className="space-y-2">
-                <h3 id="plan-heading" className="text-[15px] font-medium text-gray-900">Plan</h3>
-                {usage.plan === null
-                  ? <p className="text-[14px] text-gray-600">No subscription — starter and purchased credits only.</p>
-                  : (
-                      <p className="text-[14px] text-gray-600">
-                        {usage.plan.displayName}
-                        {' '}
-                        (
-                        {usage.plan.cadence}
-                        )
-                        {usage.plan.cancelAtPeriodEnd && ' · cancellation scheduled'}
-                        {' · paid through '}
-                        {new Date(usage.plan.paidThrough).toLocaleDateString()}
-                      </p>
-                    )}
-                <button
-                  type="button"
-                  onClick={openPortal}
-                  disabled={portalLoading}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
-                >
-                  {portalLoading ? 'Opening…' : 'Manage billing'}
-                </button>
-                <p role="status" aria-live="polite" className="text-[13px] text-red-600">{portalError ?? ''}</p>
-              </section>
-
-              {data!.creditPurchasesAvailable === true && data!.topupOffers.length > 0
-                ? (
-                    <section aria-labelledby="buymore-heading" className="space-y-2">
-                      <h3 id="buymore-heading" className="text-[15px] font-medium text-gray-900">Buy more credits</h3>
-                      <div className="flex flex-wrap gap-2">
-                        {data!.topupOffers.map(offer => (
-                          <button
-                            key={offer.key}
-                            type="button"
-                            onClick={() => buyTopup(offer.key)}
-                            disabled={buying !== null}
-                            className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
-                          >
-                            {buying === offer.key ? 'Opening…' : `${offer.credits} credits — $${(offer.priceCents / 100).toFixed(2)}`}
-                          </button>
-                        ))}
-                      </div>
-                      <p role="status" aria-live="polite" className="text-[13px] text-red-600">{buyError ?? ''}</p>
-                      <p className="text-[13px] text-[#8E8E93]">Purchased credits never expire. Prices in CAD, plus applicable taxes.</p>
-                    </section>
-                  )
-                : (
-                    <p className="text-[14px] text-gray-600">Credit purchases are not available yet.</p>
-                  )}
-
-              {/* Top-ups (G17): purchase history read back from the
-                  dark-gated /api/billing/topups route. */}
-              <section aria-labelledby="topups-heading" className="space-y-2">
-                <h3 id="topups-heading" className="text-[15px] font-medium text-gray-900">Top-ups</h3>
-                {topupsLoading && (
-                  <p role="status" aria-live="polite" className="text-[14px] text-gray-500">Loading top-ups…</p>
-                )}
-                {!topupsLoading && topupsAvailable === false && (
-                  <p className="text-[14px] text-gray-600">Top-up history is not available yet.</p>
-                )}
-                {!topupsLoading && topupsAvailable === true && (
-                  <>
-                    {(topups ?? []).length === 0
-                      ? <p className="text-[14px] text-gray-500">No top-ups yet.</p>
-                      : (
-                          <ul className="divide-y divide-gray-100">
-                            {(topups ?? []).map(item => (
-                              <li key={item.id} className="space-y-0.5 py-2 text-[14px]">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-gray-900">
-                                    {item.credits}
-                                    {' '}
-                                    credits — $
-                                    {(item.priceCents / 100).toFixed(2)}
-                                  </span>
-                                  <span className="text-gray-500">{TOPUP_STATUS_LABELS[item.status]}</span>
-                                </div>
-                                <div className="flex items-center justify-between text-gray-500">
-                                  <span>{new Date(item.createdAt).toLocaleDateString()}</span>
-                                  {item.holdState === 'held' && (
-                                    <span className="text-amber-700">held — being reconciled</span>
-                                  )}
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                    {topupsError && <p role="status" aria-live="polite" className="text-[13px] text-red-600">{topupsError}</p>}
-                    {topupsCursor !== null && (
-                      <button
-                        type="button"
-                        onClick={loadMoreTopups}
-                        disabled={topupsLoadingMore}
-                        className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
-                      >
-                        {topupsLoadingMore ? 'Loading…' : 'Load more'}
-                      </button>
-                    )}
-                  </>
-                )}
-              </section>
-
-              <section aria-labelledby="history-heading" className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 id="history-heading" className="text-[15px] font-medium text-gray-900">Message history</h3>
-                  <label className="sr-only" htmlFor="history-filter">Filter message history</label>
-                  <select
-                    id="history-filter"
-                    value={historyFilter}
-                    onChange={event => setHistoryFilter(event.target.value as HistoryCategory)}
-                    className="h-9 rounded-md border border-gray-300 bg-white px-2 text-[14px]"
-                  >
-                    <option value="all">All messages</option>
-                    {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
+              <section aria-labelledby="buymore-heading" className="space-y-3">
+                <h3 id="buymore-heading" className="scroll-mt-4 text-base font-semibold">Buy more texts</h3>
+                <div className="grid gap-2">
+                  {data.topupOffers.map(offer => (
+                    <button key={offer.key} type="button" onClick={() => void buyTopup(offer.key)} disabled={buying !== null || !data.creditPurchasesAvailable || data.canPurchaseCredits !== true} className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-[var(--owner-line,#dfd1d4)] px-4 py-3 text-left text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50">
+                      <span>{buying === offer.key ? 'Opening…' : `${offer.credits} texts — $${offer.priceCents / 100}`}</span>
+                      {offer.credits === 500 && <span className="rounded-full bg-[var(--owner-blush,#f6e7ec)] px-2 py-1 text-xs">Best value</span>}
+                    </button>
+                  ))}
                 </div>
-                {data!.history.length === 0 && (
-                  <p className="text-[14px] text-gray-500">No messages yet.</p>
-                )}
-                {(Object.keys(CATEGORY_LABELS) as Array<Exclude<HistoryCategory, 'all'>>).map(category => (
-                  (historyFilter === 'all' || historyFilter === category) && groupedHistory[category].length > 0
-                    ? (
-                        <div key={category} className="space-y-1">
-                          <h4 className="text-[13px] font-medium text-gray-500">{CATEGORY_LABELS[category]}</h4>
-                          <ul className="divide-y divide-gray-100">
-                            {groupedHistory[category].map(entry => (
-                              <li key={entry.id} className="space-y-1 py-2 text-[14px]">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-gray-900">
-                                    {EVENT_LABELS[entry.eventType] ?? 'Message'}
-                                    {' · '}
-                                    {entry.channel === 'sms' ? 'Text' : 'Email'}
-                                  </span>
-                                  <span className="shrink-0 text-gray-500">{STATUS_LABELS[entry.status] ?? entry.status}</span>
-                                </div>
-                                <div className="flex items-center justify-between gap-2 text-gray-500">
-                                  <span>{entry.recipient}</span>
-                                  <span className="shrink-0">{new Date(entry.scheduledFor).toLocaleString()}</span>
-                                </div>
-                                <p className="text-[13px] text-gray-500">{creditLabel(entry)}</p>
-                                {entry.failureReason !== null && (
-                                  <p className="text-[13px] text-amber-700">{entry.failureReason}</p>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )
-                    : null
-                ))}
-                {historyError && <p role="status" aria-live="polite" className="text-[13px] text-red-600">{historyError}</p>}
-                {data!.nextCursor !== null && (
-                  <button
-                    type="button"
-                    onClick={loadMoreHistory}
-                    disabled={loadingMoreHistory}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
-                  >
-                    {loadingMoreHistory ? 'Loading…' : 'Load more'}
-                  </button>
-                )}
+                {!data.creditPurchasesAvailable && <p className="text-sm text-[var(--owner-muted,#706267)]">Top ups are temporarily unavailable. Please try again later.</p>}
+                {data.canPurchaseCredits !== true && <p className="text-sm text-[var(--owner-muted,#706267)]">Only the salon owner can purchase texts.</p>}
+                {buyError && <p role="alert" className="text-sm text-red-700">{buyError}</p>}
+                <p className="text-xs text-[var(--owner-muted,#706267)]">Prices in CAD. Long messages and emoji can use more than one text credit.</p>
               </section>
+              <section aria-labelledby="history-heading" className="space-y-3">
+                <h3 id="history-heading" className="text-base font-semibold">Recent text usage</h3>
+                {history.length === 0 && <p className="text-sm text-[var(--owner-muted,#706267)]">No text usage yet.</p>}
+                <ul className="divide-y divide-[var(--owner-line,#dfd1d4)]">
+                  {history.map(row => (
+                    <li key={row.id} className="py-3 text-sm">
+                      <div className="flex justify-between gap-3">
+                        <span>{EVENT_LABELS[row.eventType] ?? 'Client message'}</span>
+                        <span className="shrink-0">{row.creditsUsed === 0 ? 'No credits used' : `${row.creditsUsed} text${row.creditsUsed === 1 ? '' : 's'}`}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-[var(--owner-muted,#706267)]">
+                        {STATUS_LABELS[row.status] ?? 'Checking delivery'}
+                        {' '}
+                        ·
+                        {' '}
+                        {row.recipient}
+                        {' '}
+                        ·
+                        {' '}
+                        {new Date(row.sentAt ?? row.scheduledFor).toLocaleDateString()}
+                      </p>
+                      {row.failureReason && <p className="mt-1 text-xs text-[var(--owner-muted,#706267)]">{row.failureReason}</p>}
+                    </li>
+                  ))}
+                </ul>
+                {data.nextCursor && <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="min-h-11 rounded-xl border px-4 text-sm">{loadingMore ? 'Loading…' : 'Load more'}</button>}
+              </section>
+              <StarterSmsCreditsCard
+                key={data.salonId}
+                salonId={data.salonId}
+                hasKnownStarterCredits={usage.starterCredits > 0}
+                onClaimed={async () => {
+                  await refreshUsage();
+                  window.dispatchEvent(new Event(SMS_BALANCE_CHANGED_EVENT));
+                }}
+              />
+              {usage.plan && (
+                <div className="text-xs text-[var(--owner-muted,#706267)]">
+                  <p>
+                    Previous plan paid through
+                    {new Date(usage.plan.paidThrough).toLocaleDateString()}
+                    . Prepaid credits are honored.
+                  </p>
+                  <button type="button" onClick={() => void openPortal()} className="min-h-11 underline">Past billing and receipts</button>
+                </div>
+              )}
             </>
           )}
         </div>

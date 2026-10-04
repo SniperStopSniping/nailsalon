@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { SmsMessagePreview } from '@/components/admin/SmsMessagePreview';
 import { Button } from '@/components/ui/button';
 import { buildNativeSmsUrl, detectNativeSmsPlatform } from '@/libs/clientSmsComposer';
+import { openUsageTopups, SMS_BALANCE_CHANGED_EVENT, textBalanceState } from '@/libs/commercialPolicy';
 import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { RETENTION_DATA_CHANGED_EVENT } from '@/libs/dashboardEvents';
 import { prepareSmsBody } from '@/libs/smsSegments';
@@ -225,6 +226,7 @@ export function LusterClientSms({
         setUncertain(false);
       }
       await load();
+      window.dispatchEvent(new Event(SMS_BALANCE_CHANGED_EVENT));
     } catch {
       if (!retryId) {
         setUncertain(true);
@@ -294,6 +296,22 @@ export function LusterClientSms({
 
   return (
     <section className="mt-3 space-y-3 text-left" aria-label="Luster SMS" data-testid="luster-client-sms">
+      {typeof sms?.availableCredits === 'number' && textBalanceState(sms.availableCredits) !== 'healthy' && (
+        <div role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+          <p>{sms.availableCredits === 0 ? 'You’re out of text credits. Add more texts to continue sending reminders and messages.' : `${sms.availableCredits} texts remaining. Top up when you need more.`}</p>
+          <Button
+            type="button"
+            variant="secondary"
+            className="mt-2 min-h-11"
+            onClick={() => {
+              onClose();
+              openUsageTopups();
+            }}
+          >
+            Top up now
+          </Button>
+        </div>
+      )}
       {composerOpen && (
         <div className="fixed inset-0 z-[70] flex min-h-0 flex-col overflow-y-auto bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:absolute sm:inset-4 sm:rounded-2xl sm:border sm:border-rose-100 sm:p-4" role="dialog" aria-modal="true" aria-label={composerTitle} data-testid="client-message-composer">
           <div className="flex items-center justify-between gap-3">

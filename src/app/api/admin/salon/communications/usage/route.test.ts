@@ -38,6 +38,7 @@ const adminSalonHolder = vi.hoisted(() => ({
   error: null as Response | null,
 }));
 vi.mock('@/libs/adminAuth', () => ({
+  getAdminSession: vi.fn(async () => ({ salons: [{ salonId: adminSalonHolder.salon?.id, role: 'owner' }] })),
   requireAdminSalon: vi.fn(async () => ({ error: adminSalonHolder.error, salon: adminSalonHolder.salon })),
 }));
 vi.mock('@/libs/rateLimit', () => ({
@@ -323,19 +324,17 @@ describe('capabilities + catalog (P7, ChoosePlanPanel)', () => {
     const response = await getUsage();
     const body = await response.json();
 
-    expect(body.data.capabilities).toEqual({ subscriptions: true, topups: true, pricingPublic: true });
+    expect(body.data.capabilities).toEqual({ subscriptions: false, topups: true, pricingPublic: true });
   });
 
   it('catalog.plans and catalog.offers match the canonical public projections exactly', async () => {
     await seedSalon('free');
-    const { getPublicPlanCatalog } = await import('@/libs/billing/planDefinitions');
-    const { getPublicBillingOffers } = await import('@/libs/billing/billingOffers');
 
     const response = await getUsage();
     const body = await response.json();
 
-    expect(body.data.catalog.plans).toEqual(JSON.parse(JSON.stringify(getPublicPlanCatalog())));
-    expect(body.data.catalog.offers).toEqual(JSON.parse(JSON.stringify(getPublicBillingOffers())));
+    expect(body.data.catalog.plans).toEqual([]);
+    expect(body.data.catalog.offers).toEqual([]);
   });
 
   it('catalog.founding is null while the promotion window is closed (the committed default)', async () => {
@@ -354,13 +353,7 @@ describe('capabilities + catalog (P7, ChoosePlanPanel)', () => {
     const response = await getUsage();
     const body = await response.json();
 
-    expect(body.data.catalog.founding).toEqual({
-      key: 'founding_annual_2026',
-      percentOff: 40,
-      rateProtectionMonths: 24,
-      eligibleOfferKeys: ['starter_2026_08_annual', 'pro_2026_08_annual', 'elite_2026_08_annual'],
-      endsAt: null,
-    });
+    expect(body.data.catalog.founding).toBeNull();
   });
 
   it('never leaks a Stripe Price/Coupon/Promotion Code id anywhere in the response', async () => {

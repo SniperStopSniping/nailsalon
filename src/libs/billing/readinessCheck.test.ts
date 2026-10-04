@@ -52,6 +52,9 @@ const completeCarrier = JSON.stringify({
     'topup_250_paid_2026_08',
     'topup_500_paid_2026_08',
     'topup_1000_paid_2026_08',
+    'topup_100_2026_10',
+    'topup_200_2026_10',
+    'topup_500_2026_10',
   ].map((key, index) => [key, `price_topup${String(index).padStart(8, '0')}`])),
   coupons: { founding_annual_2026: 'coupon_test12345678' },
 });
@@ -645,7 +648,7 @@ describe('RD-1 — carrier parity between the pulled env file and the deployment
     const check = checkOf(result, 'carrier_complete');
 
     expect(check.ok).toBe(false);
-    expect(check.detail).toContain('starter_2026_08_annual');
+    expect(check.detail).toContain('topup_100_2026_10');
     expect(check.detail).not.toContain('price_test12345678');
   });
 

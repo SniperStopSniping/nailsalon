@@ -154,66 +154,19 @@ describe('OwnerManagementModal', () => {
     expect(query.has('view')).toBe(false);
   });
 
-  it('opens a plan leaf through the URL while retaining salon and contextual query values', () => {
-    state.query = 'client=client_9&returnTo=calendar';
-    const rendered = renderModal({ app: 'plan-usage' });
-
-    fireEvent.click(screen.getByRole('button', { name: /messages & credits/i }));
-
-    expect(pushMock).toHaveBeenCalledTimes(1);
-
-    const query = queryOf(pushMock.mock.calls[0]![0]);
-
-    expect(query.get('salon')).toBe('isla');
-    expect(query.get('client')).toBe('client_9');
-    expect(query.get('returnTo')).toBe('calendar');
-    expect(query.get('app')).toBe('plan-usage');
-    expect(query.get('view')).toBe('usage');
-
-    state.query = query.toString();
-    rendered.rerender(
-      <OwnerManagementModal app="plan-usage" salonSlug="isla" salonId="salon_1" isFreeSolo={false} teamAvailable={false} onClose={vi.fn()} />,
-    );
+  it.each(['', 'view=usage', 'view=billing', 'view=plans'])('reuses the same usage screen for legacy navigation %s', (query) => {
+    state.query = `salon=isla&app=plan-usage&${query}`;
+    renderModal({ app: 'plan-usage' });
 
     expect(usageBillingModalMock).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'isla' }));
+    expect(screen.queryByTestId('choose-plan-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('settings-modal')).not.toBeInTheDocument();
   });
 
-  it('hosts the existing plan and billing presentation as a URL-backed leaf', () => {
-    state.query = 'client=client_9&returnTo=calendar';
-    const rendered = renderModal({ app: 'plan-usage' });
-
-    fireEvent.click(screen.getByRole('button', { name: /plan & billing/i }));
-
-    const query = queryOf(pushMock.mock.calls[0]![0]);
-
-    expect(query.get('app')).toBe('plan-usage');
-    expect(query.get('view')).toBe('billing');
-    expect(query.get('salon')).toBe('isla');
-    expect(query.get('client')).toBe('client_9');
-
-    state.query = query.toString();
-    rendered.rerender(
-      <OwnerManagementModal app="plan-usage" salonSlug="isla" salonId="salon_1" isFreeSolo={false} teamAvailable={false} onClose={vi.fn()} />,
-    );
-
-    expect(screen.getByTestId('settings-modal')).toHaveTextContent('plan-billing');
-  });
-
-  it('reuses the existing billing gate when no salon is selected', () => {
+  it('requires a salon for its balance screen', () => {
     renderModal({ app: 'plan-usage', salonSlug: null });
 
-    expect(screen.getByRole('button', { name: /messages & credits/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /compare plans/i })).toBeDisabled();
     expect(usageBillingModalMock).not.toHaveBeenCalled();
-  });
-
-  it('does not expose plan comparison to a Free Solo owner, including a direct plans link', () => {
-    state.query = 'salon=isla&app=plan-usage&view=plans';
-    renderModal({ app: 'plan-usage', isFreeSolo: true });
-
-    expect(screen.getByRole('button', { name: /messages & credits/i })).toBeEnabled();
-    expect(screen.queryByRole('button', { name: /compare plans/i })).not.toBeInTheDocument();
-    expect(screen.queryByTestId('choose-plan-panel')).not.toBeInTheDocument();
   });
 
   it('delegates Help resources to the existing app destinations', () => {

@@ -13,7 +13,7 @@ import 'server-only';
 
 import type { PlanFamily } from './planDefinitions';
 
-export type TopupAudience = 'free_plan' | 'paid_plan';
+export type TopupAudience = 'free_plan' | 'paid_plan' | 'all_salons';
 
 export type TopupOfferKey =
   | 'topup_100_free_2026_08'
@@ -22,11 +22,14 @@ export type TopupOfferKey =
   | 'topup_100_paid_2026_08'
   | 'topup_250_paid_2026_08'
   | 'topup_500_paid_2026_08'
-  | 'topup_1000_paid_2026_08';
+  | 'topup_1000_paid_2026_08'
+  | 'topup_100_2026_10'
+  | 'topup_200_2026_10'
+  | 'topup_500_2026_10';
 
 export type TopupOffer = {
   key: TopupOfferKey;
-  credits: 100 | 250 | 500 | 1000;
+  credits: 100 | 200 | 250 | 500 | 1000;
   priceCents: number;
   currency: 'cad';
   audience: TopupAudience;
@@ -34,13 +37,16 @@ export type TopupOffer = {
 };
 
 export const TOPUP_OFFERS: Record<TopupOfferKey, TopupOffer> = {
+  topup_100_2026_10: { key: 'topup_100_2026_10', credits: 100, priceCents: 2000, currency: 'cad', audience: 'all_salons', active: true },
+  topup_200_2026_10: { key: 'topup_200_2026_10', credits: 200, priceCents: 3000, currency: 'cad', audience: 'all_salons', active: true },
+  topup_500_2026_10: { key: 'topup_500_2026_10', credits: 500, priceCents: 5000, currency: 'cad', audience: 'all_salons', active: true },
   topup_100_free_2026_08: {
     key: 'topup_100_free_2026_08',
     credits: 100,
     priceCents: 699,
     currency: 'cad',
     audience: 'free_plan',
-    active: true,
+    active: false,
   },
   topup_250_free_2026_08: {
     key: 'topup_250_free_2026_08',
@@ -48,7 +54,7 @@ export const TOPUP_OFFERS: Record<TopupOfferKey, TopupOffer> = {
     priceCents: 1599,
     currency: 'cad',
     audience: 'free_plan',
-    active: true,
+    active: false,
   },
   topup_500_free_2026_08: {
     key: 'topup_500_free_2026_08',
@@ -56,7 +62,7 @@ export const TOPUP_OFFERS: Record<TopupOfferKey, TopupOffer> = {
     priceCents: 2999,
     currency: 'cad',
     audience: 'free_plan',
-    active: true,
+    active: false,
   },
   topup_100_paid_2026_08: {
     key: 'topup_100_paid_2026_08',
@@ -64,7 +70,7 @@ export const TOPUP_OFFERS: Record<TopupOfferKey, TopupOffer> = {
     priceCents: 599,
     currency: 'cad',
     audience: 'paid_plan',
-    active: true,
+    active: false,
   },
   topup_250_paid_2026_08: {
     key: 'topup_250_paid_2026_08',
@@ -72,7 +78,7 @@ export const TOPUP_OFFERS: Record<TopupOfferKey, TopupOffer> = {
     priceCents: 1399,
     currency: 'cad',
     audience: 'paid_plan',
-    active: true,
+    active: false,
   },
   topup_500_paid_2026_08: {
     key: 'topup_500_paid_2026_08',
@@ -80,7 +86,7 @@ export const TOPUP_OFFERS: Record<TopupOfferKey, TopupOffer> = {
     priceCents: 2699,
     currency: 'cad',
     audience: 'paid_plan',
-    active: true,
+    active: false,
   },
   topup_1000_paid_2026_08: {
     key: 'topup_1000_paid_2026_08',
@@ -88,7 +94,7 @@ export const TOPUP_OFFERS: Record<TopupOfferKey, TopupOffer> = {
     priceCents: 4999,
     currency: 'cad',
     audience: 'paid_plan',
-    active: true,
+    active: false,
   },
 };
 
@@ -105,7 +111,7 @@ export function resolveTopupAudienceForFamily(family: PlanFamily): TopupAudience
 export function resolveTopupOffersForFamily(family: PlanFamily): TopupOffer[] {
   const audience = resolveTopupAudienceForFamily(family);
   return Object.values(TOPUP_OFFERS).filter(
-    offer => offer.active && offer.audience === audience,
+    offer => offer.active && (offer.audience === 'all_salons' || offer.audience === audience),
   );
 }
 
@@ -134,6 +140,6 @@ Object.values(TOPUP_OFFERS).forEach(Object.freeze);
 /** Active offers for ONE audience — the Buy More list, server-resolved (§9.1). */
 export function listActiveTopupOffersForAudience(audience: TopupAudience): TopupOffer[] {
   return Object.values(TOPUP_OFFERS)
-    .filter(offer => offer.active && offer.audience === audience)
+    .filter(offer => offer.active && (offer.audience === 'all_salons' || offer.audience === audience))
     .sort((a, b) => a.credits - b.credits);
 }

@@ -1248,7 +1248,7 @@ describe('SettingsModal index', () => {
     fireEvent.click(await screen.findByText('Account'));
     await screen.findByDisplayValue('daniela@example.com');
     fireEvent.change(screen.getByDisplayValue('Daniela'), { target: { value: 'First draft' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Open Plan & Usage' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Usage & Top Ups' }));
 
     expect(await screen.findByRole('button', { name: 'Discard' })).toBeInTheDocument();
     expect(onOpenApp).not.toHaveBeenCalled();
@@ -1303,52 +1303,11 @@ describe('SettingsModal index', () => {
     expect(await screen.findByText('Profile saved.')).toBeInTheDocument();
   });
 
-  it('shows offline billing as status text with no billing portal button', async () => {
-    render(
-      <SettingsModal
-        onClose={vi.fn()}
-        salonSlug="salon-a"
-        salonId="salon_1"
-        userName="Daniela"
-        initialView="plan-billing"
-        leafOnly
-      />,
-    );
+  it('routes the old billing leaf into Usage & Top Ups without subscription sales', async () => {
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" salonId="salon_1" initialView="plan-billing" leafOnly />);
 
-    expect(await screen.findByText('Cash / Offline billing enabled')).toBeInTheDocument();
-    expect(screen.queryByTestId('manage-billing-button')).not.toBeInTheDocument();
-  });
-
-  it('offers the Stripe billing portal only to Stripe-billed salons', async () => {
-    fetchMock.mockReset();
-    vi.stubGlobal('fetch', fetchMock);
-    mockEndpoints({ billingMode: 'STRIPE' });
-    // jsdom cannot navigate; the redirect is absorbed by the component's error
-    // handling and the target is asserted via the API call instead.
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    render(
-      <SettingsModal
-        onClose={vi.fn()}
-        salonSlug="salon-a"
-        salonId="salon_1"
-        userName="Daniela"
-        initialView="plan-billing"
-        leafOnly
-      />,
-    );
-    const manageButton = await screen.findByTestId('manage-billing-button');
-    fireEvent.click(manageButton);
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        '/api/billing/portal',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ salonId: 'salon_1' }),
-        }),
-      );
-    });
+    expect(await screen.findByRole('heading', { name: 'Usage & Top Ups' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Plans' })).not.toBeInTheDocument();
   });
 
   /*

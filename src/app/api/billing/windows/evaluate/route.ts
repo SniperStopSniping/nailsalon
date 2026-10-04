@@ -40,7 +40,7 @@ async function run(request: Request): Promise<Response> {
   if (!isAuthorizedCronRequest(request, process.env.CRON_SECRET)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if (Env.BILLING_SUBSCRIPTIONS_ENABLED !== 'true') {
+  if (Env.BILLING_SUBSCRIPTIONS_ENABLED !== 'true' && Env.BILLING_TOPUPS_ENABLED !== 'true') {
     return Response.json({ skipped: 'BILLING_DISABLED' });
   }
   const now = new Date();

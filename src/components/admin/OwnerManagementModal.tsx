@@ -1,6 +1,6 @@
 'use client';
 
-import { BookOpen, CalendarClock, CreditCard, HelpCircle, Shield, SlidersHorizontal, Users } from 'lucide-react';
+import { BookOpen, HelpCircle, Shield, SlidersHorizontal, Users } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -9,7 +9,6 @@ import { type OwnerManagementApp, ownerManagementView } from '@/libs/ownerNaviga
 
 import { BackButton, ModalHeader } from './AppModal';
 import { BookingPageInformationEditor } from './BookingPageInformationEditor';
-import { ChoosePlanPanel } from './ChoosePlanPanel';
 import { OwnerAppHub } from './OwnerAppHub';
 import { OwnerScheduleEditor } from './OwnerScheduleEditor';
 import { SettingsModal } from './SettingsModal';
@@ -171,26 +170,9 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
   }
 
   if (app === 'plan-usage') {
-    if (view === 'billing') {
-      return <SettingsModal key={`${salonSlug}:plan-billing`} initialView="plan-billing" leafOnly leafBackLabel="Plan & Usage" onClose={back} salonSlug={salonSlug} salonId={salonId} isFreeSolo={isFreeSolo} onOpenApp={onOpenApp} />;
-    }
-    return (
-      <>
-        <OwnerAppHub
-          title="Plan & Usage"
-          subtitle="Your Luster subscription and message usage"
-          onBack={onClose}
-          onOpen={open}
-          items={[
-            { id: 'billing', title: 'Plan & billing', description: 'Subscription status, secure billing portal and plan options', icon: CreditCard, disabled: !salonSlug },
-            { id: 'usage', title: 'Messages & credits', description: 'SMS balance, usage and delivery history', icon: CreditCard, disabled: !salonSlug },
-            ...(!isFreeSolo ? [{ id: 'plans', title: 'Compare plans', description: 'Current Luster plans and available options', icon: CalendarClock, disabled: !salonSlug }] : []),
-          ]}
-        />
-        {view === 'usage' && salonSlug && <UsageBillingModal salonSlug={salonSlug} onClose={back} />}
-        {view === 'plans' && !isFreeSolo && salonSlug && <ChoosePlanPanel salonSlug={salonSlug} onClose={back} />}
-      </>
-    );
+    return salonSlug
+      ? <UsageBillingModal key={salonSlug} salonSlug={salonSlug} onClose={onClose} />
+      : null;
   }
 
   return (

@@ -9,7 +9,6 @@
  * - Fullscreen modals for apps (Appointments, Settings, etc.)
  * - iOS spring physics and animations
  */
-
 import { useAuth, useClerk } from '@clerk/nextjs';
 import { MotionConfig } from 'framer-motion';
 import { Bell, Building2, Sparkles } from 'lucide-react';
@@ -35,10 +34,11 @@ import {
   OwnerWorkspaceNav,
   type OwnerWorkspaceTab,
 } from '@/components/admin/OwnerWorkspaceNav';
-import { UsageBillingModal } from '@/components/admin/UsageBillingModal';
 import { LuckyCharmLoader } from '@/components/loading/LuckyCharmLoader';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
+import { useSmsBalance } from '@/hooks/useSmsBalance';
+import { OPEN_USAGE_TOPUPS_EVENT, SMS_BALANCE_CHANGED_EVENT } from '@/libs/commercialPolicy';
 import { formatMoney } from '@/libs/formatMoney';
 import { resolveOwnerNavigationAlias, resolveOwnerNavigationPathAlias } from '@/libs/ownerNavigation';
 // =============================================================================
@@ -443,7 +443,7 @@ function AdminDashboardContent() {
   const [billingReturnNotice, setBillingReturnNotice] = useState<
     { kind: 'topup' | 'billing'; message: string } | null
   >(null);
-  const [showTopupUsageBilling, setShowTopupUsageBilling] = useState(false);
+  const topupReturnPurchaseId = useRef<string | null>(null);
   const [pollingTopupFulfillment, setPollingTopupFulfillment] = useState(false);
   const handledBillingReturnRef = useRef(false);
   const activeDashboardSalonSlug
@@ -460,6 +460,12 @@ function AdminDashboardContent() {
   const activeDashboardSalonName = activeDashboardSalon?.name ?? null;
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
   const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
+  const textBalance = useSmsBalance(workspaceTab === 'more' ? activeDashboardSalonSlug : null);
+  useEffect(() => {
+    const openUsage = () => setActiveModal('plan-usage');
+    window.addEventListener(OPEN_USAGE_TOPUPS_EVENT, openUsage);
+    return () => window.removeEventListener(OPEN_USAGE_TOPUPS_EVENT, openUsage);
+  }, []);
 
   // G19 (§8.5 UX): read ?topup=success|cancelled (P5a) or
   // ?billing=success|cancelled (P7, subscription half) exactly once, show a
@@ -489,10 +495,11 @@ function AdminDashboardContent() {
       setBillingReturnNotice({
         kind,
         message: kind === 'topup'
-          ? 'Payment received — credits usually arrive within a minute.'
-          : 'Payment received — your plan updates within a minute.',
+          ? 'Checking your payment — texts appear once payment is confirmed.'
+          : 'Checking your previous payment. Your app features are included.',
       });
-      setShowTopupUsageBilling(true);
+      setActiveModal('plan-usage');
+      topupReturnPurchaseId.current = searchParams.get('purchase');
       if (kind === 'topup') {
         // Subscription state arrives from the stripe-billing webhook; there
         // is no equivalent read-back endpoint to poll here (unlike top-up
@@ -504,6 +511,7 @@ function AdminDashboardContent() {
     }
     const url = new URL(window.location.href);
     url.searchParams.delete(kind);
+    url.searchParams.delete('purchase');
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }, [searchParams]);
 
@@ -523,12 +531,13 @@ function AdminDashboardContent() {
         return;
       }
       try {
-        const response = await fetch(`/api/billing/topups?salonId=${encodeURIComponent(salonId)}&limit=1`);
+        const response = await fetch(`/api/billing/topups?salonId=${encodeURIComponent(salonId)}&limit=25`);
         if (response.ok) {
           const body = await response.json();
-          if (body?.items?.[0]?.status === 'fulfilled') {
+          if (topupReturnPurchaseId.current && body?.items?.some((item: { id: string; status: string }) => item.id === topupReturnPurchaseId.current && item.status === 'fulfilled')) {
             if (!cancelled) {
               setPollingTopupFulfillment(false);
+              window.dispatchEvent(new Event(SMS_BALANCE_CHANGED_EVENT));
             }
             return;
           }
@@ -2029,6 +2038,7 @@ function AdminDashboardContent() {
               >
                 <AppGrid
                   theme="apple"
+                  textBalance={textBalance}
                   isTeamSalon={isTeamSalon}
                   badges={appBadges}
                   onAppTap={handleAppTap}
@@ -2195,16 +2205,6 @@ function AdminDashboardContent() {
           setFraudSignalsTotalCount(prev => Math.max(0, prev - 1));
         }}
       />
-
-      {/* Opened by a top-up OR subscription Checkout return (G19) — same
-          modal the Account & Plan view opens, driven here by page state
-          instead of a click. */}
-      {showTopupUsageBilling && activeDashboardSalonSlug && (
-        <UsageBillingModal
-          salonSlug={activeDashboardSalonSlug}
-          onClose={() => setShowTopupUsageBilling(false)}
-        />
-      )}
 
       <NewAppointmentModal
         isOpen={newAppointmentDate !== null}

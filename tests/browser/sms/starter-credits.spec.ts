@@ -62,12 +62,12 @@ test('a verified allowance stays verified after mobile reload and never posts an
 
   await page.goto('/?fixture=usage-billing');
 
-  await expect(page.getByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeVisible();
-  await expect(page.getByRole('button', { name: /Claim 100 free texts|Verify free-text allowance/ })).toHaveCount(0);
+  await expect(page.getByText('Your free-text allowance has been verified. Your existing text credits are unchanged.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Claim 50 free texts|Verify free-text allowance/ })).toHaveCount(0);
 
   await page.reload();
 
-  await expect(page.getByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeVisible();
+  await expect(page.getByText('Your free-text allowance has been verified. Your existing text credits are unchanged.')).toBeVisible();
   expect(requests.filter(request => request.startsWith('POST'))).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
@@ -79,6 +79,6 @@ test('a collaborator sees the owner-only status without a claim action', async (
   await page.goto('/?fixture=usage-billing');
 
   await expect(page.getByText('Only the salon owner can verify the free-text allowance. Sign in with the owner account.')).toBeVisible();
-  await expect(page.getByRole('button', { name: /Claim 100 free texts|Verify free-text allowance/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Claim 50 free texts|Verify free-text allowance/ })).toHaveCount(0);
   expect(requests.filter(request => request.startsWith('POST'))).toEqual([]);
 });

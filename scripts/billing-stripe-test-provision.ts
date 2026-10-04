@@ -271,11 +271,12 @@ export type CatalogueBillingOffer = {
 };
 
 export type CatalogueTopupOffer = {
+  active?: boolean;
   key: string;
   credits: number;
   priceCents: number;
   currency: 'cad';
-  audience: 'free_plan' | 'paid_plan';
+  audience: 'free_plan' | 'paid_plan' | 'all_salons';
 };
 
 export type CataloguePromotion = {

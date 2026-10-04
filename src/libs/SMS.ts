@@ -12,21 +12,18 @@
  * All SMS functions check the salon's smsRemindersEnabled toggle before sending.
  */
 
-import { and, desc, eq, gte, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { bookingEmailTaxLineLabel } from '@/libs/bookingEmailFinancialPresentation';
 import type { BookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { isAppointmentSmsEligible } from '@/libs/bookingSmsConsent.server';
 import { db } from '@/libs/DB';
-import { Env } from '@/libs/Env';
 import { formatMoney } from '@/libs/formatMoney';
 import { buildSalonPublicUrl } from '@/libs/publicUrl';
 import { formatRewardDollars, REFERRAL_REFEREE_AMOUNT_CENTS } from '@/libs/rewardRules';
 import { isSmsEnabled } from '@/libs/salonStatus';
-import { resolveByoSenderReadiness } from '@/libs/smsSender';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
-import { buildStatusCallbackUrl, sendViaTwilio } from '@/libs/twilioMessagingSend';
-import { appointmentSchema, notificationDeliverySchema, salonTwilioConnectionSchema } from '@/models/Schema';
+import { appointmentSchema } from '@/models/Schema';
 
 // =============================================================================
 // TYPES
@@ -217,25 +214,9 @@ export function buildBookingFinancialSmsLines(
 // TWILIO CLIENT
 // =============================================================================
 
-/** Legacy facades must never bypass platform credits or change sender identity. */
-async function getSalonTwilioSender(salonId: string) {
-  const [connection] = await db.select().from(salonTwilioConnectionSchema)
-    .where(and(eq(salonTwilioConnectionSchema.salonId, salonId), eq(salonTwilioConnectionSchema.status, 'active'))).limit(1);
-  if (!connection || !resolveByoSenderReadiness(connection, { authTokenPresent: Boolean(Env.TWILIO_AUTH_TOKEN) }).ready) {
-    return null;
-  }
-  return { accountSid: connection.connectAccountSid, messagingServiceSid: connection.messagingServiceSid, phoneNumber: connection.phoneNumber };
-}
-
-const RAPID_MANUAL_REMINDER_WINDOW_MS = 2 * 60 * 1000;
-const MANUAL_REMINDER_DEDUPE_BUCKET_MS = 5 * 60 * 1000;
-const MANUAL_REMINDER_PURPOSE = 'appointment_reminder_manual';
-
 /**
- * Sends a staff-triggered reminder only through the salon's own active Twilio
- * connection. Known eligibility gaps return an editable native-SMS draft;
- * once Twilio is called, a failure is intentionally reported separately so a
- * caller cannot accidentally double-send by opening the fallback immediately.
+ * Legacy reminder facade returns an explicit native-phone draft. Actual Luster
+ * sends use the canonical communication dispatcher and its credit reservation.
  */
 export async function sendSmartAppointmentReminder(
   salonId: string,
@@ -272,166 +253,7 @@ export async function sendSmartAppointmentReminder(
     };
   }
 
-  const sender = await getSalonTwilioSender(salonId);
-  if (!sender) {
-    return {
-      outcome: 'manual',
-      phone: normalizedPhone,
-      body,
-      reason: 'TWILIO_UNAVAILABLE',
-    };
-  }
-
-  const now = params.now ?? new Date();
-  if (!params.force) {
-    const [recentDelivery] = await db
-      .select({
-        status: notificationDeliverySchema.status,
-        updatedAt: notificationDeliverySchema.updatedAt,
-      })
-      .from(notificationDeliverySchema)
-      .where(and(
-        eq(notificationDeliverySchema.salonId, salonId),
-        eq(notificationDeliverySchema.appointmentId, params.appointmentId),
-        eq(notificationDeliverySchema.channel, 'sms'),
-        eq(notificationDeliverySchema.purpose, MANUAL_REMINDER_PURPOSE),
-        gte(
-          notificationDeliverySchema.createdAt,
-          new Date(now.getTime() - RAPID_MANUAL_REMINDER_WINDOW_MS),
-        ),
-        inArray(notificationDeliverySchema.status, [
-          'queued',
-          'accepted',
-          'sending',
-          'sent',
-          'delivered',
-        ]),
-      ))
-      .orderBy(desc(notificationDeliverySchema.updatedAt))
-      .limit(1);
-
-    if (recentDelivery) {
-      return {
-        outcome: 'duplicate',
-        phone: normalizedPhone,
-        body,
-        sentAt: recentDelivery.updatedAt.toISOString(),
-      };
-    }
-  }
-
-  const deliveryId = crypto.randomUUID();
-  const bucket = Math.floor(now.getTime() / MANUAL_REMINDER_DEDUPE_BUCKET_MS);
-  const dedupeKey = params.force
-    ? `sms:appointment-reminder-manual:${params.appointmentId}:resend:${deliveryId}`
-    : `sms:appointment-reminder-manual:${params.appointmentId}:${bucket}`;
-  const inserted = await db
-    .insert(notificationDeliverySchema)
-    .values({
-      id: deliveryId,
-      salonId,
-      appointmentId: params.appointmentId,
-      channel: 'sms',
-      purpose: MANUAL_REMINDER_PURPOSE,
-      dedupeKey,
-      status: 'queued',
-    })
-    .onConflictDoNothing()
-    .returning();
-
-  if (inserted.length === 0) {
-    const [existingDelivery] = await db
-      .select({
-        status: notificationDeliverySchema.status,
-        errorCode: notificationDeliverySchema.errorCode,
-        updatedAt: notificationDeliverySchema.updatedAt,
-      })
-      .from(notificationDeliverySchema)
-      .where(and(
-        eq(notificationDeliverySchema.salonId, salonId),
-        eq(notificationDeliverySchema.dedupeKey, dedupeKey),
-      ))
-      .limit(1);
-
-    if (existingDelivery && [
-      'queued',
-      'accepted',
-      'sending',
-      'sent',
-      'delivered',
-    ].includes(existingDelivery.status)) {
-      return {
-        outcome: 'duplicate',
-        phone: normalizedPhone,
-        body,
-        sentAt: existingDelivery.updatedAt.toISOString(),
-      };
-    }
-
-    return {
-      outcome: 'provider_failure',
-      phone: normalizedPhone,
-      body,
-      errorCode: existingDelivery?.errorCode ?? null,
-    };
-  }
-
-  try {
-    const normalizedTo = `+1${normalizedPhone}`;
-    const statusCallback = buildStatusCallbackUrl(deliveryId);
-    const message = await sendViaTwilio({
-      body,
-      accountSid: sender.accountSid,
-      messagingServiceSid: sender.messagingServiceSid,
-      from: sender.phoneNumber,
-      statusCallbackUrl: statusCallback,
-      to: normalizedTo,
-    });
-    const sentAt = new Date();
-    await db
-      .update(notificationDeliverySchema)
-      .set({
-        status: 'accepted',
-        providerMessageId: message.sid,
-      })
-      .where(and(
-        eq(notificationDeliverySchema.id, deliveryId),
-        eq(notificationDeliverySchema.salonId, salonId),
-      ))
-      .catch(() => undefined);
-
-    return {
-      outcome: 'sent',
-      phone: normalizedPhone,
-      body,
-      sentAt: sentAt.toISOString(),
-    };
-  } catch (error) {
-    const providerError = error as { code?: number | string; status?: number };
-    const errorCode = providerError.code ? String(providerError.code) : null;
-    const unknown = error instanceof Error && error.name === 'ProviderOutcomeUnknownError';
-    const retryable = !unknown;
-    await db
-      .update(notificationDeliverySchema)
-      .set({
-        status: unknown ? 'send_outcome_unknown' : 'failed',
-        errorCode: unknown ? 'PROVIDER_OUTCOME_UNKNOWN' : errorCode,
-        errorMessage: unknown ? 'Provider acceptance is unconfirmed; do not resend.' : 'Provider rejected this send.',
-        retryable,
-      })
-      .where(and(
-        eq(notificationDeliverySchema.id, deliveryId),
-        eq(notificationDeliverySchema.salonId, salonId),
-      ))
-      .catch(() => undefined);
-
-    return {
-      outcome: 'provider_failure',
-      phone: normalizedPhone,
-      body,
-      errorCode: unknown ? 'PROVIDER_OUTCOME_UNKNOWN' : errorCode,
-    };
-  }
+  return { outcome: 'manual', phone: normalizedPhone, body, reason: 'TWILIO_UNAVAILABLE' };
 }
 
 function normalizeSmsRecipient(phone: string): string | null {
@@ -454,78 +276,15 @@ function throwIfSmsAborted(signal?: AbortSignal): void {
     : new Error('SMS_DELIVERY_ABORTED');
 }
 
-async function stopQueuedSmsBeforeDispatch(
-  salonId: string,
-  deliveryId: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  if (!signal?.aborted) {
-    return;
-  }
-  await db.update(notificationDeliverySchema).set({
-    status: 'failed',
-    errorCode: 'SMS_ABORTED_BEFORE_DISPATCH',
-    errorMessage: 'Worker budget expired before provider dispatch',
-    retryable: true,
-  }).where(and(
-    eq(notificationDeliverySchema.id, deliveryId),
-    eq(notificationDeliverySchema.salonId, salonId),
-  )).catch(() => undefined);
-  throwIfSmsAborted(signal);
-}
-
 async function sendSMS(
-  salonId: string,
-  to: string,
-  body: string,
+  _salonId: string,
+  _to: string,
+  _body: string,
   context: SmsDeliveryContext = {},
 ): Promise<boolean> {
   throwIfSmsAborted(context.signal);
-  const deliveryId = crypto.randomUUID();
-  await db.insert(notificationDeliverySchema).values({
-    id: deliveryId,
-    salonId,
-    appointmentId: context.appointmentId || null,
-    channel: 'sms',
-    purpose: context.purpose || 'transactional',
-    dedupeKey: `sms:${deliveryId}`,
-    status: 'queued',
-  });
-  await stopQueuedSmsBeforeDispatch(salonId, deliveryId, context.signal);
-  const sender = await getSalonTwilioSender(salonId);
-  await stopQueuedSmsBeforeDispatch(salonId, deliveryId, context.signal);
-
-  if (!sender) {
-    await db.update(notificationDeliverySchema).set({ status: 'failed', errorCode: 'SENDER_UNAVAILABLE', errorMessage: 'No active salon Twilio sender', retryable: true }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salonId))).catch(() => undefined);
-    return false;
-  }
-
-  try {
-    const normalizedPhone = normalizeSmsRecipient(to);
-    if (!normalizedPhone) {
-      throw new Error('INVALID_PHONE');
-    }
-    const normalizedTo = `+1${normalizedPhone}`;
-    const statusCallback = buildStatusCallbackUrl(deliveryId);
-    const message = await sendViaTwilio({
-      body,
-      accountSid: sender.accountSid,
-      messagingServiceSid: sender.messagingServiceSid,
-      from: sender.phoneNumber,
-      statusCallbackUrl: statusCallback,
-      to: normalizedTo,
-    });
-    await db.update(notificationDeliverySchema).set({ status: 'accepted', providerMessageId: message.sid }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salonId))).catch(() => undefined);
-    return true;
-  } catch (error) {
-    const providerError = error as { code?: number | string; status?: number };
-    const errorCode = providerError.code ? String(providerError.code) : null;
-    const unknown = error instanceof Error && error.name === 'ProviderOutcomeUnknownError';
-    const retryable = !unknown;
-    await db.update(notificationDeliverySchema).set({ status: unknown ? 'send_outcome_unknown' : 'failed', errorCode: unknown ? 'PROVIDER_OUTCOME_UNKNOWN' : errorCode, errorMessage: unknown ? 'Provider acceptance is unconfirmed; do not resend.' : 'Provider rejected this send.', retryable }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salonId))).catch(() => undefined);
-    // Don't throw - we don't want SMS failures to break bookings
-    return false;
-  }
+  // Compatibility facade for retired BYO texting. Never send without the ledger.
+  return false;
 }
 
 // =============================================================================

@@ -13,13 +13,13 @@
  * send it anyway). The email sender is injected so tests never touch a
  * provider.
  */
-
 import 'server-only';
 
 import { and, eq, sql } from 'drizzle-orm';
 
 import { computeAvailableBalance } from '@/libs/billing/creditLedger';
 import { getPlanDefinition } from '@/libs/billing/planDefinitions';
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
 import { db } from '@/libs/DB';
 import {
   billingSubscriptionSchema,
@@ -46,7 +46,7 @@ export function classifyWarningTier(available: number, monthlyAllowance: number)
   if (available <= 10) {
     return '10';
   }
-  if (monthlyAllowance > 0 && available <= Math.floor(monthlyAllowance * 0.2)) {
+  if (available <= COMMERCIAL_POLICY.lowBalanceThreshold || (monthlyAllowance > 0 && available <= Math.floor(monthlyAllowance * 0.2))) {
     return '20pct';
   }
   return null;

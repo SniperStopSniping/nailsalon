@@ -125,6 +125,9 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json(result);
   } catch (error) {
     if (error instanceof StarterGrantBackfillError) {
+      if (error.code === 'IDENTITY_SETUP_REQUIRED') {
+        return errorJson(409, error.code, error.message);
+      }
       if (error.code === 'CONTACT_VERIFICATION_REQUIRED') {
         return errorJson(409, error.code, 'The owner must verify email and phone before claiming free texts. Use Add texts for a manual bonus.');
       }

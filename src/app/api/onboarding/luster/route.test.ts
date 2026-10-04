@@ -62,6 +62,7 @@ const { claimVerifiedStarterCredits } = vi.hoisted(() => ({ claimVerifiedStarter
 vi.mock('@clerk/nextjs/server', () => ({ currentUser }));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/auditLog', () => ({ logAuditEvent: vi.fn() }));
+vi.mock('@/libs/billing/creditLedger', () => ({ lockCreditAccount: vi.fn() }));
 vi.mock('@/libs/billing/verifiedStarterGrant', () => ({ claimVerifiedStarterCredits }));
 vi.mock('@/libs/clerkIdentity.server', () => ({ isClerkUserMissing }));
 vi.mock('@/libs/starterMenu', () => ({ seedStarterMenuForSalon }));

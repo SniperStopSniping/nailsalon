@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
       .select({
         id: salonSchema.id,
         name: salonSchema.name,
+        slug: salonSchema.slug,
         plan: salonSchema.plan,
         ownerEmail: salonSchema.ownerEmail,
       })
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest) {
       return errorJson(400, 'UNKNOWN_OFFER', 'The requested top-up offer is not available.');
     }
     const audience = resolveTopupAudienceForLegacyPlan(salon.plan ?? null);
-    if (offer.audience !== audience) {
+    if (offer.audience !== 'all_salons' && offer.audience !== audience) {
       return errorJson(400, 'OFFER_AUDIENCE_MISMATCH', 'This top-up offer does not apply to your plan.');
     }
 
@@ -316,8 +317,8 @@ export async function POST(request: NextRequest) {
           customer: billingCustomer.stripeCustomerId,
           customer_update: { address: 'auto', name: 'auto' },
           line_items: [{ price: stripePriceId, quantity: 1 }],
-          success_url: `${baseUrl}/admin?topup=success`,
-          cancel_url: `${baseUrl}/admin?topup=cancelled`,
+          success_url: `${baseUrl}/admin?topup=success&salon=${encodeURIComponent(salon.slug)}&app=plan-usage&purchase=${encodeURIComponent(reservation.purchaseId)}`,
+          cancel_url: `${baseUrl}/admin?topup=cancelled&salon=${encodeURIComponent(salon.slug)}&app=plan-usage`,
           // P3b: derived from the PERSISTED attempt's own expiresAt (clamped
           // into Stripe's required [30min, 24h] session window) rather than
           // a second, independent TTL constant.

@@ -3,8 +3,10 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 import { isLegacyOtpAuthEnabled } from '@/libs/authConfig.server';
+import { lockCreditAccount } from '@/libs/billing/creditLedger';
 import { db } from '@/libs/DB';
 import { seedDefaultCatalogForSalon } from '@/libs/defaultCatalog';
+import { queueSalonInviteSms } from '@/libs/salonInviteSms';
 import { getSuperAdminInfo, requireSuperAdmin } from '@/libs/superAdmin';
 import { isValidSalonSlug } from '@/libs/tenantSlug';
 import {
@@ -22,18 +24,6 @@ import {
 } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
-
-// =============================================================================
-// SMS CONFIG
-// =============================================================================
-
-const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
-
-const isTwilioConfigured = Boolean(
-  TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_PHONE_NUMBER,
-);
 
 // Format phone to E.164
 function formatPhoneE164(phone: string): string {
@@ -406,6 +396,8 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
+    await db.transaction(tx => lockCreditAccount(tx, salonId));
+
     await db.insert(adminInviteSchema).values({
       id: inviteId,
       phoneE164,
@@ -425,32 +417,8 @@ export async function POST(request: Request): Promise<Response> {
     const loginUrl = `${baseUrl}/en/admin-login`;
     const message = `Welcome ${ownerName}! You've been set up as the Owner of ${name}.\n\nLog in here: ${loginUrl}`;
 
-    if (isTwilioConfigured) {
-      try {
-        const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
-
-        await fetch(twilioUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Basic ${Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64')}`,
-          },
-          body: new URLSearchParams({
-            To: phoneE164,
-            From: TWILIO_PHONE_NUMBER!,
-            Body: message,
-          }),
-        });
-
-        console.warn(`[CREATE SALON] Owner invite SMS sent to ${phoneE164}`);
-      } catch (smsError) {
-        console.error('Failed to send owner invite SMS:', smsError);
-        // Don't fail salon creation if SMS fails
-      }
-    } else {
-      console.warn(`[DEV MODE] Would send owner invite SMS to ${phoneE164}:`);
-      console.warn(message);
-    }
+    const inviteQueued = await queueSalonInviteSms({ salonId, inviteId, recipient: phoneE164, message, revision: inviteId })
+      .then(() => true).catch(() => false);
 
     return Response.json({
       salon: {
@@ -466,7 +434,8 @@ export async function POST(request: Request): Promise<Response> {
         status: newSalon!.status as SalonStatus,
         createdAt: newSalon!.createdAt.toISOString(),
       },
-      inviteSent: true,
+      inviteSent: false,
+      inviteQueued,
     });
   } catch (error) {
     console.error('Error creating salon:', error);

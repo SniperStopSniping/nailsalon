@@ -15,6 +15,7 @@ export default defineConfig({
   envDir: root,
   plugins: [react()],
   resolve: {
+    dedupe: ['react', 'react-dom'],
     alias: {
       '@clerk/nextjs': path.join(repository, 'tests/browser/clerk.ts'),
       'next/navigation': path.join(root, 'navigation.ts'),

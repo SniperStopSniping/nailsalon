@@ -70,6 +70,7 @@ import {
   resolveStripeCouponIdForPromotion,
   resolveStripePriceIdForOffer,
 } from '@/libs/billing/stripePriceMap';
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
@@ -96,7 +97,7 @@ function errorJson(status: number, code: string, message: string) {
 export async function POST(request: NextRequest) {
   try {
     // 1. Dark switch — the control boundary, ahead of everything else.
-    if (Env.BILLING_SUBSCRIPTIONS_ENABLED !== 'true') {
+    if (!COMMERCIAL_POLICY.subscriptionsForSale || Env.BILLING_SUBSCRIPTIONS_ENABLED !== 'true') {
       return errorJson(503, 'BILLING_DISABLED', 'Subscription billing is not enabled.');
     }
 

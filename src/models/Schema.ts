@@ -3660,6 +3660,8 @@ export const AUDIT_LOG_ACTIONS = [
   // POST /api/super-admin/billing/starter-grant (mode: 'apply'), never the
   // live onboarding path. Appended, never reordered.
   'billing_starter_grant_backfilled',
+  'free_model_subscription_renewal_stopped',
+  'free_model_credit_account_initialized',
   'sms_credits_administered',
   // PR-1/R-2 (§6.7 refund completion): an operator- or reconcile-driven
   // correction of the refund evidence for ONE invoice — `void` (the charge is
@@ -4612,6 +4614,7 @@ export const COMMUNICATION_EVENT_TYPES = [
   'voice_booking_link',
   'review_request',
   'rebooking_reminder',
+  'salon_invite',
   'owner_new_booking',
   'owner_appointment_cancelled',
   'tech_new_booking',

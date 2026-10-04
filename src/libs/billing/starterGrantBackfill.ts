@@ -47,8 +47,10 @@ import { and, asc, eq } from 'drizzle-orm';
 
 import { logAuditEventTx } from '@/libs/auditLog';
 import {
+  BusinessIdentityError,
   computeEmailFingerprint,
   findBusinessIdentityByLink,
+  isIdentityFingerprintingReady,
   resolveOrCreateBusinessIdentity,
 } from '@/libs/billing/businessIdentity';
 import { grantStarterCredits, STARTER_CREDITS } from '@/libs/billing/creditGrants';
@@ -61,14 +63,14 @@ import {
   salonSchema,
 } from '@/models/Schema';
 
-import type { BillingDbTransaction } from './creditLedger';
+import { type BillingDbTransaction, lockCreditAccount } from './creditLedger';
 
 /** The minimal transaction-capable handle both entry points need. */
 export type StarterGrantBackfillDb = {
   transaction: <T>(callback: (tx: BillingDbTransaction) => Promise<T>) => Promise<T>;
 };
 
-export type StarterGrantBackfillErrorCode = 'SALON_NOT_FOUND' | 'SALON_DELETED' | 'CONTACT_VERIFICATION_REQUIRED';
+export type StarterGrantBackfillErrorCode = 'SALON_NOT_FOUND' | 'SALON_DELETED' | 'CONTACT_VERIFICATION_REQUIRED' | 'IDENTITY_SETUP_REQUIRED';
 
 export class StarterGrantBackfillError extends Error {
   readonly code: StarterGrantBackfillErrorCode;
@@ -219,41 +221,30 @@ async function findExistingBusinessIdentityId(
   tx: BillingDbTransaction,
   salon: SalonIdentityRow,
 ): Promise<string | null> {
+  const matches = new Set<string>();
+  const signals: Array<['clerk_user' | 'salon' | 'stripe_customer' | 'email_hmac', string]> = [['salon', salon.id]];
   if (salon.ownerClerkUserId) {
-    const id = await findBusinessIdentityByLink(tx, 'clerk_user', salon.ownerClerkUserId);
-    if (id) {
-      return id;
-    }
+    signals.push(['clerk_user', salon.ownerClerkUserId]);
   }
-
-  const salonLinked = await findBusinessIdentityByLink(tx, 'salon', salon.id);
-  if (salonLinked) {
-    return salonLinked;
-  }
-
   if (salon.stripeCustomerId) {
-    const id = await findBusinessIdentityByLink(tx, 'stripe_customer', salon.stripeCustomerId);
-    if (id) {
-      return id;
-    }
+    signals.push(['stripe_customer', salon.stripeCustomerId]);
   }
-
-  // Y9: the SAME verified-email signal `applyStarterGrantBackfill` uses.
-  // Fingerprinting the unverified `salon.owner_email` here would let `plan`
-  // report an identity (and therefore an `alreadyGranted`) belonging to a
-  // DIFFERENT salon that merely shares the address, and then disagree with
-  // the identity `apply` actually resolves.
   if (salon.ownerVerifiedEmail) {
     const fingerprint = computeEmailFingerprint(salon.ownerVerifiedEmail);
     if (fingerprint) {
-      const id = await findBusinessIdentityByLink(tx, 'email_hmac', fingerprint.digest);
-      if (id) {
-        return id;
-      }
+      signals.push(['email_hmac', fingerprint.digest]);
     }
   }
-
-  return null;
+  for (const [type, value] of signals) {
+    const match = await findBusinessIdentityByLink(tx, type, value);
+    if (match) {
+      matches.add(match);
+    }
+  }
+  if (matches.size > 1) {
+    throw new BusinessIdentityError('IDENTITY_CONFLICT', 'Historical identity evidence must be reconciled.');
+  }
+  return [...matches][0] ?? null;
 }
 
 export type StarterGrantBackfillPlan = {
@@ -262,6 +253,7 @@ export type StarterGrantBackfillPlan = {
   alreadyGranted: boolean;
   wouldGrant: boolean;
   credits: number;
+  heldReason: StarterGrantBackfillErrorCode | null;
 };
 
 /**
@@ -289,11 +281,29 @@ export async function planStarterGrantBackfill(
       alreadyGranted = existing.length > 0;
     }
 
+    let heldReason: StarterGrantBackfillErrorCode | null = null;
+    if (!alreadyGranted) {
+      if (Env.BILLING_STARTER_IDENTITY_READY !== 'true' || !isIdentityFingerprintingReady()) {
+        heldReason = 'IDENTITY_SETUP_REQUIRED';
+      } else {
+        const contacts = businessIdentityId
+          ? await tx.select({ type: billingBusinessIdentityLinkSchema.linkType })
+            .from(billingBusinessIdentityLinkSchema).where(and(
+              eq(billingBusinessIdentityLinkSchema.businessIdentityId, businessIdentityId),
+              eq(billingBusinessIdentityLinkSchema.hmacKeyVersion, Env.BILLING_IDENTITY_HMAC_VERSION ?? 0),
+            ))
+          : [];
+        if (!contacts.some(link => link.type === 'email_hmac') || !contacts.some(link => link.type === 'phone_hmac')) {
+          heldReason = 'CONTACT_VERIFICATION_REQUIRED';
+        }
+      }
+    }
     return {
+      heldReason,
       salon: { id: salon.id, slug: salon.slug },
       businessIdentityId,
       alreadyGranted,
-      wouldGrant: !alreadyGranted,
+      wouldGrant: !alreadyGranted && heldReason === null,
       credits: STARTER_CREDITS,
     };
   });
@@ -323,6 +333,7 @@ export async function applyStarterGrantBackfill(
   const now = input.now ?? new Date();
   return db.transaction(async (tx) => {
     const salon = await loadSalonBySlug(tx, input.salonSlug);
+    await lockCreditAccount(tx, salon.id);
     // Y9: `verifiedEmail` is the owner's VERIFIED `admin_user.email` or null
     // — never `salon.owner_email`. See `SalonIdentityRow` above for why an
     // unverified address must never become a durable `email_hmac` link.
@@ -333,7 +344,15 @@ export async function applyStarterGrantBackfill(
       verifiedEmail: salon.ownerVerifiedEmail,
     });
 
-    if (Env.BILLING_STARTER_IDENTITY_READY === 'true') {
+    const [existingClaim] = await tx.select({ id: billingStarterGrantSchema.id })
+      .from(billingStarterGrantSchema).where(eq(billingStarterGrantSchema.businessIdentityId, identity.businessIdentityId)).limit(1);
+    if (existingClaim) {
+      return { granted: false, businessIdentityId: identity.businessIdentityId, ledgerEvidence: null };
+    }
+    if (Env.BILLING_STARTER_IDENTITY_READY !== 'true' || !isIdentityFingerprintingReady()) {
+      throw new StarterGrantBackfillError('IDENTITY_SETUP_REQUIRED', 'Starter identity history must be reconciled before issuing new free texts.');
+    }
+    {
       const contactLinks = await tx.select({ type: billingBusinessIdentityLinkSchema.linkType })
         .from(billingBusinessIdentityLinkSchema)
         .where(and(

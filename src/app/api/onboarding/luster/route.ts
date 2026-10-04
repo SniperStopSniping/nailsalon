@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { formatPhoneE164 } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
+import { lockCreditAccount } from '@/libs/billing/creditLedger';
 import { claimVerifiedStarterCredits } from '@/libs/billing/verifiedStarterGrant';
 import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
@@ -443,6 +444,7 @@ export async function POST(request: Request) {
       const verifiedPhone = clerkUser.phoneNumbers?.find(
         phone => phone.id === clerkUser.primaryPhoneNumberId && phone.verification?.status === 'verified',
       )?.phoneNumber ?? null;
+      await lockCreditAccount(tx, salonId);
       await claimVerifiedStarterCredits(tx, {
         clerkUserId: clerkUser.id,
         salonId,

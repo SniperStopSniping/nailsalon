@@ -200,6 +200,13 @@ const WORST_CASE_SALON_NAME = 'Twenty Four Septet Name Xy';
 const WORST_CASE_TIME = 'Wed Aug 26, 12:30 PM';
 
 export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
+  salon_invite: {
+    key: 'salon_invite',
+    version: 'v1',
+    audience: 'owner',
+    render: variables => `${buildClientSmsPrefix(variables.salonName ?? '')}${variables.message ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [{ salonName: WORST_CASE_SALON_NAME, message: 'You have been invited to Luster. Log in: https://www.lustergel.app/en/admin-login' }],
+  },
   client_voice_booking_link: {
     key: 'client_voice_booking_link',
     version: 'v1',

@@ -1,3 +1,4 @@
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
 import type {
   BookingExperienceEntitlementInspection,
   BookingExperienceEntitlementOverrideProvenance,
@@ -136,7 +137,7 @@ export function resolveSubscriptionFeatureEntitlement({
   const override = readSubscriptionFeatureOverride(features, featureKey);
   const source = override === undefined ? 'plan' : 'override';
   const entitled = override
-    ?? SUBSCRIPTION_FEATURE_PLAN_DEFAULTS[featureKey][planKey];
+    ?? (COMMERCIAL_POLICY.allFeaturesIncluded || SUBSCRIPTION_FEATURE_PLAN_DEFAULTS[featureKey][planKey]);
 
   return {
     featureKey,

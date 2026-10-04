@@ -21,7 +21,7 @@
 import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
-import { requireAdminSalon } from '@/libs/adminAuth';
+import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import { getPublicBillingOffers } from '@/libs/billing/billingOffers';
 import { computeAvailableBalance } from '@/libs/billing/creditLedger';
 import { describeBillingState, resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
@@ -29,6 +29,7 @@ import { getPlanDefinition, getPublicPlanCatalog, type PlanDefinitionKey } from 
 import { getPromotion, isPromotionWindowOpen } from '@/libs/billing/promotions';
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
 import { listActiveTopupOffersForAudience } from '@/libs/billing/topupOffers';
+import { COMMERCIAL_POLICY, textBalanceState } from '@/libs/commercialPolicy';
 import { friendlyFailureReason, maskRecipient, ownerSmsDeliveryStatus } from '@/libs/communicationMasking';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
@@ -66,30 +67,29 @@ export async function GET(request: NextRequest): Promise<Response> {
   // Server-resolved, audience-correct Buy More offers (§9.1): the client
   // never sees the other audience's pricing, let alone chooses it.
   const topupAudience = resolveTopupAudienceForLegacyPlan(guard.salon.plan ?? null);
-  const topupOffers = Env.BILLING_TOPUPS_ENABLED === 'true'
-    ? listActiveTopupOffersForAudience(topupAudience)
-      .filter((offer) => {
-        try {
-          resolveStripePriceIdForTopup(offer.key);
-          return true;
-        } catch (error) {
-          if (error instanceof BillingCatalogError) {
-            return false;
-          }
-          throw error;
-        }
-      })
-      .map(offer => ({ key: offer.key, credits: offer.credits, priceCents: offer.priceCents }))
-    : [];
-  // Configuration readiness only: never contact Stripe from this read path.
-  const creditPurchasesAvailable = topupOffers.length > 0;
+  const activeTopups = listActiveTopupOffersForAudience(topupAudience);
+  const topupOffers = activeTopups.map(offer => ({ key: offer.key, credits: offer.credits, priceCents: offer.priceCents }));
+  const creditPurchasesAvailable = Env.BILLING_TOPUPS_ENABLED === 'true' && activeTopups.every((offer) => {
+    try {
+      resolveStripePriceIdForTopup(offer.key);
+      return true;
+    } catch (error) {
+      if (error instanceof BillingCatalogError) {
+        return false;
+      }
+      throw error;
+    }
+  });
+
+  const admin = await getAdminSession();
+  const canPurchaseCredits = admin?.salons.some(membership => membership.salonId === salonId && membership.role === 'owner') === true;
 
   // --- P7: capabilities + catalog (ChoosePlanPanel) -----------------------
   // Server-side dark switches only (§12) — no per-switch detail beyond what
   // ChoosePlanPanel needs to decide "informational cards" vs "live Choose
   // buttons"; granular switch/secret state is P8b's authenticated panel.
   const capabilities = {
-    subscriptions: Env.BILLING_SUBSCRIPTIONS_ENABLED === 'true',
+    subscriptions: COMMERCIAL_POLICY.subscriptionsForSale && Env.BILLING_SUBSCRIPTIONS_ENABLED === 'true',
     topups: Env.BILLING_TOPUPS_ENABLED === 'true',
     pricingPublic: Env.PUBLIC_PRICING_ENABLED === 'true',
   };
@@ -108,9 +108,9 @@ export async function GET(request: NextRequest): Promise<Response> {
       }
     : null;
   const catalog = {
-    plans: getPublicPlanCatalog(),
-    offers: getPublicBillingOffers(),
-    founding,
+    plans: COMMERCIAL_POLICY.subscriptionsForSale ? getPublicPlanCatalog() : [],
+    offers: COMMERCIAL_POLICY.subscriptionsForSale ? getPublicBillingOffers() : [],
+    founding: COMMERCIAL_POLICY.subscriptionsForSale ? founding : null,
   };
 
   // --- Credit meter -------------------------------------------------------
@@ -162,7 +162,9 @@ export async function GET(request: NextRequest): Promise<Response> {
   // into one "bonus" bucket — the distinction is operator detail.
   const byBucket = balance.byBucket;
   const usage = {
-    availableCredits: balance.available,
+    availableCredits: Math.max(0, balance.available),
+    balanceState: textBalanceState(balance.available),
+    starterAllowance: COMMERCIAL_POLICY.starterCredits,
     // Owner-facing counterpart to the ledger's `reserved` bucket: credits
     // held for texts that are queued/sending but not yet settled.
     pendingCredits: balance.reserved,
@@ -323,7 +325,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   });
 
   return Response.json({
-    data: { salonId, usage, history, nextCursor, topupOffers, creditPurchasesAvailable, capabilities, catalog },
+    data: { salonId, usage, history, nextCursor, topupOffers, creditPurchasesAvailable, canPurchaseCredits, capabilities, catalog },
   }, NO_STORE);
 }
 

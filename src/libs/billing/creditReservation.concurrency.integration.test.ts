@@ -67,7 +67,7 @@ let db: ReturnType<typeof drizzle<typeof schema>>;
  * Zero-skip proof: this suite must never silently degrade to a skip in CI.
  * The count is asserted in afterAll and grepped for by the workflow step.
  */
-const EXPECTED_EXECUTED_TESTS = 9;
+const EXPECTED_EXECUTED_TESTS = 10;
 let executedTests = 0;
 
 suite('credit engine — real-lock concurrency matrix', () => {
@@ -118,6 +118,17 @@ suite('credit engine — real-lock concurrency matrix', () => {
       });
     });
   }
+
+  it('ten concurrent lifetime claims produce one 50-credit non-expiring grant', async () => {
+    executedTests += 1;
+    const { grantStarterCredits } = await import('./creditGrants');
+    await db.insert(schema.billingBusinessIdentitySchema).values({ id: 'starter_race_identity' });
+    const results = await Promise.all(Array.from({ length: 10 }, () => db.transaction(tx => grantStarterCredits(tx, { salonId: 's1', businessIdentityId: 'starter_race_identity' }))));
+
+    expect(results.filter(result => result.granted)).toHaveLength(1);
+    expect((await pool.query('SELECT credits FROM billing_starter_grant')).rows).toEqual([{ credits: 50 }]);
+    expect((await pool.query('SELECT amount, expires_at FROM sms_credit_ledger')).rows).toEqual([{ amount: 50, expires_at: null }]);
+  });
 
   it('25-way race on one remaining credit: exactly one hold, never negative', async () => {
     executedTests += 1;

@@ -8,17 +8,15 @@ describe('SmsMessagePreview', () => {
     render(<SmsMessagePreview body="Isla Nail Studio via Luster: Confirmed." sample />);
 
     expect(screen.getByText('Sample customer message')).toBeVisible();
-    expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('1 SMS segment · 1 credit');
+    expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('1 text credit');
     expect(screen.getByText('Isla Nail Studio via Luster: Confirmed.')).toBeVisible();
-    expect(screen.getByText(/GSM-7 units/)).toBeVisible();
+    expect(screen.queryByText(/GSM-7/)).not.toBeInTheDocument();
   });
 
   it('explains Unicode and the extra segment when the final body needs it', () => {
     render(<SmsMessagePreview body={`${'A'.repeat(70)}😊`} />);
 
-    expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('2 SMS segments · 2 credits');
-    expect(screen.getByText(/Unicode characters \(U\+1F60A\) use fewer characters/)).toBeVisible();
-    expect(screen.getByText(/Use straight punctuation and avoid emoji/)).toBeVisible();
-    expect(screen.getByText('Keep this to 1 credit by shortening the message or link.')).toBeVisible();
+    expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('2 text credits');
+    expect(screen.getByText(/Long messages and emoji/)).toBeVisible();
   });
 });

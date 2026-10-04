@@ -139,7 +139,7 @@ describe('Luster SMS composer', () => {
       'Test Salon: Thanks for visiting! https://g.page/review',
     );
     expect(screen.getByTestId('sms-message-preview')).not.toHaveTextContent('Reply STOP to opt out.');
-    expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('1 SMS segment · 1 credit');
+    expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('1 text credit');
   });
 
   it('shows the manual message footer in the final customer-facing preview', async () => {

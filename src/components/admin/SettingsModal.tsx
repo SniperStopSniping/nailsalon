@@ -93,7 +93,6 @@ import type {
 
 import { BackButton, ModalHeader } from './AppModal';
 import { BookingFlowEditor } from './BookingFlowEditor';
-import { ChoosePlanPanel } from './ChoosePlanPanel';
 import { PageThemesSettings } from './PageThemesSettings';
 import { ReviewRequestSettings } from './ReviewRequestSettings';
 import { SmartFitSettingsCard } from './SmartFitSettingsCard';
@@ -354,7 +353,7 @@ function ModuleRow({
         <div className="flex flex-col">
           <span className="text-[16px] tracking-tight text-[var(--owner-ink)]">{label}</span>
           {!entitled && (
-            <span className="text-[11px] text-amber-600">Upgrade required</span>
+            <span className="text-[11px] text-amber-600">Not available for this salon</span>
           )}
         </div>
 
@@ -1822,7 +1821,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'messages': 'Messages & Notifications',
   'advanced': 'Advanced',
   'account': 'Account',
-  'plan-billing': 'Plan & Billing',
+  'plan-billing': 'Usage & Top Ups',
   'location': 'Location',
   'branding': 'Branding',
   'booking-experience': 'Public booking experience',
@@ -2012,7 +2011,6 @@ export function SettingsModal({
   initialView,
   onClose,
   salonSlug: explicitSalonSlug,
-  salonId = null,
   isFreeSolo = false,
   userName = 'Salon owner',
   onOpenApp,
@@ -2156,7 +2154,6 @@ export function SettingsModal({
   const [showUsageBilling, setShowUsageBilling] = useState(false);
 
   // Choose plan panel state (P7) — replaces the Step 19 Compare Plans modal.
-  const [showChoosePlan, setShowChoosePlan] = useState(false);
 
   // Owner profile state (Account view)
   const [profileName, setProfileName] = useState(userName);
@@ -2171,8 +2168,6 @@ export function SettingsModal({
   const [profileError, setProfileError] = useState<string | null>(null);
 
   // Billing portal state (Account view)
-  const [portalOpening, setPortalOpening] = useState(false);
-  const [portalError, setPortalError] = useState<string | null>(null);
 
   // Programs state (Step 21E)
   const [programsLoading, setProgramsLoading] = useState(true);
@@ -2183,10 +2178,6 @@ export function SettingsModal({
     = useState<ResolvedLoyaltyPoints | null>(null);
   const [_defaultPoints, setDefaultPoints]
     = useState<ResolvedLoyaltyPoints | null>(null);
-  const [billingMode, setBillingMode] = useState<'NONE' | 'STRIPE'>('NONE');
-  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(
-    null,
-  );
   const [bookingConfigLoading, setBookingConfigLoading] = useState(true);
   const [bookingConfigHydrated, setBookingConfigHydrated] = useState(false);
   const [bookingConfigSaving, setBookingConfigSaving] = useState(false);
@@ -2449,8 +2440,6 @@ export function SettingsModal({
         setRewardsEnabledProgram(data.rewardsEnabled ?? true);
         setEffectivePoints(data.effectivePoints ?? null);
         setDefaultPoints(data.defaults ?? null);
-        setBillingMode(data.billingMode ?? 'NONE');
-        setSubscriptionStatus(data.subscriptionStatus ?? null);
         setBookingConfigForm({
           confirmationMode: data.bookingConfig?.confirmationMode ?? 'instant',
           bufferMinutes: data.bookingConfig?.bufferMinutes ?? 10,
@@ -3515,36 +3504,6 @@ export function SettingsModal({
     }
   };
 
-  // Open the Stripe billing portal (Account view; STRIPE-mode salons only)
-  const openBillingPortal = async () => {
-    if (!salonId || portalOpening) {
-      return;
-    }
-    setPortalOpening(true);
-    setPortalError(null);
-    try {
-      const response = await fetch('/api/billing/portal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonId }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok || !body?.url) {
-        throw new Error(
-          body?.error?.message || 'The billing portal could not be opened.',
-        );
-      }
-      window.location.assign(body.url);
-    } catch (error) {
-      setPortalError(
-        error instanceof Error
-          ? error.message
-          : 'The billing portal could not be opened.',
-      );
-      setPortalOpening(false);
-    }
-  };
-
   const hasClientPrograms
     = entitledModules.rewards || entitledModules.referrals;
 
@@ -3816,6 +3775,10 @@ export function SettingsModal({
     const sectionId = paymentFocus === 'methods' ? 'payments-methods' : `payments-${paymentFocus}`;
     window.requestAnimationFrame(() => document.getElementById(sectionId)?.scrollIntoView({ block: 'start' }));
   }, [leafOnly, paymentFocus, view]);
+
+  if (view === 'plan-billing' && salonSlug) {
+    return <UsageBillingModal key={salonSlug} salonSlug={salonSlug} onClose={onClose} />;
+  }
 
   return (
     <div
@@ -6062,8 +6025,8 @@ export function SettingsModal({
             </Section>
 
             <Section
-              title="Plan & Usage"
-              footer="Your Luster subscription, billing and message usage are managed together in Plan & Usage."
+              title="Usage & Top Ups"
+              footer="Your text balance, recent usage and top ups are managed in Usage & Top Ups."
             >
               <div className="p-4">
                 <button
@@ -6072,97 +6035,13 @@ export function SettingsModal({
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-4 text-sm font-semibold text-[var(--owner-ink)]"
                 >
                   <CreditCard className="size-4" />
-                  Open Plan & Usage
+                  Open Usage & Top Ups
                 </button>
               </div>
             </Section>
           </>
         )}
 
-        {view === 'plan-billing' && (bookingConfigLoading
-          ? <p className="p-4" role="status">Loading plan and billing…</p>
-          : !bookingConfigHydrated
-              ? (
-                  <div className="space-y-3 p-4" data-testid="plan-billing-unavailable">
-                    <p role="alert">Could not load your plan and billing status. Try again before managing billing.</p>
-                    <button type="button" className="min-h-11 rounded-xl border px-4" onClick={() => void fetchPrograms()}>Try again</button>
-                  </div>
-                )
-              : (
-                  <Section
-                    title="Luster plan & billing"
-                    footer={
-                      billingMode === 'STRIPE'
-                        ? 'This is what your salon pays Luster. Manage billing opens the secure Stripe portal to update payment details, view invoices, or cancel.'
-                        : 'This is what your salon pays Luster. This salon is billed offline; contact Luster to change plans.'
-                    }
-                  >
-                    <div className="space-y-3 p-4">
-                      {/* Billing status (read-only, moved from Programs) */}
-                      {billingMode === 'STRIPE'
-                        ? (
-                            <div className="flex items-center gap-2">
-                              <div
-                                className={`size-2 rounded-full ${subscriptionStatus === 'active' ? 'bg-green-500' : 'bg-amber-500'}`}
-                              />
-                              <span className="text-sm text-[var(--owner-ink)]">
-                                Stripe Billing
-                                {subscriptionStatus
-                                  ? ` (${subscriptionStatus})`
-                                  : ''}
-                              </span>
-                            </div>
-                          )
-                        : (
-                            <div className="flex items-center gap-2">
-                              <div className="size-2 rounded-full bg-gray-400" />
-                              <span className="text-sm text-[var(--owner-muted)]">
-                                Cash / Offline billing enabled
-                              </span>
-                            </div>
-                          )}
-
-                      {portalError && (
-                        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                          <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                          <span>{portalError}</span>
-                        </div>
-                      )}
-
-                      <div className="flex flex-wrap gap-2">
-                        {billingMode === 'STRIPE' && salonId && (
-                          <button
-                            type="button"
-                            onClick={() => void openBillingPortal()}
-                            disabled={portalOpening}
-                            data-testid="manage-billing-button"
-                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <CreditCard className="size-4" />
-                            <span>{portalOpening ? 'Opening…' : 'Manage billing'}</span>
-                          </button>
-                        )}
-                        {!isFreeSolo && (
-                          <button
-                            type="button"
-                            onClick={() => setShowChoosePlan(true)}
-                            className="rounded-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
-                          >
-                            Plans
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setShowUsageBilling(true)}
-                          className="rounded-[10px] border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
-                        >
-                          Usage & billing
-                        </button>
-                      </div>
-                    </div>
-                  </Section>
-                )
-        )}
       </div>
 
       {/* Usage & billing (Gate C4) */}
@@ -6173,13 +6052,6 @@ export function SettingsModal({
         />
       )}
 
-      {/* Choose plan (P7) — replaces the Step 19 Compare Plans modal. */}
-      {showChoosePlan && salonSlug && (
-        <ChoosePlanPanel
-          salonSlug={salonSlug}
-          onClose={() => setShowChoosePlan(false)}
-        />
-      )}
     </div>
   );
 }
