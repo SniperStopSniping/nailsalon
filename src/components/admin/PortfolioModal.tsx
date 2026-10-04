@@ -333,7 +333,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                 <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" aria-hidden="true" />
                 <div className="text-[15px] text-amber-900">
                   <p className="font-medium">
-                    You have more photos than your current plan allows.
+                    Your portfolio is above its photo allowance.
                   </p>
                   <p className="mt-1 text-[13px]">
                     Nothing has been deleted. The first
@@ -341,7 +341,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                     {data.usage.max}
                     {' '}
                     photos in your order stay active — drag to choose which ones,
-                    or upgrade to make them all active again.
+                    or remove photos you no longer need.
                   </p>
                 </div>
               </div>
@@ -356,7 +356,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                 {' '}
                 {data.usage.max}
                 {' '}
-                portfolio photos on your current plan. Upgrade to add more of your work.
+                portfolio photo slots. Remove a photo to add a new one.
               </div>
             )}
 

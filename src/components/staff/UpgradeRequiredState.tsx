@@ -3,7 +3,7 @@
 /**
  * UpgradeRequiredState Component
  *
- * Reusable empty state shown when a feature requires a plan upgrade.
+ * Compatibility empty state for operational feature restrictions.
  * Use this consistently across all pages when an API returns UPGRADE_REQUIRED.
  *
  * This is distinct from ModuleDisabledState which is shown when a feature
@@ -41,7 +41,7 @@ export function UpgradeRequiredState({
   message,
   className = '',
 }: UpgradeRequiredStateProps) {
-  const displayMessage = message || 'This feature is not included in your current plan.';
+  const displayMessage = message || 'This feature is currently unavailable for this salon. Ask your salon owner to check its settings.';
 
   return (
     <div
@@ -52,12 +52,11 @@ export function UpgradeRequiredState({
         borderWidth: 1,
       }}
     >
-      <div className="mb-3 text-4xl">⬆️</div>
       <h3
         className="mb-2 text-lg font-semibold"
         style={{ color: themeVars.titleText }}
       >
-        {featureName ? `Upgrade to unlock ${featureName}` : 'Upgrade Required'}
+        {featureName ? `${featureName} unavailable` : 'Feature unavailable'}
       </h3>
       <p className="text-sm text-neutral-500">{displayMessage}</p>
     </div>

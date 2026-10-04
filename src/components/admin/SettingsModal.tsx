@@ -66,6 +66,7 @@ import {
   getBookingExperienceCssVariables,
 } from '@/libs/bookingExperience';
 import type { BookingStep } from '@/libs/bookingFlow';
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
 import {
   buildDepositCardNotices,
   DEPOSIT_RECOMMENDED_MAX_CENTS,
@@ -5071,7 +5072,7 @@ export function SettingsModal({
               <div className="rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 text-sm" role="status">
                 <p className="font-medium text-[var(--owner-ink)]">{smsReadiness.senderLabel}</p>
                 <p className="mt-1 text-[var(--owner-muted)]">{smsReadiness.detail}</p>
-                <p className="mt-1 text-[var(--owner-muted)]">{smsReadiness.availableCredits === null ? 'Luster SMS credit balance is unavailable. Contact support.' : `${smsReadiness.availableCredits} SMS credits available. See Usage for details.`}</p>
+                <p className="mt-1 text-[var(--owner-muted)]">{smsReadiness.availableCredits === null ? 'Text balance is unavailable. Try Usage & Top Ups.' : `${smsReadiness.availableCredits} texts remaining. See Usage & Top Ups for details.`}</p>
               </div>
             )}
             {/* Preferences stay editable while a provider is unavailable. */}
@@ -5134,9 +5135,13 @@ export function SettingsModal({
                   Sets the starting choice for new online bookings. Existing customer preferences and STOP requests are preserved. Promotional texts are separate.
                 </p>
                 <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
-                  Email confirmations and reminders are included with every plan.
-                  SMS access is included with every plan and uses Luster SMS credits.
-                  New businesses receive 100 starter credits once.
+                  Email confirmations and reminders are included.
+                  Text messages use your salon’s text credits.
+                  Verified businesses start with
+                  {' '}
+                  {COMMERCIAL_POLICY.starterCredits}
+                  {' '}
+                  free texts once.
                   You can save preferences while texting is paused or setup is incomplete.
                 </p>
               </div>

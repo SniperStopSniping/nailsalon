@@ -207,9 +207,9 @@ describe('SettingsModal — Features view entitlement states', () => {
     await user.click(await screen.findByTestId('settings-sms-communications'));
 
     expect(await screen.findByRole('heading', { name: 'Client communications' })).toBeInTheDocument();
-    expect(screen.getByText('100 SMS credits available. See Usage for details.')).toBeInTheDocument();
+    expect(screen.getByText('100 texts remaining. See Usage & Top Ups for details.')).toBeInTheDocument();
     expect(screen.getByText(/Luster has temporarily paused SMS sending/)).toBeInTheDocument();
-    expect(screen.getByText(/SMS access is included with every plan/)).toBeInTheDocument();
+    expect(screen.getByText(/Text messages use your salon’s text credits/)).toBeInTheDocument();
     expect(screen.queryByText('(Unavailable)')).not.toBeInTheDocument();
 
     const smsPreference = screen.getByRole('checkbox', { name: 'Text messages to clients' });

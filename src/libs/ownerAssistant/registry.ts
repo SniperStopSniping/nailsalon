@@ -76,7 +76,7 @@ export const OWNER_ASSISTANT_REGISTRY: readonly RegistryEntry[] = [
   entry('settings_visibility', 'Visibility', 'What client details team members can see.', ['visibility', 'hide phone', 'hide client', 'privacy of client details'], { type: 'admin', app: 'settings', view: 'visibility' }),
   entry('settings_features', 'Optional Features', 'Which optional Luster features are turned on.', ['features', 'feature', 'turn on', 'turn off', 'enable', 'disable', 'plan'], { type: 'admin', app: 'settings', view: 'features' }),
   entry('settings_account', 'Account', 'Your account and sign-in.', ['account', 'sign in', 'login', 'password', 'phone number', 'email address'], { type: 'admin', app: 'settings', view: 'account' }),
-  entry('plan_usage', 'Plan & Usage', 'Your Luster subscription, billing portal and message usage.', ['plan', 'subscription', 'billing', 'manage billing', 'invoice', 'usage'], { type: 'admin', app: 'plan-usage', view: 'billing' }, 'exact_on_open'),
+  entry('plan_usage', 'Usage & Top Ups', 'Your text balance, recent text usage and credit purchases. All app features are included.', ['plan', 'subscription', 'billing', 'manage billing', 'invoice', 'usage', 'top up', 'text credits'], { type: 'admin', app: 'plan-usage', view: 'billing' }, 'exact_on_open'),
 
   entry('booking_page_hub', 'Booking Page', 'Your booking page: preview, edit and publish.', ['booking page', 'website', 'my page', 'public page', 'link to my page', 'share link'], { type: 'path', path: '/admin/website' }),
   entry('page_layouts', 'Layout & Menu', 'Choose the page layout and how your booking menu appears.', ['layout', 'layouts', 'design', 'template', 'quick book', 'booking menu'], { type: 'bookingPage', panel: 'layouts' }),

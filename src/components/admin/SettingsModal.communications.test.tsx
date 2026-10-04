@@ -153,10 +153,10 @@ describe('SettingsModal communications view', () => {
     };
     await openCommunications();
 
-    expect(screen.getByText(/SMS access is included with every plan and uses Luster SMS credits\./)).toBeInTheDocument();
+    expect(screen.getByText(/Text messages use your salon’s text credits\./)).toBeInTheDocument();
     expect(await screen.findByText(availableCredits === null
-      ? 'Luster SMS credit balance is unavailable. Contact support.'
-      : '42 SMS credits available. See Usage for details.')).toBeInTheDocument();
+      ? 'Text balance is unavailable. Try Usage & Top Ups.'
+      : '42 texts remaining. See Usage & Top Ups for details.')).toBeInTheDocument();
     expect(screen.queryByText(/connected Twilio account/i)).not.toBeInTheDocument();
 
     if (availableCredits === null) {
