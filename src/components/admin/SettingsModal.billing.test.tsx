@@ -43,8 +43,7 @@ vi.mock('./BookingFlowEditor', () => ({ BookingFlowEditor: () => <div /> }));
 vi.mock('./UsageBillingModal', () => ({
   UsageBillingModal: ({ salonSlug }: { salonSlug: string }) => (
     <div data-testid="usage-stub">
-      Usage & Top Ups for
-      {salonSlug}
+      {`Usage & Top Ups for ${salonSlug}`}
     </div>
   ),
 }));

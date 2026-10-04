@@ -1666,10 +1666,12 @@ describe('AdminDashboardPage', () => {
       render(<AdminDashboardPage />);
 
       expect(await screen.findByTestId('topup-return-notice')).toHaveTextContent(
-        'Payment received — credits usually arrive within a minute.',
+        'Checking your payment — texts appear once payment is confirmed.',
       );
-      expect(await screen.findByTestId('usage-billing-modal')).toBeInTheDocument();
-      expect(usageBillingModalSpy).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'salon-b' }));
+
+      await waitFor(() => {
+        expect(adminModalHostSpy).toHaveBeenCalledWith(expect.objectContaining({ activeModal: 'plan-usage', activeSalonSlug: 'salon-b' }));
+      });
 
       // A reload must not repeat the notice/modal: the param is gone.
       await waitFor(() => {
@@ -1702,10 +1704,13 @@ describe('AdminDashboardPage', () => {
       });
     });
 
-    it('success: polls /api/billing/topups every 5s until the newest purchase is fulfilled, then stops', async () => {
+    it('success: waits for its own purchase despite an older fulfilled purchase', async () => {
       searchParamGet.mockImplementation((key: string) => {
         if (key === 'salon') {
           return 'salon-b';
+        }
+        if (key === 'purchase') {
+          return 'purchase_current';
         }
         return key === 'topup' ? 'success' : null;
       });
@@ -1735,7 +1740,7 @@ describe('AdminDashboardPage', () => {
         if (url.startsWith('/api/billing/topups')) {
           topupsCallCount += 1;
           const status = topupsCallCount >= 2 ? 'fulfilled' : 'pending';
-          return new Response(JSON.stringify({ available: true, items: [{ status }], nextCursor: null }), { status: 200 });
+          return new Response(JSON.stringify({ available: true, items: [{ id: 'purchase_old', status: 'fulfilled' }, { id: 'purchase_current', status }], nextCursor: null }), { status: 200 });
         }
         throw new Error(`Unhandled fetch: ${url}`);
       });
@@ -1748,13 +1753,33 @@ describe('AdminDashboardPage', () => {
       // available — rather than fast-forwarding through it.
       const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
       render(<AdminDashboardPage />);
-      await screen.findByTestId('usage-billing-modal');
+      await waitFor(() => {
+        expect(adminModalHostSpy).toHaveBeenCalledWith(expect.objectContaining({ activeModal: 'plan-usage', activeSalonSlug: 'salon-b' }));
+      });
 
       await waitFor(() => {
         expect(setTimeoutSpy.mock.calls.some(([, delay]) => delay === 5000)).toBe(true);
       });
 
       expect(topupsCallCount).toBe(0);
+
+      const runLatestPoll = async () => {
+        const poll = setTimeoutSpy.mock.calls.filter(([, delay]) => delay === 5000).at(-1)?.[0];
+
+        expect(typeof poll).toBe('function');
+
+        await act(async () => {
+          (poll as () => void)();
+        });
+      };
+      await runLatestPoll();
+      await waitFor(() => expect(topupsCallCount).toBe(1));
+      // The older fulfilled purchase must not end this pending purchase's poll.
+      await waitFor(() => expect(setTimeoutSpy.mock.calls.filter(([, delay]) => delay === 5000)).toHaveLength(2));
+      await runLatestPoll();
+      await waitFor(() => expect(topupsCallCount).toBe(2));
+
+      expect(setTimeoutSpy.mock.calls.filter(([, delay]) => delay === 5000)).toHaveLength(2);
 
       setTimeoutSpy.mockRestore();
     });
@@ -1811,10 +1836,12 @@ describe('AdminDashboardPage', () => {
       render(<AdminDashboardPage />);
 
       expect(await screen.findByTestId('billing-return-notice')).toHaveTextContent(
-        'Payment received — your plan updates within a minute.',
+        'Checking your previous payment. Your app features are included.',
       );
-      expect(await screen.findByTestId('usage-billing-modal')).toBeInTheDocument();
-      expect(usageBillingModalSpy).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'salon-b' }));
+
+      await waitFor(() => {
+        expect(adminModalHostSpy).toHaveBeenCalledWith(expect.objectContaining({ activeModal: 'plan-usage', activeSalonSlug: 'salon-b' }));
+      });
 
       // Subscription state arrives from the stripe-billing webhook, not a
       // read-back endpoint: unlike top-ups, this return never polls.
