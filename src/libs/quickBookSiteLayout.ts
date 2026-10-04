@@ -13,8 +13,10 @@ import {
   describeQuickBookNameAdvisory,
   getQuickBookLayout,
   getQuickBookLayoutsByFamily,
+  getSelectableQuickBookLayoutsByFamily,
   isLegacyQuickBookLayoutId,
   isQuickBookLayoutId,
+  isRetiredQuickBookLayout,
   LEGACY_QUICK_BOOK_LAYOUT_IDS,
   QUICK_BOOK_LAYOUT_FAMILIES,
   QUICK_BOOK_LAYOUT_FAMILY_LABELS,
@@ -33,8 +35,10 @@ export {
   describeQuickBookNameAdvisory,
   getQuickBookLayout,
   getQuickBookLayoutsByFamily,
+  getSelectableQuickBookLayoutsByFamily,
   isLegacyQuickBookLayoutId,
   isQuickBookLayoutId,
+  isRetiredQuickBookLayout,
   LEGACY_QUICK_BOOK_LAYOUT_IDS,
   QUICK_BOOK_LAYOUT_DEFINITIONS,
   QUICK_BOOK_LAYOUT_FAMILIES,
@@ -45,7 +49,7 @@ export {
   type QuickBookPortraitTreatment,
 };
 
-/** Every selectable identifier, legacy six first, in owner-facing order. */
+/** Every persisted identifier, including supported retired layouts. */
 export const QUICK_BOOK_SITE_LAYOUTS = QUICK_BOOK_LAYOUT_IDS;
 
 export type QuickBookSiteLayout = QuickBookLayoutId;

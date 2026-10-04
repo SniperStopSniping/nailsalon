@@ -11,6 +11,23 @@ vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({ db: {} }));
 
 describe('Booking Page appearance', () => {
+  it.each(['editorial', 'hub_menu'] as const)('keeps the saved %s choice selected without changing the draft', (layout) => {
+    const onChange = vi.fn();
+    const draft = resolveBookingPageConfig({ bookingPage: { draft: { quickBookLayout: layout } } }).draft;
+    const before = JSON.stringify(draft);
+    render(<BookingPageAppearance disabled={false} draft={draft} mode="layouts" onChange={onChange} />);
+
+    expect(screen.getByText(/Your saved .* layout is kept/u)).toBeVisible();
+    expect(screen.getByRole('button', { name: layout === 'editorial' ? /^Editorial Elegant/u : /^Hub Menu/u })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('button', { name: layout === 'editorial' ? /^Hub Menu/u : /^Editorial Elegant/u })).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(JSON.stringify(draft)).toBe(before);
+
+    fireEvent.click(screen.getByTestId('quick-book-layout-option-clean_card'));
+
+    expect(onChange).toHaveBeenLastCalledWith({ quickBookLayout: 'clean_card' });
+  });
+
   it('uses the shared styles, palettes and font choices, and writes only the chosen field', () => {
     const onChange = vi.fn();
     const draft = resolveBookingPageConfig({}).draft;
@@ -77,10 +94,10 @@ describe('Booking Page appearance', () => {
     const draft = resolveBookingPageConfig({}).draft;
     render(<BookingPageAppearance disabled={false} draft={draft} mode="layouts" onChange={onChange} />);
 
-    // 22 site layouts (the six originals plus the design-system compositions)
+    // 20 choices; two retired site layouts remain valid in saved configs.
     // and the five booking-menu layouts stay two independent choices.
     expect(screen.getAllByRole('button', { pressed: true })).toHaveLength(2);
-    expect(screen.getAllByRole('button').filter(button => button.hasAttribute('aria-pressed'))).toHaveLength(QUICK_BOOK_SITE_LAYOUTS.length + 5);
+    expect(screen.getAllByRole('button').filter(button => button.hasAttribute('aria-pressed'))).toHaveLength(QUICK_BOOK_SITE_LAYOUTS.length - 2 + 5);
 
     fireEvent.click(screen.getByRole('button', { name: /^Profile Story/u }));
 
