@@ -14,6 +14,17 @@ async function mockApi(page: import('@playwright/test').Page) {
     if (url.pathname === '/api/admin/salon/settings') {
       return route.fulfill({ json: { reviewsEnabled: true, rewardsEnabled: true, billingMode: 'STRIPE', subscriptionStatus: 'active', bookingExperience: experience, bookingConfig: { bufferMinutes: 10, slotIntervalMinutes: 15, currency: 'CAD', timezone: 'America/Toronto', minimumNoticeMinutes: 120, clientChangeCutoffHours: 24, confirmationMode: 'instant' }, payments: { tax: { enabled: false, name: '', ratePercent: 0 }, deposit: { enabled: false } }, communications: {} } });
     }
+    if (url.pathname === '/api/admin/salon/communications/usage') {
+      return route.fulfill({ json: { data: {
+        salonId: 'salon_1',
+        canPurchaseCredits: true,
+        creditPurchasesAvailable: true,
+        topupOffers: [100, 200, 500].map((credits, index) => ({ key: `topup_${credits}_2026_10`, credits, priceCents: [2000, 3000, 5000][index] })),
+        usage: { availableCredits: 42, starterCredits: 0, pendingCredits: 0, blockedMessages: 0, plan: null },
+        history: [],
+        nextCursor: null,
+      } } });
+    }
     if (url.pathname === '/api/admin/profile') {
       return route.fulfill({ json: { user: { name: 'Daniela', email: 'daniela@example.com' } } });
     }
@@ -68,7 +79,7 @@ test('mobile Settings exposes only secondary destinations and guards a dirty Acc
   await expect(page.getByRole('textbox', { name: 'Email' })).toHaveValue('daniela@example.com');
 
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Daniela D');
-  await page.getByRole('button', { name: 'Open Plan & Usage' }).click();
+  await page.getByRole('button', { name: 'Open Usage & Top Ups' }).click();
 
   await expect(page.getByRole('alertdialog')).toContainText('unsaved changes');
 
@@ -78,14 +89,20 @@ test('mobile Settings exposes only secondary destinations and guards a dirty Acc
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test('mobile Plan & Usage hosts billing presentation without opening the portal', async ({ page }) => {
+test('legacy Plan & Usage opens the direct Usage & Top Ups screen without opening the portal', async ({ page }) => {
   await mockApi(page);
   await page.goto('/?salon=salon-a&app=plan-usage');
-  await page.getByRole('button', { name: /plan & billing/i }).click();
 
-  await expect(page).toHaveURL(/app=plan-usage&view=billing/);
-  await expect(page.getByText('Stripe Billing')).toBeVisible();
-  await expect(page.getByTestId('manage-billing-button')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Plan & Usage' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Usage & Top Ups', exact: true })).toBeVisible();
+  await expect(page.getByText('42 texts remaining', { exact: true })).toBeVisible();
+
+  for (const credits of [100, 200, 500]) {
+    await expect(page.getByRole('button', { name: new RegExp(`${credits} texts`) })).toBeVisible();
+  }
+
+  await expect(page.getByText('No text usage yet.')).toBeVisible();
+  await expect(page.getByText('Purchased texts never expire.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /plan & billing/i })).toHaveCount(0);
+  await expect(page.getByTestId('manage-billing-button')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

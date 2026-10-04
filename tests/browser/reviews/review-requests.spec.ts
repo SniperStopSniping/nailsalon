@@ -147,7 +147,7 @@ test('mobile owner can edit settings, queue Send now once, then see sent and sup
   await expect(confirmation.getByText('Customer message', { exact: true })).toBeVisible();
   await expect(confirmation.getByRole('button', { name: 'Send now' })).toHaveCount(1);
 
-  await expect(confirmation.getByTestId('sms-segment-summary')).toHaveText('2 SMS segments · 2 credits');
+  await expect(confirmation.getByTestId('sms-segment-summary')).toHaveText('2 text credits');
   await expect(confirmation.getByTestId('sms-message-preview')).not.toContainText('Reply STOP to opt out.');
 
   await page.screenshot({ path: test.info().outputPath('review-request-confirmation.png'), fullPage: true });
