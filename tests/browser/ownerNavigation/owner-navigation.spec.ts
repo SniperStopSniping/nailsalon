@@ -145,6 +145,22 @@ async function mockInformationApi(page: import('@playwright/test').Page) {
       await route.fulfill({ json: { data: { addOns: [] } } });
       return;
     }
+    if (url.pathname === '/api/admin/salon/communications/usage') {
+      await route.fulfill({ json: { data: {
+        salonId: 'salon_isla',
+        canPurchaseCredits: true,
+        creditPurchasesAvailable: true,
+        topupOffers: [100, 200, 500].map((credits, index) => ({ key: `topup_${credits}_2026_10`, credits, priceCents: [2000, 3000, 5000][index] })),
+        usage: { availableCredits: 42, starterCredits: 0, pendingCredits: 0, blockedMessages: 0, plan: null },
+        history: [],
+        nextCursor: null,
+      } } });
+      return;
+    }
+    if (url.pathname === '/api/admin/salon/communications/starter-credits') {
+      await route.fulfill({ json: { data: { status: 'unclaimed', canClaim: false } } });
+      return;
+    }
     if (url.pathname === '/api/admin/salon/settings' && request.method() === 'GET') {
       await route.fulfill({ json: {
         merchandising: { lusterPromoDismissed: true, serviceLibraryIntroDismissed: true, showServiceImages: true, featureLusterManicure: false },
@@ -166,13 +182,13 @@ async function mockInformationApi(page: import('@playwright/test').Page) {
   return { writes, technicianWrites, unexpected };
 }
 
-test('mobile More is ranked in task groups and Hours opens first with browser history in sync', async ({ page }) => {
+test('mobile More starts with Usage and Hours preserves browser history', async ({ page }) => {
   const { unexpected } = await mockInformationApi(page);
   await page.goto('/?client=client_9&returnTo=calendar');
 
   await expect(page.getByTestId('more-screen')).toBeVisible();
 
-  for (const heading of ['Booking', 'Clients & Growth', 'Business', 'Luster']) {
+  for (const heading of ['Usage', 'Booking', 'Clients & Growth', 'Business', 'Luster']) {
     await expect(page.getByRole('heading', { name: heading })).toBeVisible();
   }
 
@@ -181,6 +197,7 @@ test('mobile More is ranked in task groups and Hours opens first with browser hi
   );
 
   expect(orderedIds).toEqual([
+    'admin-app-tile-plan-usage',
     'admin-app-tile-hours',
     'admin-app-tile-booking-rules',
     'admin-app-tile-booking-page',
@@ -190,7 +207,6 @@ test('mobile More is ranked in task groups and Hours opens first with browser hi
     'admin-app-tile-analytics',
     'admin-app-tile-payments',
     'admin-app-tile-integrations',
-    'admin-app-tile-plan-usage',
     'admin-app-tile-settings',
     'admin-app-tile-help',
   ]);
@@ -331,7 +347,7 @@ test('unsaved hours guard protects both the More header and contextual shortcuts
   await expect(page.getByTestId('calendar-screen')).toBeVisible();
 });
 
-test('Help dispatches to existing paths and Free Solo keeps Messages & Credits available', async ({ page }) => {
+test('Help dispatches to existing paths and Free Solo keeps text top-ups available', async ({ page }) => {
   await mockInformationApi(page);
   await page.goto('/?app=help&salon=isla');
 
@@ -346,7 +362,9 @@ test('Help dispatches to existing paths and Free Solo keeps Messages & Credits a
 
   await page.goto('/?app=plan-usage&salon=isla&freeSolo=1');
 
-  await expect(page.getByRole('button', { name: /messages & credits/i })).toBeEnabled();
+  await expect(page.getByRole('heading', { name: 'Usage & Top Ups', exact: true })).toBeVisible();
+  await expect(page.getByText('42 texts remaining')).toBeVisible();
+  await expect(page.getByRole('button', { name: /100 texts/ })).toBeEnabled();
   await expect(page.getByRole('button', { name: /compare plans/i })).toHaveCount(0);
 });
 
