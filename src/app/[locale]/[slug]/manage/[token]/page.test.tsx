@@ -30,8 +30,7 @@ const {
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
-vi.mock('@/components/appointments/RebookingPrompt', () => ({ RebookingPrompt: () => <div data-testid="rebooking-prompt" /> }));
-vi.mock('@/components/appointments/NextVisitOfferRebook', () => ({ NextVisitOfferRebook: () => <div data-testid="legacy-offer-rebook" /> }));
+vi.mock('@/components/appointments/NextVisitOfferRebook', () => ({ NextVisitOfferRebook: () => <div data-testid="next-visit-offer" /> }));
 
 vi.mock('@/libs/appointmentAccess', () => ({
   verifyAppointmentAccessToken,
@@ -624,7 +623,7 @@ describe('appointment management page', () => {
   });
 });
 
-describe('post-visit prompt visibility', () => {
+describe('current completed-visit offer boundary', () => {
   it.each(['confirmed', 'pending', 'cancelled', 'no_show', 'declined', 'awaiting_payment', 'in_progress'])('never treats %s as a completed visit', async (status) => {
     verifyAppointmentAccessToken.mockResolvedValue(capability({
       salonSettings: { rebookingPrompt: { enabled: true } },
@@ -632,7 +631,8 @@ describe('post-visit prompt visibility', () => {
     }));
     render(await ManageAppointmentView({ token: TOKEN, locale: 'en', slug: 'isla-nail-studio1' }));
 
-    expect(screen.queryByTestId('rebooking-prompt')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Ready to book your next visit?' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('next-visit-offer')).not.toBeInTheDocument();
   });
 
   it.each([
@@ -644,14 +644,15 @@ describe('post-visit prompt visibility', () => {
     verifyAppointmentAccessToken.mockResolvedValue(capability({ salonSettings: { rebookingPrompt: { enabled } }, appointment: { status: 'completed', completedAt, deletedAt } }));
     render(await ManageAppointmentView({ token: TOKEN, locale: 'en', slug: 'isla-nail-studio1' }));
 
-    expect(Boolean(screen.queryByTestId('rebooking-prompt'))).toBe(expected);
+    expect(Boolean(screen.queryByRole('heading', { name: 'Ready to book your next visit?' }))).toBe(expected);
+    expect(screen.getByTestId('next-visit-offer')).toBeInTheDocument();
   });
 
   it('preserves the existing offer surface when the new setting is missing', async () => {
     verifyAppointmentAccessToken.mockResolvedValue(capability({ appointment: { status: 'completed', completedAt: new Date() } }));
     render(await ManageAppointmentView({ token: TOKEN, locale: 'en', slug: 'isla-nail-studio1' }));
 
-    expect(screen.queryByTestId('rebooking-prompt')).not.toBeInTheDocument();
-    expect(screen.getByTestId('legacy-offer-rebook')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Ready to book your next visit?' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('next-visit-offer')).toBeInTheDocument();
   });
 });
