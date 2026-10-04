@@ -123,7 +123,7 @@ test('Google review preset sends its explicit purpose without an appointment ass
   await expect(page.getByTestId('sms-message-preview')).toContainText('Test Studio: Owner-edited review invitation.');
   await expect(page.getByTestId('sms-message-preview')).not.toContainText('Reply STOP to opt out.');
 
-  await expect(page.getByTestId('sms-segment-summary')).toHaveText('1 SMS segment · 1 credit');
+  await expect(page.getByTestId('sms-segment-summary')).toHaveText('1 text credit');
 
   await page.getByRole('button', { name: 'Send text', exact: true }).tap();
 
