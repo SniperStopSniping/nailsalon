@@ -254,7 +254,6 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
     expect(importers).toEqual([
       'src/app/api/integrations/twilio/inbound/route.ts',
       'src/app/api/integrations/twilio/status/route.ts',
-      'src/libs/SMS.ts',
       // Booking reads sender identity to preserve provider STOP suppression.
       'src/libs/appointmentCreation.server.ts',
       // The shared eligibility reader preserves STOP for every text purpose.

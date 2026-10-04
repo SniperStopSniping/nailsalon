@@ -65,6 +65,9 @@ const {
   };
 });
 
+// Balance refresh is covered independently; this suite owns dashboard routing.
+vi.mock('@/hooks/useSmsBalance', () => ({ useSmsBalance: () => null }));
+
 vi.mock('@clerk/nextjs', () => ({
   useAuth: () => ({ ...clerkAuth, getToken: clerkGetToken }),
   useClerk: () => clerkInstance,
