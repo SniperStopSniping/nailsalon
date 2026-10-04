@@ -183,11 +183,15 @@ test('booking cards preview the latest service layout at booking and accept exac
 test('the first preview uses Compact Dropdown with only entered facts and preserves resumed choices', async ({ page }) => {
   await page.goto('/?audit=1');
   await page.getByRole('button', { name: 'Start with Quick Book' }).click();
+
   await expect(page.getByRole('heading', { name: 'Let’s start with your business' })).toBeFocused();
+
   await page.locator('label').filter({ has: page.getByRole('radio', { name: /^Independent nail tech/ }) }).click();
   await page.getByLabel('Salon or studio name *', { exact: true }).fill('Maya Atelier');
   await page.getByLabel('Your name *', { exact: true }).fill('Maya');
+
   await expect.poll(async () => (await savedState(page)).profile.businessName).toBe('Maya Atelier');
+
   await page.getByRole('button', { name: 'Show me my site →', exact: true }).click();
   const profile = page.locator('[data-quick-book-layout]');
 
