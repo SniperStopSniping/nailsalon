@@ -13,10 +13,23 @@ export function isApprovedQuickBookLayout(id: string | null | undefined): id is 
 }
 
 function BrandIdentity({ profile, headingId, headingProps }: Pick<QuickBookPresentationProps, 'profile' | 'headingId' | 'headingProps'>) {
+  const logo = profile.identity.logoUrl ? <QuickBookLogo name={profile.identity.salonName} src={profile.identity.logoUrl} /> : null;
+  const title = <h1 {...headingProps} id={headingId}>{profile.identity.salonName}</h1>;
+  if (profile.presentation.layoutId === 'compact_dropdown') {
+    return (
+      <header className="qbp-brand" data-long-name={profile.identity.salonName.length > 26}>
+        {logo}
+        <div className="qbp-brand-copy">
+          {title}
+          {profile.identity.technicianName ? <p>{profile.identity.technicianName}</p> : null}
+        </div>
+      </header>
+    );
+  }
   return (
     <header className="qbp-brand" data-long-name={profile.identity.salonName.length > 26}>
-      <h1 {...headingProps} id={headingId}>{profile.identity.salonName}</h1>
-      {profile.identity.logoUrl ? <QuickBookLogo name={profile.identity.salonName} src={profile.identity.logoUrl} /> : null}
+      {title}
+      {logo}
       {profile.presentation.layoutId !== 'side_portrait' && profile.identity.technicianName ? <p>{profile.identity.technicianName}</p> : null}
     </header>
   );

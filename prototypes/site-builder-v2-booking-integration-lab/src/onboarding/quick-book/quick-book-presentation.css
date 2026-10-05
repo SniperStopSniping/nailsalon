@@ -43,7 +43,7 @@
 .qb-logo {
   display: inline-grid;
   place-items: center;
-  overflow: hidden;
+  overflow: visible;
   flex: none;
   width: 48px;
   height: 48px;

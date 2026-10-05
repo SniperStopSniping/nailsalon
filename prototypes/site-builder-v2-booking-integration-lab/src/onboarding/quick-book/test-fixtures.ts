@@ -38,7 +38,10 @@ export function createQuickBookFixture(layout: ApprovedQuickBookLayout, scenario
     profile.reviews = count >= 4 ? { ratingText: '4.8', reviewCountText: '24 fixture reviews', href: null } : null;
     profile.presentation.bookingMethod = count >= 5 ? 'Appointment only' : null;
   }
-  if (scenario === 'long-name') {
+  if (scenario.startsWith('logo-')) {
+    profile.identity.logoUrl = '/quick-book-logo-fixture.png';
+  }
+  if (scenario === 'long-name' || scenario === 'logo-long-name') {
     profile.identity.salonName = 'Isla Nail Studio & Advanced Manicure Atelier Scarborough';
     profile.identity.technicianName = 'Daniela Alexandra Rodriguez';
   }
