@@ -1,3 +1,15 @@
+# [1.136.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.135.3...v1.136.0) (2026-10-05)
+
+
+### Bug Fixes
+
+* **booking:** retire Editorial and Hub Menu from new layout choices ([eb60e34](https://github.com/SniperStopSniping/nailsalon/commit/eb60e34214012cf7de8ce92b8af3585c1243d581))
+
+
+### Features
+
+* **quick-book:** integrate three approved customer compositions ([#352](https://github.com/SniperStopSniping/nailsalon/issues/352)) ([8bce7c8](https://github.com/SniperStopSniping/nailsalon/commit/8bce7c83b40e0c616be5c726d8b34354bc8fe0d1)), closes [#350](https://github.com/SniperStopSniping/nailsalon/issues/350) [#351](https://github.com/SniperStopSniping/nailsalon/issues/351)
+
 ## [1.135.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.135.2...v1.135.3) (2026-10-04)
 
 
