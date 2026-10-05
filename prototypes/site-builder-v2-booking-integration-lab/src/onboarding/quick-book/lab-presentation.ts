@@ -32,6 +32,7 @@ export type LabQuickBookPresentationInput = {
   gallery: readonly QuickBookGalleryItem[];
   /** Optional website copy the cover may carry (the lab has no saved line yet). */
   websiteCopy: string | null;
+  bioVisible?: boolean;
 };
 
 export const buildLabQuickBookPresentationProfile = ({
@@ -43,11 +44,13 @@ export const buildLabQuickBookPresentationProfile = ({
   coverUrl,
   gallery,
   websiteCopy,
+  bioVisible = view.bio !== null,
 }: LabQuickBookPresentationInput): QuickBookPresentationProfile => {
   const salonName = profile.businessName.trim() || 'Your nail studio';
   const phone = view.contacts.find(contact => contact.type === 'call')
     ?? view.contacts.find(contact => contact.type === 'text')
     ?? null;
+  const text = view.contacts.find(contact => contact.type === 'text' && contact.href !== phone?.href) ?? null;
   const email = view.contacts.find(contact => contact.type === 'email') ?? null;
   const technicianPhotoUrl = view.techPhotoVisible ? profilePhotoUrl : null;
 
@@ -63,7 +66,7 @@ export const buildLabQuickBookPresentationProfile = ({
           name: null,
           addressLine: view.location.primary,
           localityLine: view.location.detail,
-          directionsUrl: view.location.directions?.href ?? '#',
+          directionsUrl: view.location.directions?.href ?? null,
           instructionLines: view.location.notes,
         }
       : null,
@@ -79,6 +82,7 @@ export const buildLabQuickBookPresentationProfile = ({
           phone: phone
             ? { actionLabel: phone.detail, display: phone.label, href: phone.href }
             : null,
+          text: text ? { actionLabel: text.detail, display: text.label, href: text.href } : null,
           email: email
             ? { display: email.label, href: email.href }
             : null,
@@ -95,7 +99,9 @@ export const buildLabQuickBookPresentationProfile = ({
     instagram: view.instagram
       ? { label: view.instagram.label, href: view.instagram.href }
       : null,
-    bio: view.bio,
+    bio: bioVisible ? view.bio ?? (profile.about.fullBio.trim() || null) : null,
+    fullBio: bioVisible ? profile.about.fullBio.trim() || profile.about.shortBio.trim() || null : null,
+    aboutDetails: bioVisible && profile.about.yearsOfExperience.trim() ? [`${profile.about.yearsOfExperience.trim()} years of experience`] : [],
     presentation: {
       layoutId: layout,
       specialties: resolveQuickBookSpecialties({

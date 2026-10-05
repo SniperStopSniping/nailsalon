@@ -76,6 +76,7 @@ test('Quick Book cards preview the latest choice and restore the chooser through
   await expect(dialog).toHaveCount(0);
   await expect(selected).toBeFocused();
 
+  await page.getByRole('button', { name: 'View more layouts', exact: true }).click();
   const card = page.getByRole('button', { name: /^Asymmetric Luxe/ });
   await card.scrollIntoViewIfNeeded();
   const scroll = await page.evaluate(() => window.scrollY);
@@ -144,9 +145,12 @@ test('retires weak choices while preserving a resumed saved layout until its own
   await fixtureAt(page, 'about_design');
   const choices = page.getByRole('group', { name: 'Quick Book layouts' });
 
-  await expect(choices.locator('button')).toHaveCount(20);
+  await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(20);
   await expect(choices.locator('[data-qb-layout="editorial"]')).toHaveCount(0);
   await expect(choices.locator('[data-qb-layout="hub_menu"]')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'View more layouts', exact: true }).click();
+
   await expect(choices.locator('[data-qb-layout="editorial_split"]')).toBeVisible();
 
   // Seed after the old document has flushed its autosave during reload.
@@ -166,7 +170,7 @@ test('retires weak choices while preserving a resumed saved layout until its own
     const before = await savedState(page);
     const card = choices.locator(`button:has([data-qb-layout="${layout}"])`);
 
-    await expect(choices.locator('button')).toHaveCount(21);
+    await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(21);
     await expect(card).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByText(/Your saved .* layout is kept/)).toBeVisible();
 
@@ -184,7 +188,7 @@ test('retires weak choices while preserving a resumed saved layout until its own
     await dialog.getByRole('button', { name: 'Try another layout' }).click();
     await page.reload();
 
-    await expect(choices.locator('button')).toHaveCount(20);
+    await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(20);
     expect((await savedState(page)).recipe.quickBookLayout).toBe('compact_dropdown');
   }
 });
@@ -273,4 +277,34 @@ test('the first preview uses Compact Dropdown with only entered facts and preser
   await expect(dialog).toContainText('100 Owner Entered Avenue');
   await expect(dialog.getByRole('button', { name: 'Continue setup' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
+});
+
+test('recommends three starting points and shows a readable, vertically scrolling phone preview', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await fixtureAt(page, 'about_design');
+  const choices = page.getByRole('group', { name: 'Quick Book layouts' });
+  const cards = choices.getByRole('button').filter({ has: page.locator('[data-qb-layout]') });
+
+  await expect(cards).toHaveCount(3);
+  await expect(cards.nth(0)).toContainText('Fast & simple');
+  await expect(cards.nth(1)).toContainText('Personal brand');
+  await expect(cards.nth(2)).toContainText('Visual brand');
+
+  await cards.nth(0).click();
+  const dialog = page.getByRole('dialog', { name: 'Preview your Quick Book layout' });
+
+  await expect(dialog.locator('[data-preview-scale]')).toHaveAttribute('data-preview-scale', '1.0000');
+
+  const frame = dialog.locator('[data-preview-scroll-container]');
+  const dimensions = await frame.evaluate(element => ({ width: element.clientWidth, overflow: element.scrollWidth > element.clientWidth + 1, scrolls: element.scrollHeight > element.clientHeight }));
+
+  expect(dimensions.width).toBeGreaterThan(350);
+  expect(dimensions.overflow).toBe(false);
+  expect(dimensions.scrolls).toBe(true);
+
+  await footerVisible(page, dialog);
+  await dialog.getByRole('button', { name: 'Try another layout' }).click();
+  await page.getByRole('button', { name: 'View more layouts', exact: true }).click();
+
+  await expect(cards).toHaveCount(20);
 });

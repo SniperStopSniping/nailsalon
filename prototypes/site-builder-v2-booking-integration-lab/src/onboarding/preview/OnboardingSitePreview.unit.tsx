@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
@@ -147,6 +147,23 @@ const QUICK_BOOK_LAYOUTS: readonly QuickBookLayoutId[] = [
 ];
 
 describe('OnboardingSitePreview shared profile composition', () => {
+  it('replaces an expired retained Quick Book gallery image without changing its saved assignment', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'quick_book';
+    state.recipe.quickBookLayout = 'gallery_header';
+    state.recipe.galleryEnabled = true;
+    state.gallery.images = [galleryFixtureImage('expired-photo')];
+    const original = structuredClone(state.gallery);
+    render(<OnboardingSitePreview document={null} label="Gallery fallback preview" state={state} />);
+    const gallery = screen.getByRole('region', { name: 'Gallery' });
+
+    fireEvent.error(within(gallery).getByRole('img', { name: 'Example nail set' }));
+
+    expect(within(gallery).getByRole('img', { name: 'Example nail set unavailable' })).toBeVisible();
+    expect(within(gallery).queryByRole('img', { name: 'Example nail set' })).not.toBeInTheDocument();
+    expect(state.gallery).toEqual(original);
+  });
+
   it.each([
     { logo: true, profilePhoto: true, scenario: 'both uploaded' },
     { logo: false, profilePhoto: true, scenario: 'profile only' },
@@ -159,6 +176,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.starter = 'quick_book';
     state.recipe.quickBookProfile.showTechName = true;
     state.recipe.quickBookProfile.showTechPhoto = true;
+    state.recipe.quickBookLayout = 'profile_story';
     state.profile.logo = logo
       ? {
           fileName: 'isla-wordmark.png',
@@ -179,7 +197,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
       : undefined;
 
     render(
-      <OnboardingSitePreview document={null} label={`${scenario} preview`} state={state} />,
+      <OnboardingSitePreview document={null} label={`${scenario} preview`} quickBookPhase="business" state={state} />,
     );
     const preview = screen.getByRole('region', { name: `${scenario} preview` });
     const profile = within(preview).getByRole('region', { name: 'Isla Nail Studio' });
@@ -273,14 +291,14 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const visit = within(preview).getByRole('region', { name: 'Visit and contact' });
 
     expect(within(profile).getByRole('img', { name: 'Isla Nail Studio logo' })).toBeVisible();
-    expect(within(profile).getByRole('img', { name: 'Daniela portrait illustration' }))
-      .toBeVisible();
+    expect(within(profile).queryByRole('img', { name: 'Daniela portrait illustration' })).not.toBeInTheDocument();
     expect(within(profile).getByText('Daniela')).toBeVisible();
     expect(within(profile).getByRole('link', { name: /880 Ellesmere Rd, Unit 2/u }))
       .toHaveAttribute('href', expect.stringContaining('880%20Ellesmere'));
     expect(within(visit).getByText('Inside TB Nails · Back entrance')).toBeVisible();
     expect(within(profile).getByText('Open now')).toBeVisible();
 
+    fireEvent.click(profile.querySelector('details.qb-secondary > summary')!);
     const phoneLinks = within(profile).getAllByRole('link', { name: /\(647\) 123-4567/u });
 
     expect(phoneLinks.some(link => link.getAttribute('href') === 'tel:6471234567')).toBe(true);
@@ -288,7 +306,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(profile).getByRole('link', { name: /hello@islanails\.com/u }))
       .toHaveAttribute('href', 'mailto:hello@islanails.com');
     expect(profile.querySelector('[data-content-key="before_you_book_policies"] summary'))
-      .toHaveTextContent('Policies');
+      .toHaveTextContent('Before you book');
     // Document-authored testimonial cards are not the verified aggregate used
     // by the real public Quick Book route, so the Lab must not invent parity.
     expect(within(profile).queryByText('5.0 ★ (1)')).not.toBeInTheDocument();
@@ -349,11 +367,19 @@ describe('OnboardingSitePreview shared profile composition', () => {
       expect(profile).toHaveAttribute('data-quick-book-layout', layout);
       expect(within(profile).getByRole('heading', { level: 1, name: 'Isla Nail Studio' }))
         .toBeVisible();
-      expect(within(profile).getByRole('img', { name: 'Daniela portrait illustration' }))
-        .toBeVisible();
-      expect(profile.querySelector('[data-quick-book-fact="location"]'))
+
+      if (['editorial', 'hub_menu'].includes(layout)) {
+        expect(within(profile).getByRole('img', { name: 'Daniela portrait illustration' })).toBeVisible();
+      } else {
+        expect(within(profile).queryByRole('img', { name: 'Daniela portrait illustration' })).not.toBeInTheDocument();
+      }
+      if (layout === 'profile_story') {
+        expect(profile.querySelector('[data-qb-block="portrait"] img')).toBeVisible();
+      }
+
+      expect(profile.querySelector('[data-quick-book-fact="location"], [data-qb-fact="location"]'))
         .toHaveTextContent('880 Ellesmere Rd, Unit 2');
-      expect(profile.querySelector('[data-quick-book-fact="hours"]'))
+      expect(profile.querySelector('[data-quick-book-fact="hours"], [data-qb-fact="hours"]'))
         .toHaveTextContent(/Open now|Closed/u);
       expect(profile).toHaveTextContent('@islanail.studio');
       expect(profile).toHaveTextContent('About Daniela');
@@ -419,7 +445,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     };
 
     const { container } = render(
-      <OnboardingSitePreview document={null} label="Shared media role preview" state={state} />,
+      <OnboardingSitePreview document={null} label="Shared media role preview" quickBookPhase="business" state={state} />,
     );
 
     expect(container.querySelectorAll('[data-media-id="same-stored-asset"]'))
@@ -1016,7 +1042,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
 
     expect(disclosure).not.toBeNull();
-    expect(disclosure!.querySelector('summary')).toHaveTextContent('Policies');
+    expect(disclosure!.querySelector('summary')).toHaveTextContent('Before you book');
     expect(disclosure).toHaveTextContent('Deposits & cancellations');
     expect(booking.querySelector('.onboarding-quick-book-policies')).toBeNull();
     expect(booking.querySelector('[data-content-key="before_you_book_policies"]')).toBeNull();

@@ -67,7 +67,7 @@ export type QuickBookPresentationProfile = {
     name: string | null;
     addressLine: string | null;
     localityLine: string | null;
-    directionsUrl: string;
+    directionsUrl: string | null;
     instructionLines: string[];
   } | null;
   hours: {
@@ -78,11 +78,15 @@ export type QuickBookPresentationProfile = {
   contact: {
     phone: { actionLabel: string; display: string; href: string } | null;
     email: { display: string; href: string } | null;
+    text?: { actionLabel: string; display: string; href: string } | null;
   } | null;
   policies: Array<{ label: string; text: string }>;
   reviews: { ratingText: string; reviewCountText: string; href: string | null } | null;
   instagram: { label: string; href: string } | null;
   bio: string | null;
+  /** Complete saved text, revealed only under the same public Bio permission. */
+  fullBio?: string | null;
+  aboutDetails?: string[];
   presentation: QuickBookPresentation;
 };
 

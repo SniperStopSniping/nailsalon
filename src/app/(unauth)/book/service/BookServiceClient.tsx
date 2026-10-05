@@ -1454,9 +1454,11 @@ export function BookServiceClient({
           // since that booking engine is explicitly out of scope for this
           // PR's redesign. This is presentation-plan chrome, not a second
           // conditional booking-engine body.
-          sectionPresentation.pageFrame === 'editorial'
-            ? 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px] lg:max-w-5xl lg:px-10'
-            : 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px]'
+          compactQuickBookProfileEnabled && !['editorial', 'hub_menu'].includes(bookingPage?.quickBookLayout ?? '')
+            ? 'quick-book-refined-page mx-auto flex w-full max-w-[1120px] flex-col px-4 pb-10 max-[360px]:px-[12px] sm:px-6'
+            : sectionPresentation.pageFrame === 'editorial'
+              ? 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px] lg:max-w-5xl lg:px-10'
+              : 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px]'
         }
         style={{ paddingBottom: selectedService ? 'calc(7rem + env(safe-area-inset-bottom, 0px))' : undefined }}
       >

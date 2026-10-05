@@ -19,7 +19,7 @@ import { getStepLabel } from '@/libs/bookingFlow';
 import { deriveQuickBookPresentation } from '@/libs/quickBookPresentation';
 import {
   getQuickBookLayout,
-  isLegacyQuickBookLayoutId,
+  isRetiredQuickBookLayout,
   type QuickBookSiteLayout,
   resolveQuickBookSiteLayout,
 } from '@/libs/quickBookSiteLayout';
@@ -134,7 +134,7 @@ export function QuickBookProfileHeader({
   // active layout. A caller without one (identity-only fallback, older
   // fixture) still gets the real composition, derived from the same rules.
   const activeLayout = resolveQuickBookSiteLayout(layout ?? profile.presentation?.layoutId);
-  const presentation = isLegacyQuickBookLayoutId(activeLayout)
+  const presentation = isRetiredQuickBookLayout(activeLayout)
     ? null
     : profile.presentation?.layoutId === activeLayout
       ? profile.presentation
@@ -170,17 +170,19 @@ export function QuickBookProfileHeader({
         data-testid="quick-book-profile"
         data-layout-presentation={activeLayout}
         aria-labelledby="quick-book-profile-name"
-        className={`mb-5 overflow-hidden border bg-white ${
-          activeLayout === 'editorial'
-            ? 'rounded-none border-x-0 shadow-none'
-            : activeLayout === 'ultra_minimal'
-              ? 'rounded-2xl shadow-sm'
-              : activeLayout === 'profile_story'
-                ? 'rounded-[2rem] shadow-[0_18px_46px_rgba(78,45,57,0.12)]'
-                : activeLayout === 'compact_dropdown'
-                  ? 'rounded-2xl shadow-[0_8px_24px_rgba(78,45,57,0.07)]'
-                  : 'rounded-[1.75rem] shadow-[0_14px_40px_rgba(78,45,57,0.09)]'
-        }`}
+        className={presentation
+          ? 'qb-public-profile mb-5'
+          : `mb-5 overflow-hidden border bg-white ${
+            activeLayout === 'editorial'
+              ? 'rounded-none border-x-0 shadow-none'
+              : activeLayout === 'ultra_minimal'
+                ? 'rounded-2xl shadow-sm'
+                : activeLayout === 'profile_story'
+                  ? 'rounded-[2rem] shadow-[0_18px_46px_rgba(78,45,57,0.12)]'
+                  : activeLayout === 'compact_dropdown'
+                    ? 'rounded-2xl shadow-[0_8px_24px_rgba(78,45,57,0.07)]'
+                    : 'rounded-[1.75rem] shadow-[0_14px_40px_rgba(78,45,57,0.09)]'
+          }`}
         style={{ borderColor: themeVars.cardBorder }}
       >
         {presentation

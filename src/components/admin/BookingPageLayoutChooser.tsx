@@ -30,11 +30,13 @@ import {
   describeQuickBookNameAdvisory,
   getQuickBookLayout,
   getSelectableQuickBookLayoutsByFamily,
+  isRecommendedQuickBookLayout,
   isRetiredQuickBookLayout,
   QUICK_BOOK_LAYOUT_FAMILIES,
   QUICK_BOOK_LAYOUT_FAMILY_LABELS,
   type QuickBookLayoutDefinition,
   type QuickBookSiteLayout,
+  RECOMMENDED_QUICK_BOOK_LAYOUT_IDS,
 } from '@/libs/quickBookSiteLayout';
 
 /** Owner-only preview facts returned by `GET /api/admin/booking-page`. */
@@ -225,6 +227,7 @@ export function BookingPageLayoutChooser({
 }: BookingPageLayoutChooserProps) {
   const selectedId = draft.quickBookLayout ?? 'clean_card';
   const selected = getQuickBookLayout(selectedId);
+  const [moreLayoutsOpen, setMoreLayoutsOpen] = useState(!isRecommendedQuickBookLayout(selectedId));
   const tokens = presentationTokens(draft);
   const [coverTextDraft, setCoverTextDraft] = useState(content?.coverText ?? '');
   useEffect(() => {
@@ -248,34 +251,60 @@ export function BookingPageLayoutChooser({
       {isRetiredQuickBookLayout(selectedId)
         ? <p className="text-sm text-[var(--owner-muted)]">{`Your saved ${selected.label} layout is kept. You can preview it or choose another layout.`}</p>
         : null}
-      {QUICK_BOOK_LAYOUT_FAMILIES.map((family) => {
-        const meta = QUICK_BOOK_LAYOUT_FAMILY_LABELS[family];
-        return (
-          <fieldset className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4" data-testid={`quick-book-layout-family-${family}`} disabled={disabled} key={family}>
-            <legend className="px-2 text-xl font-semibold">{meta.title}</legend>
-            <p className="mb-3 text-xs text-[var(--owner-muted)]">{meta.description}</p>
-            <div className="grid grid-cols-2 gap-3">
-              {getSelectableQuickBookLayoutsByFamily(family, selectedId).map(layout => (
-                <LayoutCard
-                  content={content}
-                  disabled={disabled}
-                  draft={draft}
-                  key={layout.id}
-                  layout={layout}
-                  onSelect={() => {
-                    if (layout.id !== selectedId) {
-                      onConfigPatch({ quickBookLayout: layout.id as QuickBookSiteLayout });
-                    }
-                  }}
-                  preview={preview}
-                  selected={layout.id === selectedId}
-                  tokens={tokens}
-                />
-              ))}
-            </div>
-          </fieldset>
-        );
-      })}
+      <fieldset className="rounded-2xl bg-[var(--owner-surface)] p-4" disabled={disabled}>
+        <legend className="px-2 text-xl font-semibold">Recommended</legend>
+        <p className="mb-3 text-sm text-[var(--owner-muted)]">Fast &amp; simple, personal brand, or visual brand.</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {RECOMMENDED_QUICK_BOOK_LAYOUT_IDS.map(id => (
+            <LayoutCard
+              key={id}
+              content={content}
+              disabled={disabled}
+              draft={draft}
+              layout={getQuickBookLayout(id)}
+              onSelect={() => {
+                if (id !== selectedId) {
+                  onConfigPatch({ quickBookLayout: id });
+                }
+              }}
+              preview={preview}
+              selected={id === selectedId}
+              tokens={tokens}
+            />
+          ))}
+        </div>
+      </fieldset>
+      <button className={buttonClass} type="button" aria-expanded={moreLayoutsOpen} aria-controls="owner-quick-book-more-layouts" onClick={() => setMoreLayoutsOpen(value => !value)}>{moreLayoutsOpen ? 'Hide more layouts' : 'View more layouts'}</button>
+      <div id="owner-quick-book-more-layouts" hidden={!moreLayoutsOpen} className="space-y-6">
+        {QUICK_BOOK_LAYOUT_FAMILIES.map((family) => {
+          const meta = QUICK_BOOK_LAYOUT_FAMILY_LABELS[family];
+          return (
+            <fieldset className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4" data-testid={`quick-book-layout-family-${family}`} disabled={disabled} key={family}>
+              <legend className="px-2 text-xl font-semibold">{meta.title}</legend>
+              <p className="mb-3 text-xs text-[var(--owner-muted)]">{meta.description}</p>
+              <div className="grid grid-cols-2 gap-3">
+                {getSelectableQuickBookLayoutsByFamily(family, selectedId).filter(layout => !isRecommendedQuickBookLayout(layout.id)).map(layout => (
+                  <LayoutCard
+                    content={content}
+                    disabled={disabled}
+                    draft={draft}
+                    key={layout.id}
+                    layout={layout}
+                    onSelect={() => {
+                      if (layout.id !== selectedId) {
+                        onConfigPatch({ quickBookLayout: layout.id as QuickBookSiteLayout });
+                      }
+                    }}
+                    preview={preview}
+                    selected={layout.id === selectedId}
+                    tokens={tokens}
+                  />
+                ))}
+              </div>
+            </fieldset>
+          );
+        })}
+      </div>
 
       <section aria-labelledby="quick-book-layout-images-heading" className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4" data-testid="quick-book-layout-images">
         <h3 className="text-lg font-semibold" id="quick-book-layout-images-heading">{`Images for ${selected.label}`}</h3>

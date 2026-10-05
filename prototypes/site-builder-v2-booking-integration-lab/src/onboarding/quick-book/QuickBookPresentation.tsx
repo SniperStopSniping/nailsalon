@@ -1,5 +1,5 @@
 /**
- * Shared renderer for the profile-led and cover-based Quick Book layouts.
+ * Shared renderer for the retained Quick Book layouts.
  *
  * The onboarding preview and the public booking page both mount this exact
  * component, so a design an owner previews is the design their clients see.
@@ -15,6 +15,7 @@ import {
   CalendarDays,
   ChevronDown,
   Clock3,
+  Image as ImageIcon,
   Instagram,
   Mail,
   MapPin,
@@ -66,7 +67,7 @@ export type QuickBookPresentationProps = {
 };
 
 type Fact = {
-  id: 'location' | 'hours' | 'booking' | 'clients';
+  id: 'location' | 'hours' | 'booking' | 'clients' | 'reviews';
   label: string;
   value: string;
   detail: string | null;
@@ -102,7 +103,7 @@ function Logo({ name, src }: { name: string; src: string | null }) {
   const [wideLogoSrc, setWideLogoSrc] = useState<string | null>(null);
   return src && !broken
     ? (
-        <span className="qb-logo" data-qb-block="logo" data-qb-logo-shape={wideLogoSrc === src ? 'wide' : 'square'}>
+        <span className="qb-logo" data-qb-block="logo" data-testid="quick-book-logo" data-qb-logo-shape={wideLogoSrc === src ? 'wide' : 'square'}>
           <img
             alt={`${name} logo`}
             onError={markBroken}
@@ -190,8 +191,10 @@ function Identity({
   align,
   /** Panel compositions place the real heading inside the panel instead. */
   nameInPanel = false,
-  /** A layout that heads its own person card with the tech's name must not
-   * print that name in the branding row as well. */
+  /**
+   * A layout that heads its own person card with the tech's name must not
+   * print that name in the branding row as well.
+   */
   showPerson = true,
 }: {
   profile: QuickBookPresentationProfile;
@@ -217,7 +220,7 @@ function Identity({
         {showSpecialties && presentation.specialties.length > 0
           ? (
               <ul aria-label="Specialties" className="qb-chips" data-testid="quick-book-specialties">
-                {presentation.specialties.map(specialty => <li key={specialty}>{specialty}</li>)}
+                {presentation.specialties.slice(0, 2).map(specialty => <li key={specialty}>{specialty}</li>)}
               </ul>
             )
           : null}
@@ -236,7 +239,7 @@ function buildFacts(profile: QuickBookPresentationProfile): Fact[] {
       value: [location.name, location.addressLine].filter(Boolean).join(', ') || location.localityLine || 'Directions',
       detail: location.name || location.addressLine ? location.localityLine : null,
       icon: <MapPin aria-hidden="true" size={18} />,
-      href: location.directionsUrl,
+      href: location.directionsUrl ?? undefined,
     });
   }
   if (profile.hours) {
@@ -266,6 +269,9 @@ function buildFacts(profile: QuickBookPresentationProfile): Fact[] {
       icon: <UserRound aria-hidden="true" size={18} />,
     });
   }
+  if (profile.reviews) {
+    facts.push({ id: 'reviews', label: 'Reviews', value: `${profile.reviews.ratingText} ★ (${profile.reviews.reviewCountText})`, detail: null, icon: <Star aria-hidden="true" size={18} />, href: profile.reviews.href ?? undefined });
+  }
   return facts;
 }
 
@@ -274,12 +280,8 @@ function Facts({ profile, variant }: {
   variant: QuickBookFactsTreatment;
 }) {
   const all = buildFacts(profile);
-  // `compact` keeps only what a customer needs to orient themselves; booking
-  // method and new-client status move behind Salon details. The layout has
-  // decided that its imagery, not its facts, carries the header.
-  const facts = variant === 'compact'
-    ? all.filter(fact => fact.id === 'location' || fact.id === 'hours')
-    : all;
+  // Every fact supplied by the privacy-filtered profile stays easy to scan.
+  const facts = all;
   if (variant === 'none' || facts.length === 0) {
     return null;
   }
@@ -293,20 +295,12 @@ function Facts({ profile, variant }: {
               <span className="qb-fact__label">{fact.label}</span>
               <strong className="qb-fact__value">{fact.value}</strong>
               {fact.detail ? <span className="qb-fact__detail">{fact.detail}</span> : null}
-              {/* Arrival and parking notes are full sentences. They never fit a
-                  half-width tile, so they live in Salon details instead. Only
-                  the single-column `rows` variant has room for them here. */}
-              {fact.id === 'location' && variant === 'rows' && profile.location
-                ? profile.location.instructionLines.map(line => (
-                  <span className="qb-fact__detail" key={line}>{line}</span>
-                ))
-                : null}
             </span>
           </>
         );
         if (fact.id === 'hours' && profile.hours) {
           return (
-            <details className="qb-fact qb-fact--hours" data-testid="quick-book-hours" key={fact.id}>
+            <details className="qb-fact qb-fact--hours" data-qb-fact={fact.id} data-testid="quick-book-hours" key={fact.id}>
               <summary>
                 {body}
                 <ChevronDown aria-hidden="true" className="qb-fact__chevron" size={16} />
@@ -326,7 +320,8 @@ function Facts({ profile, variant }: {
           return (
             <a
               className="qb-fact qb-fact--link"
-              data-testid="quick-book-location"
+              data-qb-fact={fact.id}
+              data-testid={`quick-book-${fact.id}`}
               href={fact.href}
               key={fact.id}
               rel="noopener noreferrer"
@@ -337,7 +332,7 @@ function Facts({ profile, variant }: {
           );
         }
         return (
-          <div className="qb-fact" data-testid={`quick-book-fact-${fact.id}`} key={fact.id}>
+          <div className="qb-fact" data-qb-fact={fact.id} data-testid={`quick-book-fact-${fact.id}`} key={fact.id}>
             {body}
           </div>
         );
@@ -360,6 +355,18 @@ function Contact({ profile }: { profile: QuickBookPresentationProfile }) {
               <span className="qb-contact__copy">
                 <strong>{contact.phone.display}</strong>
                 <span>{contact.phone.actionLabel}</span>
+              </span>
+              <span aria-hidden="true" className="qb-row__arrow">›</span>
+            </a>
+          )
+        : null}
+      {contact.text
+        ? (
+            <a className="qb-contact__row" href={contact.text.href}>
+              <Phone aria-hidden="true" size={18} />
+              <span className="qb-contact__copy">
+                <strong>{contact.text.display}</strong>
+                <span>{contact.text.actionLabel}</span>
               </span>
               <span aria-hidden="true" className="qb-row__arrow">›</span>
             </a>
@@ -396,80 +403,74 @@ function Story({ profile, greeting }: { profile: QuickBookPresentationProfile; g
   );
 }
 
-/**
- * Everything a layout keeps reachable without printing it in the header.
- * Arrival notes always land here; contact rows and the practical facts a
- * `compact` layout dropped join them when that layout says so. Nothing is
- * removed from the salon record — this is where a curated header keeps its
- * promise that the rest is still one tap away.
- */
-/**
- * What Salon details would hold for this layout and profile. Both the
- * disclosure and its parent need the answer: the parent decides whether to
- * render the disclosure at all, and whether a social link that would
- * otherwise live inside it has to fall back to its own row.
- */
-function resolveSalonDetails(profile: QuickBookPresentationProfile, layout: QuickBookLayoutDefinition) {
-  const instructions = layout.facts === 'rows' ? [] : profile.location?.instructionLines ?? [];
-  const hiddenFacts = layout.facts === 'compact' || layout.facts === 'none'
-    ? buildFacts(profile).filter(fact => fact.id === 'booking' || fact.id === 'clients')
-    : [];
-  const contact = layout.contact === 'disclosure' ? profile.contact : null;
-  const hasContact = Boolean(contact?.phone || contact?.email);
-  // Salon details is named for the salon's own particulars. It may CARRY a
-  // social link, but it may not BE one: a map-pin disclosure called "Salon
-  // details" whose whole body is an Instagram row is a lie about itself.
-  const ownContent = instructions.length > 0 || hiddenFacts.length > 0 || hasContact;
-  const social = ownContent && layout.social === 'details' ? profile.instagram : null;
-  return { instructions, hiddenFacts, hasContact, social, renders: ownContent };
-}
-
-function SalonDetails({ profile, layout }: {
+/** One secondary disclosure. Practical facts and the booking action stay visible. */
+function Actions({ profile, layout }: {
   profile: QuickBookPresentationProfile;
   layout: QuickBookLayoutDefinition;
 }) {
-  const { instructions, hiddenFacts, hasContact, social, renders } = resolveSalonDetails(profile, layout);
-  if (!renders) {
+  const aboutName = profile.identity.technicianName ?? profile.identity.salonName;
+  const showAbout = Boolean(profile.fullBio || profile.bio || profile.aboutDetails?.length);
+  const specialties = profile.presentation.specialties;
+  const instructions = profile.location?.instructionLines ?? [];
+  const hasContact = Boolean(profile.contact?.phone || profile.contact?.email);
+  const hasPolicies = profile.policies.length > 0;
+  if (!showAbout && !specialties.length && !instructions.length && !hasContact && !hasPolicies && !profile.instagram) {
     return null;
   }
   return (
-    <details className="qb-disclosure" data-testid="quick-book-salon-details">
+    <details className="qb-secondary" data-content-key={hasPolicies ? 'before_you_book_policies' : undefined} data-qb-block="actions" data-testid="quick-book-profile-actions">
       <summary>
-        <MapPin aria-hidden="true" size={18} />
-        <span className="qb-disclosure__copy">
-          <strong>Salon details</strong>
-          {/* The separator is bound to the word that FOLLOWS it, so a wrap
-              never leaves a dangling interpunct at the end of a line. */}
-          <span>{[hasContact ? 'Contact' : null, hiddenFacts.length > 0 ? 'Booking' : null, instructions.length > 0 ? 'Getting there' : null, social ? 'Instagram' : null].filter(Boolean).map((part, index) => (index === 0 ? part : `·\u00A0${part}`)).join(' ')}</span>
-        </span>
+        <ShieldCheck aria-hidden="true" size={18} />
+        <span>{hasPolicies ? 'Before you book' : 'More about the studio'}</span>
         <ChevronDown aria-hidden="true" className="qb-fact__chevron" size={16} />
       </summary>
-      <div className="qb-disclosure__body">
-        {hiddenFacts.map(fact => (
-          <p className="qb-detail-line" key={fact.id}>
-            <strong>{fact.label}</strong>
-            {' '}
-            {fact.value}
-          </p>
-        ))}
-        {instructions.length > 0
+      <div className="qb-secondary__body">
+        {showAbout
           ? (
-              <div className="qb-detail-block">
-                <strong>Getting there</strong>
+              <section data-testid="quick-book-about">
+                <h2>{`About ${aboutName}`}</h2>
+                {!layout.story && profile.bio && profile.fullBio && profile.bio !== profile.fullBio ? <p>{profile.bio}</p> : null}
+                <p data-testid="quick-book-full-bio">{profile.fullBio || profile.bio}</p>
+                {profile.aboutDetails?.map(detail => <p key={detail}>{detail}</p>)}
+              </section>
+            )
+          : null}
+        {specialties.length
+          ? (
+              <section>
+                <h2>Specialties</h2>
+                <p>{specialties.join(' · ')}</p>
+              </section>
+            )
+          : null}
+        {instructions.length
+          ? (
+              <section>
+                <h2>Getting there</h2>
                 {instructions.map(line => <p key={line}>{line}</p>)}
-              </div>
+              </section>
             )
           : null}
         {hasContact ? <Contact profile={profile} /> : null}
-        {social
+        {hasPolicies
           ? (
-              <a className="qb-link-row" data-testid="quick-book-instagram" href={social.href} rel="noopener noreferrer" target="_blank">
+              <section data-testid="quick-book-policies">
+                <h2>Before you book</h2>
+                {profile.policies.map(policy => (
+                  <div className="qb-policy" key={`${policy.label}-${policy.text}`}>
+                    <strong>{policy.label}</strong>
+                    <p>{policy.text}</p>
+                  </div>
+                ))}
+              </section>
+            )
+          : null}
+        {profile.instagram
+          ? (
+              <a className="qb-link-row" data-content-key="instagram" data-testid="quick-book-instagram" href={profile.instagram.href} rel="noopener noreferrer" target="_blank">
                 <Instagram aria-hidden="true" size={18} />
-                <span className="qb-disclosure__copy">
-                  <strong>{social.label}</strong>
-                  <span>Instagram</span>
-                </span>
-                <span aria-hidden="true" className="qb-row__arrow">›</span>
+                <span>{profile.instagram.label}</span>
+                <span aria-hidden="true">↗</span>
               </a>
             )
           : null}
@@ -478,101 +479,11 @@ function SalonDetails({ profile, layout }: {
   );
 }
 
-function Actions({ profile, layout }: {
-  profile: QuickBookPresentationProfile;
-  layout: QuickBookLayoutDefinition;
-}) {
-  const aboutName = profile.identity.technicianName ?? profile.identity.salonName;
-  // A story-led layout already shows the introduction in the composition, so
-  // repeating it as an About disclosure would print the same words twice.
-  const showAbout = layout.actions === 'full' && !layout.story && Boolean(profile.bio);
-  const salonDetails = resolveSalonDetails(profile, layout);
-  const details = salonDetails.renders ? <SalonDetails layout={layout} profile={profile} /> : null;
-  const showLinks = layout.actions !== 'none';
-  // The social link keeps its own row unless Salon details actually took it.
-  const showSocialRow = showLinks && !salonDetails.social;
-  const hasAny = showAbout || details !== null
-    || (showLinks && (profile.policies.length > 0 || profile.reviews))
-    || (showSocialRow && Boolean(profile.instagram));
-  if (!hasAny) {
-    return null;
-  }
-  return (
-    <div className="qb-actions" data-qb-block="actions" data-testid="quick-book-profile-actions">
-      {details}
-      {showAbout
-        ? (
-            <details className="qb-disclosure" data-testid="quick-book-about">
-              <summary>
-                <UserRound aria-hidden="true" size={18} />
-                <span className="qb-disclosure__copy">
-                  <strong>{`About ${aboutName}`}</strong>
-                  <span>{profile.presentation.specialties.length > 0 ? profile.presentation.specialties.slice(0, 3).join(' · ') : 'Get to know your nail tech'}</span>
-                </span>
-                <ChevronDown aria-hidden="true" className="qb-fact__chevron" size={16} />
-              </summary>
-              <p className="qb-disclosure__body" data-testid="quick-book-bio">{profile.bio}</p>
-            </details>
-          )
-        : null}
-      {showLinks && profile.policies.length > 0
-        ? (
-            <details className="qb-disclosure" data-testid="quick-book-policies">
-              <summary>
-                <ShieldCheck aria-hidden="true" size={18} />
-                <span className="qb-disclosure__copy">
-                  <strong>Before you book</strong>
-                  <span>{profile.policies.map(policy => policy.label).join(' · ')}</span>
-                </span>
-                <ChevronDown aria-hidden="true" className="qb-fact__chevron" size={16} />
-              </summary>
-              <div className="qb-disclosure__body">
-                {profile.policies.map(policy => (
-                  <div className="qb-policy" key={`${policy.label}-${policy.text}`}>
-                    <strong>{policy.label}</strong>
-                    <p>{policy.text}</p>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )
-        : null}
-      {showLinks && profile.reviews
-        ? profile.reviews.href
-          ? (
-              <a className="qb-link-row" data-testid="quick-book-reviews" href={profile.reviews.href} rel="noopener noreferrer" target="_blank">
-                <Star aria-hidden="true" size={18} />
-                <span className="qb-disclosure__copy">
-                  <strong>Reviews</strong>
-                  <span>{`${profile.reviews.ratingText} ★ (${profile.reviews.reviewCountText})`}</span>
-                </span>
-                <span aria-hidden="true" className="qb-row__arrow">›</span>
-              </a>
-            )
-          : (
-              <div className="qb-link-row" data-testid="quick-book-reviews">
-                <Star aria-hidden="true" size={18} />
-                <span className="qb-disclosure__copy">
-                  <strong>Reviews</strong>
-                  <span>{`${profile.reviews.ratingText} ★ (${profile.reviews.reviewCountText})`}</span>
-                </span>
-              </div>
-            )
-        : null}
-      {showSocialRow && profile.instagram
-        ? (
-            <a className="qb-link-row" data-testid="quick-book-instagram" href={profile.instagram.href} rel="noopener noreferrer" target="_blank">
-              <Instagram aria-hidden="true" size={18} />
-              <span className="qb-disclosure__copy">
-                <strong>{profile.instagram.label}</strong>
-                <span>Instagram</span>
-              </span>
-              <span aria-hidden="true" className="qb-row__arrow">›</span>
-            </a>
-          )
-        : null}
-    </div>
-  );
+function GalleryImage({ item }: { item: QuickBookGalleryItem }) {
+  const [broken, markBroken, imageRef] = useBrokenImage(item.url);
+  return broken
+    ? <span aria-label={`${item.alt} unavailable`} className="qb-gallery__missing" role="img"><ImageIcon aria-hidden="true" size={24} /></span>
+    : <img alt={item.alt} height={item.height ?? undefined} loading="lazy" onError={markBroken} ref={imageRef} src={item.url} width={item.width ?? undefined} />;
 }
 
 function Gallery({ items, galleryItemHref }: {
@@ -603,7 +514,7 @@ function Gallery({ items, galleryItemHref }: {
       <ul aria-label="Recent work">
         {items.map((item) => {
           const href = galleryItemHref?.(item) ?? null;
-          const image = <img alt={item.alt} height={item.height ?? undefined} loading="lazy" src={item.url} width={item.width ?? undefined} />;
+          const image = <GalleryImage item={item} />;
           return (
             <li key={item.id}>
               {href
@@ -614,7 +525,7 @@ function Gallery({ items, galleryItemHref }: {
         })}
       </ul>
       <dialog aria-label="Gallery photo" className="qb-gallery__dialog" onClose={() => setOpen(null)} ref={dialogRef}>
-        {open ? <img alt={open.alt} src={open.url} /> : null}
+        {open ? <GalleryImage item={open} /> : null}
         <button aria-label="Close photo" className="qb-gallery__close" onClick={hide} type="button">
           <X aria-hidden="true" size={20} />
         </button>
@@ -648,14 +559,18 @@ export function QuickBookPresentation({
   // The content recipe, not the presence of a field, decides what this
   // composition puts above booking. Anything it leaves out stays reachable
   // through Salon details, About or Before you book.
-  const showLogo = layout.logo !== 'omitted';
+  const showLogo = layout.logo !== 'omitted' && (Boolean(identity.logoUrl) || !['compact_dropdown', 'ultra_minimal', 'clean_card'].includes(layout.id));
   const logoNode = showLogo
     ? <Logo name={identity.salonName} src={identity.logoUrl} />
     : null;
   const factsNode = <Facts profile={profile} variant={layout.facts} />;
-  const contact = layout.contact === 'shown' ? <Contact profile={profile} /> : null;
+
   const actionsNode = <Actions layout={layout} profile={profile} />;
-  const gallery = <Gallery galleryItemHref={galleryItemHref} items={presentation.gallery} />;
+  const coverUrl = presentation.cover?.kind === 'custom' ? presentation.cover.url : null;
+  const galleryItems = layout.id === 'gallery_header' && presentation.cover?.kind === 'custom'
+    ? presentation.gallery.filter(item => item.url !== coverUrl)
+    : presentation.gallery;
+  const gallery = <Gallery galleryItemHref={galleryItemHref} items={galleryItems} />;
   const identityProps = { headingId, headingProps, profile };
   const centred = layout.id === 'profile_overlay' || layout.id === 'story_banner';
   const usesInlineStory = layout.story;
@@ -667,14 +582,12 @@ export function QuickBookPresentation({
         <>
           <div className="qb-rail">
             <div className="qb-rail__copy">
-              <Identity {...identityProps} showLogo={showLogo} showSpecialties />
+              <Identity {...identityProps} showLogo={showLogo} showSpecialties={false} />
               {presentation.coverText ? <p className="qb-tagline">{presentation.coverText}</p> : null}
             </div>
             {portrait}
           </div>
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -682,14 +595,11 @@ export function QuickBookPresentation({
     case 'floating_profile':
       body = (
         <>
-          <div className="qb-float">
-            {logoNode}
+          <div className="qb-band qb-float">
+            <Identity {...identityProps} showLogo={showLogo} showSpecialties={false} />
             <span className="qb-blob">{portrait}</span>
           </div>
-          <Identity {...identityProps} showLogo={false} showSpecialties />
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -697,15 +607,12 @@ export function QuickBookPresentation({
     case 'signature_stack':
       body = (
         <>
-          <div className="qb-float">
-            {logoNode}
+          <div className="qb-band qb-float">
+            <Identity {...identityProps} showLogo={showLogo} showSpecialties={false} />
             <span className="qb-blob">{portrait}</span>
           </div>
-          <Identity {...identityProps} showLogo={false} showSpecialties />
-          <Story greeting profile={profile} />
+          <Story greeting={false} profile={profile} />
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -721,19 +628,10 @@ export function QuickBookPresentation({
                 ? <p className="qb-panel__name">{identity.technicianName}</p>
                 : <p className="qb-panel__name">{identity.salonName}</p>}
               <p className="qb-panel__role">{identity.technicianName ? 'Your nail tech' : 'Nail studio'}</p>
-              {presentation.specialties.length > 0
-                ? (
-                    <ul aria-label="Specialties" className="qb-panel__list" data-testid="quick-book-specialties">
-                      {presentation.specialties.map(specialty => <li key={specialty}>{specialty}</li>)}
-                    </ul>
-                  )
-                : null}
               {profile.bio ? <p className="qb-panel__bio" data-testid="quick-book-bio">{profile.bio}</p> : null}
             </div>
           </div>
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -752,14 +650,12 @@ export function QuickBookPresentation({
           {identity.technicianName || presentation.specialties.length > 0 || presentation.portrait.kind !== 'none'
             ? (
                 <div className="qb-band">
-                  <Identity {...identityProps} nameInPanel showLogo={false} showSpecialties />
+                  <Identity {...identityProps} nameInPanel showLogo={false} showSpecialties={false} />
                   {portrait}
                 </div>
               )
             : null}
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -777,11 +673,9 @@ export function QuickBookPresentation({
             {portrait}
           </div>
           {identity.technicianName || presentation.specialties.length > 0
-            ? <Identity {...identityProps} nameInPanel showLogo={false} showSpecialties />
+            ? <Identity {...identityProps} nameInPanel showLogo={false} showSpecialties={false} />
             : null}
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -795,11 +689,9 @@ export function QuickBookPresentation({
             {logoNode}
           </div>
           <div className="qb-overlap">{portrait}</div>
-          <Identity {...identityProps} align="center" showLogo={false} showSpecialties />
-          {usesInlineStory ? <Story greeting profile={profile} /> : null}
+          <Identity {...identityProps} align="center" showLogo={false} showSpecialties={false} />
+          {usesInlineStory ? <Story greeting={false} profile={profile} /> : null}
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -812,10 +704,8 @@ export function QuickBookPresentation({
             {logoNode}
             {portrait}
           </div>
-          <Identity {...identityProps} showLogo={false} showSpecialties />
+          <Identity {...identityProps} showLogo={false} showSpecialties={false} />
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -828,14 +718,12 @@ export function QuickBookPresentation({
           {cover}
           {/* The gallery strip sits under a flush band; the other two overlap the cover edge. */}
           <div className={layout.id === 'gallery_header' ? 'qb-band' : 'qb-band qb-band--overlap'}>
-            <Identity {...identityProps} showLogo={showLogo} showSpecialties />
+            <Identity {...identityProps} showLogo={showLogo} showSpecialties={false} />
             {portrait}
           </div>
           {layout.id === 'gallery_header' ? gallery : null}
-          {usesInlineStory ? <Story greeting profile={profile} /> : null}
+          {usesInlineStory ? <Story greeting={false} profile={profile} /> : null}
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -844,12 +732,10 @@ export function QuickBookPresentation({
       body = (
         <>
           <div className="qb-band">
-            <Identity {...identityProps} showLogo={showLogo} showSpecialties />
+            <Identity {...identityProps} showLogo={showLogo} showSpecialties={false} />
             {portrait}
           </div>
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -858,12 +744,10 @@ export function QuickBookPresentation({
       body = (
         <>
           <div className="qb-band">
-            <Identity {...identityProps} showLogo={showLogo} showSpecialties />
+            <Identity {...identityProps} showLogo={showLogo} showSpecialties={false} />
             {portrait}
           </div>
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -874,13 +758,49 @@ export function QuickBookPresentation({
           <div className="qb-band qb-band--editorial">
             <div className="qb-band__copy">
               {logoNode}
-              <Identity {...identityProps} showLogo={false} showSpecialties />
+              <Identity {...identityProps} showLogo={false} showSpecialties={false} />
             </div>
             <span className="qb-blob qb-blob--small">{portrait}</span>
           </div>
           {factsNode}
-          {contact}
-          {actionsNode}
+          {book}
+        </>
+      );
+      break;
+    case 'compact_dropdown':
+      body = (
+        <>
+          <Identity {...identityProps} showLogo={showLogo} showSpecialties={false} />
+          {factsNode}
+        </>
+      );
+      break;
+    case 'ultra_minimal':
+      body = (
+        <div className="qb-minimal">
+          <Identity {...identityProps} showLogo={showLogo} showSpecialties={false} />
+          {factsNode}
+        </div>
+      );
+      break;
+    case 'clean_card':
+      body = (
+        <>
+          <Identity {...identityProps} align="center" showLogo={showLogo} showSpecialties={false} />
+          {factsNode}
+          {book}
+        </>
+      );
+      break;
+    case 'profile_story':
+      body = (
+        <>
+          <div className="qb-band">
+            <Identity {...identityProps} showLogo={false} showSpecialties={false} />
+            {portrait}
+          </div>
+          <Story greeting={false} profile={profile} />
+          {factsNode}
           {book}
         </>
       );
@@ -890,12 +810,10 @@ export function QuickBookPresentation({
       body = (
         <>
           <div className="qb-band">
-            <Identity {...identityProps} showLogo={showLogo} showSpecialties />
+            <Identity {...identityProps} showLogo={showLogo} showSpecialties={false} />
             {portrait}
           </div>
           {factsNode}
-          {contact}
-          {actionsNode}
           {book}
         </>
       );
@@ -908,8 +826,10 @@ export function QuickBookPresentation({
       data-qb-centred={centred ? 'true' : undefined}
       data-qb-family={layout.family}
       data-qb-layout={layout.id}
+      data-qb-long-name={identity.salonName.length > 26 ? 'true' : undefined}
     >
-      {body}
+      <div className="qb-main">{body}</div>
+      {actionsNode}
     </div>
   );
 }

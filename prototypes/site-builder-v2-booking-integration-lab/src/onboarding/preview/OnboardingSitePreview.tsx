@@ -4,6 +4,7 @@ import {
   CalendarDays,
   ChevronRight,
   Clock3,
+  Image as ImageIcon,
   Instagram,
   Mail,
   MapPin,
@@ -103,7 +104,7 @@ import type {
   SiteStylePresetId,
 } from '../model/types';
 import { buildLabQuickBookPresentationProfile } from '../quick-book/lab-presentation';
-import { isLegacyQuickBookLayoutId } from '../quick-book/layouts';
+import { isLegacyQuickBookLayoutId, isRetiredQuickBookLayout } from '../quick-book/layouts';
 import type { QuickBookGalleryItem } from '../quick-book/presentation-view';
 import { QuickBookPresentation } from '../quick-book/QuickBookPresentation';
 import { labelForNewClients, labelForVisitMode } from './customer-facts';
@@ -785,7 +786,7 @@ function QuickBookProfileHeader({
   }), [profile, state.reviewOptions.previewTimestamp, visibility]);
   const title = profile.businessName.trim() || 'Your nail studio';
   const layout = phase === 'identity' ? 'compact_dropdown' : state.recipe.quickBookLayout;
-  const sharedLayout = !isLegacyQuickBookLayoutId(layout);
+  const sharedLayout = !isRetiredQuickBookLayout(layout) && (final || !isLegacyQuickBookLayoutId(layout));
   // Design-system layouts mount the SAME renderer the public page uses, fed
   // by this draft through one adapter, so the Design step never previews a
   // composition the published page cannot produce.
@@ -814,7 +815,7 @@ function QuickBookProfileHeader({
           : [];
       })
       : [];
-    return buildLabQuickBookPresentationProfile({
+    const built = buildLabQuickBookPresentationProfile({
       layout,
       profile,
       view,
@@ -823,8 +824,19 @@ function QuickBookProfileHeader({
       coverUrl: resolveOnboardingImageUrl(profile.coverPhoto, identityAssets),
       gallery,
       websiteCopy: null,
+      bioVisible: visibility.showBio,
     });
-  }, [identityAssets, layout, profile, sharedLayout, state.gallery.images, state.recipe.galleryEnabled, title, view]);
+    const policyEntries = final && state.recipe.policiesEnabled && state.progress.visitedScreens.includes('policies')
+      ? getBeforeYouBookEntries(profile.policies).map(entry => ({ label: entry.heading, text: entry.wording }))
+      : [];
+    const minimumNotice = final && profile.bookingPreferences.minimumNoticeMinutes > 0
+      ? [{ label: 'Booking notice', text: getMinimumNoticeCopy(profile.bookingPreferences.minimumNoticeMinutes).customer }]
+      : [];
+    const deposit = final && getDepositPolicyMode(profile.policies) === 'fixed' && !policyEntries.some(entry => entry.label === 'Deposits & cancellations')
+      ? [{ label: 'Deposit', text: deriveDepositPolicySummary(profile.policies) }]
+      : [];
+    return { ...built, policies: [...policyEntries, ...minimumNotice, ...deposit] };
+  }, [identityAssets, layout, profile, sharedLayout, state.gallery.images, state.recipe.galleryEnabled, title, view, visibility.showBio, final, state.progress.visitedScreens, state.recipe.policiesEnabled]);
   const visitMode = final ? labelForVisitMode(profile) : null;
   const newClients = final ? labelForNewClients(profile) : null;
   const facts: QuickBookFact[] = business
@@ -1534,6 +1546,13 @@ function ContactSection({ contentPlacement, pageId, profile, sectionId }: {
   );
 }
 
+function PreviewGalleryImage({ alt, mediaId, source }: { alt: string; mediaId: string; source: string }) {
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  return failedSource === source
+    ? <span aria-label={`${alt} unavailable`} className="onboarding-customer-gallery__missing" data-media-id={mediaId} data-media-role="gallery" role="img"><ImageIcon aria-hidden="true" size={28} /></span>
+    : <img alt={alt} data-media-id={mediaId} data-media-role="gallery" onError={() => setFailedSource(source)} src={source} />;
+}
+
 function GallerySection({ compact = false, preset, sectionId, selection, state }: {
   compact?: boolean;
   preset?: GalleryPresetId;
@@ -1558,18 +1577,22 @@ function GallerySection({ compact = false, preset, sectionId, selection, state }
   if (images.length === 0) {
     return null;
   }
+  const useRefinedFallback = state.recipe.starter === 'quick_book' && !isRetiredQuickBookLayout(state.recipe.quickBookLayout);
   const tiles: ReactNode[] = images.flatMap((image, index) => {
     const source = resolveOnboardingImageUrl(image, assets);
     return source
-      ? [(
-          <img
-            alt={image.altText || `Portfolio work ${index + 1}`}
-            data-media-id={image.storageId ?? image.id}
-            data-media-role="gallery"
-            key={image.id}
-            src={source}
-          />
-        )]
+      ? [useRefinedFallback
+          ? (
+              <PreviewGalleryImage
+                alt={image.altText || `Portfolio work ${index + 1}`}
+                mediaId={image.storageId ?? image.id}
+                key={image.id}
+                source={source}
+              />
+            )
+          : (
+              <img alt={image.altText || `Portfolio work ${index + 1}`} data-media-id={image.storageId ?? image.id} data-media-role="gallery" key={image.id} src={source} />
+            )]
       : [];
   });
   if (tiles.length === 0) {
@@ -1832,6 +1855,8 @@ export type OnboardingSitePreviewProps = {
   device?: OnboardingPreviewDevice;
   document: SiteBuilderDocument | null;
   fitAvailable?: boolean;
+  /** Readable width-fit preview; phones use the actual available width. */
+  fitWidth?: boolean;
   includeOptionalSections?: boolean;
   initialPageId?: string;
   initialTarget?: OnboardingPreviewInitialTarget;
@@ -1852,6 +1877,7 @@ export function OnboardingSitePreview({
   device = 'phone',
   document,
   fitAvailable = false,
+  fitWidth = false,
   includeOptionalSections = true,
   initialPageId,
   initialTarget = 'top',
@@ -1876,6 +1902,7 @@ export function OnboardingSitePreview({
   const [heroActionVisible, setHeroActionVisible] = useState(true);
   const [overlayHost, setOverlayHost] = useState<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(1);
+  const [previewWidth, setPreviewWidth] = useState(viewport.width);
   const [previewHeight, setPreviewHeight] = useState(viewport.height);
   const { profile, recipe } = state;
   const roles = ONBOARDING_STYLE_ROLES[recipe.stylePreset];
@@ -2149,13 +2176,17 @@ export function OnboardingSitePreview({
         height: bounds.height || measurementHost.clientHeight || viewport.height,
         width: bounds.width || measurementHost.clientWidth || viewport.width,
       };
-      const scrollsAvailableHeight = fitAvailable && interactionMode === 'scrollable';
+      const scrollsAvailableHeight = fitAvailable && (interactionMode === 'scrollable' || fitWidth);
+      const nativeWidth = fitWidth && device === 'phone' ? Math.min(viewport.width, available.width) : viewport.width;
+      setPreviewWidth(nativeWidth);
       // A short reward viewport should show less of a readable customer site,
       // while its real scroll boundary still reaches the visible bottom edge.
-      const nextScale = calculateOnboardingPreviewScale(
-        scrollsAvailableHeight ? { ...available, height: viewport.height } : available,
-        viewport,
-      );
+      const nextScale = fitWidth
+        ? Math.min(1, available.width / nativeWidth)
+        : calculateOnboardingPreviewScale(
+          scrollsAvailableHeight ? { ...available, height: viewport.height } : available,
+          viewport,
+        );
       const nextHeight = scrollsAvailableHeight ? available.height / nextScale : viewport.height;
       setPreviewScale(current => (
         Math.abs(current - nextScale) < 0.0001 ? current : nextScale
@@ -2188,7 +2219,7 @@ export function OnboardingSitePreview({
       window.removeEventListener('orientationchange', scheduleScaleUpdate);
       visualViewport?.removeEventListener('resize', scheduleScaleUpdate);
     };
-  }, [fitAvailable, interactionMode, viewport]);
+  }, [device, fitAvailable, fitWidth, interactionMode, viewport]);
 
   useLayoutEffect(() => {
     if (frameRef.current) {
@@ -2215,7 +2246,7 @@ export function OnboardingSitePreview({
     '--preview-stage-height': `${Math.round(previewHeight * previewScale)}px`,
     '--preview-frame-height': `${previewHeight}px`,
     '--preview-target-height': `${viewport.height}px`,
-    '--preview-target-width': `${viewport.width}px`,
+    '--preview-target-width': `${fitWidth ? previewWidth : viewport.width}px`,
   } as CSSProperties;
   const renderedPages = starter === 'multi_page'
     ? (activePage ? [activePage] : [])
@@ -2413,7 +2444,7 @@ export function OnboardingSitePreview({
     <section
       aria-label={label}
       aria-describedby={summaryId}
-      className={`onboarding-preview-stage is-${device}${fitAvailable ? ' is-fit-available' : ''}`}
+      className={`onboarding-preview-stage is-${device}${fitAvailable ? ' is-fit-available' : ''}${fitWidth ? ' is-width-fit' : ''}`}
       data-preview-device={device}
       data-preview-initial-target={initialTarget}
       data-preview-interaction={interactionMode}

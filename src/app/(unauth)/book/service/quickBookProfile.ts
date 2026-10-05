@@ -143,6 +143,7 @@ export type QuickBookProfileView = {
     href: string;
   } | null;
   bio: string | null;
+  fullBio?: string | null;
   /**
    * Layout-aware image and detail states for the design-system layouts.
    * Always produced by `resolvePublicQuickBookProfile`; optional only so the
@@ -663,6 +664,7 @@ export function resolvePublicQuickBookProfile(source: QuickBookProfileSource): Q
     bio: visibility.showBio
       ? truncateBio(source.bio)
       : null,
+    fullBio: visibility.showBio ? trimmed(source.bio) : null,
     presentation,
   };
 }

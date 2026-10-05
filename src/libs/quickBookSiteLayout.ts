@@ -16,6 +16,7 @@ import {
   getSelectableQuickBookLayoutsByFamily,
   isLegacyQuickBookLayoutId,
   isQuickBookLayoutId,
+  isRecommendedQuickBookLayout,
   isRetiredQuickBookLayout,
   LEGACY_QUICK_BOOK_LAYOUT_IDS,
   QUICK_BOOK_LAYOUT_FAMILIES,
@@ -27,6 +28,7 @@ import {
   type QuickBookLayoutId,
   type QuickBookNameFit,
   type QuickBookPortraitTreatment,
+  RECOMMENDED_QUICK_BOOK_LAYOUT_IDS,
 } from '../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/layouts';
 
 export {
@@ -38,6 +40,7 @@ export {
   getSelectableQuickBookLayoutsByFamily,
   isLegacyQuickBookLayoutId,
   isQuickBookLayoutId,
+  isRecommendedQuickBookLayout,
   isRetiredQuickBookLayout,
   LEGACY_QUICK_BOOK_LAYOUT_IDS,
   QUICK_BOOK_LAYOUT_DEFINITIONS,
@@ -47,6 +50,7 @@ export {
   type QuickBookLayoutFamily,
   type QuickBookNameFit,
   type QuickBookPortraitTreatment,
+  RECOMMENDED_QUICK_BOOK_LAYOUT_IDS,
 };
 
 /** Every persisted identifier, including supported retired layouts. */

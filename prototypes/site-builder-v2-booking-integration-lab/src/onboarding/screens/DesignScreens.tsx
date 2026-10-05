@@ -80,12 +80,16 @@ import {
 import {
   describeQuickBookLayoutCapabilities,
   describeQuickBookNameAdvisory,
+  getQuickBookLayout,
   getSelectableQuickBookLayoutsByFamily,
+  isRecommendedQuickBookLayout,
   isRetiredQuickBookLayout,
   QUICK_BOOK_LAYOUT_FAMILIES,
   QUICK_BOOK_LAYOUT_FAMILY_LABELS,
   QUICK_BOOK_LAYOUTS,
+  type QuickBookLayoutDefinition,
   type QuickBookLayoutId,
+  RECOMMENDED_QUICK_BOOK_LAYOUT_IDS,
 } from '../quick-book/layouts';
 import { QuickBookLayoutPoster } from '../quick-book/QuickBookLayoutPoster';
 import { AboutSetupScreen } from './AboutSetupScreen';
@@ -943,6 +947,7 @@ export function QuickBookLayoutScreen({
   onFullPreview: (trigger?: HTMLElement) => void;
 }) {
   const feedback = useFeedback();
+  const [moreLayoutsOpen, setMoreLayoutsOpen] = useState(!isRecommendedQuickBookLayout(state.recipe.quickBookLayout));
   const selectedLayout = QUICK_BOOK_LAYOUTS.find(
     ({ id }) => id === state.recipe.quickBookLayout,
   ) ?? QUICK_BOOK_LAYOUTS[0]!;
@@ -1014,6 +1019,62 @@ export function QuickBookLayoutScreen({
     technicianName: quickBookProfile.techName,
   };
 
+  const renderLayoutCard = (layout: QuickBookLayoutDefinition) => {
+    const selected = state.recipe.quickBookLayout === layout.id;
+    const capabilities = describeQuickBookLayoutCapabilities(layout);
+    // Guidance, not a gate: any layout stays selectable.
+    const advisory = describeQuickBookNameAdvisory(
+      layout,
+      state.profile.businessName,
+    );
+    return (
+      <button
+        aria-pressed={selected}
+        className="onboarding-quick-book-layout-card"
+        data-selected={selected ? 'true' : 'false'}
+        key={layout.id}
+        type="button"
+        onClick={(event) => {
+          feedback.send({ kind: 'selection' });
+          onUpdate(current => ({
+            ...current,
+            recipe: { ...current.recipe, quickBookLayout: layout.id as QuickBookLayoutId },
+          }));
+          onFullPreview(event.currentTarget);
+        }}
+      >
+        <QuickBookLayoutPoster {...posterProps} layout={layout.id as QuickBookLayoutId} />
+        <span className="onboarding-quick-book-layout-card__copy">
+          <strong>{layout.label}</strong>
+          <small>{layout.description}</small>
+          {capabilities.length > 0
+            ? (
+                <span className="onboarding-quick-book-layout-card__badges">
+                  {capabilities.map(capability => <i key={capability}>{capability}</i>)}
+                </span>
+              )
+            : null}
+          {advisory
+            ? (
+                <small className="onboarding-quick-book-layout-card__advisory">
+                  {advisory}
+                </small>
+              )
+            : null}
+          {selected
+            ? (
+                <em>
+                  <Check aria-hidden="true" size={14} />
+                  {' '}
+                  Selected
+                </em>
+              )
+            : null}
+        </span>
+      </button>
+    );
+  };
+
   return (
     <div
       className="onboarding-screen onboarding-screen--designer onboarding-screen--quick-book-layout"
@@ -1035,79 +1096,39 @@ export function QuickBookLayoutScreen({
         {isRetiredQuickBookLayout(state.recipe.quickBookLayout)
           ? <p>{`Your saved ${selectedLayout.label} layout is kept. You can preview it or choose another layout.`}</p>
           : null}
-        {QUICK_BOOK_LAYOUT_FAMILIES.map((family) => {
-          const familyMeta = QUICK_BOOK_LAYOUT_FAMILY_LABELS[family];
-          return (
-            <section
-              aria-labelledby={`quick-book-layout-family-${family}`}
-              className="onboarding-quick-book-layout-family"
-              data-layout-family={family}
-              key={family}
-            >
-              <header>
-                <h2 id={`quick-book-layout-family-${family}`}>{familyMeta.title}</h2>
-                <p>{familyMeta.description}</p>
-              </header>
-              <div className="onboarding-quick-book-layout-grid">
-                {getSelectableQuickBookLayoutsByFamily(family, state.recipe.quickBookLayout).map((layout) => {
-                  const selected = state.recipe.quickBookLayout === layout.id;
-                  const capabilities = describeQuickBookLayoutCapabilities(layout);
-                  // Guidance, not a gate: any layout stays selectable.
-                  const advisory = describeQuickBookNameAdvisory(
-                    layout,
-                    state.profile.businessName,
-                  );
-                  return (
-                    <button
-                      aria-pressed={selected}
-                      className="onboarding-quick-book-layout-card"
-                      data-selected={selected ? 'true' : 'false'}
-                      key={layout.id}
-                      type="button"
-                      onClick={(event) => {
-                        feedback.send({ kind: 'selection' });
-                        onUpdate(current => ({
-                          ...current,
-                          recipe: { ...current.recipe, quickBookLayout: layout.id as QuickBookLayoutId },
-                        }));
-                        onFullPreview(event.currentTarget);
-                      }}
-                    >
-                      <QuickBookLayoutPoster {...posterProps} layout={layout.id as QuickBookLayoutId} />
-                      <span className="onboarding-quick-book-layout-card__copy">
-                        <strong>{layout.label}</strong>
-                        <small>{layout.description}</small>
-                        {capabilities.length > 0
-                          ? (
-                              <span className="onboarding-quick-book-layout-card__badges">
-                                {capabilities.map(capability => <i key={capability}>{capability}</i>)}
-                              </span>
-                            )
-                          : null}
-                        {advisory
-                          ? (
-                              <small className="onboarding-quick-book-layout-card__advisory">
-                                {advisory}
-                              </small>
-                            )
-                          : null}
-                        {selected
-                          ? (
-                              <em>
-                                <Check aria-hidden="true" size={14} />
-                                {' '}
-                                Selected
-                              </em>
-                            )
-                          : null}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })}
+        <section className="onboarding-quick-book-layout-family is-recommended" aria-labelledby="quick-book-recommended-heading">
+          <header>
+            <h2 id="quick-book-recommended-heading">Recommended</h2>
+            <p>Three starting points. Choose the one that feels like your business.</p>
+          </header>
+          <div className="onboarding-quick-book-layout-grid">
+            {RECOMMENDED_QUICK_BOOK_LAYOUT_IDS.map(id => renderLayoutCard(getQuickBookLayout(id)))}
+          </div>
+        </section>
+        <button className="onboarding-more-layouts" type="button" aria-expanded={moreLayoutsOpen} aria-controls="quick-book-more-layouts" onClick={() => setMoreLayoutsOpen(value => !value)}>{moreLayoutsOpen ? 'Hide more layouts' : 'View more layouts'}</button>
+        <div id="quick-book-more-layouts" hidden={!moreLayoutsOpen}>
+          {QUICK_BOOK_LAYOUT_FAMILIES.map((family) => {
+            const familyMeta = QUICK_BOOK_LAYOUT_FAMILY_LABELS[family];
+            return (
+              <section
+                aria-labelledby={`quick-book-layout-family-${family}`}
+                className="onboarding-quick-book-layout-family"
+                data-layout-family={family}
+                key={family}
+              >
+                <header>
+                  <h2 id={`quick-book-layout-family-${family}`}>{familyMeta.title}</h2>
+                  <p>{familyMeta.description}</p>
+                </header>
+                <div className="onboarding-quick-book-layout-grid">
+                  {getSelectableQuickBookLayoutsByFamily(family, state.recipe.quickBookLayout)
+                    .filter(layout => !isRecommendedQuickBookLayout(layout.id))
+                    .map(renderLayoutCard)}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       </div>
       {selectedLayout.cover || selectedLayout.portrait === 'essential'
         ? (

@@ -65,7 +65,7 @@ export function SetupPreviewOverlay({
       title={title}
       variant="sheet"
     >
-      <div className="onboarding-preview-overlay" data-preview-source={source}>
+      <div className="onboarding-preview-overlay" data-preview-source={source} data-readable-quick-book={state.recipe.starter === 'quick_book' ? 'true' : undefined}>
         <a
           className="onboarding-preview-skip-link"
           href={`#${returnActionsId}`}
@@ -98,6 +98,7 @@ export function SetupPreviewOverlay({
           device={device}
           document={document}
           fitAvailable
+          fitWidth={state.recipe.starter === 'quick_book'}
           includeOptionalSections={source !== 'starting_preview'}
           initialTarget={resolvedInitialTarget}
           interactionMode="interactive"

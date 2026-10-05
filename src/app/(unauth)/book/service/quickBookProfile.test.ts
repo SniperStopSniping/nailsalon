@@ -456,6 +456,7 @@ describe('resolvePublicQuickBookProfile', () => {
     expect(profile.reviews).toBeNull();
     expect(profile.instagram).toBeNull();
     expect(profile.bio).toBeNull();
+    expect(profile.fullBio).toBeNull();
   });
 
   it('uses the active shared booking-page bio and suppresses a photo that cross-falls back to the logo', () => {
@@ -471,5 +472,21 @@ describe('resolvePublicQuickBookProfile', () => {
     expect(profile.bio).toBe('Healthy nails, flawless results. Specializing in BIAB, Gel-X and Russian Manicure.');
     expect(profile.identity.logoUrl).toBe('https://images.example/isla-logo.png');
     expect(profile.identity.technicianPhotoUrl).toBeNull();
+  });
+
+  it('keeps complete biography under the same public visibility permission as the short introduction', () => {
+    const source = buildSource({ ...HIDDEN, showBio: true });
+    source.bio = 'A complete saved biography. '.repeat(30);
+
+    const visible = resolvePublicQuickBookProfile(source);
+
+    expect(visible.fullBio).toBe(source.bio.trim());
+    expect(visible.bio!.length).toBeLessThan(source.bio.length);
+
+    source.visibility = HIDDEN;
+    const hidden = resolvePublicQuickBookProfile(source);
+
+    expect(hidden.bio).toBeNull();
+    expect(hidden.fullBio).toBeNull();
   });
 });

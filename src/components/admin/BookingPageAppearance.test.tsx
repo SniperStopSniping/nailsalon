@@ -28,6 +28,30 @@ describe('Booking Page appearance', () => {
     expect(onChange).toHaveBeenLastCalledWith({ quickBookLayout: 'clean_card' });
   });
 
+  it('shows three recommended choices first and retains every other new choice behind View more', () => {
+    const onChange = vi.fn();
+    const draft = resolveBookingPageConfig({ bookingPage: { draft: { quickBookLayout: 'compact_dropdown' } } }).draft;
+    render(<BookingPageAppearance disabled={false} draft={draft} mode="layouts" onChange={onChange} />);
+    const visibleChoices = () => screen.getAllByRole('button').filter(button => button.getAttribute('data-testid')?.startsWith('quick-book-layout-option-'));
+
+    expect(visibleChoices().map(button => button.getAttribute('data-testid'))).toEqual([
+      'quick-book-layout-option-compact_dropdown',
+      'quick-book-layout-option-side_portrait',
+      'quick-book-layout-option-hero_banner',
+    ]);
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View more layouts' }));
+
+    expect(visibleChoices()).toHaveLength(20);
+    expect(screen.queryByRole('button', { name: /^Editorial Elegant/u })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Hub Menu/u })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Side Portrait/u }));
+
+    expect(onChange).toHaveBeenLastCalledWith({ quickBookLayout: 'side_portrait' });
+  });
+
   it('uses the shared styles, palettes and font choices, and writes only the chosen field', () => {
     const onChange = vi.fn();
     const draft = resolveBookingPageConfig({}).draft;

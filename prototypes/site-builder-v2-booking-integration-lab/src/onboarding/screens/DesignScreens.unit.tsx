@@ -54,7 +54,7 @@ describe('QuickBookLayoutScreen', () => {
 
     const layoutGroup = screen.getByRole('group', { name: 'Quick Book layouts' });
 
-    expect(layoutGroup.querySelectorAll('button')).toHaveLength(QUICK_BOOK_LAYOUTS.length - RETIRED_QUICK_BOOK_LAYOUT_IDS.length);
+    expect(layoutGroup.querySelectorAll('button:has(.qb-poster)')).toHaveLength(QUICK_BOOK_LAYOUTS.length - RETIRED_QUICK_BOOK_LAYOUT_IDS.length);
     expect(layoutGroup.querySelectorAll('[data-layout-family]')).toHaveLength(3);
 
     const posters = layoutGroup.querySelectorAll<HTMLElement>('.qb-poster');
@@ -79,6 +79,8 @@ describe('QuickBookLayoutScreen', () => {
       .toHaveAttribute('data-qb-image', 'default');
     expect(screen.getByRole('button', { name: /^Compact Dropdown/u }))
       .toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'View more layouts' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: /^Editorial Split/u })).not.toBeInTheDocument();
     expect(document.querySelector('.onboarding-preview-stage')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /^Compact Dropdown/u }));
@@ -99,6 +101,7 @@ describe('QuickBookLayoutScreen', () => {
     expect(screen.queryByRole('button', { name: /^Editorial Elegant/u })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Hub Menu/u })).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: 'View more layouts' }));
     await user.click(screen.getByRole('button', { name: /^Editorial Split/u }));
 
     await waitFor(() => {
