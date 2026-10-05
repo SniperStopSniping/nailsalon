@@ -585,7 +585,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const preview = screen.getByRole('region', { name: 'Personalized Booking preview' });
     const booking = within(preview).getByRole('region', { name: 'Booking' });
 
-    expect(within(booking).getByRole('heading', { level: 2, name: 'Book an appointment' })).toBeVisible();
+    expect(within(booking).getByRole('heading', { level: 2, name: 'Our Services' })).toBeVisible();
     expect(within(booking).queryByRole('heading', { name: 'Services & Booking' })).not.toBeInTheDocument();
     expect(within(booking).queryByText('Find your next polished look.')).not.toBeInTheDocument();
     expect(within(booking).getAllByText('Choose a service to see its details, options, price and duration.')).toHaveLength(1);

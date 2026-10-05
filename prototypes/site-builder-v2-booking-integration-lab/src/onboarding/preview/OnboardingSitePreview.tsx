@@ -103,6 +103,7 @@ import type {
   QuickBookLayoutId,
   SiteStylePresetId,
 } from '../model/types';
+import { isApprovedQuickBookLayout } from '../quick-book/ApprovedQuickBookComposition';
 import { buildLabQuickBookPresentationProfile } from '../quick-book/lab-presentation';
 import { isLegacyQuickBookLayoutId, isRetiredQuickBookLayout } from '../quick-book/layouts';
 import type { QuickBookGalleryItem } from '../quick-book/presentation-view';
@@ -948,7 +949,7 @@ function QuickBookProfileHeader({
         data-quick-book-layout={layout}
         data-section-id={sectionId}
         id={sectionAnchorId(sectionId, 'hero')}
-        style={QUICK_BOOK_PRESENTATION_TOKENS}
+        style={isApprovedQuickBookLayout(layout) ? undefined : QUICK_BOOK_PRESENTATION_TOKENS}
       >
         <QuickBookPresentation
           bookingHref="#booking"
@@ -1615,6 +1616,7 @@ function GallerySection({ compact = false, preset, sectionId, selection, state }
 }
 
 function BookingSection({
+  approvedComposition = false,
   compactPolicies = false,
   contentPlacement,
   document,
@@ -1627,6 +1629,7 @@ function BookingSection({
   sectionId,
   session,
 }: {
+  approvedComposition?: boolean;
   compactPolicies?: boolean;
   contentPlacement: SiteContentPlacementPlan;
   document: SiteBuilderDocument | null;
@@ -1724,7 +1727,7 @@ function BookingSection({
   return (
     <section
       aria-label="Booking"
-      className="onboarding-customer-booking"
+      className={approvedComposition ? 'onboarding-customer-booking qbp-services' : 'onboarding-customer-booking'}
       data-content-key="service_catalogue"
       data-content-owner={sectionId ?? documentBookingSection?.id}
       data-preview-target="booking"
@@ -1734,7 +1737,18 @@ function BookingSection({
       {quickBook
         ? (
             <header className="onboarding-quick-book-booking-heading">
-              <h2>Book an appointment</h2>
+              {approvedComposition
+                ? (
+                    <div className="qbp-services-heading">
+                      <h2>Our Services</h2>
+                      <span>
+                        {fixture.services.length}
+                        {' '}
+                        services
+                      </span>
+                    </div>
+                  )
+                : <h2>Book an appointment</h2>}
               <p>Choose a service to see its details, options, price and duration.</p>
             </header>
           )
@@ -2370,6 +2384,7 @@ export function OnboardingSitePreview({
     if (planSection.sectionType === 'booking') {
       return (
         <BookingSection
+          approvedComposition={starter === 'quick_book' && isApprovedQuickBookLayout(state.recipe.quickBookLayout)}
           compactPolicies={false}
           contentPlacement={contentPlacement}
           key={planSection.id}
@@ -2486,7 +2501,7 @@ export function OnboardingSitePreview({
         role={interactionMode !== 'inline' ? 'region' : undefined}
         tabIndex={interactionMode === 'inline' ? -1 : 0}
       >
-        <div className="onboarding-site-preview" ref={previewRef} style={style}>
+        <div className={`onboarding-site-preview${starter === 'quick_book' && isApprovedQuickBookLayout(recipe.quickBookLayout) ? ' qbp-page' : ''}`} data-version={starter === 'quick_book' && isApprovedQuickBookLayout(recipe.quickBookLayout) ? 'prototype' : undefined} ref={previewRef} style={style}>
           {starter !== 'quick_book' && (
             <header className={`onboarding-customer-header${starter === 'multi_page' ? ' has-page-navigation' : ''}${starter === 'one_page' ? ' has-anchor-navigation' : ''}`}>
               <Brand profile={profile} showName={!activeHeroOwnsBusinessIdentity} />
