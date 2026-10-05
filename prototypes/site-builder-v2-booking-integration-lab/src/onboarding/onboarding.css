@@ -6878,3 +6878,18 @@ body:has(.onboarding-app) {
 }
 
 .onboarding-customer-gallery .onboarding-customer-gallery__missing { display: grid; place-items: center; color: var(--customer-muted); background: var(--customer-ground); }
+
+/* Only the three approved compositions use these preview host rules. */
+.onboarding-site-preview.qbp-page { padding: 0; gap: 0; }
+.onboarding-site-preview.qbp-page .onboarding-quick-book-profile { padding: 0; margin: 0; border: 0; background: transparent; box-shadow: none; }
+.onboarding-site-preview.qbp-page .onboarding-customer-booking { background: transparent; border: 0; margin: 0; padding: 18px 22px 28px; }
+.onboarding-site-preview.qbp-page .onboarding-quick-book-booking-heading { text-align: left; margin-bottom: 0; }
+.onboarding-site-preview.qbp-page .onboarding-quick-book-booking-heading h2 { font-family: var(--qbp-display); font-size: 32px; font-weight: 400; line-height: 1.2; letter-spacing: -0.02em; text-transform: none; }
+.onboarding-site-preview.qbp-page .onboarding-quick-book-booking-heading p { font-size: 11px; line-height: 1.5; margin-top: 3px; color: var(--qbp-muted); }
+.onboarding-site-preview.qbp-page .onboarding-quick-book-booking-deposit { font-size: 11px; font-weight: 400; margin: 6px 0 0; padding: 0; background: transparent; border: 0; color: var(--qbp-muted); }
+.onboarding-site-preview.qbp-page .onboarding-quick-book-booking-deposit strong { font-weight: 400; }
+@container approved-quick-book (max-width: 350px) { .onboarding-site-preview.qbp-page .onboarding-customer-booking { padding-inline: 18px; } }
+@container approved-quick-book (min-width: 700px) {
+  .onboarding-site-preview.qbp-page .onboarding-customer-booking { padding: 30px 36px; }
+  .onboarding-site-preview.qbp-page .onboarding-quick-book-booking-heading h2 { font-size: 38px; }
+}

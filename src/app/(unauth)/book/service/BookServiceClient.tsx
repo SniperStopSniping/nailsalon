@@ -12,6 +12,7 @@ import {
 } from '@/components/booking/SectionOrderRenderer';
 import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
+import { isApprovedQuickBookLayout } from '@/components/customer-site/QuickBookPresentation';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { StateCard } from '@/components/ui/state-card';
@@ -363,6 +364,7 @@ export function BookServiceClient({
       : {};
   const compactQuickBookProfileEnabled = layout === 'quick_book'
     && usesCompactQuickBookProfile(bookingPage?.quickBookProfile);
+  const approvedQuickBookComposition = compactQuickBookProfileEnabled && isApprovedQuickBookLayout(bookingPage?.quickBookLayout);
   const quickBookSectionOrder = resolveQuickBookPublicSectionOrder(
     layout,
     bookingPage?.sectionOrder ?? QUICK_BOOK_SECTION_ORDER_FALLBACK,
@@ -1444,6 +1446,7 @@ export function BookServiceClient({
         {addOnAnnouncement}
       </span>
       <div
+        data-version={approvedQuickBookComposition ? 'prototype' : undefined}
         className={
           // Rev 3 plan section 6 (PR 6): Editorial's front-of-page content
           // (hero, signature services, about, visit, policies) gets a real
@@ -1454,11 +1457,13 @@ export function BookServiceClient({
           // since that booking engine is explicitly out of scope for this
           // PR's redesign. This is presentation-plan chrome, not a second
           // conditional booking-engine body.
-          compactQuickBookProfileEnabled && !['editorial', 'hub_menu'].includes(bookingPage?.quickBookLayout ?? '')
-            ? 'quick-book-refined-page mx-auto flex w-full max-w-[1120px] flex-col px-4 pb-10 max-[360px]:px-[12px] sm:px-6'
-            : sectionPresentation.pageFrame === 'editorial'
-              ? 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px] lg:max-w-5xl lg:px-10'
-              : 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px]'
+          approvedQuickBookComposition
+            ? 'qbp-page flex w-full flex-col'
+            : compactQuickBookProfileEnabled && !['editorial', 'hub_menu'].includes(bookingPage?.quickBookLayout ?? '')
+              ? 'quick-book-refined-page mx-auto flex w-full max-w-[1120px] flex-col px-4 pb-10 max-[360px]:px-[12px] sm:px-6'
+              : sectionPresentation.pageFrame === 'editorial'
+                ? 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px] lg:max-w-5xl lg:px-10'
+                : 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px]'
         }
         style={{ paddingBottom: selectedService ? 'calc(7rem + env(safe-area-inset-bottom, 0px))' : undefined }}
       >
@@ -1487,6 +1492,19 @@ export function BookServiceClient({
             menuVariant: 'list' | 'grouped_categories';
           }) => (
             <>
+              {approvedQuickBookComposition && (
+                <div id="quick-book-booking">
+                  <header className="qbp-services-heading">
+                    <h2>Our Services</h2>
+                    <span>
+                      {services.length}
+                      {' '}
+                      services
+                    </span>
+                  </header>
+                  <p className="qbp-service-guidance">Choose a service to see its details, options, price and duration.</p>
+                </div>
+              )}
               {catalogChanged && (
                 <div
                   role="status"
@@ -1582,7 +1600,7 @@ export function BookServiceClient({
               <div
                 data-public-surface="serviceSelectionControls"
                 ref={searchCardRef}
-                className="mb-4 scroll-mt-3"
+                className={approvedQuickBookComposition ? 'qbp-public-search mb-3 scroll-mt-3' : 'mb-4 scroll-mt-3'}
                 style={{
                   opacity: previewContentReady ? 1 : 0,
                   transform: previewContentReady ? 'translateY(0)' : 'translateY(10px)',
@@ -1855,7 +1873,7 @@ export function BookServiceClient({
                                       triggerHaptic('select');
                                     }
                                   }}
-                                  className={`flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none md:gap-2 md:px-5 ${
+                                  className={`${approvedQuickBookComposition ? 'qbp-category-pill ' : ''}flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none md:gap-2 md:px-5 ${
                                     active && hasBookingBrandColor
                                       ? 'bg-[var(--booking-brand-primary)] text-[var(--booking-brand-foreground)]'
                                       : ''
@@ -1991,15 +2009,17 @@ export function BookServiceClient({
                                   <span>{BOOKING_CATEGORY_META[group.category].label}</span>
                                 </h3>
                               )}
-                              <div className="space-y-2">
+                              <div className={approvedQuickBookComposition ? 'qbp-service-grid' : 'space-y-2'}>
                                 {group.rows.map((row, rowIndex) => {
                                   const rowContainsSelectedService = row.some(service => service.id === selectedBaseServiceId);
 
                                   return (
-                                    <div key={`service-row-${row.map(service => service.id).join('-')}`} data-selected-service-row={rowContainsSelectedService ? true : undefined} className="scroll-mt-4 space-y-2">
-                                      <div className={serviceMenuPresentation.columns === 2 && !rowContainsSelectedService
-                                        ? 'grid grid-cols-2 gap-3'
-                                        : 'grid grid-cols-1 gap-2'}
+                                    <div key={`service-row-${row.map(service => service.id).join('-')}`} data-selected-service-row={rowContainsSelectedService ? true : undefined} className={approvedQuickBookComposition ? 'qbp-service-row' : 'scroll-mt-4 space-y-2'}>
+                                      <div className={approvedQuickBookComposition
+                                        ? 'qbp-service-row-cards'
+                                        : serviceMenuPresentation.columns === 2 && !rowContainsSelectedService
+                                          ? 'grid grid-cols-2 gap-3'
+                                          : 'grid grid-cols-1 gap-2'}
                                       >
                                         {row.map((service, serviceIndex) => {
                                           const isSelected = selectedItems.some(item => item.serviceId === service.id);
@@ -2018,6 +2038,8 @@ export function BookServiceClient({
                                               onClick={() => handleServiceSelection(service)}
                                               data-testid={`service-card-${service.id}`}
                                               data-selected={isSelected ? 'true' : 'false'}
+                                              data-qbp-service={approvedQuickBookComposition ? 'true' : undefined}
+                                              data-qbp-has-image={approvedQuickBookComposition ? Boolean(showServiceImages && !isSelected && serviceMenuPresentation.image !== 'hidden') : undefined}
                                               aria-expanded={isExpanded}
                                               aria-controls={isExpanded ? `service-details-${service.id}` : undefined}
                                               className={`relative flex h-full overflow-hidden text-left transition-all duration-200 ${
@@ -2133,7 +2155,7 @@ export function BookServiceClient({
                                                   {service.name}
                                                 </div>
                                                 {isSelected && <span className="sr-only">Added to your booking</span>}
-                                                {serviceMenuPresentation.description !== 'hidden' && (
+                                                {!approvedQuickBookComposition && serviceMenuPresentation.description !== 'hidden' && (
                                                   <div className={serviceMenuPresentation.description === 'editorial'
                                                     ? 'mt-1 line-clamp-3 text-[13px] leading-5 text-neutral-600'
                                                     : 'mt-0.5 line-clamp-2 text-[10px] leading-[1.35] text-neutral-500'}
@@ -2164,7 +2186,7 @@ export function BookServiceClient({
                                                     {service.priceDisplayText || formatMoney(service.priceCents, currency)}
                                                   </span>
                                                 </div>
-                                                {!isSelected && (
+                                                {!approvedQuickBookComposition && !isSelected && (
                                                   <span className="mt-2 text-[11px] font-semibold text-neutral-700">
                                                     {hasServiceOptions ? 'Select and see add-ons' : 'Select service'}
                                                   </span>
@@ -2731,11 +2753,11 @@ export function BookServiceClient({
                 });
                 return sectionPresentation.serviceMenuFrame === 'services-anchor'
                   ? (
-                      <div id="services" ref={servicesAnchorRef} className="scroll-mt-4 lg:mx-auto lg:w-full lg:max-w-[430px]">
+                      <div id="services" ref={servicesAnchorRef} className={approvedQuickBookComposition ? 'qbp-services' : 'scroll-mt-4 lg:mx-auto lg:w-full lg:max-w-[430px]'}>
                         {serviceMenu}
                       </div>
                     )
-                  : serviceMenu;
+                  : approvedQuickBookComposition ? <div data-public-surface="serviceMenu" className="qbp-services">{serviceMenu}</div> : serviceMenu;
               },
               grouped_categories: ({ renderSlot }) => {
                 const serviceMenu = renderServiceMenuContent({
@@ -2746,11 +2768,11 @@ export function BookServiceClient({
                 });
                 return sectionPresentation.serviceMenuFrame === 'services-anchor'
                   ? (
-                      <div id="services" ref={servicesAnchorRef} className="scroll-mt-4 lg:mx-auto lg:w-full lg:max-w-[430px]">
+                      <div id="services" ref={servicesAnchorRef} className={approvedQuickBookComposition ? 'qbp-services' : 'scroll-mt-4 lg:mx-auto lg:w-full lg:max-w-[430px]'}>
                         {serviceMenu}
                       </div>
                     )
-                  : serviceMenu;
+                  : approvedQuickBookComposition ? <div data-public-surface="serviceMenu" className="qbp-services">{serviceMenu}</div> : serviceMenu;
               },
             },
             hoursLocation: {

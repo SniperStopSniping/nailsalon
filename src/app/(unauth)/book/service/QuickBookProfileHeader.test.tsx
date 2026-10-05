@@ -93,8 +93,8 @@ describe('QuickBookProfileHeader', () => {
       );
       const header = screen.getByTestId('booking-step-header');
       const profile = screen.getByTestId('quick-book-profile');
-      const identity = screen.getByTestId('quick-book-identity');
-      const details = screen.getByTestId('quick-book-business-details');
+      const identity = screen.queryByTestId('quick-book-identity') ?? profile.querySelector('.qbp-brand')!;
+      const details = screen.queryByTestId('quick-book-business-details') ?? profile.querySelector('.qbp-facts')!;
 
       expect(header).toHaveAttribute('data-quick-book-layout', layout);
       expect(profile).toHaveAttribute('data-layout-presentation', layout);
@@ -150,7 +150,7 @@ describe('QuickBookProfileHeader', () => {
         `${layout} must follow its own content recipe`,
       ).toEqual({
         layout,
-        logo: definition.logo !== 'omitted',
+        logo: ['compact_dropdown', 'side_portrait', 'hero_banner'].includes(layout) || definition.logo !== 'omitted',
         portrait: definition.portrait !== 'none',
       });
     }

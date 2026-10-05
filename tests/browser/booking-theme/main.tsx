@@ -7,8 +7,11 @@ import { BookConfirmClient } from '@/app/(unauth)/book/confirm/BookConfirmClient
 import { BookServiceClient } from '@/app/(unauth)/book/service/BookServiceClient';
 import { BookTechClient } from '@/app/(unauth)/book/tech/BookTechClient';
 import { BookTimeClient } from '@/app/(unauth)/book/time/BookTimeClient';
+import { isApprovedQuickBookLayout } from '@/components/customer-site/QuickBookPresentation';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { resolveCustomerSitePalettePreset } from '@/libs/customerSitePresentation';
+
+import { createQuickBookFixture } from './quick-book-fixture';
 
 const query = new URLSearchParams(window.location.search);
 // PublicSalonPageShell normally resolves policy versions on the Node server.
@@ -17,6 +20,8 @@ const query = new URLSearchParams(window.location.search);
 if (query.has('review-policy')) {
   Object.assign(globalThis, { process: { env: {}, getBuiltinModule: () => ({ createHash: () => ({ update: () => ({ digest: () => 'a'.repeat(64) }) }) }) } });
 }
+const requestedLayout = query.get('quick-book-layout');
+const quickBookFixture = isApprovedQuickBookLayout(requestedLayout) ? createQuickBookFixture(requestedLayout, query.get('case') ?? 'normal') : null;
 const step = query.get('step') ?? 'time';
 const palette = resolveCustomerSitePalettePreset(query.get('palette'));
 const legacyTheme = query.get('legacy-theme');
@@ -74,11 +79,13 @@ const salon = {
 } as ComponentProps<typeof PublicSalonPageShell>['salon'];
 const bookingPage = {
   layout: 'quick_book',
+  quickBookLayout: requestedLayout ?? 'clean_card',
   stylePack: 'default',
   tokenOverrides: null,
   serviceMenuLayout: 'visual_grid',
   quickBookProfile: {
-    showTechName: false,
+    version: 1,
+    showTechName: Boolean(quickBookFixture),
     showTechPhoto: false,
     showLocation: false,
     showHours: false,
@@ -103,26 +110,45 @@ createRoot(document.getElementById('root')!).render(
   <PublicSalonPageShell
     appearance={{ mode: query.has('custom-appearance') ? 'custom' : 'theme', themeKey: query.get('page-theme') ?? themeKey }}
     salon={salon}
-    bookingPage={{ ...bookingPage, siteStylePreset: legacyTheme ? undefined : bookingPage.siteStylePreset, sitePalettePreset: legacyTheme ? undefined : palette, sectionOrder: [...bookingPage.sectionOrder], hiddenSections: [] }}
+    bookingPage={{ ...bookingPage, siteStylePreset: legacyTheme ? undefined : bookingPage.siteStylePreset, sitePalettePreset: legacyTheme ? undefined : palette, sectionOrder: [...bookingPage.sectionOrder], hiddenSections: [], quickBookLayout: requestedLayout && isApprovedQuickBookLayout(requestedLayout) ? requestedLayout : 'clean_card' }}
     pageName={step === 'time' ? 'book-datetime' : step === 'tech' ? 'book-technician' : `book-${step}`}
   >
     {step === 'service' && (
       <BookServiceClient
-        services={[{
-          id: 'service-fixture',
-          name: 'Russian Manicure',
-          description: null,
-          descriptionItems: [],
-          durationMinutes: 35,
-          priceCents: 3500,
-          priceDisplayText: null,
-          category: 'manicure',
-          bookingCategory: 'manicure',
-          templateKey: null,
-          featuredOrder: null,
-          imageUrl: '',
-          resolvedIntroPriceLabel: null,
-        }]}
+        quickBookProfile={quickBookFixture ? { ...quickBookFixture.profile, contact: quickBookFixture.profile.contact ? { ...quickBookFixture.profile.contact, phone: quickBookFixture.profile.contact.phone ? { ...quickBookFixture.profile.contact.phone, actionLabel: 'Call' as const } : null } : null, identity: { ...quickBookFixture.profile.identity, technicianPhotoUrl: quickBookFixture.profile.presentation.portrait.kind === 'custom' ? quickBookFixture.profile.presentation.portrait.url : null }, location: quickBookFixture.profile.location ? { ...quickBookFixture.profile.location, directionsUrl: quickBookFixture.profile.location.directionsUrl ?? '' } : null } : undefined}
+        services={quickBookFixture
+          ? quickBookFixture.menu.services.map(service => ({
+            id: service.id,
+            name: service.name,
+            description: service.longDescription ?? service.shortDescription,
+            descriptionItems: [],
+            durationMinutes: service.durationMinutes,
+            priceCents: service.price.behavior === 'fixed' || service.price.behavior === 'starts_at' ? service.price.amountCents : service.price.behavior === 'range' ? service.price.minCents : 0,
+            priceDisplayText: null,
+            category: 'manicure',
+            bookingCategory: 'manicure' as const,
+            templateKey: null,
+            featuredOrder: null,
+            imageUrl: service.image?.src ?? '',
+            resolvedIntroPriceLabel: null,
+          }))
+          : [{
+              id: 'service-fixture',
+              name: 'Russian Manicure',
+              description: null,
+              descriptionItems: [],
+              durationMinutes: 35,
+              priceCents: 3500,
+              priceDisplayText: null,
+              category: 'manicure',
+              bookingCategory: 'manicure',
+              templateKey: null,
+              featuredOrder: null,
+              imageUrl: '',
+              resolvedIntroPriceLabel: null,
+            }]}
+        addOns={quickBookFixture ? [{ id: 'qb-fixture-nail-art', name: 'Simple nail art', descriptionItems: ['Fixture nail art option'], category: 'nail_art', pricingType: 'fixed', unitLabel: null, maxQuantity: 1, priceCents: 1000, durationMinutes: 15, priceDisplayText: null, isActive: true }] : undefined}
+        serviceAddOnRules={quickBookFixture ? [{ id: 'qb-fixture-rule', serviceId: quickBookFixture.menu.services[0]!.id, addOnId: 'qb-fixture-nail-art', selectionMode: 'optional', defaultQuantity: null, maxQuantityOverride: null, displayOrder: 1 }] : undefined}
         bookingFlow={[...bookingFlow]}
         locations={[]}
       />

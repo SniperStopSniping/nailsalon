@@ -12,6 +12,7 @@ const repository = path.resolve(root, '../../..');
 export default defineConfig({
   root,
   envDir: root,
+  publicDir: path.join(repository, 'public'),
   define: { 'process.env': {} },
   plugins: [react()],
   resolve: {

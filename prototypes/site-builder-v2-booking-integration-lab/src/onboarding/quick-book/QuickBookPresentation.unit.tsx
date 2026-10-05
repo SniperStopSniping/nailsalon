@@ -29,12 +29,13 @@ describe('Quick Book shared refinement', () => {
     expect(book).toHaveAttribute('href', '#services');
     expect(book.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(secondary).not.toHaveAttribute('open');
-    expect(screen.getByText('Appointment only')).toBeVisible();
+    expect(screen.getByText('Appointment only')).not.toBeVisible();
     expect(screen.getByText('Accepting new clients')).toBeVisible();
     expect(screen.queryByRole('link', { name: /Toronto/u })).not.toBeInTheDocument();
 
     fireEvent.click(secondary.querySelector('summary')!);
 
+    expect(screen.getByText('Appointment only')).toBeVisible();
     expect(screen.getByText(source.fullBio!)).toBeVisible();
     expect(screen.getByText('Saved cancellation policy.')).toBeVisible();
   });

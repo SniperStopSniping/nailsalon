@@ -13,7 +13,7 @@ import {
 import Image from 'next/image';
 import { type CSSProperties, type ReactNode, useState } from 'react';
 
-import { QuickBookPresentation } from '@/components/customer-site/QuickBookPresentation';
+import { isApprovedQuickBookLayout, QuickBookPresentation } from '@/components/customer-site/QuickBookPresentation';
 import type { BookingStep } from '@/libs/bookingFlow';
 import { getStepLabel } from '@/libs/bookingFlow';
 import { deriveQuickBookPresentation } from '@/libs/quickBookPresentation';
@@ -143,6 +143,7 @@ export function QuickBookProfileHeader({
   // ones: each curates the owner's saved information instead of printing
   // every field. A role a layout omits is still on the salon record and
   // still used by every layout that wants it.
+  const approvedComposition = isApprovedQuickBookLayout(activeLayout);
   const recipe = getQuickBookLayout(activeLayout);
   const showsLogo = recipe.logo !== 'omitted' && Boolean(profile.identity.logoUrl);
   const showsPortrait = recipe.portrait !== 'none' && Boolean(profile.identity.technicianPhotoUrl);
@@ -171,7 +172,7 @@ export function QuickBookProfileHeader({
         data-layout-presentation={activeLayout}
         aria-labelledby="quick-book-profile-name"
         className={presentation
-          ? 'qb-public-profile mb-5'
+          ? approvedComposition ? 'qbp-public-profile' : 'qb-public-profile mb-5'
           : `mb-5 overflow-hidden border bg-white ${
             activeLayout === 'editorial'
               ? 'rounded-none border-x-0 shadow-none'
@@ -188,8 +189,8 @@ export function QuickBookProfileHeader({
         {presentation
           ? (
               <div
-                className={getQuickBookLayout(activeLayout).family === 'cover' ? 'p-3 pb-4 sm:p-4' : 'p-4 sm:p-5'}
-                style={PRESENTATION_TOKEN_STYLE}
+                className={approvedComposition ? undefined : getQuickBookLayout(activeLayout).family === 'cover' ? 'p-3 pb-4 sm:p-4' : 'p-4 sm:p-5'}
+                style={approvedComposition ? undefined : PRESENTATION_TOKEN_STYLE}
               >
                 <QuickBookPresentation
                   bookingHref={`#${BOOKING_ENTRY_ANCHOR_ID}`}
@@ -585,7 +586,7 @@ export function QuickBookProfileHeader({
         ? <div data-testid="booking-step-header-announcement" className="mb-3 flex justify-center">{announcement}</div>
         : null}
 
-      <div className="mb-3 flex items-center justify-center gap-1.5" aria-label="Booking progress">
+      <div hidden={approvedComposition} className="mb-3 flex items-center justify-center gap-1.5" aria-label="Booking progress">
         {bookingFlow.map((step, index) => (
           <div key={step} className="flex items-center gap-1.5">
             <div className="flex items-center gap-1">
@@ -611,7 +612,7 @@ export function QuickBookProfileHeader({
         ))}
       </div>
 
-      <div className="mb-4 scroll-mt-4 text-center" id={BOOKING_ENTRY_ANCHOR_ID}>
+      <div hidden={approvedComposition} className="mb-4 scroll-mt-4 text-center" id={approvedComposition ? undefined : BOOKING_ENTRY_ANCHOR_ID}>
         <h2 className="text-[1.7rem] font-bold tracking-tight text-neutral-900 sm:text-2xl">Book an appointment</h2>
         <p className="mt-0.5 text-[13px] leading-[1.35] text-neutral-500 sm:text-sm">
           Choose a service, then add any extras.
