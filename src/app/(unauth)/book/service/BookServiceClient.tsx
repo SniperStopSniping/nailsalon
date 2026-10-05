@@ -2757,7 +2757,7 @@ export function BookServiceClient({
                         {serviceMenu}
                       </div>
                     )
-                  : approvedQuickBookComposition ? <section className="qbp-services">{serviceMenu}</section> : serviceMenu;
+                  : approvedQuickBookComposition ? <div data-public-surface="serviceMenu" className="qbp-services">{serviceMenu}</div> : serviceMenu;
               },
               grouped_categories: ({ renderSlot }) => {
                 const serviceMenu = renderServiceMenuContent({
@@ -2772,7 +2772,7 @@ export function BookServiceClient({
                         {serviceMenu}
                       </div>
                     )
-                  : approvedQuickBookComposition ? <section className="qbp-services">{serviceMenu}</section> : serviceMenu;
+                  : approvedQuickBookComposition ? <div data-public-surface="serviceMenu" className="qbp-services">{serviceMenu}</div> : serviceMenu;
               },
             },
             hoursLocation: {
