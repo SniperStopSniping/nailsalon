@@ -210,10 +210,10 @@ function getPresetDomExpectations(
       return categoryMenu ? 'service-menu-grouped-categories' : 'service-menu-list';
     }
     if (compactProfile && testId === 'booking-policy') {
-      return 'quick-book-policies';
+      return 'quick-book-profile-actions';
     }
     if (compactProfile && testId === 'booking-social-links') {
-      return 'quick-book-instagram';
+      return 'quick-book-profile-actions';
     }
     return testId;
   });
@@ -226,7 +226,24 @@ function getPresetDomExpectations(
     }),
     ...(compactProfile ? ['booking-policy', 'booking-social-links'] : []),
   ];
-  return { absent, present };
+  return { absent, present: [...new Set(present)] };
+}
+
+async function openQuickBookSecondary(page: Page) {
+  const disclosure = page.locator('details[data-testid="quick-book-profile-actions"]');
+  if (await disclosure.count()) {
+    await expect(disclosure).toBeVisible();
+    await expect(disclosure).not.toHaveAttribute('open', '');
+    await expect(page.getByTestId('quick-book-policies')).toBeHidden();
+
+    await disclosure.locator(':scope > summary').focus();
+    await page.keyboard.press('Enter');
+
+    await expect(disclosure).toHaveAttribute('open', '');
+  } else {
+    // Saved retired layouts retain their original policy disclosure.
+    await page.getByTestId('quick-book-policies').locator('summary').click();
+  }
 }
 
 type SalonFixtureRow = QueryResultRow & {
@@ -832,7 +849,7 @@ async function expectStage7PresetStructure(
   await expect(page.getByTestId('booking-experience-intro')).toHaveCount(1);
 
   if (compactProfile) {
-    await page.getByTestId('quick-book-policies').locator('summary').click();
+    await openQuickBookSecondary(page);
 
     await expect(page.getByTestId('quick-book-policies').getByText('Synthetic appointment only', { exact: true }))
       .toBeVisible();
@@ -2689,7 +2706,7 @@ test('Production-split DRAFT Signature / LIVE Quick Book previews stay visible, 
               if (presetId === 'quick_book') {
                 const policies = fullPreview.getByTestId('quick-book-policies');
 
-                await policies.locator('summary').click();
+                await openQuickBookSecondary(fullPreview);
 
                 await expect(policies.getByText('Please arrive five minutes before your synthetic appointment.', { exact: true }))
                   .toBeVisible();
