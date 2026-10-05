@@ -1,3 +1,10 @@
+## [1.136.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.136.0...v1.136.1) (2026-10-05)
+
+
+### Bug Fixes
+
+* **quick-book:** align compact header and preserve logo proportions ([fb20cf0](https://github.com/SniperStopSniping/nailsalon/commit/fb20cf0caddd16966ed89990050e6cef569c6f86))
+
 # [1.136.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.135.3...v1.136.0) (2026-10-05)
 
 
