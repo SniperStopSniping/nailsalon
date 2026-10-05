@@ -117,7 +117,8 @@ export const QUICK_BOOK_LAYOUTS = [
     contact: 'disclosure',
     actions: 'full',
     nameFit: 'flexible',
-    guidance: 'Fast and booking-first',
+    guidance: 'Fast & simple',
+    recommended: true,
   },
   {
     id: 'clean_card',
@@ -137,7 +138,6 @@ export const QUICK_BOOK_LAYOUTS = [
     actions: 'full',
     nameFit: 'flexible',
     guidance: 'Calm and composed',
-    recommended: true,
   },
   {
     id: 'editorial',
@@ -193,7 +193,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'rows',
     contact: 'shown',
     actions: 'full',
-    nameFit: 'short_medium',
+    nameFit: 'flexible',
     guidance: 'Great with a profile photo',
   },
   {
@@ -231,8 +231,8 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'tiles',
     contact: 'shown',
     actions: 'full',
-    nameFit: 'short_medium',
-    guidance: 'Best for short and medium names',
+    nameFit: 'flexible',
+    guidance: 'A balanced details grid',
     variationOf: 'clean_card',
   },
   {
@@ -251,7 +251,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'rows',
     contact: 'shown',
     actions: 'full',
-    nameFit: 'short_medium',
+    nameFit: 'flexible',
     guidance: 'Details without the bulk',
     variationOf: 'compact_dropdown',
   },
@@ -272,8 +272,8 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'grid',
     contact: 'disclosure',
     actions: 'full',
-    nameFit: 'short_medium',
-    guidance: 'Best with a profile photo',
+    nameFit: 'flexible',
+    guidance: 'Personal brand',
     recommended: true,
   },
   {
@@ -296,8 +296,8 @@ export const QUICK_BOOK_LAYOUTS = [
     // and almost nothing else. The social link keeps its place inside Salon
     // details rather than adding a fifth row to the stack.
     social: 'details',
-    nameFit: 'short',
-    guidance: 'Best for short names',
+    nameFit: 'flexible',
+    guidance: 'Expressive typography',
   },
   {
     id: 'portrait_rail',
@@ -315,7 +315,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'grid',
     contact: 'disclosure',
     actions: 'full',
-    nameFit: 'short_medium',
+    nameFit: 'flexible',
     guidance: 'Best with a profile photo',
   },
   {
@@ -334,7 +334,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'compact',
     contact: 'disclosure',
     actions: 'full',
-    nameFit: 'short_medium',
+    nameFit: 'flexible',
     guidance: 'Your photo, front and centre',
   },
   {
@@ -353,7 +353,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'grid',
     contact: 'disclosure',
     actions: 'policies',
-    nameFit: 'short_medium',
+    nameFit: 'flexible',
     guidance: 'Story-led',
   },
   {
@@ -372,7 +372,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'tiles',
     contact: 'shown',
     actions: 'policies',
-    nameFit: 'short_medium',
+    nameFit: 'flexible',
     guidance: 'Personal service feel',
   },
   // ---- Cover photo: the work is the hero ----------------------------------
@@ -392,8 +392,8 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'grid',
     contact: 'disclosure',
     actions: 'full',
-    nameFit: 'short_medium',
-    guidance: 'Designed around your cover photo',
+    nameFit: 'flexible',
+    guidance: 'Visual brand',
     recommended: true,
   },
   {
@@ -412,7 +412,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'compact',
     contact: 'disclosure',
     actions: 'policies',
-    nameFit: 'short_medium',
+    nameFit: 'flexible',
     guidance: 'Cover plus your photo',
   },
   {
@@ -431,7 +431,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'grid',
     contact: 'disclosure',
     actions: 'policies',
-    nameFit: 'short_medium',
+    nameFit: 'flexible',
     guidance: 'Cover plus a short intro',
   },
   {
@@ -450,8 +450,8 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'tiles',
     contact: 'disclosure',
     actions: 'policies',
-    nameFit: 'short',
-    guidance: 'Best for short names',
+    nameFit: 'flexible',
+    guidance: 'Expressive typography',
   },
   {
     id: 'hero_ribbon',
@@ -469,7 +469,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'grid',
     contact: 'disclosure',
     actions: 'full',
-    nameFit: 'short_medium',
+    nameFit: 'flexible',
     guidance: 'Cover with a curved edge',
     variationOf: 'hero_banner',
   },
@@ -489,7 +489,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'compact',
     contact: 'disclosure',
     actions: 'policies',
-    nameFit: 'short_medium',
+    nameFit: 'flexible',
     guidance: 'Warm welcome above booking',
     variationOf: 'profile_overlay',
   },
@@ -509,7 +509,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'compact',
     contact: 'disclosure',
     actions: 'full',
-    nameFit: 'short_medium',
+    nameFit: 'flexible',
     guidance: 'Best for portfolios',
   },
   {
@@ -528,7 +528,7 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'grid',
     contact: 'disclosure',
     actions: 'policies',
-    nameFit: 'short',
+    nameFit: 'flexible',
     guidance: 'Art-directed and opinionated',
   },
 ] as const satisfies readonly QuickBookLayoutDefinition[];
@@ -648,3 +648,7 @@ export const describeQuickBookImageRoles = (
   logo: layout.logo !== 'omitted',
   portrait: layout.portrait !== 'none',
 });
+
+/** Three starting points, independent of the persisted family order. */
+export const RECOMMENDED_QUICK_BOOK_LAYOUT_IDS = ['compact_dropdown', 'side_portrait', 'hero_banner'] as const satisfies readonly QuickBookLayoutId[];
+export const isRecommendedQuickBookLayout = (id: string): boolean => (RECOMMENDED_QUICK_BOOK_LAYOUT_IDS as readonly string[]).includes(id);

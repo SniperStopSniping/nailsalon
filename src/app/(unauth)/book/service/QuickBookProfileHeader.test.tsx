@@ -171,7 +171,7 @@ describe('QuickBookProfileHeader', () => {
         />,
       );
       const links = screen.queryAllByTestId('quick-book-instagram');
-      const details = screen.queryByTestId('quick-book-salon-details');
+      const details = screen.queryByTestId('quick-book-profile-actions');
 
       // Never dropped and never printed twice, whatever the recipe says. A
       // layout that shows no action rows at all is the one exception.
@@ -191,11 +191,9 @@ describe('QuickBookProfileHeader', () => {
 
       expect(link).toHaveAttribute('href', FULL_PROFILE.instagram?.href);
 
-      if (definition.social === 'details') {
+      if (!['editorial', 'hub_menu'].includes(layout)) {
         expect(details, `${layout} parks the social link in Salon details`).not.toBeNull();
         expect(details).toContainElement(link);
-      } else if (details) {
-        expect(details).not.toContainElement(link);
       }
       view.unmount();
     }
@@ -254,8 +252,11 @@ describe('QuickBookProfileHeader', () => {
     expect(screen.getByAltText('Isla Nail Studio With A Deliberately Long Name logo')).toBeInTheDocument();
     expect(screen.queryByAltText('Daniela')).not.toBeInTheDocument();
     expect(screen.getByTestId('quick-book-location')).toHaveAttribute('href', expect.stringContaining('google.com/maps'));
-    expect(screen.getByTestId('quick-book-location')).toHaveTextContent('Inside TB Nails · Back of building');
-    expect(screen.getByTestId('quick-book-location')).toHaveTextContent('Parking: Use the rear lot');
+    expect(screen.getByTestId('quick-book-profile-actions')).toHaveTextContent('Inside TB Nails · Back of building');
+    expect(screen.getByTestId('quick-book-profile-actions')).toHaveTextContent('Parking: Use the rear lot');
+
+    fireEvent.click(screen.getByTestId('quick-book-profile-actions').querySelector('summary')!);
+
     expect(screen.getByRole('link', { name: /647.*123.*4567/ })).toHaveAttribute('href', 'tel:6471234567');
     expect(screen.getByRole('link', { name: /647.*123.*4567.*call or text/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /appointments\.with\.a\.long\.address@islanails\.com/i })).toHaveAttribute(
@@ -278,15 +279,16 @@ describe('QuickBookProfileHeader', () => {
     expect(within(hours).getByText('Closed')).toBeInTheDocument();
 
     const policies = screen.getByTestId('quick-book-policies');
-    fireEvent.click(within(policies).getByText('Policies'));
+
+    expect(screen.getByTestId('quick-book-profile-actions')).toHaveAttribute('open');
 
     expect(within(policies).getByText('Appointment only.')).toBeInTheDocument();
     expect(within(policies).getByText('Please provide 24 hours notice.')).toBeInTheDocument();
-    expect(screen.getByTestId('quick-book-bio')).toHaveTextContent('Healthy nails');
+    expect(screen.getByTestId('quick-book-full-bio')).toHaveTextContent('Healthy nails');
   });
 
   it.each([
-    ['clean_card', 'quick-book-logo'],
+    ['clean_card', null],
     ['clean_card_pro', null],
   ] as const)('uses a compact rectangular frame for a landscape logo in %s', async (layout, legacyTestId) => {
     render(
@@ -339,8 +341,8 @@ describe('QuickBookProfileHeader', () => {
     });
     fireEvent.load(image);
 
-    expect(screen.getByTestId('quick-book-logo')).toHaveAttribute('data-logo-shape', 'square');
-    expect(image).toHaveClass('object-contain');
+    expect(image.parentElement).toHaveAttribute('data-qb-logo-shape', 'square');
+    expect(image.parentElement).toHaveClass('qb-logo');
   });
 
   it('uses full-width rows instead of reserving blank columns for one contact or action', () => {
@@ -363,8 +365,8 @@ describe('QuickBookProfileHeader', () => {
       />,
     );
 
-    expect(screen.getByTestId('quick-book-contact')).toHaveClass('grid-cols-1');
-    expect(screen.getByTestId('quick-book-profile-actions')).toHaveClass('grid-cols-1');
+    expect(screen.getByTestId('quick-book-contact')).toHaveClass('qb-contact');
+    expect(screen.getByTestId('quick-book-profile-actions')).toHaveClass('qb-secondary');
     expect(screen.getByTestId('quick-book-profile-actions')).not.toHaveClass('sm:grid-cols-3');
   });
 

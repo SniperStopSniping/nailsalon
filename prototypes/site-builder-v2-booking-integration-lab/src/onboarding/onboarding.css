@@ -6735,3 +6735,146 @@ body:has(.onboarding-app) {
     min-height: 0;
   }
 }
+
+
+/* Quick Book refinement hosts: shared content width, separate from the legacy saved renderers. */
+.onboarding-site-preview:has(.qb-presentation) .onboarding-quick-book-profile {
+  width: min(calc(100% - 32px), 1120px);
+  margin: 16px auto 0;
+  padding: 16px;
+  border: 0;
+  box-shadow: none;
+}
+.onboarding-site-preview:has(.qb-presentation[data-qb-layout='compact_dropdown']) .onboarding-quick-book-profile,
+.onboarding-site-preview:has(.qb-presentation[data-qb-layout='ultra_minimal']) .onboarding-quick-book-profile {
+  padding: 0;
+  background: transparent;
+}
+.onboarding-site-preview:has(.qb-presentation) .onboarding-customer-booking {
+  width: min(calc(100% - 32px), 1120px);
+  margin: 0 auto;
+  padding: 20px 0;
+  border-top: 0;
+}
+.onboarding-site-preview:has(.qb-presentation) .onboarding-quick-book-booking-heading {
+  text-align: left;
+  padding: 0;
+}
+.onboarding-site-preview:has(.qb-presentation) .onboarding-quick-book-booking-heading h2 {
+  text-transform: none;
+  font-family: var(--customer-heading-font);
+  font-size: 1.5rem;
+}
+.onboarding-site-preview:has(.qb-presentation) .onboarding-quick-book-booking-deposit {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  padding: 0;
+}
+@container onboarding-preview (min-width: 680px) {
+  .onboarding-site-preview:has(.qb-presentation) .onboarding-quick-book-profile {
+    padding: 24px;
+  }
+  .onboarding-site-preview:has(.qb-presentation[data-qb-layout='compact_dropdown']) .onboarding-quick-book-profile,
+  .onboarding-site-preview:has(.qb-presentation[data-qb-layout='ultra_minimal']) .onboarding-quick-book-profile {
+    padding: 0;
+  }
+}
+/* Native-width phone preview. Height determines the scroll area, never the text scale. */
+.onboarding-preview-stage.is-width-fit .onboarding-preview-frame {
+  border: 0;
+  border-radius: 12px;
+  scrollbar-gutter: auto;
+  box-shadow: none;
+}
+.onboarding-preview-overlay[data-readable-quick-book='true'] .onboarding-device-switcher {
+  padding: 2px;
+  gap: 2px;
+  background: transparent;
+  border: 0;
+}
+.onboarding-preview-overlay[data-readable-quick-book='true'] .onboarding-device-switcher button {
+  min-height: 44px;
+  padding: 8px;
+  font-size: 0.8rem;
+}
+@media (max-width: 479px) {
+  .dialog-panel--sheet:has(.onboarding-preview-overlay[data-readable-quick-book='true']) {
+    height: calc(100dvh - 8px);
+    max-height: calc(100dvh - 8px);
+  }
+  .dialog-panel:has(.onboarding-preview-overlay[data-readable-quick-book='true']) .dialog-header {
+    padding: 12px 16px;
+  }
+  .dialog-panel:has(.onboarding-preview-overlay[data-readable-quick-book='true']) .dialog-header h2 {
+    font-size: 1.2rem;
+  }
+  .dialog-panel:has(.onboarding-preview-overlay[data-readable-quick-book='true']) .dialog-header p {
+    font-size: 0.8rem;
+    line-height: 1.35;
+  }
+  .onboarding-preview-overlay[data-readable-quick-book='true'] {
+    padding: 4px 8px max(8px, env(safe-area-inset-bottom));
+    gap: 4px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  .onboarding-preview-overlay[data-readable-quick-book='true'] .onboarding-device-switcher {
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .onboarding-preview-overlay[data-readable-quick-book='true'] .onboarding-preview-stage {
+    height: 100%;
+  }
+  .onboarding-preview-overlay[data-readable-quick-book='true'] .onboarding-overlay-actions {
+    width: 100%;
+    border-left: 0;
+    border-top: 1px solid var(--onboarding-line);
+    padding-top: 8px;
+  }
+  .onboarding-preview-overlay[data-readable-quick-book='true'] .onboarding-overlay-actions button {
+    font-size: 0.85rem;
+    min-height: 44px;
+    padding: 10px;
+  }
+}
+
+.onboarding-more-layouts {
+  justify-self: start;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 12px;
+  background: var(--onboarding-surface);
+  color: var(--onboarding-ink);
+  font: inherit;
+  cursor: pointer;
+}
+.onboarding-quick-book-layout-family.is-recommended .onboarding-quick-book-layout-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+.onboarding-quick-book-layout-family.is-recommended .onboarding-quick-book-layout-card {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+.onboarding-quick-book-layout-family.is-recommended .onboarding-quick-book-layout-card__copy > small {
+  min-height: 0;
+}
+.onboarding-quick-book-layout-family.is-recommended .onboarding-quick-book-layout-card__badges i + i {
+  display: none;
+}
+@media (min-width: 768px) {
+  .onboarding-quick-book-layout-family.is-recommended .onboarding-quick-book-layout-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .onboarding-quick-book-layout-family.is-recommended .onboarding-quick-book-layout-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.onboarding-customer-gallery .onboarding-customer-gallery__missing { display: grid; place-items: center; color: var(--customer-muted); background: var(--customer-ground); }

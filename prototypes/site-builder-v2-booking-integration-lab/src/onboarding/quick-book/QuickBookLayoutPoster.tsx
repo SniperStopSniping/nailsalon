@@ -37,8 +37,6 @@ export type QuickBookLayoutPosterProps = {
   className?: string;
 };
 
-const NO_SPECIALTIES: readonly string[] = [];
-
 function PosterPortrait({ slot }: { slot: QuickBookPortraitSlot }) {
   if (slot.kind === 'none') {
     return null;
@@ -69,7 +67,6 @@ export function QuickBookLayoutPoster({
   portraitUrl,
   portraitVisible,
   coverUrl,
-  specialties = NO_SPECIALTIES,
   hasStory = false,
   galleryCount = 0,
   style,
@@ -85,7 +82,6 @@ export function QuickBookLayoutPoster({
   });
   const cover = resolveQuickBookCoverSlot({ layout, url: coverUrl, focal: null });
   const name = businessName.trim() || 'Your business';
-  const chips = definition.specialties ? specialties.slice(0, 3) : [];
   const galleryTiles = definition.gallery ? Math.min(Math.max(galleryCount, 0), 4) : 0;
 
   return (
@@ -99,15 +95,16 @@ export function QuickBookLayoutPoster({
     >
       <PosterCover slot={cover} />
       <span className="qb-poster__identity">
-        <span className="qb-poster__logo">
-          {logoUrl ? <img alt="" src={logoUrl} /> : <i>{quickBookMonogram(name)}</i>}
-        </span>
+        {definition.logo !== 'omitted' && (logoUrl || !['compact_dropdown', 'ultra_minimal', 'clean_card'].includes(layout))
+          ? (
+              <span className="qb-poster__logo">
+                {logoUrl ? <img alt="" src={logoUrl} /> : <i>{quickBookMonogram(name)}</i>}
+              </span>
+            )
+          : null}
         <span className="qb-poster__copy">
           <b>{name}</b>
           {technicianName ? <small>{technicianName}</small> : null}
-          {chips.length > 0
-            ? <span className="qb-poster__chips">{chips.map(chip => <i key={chip}>{chip}</i>)}</span>
-            : null}
         </span>
         <PosterPortrait slot={portrait} />
       </span>
@@ -120,12 +117,17 @@ export function QuickBookLayoutPoster({
         : null}
       {definition.story && hasStory ? <span className="qb-poster__story" /> : null}
       <span className="qb-poster__facts">
-        <i />
-        <i />
+        <i>Location</i>
+        <i>Hours</i>
+        <i>Appointments</i>
+        <i>Clients</i>
+      </span>
+      <span className="qb-poster__book">Book an appointment →</span>
+      <span className="qb-poster__services">
+        <b>Services</b>
         <i />
         <i />
       </span>
-      <span className="qb-poster__book" />
     </span>
   );
 }
