@@ -435,7 +435,11 @@ function QuickBookIdentity({
   view: QuickBookProfileViewModel;
 }) {
   return (
-    <div className="onboarding-quick-book-profile__identity" data-identity-layout={layout}>
+    <div
+      className="onboarding-quick-book-profile__identity"
+      data-identity-layout={layout}
+      data-long-name={title.length > 26 ? 'true' : undefined}
+    >
       <Brand
         ownerId={sectionId}
         profile={profile}

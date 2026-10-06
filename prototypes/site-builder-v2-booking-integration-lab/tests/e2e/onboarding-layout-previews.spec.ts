@@ -41,7 +41,9 @@ async function fixtureAt(page: Page, screen: string) {
   }, { key: STORAGE_KEY, target: screen });
   await page.reload();
 
-  await expect(page.locator(`[data-screen="${screen}"]`)).toBeVisible();
+  await expect(screen === 'starting_preview'
+    ? page.getByRole('region', { name: 'Your starting site is ready', exact: true })
+    : page.locator(`[data-screen="${screen}"]`)).toBeVisible();
 }
 
 async function footerVisible(page: Page, dialog: Locator) {
@@ -61,6 +63,87 @@ async function footerVisible(page: Page, dialog: Locator) {
   await dialog.getByRole('button', { name: 'Continue', exact: true }).click({ trial: true });
   await dialog.getByRole('button', { name: 'Try another layout', exact: true }).click({ trial: true });
 }
+
+test('the Compact Dropdown starting preview gives identity media breathing room in both views', async ({ page }) => {
+  await fixtureAt(page, 'starting_preview');
+  const shortName = 'The Nail Studio';
+  const longName = 'The Nail Studio & Advanced Manicure Aesthetics';
+  const logoUrl = new URL('/starting-logo.svg', page.url()).href;
+  await page.route(logoUrl, route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="100"><rect width="300" height="100" fill="#fffdfb"/><text x="150" y="65" font-size="44" text-anchor="middle" fill="#813d55">Studio</text></svg>' }));
+  const portraitUrl = new URL('/starting-portrait.svg', page.url()).href;
+  await page.route(portraitUrl, route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="120"><rect width="100" height="120" fill="#e9dfe0"/><circle cx="50" cy="42" r="23" fill="#813d55"/></svg>' }));
+  // Keep fixtures in browser storage. This does not save a tenant or upload.
+  await page.addInitScript(({ key, logoUrl, portraitUrl, shortName }) => {
+    const state = JSON.parse(localStorage.getItem(key)!);
+    state.profile.businessName = sessionStorage.getItem('starting-name') || shortName;
+    const media = sessionStorage.getItem('starting-media') !== 'missing';
+    state.profile.logo = media ? { id: 'starting-logo', source: 'fixture', fileName: 'logo.svg', mimeType: 'image/svg+xml', previewUrl: logoUrl } : undefined;
+    state.profile.profilePhoto = media ? { id: 'starting-portrait', source: 'fixture', fileName: 'portrait.svg', mimeType: 'image/svg+xml', previewUrl: portraitUrl } : undefined;
+    state.recipe.quickBookProfile.showTechPhoto = true;
+    state.progress.currentScreen = 'starting_preview';
+    state.progress.lastActiveScreen = 'starting_preview';
+    localStorage.setItem(key, JSON.stringify(state));
+  }, { key: STORAGE_KEY, logoUrl, portraitUrl, shortName });
+
+  const checkIdentity = async (host: Locator, mediaCount: number) => {
+    const header = host.locator('.onboarding-quick-book-profile');
+
+    await expect(header).toHaveAttribute('data-quick-book-layout', 'compact_dropdown');
+
+    const title = header.locator('[data-business-identity="quick_book_profile"]');
+    const logo = header.locator('[data-media-role="logo"]');
+    const portrait = header.locator('[data-media-role="profile"]');
+
+    await expect(title).toHaveCSS('font-weight', '400');
+    await expect(title.locator('..')).toHaveCSS('text-align', 'center');
+
+    await expect(logo).toHaveCount(mediaCount);
+    await expect(portrait).toHaveCount(mediaCount);
+
+    await logo.evaluateAll(images => Promise.all(images.map(image => (image as HTMLImageElement).decode())));
+    await portrait.evaluateAll(images => Promise.all(images.map(image => (image as HTMLImageElement).decode())));
+    const headerBox = (await header.boundingBox())!;
+    const titleBox = (await title.boundingBox())!;
+    const logos = await logo.evaluateAll(images => images.map(image => ({
+      x: image.getBoundingClientRect().x,
+      fit: getComputedStyle(image).objectFit,
+      ratio: (image as HTMLImageElement).naturalWidth / (image as HTMLImageElement).naturalHeight,
+    })));
+    const portraits = await portrait.evaluateAll(images => images.map(image => image.getBoundingClientRect().y));
+
+    for (const image of logos) {
+      expect(image.x - headerBox.x).toBeGreaterThan(12);
+      expect(image.fit).toBe('contain');
+      expect(image.ratio).toBe(3);
+    }
+    for (const top of portraits) {
+      expect(top).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
+    }
+  };
+
+  for (const { scenario, mediaCount } of [{ scenario: 'normal', mediaCount: 1 }, { scenario: 'long', mediaCount: 1 }, { scenario: 'missing', mediaCount: 0 }]) {
+    await page.evaluate(({ scenario, longName }) => {
+      sessionStorage.setItem('starting-name', scenario === 'long' ? longName : 'The Nail Studio');
+      sessionStorage.setItem('starting-media', scenario);
+    }, { scenario, longName });
+    await page.reload();
+
+    await expect(page.getByRole('heading', { name: 'Your starting site is ready' })).toBeVisible();
+
+    await checkIdentity(page.locator('.onboarding-preview-stage'), mediaCount);
+    await page.getByRole('button', { name: 'Preview my site', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Preview your starting site' });
+    await checkIdentity(dialog, mediaCount);
+    const scroll = dialog.locator('[data-preview-scroll-container]');
+
+    expect(await scroll.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
+
+    await dialog.getByRole('button', { name: 'Back', exact: true }).click();
+
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Preview my site', exact: true })).toBeVisible();
+  }
+});
 
 test('Quick Book cards preview the latest choice and restore the chooser through every dismissal', async ({ page }) => {
   await fixtureAt(page, 'about_design');
