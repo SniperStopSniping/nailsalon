@@ -3,6 +3,7 @@ import 'server-only';
 import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import { formatPhoneE164 } from '@/libs/adminAuth';
+import { lockCreditAccount } from '@/libs/billing/creditLedger';
 import { claimVerifiedStarterCredits } from '@/libs/billing/verifiedStarterGrant';
 import {
   BOOKING_EXPERIENCE_LIMITS,
@@ -1984,6 +1985,7 @@ async function claimOnboardingDraftUnlocked(
       // transaction. Existing-business draft edits and claim replays do
       // not backfill credits; the durable identity also fences new salons
       // created by an owner who already received the allowance.
+      await lockCreditAccount(tx, salonId);
       await claimVerifiedStarterCredits(tx, {
         clerkUserId: identity.clerkUserId,
         salonId,

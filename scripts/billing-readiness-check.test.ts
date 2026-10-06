@@ -414,7 +414,7 @@ describe('deployed readiness endpoint evidence', () => {
     cronSecretConfigured: true,
     identityHmacConfigured: true,
     identityHmacVersion: 1,
-    carrier: { present: true, env: 'test', offers: 6, topups: 7, coupons: 1, digest: 'a'.repeat(64), parse: 'ok' },
+    carrier: { present: true, env: 'test', offers: 6, topups: 10, coupons: 1, digest: 'a'.repeat(64), parse: 'ok' },
     deploymentMarker: true,
     timestamp: '2026-09-16T00:00:00.000Z',
   };
@@ -747,7 +747,7 @@ describe('CLI exit codes', () => {
       cronSecretConfigured: true,
       identityHmacConfigured: true,
       identityHmacVersion: 1,
-      carrier: { present: true, env: 'test', offers: 6, topups: 7, coupons: 1, digest: 'a'.repeat(64), parse: 'ok' },
+      carrier: { present: true, env: 'test', offers: 6, topups: 10, coupons: 1, digest: 'a'.repeat(64), parse: 'ok' },
       deploymentMarker: true,
       timestamp: '2026-09-16T00:00:00.000Z',
     });
@@ -849,6 +849,9 @@ describe('CLI — a deployed run with evidence files omitted', () => {
     'topup_250_paid_2026_08',
     'topup_500_paid_2026_08',
     'topup_1000_paid_2026_08',
+    'topup_100_2026_10',
+    'topup_200_2026_10',
+    'topup_500_2026_10',
   ];
 
   afterEach(() => {
@@ -931,7 +934,7 @@ describe('CLI — a deployed run with evidence files omitted', () => {
       cronSecretConfigured: true,
       identityHmacConfigured: true,
       identityHmacVersion: 1,
-      carrier: { present: true, env: 'test', offers: 6, topups: 7, coupons: 1, digest: inspected.digest, parse: 'ok' },
+      carrier: { present: true, env: 'test', offers: 6, topups: 10, coupons: 1, digest: inspected.digest, parse: 'ok' },
       deploymentMarker: true,
       timestamp: '2026-09-16T00:00:00.000Z',
     };

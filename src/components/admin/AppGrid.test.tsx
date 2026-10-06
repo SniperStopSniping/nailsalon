@@ -31,10 +31,12 @@ describe('AppGrid', () => {
     const indexOf = (id: string) =>
       buttons.findIndex(button => button.dataset.testid === `admin-app-tile-${id}`);
 
-    for (const heading of ['Booking', 'Clients & Growth', 'Business', 'Luster']) {
+    for (const heading of ['Usage', 'Booking', 'Clients & Growth', 'Business', 'Luster']) {
       expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
     }
 
+    expect(indexOf('plan-usage')).toBe(0);
+    expect(screen.getAllByTestId('admin-app-tile-plan-usage')).toHaveLength(1);
     expect(indexOf('hours')).toBeLessThan(indexOf('booking-rules'));
     expect(indexOf('booking-rules')).toBeLessThan(indexOf('booking-page'));
     expect(indexOf('marketing')).toBeLessThan(indexOf('portfolio'));
@@ -49,6 +51,13 @@ describe('AppGrid', () => {
     expect(screen.queryByTestId('admin-app-tile-rewards-reviews')).not.toBeInTheDocument();
     expect(screen.queryByTestId('admin-app-tile-luster')).not.toBeInTheDocument();
     expect(screen.queryByTestId('more-workspace-tour')).not.toBeInTheDocument();
+  });
+
+  it.each([[42, 'Buy more'], [20, 'Top up now'], [0, 'Top up now']])('shows live balance %i at the top', (balance, action) => {
+    render(<AppGrid onAppTap={vi.fn()} textBalance={balance as number} />);
+
+    expect(screen.getByTestId('admin-app-tile-plan-usage')).toHaveTextContent(`${balance} texts remaining · ${action}`);
+    expect(screen.getByTestId('admin-app-tile-plan-usage')).toHaveTextContent('Usage & Top Ups');
   });
 
   it('puts Team first in Business only for a salon with an actual team', () => {

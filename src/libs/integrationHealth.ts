@@ -108,7 +108,7 @@ export async function getSalonSmsReadiness(salonId: string): Promise<SmsOperatio
           : 'Luster texting setup is incomplete. Contact support to finish setup. Texting is included in every plan.';
     }
     const balance = await db.transaction(tx => computeAvailableBalance(tx, salonId, new Date()));
-    availableCredits = balance.available;
+    availableCredits = Math.max(0, balance.available);
   }
   if (blockingReason === null && !buildStatusCallbackUrl('readiness')) {
     providerReady = false;
@@ -134,7 +134,7 @@ export async function getSalonSmsReadiness(salonId: string): Promise<SmsOperatio
   }
   if (blockingReason === null && availableCredits !== null && availableCredits <= 0) {
     blockingReason = 'NO_CREDITS';
-    detail = 'No SMS credits are available. Check your balance and credit options in Usage.';
+    detail = 'You’re out of text credits. Add more texts in Usage & Top Ups to continue sending reminders and messages.';
   }
   const available = blockingReason === null;
   return {

@@ -22,7 +22,6 @@
  *   two deliberate taps with a named confirmation, not a red pill in the
  *   header of every screen next to the bell.
  */
-
 import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -49,6 +48,7 @@ import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 
 import { LockedFeatureRow } from '@/components/ui/locked-feature-row';
+import { textBalanceSubtitle } from '@/libs/commercialPolicy';
 
 // Types
 type Theme = 'apple' | 'tesla' | 'luxury';
@@ -219,8 +219,8 @@ const APPS: AppItem[] = [
   },
   {
     id: 'plan-usage',
-    name: 'Plan & Usage',
-    description: 'Subscription, credits and usage',
+    name: 'Usage & Top Ups',
+    description: 'Text balance and top ups',
     icon: CreditCard,
     iconFrom: '#4C1D2E',
     iconTo: '#8B1538',
@@ -241,6 +241,7 @@ const APPS: AppItem[] = [
  * compatibility aliases; only these grouped destinations are rendered here.
  */
 const MORE_GROUPS: AppGroup[] = [
+  { id: 'usage', name: 'Usage', appIds: ['plan-usage'] },
   {
     id: 'booking',
     name: 'Booking',
@@ -259,7 +260,7 @@ const MORE_GROUPS: AppGroup[] = [
   {
     id: 'luster',
     name: 'Luster',
-    appIds: ['plan-usage', 'settings', 'help'],
+    appIds: ['settings', 'help'],
   },
 ];
 
@@ -460,6 +461,7 @@ function AccountSection({ account, theme }: { account: AppGridAccount; theme: Th
  * App Grid Container
  */
 type AppGridProps = {
+  textBalance?: number | null;
   theme?: Theme;
   badges?: Record<string, number>;
   onAppTap?: (appId: string) => void;
@@ -477,7 +479,7 @@ type AppGridProps = {
 const EMPTY_BADGES: Record<string, number> = {};
 const EMPTY_HIDDEN_IDS: string[] = [];
 
-export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, isTeamSalon = false, account }: AppGridProps) {
+export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, isTeamSalon = false, account, textBalance }: AppGridProps) {
   const t = useTranslations('NoShowRecords');
   const appById = new Map(APPS.map(app => [app.id, app]));
   const visibleGroups = MORE_GROUPS.map(group => ({
@@ -490,7 +492,7 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
     apps: group.appIds.flatMap((appId) => {
       const app = appById.get(appId);
       return app && !hiddenIds.includes(app.id)
-        ? [{ ...app, badge: badges[app.id] || 0, ...(app.id === 'no-show-records' ? { name: t('tile_name'), description: t('tile_description') } : {}) }]
+        ? [{ ...app, ...(app.id === 'plan-usage' && typeof textBalance === 'number' ? { description: textBalanceSubtitle(textBalance) } : {}), badge: badges[app.id] || 0, ...(app.id === 'no-show-records' ? { name: t('tile_name'), description: t('tile_description') } : {}) }]
         : [];
     }),
   })).filter(group => group.apps.length > 0);

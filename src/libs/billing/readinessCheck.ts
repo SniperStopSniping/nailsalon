@@ -90,7 +90,9 @@ const KNOWN_OFFER_KEYS = [
   'elite_2026_08_annual',
 ] as const;
 
+const CURRENT_TOPUP_KEYS = ['topup_100_2026_10', 'topup_200_2026_10', 'topup_500_2026_10'] as const;
 const KNOWN_TOPUP_KEYS = [
+  ...CURRENT_TOPUP_KEYS,
   'topup_100_free_2026_08',
   'topup_250_free_2026_08',
   'topup_500_free_2026_08',
@@ -1175,7 +1177,9 @@ function evaluateCarrier(
   // §5.1 requires BOTH catalogues complete. The coupon is reported but not
   // required: the founding promotion is offered per owner decision, and its
   // redemption window is closed in code until separately configured.
-  const missingKeys = [...inspection.missingOfferKeys, ...inspection.missingTopupKeys];
+  const missingKeys = target === 'activate-topups' || target === 'rehearsal'
+    ? inspection.missingTopupKeys.filter(key => (CURRENT_TOPUP_KEYS as readonly string[]).includes(key))
+    : [...inspection.missingOfferKeys, ...inspection.missingTopupKeys];
   const carrierEnvOk = inspection.carrierEnv === expectedPlanEnv && deployed.env === expectedPlanEnv;
   const parseOk = deployed.parse === 'ok';
   collector.add(

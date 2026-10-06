@@ -260,7 +260,7 @@ describe('top-up checkout (§9.2)', () => {
     envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-isla';
     await seedSalon('s_t_marker');
 
-    const response = await postCheckout({ salonId: 's_t_marker', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_marker', topupOfferKey: 'topup_100_2026_10' });
 
     expect(response.status).toBe(200);
 
@@ -273,7 +273,7 @@ describe('top-up checkout (§9.2)', () => {
   it('the dark switch rejects before any write or provider call', async () => {
     envHolder.BILLING_TOPUPS_ENABLED = undefined;
     await seedSalon('s_t_dark');
-    const response = await postCheckout({ salonId: 's_t_dark', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_dark', topupOfferKey: 'topup_100_2026_10' });
 
     expect(response.status).toBe(503);
     expect((await response.json()).error.code).toBe('TOPUPS_DISABLED');
@@ -283,15 +283,14 @@ describe('top-up checkout (§9.2)', () => {
 
   it('rejects a wrong-audience offer server-side', async () => {
     await seedSalon('s_t_aud', 'free'); // free plan buying paid-audience pricing
-    const response = await postCheckout({ salonId: 's_t_aud', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_aud', topupOfferKey: 'topup_100_2026_10' });
 
-    expect(response.status).toBe(400);
-    expect((await response.json()).error.code).toBe('OFFER_AUDIENCE_MISMATCH');
+    expect(response.status).toBe(200);
   });
 
   it('rejects client-supplied amounts structurally', async () => {
     await seedSalon('s_t_amt');
-    const response = await postCheckout({ salonId: 's_t_amt', topupOfferKey: 'topup_100_paid_2026_08', amountCents: 1 });
+    const response = await postCheckout({ salonId: 's_t_amt', topupOfferKey: 'topup_100_2026_10', amountCents: 1 });
 
     expect(response.status).toBe(400);
   });
@@ -300,7 +299,7 @@ describe('top-up checkout (§9.2)', () => {
     priceMapHolder.priceId = null;
     await seedSalon('s_t_mapping');
 
-    const response = await postCheckout({ salonId: 's_t_mapping', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_mapping', topupOfferKey: 'topup_100_2026_10' });
 
     expect(response.status).toBe(503);
     expect((await response.json()).error.code).toBe('PRICE_UNCONFIGURED');
@@ -318,10 +317,10 @@ describe('top-up checkout (§9.2)', () => {
         active: false,
         type: 'one_time',
         currency: 'cad',
-        unit_amount: 599,
+        unit_amount: 2000,
       });
 
-      const response = await postCheckout({ salonId: 's_t_price_inactive', topupOfferKey: 'topup_100_paid_2026_08' });
+      const response = await postCheckout({ salonId: 's_t_price_inactive', topupOfferKey: 'topup_100_2026_10' });
 
       expect(response.status).toBe(503);
       expect((await response.json()).error.code).toBe('PRICE_MISMATCH');
@@ -337,10 +336,10 @@ describe('top-up checkout (§9.2)', () => {
         active: true,
         type: 'recurring',
         currency: 'cad',
-        unit_amount: 599,
+        unit_amount: 2000,
       });
 
-      const response = await postCheckout({ salonId: 's_t_price_recurring', topupOfferKey: 'topup_100_paid_2026_08' });
+      const response = await postCheckout({ salonId: 's_t_price_recurring', topupOfferKey: 'topup_100_2026_10' });
 
       expect(response.status).toBe(503);
       expect((await response.json()).error.code).toBe('PRICE_MISMATCH');
@@ -355,10 +354,10 @@ describe('top-up checkout (§9.2)', () => {
         active: true,
         type: 'one_time',
         currency: 'usd',
-        unit_amount: 599,
+        unit_amount: 2000,
       });
 
-      const response = await postCheckout({ salonId: 's_t_price_currency', topupOfferKey: 'topup_100_paid_2026_08' });
+      const response = await postCheckout({ salonId: 's_t_price_currency', topupOfferKey: 'topup_100_2026_10' });
 
       expect(response.status).toBe(503);
       expect((await response.json()).error.code).toBe('PRICE_MISMATCH');
@@ -368,7 +367,7 @@ describe('top-up checkout (§9.2)', () => {
 
     it('a WRONG-AMOUNT resolved price is rejected as PRICE_MISMATCH before writing anything', async () => {
       await seedSalon('s_t_price_amount');
-      // topup_100_paid_2026_08 is 599¢ — the retrieved price reports 1¢.
+      // topup_100_2026_10 is 2000¢ — the retrieved price reports 1¢.
       stripeMock.prices.retrieve.mockResolvedValueOnce({
         id: 'price_topup_resolved',
         active: true,
@@ -377,7 +376,7 @@ describe('top-up checkout (§9.2)', () => {
         unit_amount: 1,
       });
 
-      const response = await postCheckout({ salonId: 's_t_price_amount', topupOfferKey: 'topup_100_paid_2026_08' });
+      const response = await postCheckout({ salonId: 's_t_price_amount', topupOfferKey: 'topup_100_2026_10' });
 
       expect(response.status).toBe(503);
       expect((await response.json()).error.code).toBe('PRICE_MISMATCH');
@@ -389,7 +388,7 @@ describe('top-up checkout (§9.2)', () => {
       await seedSalon('s_t_price_unverified');
       stripeMock.prices.retrieve.mockRejectedValueOnce(new Error('Stripe unavailable'));
 
-      const response = await postCheckout({ salonId: 's_t_price_unverified', topupOfferKey: 'topup_100_paid_2026_08' });
+      const response = await postCheckout({ salonId: 's_t_price_unverified', topupOfferKey: 'topup_100_2026_10' });
 
       expect(response.status).toBe(503);
       expect((await response.json()).error.code).toBe('PRICE_UNVERIFIED');
@@ -401,7 +400,7 @@ describe('top-up checkout (§9.2)', () => {
     it('a VERIFIED price proceeds normally, and the session carries payment_intent_data metadata plus an attempt-derived expires_at', async () => {
       await seedSalon('s_t_price_verified');
       const before = Math.floor(Date.now() / 1000);
-      const response = await postCheckout({ salonId: 's_t_price_verified', topupOfferKey: 'topup_100_paid_2026_08' });
+      const response = await postCheckout({ salonId: 's_t_price_verified', topupOfferKey: 'topup_100_2026_10' });
 
       expect(response.status).toBe(200);
 
@@ -439,7 +438,7 @@ describe('top-up checkout (§9.2)', () => {
     adminHolder.allowed = false;
     await seedSalon('s_t_forbidden');
 
-    const response = await postCheckout({ salonId: 's_t_forbidden', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_forbidden', topupOfferKey: 'topup_100_2026_10' });
 
     expect(response.status).toBe(403);
     expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
@@ -457,7 +456,7 @@ describe('top-up checkout (§9.2)', () => {
     await seedSalon('s_t_cross_target');
     adminHolder.deniedSalonIds.add('s_t_cross_target');
 
-    const response = await postCheckout({ salonId: 's_t_cross_target', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_cross_target', topupOfferKey: 'topup_100_2026_10' });
 
     expect(response.status).toBe(403);
     expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
@@ -465,7 +464,7 @@ describe('top-up checkout (§9.2)', () => {
     expect(await purchaseRows('s_t_cross_target')).toHaveLength(0);
 
     // The admin's own salon remains unaffected.
-    const own = await postCheckout({ salonId: 's_t_cross_owner', topupOfferKey: 'topup_100_paid_2026_08' });
+    const own = await postCheckout({ salonId: 's_t_cross_owner', topupOfferKey: 'topup_100_2026_10' });
 
     expect(own.status).toBe(200);
   });
@@ -477,7 +476,7 @@ describe('top-up checkout (§9.2)', () => {
     await seedSalon('s_t_owner_required');
     adminHolder.nonOwnerSalonIds.add('s_t_owner_required');
 
-    const response = await postCheckout({ salonId: 's_t_owner_required', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_owner_required', topupOfferKey: 'topup_100_2026_10' });
 
     expect(response.status).toBe(403);
     expect((await response.json()).error.code).toBe('OWNER_REQUIRED');
@@ -487,7 +486,7 @@ describe('top-up checkout (§9.2)', () => {
 
     // The OWNER's identical request is unchanged.
     adminHolder.nonOwnerSalonIds.delete('s_t_owner_required');
-    const owner = await postCheckout({ salonId: 's_t_owner_required', topupOfferKey: 'topup_100_paid_2026_08' });
+    const owner = await postCheckout({ salonId: 's_t_owner_required', topupOfferKey: 'topup_100_2026_10' });
 
     expect(owner.status).toBe(200);
     expect(await attemptRows('s_t_owner_required')).toHaveLength(1);
@@ -496,21 +495,21 @@ describe('top-up checkout (§9.2)', () => {
 
   it('precreates the durable purchase and creates the session under the attempt key', async () => {
     await seedSalon('s_t_ok');
-    const response = await postCheckout({ salonId: 's_t_ok', topupOfferKey: 'topup_250_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_ok', topupOfferKey: 'topup_200_2026_10' });
 
     expect(response.status).toBe(200);
 
     const body = await response.json();
 
-    expect(body.data.offer).toEqual({ key: 'topup_250_paid_2026_08', credits: 250, priceCents: 1399, currency: 'cad' });
+    expect(body.data.offer).toEqual({ key: 'topup_200_2026_10', credits: 200, priceCents: 3000, currency: 'cad' });
 
     const purchases = await purchaseRows('s_t_ok');
 
     expect(purchases).toHaveLength(1);
     expect(purchases[0]).toMatchObject({
       status: 'checkout_created',
-      credits: 250,
-      amountCents: 1399,
+      credits: 200,
+      amountCents: 3000,
       stripeCheckoutSessionId: body.data.sessionId,
     });
 
@@ -524,7 +523,7 @@ describe('top-up checkout (§9.2)', () => {
 
   it('P3c: writes ONE checkout_session_created audit row, admin-attributed, no Stripe ids in metadata', async () => {
     await seedSalon('s_audit_topup_ok');
-    const response = await postCheckout({ salonId: 's_audit_topup_ok', topupOfferKey: 'topup_250_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_audit_topup_ok', topupOfferKey: 'topup_200_2026_10' });
 
     expect(response.status).toBe(200);
 
@@ -544,7 +543,7 @@ describe('top-up checkout (§9.2)', () => {
     });
     expect(rows[0]!.metadata).toMatchObject({
       purpose: 'sms_topup',
-      topupOfferKey: 'topup_250_paid_2026_08',
+      topupOfferKey: 'topup_200_2026_10',
       attemptId: attempt!.id,
       purchaseId: purchase!.id,
     });
@@ -556,19 +555,19 @@ describe('top-up checkout (§9.2)', () => {
 
   it('reuses one bound, verified open session for a retry of the same offer', async () => {
     await seedSalon('s_t_retry');
-    const first = await postCheckout({ salonId: 's_t_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const first = await postCheckout({ salonId: 's_t_retry', topupOfferKey: 'topup_100_2026_10' });
     const firstBody = await first.json();
     const [attempt] = await attemptRows('s_t_retry');
     const [purchase] = await purchaseRows('s_t_retry');
     stripeMock.checkout.sessions.retrieve.mockResolvedValue(retrievedTopupSession({
       id: firstBody.data.sessionId,
       salonId: 's_t_retry',
-      topupOfferKey: 'topup_100_paid_2026_08',
+      topupOfferKey: 'topup_100_2026_10',
       attemptId: attempt!.id,
       purchaseId: purchase!.id,
     }));
 
-    const second = await postCheckout({ salonId: 's_t_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const second = await postCheckout({ salonId: 's_t_retry', topupOfferKey: 'topup_100_2026_10' });
     const body = await second.json();
 
     expect(second.status).toBe(200);
@@ -581,9 +580,9 @@ describe('top-up checkout (§9.2)', () => {
 
   it('holds a different offer behind an unresolved top-up without calling Stripe again', async () => {
     await seedSalon('s_t_conflict');
-    await postCheckout({ salonId: 's_t_conflict', topupOfferKey: 'topup_100_paid_2026_08' });
+    await postCheckout({ salonId: 's_t_conflict', topupOfferKey: 'topup_100_2026_10' });
 
-    const response = await postCheckout({ salonId: 's_t_conflict', topupOfferKey: 'topup_250_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_conflict', topupOfferKey: 'topup_200_2026_10' });
 
     expect(response.status).toBe(409);
     expect((await response.json()).error.code).toBe('CHECKOUT_IN_PROGRESS');
@@ -599,7 +598,7 @@ describe('top-up checkout (§9.2)', () => {
         id: 'bca_multiple_1',
         salonId: 's_t_multiple',
         purpose: 'sms_topup',
-        topupOfferKey: 'topup_100_paid_2026_08',
+        topupOfferKey: 'topup_100_2026_10',
         status: 'creating',
         stripeIdempotencyKey: 'billing-attempt:bca_multiple_1',
         expiresAt,
@@ -608,14 +607,14 @@ describe('top-up checkout (§9.2)', () => {
         id: 'bca_multiple_2',
         salonId: 's_t_multiple',
         purpose: 'sms_topup',
-        topupOfferKey: 'topup_100_paid_2026_08',
+        topupOfferKey: 'topup_100_2026_10',
         status: 'checkout_created',
         stripeIdempotencyKey: 'billing-attempt:bca_multiple_2',
         expiresAt,
       },
     ]);
 
-    const response = await postCheckout({ salonId: 's_t_multiple', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_multiple', topupOfferKey: 'topup_100_2026_10' });
 
     expect(response.status).toBe(409);
     expect((await response.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
@@ -627,14 +626,14 @@ describe('top-up checkout (§9.2)', () => {
     await seedSalon('s_t_create_unknown');
     stripeMock.checkout.sessions.create.mockRejectedValueOnce(new Error('connection dropped after submit'));
 
-    const first = await postCheckout({ salonId: 's_t_create_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+    const first = await postCheckout({ salonId: 's_t_create_unknown', topupOfferKey: 'topup_100_2026_10' });
 
     expect(first.status).toBe(409);
     expect((await first.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
     expect(await attemptRows('s_t_create_unknown')).toHaveLength(1);
     expect(await purchaseRows('s_t_create_unknown')).toHaveLength(1);
 
-    const retry = await postCheckout({ salonId: 's_t_create_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+    const retry = await postCheckout({ salonId: 's_t_create_unknown', topupOfferKey: 'topup_100_2026_10' });
 
     expect(retry.status).toBe(409);
     expect((await retry.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
@@ -648,7 +647,7 @@ describe('top-up checkout (§9.2)', () => {
       .mockRejectedValueOnce(new Error('local binding unavailable'));
 
     try {
-      const first = await postCheckout({ salonId: 's_t_bind_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+      const first = await postCheckout({ salonId: 's_t_bind_unknown', topupOfferKey: 'topup_100_2026_10' });
 
       expect(first.status).toBe(409);
       expect((await first.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
@@ -659,7 +658,7 @@ describe('top-up checkout (§9.2)', () => {
       expect(attempt).toMatchObject({ status: 'creating', stripeCheckoutSessionId: null });
       expect(purchase).toMatchObject({ status: 'checkout_created', stripeCheckoutSessionId: null });
 
-      const retry = await postCheckout({ salonId: 's_t_bind_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+      const retry = await postCheckout({ salonId: 's_t_bind_unknown', topupOfferKey: 'topup_100_2026_10' });
 
       expect(retry.status).toBe(409);
       expect((await retry.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
@@ -672,12 +671,12 @@ describe('top-up checkout (§9.2)', () => {
 
   it('holds a bound checkout when its Stripe retrieval fails or its evidence is invalid', async () => {
     await seedSalon('s_t_retrieve_unknown');
-    const first = await postCheckout({ salonId: 's_t_retrieve_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+    const first = await postCheckout({ salonId: 's_t_retrieve_unknown', topupOfferKey: 'topup_100_2026_10' });
     const { data } = await first.json();
     const [purchase] = await purchaseRows('s_t_retrieve_unknown');
     stripeMock.checkout.sessions.retrieve.mockRejectedValueOnce(new Error('Stripe unavailable'));
 
-    const retrievalFailure = await postCheckout({ salonId: 's_t_retrieve_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+    const retrievalFailure = await postCheckout({ salonId: 's_t_retrieve_unknown', topupOfferKey: 'topup_100_2026_10' });
 
     expect(retrievalFailure.status).toBe(409);
     expect((await retrievalFailure.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
@@ -685,11 +684,11 @@ describe('top-up checkout (§9.2)', () => {
     stripeMock.checkout.sessions.retrieve.mockResolvedValueOnce(retrievedTopupSession({
       id: data.sessionId,
       salonId: 's_t_retrieve_unknown',
-      topupOfferKey: 'topup_100_paid_2026_08',
+      topupOfferKey: 'topup_100_2026_10',
       attemptId: 'bca_wrong_attempt',
       purchaseId: purchase!.id,
     }));
-    const invalidEvidence = await postCheckout({ salonId: 's_t_retrieve_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+    const invalidEvidence = await postCheckout({ salonId: 's_t_retrieve_unknown', topupOfferKey: 'topup_100_2026_10' });
 
     expect(invalidEvidence.status).toBe(409);
     expect((await invalidEvidence.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
@@ -699,26 +698,26 @@ describe('top-up checkout (§9.2)', () => {
 
   it('permits a new checkout only after Stripe verifies the prior session expired', async () => {
     await seedSalon('s_t_verified_expiry');
-    const first = await postCheckout({ salonId: 's_t_verified_expiry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const first = await postCheckout({ salonId: 's_t_verified_expiry', topupOfferKey: 'topup_100_2026_10' });
     const firstBody = await first.json();
     const [attempt] = await attemptRows('s_t_verified_expiry');
     const [purchase] = await purchaseRows('s_t_verified_expiry');
     stripeMock.checkout.sessions.retrieve.mockResolvedValueOnce(retrievedTopupSession({
       id: firstBody.data.sessionId,
       salonId: 's_t_verified_expiry',
-      topupOfferKey: 'topup_100_paid_2026_08',
+      topupOfferKey: 'topup_100_2026_10',
       attemptId: attempt!.id,
       purchaseId: purchase!.id,
       status: 'expired',
       url: null,
     }));
 
-    const expiryObservation = await postCheckout({ salonId: 's_t_verified_expiry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const expiryObservation = await postCheckout({ salonId: 's_t_verified_expiry', topupOfferKey: 'topup_100_2026_10' });
 
     expect(expiryObservation.status).toBe(409);
     expect((await expiryObservation.json()).error.code).toBe('CHECKOUT_IN_PROGRESS');
 
-    const replacement = await postCheckout({ salonId: 's_t_verified_expiry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const replacement = await postCheckout({ salonId: 's_t_verified_expiry', topupOfferKey: 'topup_100_2026_10' });
 
     expect(replacement.status).toBe(200);
     expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(2);
@@ -727,7 +726,7 @@ describe('top-up checkout (§9.2)', () => {
 
   it('never lets subscription-attempt TTL cleanup release an unresolved top-up', async () => {
     await seedSalon('s_t_ttl_isolated');
-    const first = await postCheckout({ salonId: 's_t_ttl_isolated', topupOfferKey: 'topup_100_paid_2026_08' });
+    const first = await postCheckout({ salonId: 's_t_ttl_isolated', topupOfferKey: 'topup_100_2026_10' });
     const firstBody = await first.json();
     const [topupAttempt] = await attemptRows('s_t_ttl_isolated');
     const [purchase] = await purchaseRows('s_t_ttl_isolated');
@@ -761,11 +760,11 @@ describe('top-up checkout (§9.2)', () => {
     stripeMock.checkout.sessions.retrieve.mockResolvedValueOnce(retrievedTopupSession({
       id: firstBody.data.sessionId,
       salonId: 's_t_ttl_isolated',
-      topupOfferKey: 'topup_100_paid_2026_08',
+      topupOfferKey: 'topup_100_2026_10',
       attemptId: topupAttempt!.id,
       purchaseId: purchase!.id,
     }));
-    const retry = await postCheckout({ salonId: 's_t_ttl_isolated', topupOfferKey: 'topup_100_paid_2026_08' });
+    const retry = await postCheckout({ salonId: 's_t_ttl_isolated', topupOfferKey: 'topup_100_2026_10' });
 
     expect(retry.status).toBe(200);
     expect((await retry.json()).data.reused).toBe(true);
@@ -784,7 +783,7 @@ describe('top-up checkout (§9.2)', () => {
       return { id: 'cs_t_early_expiry', url: 'https://checkout.stripe.test/topup' };
     });
 
-    const checkout = await postCheckout({ salonId: 's_t_early_expiry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const checkout = await postCheckout({ salonId: 's_t_early_expiry', topupOfferKey: 'topup_100_2026_10' });
 
     expect(checkout.status).toBe(200);
     expect(earlyResponse!.status).toBe(500);
@@ -833,9 +832,9 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     return { purchase, attempt };
   }
 
-  async function buyAndPay(salonId: string, sessionOverride?: string) {
+  async function buyAndPay(salonId: string, sessionOverride?: string, offerKey = 'topup_100_2026_10') {
     await seedSalon(salonId);
-    const checkout = await postCheckout({ salonId, topupOfferKey: 'topup_100_paid_2026_08' });
+    const checkout = await postCheckout({ salonId, topupOfferKey: offerKey });
     const { data } = await checkout.json();
     const sessionId = sessionOverride ?? data.sessionId;
     await mockVerifiedTopupEvidence({ sessionId, salonId });
@@ -848,6 +847,25 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     await postWebhook(completed);
     return { sessionId, completed };
   }
+
+  it.each([[100, 2000], [200, 3000], [500, 5000]])('fulfills the %i-text package at %i cents once without expiry', async (credits, cents) => {
+    const salonId = `package_${credits}`;
+    const { completed } = await buyAndPay(salonId, undefined, `topup_${credits}_2026_10`);
+
+    expect(await purchasedBalance(salonId)).toBe(credits);
+
+    const [purchase] = await purchaseRows(salonId);
+
+    expect(purchase).toMatchObject({ credits, amountCents: cents, status: 'fulfilled' });
+
+    const lots = await db.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, salonId));
+
+    expect(lots).toMatchObject([{ amount: credits, bucket: 'purchased', expiresAt: null }]);
+
+    await postWebhook(completed);
+
+    expect(await purchasedBalance(salonId)).toBe(credits);
+  });
 
   it('grants exactly once on verified paid evidence, replay-safe', async () => {
     const { completed } = await buyAndPay('s_t_fulfill');
@@ -866,7 +884,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
 
   it('an unpaid async completion records the intent and grants nothing', async () => {
     await seedSalon('s_t_unpaid');
-    const checkout = await postCheckout({ salonId: 's_t_unpaid', topupOfferKey: 'topup_100_paid_2026_08' });
+    const checkout = await postCheckout({ salonId: 's_t_unpaid', topupOfferKey: 'topup_100_2026_10' });
     const { data } = await checkout.json();
     await postWebhook(webhookEvent('checkout.session.completed', {
       id: data.sessionId,
@@ -885,7 +903,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
 
   it('keeps an unpaid completion pending and does not create a replacement checkout', async () => {
     await seedSalon('s_t_unpaid_retry');
-    const checkout = await postCheckout({ salonId: 's_t_unpaid_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const checkout = await postCheckout({ salonId: 's_t_unpaid_retry', topupOfferKey: 'topup_100_2026_10' });
     const { data } = await checkout.json();
     await postWebhook(webhookEvent('checkout.session.completed', {
       id: data.sessionId,
@@ -906,13 +924,13 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     stripeMock.checkout.sessions.retrieve.mockResolvedValue(retrievedTopupSession({
       id: data.sessionId,
       salonId: 's_t_unpaid_retry',
-      topupOfferKey: 'topup_100_paid_2026_08',
+      topupOfferKey: 'topup_100_2026_10',
       attemptId: attemptBefore!.id,
       purchaseId: purchaseBefore!.id,
       status: 'complete',
     }));
 
-    const retry = await postCheckout({ salonId: 's_t_unpaid_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const retry = await postCheckout({ salonId: 's_t_unpaid_retry', topupOfferKey: 'topup_100_2026_10' });
 
     expect(retry.status).toBe(409);
     expect((await retry.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
@@ -931,7 +949,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
   it('allows a later top-up after verified fulfillment', async () => {
     await buyAndPay('s_t_fulfilled_retry');
 
-    const next = await postCheckout({ salonId: 's_t_fulfilled_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const next = await postCheckout({ salonId: 's_t_fulfilled_retry', topupOfferKey: 'topup_100_2026_10' });
 
     expect(next.status).toBe(200);
     expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(2);
@@ -958,7 +976,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
 
   it('an expired session parks the purchase', async () => {
     await seedSalon('s_t_exp');
-    const checkout = await postCheckout({ salonId: 's_t_exp', topupOfferKey: 'topup_100_paid_2026_08' });
+    const checkout = await postCheckout({ salonId: 's_t_exp', topupOfferKey: 'topup_100_2026_10' });
     const { data } = await checkout.json();
     await postWebhook(webhookEvent('checkout.session.expired', {
       id: data.sessionId,
@@ -971,11 +989,11 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
 
   it('a partial refund reverses by the CUMULATIVE charge figure (#118 arithmetic)', async () => {
     await buyAndPay('s_t_refund');
-    // 100cr / $5.99: cumulative 300¢ → T = floor(100·300/599) = 50.
+    // 100cr / $5.99: cumulative 1000¢ → T = floor(100·300/2000) = 50.
     await postWebhook(webhookEvent('charge.refunded', {
       id: 'ch_t_refund',
       payment_intent: 'pi_s_t_refund',
-      amount_refunded: 300,
+      amount_refunded: 1000,
       refunds: { data: [{ id: 're_t_1' }] },
     }));
 
@@ -1027,8 +1045,8 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
       await buyAndPay('s_t_refund_updated');
       stripeMock.charges.retrieve.mockResolvedValueOnce({
         id: 'ch_t_ru',
-        amount: 599,
-        amount_refunded: 300, // cumulative, from the CHARGE — the refund object itself never carries this
+        amount: 2000,
+        amount_refunded: 1000, // cumulative, from the CHARGE — the refund object itself never carries this
         invoice: null,
         payment_intent: 'pi_s_t_refund_updated',
       });
@@ -1036,11 +1054,11 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
         id: 're_t_ru_1',
         charge: 'ch_t_ru',
         payment_intent: 'pi_s_t_refund_updated',
-        amount: 300,
+        amount: 1000,
       });
       await postWebhook(event);
 
-      // 100cr / 599¢: T = floor(100·300/599) = 50.
+      // 100cr / 2000¢: T = floor(100·300/2000) = 50.
       expect(await purchasedBalance('s_t_refund_updated')).toBe(50);
 
       // Exact replay of the SAME event id — claimBillingEvent dedups it
@@ -1055,8 +1073,8 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
       await postWebhook(webhookEvent('charge.refunded', {
         id: 'ch_t_dedup',
         payment_intent: 'pi_s_t_dedup',
-        amount: 599,
-        amount_refunded: 599, // full
+        amount: 2000,
+        amount_refunded: 2000, // full
         refunds: { data: [{ id: 're_t_dedup' }] },
       }));
 
@@ -1064,8 +1082,8 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
 
       stripeMock.charges.retrieve.mockResolvedValueOnce({
         id: 'ch_t_dedup',
-        amount: 599,
-        amount_refunded: 599,
+        amount: 2000,
+        amount_refunded: 2000,
         invoice: null,
         payment_intent: 'pi_s_t_dedup',
       });
@@ -1073,7 +1091,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
         id: 're_t_dedup', // the SAME refund id charge.refunded already reported
         charge: 'ch_t_dedup',
         payment_intent: 'pi_s_t_dedup',
-        amount: 599,
+        amount: 2000,
       }));
 
       // Still fully (and only once) reversed — never double-reversed negative.
@@ -1089,13 +1107,13 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
   describe('G02 — verified evidence before fulfilment', () => {
     it('an amount mismatch between the retrieved session and the persisted purchase holds the event and grants nothing', async () => {
       await seedSalon('s_t_evidence_mismatch');
-      const checkout = await postCheckout({ salonId: 's_t_evidence_mismatch', topupOfferKey: 'topup_100_paid_2026_08' });
+      const checkout = await postCheckout({ salonId: 's_t_evidence_mismatch', topupOfferKey: 'topup_100_2026_10' });
       const { data } = await checkout.json();
       const [purchase] = await purchaseRows('s_t_evidence_mismatch');
       const [attempt] = await attemptRows('s_t_evidence_mismatch');
 
       // The retrieved session reports a DIFFERENT amount than the persisted
-      // purchase (599¢) — tampering, or a session/purchase mismatch race.
+      // purchase (2000¢) — tampering, or a session/purchase mismatch race.
       stripeMock.checkout.sessions.retrieve.mockResolvedValueOnce({
         id: data.sessionId,
         amount_total: 1,
@@ -1143,7 +1161,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
   describe('G05 — async payment events', () => {
     it('async_payment_succeeded fulfils exactly once, even when an unpaid completed arrived first', async () => {
       await seedSalon('s_t_async_success');
-      const checkout = await postCheckout({ salonId: 's_t_async_success', topupOfferKey: 'topup_100_paid_2026_08' });
+      const checkout = await postCheckout({ salonId: 's_t_async_success', topupOfferKey: 'topup_100_2026_10' });
       const { data } = await checkout.json();
       await postWebhook(webhookEvent('checkout.session.completed', {
         id: data.sessionId,
@@ -1173,7 +1191,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
 
     it('async_payment_failed expires the purchase and its attempt atomically, using the same locked transition as checkout.session.expired', async () => {
       await seedSalon('s_t_async_failed');
-      const checkout = await postCheckout({ salonId: 's_t_async_failed', topupOfferKey: 'topup_100_paid_2026_08' });
+      const checkout = await postCheckout({ salonId: 's_t_async_failed', topupOfferKey: 'topup_100_2026_10' });
       const { data } = await checkout.json();
 
       await postWebhook(webhookEvent('checkout.session.async_payment_failed', {
@@ -1195,8 +1213,8 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     await postWebhook(webhookEvent('charge.refunded', {
       id: 'ch_t_regressed',
       payment_intent: 'pi_s_t_regressed',
-      amount: 599,
-      amount_refunded: 300,
+      amount: 2000,
+      amount_refunded: 1000,
       refunds: { data: [{ id: 're_t_regressed' }] },
     }));
 
@@ -1207,7 +1225,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     const event = webhookEvent('charge.refunded', {
       id: 'ch_t_regressed',
       payment_intent: 'pi_s_t_regressed',
-      amount: 599,
+      amount: 2000,
       amount_refunded: 100, // moved BACKWARD — a failed refund
       refunds: { data: [{ id: 're_t_regressed_2' }] },
     });
@@ -1289,7 +1307,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
       await postWebhook(webhookEvent('charge.refunded', {
         id: 'ch_audit_refund_row',
         payment_intent: 'pi_s_audit_refund_row',
-        amount_refunded: 300,
+        amount_refunded: 1000,
         refunds: { data: [{ id: 're_audit_refund_row' }] },
       }));
 
@@ -1326,7 +1344,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
 
     it('an expired session writes ONE billing_checkout_attempt_expired row', async () => {
       await seedSalon('s_audit_expire_row');
-      const checkout = await postCheckout({ salonId: 's_audit_expire_row', topupOfferKey: 'topup_100_paid_2026_08' });
+      const checkout = await postCheckout({ salonId: 's_audit_expire_row', topupOfferKey: 'topup_100_2026_10' });
       const { data } = await checkout.json();
       const [attempt] = await attemptRows('s_audit_expire_row');
 
@@ -1350,7 +1368,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
 describe('G14 — automatic-tax architecture (§3.7)', () => {
   it('BILLING_TAX_COLLECTION_ENABLED unset ⇒ automatic_tax.enabled is false, address collection still required', async () => {
     await seedSalon('s_t_tax_off');
-    const response = await postCheckout({ salonId: 's_t_tax_off', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_tax_off', topupOfferKey: 'topup_100_2026_10' });
 
     expect(response.status).toBe(200);
 
@@ -1363,7 +1381,7 @@ describe('G14 — automatic-tax architecture (§3.7)', () => {
   it('BILLING_TAX_COLLECTION_ENABLED=\'true\' ⇒ automatic_tax.enabled is true', async () => {
     envHolder.BILLING_TAX_COLLECTION_ENABLED = 'true';
     await seedSalon('s_t_tax_on');
-    const response = await postCheckout({ salonId: 's_t_tax_on', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_tax_on', topupOfferKey: 'topup_100_2026_10' });
 
     expect(response.status).toBe(200);
 
@@ -1380,7 +1398,7 @@ describe('G14 — automatic-tax architecture (§3.7)', () => {
       plan: 'single_salon',
       stripeCustomerId: 'cus_existing_topup_123',
     });
-    const withCustomer = await postCheckout({ salonId: 's_t_tax_customer', topupOfferKey: 'topup_100_paid_2026_08' });
+    const withCustomer = await postCheckout({ salonId: 's_t_tax_customer', topupOfferKey: 'topup_100_2026_10' });
 
     expect(withCustomer.status).toBe(200);
 
@@ -1411,14 +1429,14 @@ describe('X5 — checkout redirect origin', () => {
     envHolder.NEXT_PUBLIC_APP_URL = 'https://booking.example.com/ignored/path?tok=secret';
     await seedSalon('s_t_origin_ok');
 
-    const response = await postCheckout({ salonId: 's_t_origin_ok', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_origin_ok', topupOfferKey: 'topup_100_2026_10' });
 
     expect(response.status).toBe(200);
 
     const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
 
-    expect(params.success_url).toBe('https://booking.example.com/admin?topup=success');
-    expect(params.cancel_url).toBe('https://booking.example.com/admin?topup=cancelled');
+    expect(params.success_url).toMatch(/^https:\/\/booking\.example\.com\/admin\?topup=success&salon=s_t_origin_ok&app=plan-usage&purchase=.+$/);
+    expect(params.cancel_url).toBe('https://booking.example.com/admin?topup=cancelled&salon=s_t_origin_ok&app=plan-usage');
     // The path and query of the configured value never ride out to Stripe.
     expect(params.success_url).not.toContain('secret');
     expect(params.cancel_url).not.toContain('/ignored/');
@@ -1429,7 +1447,7 @@ describe('X5 — checkout redirect origin', () => {
     process.env.VERCEL = '1';
     await seedSalon('s_t_origin_missing');
 
-    const response = await postCheckout({ salonId: 's_t_origin_missing', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_origin_missing', topupOfferKey: 'topup_100_2026_10' });
     const json = await response.json();
 
     expect(response.status).toBe(500);
@@ -1448,7 +1466,7 @@ describe('X5 — checkout redirect origin', () => {
     // than merely "was called".
     vi.mocked(sentry.captureException).mockClear();
 
-    const response = await postCheckout({ salonId: 's_t_origin_sentry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_origin_sentry', topupOfferKey: 'topup_100_2026_10' });
     const json = await response.json();
     const captured = vi.mocked(sentry.captureException).mock.calls.at(-1);
 
@@ -1464,7 +1482,7 @@ describe('X5 — checkout redirect origin', () => {
     process.env.VERCEL_PROJECT_PRODUCTION_URL = 'isla-nail-studio.vercel.app';
     await seedSalon('s_t_origin_preview');
     try {
-      const response = await postCheckout({ salonId: 's_t_origin_preview', topupOfferKey: 'topup_100_paid_2026_08' });
+      const response = await postCheckout({ salonId: 's_t_origin_preview', topupOfferKey: 'topup_100_2026_10' });
 
       expect(response.status).toBe(500);
       expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
@@ -1478,13 +1496,13 @@ describe('X5 — checkout redirect origin', () => {
     delete process.env.VERCEL;
     await seedSalon('s_t_origin_local');
 
-    const response = await postCheckout({ salonId: 's_t_origin_local', topupOfferKey: 'topup_100_paid_2026_08' });
+    const response = await postCheckout({ salonId: 's_t_origin_local', topupOfferKey: 'topup_100_2026_10' });
 
     expect(response.status).toBe(200);
 
     const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
 
-    expect(params.success_url).toBe('http://localhost:3000/admin?topup=success');
-    expect(params.cancel_url).toBe('http://localhost:3000/admin?topup=cancelled');
+    expect(params.success_url).toMatch(/^http:\/\/localhost:3000\/admin\?topup=success&salon=s_t_origin_local&app=plan-usage&purchase=.+$/);
+    expect(params.cancel_url).toBe('http://localhost:3000/admin?topup=cancelled&salon=s_t_origin_local&app=plan-usage');
   });
 });

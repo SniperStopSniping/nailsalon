@@ -18,9 +18,9 @@
  * - If billingMode !== 'STRIPE', billing enforcement (past_due locks) NEVER applies
  * - Cash-only salons work normally without subscription enforcement
  */
-
 import { eq } from 'drizzle-orm';
 
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
 import { db } from '@/libs/DB';
 import { FEATURE_DEFAULTS, resolveEntitlement } from '@/libs/featureEntitlements';
 import { salonSchema } from '@/models/Schema';
@@ -265,7 +265,7 @@ export function guardEntitledOrUpgradeRequiredSync(args: {
   const entitled = isModuleEntitled(args.features, args.module);
   if (!entitled) {
     return Response.json(
-      { error: { code: 'UPGRADE_REQUIRED', message: 'Upgrade required' } },
+      { error: { code: 'UPGRADE_REQUIRED', message: 'This feature is not enabled for this salon.' } },
       { status: 403 },
     );
   }
@@ -356,7 +356,7 @@ export async function guardModuleOr403(args: {
   const entitled = isModuleEntitled(features, module);
   if (!entitled) {
     return Response.json(
-      { error: { code: 'UPGRADE_REQUIRED', message: 'Upgrade required' } },
+      { error: { code: 'UPGRADE_REQUIRED', message: 'This feature is not enabled for this salon.' } },
       { status: 403 },
     );
   }
@@ -395,7 +395,7 @@ export function guardModuleOr403Sync(args: {
   const entitled = isModuleEntitled(features, module);
   if (!entitled) {
     return Response.json(
-      { error: { code: 'UPGRADE_REQUIRED', message: 'Upgrade required' } },
+      { error: { code: 'UPGRADE_REQUIRED', message: 'This feature is not enabled for this salon.' } },
       { status: 403 },
     );
   }
@@ -526,6 +526,10 @@ export function shouldEnforceBillingLock(salon: {
   stripeSubscriptionStatus?: string | null;
   stripeCurrentPeriodEnd?: number | null;
 }): boolean {
+  if (COMMERCIAL_POLICY.allFeaturesIncluded) {
+    return false;
+  }
+
   // If not using Stripe billing, never enforce billing locks
   if (!isStripeBillingEnabled(salon.billingMode)) {
     return false;

@@ -117,9 +117,9 @@ test('Advanced Optional Features opens included SMS credits and paused Client co
 
   await expect(page.getByRole('heading', { name: 'Client communications', exact: true })).toBeVisible();
   await expect(page).toHaveURL(/app=settings&view=communications/);
-  await expect(page.getByText('100 SMS credits available. See Usage for details.')).toBeVisible();
+  await expect(page.getByText('100 texts remaining. See Usage & Top Ups for details.')).toBeVisible();
   await expect(page.getByText(pausedSms.detail)).toBeVisible();
-  await expect(page.getByText(/SMS access is included with every plan/)).toBeVisible();
+  await expect(page.getByText(/Text messages use your salon’s text credits/)).toBeVisible();
 
   const preference = page.getByRole('checkbox', { name: 'Text messages to clients', exact: true });
   const save = page.getByRole('button', { name: 'Save communication settings' });
@@ -138,7 +138,7 @@ test('Advanced Optional Features opens included SMS credits and paused Client co
   await expect(preference).toBeChecked();
   await expect(save).toBeDisabled();
   await expect(page.getByText(pausedSms.detail)).toBeVisible();
-  await expect(page.getByText('100 SMS credits available. See Usage for details.')).toBeVisible();
+  await expect(page.getByText('100 texts remaining. See Usage & Top Ups for details.')).toBeVisible();
   expect(mutations).toEqual([{
     path: '/api/admin/salon/settings?salonSlug=sms-fixture',
     method: 'PATCH',

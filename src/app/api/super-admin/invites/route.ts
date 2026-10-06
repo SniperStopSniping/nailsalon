@@ -6,7 +6,6 @@
  *
  * Protected by requireSuperAdmin().
  */
-
 import { and, desc, eq, gt, isNull, lte, or } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 
@@ -14,6 +13,7 @@ import { formatPhoneE164, isValidPhone, requireSuperAdmin } from '@/libs/adminAu
 import { isLegacyOtpAuthEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
 import { getSalonBySlug } from '@/libs/queries';
+import { queueSalonInviteSms } from '@/libs/salonInviteSms';
 import {
   ADMIN_INVITE_ROLES,
   type AdminInviteRole,
@@ -240,7 +240,9 @@ export async function POST(request: Request) {
 
     const message = `You've been invited as ${roleDisplay}${salonText}.\n\nLog in here: ${loginUrl}`;
 
-    if (isTwilioConfigured) {
+    if (salonId) {
+      await queueSalonInviteSms({ salonId, inviteId, recipient: phoneE164, message, revision: inviteId }).catch(() => undefined);
+    } else if (isTwilioConfigured) {
       try {
         const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
 

@@ -38,6 +38,7 @@ vi.mock('@/libs/rateLimit', () => ({
 
 const guardHolder = vi.hoisted(() => ({ salonId: 's_usage' }));
 vi.mock('@/libs/adminAuth', () => ({
+  getAdminSession: vi.fn(async () => ({ salons: [{ salonId: guardHolder.salonId, role: 'owner' }] })),
   requireAdminSalon: vi.fn(async (slug: string) => (
     slug === `slug-${guardHolder.salonId}`
       ? { error: null, salon: { id: guardHolder.salonId } }
@@ -87,7 +88,7 @@ describe('masking (§10.4)', () => {
     expect(maskRecipient('sms', '4165550199')).toBe('•••• 0199');
     // Unknown internal codes NEVER pass through.
     expect(friendlyFailureReason('TWILIO_30007_CARRIER_FILTERED')).toBe('This message could not be delivered.');
-    expect(friendlyFailureReason('NO_CREDITS')).toBe('SMS credits were unavailable.');
+    expect(friendlyFailureReason('NO_CREDITS')).toBe('You’re out of text credits. Add more texts to continue sending reminders and messages.');
     expect(friendlyFailureReason('PILOT_NOT_ENABLED')).toBe('This salon is waiting for access to the texting pilot.');
     expect(friendlyFailureReason('PLAN_NOT_ELIGIBLE')).toBe(friendlyFailureReason('PILOT_NOT_ENABLED'));
     expect(friendlyFailureReason(null)).toBeNull();
@@ -222,7 +223,7 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
 
     const blocked = data.history.find((entry: { status: string }) => entry.status === 'blocked_no_credit');
 
-    expect(blocked.failureReason).toBe('SMS credits were unavailable.');
+    expect(blocked.failureReason).toBe('You’re out of text credits. Add more texts to continue sending reminders and messages.');
   });
 
   it('pages through identical timestamps without skipping or repeating', async () => {
@@ -288,7 +289,7 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
     const { data } = await (await get('?salonSlug=slug-s_usage')).json();
 
     expect(data.creditPurchasesAvailable).toBe(false);
-    expect(data.topupOffers).toEqual([]);
+    expect(data.topupOffers.map((offer: { credits: number }) => offer.credits)).toEqual([100, 200, 500]);
     expect(data.usage.availableCredits).toBe(40);
     expect(data.history).toHaveLength(3);
     expect(priceResolver).not.toHaveBeenCalled();
@@ -300,7 +301,7 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
     const { data } = await (await get('?salonSlug=slug-s_usage')).json();
 
     expect(data.creditPurchasesAvailable).toBe(false);
-    expect(data.topupOffers).toEqual([]);
+    expect(data.topupOffers.map((offer: { credits: number }) => offer.credits)).toEqual([100, 200, 500]);
     expect(data.usage.availableCredits).toBe(40);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -415,17 +416,14 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
     envHolder.BILLING_TOPUPS_ENABLED = 'true';
     const priceMap = await import('./billing/stripePriceMap');
     const priceResolver = vi.spyOn(priceMap, 'resolveStripePriceIdForTopup').mockImplementation((key) => {
-      if (key === 'topup_100_free_2026_08') {
-        return 'price_configured_fixture';
-      }
-      throw new priceMap.BillingCatalogError('PRICE_UNCONFIGURED', key);
+      return `price_configured_${key.replaceAll('_', '')}`;
     });
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Provider requests are forbidden'));
     const { data } = await (await get('?salonSlug=slug-s_usage')).json();
 
     expect(data.creditPurchasesAvailable).toBe(true);
-    expect(data.topupOffers).toEqual([{ key: 'topup_100_free_2026_08', credits: 100, priceCents: 699 }]);
-    expect(priceResolver.mock.calls.every(([key]) => key.includes('_free_'))).toBe(true);
+    expect(data.topupOffers).toEqual([{ key: 'topup_100_2026_10', credits: 100, priceCents: 2000 }, { key: 'topup_200_2026_10', credits: 200, priceCents: 3000 }, { key: 'topup_500_2026_10', credits: 500, priceCents: 5000 }]);
+    expect(priceResolver.mock.calls.every(([key]) => key.endsWith('_2026_10'))).toBe(true);
     expect(JSON.stringify(data)).not.toContain('price_configured_fixture');
     expect(data.usage.availableCredits).toBe(40);
     expect(fetchSpy).not.toHaveBeenCalled();

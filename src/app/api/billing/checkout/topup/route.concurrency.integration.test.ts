@@ -123,7 +123,7 @@ async function postCheckout(salonId: string) {
   const { NextRequest } = await import('next/server');
   return POST(new NextRequest('http://localhost/api/billing/checkout/topup', {
     method: 'POST',
-    body: JSON.stringify({ salonId, topupOfferKey: 'topup_100_paid_2026_08' }),
+    body: JSON.stringify({ salonId, topupOfferKey: 'topup_100_2026_10' }),
     headers: { 'content-type': 'application/json' },
   }));
 }
@@ -159,13 +159,13 @@ suite('top-up checkout — real-lock concurrency', () => {
       object: 'customer',
       livemode: false,
     }));
-    // P3b: every suite fixture buys 'topup_100_paid_2026_08' (599¢) — a
+    // P3b: every suite fixture buys 'topup_100_2026_10' (2000¢) — a
     // live, ACTIVE, one-time, cad price matching it every time.
     stripeMock.prices.retrieve.mockImplementation(async () => ({
       active: true,
       type: 'one_time',
       currency: 'cad',
-      unit_amount: 599,
+      unit_amount: 2000,
     }));
   });
 
@@ -340,7 +340,7 @@ suite('top-up checkout — real-lock concurrency', () => {
       id: 'bca_topup_expiry_completion_race',
       salonId: 'topup-s1',
       purpose: 'sms_topup',
-      topupOfferKey: 'topup_100_paid_2026_08',
+      topupOfferKey: 'topup_100_2026_10',
       status: 'checkout_created',
       stripeIdempotencyKey: 'billing-attempt:bca_topup_expiry_completion_race',
       stripeCheckoutSessionId: sessionId,
@@ -349,9 +349,9 @@ suite('top-up checkout — real-lock concurrency', () => {
     await db.insert(schema.smsTopupPurchaseSchema).values({
       id: 'stp_topup_expiry_completion_race',
       salonId: 'topup-s1',
-      topupOfferKey: 'topup_100_paid_2026_08',
+      topupOfferKey: 'topup_100_2026_10',
       credits: 100,
-      amountCents: 599,
+      amountCents: 2000,
       status: 'checkout_created',
       stripeCheckoutSessionId: sessionId,
       stripePaymentIntentId: 'pi_topup_expiry_completion_race',

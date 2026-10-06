@@ -19,6 +19,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
+const commercialPolicy = vi.hoisted(() => ({ subscriptionsForSale: true }));
+vi.mock('@/libs/commercialPolicy', () => ({ COMMERCIAL_POLICY: commercialPolicy }));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
 vi.mock('@/libs/DB', () => ({
@@ -241,6 +243,18 @@ const attemptRows = (salonId: string) =>
     .where(eq(schema.billingCheckoutAttemptSchema.salonId, salonId));
 
 describe('dark switch and catalogue gates — reject before any write or provider call', () => {
+  it('blocks subscription checkout under the free model even when its old switch is enabled', async () => {
+    commercialPolicy.subscriptionsForSale = false;
+    try {
+      const response = await post({});
+
+      expect(response.status).toBe(503);
+      expect((await response.json()).error.code).toBe('BILLING_DISABLED');
+    } finally {
+      commercialPolicy.subscriptionsForSale = true;
+    }
+  });
+
   it('rejects with BILLING_DISABLED while the switch is unset, consuming nothing', async () => {
     envHolder.BILLING_SUBSCRIPTIONS_ENABLED = undefined;
     await seedSalon('s_dark');

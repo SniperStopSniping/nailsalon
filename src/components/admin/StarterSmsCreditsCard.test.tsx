@@ -35,7 +35,7 @@ describe('StarterSmsCreditsCard', () => {
 
     expect(screen.getByText('Checking free-text allowance…')).toBeInTheDocument();
 
-    const claim = await screen.findByRole('button', { name: 'Claim 100 free texts' });
+    const claim = await screen.findByRole('button', { name: 'Claim 50 free texts' });
     fireEvent.click(claim);
 
     await waitFor(() => expect(onClaimed).toHaveBeenCalledOnce());
@@ -46,7 +46,7 @@ describe('StarterSmsCreditsCard', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ salonId: 'salon_a' }),
     });
-    expect(screen.getByText('100 free SMS credits have been added.')).toBeInTheDocument();
+    expect(screen.getByText('50 free text credits have been added.')).toBeInTheDocument();
   });
 
   it('sends an unverified owner to the Clerk profile instead of requesting contact data', async () => {
@@ -62,7 +62,7 @@ describe('StarterSmsCreditsCard', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Verify free-text allowance' }));
 
     expect(screen.getByRole('heading', { name: 'Verify your free-text allowance' })).toBeInTheDocument();
-    expect(screen.getByText('Link your verified owner email and phone number to your existing lifetime allowance. Your SMS credit balance stays the same.')).toBeInTheDocument();
+    expect(screen.getByText('Link your verified owner email and phone number to your existing lifetime allowance. Your text credit balance stays the same.')).toBeInTheDocument();
 
     expect(await screen.findByText('Verify your primary email and phone number to claim your free texts.')).toBeInTheDocument();
 
@@ -92,7 +92,7 @@ describe('StarterSmsCreditsCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry status check' }));
 
-    expect(await screen.findByRole('button', { name: 'Claim 100 free texts' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Claim 50 free texts' })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
   });
@@ -101,12 +101,12 @@ describe('StarterSmsCreditsCard', () => {
     fetchMock.mockImplementation(() => statusResponse('verified', false));
     const { unmount } = render(<StarterSmsCreditsCard salonId="salon_a" hasKnownStarterCredits onClaimed={vi.fn()} />);
 
-    expect(await screen.findByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeInTheDocument();
+    expect(await screen.findByText('Your free-text allowance has been verified. Your existing text credits are unchanged.')).toBeInTheDocument();
 
     unmount();
     render(<StarterSmsCreditsCard salonId="salon_a" hasKnownStarterCredits onClaimed={vi.fn()} />);
 
-    expect(await screen.findByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeInTheDocument();
+    expect(await screen.findByText('Your free-text allowance has been verified. Your existing text credits are unchanged.')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
   });
@@ -123,10 +123,10 @@ describe('StarterSmsCreditsCard', () => {
 
     rerender(<StarterSmsCreditsCard salonId="salon_b" hasKnownStarterCredits={false} onClaimed={vi.fn()} />);
 
-    expect(await screen.findByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeInTheDocument();
+    expect(await screen.findByText('Your free-text allowance has been verified. Your existing text credits are unchanged.')).toBeInTheDocument();
 
     resolveFirst!(statusResponse('unclaimed', true));
-    await waitFor(() => expect(screen.getByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Your free-text allowance has been verified. Your existing text credits are unchanged.')).toBeInTheDocument());
   });
 
   it('does not let a delayed claim for an old salon update the new salon', async () => {
@@ -143,7 +143,7 @@ describe('StarterSmsCreditsCard', () => {
     });
     const { rerender } = render(<StarterSmsCreditsCard salonId="salon_a" hasKnownStarterCredits={false} onClaimed={onClaimed} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Claim 100 free texts' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim 50 free texts' }));
 
     expect(await screen.findByRole('button', { name: 'Verifying…' })).toBeDisabled();
 

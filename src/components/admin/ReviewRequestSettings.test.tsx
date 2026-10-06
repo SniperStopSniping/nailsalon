@@ -59,7 +59,7 @@ describe('ReviewRequestSettings', () => {
     expect(preview).toHaveTextContent('Isla Nail Studio: Hi Avery! https://g.page/salon/review');
     expect(preview).not.toHaveTextContent('via Luster');
     expect(preview).not.toHaveTextContent('Reply STOP to opt out.');
-    expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('1 SMS segment · 1 credit');
+    expect(screen.getByTestId('sms-segment-summary')).toHaveTextContent('1 text credit');
   });
 
   it('restores the default with the salon name in the message', async () => {

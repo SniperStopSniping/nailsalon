@@ -754,12 +754,12 @@ describe('plan construction against the committed catalogue', () => {
     expect(byKey.get('elite_2026_08_annual')?.recurring).toEqual({ interval: 'year', interval_count: 1 });
   });
 
-  it('plans exactly seven one-time Prices with NO recurring block', () => {
+  it('plans exactly ten one-time Prices with NO recurring block', () => {
     const plan = makePlan();
     const topups = plan.prices.filter(price => price.section === 'topups');
     const byKey = new Map(topups.map(price => [price.key, price]));
 
-    expect(topups).toHaveLength(7);
+    expect(topups).toHaveLength(10);
     expect(topups.every(price => price.recurring === null)).toBe(true);
     expect(topups.every(price => price.productId === 'luster_test_topups_2026_08')).toBe(true);
     expect(byKey.get('topup_100_free_2026_08')?.unitAmount).toBe(699);
@@ -873,7 +873,7 @@ describe('carrier assembly and self-validation', () => {
     expect(validateCarrier(carrierFromState(state), 'test', catalogue)).toEqual([]);
   });
 
-  it('produces a 6/7/1 carrier from resolved ids', () => {
+  it('produces a 6/10/1 carrier from resolved ids', () => {
     const resolved = new Map<string, { section: 'offers' | 'topups'; id: string }>();
     makePlan().prices.forEach((price, index) => {
       resolved.set(price.key, { section: price.section, id: `price_res${String(index).padStart(8, '0')}` });
@@ -881,7 +881,7 @@ describe('carrier assembly and self-validation', () => {
     const carrier = buildCarrier('test', resolved, 'coupon_lusterfoundingannual2026test', 'founding_annual_2026');
 
     expect(Object.keys(carrier.offers)).toHaveLength(6);
-    expect(Object.keys(carrier.topups)).toHaveLength(7);
+    expect(Object.keys(carrier.topups)).toHaveLength(10);
     expect(Object.keys(carrier.coupons)).toEqual(['founding_annual_2026']);
     expect(validateCarrier(carrier, 'test', catalogue)).toEqual([]);
   });
@@ -920,7 +920,7 @@ describe('carrier assembly and self-validation', () => {
     const failures = validateCarrier(carrier, 'test', catalogue).join(' ');
 
     expect(failures).toContain('topup_1000_paid_2026_08');
-    expect(failures).toContain('expected exactly 7');
+    expect(failures).toContain('expected exactly 10');
   });
 
   it('rejects a section supplied as an array', () => {
@@ -1015,7 +1015,7 @@ describe('runProvision — dry run', () => {
 });
 
 describe('runProvision — apply', () => {
-  it('creates 4 Products, 13 Prices, 1 Coupon and 1 webhook endpoint', async () => {
+  it('creates 4 Products, 16 Prices, 1 Coupon and 1 webhook endpoint', async () => {
     const client = makeMockClient();
     const writeSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     const result = await runProvision(client, makePlan({ webhookUrl: WEBHOOK_URL }), {
@@ -1026,10 +1026,10 @@ describe('runProvision — apply', () => {
     writeSpy.mockRestore();
 
     expect(client.state.products.size).toBe(4);
-    expect(client.state.prices).toHaveLength(13);
+    expect(client.state.prices).toHaveLength(16);
     expect(client.state.coupons.size).toBe(1);
     expect(client.state.webhookEndpoints).toHaveLength(1);
-    expect(result.priceIds.size).toBe(13);
+    expect(result.priceIds.size).toBe(16);
     expect(result.couponStripeId).toBe('coupon_lusterfoundingannual2026test');
     expect(result.webhookSecret).toBe(MOCK_WEBHOOK_SECRET);
   });
@@ -1059,8 +1059,8 @@ describe('runProvision — apply', () => {
     expect(client.calls.filter(call => call.startsWith('prices.create'))).toEqual([]);
     expect(client.calls.filter(call => call.startsWith('products.create'))).toEqual([]);
     expect(client.calls.filter(call => call.startsWith('coupons.create'))).toEqual([]);
-    expect(client.state.prices).toHaveLength(13);
-    expect(result.priceIds.size).toBe(13);
+    expect(client.state.prices).toHaveLength(16);
+    expect(result.priceIds.size).toBe(16);
   });
 
   it('reactivates an archived but otherwise correct Price instead of recreating it', async () => {
@@ -1077,7 +1077,7 @@ describe('runProvision — apply', () => {
 
     expect(client.calls.filter(call => call.startsWith('prices.create'))).toEqual([]);
     expect(after.active).toBe(true);
-    expect(client.state.prices).toHaveLength(13);
+    expect(client.state.prices).toHaveLength(16);
   });
 
   it('REFUSES a wrong-amount Price rather than duplicating or archiving it', async () => {
@@ -1095,7 +1095,7 @@ describe('runProvision — apply', () => {
     writeSpy.mockRestore();
 
     expect(client.calls.filter(call => call.startsWith('prices.create'))).toEqual([]);
-    expect(client.state.prices).toHaveLength(13);
+    expect(client.state.prices).toHaveLength(16);
   });
 
   it('REFUSES an existing coupon whose percent_off disagrees', async () => {
@@ -2003,7 +2003,7 @@ describe('collision detection against a hand-built catalogue', () => {
     writeSpy.mockRestore();
 
     expect(client.calls.filter(call => call.startsWith('prices.create'))).toEqual([]);
-    expect(client.state.prices).toHaveLength(13);
+    expect(client.state.prices).toHaveLength(16);
     expect(adopted.priceIds.get('starter_2026_08_monthly')?.id).toBe(target.id);
     expect((client.state.prices.find(price => price.id === target.id)
       ?.metadata as Stripe.Metadata).luster_catalog).toBe(CATALOG_MARKER);
@@ -2041,7 +2041,7 @@ describe('write ordering and resumability', () => {
       onCatalogueResolved: ({ priceIds, couponStripeId }) => {
         callsAtCarrierTime = [...client.calls];
 
-        expect(priceIds.size).toBe(13);
+        expect(priceIds.size).toBe(16);
         expect(couponStripeId).toBe('coupon_lusterfoundingannual2026test');
       },
     });
@@ -2101,7 +2101,7 @@ describe('write ordering and resumability', () => {
     // portal step updates the adopted default rather than creating one.
     expect(client.calls.filter(call => /\.create/.test(call)).length).toBe(createdFirst);
     expect(client.calls).toContain('billingPortal.configurations.update:bpc_legacy');
-    expect(client.state.prices).toHaveLength(13);
+    expect(client.state.prices).toHaveLength(16);
   });
 });
 
@@ -2784,7 +2784,7 @@ describe('T6 — the endpoint is armed by its own, final invocation', () => {
     expect(client.calls).not.toContain('webhookEndpoints.update');
     expect(result.webhookEndpointId).toBeNull();
     expect(result.webhookSecret).toBeNull();
-    expect(client.calls.filter(call => call.startsWith('prices.create'))).toHaveLength(13);
+    expect(client.calls.filter(call => call.startsWith('prices.create'))).toHaveLength(16);
     expect(lines.join('')).toContain('webhook step SKIPPED');
     expect(lines.join('')).toContain('STRIPE_BILLING_WEBHOOK_SECRET');
     expect(result.notes.join('\n')).toContain('--create-webhook was not passed');

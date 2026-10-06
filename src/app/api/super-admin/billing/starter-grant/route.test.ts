@@ -27,6 +27,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 const envHolder = vi.hoisted(() => ({
+  BILLING_STARTER_IDENTITY_READY: undefined as string | undefined,
   BILLING_IDENTITY_HMAC_SECRET: undefined as string | undefined,
   BILLING_IDENTITY_HMAC_VERSION: undefined as number | undefined,
 }));
@@ -105,6 +106,9 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  envHolder.BILLING_STARTER_IDENTITY_READY = undefined;
+  envHolder.BILLING_IDENTITY_HMAC_SECRET = undefined;
+  envHolder.BILLING_IDENTITY_HMAC_VERSION = undefined;
   guard.requireSuperAdmin.mockResolvedValue(SUPER_ADMIN);
   rateLimit.checkEndpointRateLimit.mockReturnValue({ allowed: true });
 });
@@ -157,8 +161,9 @@ describe('POST /api/super-admin/billing/starter-grant — plan', () => {
       salon: { id: 's_plan_route', slug: 'plan-route-salon' },
       businessIdentityId: null,
       alreadyGranted: false,
-      wouldGrant: true,
-      credits: 100,
+      wouldGrant: false,
+      credits: 50,
+      heldReason: 'IDENTITY_SETUP_REQUIRED',
     });
     expect(await rowCounts()).toEqual(before);
   });
@@ -214,7 +219,7 @@ describe('POST /api/super-admin/billing/starter-grant — apply', () => {
     expect(await rowCounts()).toEqual(before);
   });
 
-  it('grants once with matching confirmation — one grant row, one 100-credit starter lot, one audit row (actor super_admin); a second apply is a no-op', async () => {
+  it('grants once with matching confirmation — one grant row, one 50-credit starter lot, one audit row (actor super_admin); a second apply is a no-op', async () => {
     await seedSalon({
       id: 's_apply_route',
       slug: 'apply-route-salon',
@@ -222,12 +227,18 @@ describe('POST /api/super-admin/billing/starter-grant — apply', () => {
       ownerEmail: 'apply-route@example.com',
     });
 
+    envHolder.BILLING_IDENTITY_HMAC_SECRET = 'disposable-identity-key';
+    envHolder.BILLING_IDENTITY_HMAC_VERSION = 1;
+    envHolder.BILLING_STARTER_IDENTITY_READY = 'true';
+    const { resolveOrCreateBusinessIdentity } = await import('@/libs/billing/businessIdentity');
+    await db.transaction(tx => resolveOrCreateBusinessIdentity(tx, { salonId: 's_apply_route', clerkUserId: 'user_apply_route', verifiedEmail: 'apply-route@example.com', verifiedPhone: '+14165550001' }));
+
     const first = await post({ salonSlug: 'apply-route-salon', mode: 'apply', confirmation: 'apply-route-salon' });
     const firstJson = await first.json();
 
     expect(first.status).toBe(200);
     expect(firstJson.granted).toBe(true);
-    expect(firstJson.ledgerEvidence).toMatchObject({ credits: 100, bucket: 'starter' });
+    expect(firstJson.ledgerEvidence).toMatchObject({ credits: 50, bucket: 'starter' });
 
     const businessIdentityId = firstJson.businessIdentityId as string;
 
@@ -235,13 +246,13 @@ describe('POST /api/super-admin/billing/starter-grant — apply', () => {
       .where(eq(schema.billingStarterGrantSchema.businessIdentityId, businessIdentityId));
 
     expect(grantRows).toHaveLength(1);
-    expect(grantRows[0]).toMatchObject({ salonId: 's_apply_route', credits: 100 });
+    expect(grantRows[0]).toMatchObject({ salonId: 's_apply_route', credits: 50 });
 
     const lotRows = await db.select().from(schema.smsCreditLedgerSchema)
       .where(eq(schema.smsCreditLedgerSchema.id, firstJson.ledgerEvidence.lotId));
 
     expect(lotRows).toHaveLength(1);
-    expect(lotRows[0]).toMatchObject({ salonId: 's_apply_route', bucket: 'starter', entryType: 'grant', amount: 100 });
+    expect(lotRows[0]).toMatchObject({ salonId: 's_apply_route', bucket: 'starter', entryType: 'grant', amount: 50 });
 
     const auditRows = await db.select().from(schema.auditLogSchema)
       .where(eq(schema.auditLogSchema.action, 'billing_starter_grant_backfilled'));
@@ -396,7 +407,7 @@ describe('POST /api/super-admin/billing/starter-grant — Y9 identity safety', (
     expect(json.granted).toBeUndefined();
   });
 
-  it('an UNVERIFIED salon.ownerEmail never blocks the grant — the route still applies it once', async () => {
+  it('an unverified owner cannot receive an automatic grant', async () => {
     await seedSalon({
       id: 's_unverified_route',
       slug: 'unverified-route-salon',
@@ -423,13 +434,8 @@ describe('POST /api/super-admin/billing/starter-grant — Y9 identity safety', (
     });
     const json = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(json.granted).toBe(true);
-
-    // No email_hmac link was built from the unverified address.
-    const links = await db.select().from(schema.billingBusinessIdentityLinkSchema)
-      .where(eq(schema.billingBusinessIdentityLinkSchema.businessIdentityId, json.businessIdentityId));
-
-    expect(links.map(row => row.linkType)).not.toContain('email_hmac');
+    expect(response.status).toBe(409);
+    expect(json.error.code).toBe('IDENTITY_SETUP_REQUIRED');
+    expect(await db.select().from(schema.billingStarterGrantSchema).where(eq(schema.billingStarterGrantSchema.salonId, 's_unverified_route'))).toEqual([]);
   });
 });

@@ -19,6 +19,7 @@ import * as Sentry from '@sentry/nextjs';
 import { and, eq, sql } from 'drizzle-orm';
 
 import { getPlanDefinition } from '@/libs/billing/planDefinitions';
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
 import { db } from '@/libs/DB';
 import {
   billingCreditWindowSchema,
@@ -33,7 +34,7 @@ import { appendLotGrant, appendNegativeEntry, lockCreditAccount, lotRemaining, r
 import { computeCreditWindow, evaluateCreditWindow } from './creditWindows';
 import { overlapsRefund, readSubscriptionRefunds } from './subscriptionRefunds';
 
-export const STARTER_CREDITS = 100;
+export const STARTER_CREDITS = COMMERCIAL_POLICY.starterCredits;
 
 /**
  * One-time business-level starter grant. The durable evidence row (unique
@@ -46,6 +47,7 @@ export async function grantStarterCredits(
   input: { businessIdentityId: string; salonId: string; now?: Date },
 ): Promise<{ granted: boolean }> {
   const now = input.now ?? new Date();
+  await lockCreditAccount(tx, input.salonId);
   const claimed = await tx
     .insert(billingStarterGrantSchema)
     .values({
@@ -61,7 +63,6 @@ export async function grantStarterCredits(
     return { granted: false };
   }
 
-  await lockCreditAccount(tx, input.salonId);
   const { lotId } = await appendLotGrant(tx, {
     salonId: input.salonId,
     bucket: 'starter',

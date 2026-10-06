@@ -222,6 +222,15 @@ async function recipientStillCurrent(intent: CommunicationIntent): Promise<boole
   if (intent.channel !== 'sms') {
     return true;
   }
+  if (intent.eventType === 'salon_invite') {
+    const rows = await db.execute(sql`
+      SELECT phone_e164 FROM admin_invite
+      WHERE id = ${intent.variables.inviteId ?? ''} AND salon_id = ${intent.salonId}
+        AND used_at IS NULL AND expires_at > now() LIMIT 1
+    `);
+    const invite = rows.rows[0] as { phone_e164: string } | undefined;
+    return !!invite && normalizeConsentRecipient(invite.phone_e164) === normalizeConsentRecipient(intent.recipient);
+  }
   if (intent.audience !== 'client') {
     const [salon] = await db.select({ ownerPhone: salonSchema.ownerPhone, settings: salonSchema.settings })
       .from(salonSchema).where(eq(salonSchema.id, intent.salonId)).limit(1);

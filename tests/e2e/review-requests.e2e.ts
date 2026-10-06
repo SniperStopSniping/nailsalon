@@ -57,7 +57,7 @@ test('review settings require an explicit automation mode @mobile-safari', async
   await panel.getByLabel('Send after', { exact: true }).selectOption('60');
 
   await expect(panel.getByText('Reply STOP to opt out.', { exact: false })).toHaveCount(0);
-  await expect(panel.getByText('1 SMS segment · 1 credit', { exact: true })).toBeVisible();
+  await expect(panel.getByText('1 text credit', { exact: true })).toBeVisible();
 
   await panel.getByRole('button', { name: 'Save review settings' }).click();
 
@@ -75,13 +75,13 @@ test('review settings require an explicit automation mode @mobile-safari', async
 
   const finalPreview = panel.getByTestId('sms-message-preview');
 
-  await expect(finalPreview.getByText('1 SMS segment · 1 credit', { exact: true })).toBeVisible();
+  await expect(finalPreview.getByText('1 text credit', { exact: true })).toBeVisible();
   await expect(finalPreview.getByText('Thank you for visiting Daniela Nails! We\'d love your Google review: https://g.page/daniela/review', { exact: true })).toBeVisible();
 
   await panel.getByLabel('Message', { exact: true }).fill('Thanks for visiting! We\'d love your Google review: {{reviewLink}} 💅');
 
-  await expect(finalPreview.getByText('2 SMS segments · 2 credits', { exact: true })).toBeVisible();
-  await expect(finalPreview.getByText(/U\+1F485/)).toBeVisible();
+  await expect(finalPreview.getByText('2 text credits', { exact: true })).toBeVisible();
+  await expect(finalPreview.getByText(/U\+1F485/)).toHaveCount(0);
   await expect(finalPreview.getByText('Reply STOP to opt out.', { exact: false })).toHaveCount(0);
   expect(updates).toHaveLength(2);
 });
@@ -251,7 +251,7 @@ test('isolated owner completes and queues one review through the real APIs @mobi
 
     await expect(confirmation.getByText(phone, { exact: false })).toBeVisible();
     await expect(confirmation.getByText('Reply STOP to opt out.', { exact: false })).toHaveCount(0);
-    await expect(confirmation.getByText(/SMS segments? · \d+ credits?/)).toBeVisible();
+    await expect(confirmation.getByText(/\d+ text credits?/)).toBeVisible();
 
     await page.screenshot({ path: testInfo.outputPath('owner-review-message-preview.png'), fullPage: true });
     await confirmation.getByRole('button', { name: 'Send now', exact: true }).click();

@@ -3,13 +3,13 @@
  *
  * POST - Resend an existing invite (renews expiration if expired)
  */
-
 import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 
 import { requireSuperAdmin } from '@/libs/adminAuth';
 import { isLegacyOtpAuthEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
+import { queueSalonInviteSms } from '@/libs/salonInviteSms';
 import { adminInviteSchema, salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -111,7 +111,9 @@ export async function POST(
 
     const message = `Reminder: You've been invited as ${roleDisplay}${salonText}.\n\nLog in here: ${loginUrl}`;
 
-    if (isTwilioConfigured) {
+    if (invite.salonId) {
+      await queueSalonInviteSms({ salonId: invite.salonId, inviteId, recipient: invite.phoneE164, message, revision: newExpiresAt.toISOString() }).catch(() => undefined);
+    } else if (isTwilioConfigured) {
       try {
         const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
 

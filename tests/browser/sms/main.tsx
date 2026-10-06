@@ -1,8 +1,10 @@
 import '@/styles/global.css';
 
+import { NextIntlClientProvider } from 'next-intl';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
+import { AppGrid } from '@/components/admin/AppGrid';
 import { LusterClientSms } from '@/components/admin/LusterClientSms';
 import { SettingsModal } from '@/components/admin/SettingsModal';
 import { UsageBillingModal } from '@/components/admin/UsageBillingModal';
@@ -54,13 +56,34 @@ function UsageBillingBrowserFixture() {
   );
 }
 
+function MoreUsageFixture() {
+  const [open, setOpen] = useState(false);
+  return (
+    <main className="owner-workspace-theme mx-auto min-h-screen max-w-md bg-stone-50 p-3">
+      <NextIntlClientProvider locale="en" messages={{ NoShowRecords: { tile_name: 'No-show records', tile_description: 'View records' } }}>
+        <AppGrid
+          textBalance={8}
+          onAppTap={(id) => {
+            if (id === 'plan-usage') {
+              setOpen(true);
+            }
+          }}
+        />
+      </NextIntlClientProvider>
+      {open && <UsageBillingModal salonSlug="sms-fixture" onClose={() => setOpen(false)} />}
+    </main>
+  );
+}
+
 const fixture = new URLSearchParams(window.location.search).get('fixture');
 createRoot(document.getElementById('root')!).render(
-  fixture === 'settings'
-    ? <SettingsBrowserFixture />
-    : fixture === 'super-admin-credits'
-      ? <SuperAdminCreditsBrowserFixture />
-      : fixture === 'usage-billing'
-        ? <UsageBillingBrowserFixture />
-        : <SmsBrowserFixture />,
+  fixture === 'more-usage'
+    ? <MoreUsageFixture />
+    : fixture === 'settings'
+      ? <SettingsBrowserFixture />
+      : fixture === 'super-admin-credits'
+        ? <SuperAdminCreditsBrowserFixture />
+        : fixture === 'usage-billing'
+          ? <UsageBillingBrowserFixture />
+          : <SmsBrowserFixture />,
 );
