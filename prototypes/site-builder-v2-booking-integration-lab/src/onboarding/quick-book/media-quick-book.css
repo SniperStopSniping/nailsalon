@@ -176,14 +176,18 @@
 .onboarding-site-preview.qbp-page .onboarding-quick-book-profile.is-shared-presentation:has(> .qbm-header) { width: 100%; padding: 0; border: 0; margin: 0; border-radius: 0; box-shadow: none; background: transparent; }
 .qbm-catalog { display: grid; min-width: 0; gap: 12px; }
 .qbm-catalog > details { min-width: 0; border: 1px solid var(--owner-line, var(--qb-line, #ddd)); border-radius: 16px; padding: 0 16px 16px; }
-.qbm-catalog-intro { display: grid; gap: 4px; margin: 0 0 4px; font-size: 14px; line-height: 1.5; }
+.qbm-catalog-intro { display: flex; align-items: center; gap: 12px; margin: 0 0 4px; padding: 12px; border-radius: 12px; background: var(--owner-surface, var(--qb-surface, #fffdfb)); font-size: 14px; line-height: 1.5; }
+.qbm-catalog-intro > svg { flex: none; width: 24px; height: 24px; color: var(--owner-accent, var(--qb-accent, #8a3b5c)); }
+.qbm-catalog-intro > span { display: grid; min-width: 0; gap: 4px; }
 .qbm-catalog-intro strong { font-size: 16px; font-weight: 600; }
 .qbm-catalog > details:not([open]) { padding-bottom: 0; }
 .qbm-catalog > details > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 14px 0; cursor: pointer; list-style: none; font-size: 16px; font-weight: 500; }
 .qbm-catalog > details > summary::-webkit-details-marker { display: none; }
 .qbm-catalog > details > summary::marker { content: ''; }
 .qbm-catalog > details > summary:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 4px; }
-.qbm-catalog-group-label { display: grid; min-width: 0; gap: 4px; line-height: 1.35; }
+.qbm-catalog-group-icons { display: inline-flex; flex: none; align-items: center; gap: 2px; color: var(--owner-accent, var(--qb-accent, #8a3b5c)); }
+.qbm-catalog-group-icons > svg { width: 20px; height: 20px; stroke-width: 1.75; }
+.qbm-catalog-group-label { display: grid; flex: 1; min-width: 0; gap: 4px; line-height: 1.35; }
 .qbm-catalog-group-label small { color: var(--owner-muted, var(--qb-muted, #666)); font-size: 13px; font-weight: 400; }
 .qbm-catalog-chevron { flex: none; width: 20px; height: 20px; }
 .qbm-catalog > details[open] > summary .qbm-catalog-chevron { transform: rotate(180deg); }

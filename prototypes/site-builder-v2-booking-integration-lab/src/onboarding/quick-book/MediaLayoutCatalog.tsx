@@ -1,4 +1,4 @@
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Gem, Image as ImageIcon, Layers3, Type, UserRound } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
 import { getMediaQuickBookLayout, isMediaQuickBookLayout, type MediaConfiguration, type MediaLayoutDefinition, QUICK_BOOK_MEDIA_GROUPS, QUICK_BOOK_MEDIA_LAYOUTS } from './media-layouts';
@@ -9,8 +9,11 @@ export function MediaLayoutCatalog({ selectedId, renderCard }: { selectedId: str
   return (
     <div className="qbm-catalog">
       <p className="qbm-catalog-intro">
-        <strong>24 designs total.</strong>
-        <span>Open any group below to see its 3 layouts.</span>
+        <Layers3 aria-hidden="true" />
+        <span>
+          <strong>24 designs total.</strong>
+          <span>Open any group below to see its 3 layouts.</span>
+        </span>
       </p>
       {QUICK_BOOK_MEDIA_GROUPS.map(group => (
         <details data-media-group={group.id} key={group.id} open={group.id === openGroup}>
@@ -21,6 +24,12 @@ export function MediaLayoutCatalog({ selectedId, renderCard }: { selectedId: str
             setOpenGroup(current => current === group.id ? null : group.id);
           }}
           >
+            <span className="qbm-catalog-group-icons" aria-hidden="true">
+              {group.id === 'text' && <Type />}
+              {group.cover && <ImageIcon />}
+              {group.profile && <UserRound />}
+              {group.logo && <Gem />}
+            </span>
             <span className="qbm-catalog-group-label">
               <span>{group.label}</span>
               <small>{group.id === openGroup ? '3 designs · Tap to hide' : '3 designs · Tap to view'}</small>
