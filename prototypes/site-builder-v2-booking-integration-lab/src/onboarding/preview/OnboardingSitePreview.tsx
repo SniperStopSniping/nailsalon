@@ -103,10 +103,10 @@ import type {
   QuickBookLayoutId,
   SiteStylePresetId,
 } from '../model/types';
-import { isMediaQuickBookLayout } from '../quick-book/media-layouts';
 import { isApprovedQuickBookLayout } from '../quick-book/ApprovedQuickBookComposition';
 import { buildLabQuickBookPresentationProfile } from '../quick-book/lab-presentation';
 import { isLegacyQuickBookLayoutId, isRetiredQuickBookLayout } from '../quick-book/layouts';
+import { isMediaQuickBookLayout } from '../quick-book/media-layouts';
 import type { QuickBookGalleryItem } from '../quick-book/presentation-view';
 import { QuickBookPresentation } from '../quick-book/QuickBookPresentation';
 import { labelForNewClients, labelForVisitMode } from './customer-facts';

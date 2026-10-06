@@ -77,6 +77,7 @@ import {
   ONBOARDING_STYLE_ROLES,
   OnboardingSitePreview,
 } from '../preview/OnboardingSitePreview';
+import { buildLabQuickBookPresentationProfile } from '../quick-book/lab-presentation';
 import {
   describeQuickBookLayoutCapabilities,
   describeQuickBookNameAdvisory,
@@ -84,9 +85,8 @@ import {
   type QuickBookLayoutDefinition,
   type QuickBookLayoutId,
 } from '../quick-book/layouts';
-import { MediaLayoutCatalog } from '../quick-book/MediaLayoutCatalog';
 import { isMediaQuickBookLayout } from '../quick-book/media-layouts';
-import { buildLabQuickBookPresentationProfile } from '../quick-book/lab-presentation';
+import { MediaLayoutCatalog } from '../quick-book/MediaLayoutCatalog';
 import { QuickBookLayoutPoster } from '../quick-book/QuickBookLayoutPoster';
 import { AboutSetupScreen } from './AboutSetupScreen';
 
@@ -1089,7 +1089,13 @@ export function QuickBookLayoutScreen({
         role="group"
       >
         {!isMediaQuickBookLayout(state.recipe.quickBookLayout)
-          ? <section><p>{`Your saved ${selectedLayout.label} layout is kept until you choose a new design.`}</p>{renderLayoutCard(selectedLayout)}</section> : null}
+          ? (
+              <section>
+                <p>{`Your saved ${selectedLayout.label} layout is kept until you choose a new design.`}</p>
+                {renderLayoutCard(selectedLayout)}
+              </section>
+            )
+          : null}
         <p>Browse all 24 designs. Your photos and logo are used where available; supplied placeholders fill missing image slots.</p>
         <MediaLayoutCatalog selectedId={state.recipe.quickBookLayout} renderCard={renderLayoutCard} />
       </div>

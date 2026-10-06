@@ -18,9 +18,9 @@ import {
   type QuickBookCoverSlot,
   quickBookMonogram,
   type QuickBookPortraitSlot,
+  type QuickBookPresentationProfile,
   resolveQuickBookCoverSlot,
   resolveQuickBookPortraitSlot,
-  type QuickBookPresentationProfile,
 } from './presentation-view';
 
 export type QuickBookLayoutPosterProps = {

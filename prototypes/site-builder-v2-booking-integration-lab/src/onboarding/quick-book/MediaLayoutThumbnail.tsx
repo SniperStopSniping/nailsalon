@@ -13,26 +13,44 @@ export function MediaLayoutThumbnail({ layout, businessName, technicianName, log
   const [bounds, setBounds] = useState({ width: 300, height: 450 });
   useEffect(() => {
     const element = ref.current;
-    if (!element) return;
-    if (typeof IntersectionObserver === 'undefined') { setVisible(true); return; }
+    if (!element) {
+      return;
+    }
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return;
+    }
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some(entry => entry.isIntersecting)) { setVisible(true); observer.disconnect(); }
+      if (entries.some(entry => entry.isIntersecting)) {
+        setVisible(true);
+        observer.disconnect();
+      }
     }, { rootMargin: '250px' });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!ref.current || typeof ResizeObserver === 'undefined') return;
+    if (!ref.current || typeof ResizeObserver === 'undefined') {
+      return;
+    }
     const observer = new ResizeObserver(() => {
       setBounds({ width: ref.current?.clientWidth || 300, height: canvas.current?.offsetHeight || 450 });
     });
     observer.observe(ref.current);
-    if (canvas.current) observer.observe(canvas.current);
+    if (canvas.current) {
+      observer.observe(canvas.current);
+    }
     return () => observer.disconnect();
   }, [visible]);
   const seed = profile ?? {
     identity: { salonName: businessName, technicianName, logoUrl, technicianPhotoUrl: portraitVisible ? portraitUrl : null },
-    location: null, hours: null, contact: null, policies: [], reviews: null, instagram: null, bio: null,
+    location: null,
+    hours: null,
+    contact: null,
+    policies: [],
+    reviews: null,
+    instagram: null,
+    bio: null,
   };
   const presentation = deriveQuickBookPresentation(seed, layout);
   const preview: QuickBookPresentationProfile = {

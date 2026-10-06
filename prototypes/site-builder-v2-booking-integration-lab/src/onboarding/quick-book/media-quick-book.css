@@ -172,8 +172,7 @@
 /* Picker cards contain the real mobile header, inert and scaled to card width. */
 .qb-poster.qbm-thumbnail { display: block; position: relative; width: 100%; overflow: hidden; padding: 0; border: 0; border-radius: 12px; background: var(--qb-ground); }
 .qbm-thumbnail-canvas { width: 390px; transform-origin: top left; pointer-events: none; }
-.qbm-thumbnail .qbm-header { min-height: 240px; }
-.onboarding-quick-book-profile.is-shared-presentation:has(> .qbm-header) { padding: 0; border: 0; margin: 0; border-radius: 0; box-shadow: none; background: transparent; }
+.onboarding-quick-book-profile.is-shared-presentation:has(> .qbm-header) { width: 100%; padding: 0; border: 0; margin: 0; border-radius: 0; box-shadow: none; background: transparent; }
 .qbm-catalog { display: grid; gap: 12px; }
 .qbm-catalog > details { border: 1px solid var(--owner-line, var(--qb-line, #ddd)); border-radius: 16px; padding: 0 16px 16px; }
 .qbm-catalog > details > summary { min-height: 60px; padding: 18px 0; cursor: pointer; font-size: 16px; font-weight: 500; }

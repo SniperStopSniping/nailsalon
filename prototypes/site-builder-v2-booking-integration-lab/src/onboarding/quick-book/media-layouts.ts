@@ -1,6 +1,6 @@
 import type { QuickBookLayoutDefinition } from './layouts';
 
-export const MEDIA_LAYOUT_IDS = ["text_editorial", "text_centered", "text_booking_card", "logo_lockup", "logo_centered", "logo_rail", "profile_side", "profile_overlap", "profile_editorial", "brand_artist_split", "brand_artist_centered", "brand_artist_card", "cover_hero", "cover_split", "cover_attached", "cover_logo_float", "cover_logo_card", "cover_logo_split", "cover_profile_overlap", "cover_profile_side", "cover_profile_editorial", "complete_masthead", "complete_split", "complete_editorial"] as const;
+export const MEDIA_LAYOUT_IDS = ['text_editorial', 'text_centered', 'text_booking_card', 'logo_lockup', 'logo_centered', 'logo_rail', 'profile_side', 'profile_overlap', 'profile_editorial', 'brand_artist_split', 'brand_artist_centered', 'brand_artist_card', 'cover_hero', 'cover_split', 'cover_attached', 'cover_logo_float', 'cover_logo_card', 'cover_logo_split', 'cover_profile_overlap', 'cover_profile_side', 'cover_profile_editorial', 'complete_masthead', 'complete_split', 'complete_editorial'] as const;
 export type MediaLayoutId = typeof MEDIA_LAYOUT_IDS[number];
 export type MediaConfiguration = 'text' | 'logo' | 'profile' | 'logo_profile' | 'cover' | 'cover_logo' | 'cover_profile' | 'complete';
 export type MediaLayoutDefinition = QuickBookLayoutDefinition & { id: MediaLayoutId; mediaConfiguration: MediaConfiguration; variant: 'a' | 'b' | 'c'; supportsCover: boolean; supportsProfile: boolean; supportsLogo: boolean };
@@ -46,7 +46,7 @@ const DESIGNS: readonly MediaDesign[] = [
 ];
 
 /** Asset roles are declared once per group; compositions share the same contract. */
-export const QUICK_BOOK_MEDIA_LAYOUTS: readonly MediaLayoutDefinition[] = DESIGNS.map(design => {
+export const QUICK_BOOK_MEDIA_LAYOUTS: readonly MediaLayoutDefinition[] = DESIGNS.map((design) => {
   const group = QUICK_BOOK_MEDIA_GROUPS.find(item => item.id === design.mediaConfiguration)!;
   return {
     ...design,

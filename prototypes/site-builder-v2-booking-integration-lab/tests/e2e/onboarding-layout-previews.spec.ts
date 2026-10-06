@@ -358,17 +358,24 @@ test('groups all media designs and keeps the readable scrolling phone preview', 
   await page.setViewportSize({ width: 390, height: 844 });
   await fixtureAt(page, 'about_design');
   const choices = page.getByRole('group', { name: 'Quick Book layouts' });
+
   await expect(choices.locator('[data-media-group]')).toHaveCount(8);
   await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(25);
+
   await page.getByRole('button', { name: /^Type Editorial/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Preview your Quick Book layout' });
+
   await expect(dialog.locator('[data-preview-scale]')).toHaveAttribute('data-preview-scale', '1.0000');
+
   const frame = dialog.locator('[data-preview-scroll-container]');
   const dimensions = await frame.evaluate(element => ({ width: element.clientWidth, overflow: element.scrollWidth > element.clientWidth + 1, scrolls: element.scrollHeight > element.clientHeight }));
+
   expect(dimensions.width).toBeGreaterThan(350);
   expect(dimensions.overflow).toBe(false);
   expect(dimensions.scrolls).toBe(true);
+
   await footerVisible(page, dialog);
   await dialog.getByRole('button', { name: 'Try another layout' }).click();
+
   await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(24);
 });
