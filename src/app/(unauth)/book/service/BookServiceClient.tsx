@@ -341,9 +341,9 @@ export function BookServiceClient({
   // object; the real SalonProvider always supplies both, resolved
   // server-side, so these fallbacks only ever apply outside production.
   const layout = bookingPage?.layout ?? 'quick_book';
-  const serviceMenuPresentation = islaCustomPage
-    ? { ...resolveServiceMenuPresentation('clean_list'), description: 'editorial' as const }
-    : resolveServiceMenuPresentation(bookingPage?.serviceMenuLayout);
+  const serviceMenuPresentation = resolveServiceMenuPresentation(
+    islaCustomPage ? 'clean_list' : bookingPage?.serviceMenuLayout,
+  );
   const hasCustomerSitePresentation = bookingPage?.siteStylePreset !== undefined
     || bookingPage?.sitePalettePreset !== undefined;
   const hasCustomerSiteFonts = bookingPage?.siteHeadingFont !== undefined
