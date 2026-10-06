@@ -1,3 +1,10 @@
+# [1.138.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.137.0...v1.138.0) (2026-10-06)
+
+
+### Features
+
+* **isla:** release custom booking page and verified workflow fixes ([#360](https://github.com/SniperStopSniping/nailsalon/issues/360)) ([f0a136c](https://github.com/SniperStopSniping/nailsalon/commit/f0a136c40c89d5aac9545793391922aa24429946))
+
 # [1.137.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.136.3...v1.137.0) (2026-10-06)
 
 
