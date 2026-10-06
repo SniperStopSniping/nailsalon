@@ -39,6 +39,7 @@ for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
       }
 
       await expect(page.getByRole('heading', { name: 'Our Services' })).toBeVisible();
+      await expect(page.locator('#quick-book-booking')).toHaveCount(1);
       // Changing headers must retain the already-shipped mobile rows/desktop cards.
       await expect(page.locator('[data-qbp-service]').first()).toBeVisible();
 
@@ -49,6 +50,7 @@ for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
     await page.getByTestId('quick-book-book-button').click();
 
     await expect(page).toHaveURL(/#quick-book-booking$/u);
+    await expect(page.locator('#quick-book-booking')).toBeInViewport();
 
     const disclosure = page.getByTestId('quick-book-profile-actions');
     await disclosure.locator('summary').focus();

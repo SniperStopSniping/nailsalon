@@ -7,6 +7,7 @@ import {
   type QuickBookSiteLayout,
 } from '@/libs/quickBookSiteLayout';
 
+import { QUICK_BOOK_MEDIA_LAYOUTS } from '../../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/media-layouts';
 import type { QuickBookProfileView } from './quickBookProfile';
 import { QuickBookProfileHeader } from './QuickBookProfileHeader';
 
@@ -72,6 +73,21 @@ const FULL_PROFILE: QuickBookProfileView = {
 };
 
 describe('QuickBookProfileHeader', () => {
+  it('leaves the booking anchor and heading to the unchanged Services section for every new media layout', () => {
+    for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
+      const view = render(
+        <QuickBookProfileHeader profile={MINIMAL_PROFILE} bookingFlow={['service', 'time', 'confirm']} layout={layout.id} mounted />,
+      );
+
+      expect(screen.getByTestId('quick-book-book-button')).toHaveAttribute('href', '#quick-book-booking');
+      expect(view.container.querySelector('#quick-book-booking')).toBeNull();
+      expect(screen.getByText('Book an appointment', { selector: 'h2' })).not.toBeVisible();
+      expect(view.container.querySelector('[aria-label="Booking progress"]')).not.toBeVisible();
+
+      view.unmount();
+    }
+  });
+
   it('renders every registered layout as a distinct presentation without changing canonical profile data', () => {
     const sourceBefore = structuredClone(FULL_PROFILE);
     const fingerprints = new Set<string>();
