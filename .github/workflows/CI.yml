@@ -1194,7 +1194,7 @@ jobs:
       - name: Verify approved Quick Book customer compositions
         # Fixture-only browser contexts have no shared writes. Two workers keep
         # the expanded 24-design matrix bounded without reducing its coverage.
-        run: node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts quick-book.spec.ts media-layouts.spec.ts --workers=2 --output=test-results/quick-book-compositions
+        run: node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts quick-book.spec.ts media-layouts.spec.ts isla.spec.ts --workers=2 --output=test-results/quick-book-compositions
 
       - name: Verify appointment management and checkout in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/appointmentWorkflow/playwright.config.ts --output=test-results/appointment-workflow-components
