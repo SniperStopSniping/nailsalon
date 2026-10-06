@@ -13,6 +13,7 @@ import {
 import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { isApprovedQuickBookLayout } from '@/components/customer-site/QuickBookPresentation';
+import { isIslaBookingPage, IslaBookingPage, IslaCategoryIcon, IslaServiceCard } from '@/components/isla/IslaBookingPage';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { StateCard } from '@/components/ui/state-card';
@@ -21,7 +22,7 @@ import { BOOKING_CATEGORY_META } from '@/libs/bookingCategory';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { getFeaturedServices, sortServicesForCategory } from '@/libs/bookingMerchandising';
 import type { SectionId } from '@/libs/bookingPageConfig';
-import { buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
+import { appendSalonSlug, buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
 import type { PublicCatalogSnapshot } from '@/libs/catalogDomain';
 import { resolveCatalogSelection } from '@/libs/catalogResolverCore';
 import { useNormalBookingFlowMarker } from '@/libs/customerAssistant/normalConfirmHandoff.client';
@@ -315,6 +316,9 @@ export function BookServiceClient({
   const params = useParams();
   const searchParams = useSearchParams();
   const { bookingExperience, salonName, salonSlug, salonId, bookingPage, salonContent } = useSalon();
+  const islaCustomPage = isIslaBookingPage(salonSlug);
+  const [islaExpandedCategory, setIslaExpandedCategory] = useState<string | null>(null);
+  const [islaSearchOpen, setIslaSearchOpen] = useState(false);
   const locale = (params?.locale as string) || 'en';
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   // A non-secret marker keeps the normal Confirm step on the assistant's
@@ -338,7 +342,7 @@ export function BookServiceClient({
   // server-side, so these fallbacks only ever apply outside production.
   const layout = bookingPage?.layout ?? 'quick_book';
   const serviceMenuPresentation = resolveServiceMenuPresentation(
-    bookingPage?.serviceMenuLayout,
+    islaCustomPage ? 'clean_list' : bookingPage?.serviceMenuLayout,
   );
   const hasCustomerSitePresentation = bookingPage?.siteStylePreset !== undefined
     || bookingPage?.sitePalettePreset !== undefined;
@@ -369,7 +373,7 @@ export function BookServiceClient({
   // profile records. Do not adopt their visibility marker or service styling.
   const quickBookHeaderEnabled = compactQuickBookProfileEnabled
     || (layout === 'quick_book' && isMediaQuickBookLayout(bookingPage?.quickBookLayout));
-  const approvedQuickBookComposition = compactQuickBookProfileEnabled && (isApprovedQuickBookLayout(bookingPage?.quickBookLayout) || isMediaQuickBookLayout(bookingPage?.quickBookLayout));
+  const approvedQuickBookComposition = !islaCustomPage && compactQuickBookProfileEnabled && (isApprovedQuickBookLayout(bookingPage?.quickBookLayout) || isMediaQuickBookLayout(bookingPage?.quickBookLayout));
   const quickBookSectionOrder = resolveQuickBookPublicSectionOrder(
     layout,
     bookingPage?.sectionOrder ?? QUICK_BOOK_SECTION_ORDER_FALLBACK,
@@ -428,7 +432,7 @@ export function BookServiceClient({
     content: quickBookContent,
   });
   const usesEditorialBookingHandoff = sectionPresentation.bookingAccess === 'editorial-handoff';
-  const hasBookingBrandColor = bookingExperience.primaryColor !== null
+  const hasBookingBrandColor = islaCustomPage || bookingExperience.primaryColor !== null
     || hasCustomerSitePresentation;
   const bookingBrandForeground = hasBookingBrandColor
     ? 'var(--booking-brand-foreground, #000000)'
@@ -1278,7 +1282,10 @@ export function BookServiceClient({
       ? [[selected], ...buildServiceRows(remaining, serviceMenuPresentation.columns)]
       : buildServiceRows(remaining, serviceMenuPresentation.columns);
   };
-  const serviceRows = selectedFirstRows(filteredServices);
+  const fullServiceRows = selectedFirstRows(filteredServices);
+  const islaCanCollapse = islaCustomPage && !isSearching && islaExpandedCategory !== selectedCategory;
+  const serviceRows = islaCanCollapse ? fullServiceRows.slice(0, 3) : fullServiceRows;
+  const islaMoreCount = islaCanCollapse ? Math.max(0, fullServiceRows.length - 3) : 0;
   const orderedCategories = selectedService
     ? [selectedService.bookingCategory, ...BOOKING_CATEGORIES.filter(category => category !== selectedService.bookingCategory)]
     : BOOKING_CATEGORIES;
@@ -1428,9 +1435,76 @@ export function BookServiceClient({
     triggerHaptic('select');
   };
 
+  const renderContinueBar = () => (selectedService && (
+    <div
+      data-public-surface="selectedServiceContinueBar"
+      data-testid="service-sticky-bar"
+      className="supports-[backdrop-filter]:bg-white/82 fixed inset-x-0 bottom-0 z-[60] border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg"
+      style={{
+        animation: 'slideUp 0.3s ease-out',
+        bottom: 'var(--ios-chrome-viewport-bottom, 0px)',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}
+    >
+      <style jsx>
+        {`
+              @keyframes slideUp {
+                from {
+                  transform: translateY(100%);
+                }
+                to {
+                  transform: translateY(0);
+                }
+              }
+            `}
+      </style>
+      <div className="mx-auto flex max-w-[430px] flex-nowrap items-center justify-between gap-3 px-4 py-1.5 max-[360px]:flex-col max-[360px]:items-stretch max-[360px]:gap-[8px] max-[360px]:px-[12px] sm:py-2">
+        <div className="flex min-w-0 flex-col gap-0.5 max-[360px]:w-full max-[360px]:flex-row max-[360px]:flex-wrap max-[360px]:items-baseline max-[360px]:justify-between max-[360px]:gap-x-[8px] max-[360px]:gap-y-[2px]">
+          <div className="truncate text-[11px] leading-none text-neutral-500">
+            {`${selectedItems.length} service${selectedItems.length === 1 ? '' : 's'}`}
+            {selectedAddOnCount > 0
+              ? ` + ${selectedAddOnCount} add-on${selectedAddOnCount === 1 ? '' : 's'}`
+              : ''}
+          </div>
+          <div className="flex items-baseline gap-2 pt-0.5">
+            <div data-testid="service-sticky-price" className="text-[17px] font-bold leading-none text-neutral-900">
+              {totalPriceLabel}
+            </div>
+            <div data-testid="service-sticky-duration" className="text-[11px] leading-none text-neutral-500">
+              {totalDurationLabel}
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          ref={continueButtonRef}
+          onClick={handleContinue}
+          data-testid="service-continue-button"
+          disabled={l1Blocked}
+          className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none max-[360px]:min-h-[44px] max-[360px]:w-full max-[360px]:justify-center max-[360px]:px-[12px] sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
+            hasBookingBrandColor
+              ? 'text-[var(--booking-brand-foreground)]'
+              : 'text-neutral-900'
+          }`}
+          style={{
+            background: hasBookingBrandColor
+              ? 'var(--booking-brand-primary)'
+              : `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
+            color: bookingBrandForeground,
+          }}
+        >
+          {islaCustomPage ? 'Choose a time' : 'Continue'}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  ));
+
   return (
     <main
-      className="service-page-viewport"
+      className={islaCustomPage ? 'service-page-viewport isla-page' : 'service-page-viewport'}
       data-customer-site-palette={customerSitePalettePreset}
       data-customer-site-style={customerSiteStylePreset}
       data-customer-site-fonts={hasCustomerSiteFonts ? 'true' : undefined}
@@ -1462,15 +1536,17 @@ export function BookServiceClient({
           // since that booking engine is explicitly out of scope for this
           // PR's redesign. This is presentation-plan chrome, not a second
           // conditional booking-engine body.
-          approvedQuickBookComposition
-            ? 'qbp-page flex w-full flex-col'
-            : compactQuickBookProfileEnabled && !['editorial', 'hub_menu'].includes(bookingPage?.quickBookLayout ?? '')
-              ? 'quick-book-refined-page mx-auto flex w-full max-w-[1120px] flex-col px-4 pb-10 max-[360px]:px-[12px] sm:px-6'
-              : sectionPresentation.pageFrame === 'editorial'
-                ? 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px] lg:max-w-5xl lg:px-10'
-                : 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px]'
+          islaCustomPage
+            ? 'isla-page-container'
+            : approvedQuickBookComposition
+              ? 'qbp-page flex w-full flex-col'
+              : compactQuickBookProfileEnabled && !['editorial', 'hub_menu'].includes(bookingPage?.quickBookLayout ?? '')
+                ? 'quick-book-refined-page mx-auto flex w-full max-w-[1120px] flex-col px-4 pb-10 max-[360px]:px-[12px] sm:px-6'
+                : sectionPresentation.pageFrame === 'editorial'
+                  ? 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px] lg:max-w-5xl lg:px-10'
+                  : 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 max-[360px]:px-[12px]'
         }
-        style={{ paddingBottom: selectedService ? 'calc(7rem + env(safe-area-inset-bottom, 0px))' : undefined }}
+        style={{ paddingBottom: selectedService && !islaCustomPage ? 'calc(7rem + env(safe-area-inset-bottom, 0px))' : undefined }}
       >
         {/*
           Stage 4 keeps one service-selection engine and gives the canonical
@@ -1602,48 +1678,50 @@ export function BookServiceClient({
                 <RebookingCatalogueNotice />
               )}
 
-              <div
-                data-public-surface="serviceSelectionControls"
-                id={quickBookHeaderEnabled && !compactQuickBookProfileEnabled ? 'quick-book-booking' : undefined}
-                ref={searchCardRef}
-                className={approvedQuickBookComposition ? 'qbp-public-search mb-3 scroll-mt-3' : 'mb-4 scroll-mt-3'}
-                style={{
-                  opacity: previewContentReady ? 1 : 0,
-                  transform: previewContentReady ? 'translateY(0)' : 'translateY(10px)',
-                  transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
-                }}
-              >
-                <Card className="flex items-center px-4 py-0.5 shadow-sm">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="mr-3 text-neutral-400">
-                    <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
-                    <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                  <Input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                    }}
-                    onFocus={handleSearchFocus}
-                    placeholder="Search services..."
-                    className="h-11 flex-1 border-0 bg-transparent p-0 text-base text-neutral-800 shadow-none focus-visible:ring-0"
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearchQuery('');
+              {(!islaCustomPage || islaSearchOpen) && (
+                <div
+                  data-public-surface="serviceSelectionControls"
+                  id={quickBookHeaderEnabled && !compactQuickBookProfileEnabled ? 'quick-book-booking' : undefined}
+                  ref={searchCardRef}
+                  className={approvedQuickBookComposition ? 'qbp-public-search mb-3 scroll-mt-3' : 'mb-4 scroll-mt-3'}
+                  style={{
+                    opacity: previewContentReady ? 1 : 0,
+                    transform: previewContentReady ? 'translateY(0)' : 'translateY(10px)',
+                    transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
+                  }}
+                >
+                  <Card className="flex items-center px-4 py-0.5 shadow-sm">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="mr-3 text-neutral-400">
+                      <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
+                      <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                    <Input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
                       }}
-                      aria-label="Clear search"
-                      className="ml-2 flex size-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 transition-colors hover:bg-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                        <path d="M9 3L3 9M3 3L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                  )}
-                </Card>
-              </div>
+                      onFocus={handleSearchFocus}
+                      placeholder="Search services..."
+                      className="h-11 flex-1 border-0 bg-transparent p-0 text-base text-neutral-800 shadow-none focus-visible:ring-0"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery('');
+                        }}
+                        aria-label="Clear search"
+                        className="ml-2 flex size-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 transition-colors hover:bg-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                          <path d="M9 3L3 9M3 3L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    )}
+                  </Card>
+                </div>
+              )}
 
               {showLocationFallbackToast && (
                 <div
@@ -1777,7 +1855,7 @@ export function BookServiceClient({
                 </div>
               )}
 
-              {selectedService && shouldPreviewAutoSkipTech && soleCompatiblePreviewTechnician && (
+              {!islaCustomPage && selectedService && shouldPreviewAutoSkipTech && soleCompatiblePreviewTechnician && (
                 <div
                   data-testid="service-auto-technician-preview"
                   className="mb-4 flex items-center gap-3 rounded-full border bg-white/90 px-3 py-2 shadow-[0_4px_18px_rgba(0,0,0,0.05)] backdrop-blur-sm"
@@ -1907,7 +1985,7 @@ export function BookServiceClient({
                                     boxShadow: active ? '0 4px 6px -1px rgb(0 0 0 / 0.1)' : undefined,
                                   }}
                                 >
-                                  <span className="shrink-0">{meta.icon}</span>
+                                  <span className="shrink-0">{islaCustomPage ? <IslaCategoryIcon category={category} /> : meta.icon}</span>
                                   <span className="shrink-0 whitespace-nowrap">{meta.label}</span>
                                 </button>
                               );
@@ -2035,6 +2113,25 @@ export function BookServiceClient({
                                           ));
                                           const previewDescription = service.descriptionItems[0] ?? service.description ?? 'Bookable base service';
                                           const animationIndex = groupIndex * 2 + rowIndex * 2 + serviceIndex;
+
+                                          if (islaCustomPage) {
+                                            return (
+                                              <IslaServiceCard
+                                                key={service.id}
+                                                id={service.id}
+                                                name={service.name}
+                                                description={previewDescription}
+                                                price={service.priceDisplayText || formatMoney(service.priceCents, currency)}
+                                                duration={formatDuration(service.durationMinutes)}
+                                                selected={isSelected}
+                                                expanded={isExpanded}
+                                                disabled={!isHydrated}
+                                                badge={service.resolvedIntroPriceLabel}
+                                                onSelect={() => handleServiceSelection(service)}
+                                                image={showServiceImages ? <ServiceCardImage src={service.imageUrl} alt="" sizes="74px" imageTestId={`service-image-${service.id}`} /> : null}
+                                              />
+                                            );
+                                          }
 
                                           return (
                                             <button
@@ -2974,6 +3071,37 @@ export function BookServiceClient({
             && sectionPresentation.placements[sectionId] === 'flow'
           ));
 
+          if (islaCustomPage) {
+            return (
+              <IslaBookingPage
+                flow={effectiveBookingFlow}
+                manageHref={appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug: salonSlug, locale })}
+                policy={quickBookContent.policies.policy.enabled && quickBookContent.policies.policy.text?.trim()
+                  ? { title: quickBookContent.policies.policy.title || 'Booking policies', text: quickBookContent.policies.policy.text }
+                  : null}
+                moreCount={islaMoreCount}
+                categoryLabel={BOOKING_CATEGORY_META[selectedCategory].label}
+                onShowMore={() => setIslaExpandedCategory(selectedCategory)}
+                onSearch={() => {
+                  setIslaSearchOpen(true);
+                  requestAnimationFrame(() => searchCardRef.current?.querySelector('input')?.focus());
+                }}
+                continueBar={renderContinueBar()}
+              >
+                {campaignOffer && (
+                  <p className="isla-campaign" role="status">
+                    {campaignOffer.name}
+                    {' '}
+                    ·
+                    {' '}
+                    {campaignOffer.displayOffer}
+                  </p>
+                )}
+                {renderServiceMenuContent({ featuredServicesSlot: null, policiesSlot: null, socialLinksSlot: null, menuVariant: 'list' })}
+              </IslaBookingPage>
+            );
+          }
+
           return (
             <>
               <SectionOrderRenderer
@@ -2998,7 +3126,7 @@ export function BookServiceClient({
         })()}
       </div>
 
-      {usesEditorialBookingHandoff && !selectedService && (!hasReachedServicesAnchor || isServicesAnchorUnreachable) && (
+      {!islaCustomPage && usesEditorialBookingHandoff && !selectedService && (!hasReachedServicesAnchor || isServicesAnchorUnreachable) && (
         <a
           data-public-surface="editorialStickyBookingCta"
           href="#services"
@@ -3015,72 +3143,7 @@ export function BookServiceClient({
         </a>
       )}
 
-      {selectedService && (
-        <div
-          data-public-surface="selectedServiceContinueBar"
-          data-testid="service-sticky-bar"
-          className="supports-[backdrop-filter]:bg-white/82 fixed inset-x-0 bottom-0 z-[60] border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg"
-          style={{
-            animation: 'slideUp 0.3s ease-out',
-            bottom: 'var(--ios-chrome-viewport-bottom, 0px)',
-            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-          }}
-        >
-          <style jsx>
-            {`
-              @keyframes slideUp {
-                from {
-                  transform: translateY(100%);
-                }
-                to {
-                  transform: translateY(0);
-                }
-              }
-            `}
-          </style>
-          <div className="mx-auto flex max-w-[430px] flex-nowrap items-center justify-between gap-3 px-4 py-1.5 max-[360px]:flex-col max-[360px]:items-stretch max-[360px]:gap-[8px] max-[360px]:px-[12px] sm:py-2">
-            <div className="flex min-w-0 flex-col gap-0.5 max-[360px]:w-full max-[360px]:flex-row max-[360px]:flex-wrap max-[360px]:items-baseline max-[360px]:justify-between max-[360px]:gap-x-[8px] max-[360px]:gap-y-[2px]">
-              <div className="truncate text-[11px] leading-none text-neutral-500">
-                {`${selectedItems.length} service${selectedItems.length === 1 ? '' : 's'}`}
-                {selectedAddOnCount > 0
-                  ? ` + ${selectedAddOnCount} add-on${selectedAddOnCount === 1 ? '' : 's'}`
-                  : ''}
-              </div>
-              <div className="flex items-baseline gap-2 pt-0.5">
-                <div data-testid="service-sticky-price" className="text-[17px] font-bold leading-none text-neutral-900">
-                  {totalPriceLabel}
-                </div>
-                <div data-testid="service-sticky-duration" className="text-[11px] leading-none text-neutral-500">
-                  {totalDurationLabel}
-                </div>
-              </div>
-            </div>
-            <button
-              type="button"
-              ref={continueButtonRef}
-              onClick={handleContinue}
-              data-testid="service-continue-button"
-              disabled={l1Blocked}
-              className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none max-[360px]:min-h-[44px] max-[360px]:w-full max-[360px]:justify-center max-[360px]:px-[12px] sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
-                hasBookingBrandColor
-                  ? 'text-[var(--booking-brand-foreground)]'
-                  : 'text-neutral-900'
-              }`}
-              style={{
-                background: hasBookingBrandColor
-                  ? 'var(--booking-brand-primary)'
-                  : `linear-gradient(to right, ${themeVars.primary}, ${themeVars.primaryDark})`,
-                color: bookingBrandForeground,
-              }}
-            >
-              Continue
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
+      {!islaCustomPage && renderContinueBar()}
     </main>
   );
 }

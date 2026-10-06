@@ -23,6 +23,7 @@ if (query.has('review-policy')) {
 }
 const requestedLayout = query.get('quick-book-layout');
 const quickBookFixture = (isApprovedQuickBookLayout(requestedLayout) || isMediaQuickBookLayout(requestedLayout)) ? createQuickBookFixture(requestedLayout, query.get('case') ?? 'normal') : null;
+const isla = query.has('isla');
 const step = query.get('step') ?? 'time';
 const palette = resolveCustomerSitePalettePreset(query.get('palette'));
 const legacyTheme = query.get('legacy-theme');
@@ -72,7 +73,7 @@ window.fetch = async (input) => {
 
 const salon = {
   id: 'synthetic-salon',
-  slug: 'theme-fixture',
+  slug: isla ? 'isla-nail-studio' : 'theme-fixture',
   name: 'Isla Nail Studio',
   themeKey,
   status: 'active',
@@ -117,39 +118,51 @@ createRoot(document.getElementById('root')!).render(
     {step === 'service' && (
       <BookServiceClient
         quickBookProfile={quickBookFixture ? { ...quickBookFixture.profile, contact: quickBookFixture.profile.contact ? { ...quickBookFixture.profile.contact, phone: quickBookFixture.profile.contact.phone ? { ...quickBookFixture.profile.contact.phone, actionLabel: 'Call' as const } : null } : null, identity: { ...quickBookFixture.profile.identity, technicianPhotoUrl: quickBookFixture.profile.presentation.portrait.kind === 'custom' ? quickBookFixture.profile.presentation.portrait.url : null }, location: quickBookFixture.profile.location ? { ...quickBookFixture.profile.location, directionsUrl: quickBookFixture.profile.location.directionsUrl ?? '' } : null } : undefined}
-        services={quickBookFixture
-          ? quickBookFixture.menu.services.map(service => ({
-            id: service.id,
-            name: service.name,
-            description: service.longDescription ?? service.shortDescription,
-            descriptionItems: [],
-            durationMinutes: service.durationMinutes,
-            priceCents: service.price.behavior === 'fixed' || service.price.behavior === 'starts_at' ? service.price.amountCents : service.price.behavior === 'range' ? service.price.minCents : 0,
-            priceDisplayText: null,
-            category: 'manicure',
-            bookingCategory: 'manicure' as const,
-            templateKey: null,
-            featuredOrder: null,
-            imageUrl: service.image?.src ?? '',
-            resolvedIntroPriceLabel: null,
-          }))
-          : [{
-              id: 'service-fixture',
-              name: 'Russian Manicure',
-              description: null,
+        services={isla
+          ? [
+              ['isla-russian', 'Russian Manicure', 3500, 35, 'manicure', 'gel-x.jpg'],
+              ['isla-gel', 'Gel Manicure', 4000, 60, 'manicure', 'gel-manicure.jpg'],
+              ['isla-biab', 'BIAB / Builder Gel', 5500, 90, 'manicure', 'builder-gel.jpg'],
+              ['isla-extensions', 'Gel-X Extensions', 7000, 90, 'manicure', 'gel-x.jpg'],
+              ['isla-french', 'French Manicure', 4500, 60, 'manicure', 'gel-manicure.jpg'],
+              ['isla-natural', 'Natural Nail Care', 3000, 30, 'manicure', 'builder-gel.jpg'],
+              ['isla-pedi', 'Gel Pedicure', 4500, 60, 'pedicure', 'gel-manicure.jpg'],
+              ['isla-combo', 'Manicure + Pedicure', 9000, 150, 'combo', 'gel-x.jpg'],
+            ].map(([id, name, price, minutes, category, photo], index) => ({ sortOrder: index, id: String(id), name: String(name), priceCents: Number(price), durationMinutes: Number(minutes), category: category as 'manicure' | 'pedicure' | 'combo', bookingCategory: category as 'manicure' | 'pedicure' | 'combo', description: 'Precise nail care and a beautiful finish.', descriptionItems: [], priceDisplayText: null, templateKey: null, featuredOrder: null, imageUrl: `/isla/${photo}`, resolvedIntroPriceLabel: null }))
+          : quickBookFixture
+            ? quickBookFixture.menu.services.map(service => ({
+              id: service.id,
+              name: service.name,
+              description: service.longDescription ?? service.shortDescription,
               descriptionItems: [],
-              durationMinutes: 35,
-              priceCents: 3500,
+              durationMinutes: service.durationMinutes,
+              priceCents: service.price.behavior === 'fixed' || service.price.behavior === 'starts_at' ? service.price.amountCents : service.price.behavior === 'range' ? service.price.minCents : 0,
               priceDisplayText: null,
               category: 'manicure',
-              bookingCategory: 'manicure',
+              bookingCategory: 'manicure' as const,
               templateKey: null,
               featuredOrder: null,
-              imageUrl: '',
+              imageUrl: service.image?.src ?? '',
               resolvedIntroPriceLabel: null,
-            }]}
-        addOns={quickBookFixture ? [{ id: 'qb-fixture-nail-art', name: 'Simple nail art', descriptionItems: ['Fixture nail art option'], category: 'nail_art', pricingType: 'fixed', unitLabel: null, maxQuantity: 1, priceCents: 1000, durationMinutes: 15, priceDisplayText: null, isActive: true }] : undefined}
-        serviceAddOnRules={quickBookFixture ? [{ id: 'qb-fixture-rule', serviceId: quickBookFixture.menu.services[0]!.id, addOnId: 'qb-fixture-nail-art', selectionMode: 'optional', defaultQuantity: null, maxQuantityOverride: null, displayOrder: 1 }] : undefined}
+            }))
+            : [{
+                id: 'service-fixture',
+                name: 'Russian Manicure',
+                description: null,
+                descriptionItems: [],
+                durationMinutes: 35,
+                priceCents: 3500,
+                priceDisplayText: null,
+                category: 'manicure',
+                bookingCategory: 'manicure',
+                templateKey: null,
+                featuredOrder: null,
+                imageUrl: '',
+                resolvedIntroPriceLabel: null,
+              }]}
+        addOns={isla ? [{ id: 'isla-extra', name: 'French finish', descriptionItems: [], category: 'nail_art', pricingType: 'fixed', unitLabel: null, maxQuantity: 1, priceCents: 1000, durationMinutes: 15, priceDisplayText: null, isActive: true }] : quickBookFixture ? [{ id: 'qb-fixture-nail-art', name: 'Simple nail art', descriptionItems: ['Fixture nail art option'], category: 'nail_art', pricingType: 'fixed', unitLabel: null, maxQuantity: 1, priceCents: 1000, durationMinutes: 15, priceDisplayText: null, isActive: true }] : undefined}
+        serviceAddOnRules={isla ? [{ id: 'isla-extra-rule', serviceId: 'isla-russian', addOnId: 'isla-extra', selectionMode: 'optional', defaultQuantity: null, maxQuantityOverride: null, displayOrder: 1 }] : quickBookFixture ? [{ id: 'qb-fixture-rule', serviceId: quickBookFixture.menu.services[0]!.id, addOnId: 'qb-fixture-nail-art', selectionMode: 'optional', defaultQuantity: null, maxQuantityOverride: null, displayOrder: 1 }] : undefined}
+        technicians={isla ? [{ id: 'tech-isla', name: 'Daniela', imageUrl: null, enabledServiceIds: ['isla-russian', 'isla-gel', 'isla-biab', 'isla-extensions', 'isla-french', 'isla-natural', 'isla-pedi', 'isla-combo'], rating: null, reviewCount: 0, primaryLocationId: null }] : undefined}
         bookingFlow={[...bookingFlow]}
         locations={[]}
       />
