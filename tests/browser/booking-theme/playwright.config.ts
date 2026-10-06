@@ -9,11 +9,11 @@ export default defineConfig({
   retries: 0,
   reporter: 'list',
   outputDir: '../../../test-results/booking-theme',
-  use: { baseURL: 'http://127.0.0.1:3138', trace: 'retain-on-failure' },
+  use: { baseURL: `http://127.0.0.1:${process.env.BOOKING_THEME_PORT ?? '3138'}`, trace: 'retain-on-failure' },
   webServer: {
     command: 'node node_modules/vite/bin/vite.js --config tests/browser/booking-theme/vite.config.ts',
     cwd: path.resolve(__dirname, '../../..'),
-    url: 'http://127.0.0.1:3138',
+    url: `http://127.0.0.1:${process.env.BOOKING_THEME_PORT ?? '3138'}`,
     reuseExistingServer: true,
   },
   projects: [

@@ -938,9 +938,14 @@ function isApprovedCompactProfileAdoption(node: ts.Node): boolean {
   }
   return ts.isVariableDeclaration(declaration)
     && ts.isIdentifier(declaration.name)
-    && declaration.name.text === 'compactQuickBookProfileEnabled'
-    && declaration.initializer?.getText().replaceAll(/\s/g, '')
-    === 'layout===\'quick_book\'&&usesCompactQuickBookProfile(bookingPage?.quickBookProfile)';
+    && (
+      (declaration.name.text === 'compactQuickBookProfileEnabled'
+        && declaration.initializer?.getText().replaceAll(/\s/g, '')
+        === 'layout===\'quick_book\'&&usesCompactQuickBookProfile(bookingPage?.quickBookProfile)')
+        || (declaration.name.text === 'quickBookHeaderEnabled'
+          && declaration.initializer?.getText().replaceAll(/\s/g, '')
+          === 'compactQuickBookProfileEnabled||(layout===\'quick_book\'&&isMediaQuickBookLayout(bookingPage?.quickBookLayout))')
+    );
 }
 
 function isApprovedServerProfileProjection(node: ts.Node): boolean {
@@ -1351,6 +1356,9 @@ describe('public section architecture guard', () => {
       const compactQuickBookProfileEnabled = layout === 'quick_book'
         && usesCompactQuickBookProfile(bookingPage?.quickBookProfile);
       const header = compactQuickBookProfileEnabled ? compactHeader : legacyHeader;
+      const quickBookHeaderEnabled = compactQuickBookProfileEnabled
+        || (layout === 'quick_book' && isMediaQuickBookLayout(bookingPage?.quickBookLayout));
+      const selectedHeader = quickBookHeaderEnabled ? sharedHeader : legacyHeader;
       const appearance = [bookingPage.siteStylePreset, bookingPage.sitePalettePreset];
     `;
 
@@ -1360,6 +1368,7 @@ describe('public section architecture guard', () => {
       presentation.replace('\'@/libs/serviceMenuLayout\'', '\'./unreviewed-layout\''),
       presentation.replace('resolveServiceMenuPresentation(bookingPage?.serviceMenuLayout)', 'bookingPage'),
       presentation.replace('usesCompactQuickBookProfile(bookingPage?.quickBookProfile)', 'true'),
+      presentation.replace('isMediaQuickBookLayout(bookingPage?.quickBookLayout)', 'true'),
     ]) {
       expect(inspectPublicRenderer(mutated)).toContainEqual(expect.objectContaining({ kind: 'independent-layout-fork' }));
     }

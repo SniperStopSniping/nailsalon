@@ -2,9 +2,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
+import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { getCustomerSitePresentationCssVariables } from '@/libs/customerSitePresentation';
-import { QUICK_BOOK_SITE_LAYOUTS } from '@/libs/quickBookSiteLayout';
 
+import { QUICK_BOOK_MEDIA_LAYOUTS } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/media-layouts';
 import { BookingPageAppearance } from './BookingPageAppearance';
 
 vi.mock('server-only', () => ({}));
@@ -23,33 +24,47 @@ describe('Booking Page appearance', () => {
     expect(onChange).not.toHaveBeenCalled();
     expect(JSON.stringify(draft)).toBe(before);
 
-    fireEvent.click(screen.getByTestId('quick-book-layout-option-clean_card'));
+    fireEvent.click(screen.getByTestId('quick-book-layout-option-text_editorial'));
 
-    expect(onChange).toHaveBeenLastCalledWith({ quickBookLayout: 'clean_card' });
+    expect(onChange).toHaveBeenLastCalledWith({ quickBookLayout: 'text_editorial' });
   });
 
-  it('shows three recommended choices first and retains every other new choice behind View more', () => {
+  it('shows eight media groups and 24 designs without upload requirements', () => {
     const onChange = vi.fn();
-    const draft = resolveBookingPageConfig({ bookingPage: { draft: { quickBookLayout: 'compact_dropdown' } } }).draft;
-    render(<BookingPageAppearance disabled={false} draft={draft} mode="layouts" onChange={onChange} />);
-    const visibleChoices = () => screen.getAllByRole('button').filter(button => button.getAttribute('data-testid')?.startsWith('quick-book-layout-option-'));
+    const draft = resolveBookingPageConfig({ bookingPage: { draft: { quickBookLayout: 'text_editorial' } } }).draft;
+    const view = render(<BookingPageAppearance disabled={false} draft={draft} mode="layouts" onChange={onChange} />);
 
-    expect(visibleChoices().map(button => button.getAttribute('data-testid'))).toEqual([
-      'quick-book-layout-option-compact_dropdown',
-      'quick-book-layout-option-side_portrait',
-      'quick-book-layout-option-hero_banner',
-    ]);
+    expect(view.container.querySelectorAll('[data-media-group]')).toHaveLength(8);
+    expect(view.container.querySelectorAll('[data-testid^="quick-book-layout-option-"]')).toHaveLength(24);
+
+    for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
+      expect(screen.getByTestId(`quick-book-layout-option-${layout.id}`)).toBeInTheDocument();
+    }
+
     expect(onChange).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'View more layouts' }));
+    fireEvent.click(view.container.querySelector('[data-media-group="profile"] > summary')!);
+    fireEvent.click(screen.getByTestId('quick-book-layout-option-profile_side'));
 
-    expect(visibleChoices()).toHaveLength(20);
-    expect(screen.queryByRole('button', { name: /^Editorial Elegant/u })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Hub Menu/u })).not.toBeInTheDocument();
+    expect(onChange).toHaveBeenLastCalledWith({ quickBookLayout: 'profile_side' });
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: /^Side Portrait/u }));
+  it('keeps media thumbnail crops in step with saved focal-point changes', () => {
+    const draft = resolveBookingPageConfig({ bookingPage: { draft: { quickBookLayout: 'complete_split', quickBookProfile: { showTechPhoto: true } } } }).draft;
+    const content = resolveBookingPageContent({}).draft;
+    const preview = { salonName: 'Isla Nail Studio', logoUrl: '/logo.webp', technicianName: 'Daniela', technicianPhotoUrl: '/portrait.webp', specialties: [], hasBio: false, gallery: [] };
+    const props = { disabled: false, draft, mode: 'layouts' as const, onChange: vi.fn(), presentationPreview: preview };
+    const view = render(<BookingPageAppearance {...props} content={{ ...content, heroImageUrl: '/cover.webp', coverFocalPoint: { x: 75, y: 25 }, portraitFocalPoint: { x: 40, y: 30 } }} />);
+    const thumbnail = screen.getByTestId('quick-book-layout-poster-complete_split');
 
-    expect(onChange).toHaveBeenLastCalledWith({ quickBookLayout: 'side_portrait' });
+    expect(thumbnail.querySelector('.qbm-cover img')).toHaveStyle({ objectPosition: '75% 25%' });
+    expect(thumbnail.querySelector('.qbm-profile img')).toHaveStyle({ objectPosition: '40% 30%' });
+
+    view.rerender(<BookingPageAppearance {...props} content={{ ...content, heroImageUrl: '/cover.webp', coverFocalPoint: { x: 20, y: 80 }, portraitFocalPoint: { x: 65, y: 45 } }} />);
+
+    expect(thumbnail.querySelector('.qbm-cover img')).toHaveStyle({ objectPosition: '20% 80%' });
+    expect(thumbnail.querySelector('.qbm-profile img')).toHaveStyle({ objectPosition: '65% 45%' });
+    expect(props.onChange).not.toHaveBeenCalled();
   });
 
   it('uses the shared styles, palettes and font choices, and writes only the chosen field', () => {
@@ -121,11 +136,11 @@ describe('Booking Page appearance', () => {
     // 20 choices; two retired site layouts remain valid in saved configs.
     // and the five booking-menu layouts stay two independent choices.
     expect(screen.getAllByRole('button', { pressed: true })).toHaveLength(2);
-    expect(screen.getAllByRole('button').filter(button => button.hasAttribute('aria-pressed'))).toHaveLength(QUICK_BOOK_SITE_LAYOUTS.length - 2 + 5);
+    expect(document.querySelectorAll('[data-testid^="quick-book-layout-option-"]')).toHaveLength(25);
 
-    fireEvent.click(screen.getByRole('button', { name: /^Profile Story/u }));
+    fireEvent.click(screen.getByTestId('quick-book-layout-option-profile_side'));
 
-    expect(onChange).toHaveBeenLastCalledWith({ quickBookLayout: 'profile_story' });
+    expect(onChange).toHaveBeenLastCalledWith({ quickBookLayout: 'profile_side' });
 
     fireEvent.click(screen.getByRole('button', { name: /^Editorial Price List/u }));
 

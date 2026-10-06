@@ -106,6 +106,7 @@ import type {
 import { isApprovedQuickBookLayout } from '../quick-book/ApprovedQuickBookComposition';
 import { buildLabQuickBookPresentationProfile } from '../quick-book/lab-presentation';
 import { isLegacyQuickBookLayoutId, isRetiredQuickBookLayout } from '../quick-book/layouts';
+import { isMediaQuickBookLayout } from '../quick-book/media-layouts';
 import type { QuickBookGalleryItem } from '../quick-book/presentation-view';
 import { QuickBookPresentation } from '../quick-book/QuickBookPresentation';
 import { labelForNewClients, labelForVisitMode } from './customer-facts';
@@ -2405,7 +2406,7 @@ export function OnboardingSitePreview({
     if (planSection.sectionType === 'booking') {
       return (
         <BookingSection
-          approvedComposition={starter === 'quick_book' && isApprovedQuickBookLayout(state.recipe.quickBookLayout)}
+          approvedComposition={starter === 'quick_book' && (isApprovedQuickBookLayout(state.recipe.quickBookLayout) || isMediaQuickBookLayout(state.recipe.quickBookLayout))}
           compactPolicies={false}
           contentPlacement={contentPlacement}
           key={planSection.id}
@@ -2522,7 +2523,7 @@ export function OnboardingSitePreview({
         role={interactionMode !== 'inline' ? 'region' : undefined}
         tabIndex={interactionMode === 'inline' ? -1 : 0}
       >
-        <div className={`onboarding-site-preview${starter === 'quick_book' && isApprovedQuickBookLayout(recipe.quickBookLayout) ? ' qbp-page' : ''}`} data-version={starter === 'quick_book' && isApprovedQuickBookLayout(recipe.quickBookLayout) ? 'prototype' : undefined} ref={previewRef} style={style}>
+        <div className={`onboarding-site-preview${starter === 'quick_book' && (isApprovedQuickBookLayout(recipe.quickBookLayout) || isMediaQuickBookLayout(recipe.quickBookLayout)) ? ' qbp-page' : ''}`} data-version={starter === 'quick_book' && (isApprovedQuickBookLayout(recipe.quickBookLayout) || isMediaQuickBookLayout(recipe.quickBookLayout)) ? 'prototype' : undefined} ref={previewRef} style={style}>
           {starter !== 'quick_book' && (
             <header className={`onboarding-customer-header${starter === 'multi_page' ? ' has-page-navigation' : ''}${starter === 'one_page' ? ' has-anchor-navigation' : ''}`}>
               <Brand profile={profile} showName={!activeHeroOwnsBusinessIdentity} />

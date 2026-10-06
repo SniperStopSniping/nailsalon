@@ -75,6 +75,8 @@ const setCurrentScreen = (
 
 export const createDanielaFixtureState = (): OnboardingLabState => {
   const state = createDefaultOnboardingState();
+  // This existing saved-site fixture keeps its original layout across catalog changes.
+  state.recipe.quickBookLayout = 'compact_dropdown';
   state.profile.businessName = 'Isla Nail Studio';
   state.profile.businessType = 'home_based';
   state.profile.ownerName = 'Daniela';

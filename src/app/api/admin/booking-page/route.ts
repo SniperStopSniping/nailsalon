@@ -26,6 +26,7 @@
 import { and, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { resolvePublicQuickBookProfile } from '@/app/(unauth)/book/service/quickBookProfile';
 import type { AdminWithSalons } from '@/libs/adminAuth';
 import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
@@ -51,7 +52,9 @@ import {
 } from '@/libs/bookingPageLifecycle';
 import { db } from '@/libs/DB';
 import { listPortfolioPhotos } from '@/libs/portfolioMedia.server';
+import { mapPublicTechnician } from '@/libs/publicBookingTechnicians';
 import { getActiveLocationsBySalonId, getSalonById, getSalonBySlug, getTechniciansBySalonId } from '@/libs/queries';
+import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
 import type { Salon } from '@/models/Schema';
 import { onboardingSiteSchema } from '@/models/Schema';
 
@@ -200,13 +203,32 @@ export async function GET(request: Request): Promise<Response> {
   // thumbnail can never promise an image the published page will not show.
   // Never a public payload — it names the real technician photo regardless
   // of the public visibility switch so the owner can decide about it.
-  const [previewTechnicians, previewPhotos] = await Promise.all([
+  const [previewTechnicians, previewPhotos, previewLocations] = await Promise.all([
     getTechniciansBySalonId(salon.id),
     listPortfolioPhotos(salon.id),
+    getActiveLocationsBySalonId(salon.id),
   ]);
   const previewTechnician = previewTechnicians.length === 1 ? previewTechnicians[0] ?? null : null;
   const previewContent = resolveBookingPageContent(salon.settings);
+  const previewConfig = resolveBookingPageConfig(salon.settings);
+  const draft = previewConfig.draft;
+  const contentDraft = previewContent.draft;
+  const publicProfile = resolvePublicQuickBookProfile({
+    salon: { name: salon.name, logoUrl: salon.logoUrl ?? null, phone: salon.phone ?? null, email: salon.email ?? null, address: salon.address ?? null, city: salon.city ?? null, state: salon.state ?? null, zipCode: salon.zipCode ?? null, businessHours: salon.businessHours ?? null },
+    technicians: previewTechnicians.map(mapPublicTechnician),
+    locations: (previewLocations ?? []).map(location => ({ name: location.name, address: location.address ?? null, city: location.city ?? null, state: location.state ?? null, zipCode: location.zipCode ?? null, phone: location.phone ?? null, email: location.email ?? null, businessHours: location.businessHours ?? null, isPrimary: location.isPrimary ?? false })),
+    bookingExperience: resolveBookingExperience(salon.settings),
+    reviewUrl: null,
+    parkingInstructions: null,
+    sharedProfile: resolveSharedSalonProfile(salon.settings),
+    visibility: draft.quickBookProfile,
+    bio: contentDraft.bio ?? null,
+    locationDisplayMode: contentDraft.locationDisplayMode ?? 'full_address',
+    timeZone: resolveBookingConfigFromSettings(salon.settings).timezone,
+    presentation: { layout: draft.quickBookLayout, content: { heroImageUrl: contentDraft.heroImageUrl ?? null, specialtyLine: contentDraft.specialtyLine ?? null, coverFocalPoint: contentDraft.coverFocalPoint ?? null, portraitFocalPoint: contentDraft.portraitFocalPoint ?? null, coverTextMode: contentDraft.coverTextMode ?? 'none', coverText: contentDraft.coverText ?? null }, gallery: [], technician: previewTechnician ? { specialties: previewTechnician.specialties, acceptingNewClients: previewTechnician.acceptingNewClients } : null },
+  });
   const presentationPreview = {
+    publicProfile,
     salonName: salon.name,
     logoUrl: salon.logoUrl ?? null,
     technicianName: previewTechnician?.name ?? null,
@@ -221,7 +243,7 @@ export async function GET(request: Request): Promise<Response> {
   return Response.json({
     ...(savedDetails ? { savedDetails } : {}),
     presentationPreview,
-    config: resolveBookingPageConfig(salon.settings),
+    config: previewConfig,
     content: previewContent,
     // Phase A (draft/publish split): lets the owner Booking Page surface
     // show its own "publish the salon" affordance (distinct from the

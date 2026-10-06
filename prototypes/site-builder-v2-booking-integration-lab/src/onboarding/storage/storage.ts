@@ -1051,7 +1051,7 @@ const migrateLegacyOnboardingState = (
         : defaults.recipe.palettePreset,
       quickBookLayout: isQuickBookLayoutId(value.recipe.quickBookLayout)
         ? value.recipe.quickBookLayout
-        : defaults.recipe.quickBookLayout,
+        : 'compact_dropdown', // Preserve the established fallback for older saved drafts.
       quickBookProfile: migrateQuickBookProfileVisibility(
         value.recipe,
         migratedProfile,

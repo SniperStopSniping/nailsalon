@@ -94,7 +94,23 @@ for (const viewport of VIEWPORTS) {
 
       await expect(heading.getByRole('heading', { level: 1 })).toBeVisible();
       await expect(stages).toHaveCount(5);
-      await expect(choices.locator('[data-layout-family]')).toHaveCount(starter === 'quick_book' ? 3 : 0);
+
+      if (starter === 'quick_book') {
+        const catalogue = choices.locator('.qbm-catalog');
+        const mediaGroups = catalogue.locator('[data-media-group]');
+
+        // All designs stay browseable even when this fixture has no uploads.
+        await expect(mediaGroups).toHaveCount(8);
+        await expect(catalogue.locator('button.onboarding-quick-book-layout-card')).toHaveCount(24);
+        await expect(mediaGroups.locator(':scope > summary')).toHaveCount(8);
+        await expect(catalogue.locator('details[open]')).toHaveCount(1);
+
+        for (const group of await mediaGroups.all()) {
+          await expect(group.locator('button.onboarding-quick-book-layout-card')).toHaveCount(3);
+        }
+      } else {
+        await expect(choices.locator('.qbm-catalog')).toHaveCount(0);
+      }
 
       const [screenBox, headingBox, choicesBox, previewBox, previewStageBox, stageBoxes] = await Promise.all([
         geometry(screen),

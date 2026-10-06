@@ -12,10 +12,14 @@ import type { CSSProperties } from 'react';
 
 import { DefaultCoverIllustration, DefaultPortraitIllustration } from './DefaultImagery';
 import { getQuickBookLayout, type QuickBookLayoutId } from './layouts';
+import { isMediaQuickBookLayout } from './media-layouts';
+import { MediaLayoutThumbnail } from './MediaLayoutThumbnail';
 import {
   type QuickBookCoverSlot,
+  type QuickBookFocalPoint,
   quickBookMonogram,
   type QuickBookPortraitSlot,
+  type QuickBookPresentationProfile,
   resolveQuickBookCoverSlot,
   resolveQuickBookPortraitSlot,
 } from './presentation-view';
@@ -30,11 +34,15 @@ export type QuickBookLayoutPosterProps = {
   portraitVisible: boolean;
   /** The owner's custom cover URL, or null for the default. */
   coverUrl: string | null;
+  coverFocalPoint?: QuickBookFocalPoint | null;
+  portraitFocalPoint?: QuickBookFocalPoint | null;
   specialties?: readonly string[];
   hasStory?: boolean;
   galleryCount?: number;
   style?: CSSProperties;
   className?: string;
+  /** Complete canonical permitted data; no fabricated facts in thumbnails. */
+  profile?: QuickBookPresentationProfile;
 };
 
 function PosterPortrait({ slot }: { slot: QuickBookPortraitSlot }) {
@@ -59,7 +67,7 @@ function PosterCover({ slot }: { slot: QuickBookCoverSlot }) {
   );
 }
 
-export function QuickBookLayoutPoster({
+function LegacyQuickBookLayoutPoster({
   layout,
   businessName,
   technicianName,
@@ -130,4 +138,10 @@ export function QuickBookLayoutPoster({
       </span>
     </span>
   );
+}
+
+export function QuickBookLayoutPoster(props: QuickBookLayoutPosterProps) {
+  return isMediaQuickBookLayout(props.layout)
+    ? <MediaLayoutThumbnail {...props} layout={props.layout} />
+    : <LegacyQuickBookLayoutPoster {...props} />;
 }

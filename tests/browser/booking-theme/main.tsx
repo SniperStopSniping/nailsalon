@@ -11,6 +11,7 @@ import { isApprovedQuickBookLayout } from '@/components/customer-site/QuickBookP
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { resolveCustomerSitePalettePreset } from '@/libs/customerSitePresentation';
 
+import { isMediaQuickBookLayout } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/media-layouts';
 import { createQuickBookFixture } from './quick-book-fixture';
 
 const query = new URLSearchParams(window.location.search);
@@ -21,7 +22,7 @@ if (query.has('review-policy')) {
   Object.assign(globalThis, { process: { env: {}, getBuiltinModule: () => ({ createHash: () => ({ update: () => ({ digest: () => 'a'.repeat(64) }) }) }) } });
 }
 const requestedLayout = query.get('quick-book-layout');
-const quickBookFixture = isApprovedQuickBookLayout(requestedLayout) ? createQuickBookFixture(requestedLayout, query.get('case') ?? 'normal') : null;
+const quickBookFixture = (isApprovedQuickBookLayout(requestedLayout) || isMediaQuickBookLayout(requestedLayout)) ? createQuickBookFixture(requestedLayout, query.get('case') ?? 'normal') : null;
 const step = query.get('step') ?? 'time';
 const palette = resolveCustomerSitePalettePreset(query.get('palette'));
 const legacyTheme = query.get('legacy-theme');
@@ -84,7 +85,7 @@ const bookingPage = {
   tokenOverrides: null,
   serviceMenuLayout: 'visual_grid',
   quickBookProfile: {
-    version: 1,
+    version: query.has('legacy-profile') ? 0 : 1,
     showTechName: Boolean(quickBookFixture),
     showTechPhoto: false,
     showLocation: false,
@@ -110,7 +111,7 @@ createRoot(document.getElementById('root')!).render(
   <PublicSalonPageShell
     appearance={{ mode: query.has('custom-appearance') ? 'custom' : 'theme', themeKey: query.get('page-theme') ?? themeKey }}
     salon={salon}
-    bookingPage={{ ...bookingPage, siteStylePreset: legacyTheme ? undefined : bookingPage.siteStylePreset, sitePalettePreset: legacyTheme ? undefined : palette, sectionOrder: [...bookingPage.sectionOrder], hiddenSections: [], quickBookLayout: requestedLayout && isApprovedQuickBookLayout(requestedLayout) ? requestedLayout : 'clean_card' }}
+    bookingPage={{ ...bookingPage, siteStylePreset: legacyTheme ? undefined : bookingPage.siteStylePreset, sitePalettePreset: legacyTheme ? undefined : palette, sectionOrder: [...bookingPage.sectionOrder], hiddenSections: [], quickBookLayout: requestedLayout && (isApprovedQuickBookLayout(requestedLayout) || isMediaQuickBookLayout(requestedLayout)) ? requestedLayout : 'clean_card' }}
     pageName={step === 'time' ? 'book-datetime' : step === 'tech' ? 'book-technician' : `book-${step}`}
   >
     {step === 'service' && (

@@ -7,115 +7,57 @@ import { initializeStarter } from '../../model';
 import { createDanielaFixtureState } from '../fixtures';
 import { SITE_PALETTE_BY_ID } from '../model/palettes';
 import type { OnboardingLabState } from '../model/types';
-import { ONBOARDING_STYLE_ROLES } from '../preview/OnboardingSitePreview';
-import { QUICK_BOOK_LAYOUTS, RETIRED_QUICK_BOOK_LAYOUT_IDS } from '../quick-book/layouts';
+import { QUICK_BOOK_MEDIA_LAYOUTS } from '../quick-book/media-layouts';
 import { QuickBookLayoutScreen } from './DesignScreens';
 
-vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
-  useCustomDesignAssetMap: () => new Map(),
-}));
+vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({ useCustomDesignAssetMap: () => new Map() }));
 
-describe('QuickBookLayoutScreen', () => {
-  it('offers current layouts and previews new and already selected choices', async () => {
+describe('QuickBookLayoutScreen media catalog', () => {
+  it('offers all 24 designs with actual data and preserves saved choices and media', async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
     const onFullPreview = vi.fn();
-    const siteDocument = initializeStarter('quick_book');
-
+    const fixture = createDanielaFixtureState();
+    let latest = fixture;
     function Harness() {
-      const [state, setState] = useState<OnboardingLabState>(() => {
-        const fixture = createDanielaFixtureState();
-        return {
-          ...fixture,
-          recipe: {
-            ...fixture.recipe,
-            quickBookLayout: 'compact_dropdown',
-            starter: 'quick_book',
-          },
-        };
-      });
+      const [state, setState] = useState<OnboardingLabState>(fixture);
+      latest = state;
+      return <QuickBookLayoutScreen document={initializeStarter('quick_book')} onBack={vi.fn()} onContinue={onContinue} onFullPreview={onFullPreview} onUpdate={update => setState(current => update(current))} state={state} />;
+    }
+    const view = render(<Harness />);
+    const group = screen.getByRole('group', { name: 'Quick Book layouts' });
 
-      return (
-        <QuickBookLayoutScreen
-          document={siteDocument}
-          onBack={vi.fn()}
-          onContinue={onContinue}
-          onFullPreview={onFullPreview}
-          onUpdate={update => setState(current => update(current))}
-          state={state}
-        />
-      );
+    expect(group.querySelectorAll('[data-media-group]')).toHaveLength(8);
+
+    for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
+      expect(group.querySelector(`[data-testid="quick-book-layout-poster-${layout.id}"]`)).toBeInTheDocument();
     }
 
-    render(<Harness />);
+    expect(group.querySelectorAll('button:has(.qb-poster)')).toHaveLength(25);
+    expect(screen.getByRole('button', { name: /^Compact Dropdown/u })).toHaveAttribute('aria-pressed', 'true');
 
-    expect(screen.getByRole('heading', { name: 'Choose your Quick Book layout' }))
-      .toBeVisible();
-
-    const layoutGroup = screen.getByRole('group', { name: 'Quick Book layouts' });
-
-    expect(layoutGroup.querySelectorAll('button:has(.qb-poster)')).toHaveLength(QUICK_BOOK_LAYOUTS.length - RETIRED_QUICK_BOOK_LAYOUT_IDS.length);
-    expect(layoutGroup.querySelectorAll('[data-layout-family]')).toHaveLength(3);
-
-    const posters = layoutGroup.querySelectorAll<HTMLElement>('.qb-poster');
-
-    expect(posters).toHaveLength(QUICK_BOOK_LAYOUTS.length - RETIRED_QUICK_BOOK_LAYOUT_IDS.length);
-
-    for (const poster of posters) {
-      expect(poster.style.getPropertyValue('--qb-ground')).toBe(
-        SITE_PALETTE_BY_ID.blush_cocoa.roles.ground,
-      );
-      expect(poster.style.getPropertyValue('--qb-heading-font')).toBe(
-        ONBOARDING_STYLE_ROLES.soft.headingFont,
-      );
+    for (const poster of group.querySelectorAll<HTMLElement>('.qb-poster')) {
+      expect(poster.style.getPropertyValue('--qb-ground')).toBe(SITE_PALETTE_BY_ID.blush_cocoa.roles.ground);
     }
-
-    // Composition-essential slots always keep their image area: the fixture's
-    // own portrait when it is shown, the default illustration otherwise. A
-    // cover has no onboarding upload yet, so cover layouts show the default.
-    expect(layoutGroup.querySelector('.qb-poster[data-qb-layout="side_portrait"] .qb-poster__portrait'))
-      .toHaveAttribute('data-qb-image', expect.stringMatching(/^(?:custom|default)$/u));
-    expect(layoutGroup.querySelector('.qb-poster[data-qb-layout="hero_banner"] .qb-poster__cover'))
-      .toHaveAttribute('data-qb-image', 'default');
-    expect(screen.getByRole('button', { name: /^Compact Dropdown/u }))
-      .toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'View more layouts' })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('button', { name: /^Editorial Split/u })).not.toBeInTheDocument();
-    expect(document.querySelector('.onboarding-preview-stage')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /^Compact Dropdown/u }));
+    await user.click(screen.getByRole('button', { name: /^Type Editorial/u }));
 
     expect(onFullPreview).toHaveBeenCalledOnce();
+    expect(latest.recipe.quickBookLayout).toBe('text_editorial');
+    expect(latest.profile).toEqual(fixture.profile);
+    expect(group.querySelectorAll('button:has(.qb-poster)')).toHaveLength(24);
+    expect(screen.queryByRole('button', { name: /^Compact Dropdown/u })).not.toBeInTheDocument();
 
-    // A layout without a default image area shows no default note…
-    expect(screen.queryByTestId('quick-book-layout-default-note')).not.toBeInTheDocument();
+    await user.click(view.container.querySelector('[data-media-group="cover"] > summary')!);
+    await user.click(screen.getByRole('button', { name: /^Photo Split/u }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Photo Split/u })).toHaveAttribute('aria-pressed', 'true'));
 
-    // …and a cover layout explains the default cover before it is chosen for good.
-    await user.click(screen.getByRole('button', { name: /^Hero Banner/u }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('quick-book-layout-default-note')).toHaveTextContent(/default cover/u);
-      expect(onFullPreview).toHaveBeenCalledTimes(2);
-    });
-
-    expect(screen.queryByRole('button', { name: /^Editorial Elegant/u })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Hub Menu/u })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'View more layouts' }));
-    await user.click(screen.getByRole('button', { name: /^Editorial Split/u }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^Editorial Split/u }))
-        .toHaveAttribute('aria-pressed', 'true');
-      expect(onFullPreview).toHaveBeenCalledTimes(3);
-    });
-
+    expect(latest.profile.profilePhoto).toEqual(fixture.profile.profilePhoto);
     expect(screen.getAllByText('Isla Nail Studio').length).toBeGreaterThan(0);
-    expect(screen.getByText('Editorial Split selected')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^Hub Menu/u })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Preview selected layout' }));
 
-    expect(onFullPreview).toHaveBeenCalledTimes(4);
+    expect(onFullPreview).toHaveBeenCalledTimes(3);
 
     await user.click(screen.getByRole('button', { name: 'Use this layout' }));
 

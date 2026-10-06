@@ -226,7 +226,7 @@ export const createDefaultSiteRecipe = (): OnboardingSiteRecipe => ({
     showTechName: true,
     showTechPhoto: true,
   },
-  quickBookLayout: 'compact_dropdown',
+  quickBookLayout: 'text_editorial',
   paletteConfirmed: false,
   palettePreset: 'luster_berry',
   starter: null,

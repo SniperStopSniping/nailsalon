@@ -153,14 +153,14 @@ test('Quick Book cards preview the latest choice and restore the chooser through
   await expect(dialog).toHaveCount(0);
   await expect(selected).toBeFocused();
 
-  await page.getByRole('button', { name: 'View more layouts', exact: true }).click();
-  const card = page.getByRole('button', { name: /^Asymmetric Luxe/ });
+  await page.locator('[data-media-group="complete"] > summary').click();
+  const card = page.getByRole('button', { name: /^Studio Editorial/ });
   await card.scrollIntoViewIfNeeded();
   const scroll = await page.evaluate(() => window.scrollY);
   await card.click();
   dialog = page.getByRole('dialog', { name: 'Preview your Quick Book layout' });
 
-  await expect(dialog.locator('[data-quick-book-layout]')).toHaveAttribute('data-quick-book-layout', 'asymmetric_luxe');
+  await expect(dialog.locator('[data-quick-book-layout]')).toHaveAttribute('data-quick-book-layout', 'complete_editorial');
   await expect(dialog.locator('.onboarding-preview-stage')).toHaveAttribute('data-preview-initial-target', 'top');
   await expect.poll(() => dialog.locator('[data-preview-scroll-container]').evaluate(element => element.scrollTop)).toBe(0);
 
@@ -208,27 +208,25 @@ test('Quick Book cards preview the latest choice and restore the chooser through
   const saved = await savedState(page);
 
   expect(saved.progress.screenHistory.filter((id: string) => id === 'policies')).toHaveLength(1);
-  expect(saved.recipe.quickBookLayout).toBe('asymmetric_luxe');
+  expect(saved.recipe.quickBookLayout).toBe('complete_editorial');
   expect(saved.recipe.palettePreset).toBe(original.recipe.palettePreset);
   expect(saved.recipe.stylePreset).toBe(original.recipe.stylePreset);
   expect(saved.profile).toEqual(original.profile);
 
   await page.reload();
 
-  expect((await savedState(page)).recipe.quickBookLayout).toBe('asymmetric_luxe');
+  expect((await savedState(page)).recipe.quickBookLayout).toBe('complete_editorial');
 });
 
 test('retires weak choices while preserving a resumed saved layout until its owner switches', async ({ page }) => {
   await fixtureAt(page, 'about_design');
   const choices = page.getByRole('group', { name: 'Quick Book layouts' });
 
-  await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(20);
+  await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(25);
   await expect(choices.locator('[data-qb-layout="editorial"]')).toHaveCount(0);
   await expect(choices.locator('[data-qb-layout="hub_menu"]')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'View more layouts', exact: true }).click();
-
-  await expect(choices.locator('[data-qb-layout="editorial_split"]')).toBeVisible();
+  await expect(choices.locator('[data-qb-layout="text_editorial"]').first()).toBeVisible();
 
   // Seed after the old document has flushed its autosave during reload.
   await page.addInitScript((key) => {
@@ -247,7 +245,7 @@ test('retires weak choices while preserving a resumed saved layout until its own
     const before = await savedState(page);
     const card = choices.locator(`button:has([data-qb-layout="${layout}"])`);
 
-    await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(21);
+    await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(25);
     await expect(card).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByText(/Your saved .* layout is kept/)).toBeVisible();
 
@@ -261,12 +259,12 @@ test('retires weak choices while preserving a resumed saved layout until its own
     expect((await savedState(page)).profile).toEqual(before.profile);
     expect((await savedState(page)).recipe.quickBookLayout).toBe(layout);
 
-    await choices.locator('button:has([data-qb-layout="compact_dropdown"])').click();
+    await choices.locator('button:has([data-qb-layout="text_editorial"])').click();
     await dialog.getByRole('button', { name: 'Try another layout' }).click();
     await page.reload();
 
-    await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(20);
-    expect((await savedState(page)).recipe.quickBookLayout).toBe('compact_dropdown');
+    await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(24);
+    expect((await savedState(page)).recipe.quickBookLayout).toBe('text_editorial');
   }
 });
 
@@ -310,7 +308,7 @@ test('booking cards preview the latest service layout at booking and accept exac
   await expect.poll(async () => (await savedState(page)).progress.screenHistory.filter((id: string) => id === 'final_preview').length).toBe(1);
 });
 
-test('the first preview uses Compact Dropdown with only entered facts and preserves resumed choices', async ({ page }) => {
+test('the first preview uses Type Editorial with only entered facts and preserves resumed choices', async ({ page }) => {
   await page.goto('/?audit=1');
   await page.getByRole('button', { name: 'Start with Quick Book' }).click();
 
@@ -325,7 +323,7 @@ test('the first preview uses Compact Dropdown with only entered facts and preser
   await page.getByRole('button', { name: 'Show me my site →', exact: true }).click();
   const profile = page.locator('[data-quick-book-layout]');
 
-  await expect(profile).toHaveAttribute('data-quick-book-layout', 'compact_dropdown');
+  await expect(profile).toHaveAttribute('data-quick-book-layout', 'text_editorial');
   await expect(profile).toHaveAttribute('data-preview-phase', 'business');
   await expect(profile).toContainText('Maya Atelier');
   await expect(profile).not.toContainText('Toronto');
@@ -356,18 +354,26 @@ test('the first preview uses Compact Dropdown with only entered facts and preser
   await expect(dialog.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
 });
 
-test('recommends three starting points and shows a readable, vertically scrolling phone preview', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+test('groups all media designs and keeps the readable scrolling phone preview', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
   await fixtureAt(page, 'about_design');
   const choices = page.getByRole('group', { name: 'Quick Book layouts' });
-  const cards = choices.getByRole('button').filter({ has: page.locator('[data-qb-layout]') });
 
-  await expect(cards).toHaveCount(3);
-  await expect(cards.nth(0)).toContainText('Fast & simple');
-  await expect(cards.nth(1)).toContainText('Personal brand');
-  await expect(cards.nth(2)).toContainText('Visual brand');
+  await expect(choices.locator('[data-media-group]')).toHaveCount(8);
+  await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(25);
 
-  await cards.nth(0).click();
+  // A 390px miniature must never establish the picker card's intrinsic width.
+  for (const group of await choices.locator('[data-media-group]').all()) {
+    if (await group.getAttribute('open') === null) {
+      await group.locator('summary').click();
+    }
+
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await choices.locator('[data-media-group="text"] > summary').click();
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await page.getByRole('button', { name: /^Type Editorial/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Preview your Quick Book layout' });
 
   await expect(dialog.locator('[data-preview-scale]')).toHaveAttribute('data-preview-scale', '1.0000');
@@ -379,9 +385,13 @@ test('recommends three starting points and shows a readable, vertically scrollin
   expect(dimensions.overflow).toBe(false);
   expect(dimensions.scrolls).toBe(true);
 
+  const headerWidth = await dialog.locator('.qbm-header').evaluate(element => element.clientWidth);
+  const canvasWidth = await dialog.locator('.onboarding-site-preview.qbp-page').evaluate(element => element.clientWidth);
+
+  expect(Math.abs(headerWidth - canvasWidth)).toBeLessThanOrEqual(1);
+
   await footerVisible(page, dialog);
   await dialog.getByRole('button', { name: 'Try another layout' }).click();
-  await page.getByRole('button', { name: 'View more layouts', exact: true }).click();
 
-  await expect(cards).toHaveCount(20);
+  await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(24);
 });

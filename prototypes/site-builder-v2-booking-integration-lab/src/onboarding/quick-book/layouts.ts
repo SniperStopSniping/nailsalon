@@ -1,3 +1,4 @@
+import { isMediaQuickBookLayout, type MediaLayoutId, QUICK_BOOK_MEDIA_LAYOUTS } from './media-layouts';
 /**
  * Quick Book site-layout registry.
  *
@@ -98,7 +99,7 @@ export type QuickBookLayoutDefinition = {
   recommended?: boolean;
 };
 
-export const QUICK_BOOK_LAYOUTS = [
+export const PREVIOUS_QUICK_BOOK_LAYOUTS = [
   // ---- Simple: business details first ------------------------------------
   {
     id: 'compact_dropdown',
@@ -533,7 +534,11 @@ export const QUICK_BOOK_LAYOUTS = [
   },
 ] as const satisfies readonly QuickBookLayoutDefinition[];
 
-export type QuickBookLayoutId = (typeof QUICK_BOOK_LAYOUTS)[number]['id'];
+export type QuickBookLayoutId = (typeof PREVIOUS_QUICK_BOOK_LAYOUTS)[number]['id'] | MediaLayoutId;
+export const QUICK_BOOK_LAYOUTS: readonly (QuickBookLayoutDefinition & { id: QuickBookLayoutId })[] = [
+  ...PREVIOUS_QUICK_BOOK_LAYOUTS,
+  ...QUICK_BOOK_MEDIA_LAYOUTS,
+];
 
 export const QUICK_BOOK_LAYOUT_IDS = QUICK_BOOK_LAYOUTS.map(layout => layout.id) as unknown as readonly [
   QuickBookLayoutId,
@@ -598,7 +603,7 @@ export const getSelectableQuickBookLayoutsByFamily = (
   family: QuickBookLayoutFamily,
   currentLayout?: QuickBookLayoutId,
 ): QuickBookLayoutDefinition[] => getQuickBookLayoutsByFamily(family).filter(layout => (
-  !isRetiredQuickBookLayout(layout.id) || layout.id === currentLayout
+  isMediaQuickBookLayout(layout.id) || layout.id === currentLayout
 ));
 
 /**

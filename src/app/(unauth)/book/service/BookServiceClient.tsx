@@ -57,6 +57,7 @@ import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 import { formatDuration } from '@/utils/Helpers';
 
+import { isMediaQuickBookLayout } from '../../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/media-layouts';
 import { QuickBookLocationMap } from './QuickBookLocationMap';
 import type { QuickBookProfileView } from './quickBookProfile';
 import { QuickBookProfileHeader } from './QuickBookProfileHeader';
@@ -364,7 +365,11 @@ export function BookServiceClient({
       : {};
   const compactQuickBookProfileEnabled = layout === 'quick_book'
     && usesCompactQuickBookProfile(bookingPage?.quickBookProfile);
-  const approvedQuickBookComposition = compactQuickBookProfileEnabled && isApprovedQuickBookLayout(bookingPage?.quickBookLayout);
+  // A new header selection is explicit presentation intent even for older
+  // profile records. Do not adopt their visibility marker or service styling.
+  const quickBookHeaderEnabled = compactQuickBookProfileEnabled
+    || (layout === 'quick_book' && isMediaQuickBookLayout(bookingPage?.quickBookLayout));
+  const approvedQuickBookComposition = compactQuickBookProfileEnabled && (isApprovedQuickBookLayout(bookingPage?.quickBookLayout) || isMediaQuickBookLayout(bookingPage?.quickBookLayout));
   const quickBookSectionOrder = resolveQuickBookPublicSectionOrder(
     layout,
     bookingPage?.sectionOrder ?? QUICK_BOOK_SECTION_ORDER_FALLBACK,
@@ -1599,6 +1604,7 @@ export function BookServiceClient({
 
               <div
                 data-public-surface="serviceSelectionControls"
+                id={quickBookHeaderEnabled && !compactQuickBookProfileEnabled ? 'quick-book-booking' : undefined}
                 ref={searchCardRef}
                 className={approvedQuickBookComposition ? 'qbp-public-search mb-3 scroll-mt-3' : 'mb-4 scroll-mt-3'}
                 style={{
@@ -2452,7 +2458,7 @@ export function BookServiceClient({
                       )
                     : undefined;
 
-                return compactQuickBookProfileEnabled
+                return quickBookHeaderEnabled
                   ? (
                       <QuickBookProfileHeader
                         profile={resolvedQuickBookProfile}

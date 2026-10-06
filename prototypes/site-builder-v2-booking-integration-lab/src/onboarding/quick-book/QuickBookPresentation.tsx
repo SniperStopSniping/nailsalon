@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 
 import { ApprovedQuickBookComposition, isApprovedQuickBookLayout } from './ApprovedQuickBookComposition';
 import { getQuickBookLayout } from './layouts';
+import { isMediaQuickBookLayout } from './media-layouts';
+import { MediaQuickBookHeader } from './MediaQuickBookHeader';
 import { BookButton, Facts, Gallery, Identity, QuickBookCover as Cover, QuickBookLogo as Logo, QuickBookPortrait as Portrait, type QuickBookPresentationProps, QuickBookSecondaryDetails as Actions, Story } from './QuickBookPrimitives';
 
 export type { QuickBookPresentationProps } from './QuickBookPrimitives';
@@ -16,6 +18,9 @@ export function QuickBookPresentation({
   galleryItemHref,
 }: QuickBookPresentationProps) {
   const layout = getQuickBookLayout(profile.presentation.layoutId);
+  if (isMediaQuickBookLayout(layout.id)) {
+    return <MediaQuickBookHeader bookingHref={bookingHref} bookingLabel={bookingLabel} headingId={headingId} headingProps={headingProps} layoutId={layout.id} onBook={onBook} profile={profile} />;
+  }
   if (isApprovedQuickBookLayout(layout.id)) {
     return <ApprovedQuickBookComposition bookingHref={bookingHref} bookingLabel={bookingLabel} headingId={headingId} headingProps={headingProps} layout={layout.id} onBook={onBook} profile={profile} />;
   }
