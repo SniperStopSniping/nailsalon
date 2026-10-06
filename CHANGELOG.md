@@ -1,3 +1,16 @@
+# [1.137.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.136.3...v1.137.0) (2026-10-06)
+
+
+### Bug Fixes
+
+* make Quick Book layout groups easier to discover ([#357](https://github.com/SniperStopSniping/nailsalon/issues/357)) ([efd5732](https://github.com/SniperStopSniping/nailsalon/commit/efd5732c4d36fc7138c8c8c2a3ddf4954cda481a))
+* **quick-book:** refine logo and profile header layouts ([#358](https://github.com/SniperStopSniping/nailsalon/issues/358)) ([e7686d9](https://github.com/SniperStopSniping/nailsalon/commit/e7686d913348e18878d0686e6fee2db4fd84abe9))
+
+
+### Features
+
+* **quick-book:** introduce 24 media-based header designs ([#356](https://github.com/SniperStopSniping/nailsalon/issues/356)) ([d9e2fd9](https://github.com/SniperStopSniping/nailsalon/commit/d9e2fd9b240b4a6cf553552ad224cf8e4c93e155))
+
 ## [1.136.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.136.2...v1.136.3) (2026-10-06)
 
 
