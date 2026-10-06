@@ -74,8 +74,9 @@
 .qbm-editorial-person > .qbm-profile { width: 108px; height: 194px; border-radius: 8px; }
 .qbm-editorial-person h1 { font-size: 30px; }
 .qbm-editorial-person .qbm-artist-copy { margin-top: 14px; }
-.qbm-business-signature { border-top: 1px solid var(--qb-line); padding-top: 12px; }
-.qbm-business-signature .qbm-logo { height: 54px; width: 100px; max-width: 100%; }
+.qbm-signature-media { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: 100%; min-width: 0; max-width: 420px; }
+.qbm-signature-media .qbm-media { max-width: calc(50% - 12px); }
+.qbm-signature-media .qbm-logo { height: 160px; width: 160px; }
 .qbm-studio-panel { display: grid; gap: 22px; }
 .qbm-artist-panel { order: -1; padding: 18px; border-radius: 12px; background: color-mix(in srgb, var(--qb-accent) 7%, var(--qb-ground)); }
 .qbm-artist-panel .qbm-artist { margin: 0; }
@@ -117,8 +118,7 @@
 @container qbm-header (max-width: 280px) {
   .qbm-brand { flex-wrap: wrap; gap: 12px; }
   .qbm-brand .qbm-identity { flex-basis: 100%; }
-  .qbm-brand-rail, .qbm-editorial-person { grid-template-columns: 1fr; }
-  .qbm-brand-rail .qbm-copy { border-left: 0; padding-left: 0; }
+  .qbm-editorial-person { grid-template-columns: 1fr; }
   .qbm-editorial-person > .qbm-profile { width: 120px; height: 148px; }
   .qbm-editorial-person .qbm-copy { display: contents; }
   .qbm-editorial-person .qbm-identity { grid-row: 1; }
@@ -146,6 +146,7 @@
   .qbm-card { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; padding: 32px; }
   .qbm-card > .qbm-booking { margin-top: 0; }
   .qbm-profile { width: 180px; height: 216px; }
+  .qbm-signature-media .qbm-logo { width: 180px; height: 216px; }
   .qbm-person-row .qbm-artist { max-width: 700px; }
   .qbm-editorial-person { grid-template-columns: 230px minmax(0, 1fr); gap: 40px; }
   .qbm-editorial-person > .qbm-profile { width: 230px; height: 310px; }

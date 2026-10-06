@@ -206,13 +206,13 @@ export function MediaQuickBookHeader({ profile, layoutId, headingId, headingProp
       break;
     case 'logo_rail':
       composition = (
-        <div className="qbm-brand-rail">
-          {logo}
-          <div className="qbm-copy">
-            {identityCopy}
-            {booking}
+        <>
+          <div className="qbm-brand-rail">
+            {logo}
+            <div className="qbm-copy">{identityCopy}</div>
           </div>
-        </div>
+          {booking}
+        </>
       );
       break;
     case 'profile_side':
@@ -259,9 +259,11 @@ export function MediaQuickBookHeader({ profile, layoutId, headingId, headingProp
         <>
           <div className="qbm-center">
             {identityCopy}
-            {portrait}
+            <div className="qbm-signature-media">
+              {portrait}
+              {logo}
+            </div>
             {artistCopy}
-            <div className="qbm-business-signature">{logo}</div>
           </div>
           {booking}
         </>
