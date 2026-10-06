@@ -374,6 +374,11 @@ test('groups all media designs and keeps the readable scrolling phone preview', 
   expect(dimensions.overflow).toBe(false);
   expect(dimensions.scrolls).toBe(true);
 
+  const headerWidth = await dialog.locator('.qbm-header').evaluate(element => element.clientWidth);
+  const canvasWidth = await dialog.locator('.onboarding-site-preview.qbp-page').evaluate(element => element.clientWidth);
+
+  expect(Math.abs(headerWidth - canvasWidth)).toBeLessThanOrEqual(1);
+
   await footerVisible(page, dialog);
   await dialog.getByRole('button', { name: 'Try another layout' }).click();
 
