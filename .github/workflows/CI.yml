@@ -1071,7 +1071,7 @@ jobs:
         env:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
-        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts tests/e2e/salon-no-show-records.e2e.ts tests/e2e/rebooking-reminders.e2e.ts
+        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/quick-book-designs.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts tests/e2e/salon-no-show-records.e2e.ts tests/e2e/rebooking-reminders.e2e.ts
 
       - name: Verify authoritative L1 public booking in mobile Chromium and WebKit
         env:

@@ -367,6 +367,7 @@ test('groups all media designs and keeps the readable scrolling phone preview', 
     if (await group.getAttribute('open') === null) {
       await group.locator('summary').click();
     }
+
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   await choices.locator('[data-media-group="text"] > summary').click();
