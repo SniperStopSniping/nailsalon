@@ -650,7 +650,7 @@ async function applyBuilderOperationFromPage(
 
   expect(response.ok(), responseText).toBe(true);
   expect(response.request().postDataJSON()).toEqual({ builderOperation: operation });
-  await expect(page.locator('div[role="status"][aria-live="polite"]')).toHaveText('Saved');
+  await expect(page.getByRole('status', { name: 'Page draft status' })).toHaveText(/^(?:Published · No page changes|Draft saved · [1-9]\d* unpublished changes?)$/);
 
   return JSON.parse(responseText) as BuilderApiState;
 }
@@ -673,7 +673,7 @@ async function applyBookingMenuLayoutFromPage(
 
   expect(response.ok(), responseText).toBe(true);
   expect(response.request().postDataJSON()).toEqual({ config: { serviceMenuLayout } });
-  await expect(page.locator('div[role="status"][aria-live="polite"]')).toHaveText('Saved');
+  await expect(page.getByRole('status', { name: 'Page draft status' })).toHaveText(/^(?:Published · No page changes|Draft saved · [1-9]\d* unpublished changes?)$/);
 
   return JSON.parse(responseText) as BuilderApiState;
 }

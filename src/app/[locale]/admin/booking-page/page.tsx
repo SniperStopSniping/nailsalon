@@ -1825,7 +1825,7 @@ function BookingPageOwnerSurfaceContent() {
                 data-testid="booking-page-publish"
                 disabled={actionStatus !== 'idle' || presentationPending}
                 onClick={() => void handlePublish()}
-                className="inline-flex min-h-11 items-center justify-center rounded-full bg-[var(--owner-accent)] px-5 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-50"
+                className="inline-flex min-h-11 min-w-0 max-w-full items-center justify-center rounded-full bg-[var(--owner-accent)] px-5 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-50"
               >
                 {actionStatus === 'publishing' ? 'Publishing…' : 'Publish'}
               </button>
@@ -1834,7 +1834,7 @@ function BookingPageOwnerSurfaceContent() {
                 data-testid="booking-page-revert"
                 disabled={actionStatus !== 'idle' || presentationPending}
                 onClick={() => void handleRevert()}
-                className="inline-flex min-h-11 items-center justify-center rounded-full border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] px-5 text-sm font-semibold text-[var(--owner-muted)] outline-none transition-colors hover:bg-[var(--owner-ground)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-50"
+                className="inline-flex min-h-11 min-w-0 max-w-full items-center justify-center rounded-full border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] px-5 text-sm font-semibold text-[var(--owner-muted)] outline-none transition-colors hover:bg-[var(--owner-ground)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-50"
               >
                 {actionStatus === 'reverting' ? 'Reverting…' : 'Revert draft to live'}
               </button>

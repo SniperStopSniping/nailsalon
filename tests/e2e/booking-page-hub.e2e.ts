@@ -124,7 +124,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
       await page.getByTestId(`address-privacy-${targetPrivacy}`).click();
 
       await expect(page.getByTestId(`address-privacy-${targetPrivacy}`)).toBeChecked();
-      await expect(page.getByRole('status').filter({ hasText: /^Saved$/ }).first()).toBeVisible();
+      await expect(page.getByRole('status', { name: 'Page draft status' })).toHaveText(/^(?:Published · No page changes|Draft saved · [1-9]\d* unpublished changes?)$/);
 
       await page.reload();
       await page.getByText('Location', { exact: true }).click();
@@ -135,7 +135,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
       await page.getByTestId(`address-privacy-${initialPrivacy}`).click();
 
       await expect(page.getByTestId(`address-privacy-${initialPrivacy}`)).toBeChecked();
-      await expect(page.getByRole('status').filter({ hasText: /^Saved$/ }).first()).toBeVisible();
+      await expect(page.getByRole('status', { name: 'Page draft status' })).toHaveText(/^(?:Published · No page changes|Draft saved · [1-9]\d* unpublished changes?)$/);
 
       await page.reload();
       await page.getByText('Location', { exact: true }).click();

@@ -2,6 +2,22 @@ import { expect, test } from '@playwright/test';
 
 import { mockApi } from './fixtures';
 
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status === testInfo.expectedStatus || page.isClosed()) {
+    return;
+  }
+  const geometry = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    overflowing: [...document.querySelectorAll('body *')].map((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { tag: element.tagName, text: element.textContent?.slice(0, 80), right: bounds.right, width: bounds.width, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth };
+    }).filter(element => element.width > 0 && (element.right > window.innerWidth + 0.5 || element.scrollWidth > element.clientWidth + 2)),
+  }));
+  await testInfo.attach('overflow-geometry', { body: JSON.stringify(geometry, null, 2), contentType: 'application/json' });
+  await page.screenshot({ path: testInfo.outputPath('failure-full-page.png'), fullPage: true });
+});
+
 async function openSections(page: import('@playwright/test').Page) {
   const toggle = page.getByRole('button', { name: /^Sections/ });
   if (await toggle.isVisible() && await toggle.getAttribute('aria-expanded') === 'false') {
@@ -52,6 +68,12 @@ for (const width of [320, 390, 1440]) {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
     await page.screenshot({ path: testInfo.outputPath(`text-${width}-200-percent.png`), fullPage: true });
+    // Wider text must reflow too; fallback-font metrics differ between macOS and Linux.
+    await page.addStyleTag({ content: 'html { letter-spacing: 0.12em; }' });
+
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    await page.screenshot({ path: testInfo.outputPath(`text-${width}-200-percent-spaced.png`), fullPage: true });
   });
 }
 

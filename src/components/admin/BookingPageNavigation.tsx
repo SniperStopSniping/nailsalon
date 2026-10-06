@@ -92,7 +92,7 @@ export function BookingPageEditorLayout({ children, panel, ...navigation }: {
   }, [expanded, panel]);
 
   return (
-    <div className="mx-auto grid max-w-6xl items-start gap-5 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
+    <div className="mx-auto grid max-w-6xl items-start gap-5 [overflow-wrap:anywhere] lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
       <aside className="min-w-0 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3 lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:overflow-y-auto" aria-label="Booking Page sections">
         <button
           type="button"
@@ -101,7 +101,7 @@ export function BookingPageEditorLayout({ children, panel, ...navigation }: {
           aria-controls="booking-page-section-list"
           onClick={() => setExpanded(value => !value)}
         >
-          <span>
+          <span className="min-w-0">
             <span className="block text-xs font-normal text-[var(--owner-muted)]">Sections</span>
             {BOOKING_PAGE_EDITORS[panel].title}
           </span>
