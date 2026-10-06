@@ -12,10 +12,14 @@
  * - Duration & price preview
  */
 
-import { Calendar, Check, ChevronDown, Clock, Loader2, Phone, Plus, Search, User, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import './new-appointment.css';
 
+import { Check, ChevronDown, Loader2, Plus, Search, X } from 'lucide-react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { AppointmentClientPicker } from '@/components/admin/AppointmentClientPicker';
 import { DialogShell } from '@/components/ui/dialog-shell';
+import { useCustomerViewport } from '@/hooks/useCustomerViewport';
 import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
 import {
   buildTimePickerSlots,
@@ -24,6 +28,7 @@ import {
 } from '@/libs/calendarSchedule';
 import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
 import { parseGoogleEventTitle } from '@/libs/googleEventAutofill';
+import { normalizePhone } from '@/libs/phone';
 import type { BookingCategory, WeeklySchedule } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { formatDuration } from '@/utils/Helpers';
@@ -148,6 +153,7 @@ export function NewAppointmentModal({
 }: NewAppointmentModalProps) {
   const { salonSlug: contextSalonSlug } = useSalon();
   const salonSlug = salonSlugProp?.trim() || contextSalonSlug;
+  const viewport = useCustomerViewport();
 
   // Form state
   const [selectedDate, setSelectedDate] = useState<string>(
@@ -167,6 +173,7 @@ export function NewAppointmentModal({
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -174,6 +181,8 @@ export function NewAppointmentModal({
   const [showTechDropdown, setShowTechDropdown] = useState(false);
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
   const [serviceSearch, setServiceSearch] = useState('');
+  const [showAllServices, setShowAllServices] = useState(false);
+  const [showClientSearch, setShowClientSearch] = useState(false);
   const [draftHydrated, setDraftHydrated] = useState(false);
   const [draftRestored, setDraftRestored] = useState(false);
   const [sourceChanged, setSourceChanged] = useState(false);
@@ -188,8 +197,18 @@ export function NewAppointmentModal({
   const pendingTechDefaultRef = useRef(false);
   const pendingGoogleServiceNameRef = useRef<string | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const clientPhoneRef = useRef<HTMLInputElement>(null);
+  const technicianDefaultAppliedRef = useRef(false);
 
   const draftKey = salonSlug ? `luster:new-appointment-draft:${salonSlug}` : null;
+
+  useEffect(() => {
+    const active = document.activeElement;
+    if (isOpen && viewport.keyboardOpen && active instanceof HTMLElement && bodyRef.current?.contains(active)) {
+      active.scrollIntoView?.({ block: 'nearest' });
+    }
+  }, [isOpen, viewport.height, viewport.keyboardOpen]);
 
   useEffect(() => {
     if (isOpen && !loading && error && errorRef.current) {
@@ -214,7 +233,7 @@ export function NewAppointmentModal({
     setSelectedDate(formatDateForInput(start));
     setSelectedTime(`${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`);
     setClientName(googleEventPrefill.suggestedClient?.fullName || parsedTitle.clientName || '');
-    setClientPhone((googleEventPrefill.suggestedClient?.phone || '').replace(/\D/g, '').slice(-10));
+    setClientPhone(normalizePhone(googleEventPrefill.suggestedClient?.phone || ''));
     setClientEmail(googleEventPrefill.suggestedClient?.email || '');
     setSelectedServiceIds(googleEventPrefill.suggestedService ? [googleEventPrefill.suggestedService.id] : []);
     pendingGoogleServiceNameRef.current = googleEventPrefill.suggestedService ? null : parsedTitle.serviceName;
@@ -277,7 +296,7 @@ export function NewAppointmentModal({
       return;
     }
     setClientName(clientPrefill.name || '');
-    setClientPhone(clientPrefill.phone.replace(/\D/g, '').slice(-10));
+    setClientPhone(normalizePhone(clientPrefill.phone));
     setClientEmail(clientPrefill.email || '');
     setSelectedTechnicianId(clientPrefill.technicianId || null);
     setSelectedServiceIds(clientPrefill.serviceIds ?? (clientPrefill.serviceId ? [clientPrefill.serviceId] : []));
@@ -296,6 +315,7 @@ export function NewAppointmentModal({
 
     try {
       setLoading(true);
+      setLoadFailed(false);
       setError(null);
 
       // Fetch technicians and services in parallel
@@ -316,6 +336,7 @@ export function NewAppointmentModal({
       setTechnicians(techData.data?.technicians || []);
       setServices(servicesData.data?.services || []);
     } catch {
+      setLoadFailed(true);
       setError('Failed to load form data');
     } finally {
       setLoading(false);
@@ -327,6 +348,16 @@ export function NewAppointmentModal({
       fetchData();
     }
   }, [isOpen, fetchData]);
+
+  useEffect(() => {
+    if (!isOpen || loading || loadFailed || !draftHydrated || technicianDefaultAppliedRef.current) {
+      return;
+    }
+    technicianDefaultAppliedRef.current = true;
+    if (technicians.length === 1) {
+      setSelectedTechnicianId(current => current ?? technicians[0]!.id);
+    }
+  }, [draftHydrated, isOpen, loadFailed, loading, technicians]);
 
   // Preserve unfinished work only for this browser tab. Session storage avoids
   // keeping client contact information in long-lived local storage.
@@ -362,6 +393,8 @@ export function NewAppointmentModal({
           setClientName(draft.clientName || '');
           setClientEmail(draft.clientEmail || '');
           setSelectedTechnicianId(draft.selectedTechnicianId || null);
+          // A saved "Any available" choice is deliberate, even for a solo salon.
+          technicianDefaultAppliedRef.current = Object.hasOwn(draft, 'selectedTechnicianId');
           setSelectedServiceIds(Array.isArray(draft.selectedServiceIds) ? draft.selectedServiceIds : []);
           setDraftRestored(true);
         } else {
@@ -404,6 +437,11 @@ export function NewAppointmentModal({
       setSelectedServiceIds([]);
       setError(null);
       setServiceSearch('');
+      setShowAllServices(false);
+      setShowClientSearch(false);
+      setShowTechDropdown(false);
+      setShowTimeDropdown(false);
+      technicianDefaultAppliedRef.current = false;
       setSourceChanged(false);
       setSubmitFailed(false);
       setSubmissionSourceStatus(null);
@@ -433,10 +471,14 @@ export function NewAppointmentModal({
     s.name.toLowerCase().includes(serviceSearch.toLowerCase())
     || s.category?.toLowerCase().includes(serviceSearch.toLowerCase()),
   );
+  const visibleServices = serviceSearch.trim() || showAllServices
+    ? filteredServices
+    : filteredServices.filter((service, index) => index < 4 || selectedServiceIds.includes(service.id));
+  const hiddenServiceCount = filteredServices.length - visibleServices.length;
 
   // Group by the shared visible categories (Manicure / Pedicure / Combos) so
   // staff see the same structure as clients and the owner menu.
-  const servicesByCategory = filteredServices.reduce((acc, service) => {
+  const servicesByCategory = visibleServices.reduce((acc, service) => {
     const category = resolveVisibleBookingCategory({
       bookingCategory: service.bookingCategory ?? null,
       category: service.category ?? 'manicure',
@@ -459,14 +501,14 @@ export function NewAppointmentModal({
 
   // Format phone as user types
   const handlePhoneChange = (value: string) => {
-    // Remove non-digits
-    const digits = value.replace(/\D/g, '');
-    // Limit to 10 digits
-    setClientPhone(digits.slice(0, 10));
+    setClientPhone(normalizePhone(value));
   };
 
   // Format phone for display
   const formatPhoneDisplay = (phone: string): string => {
+    if (phone.length > 10) {
+      return phone;
+    }
     if (phone.length <= 3) {
       return phone;
     }
@@ -478,7 +520,7 @@ export function NewAppointmentModal({
 
   // Handle form submission
   const handleSubmit = async () => {
-    if (submittingRef.current) {
+    if (submittingRef.current || loading || loadFailed || !salonSlug) {
       return;
     }
 
@@ -489,6 +531,14 @@ export function NewAppointmentModal({
     }
     if (selectedServiceIds.length === 0) {
       setError('Please select at least one service');
+      return;
+    }
+    if (!selectedDate || !selectedTime) {
+      setError('Choose an appointment date and time');
+      return;
+    }
+    if (googleEventPrefill && priceOverride !== '' && (!Number.isFinite(Number(priceOverride)) || Number(priceOverride) < 0)) {
+      setError('Please enter a valid appointment price');
       return;
     }
     const parsedDurationOverride = Number(durationOverride);
@@ -613,6 +663,22 @@ export function NewAppointmentModal({
   }), [selectedDate, selectedTechnicianId, selectedTime, timeSlotSchedule]);
   const effectiveSourceStatus = submissionSourceStatus ?? googleEventSourceStatus;
 
+  const displayedPrice = googleEventPrefill && priceOverride !== '' && Number.isFinite(Number(priceOverride)) && Number(priceOverride) >= 0
+    ? Math.round(Number(priceOverride) * 100)
+    : totalPrice;
+  const displayedDuration = googleEventPrefill && Number(durationOverride) > 0 ? Number(durationOverride) : totalDuration;
+  const summaryDate = selectedDate
+    ? new Date(`${selectedDate}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    : 'Choose a date';
+  const overlayStyle = viewport.height > 0
+    ? {
+        'top': viewport.top,
+        'height': viewport.height,
+        'bottom': 'auto',
+        '--nap-viewport-height': `${viewport.height}px`,
+      } as CSSProperties
+    : undefined;
+
   if (!isOpen) {
     return null;
   }
@@ -624,21 +690,17 @@ export function NewAppointmentModal({
       closeOnBackdrop={!googleEventPrefill}
       closeOnEscape={!googleEventPrefill}
       overlayTestId="appointment-modal-backdrop"
-      maxWidthClassName="max-w-lg"
-      contentClassName="h-[80vh] max-h-[80vh] touch-pan-y overflow-hidden overscroll-contain rounded-2xl bg-white shadow-2xl supports-[height:100dvh]:h-[80dvh] supports-[height:100dvh]:max-h-[80dvh]"
+      maxWidthClassName="h-full max-w-4xl sm:h-auto"
+      alignClassName="items-end justify-center p-0 sm:items-center sm:p-6"
+      overlayStyle={overlayStyle}
+      contentClassName="nap-dialog"
     >
-      <div
-        className="flex h-full flex-col"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-appointment-modal-title"
-      >
-        {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-gray-100 bg-white px-5 py-4">
+      <div className="nap-root" role="dialog" aria-modal="true" aria-labelledby="new-appointment-modal-title">
+        <header className="nap-header">
           <div>
-            <h2 id="new-appointment-modal-title" className="text-lg font-semibold text-gray-900">{googleEventPrefill ? 'Convert Google Event' : 'New Appointment'}</h2>
+            <h2 id="new-appointment-modal-title">{googleEventPrefill ? 'Convert Google Event' : 'New Appointment'}</h2>
             {googleEventPrefill && (
-              <p className="text-xs text-gray-500">
+              <p>
                 {googleEventPrefill.title || 'Google Calendar event'}
                 {' '}
                 ·
@@ -649,437 +711,328 @@ export function NewAppointmentModal({
               </p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close modal"
-            className="flex size-11 items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950"
-          >
-            <X className="size-5 text-gray-600" />
-          </button>
-        </div>
-
-        {/* Content — flex sizing, so a taller header (e.g. Google-event
-                prefill subtitle) can never clip the body or footer. */}
-        <div className="min-h-0 flex-1 overflow-y-auto bg-white p-5">
+          <button type="button" onClick={onClose} aria-label="Close modal" className="nap-close"><X aria-hidden="true" className="size-5" /></button>
+        </header>
+        <div ref={bodyRef} className="nap-body" data-testid="new-appointment-body">
           {loading
             ? (
-                <div className="flex items-center justify-center py-20">
-                  <Loader2 className="size-8 animate-spin text-gray-400" />
+                <div className="flex items-center justify-center gap-3 py-20" role="status">
+                  <Loader2 aria-hidden="true" className="size-6 animate-spin" />
+                  Loading appointment form…
                 </div>
               )
             : (
-                <div className="space-y-6">
-                  {/* Error Message */}
-                  {error && (
-                    <div ref={errorRef} tabIndex={-1} className="rounded-lg border border-red-200 bg-red-50 p-3" role="alert" data-testid="new-appointment-error">
-                      <p className="text-sm text-red-700">{error}</p>
-                    </div>
-                  )}
-
-                  {clientPrefill?.nextVisitOffer && (
-                    <div data-testid="next-visit-offer-rebook-summary" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
-                      <div className="font-semibold">Next Visit Offer</div>
-                      <p className="mt-1">
-                        Your next appointment must take place by
-                        {' '}
-                        {clientPrefill.nextVisitOffer.deadlineDate}
-                        {' '}
-                        to save
-                        {' '}
-                        {clientPrefill.nextVisitOffer.discountType === 'percent'
-                          ? `${clientPrefill.nextVisitOffer.value}%`
-                          : formatCurrency(clientPrefill.nextVisitOffer.value)}
-                        . The final total is confirmed when the appointment is saved.
-                      </p>
-                    </div>
-                  )}
-
-                  {googleEventPrefill && effectiveSourceStatus !== 'available' && (
-                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3" role="alert" data-testid="google-event-unavailable">
-                      <p className="text-sm font-semibold text-amber-900">
-                        {effectiveSourceStatus === 'converted'
-                          ? 'This Google event was already converted in another session.'
-                          : effectiveSourceStatus === 'deleted'
-                            ? 'This Google event was deleted while you were editing.'
-                            : 'This Google event is no longer accessible.'}
-                      </p>
-                      <p className="mt-1 text-xs text-amber-800">Your entries are still here. Acknowledge this message when you are ready to close them.</p>
-                      <button type="button" onClick={onClose} className="mt-3 rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white">
-                        Acknowledge and close
-                      </button>
-                    </div>
-                  )}
-
-                  {googleEventPrefill && sourceChanged && effectiveSourceStatus === 'available' && (
-                    <div className="rounded-lg border border-blue-300 bg-blue-50 p-3" role="status" data-testid="google-event-changed-warning">
-                      <p className="text-sm font-semibold text-blue-900">Google changed this event while you were editing.</p>
-                      <p className="mt-1 text-xs text-blue-800">
-                        Latest timing:
-                        {' '}
-                        {new Date(googleEventPrefill.startTime).toLocaleString()}
-                        {' · '}
-                        {googleEventPrefill.durationMinutes}
-                        {' min. Your client, service, price, and notes were not changed.'}
-                      </p>
-                      <button type="button" onClick={applyLatestGoogleTiming} className="mt-3 rounded-lg bg-blue-800 px-3 py-2 text-xs font-semibold text-white">
-                        Use latest Google timing
-                      </button>
-                    </div>
-                  )}
-
-                  {draftRestored && !error && (
-                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-                      Your saved appointment draft was restored.
-                    </div>
-                  )}
-
-                  {/* Date & Time */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="appointment-date" className="mb-1.5 block text-sm font-medium text-gray-700">
-                        <Calendar className="mr-1.5 inline-block size-4" />
-                        Date
-                      </label>
-                      <input
-                        id="appointment-date"
-                        type="date"
-                        value={selectedDate}
-                        onChange={e => setSelectedDate(e.target.value)}
-                        min={formatDateForInput(new Date())}
-                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="relative">
-                      <p className="mb-1.5 block text-sm font-medium text-gray-700">
-                        <Clock className="mr-1.5 inline-block size-4" />
-                        Time
-                      </p>
-                      <button
-                        type="button"
-                        aria-label="Appointment time"
-                        onClick={() => setShowTimeDropdown(!showTimeDropdown)}
-                        className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 transition-colors hover:bg-gray-50"
-                      >
-                        <span>{selectedTime}</span>
-                        <ChevronDown className="size-4 text-gray-400" />
-                      </button>
-
-                      {showTimeDropdown && (
-                        <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                          {timeSlots.map(time => (
-                            <button
-                              key={time}
-                              type="button"
-                              onClick={() => {
-                                setSelectedTime(time);
-                                setShowTimeDropdown(false);
-                              }}
-                              className={`
-                                w-full px-3 py-2 text-left text-sm transition-colors
-                                ${time === selectedTime ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'}
-                              `}
-                            >
-                              {time}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <label htmlFor="new-appt-client-email" className="mb-1.5 block text-sm font-medium text-gray-700">Email (optional)</label>
-                      <input
-                        id="new-appt-client-email"
-                        type="email"
-                        value={clientEmail}
-                        onChange={e => setClientEmail(e.target.value)}
-                        placeholder="client@example.com"
-                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Client Info */}
-                  <div className="space-y-4">
-                    <div>
-                      <label htmlFor="new-appt-phone" className="mb-1.5 block text-sm font-medium text-gray-700">
-                        <Phone className="mr-1.5 inline-block size-4" />
-                        Phone Number *
-                      </label>
-                      <input
-                        id="new-appt-phone"
-                        type="tel"
-                        value={formatPhoneDisplay(clientPhone)}
-                        onChange={e => handlePhoneChange(e.target.value)}
-                        placeholder="(555) 123-4567"
-                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="new-appt-client-name" className="mb-1.5 block text-sm font-medium text-gray-700">
-                        <User className="mr-1.5 inline-block size-4" />
-                        Client Name (optional)
-                      </label>
-                      <input
-                        id="new-appt-client-name"
-                        type="text"
-                        value={clientName}
-                        onChange={e => setClientName(e.target.value)}
-                        placeholder="Jane Doe"
-                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                  {googleEventPrefill && (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label htmlFor="google-event-price" className="mb-1.5 block text-sm font-medium text-gray-700">Appointment price (CAD $)</label>
-                          <input
-                            id="google-event-price"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={priceOverride}
-                            onChange={event => setPriceOverride(event.target.value)}
-                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label htmlFor="google-event-duration" className="mb-1.5 block text-sm font-medium text-gray-700">Duration (minutes)</label>
-                          <input
-                            id="google-event-duration"
-                            type="number"
-                            min="1"
-                            max="1440"
-                            step="1"
-                            value={durationOverride}
-                            onChange={event => setDurationOverride(event.target.value)}
-                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label htmlFor="google-event-notes" className="mb-1.5 block text-sm font-medium text-gray-700">Notes (optional)</label>
-                        <textarea
-                          id="google-event-notes"
-                          value={notes}
-                          maxLength={2000}
-                          rows={3}
-                          onChange={event => setNotes(event.target.value)}
-                          placeholder="Private appointment notes"
-                          className="w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                      </div>
-                      {googleEventPrefill.isReadOnly && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Google event is read-only. Time changes continue to come from Google.</p>}
-                    </div>
-                  )}
-
-                  {/* Technician Selection */}
-                  <div className="relative">
-                    <p className="mb-1.5 block text-sm font-medium text-gray-700">
-                      Technician
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setShowTechDropdown(!showTechDropdown)}
-                      className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 transition-colors hover:bg-gray-50"
-                    >
-                      <span className="flex items-center gap-2">
-                        {selectedTechnician
-                          ? (
-                              <>
-                                <div className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-[10px] font-bold text-white">
-                                  {selectedTechnician.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                                </div>
-                                {selectedTechnician.name}
-                              </>
-                            )
-                          : (
-                              'Any available technician'
-                            )}
-                      </span>
-                      <ChevronDown className="size-4 text-gray-400" />
-                    </button>
-
-                    {showTechDropdown && (
-                      <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedTechnicianId(null);
-                            setShowTechDropdown(false);
-                          }}
-                          className={`
-                            w-full px-3 py-2.5 text-left text-sm transition-colors
-                            ${!selectedTechnicianId ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'}
-                          `}
-                        >
-                          Any available technician
-                        </button>
-                        {technicians.map(tech => (
-                          <button
-                            key={tech.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedTechnicianId(tech.id);
-                              setShowTechDropdown(false);
-                            }}
-                            className={`
-                              flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors
-                              ${tech.id === selectedTechnicianId ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'}
-                            `}
-                          >
-                            <div className="flex size-6 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-[10px] font-bold text-white">
-                              {tech.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                            </div>
-                            {tech.name}
-                          </button>
-                        ))}
+                <>
+                  <div className="nap-notices">
+                    {/* Error Message */}
+                    {error && (
+                      <div ref={errorRef} tabIndex={-1} className="rounded-lg border border-red-200 bg-red-50 p-3" role="alert" data-testid="new-appointment-error">
+                        <p className="text-sm text-red-700">{error}</p>
+                        {loadFailed && <button type="button" className="nap-link" onClick={() => void fetchData()}>Retry loading</button>}
                       </div>
                     )}
+
+                    {clientPrefill?.nextVisitOffer && (
+                      <div data-testid="next-visit-offer-rebook-summary" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+                        <div className="font-semibold">Next Visit Offer</div>
+                        <p className="mt-1">
+                          Your next appointment must take place by
+                          {' '}
+                          {clientPrefill.nextVisitOffer.deadlineDate}
+                          {' '}
+                          to save
+                          {' '}
+                          {clientPrefill.nextVisitOffer.discountType === 'percent'
+                            ? `${clientPrefill.nextVisitOffer.value}%`
+                            : formatCurrency(clientPrefill.nextVisitOffer.value)}
+                          . The final total is confirmed when the appointment is saved.
+                        </p>
+                      </div>
+                    )}
+
+                    {googleEventPrefill && effectiveSourceStatus !== 'available' && (
+                      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3" role="alert" data-testid="google-event-unavailable">
+                        <p className="text-sm font-semibold text-amber-900">
+                          {effectiveSourceStatus === 'converted'
+                            ? 'This Google event was already converted in another session.'
+                            : effectiveSourceStatus === 'deleted'
+                              ? 'This Google event was deleted while you were editing.'
+                              : 'This Google event is no longer accessible.'}
+                        </p>
+                        <p className="mt-1 text-xs text-amber-800">Your entries are still here. Acknowledge this message when you are ready to close them.</p>
+                        <button type="button" onClick={onClose} className="mt-3 rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white">
+                          Acknowledge and close
+                        </button>
+                      </div>
+                    )}
+
+                    {googleEventPrefill && sourceChanged && effectiveSourceStatus === 'available' && (
+                      <div className="rounded-lg border border-blue-300 bg-blue-50 p-3" role="status" data-testid="google-event-changed-warning">
+                        <p className="text-sm font-semibold text-blue-900">Google changed this event while you were editing.</p>
+                        <p className="mt-1 text-xs text-blue-800">
+                          Latest timing:
+                          {' '}
+                          {new Date(googleEventPrefill.startTime).toLocaleString()}
+                          {' · '}
+                          {googleEventPrefill.durationMinutes}
+                          {' min. Your client, service, price, and notes were not changed.'}
+                        </p>
+                        <button type="button" onClick={applyLatestGoogleTiming} className="mt-3 rounded-lg bg-blue-800 px-3 py-2 text-xs font-semibold text-white">
+                          Use latest Google timing
+                        </button>
+                      </div>
+                    )}
+
+                    {draftRestored && !error && (
+                      <div className="rounded-lg border border-[var(--owner-line)] bg-[var(--owner-blush)] p-3 text-sm text-[var(--owner-accent)]">
+                        Your saved appointment draft was restored.
+                      </div>
+                    )}
+
                   </div>
-
-                  {/* Services Selection */}
-                  <div>
-                    <p className="mb-1.5 block text-sm font-medium text-gray-700">
-                      Services *
-                    </p>
-
-                    {/* Search */}
-                    <div className="relative mb-3">
-                      <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="text"
-                        value={serviceSearch}
-                        onChange={e => setServiceSearch(e.target.value)}
-                        placeholder="Search services..."
-                        className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    {/* Service List */}
-                    <div className="max-h-48 space-y-4 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3">
-                      {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
-                        <div key={category}>
-                          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                            {BOOKING_CATEGORY_META[category as BookingCategory].label}
-                          </h4>
-                          <div className="space-y-1">
-                            {categoryServices.map((service) => {
-                              const isSelected = selectedServiceIds.includes(service.id);
-                              return (
-                                <button
-                                  key={service.id}
-                                  type="button"
-                                  aria-pressed={isSelected}
-                                  onClick={() => toggleService(service.id)}
-                                  className={`
-                                    flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-all
-                                    ${isSelected
-                                  ? 'bg-blue-50 ring-1 ring-blue-200'
-                                  : 'hover:bg-gray-50'
-                                }
-                                  `}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <div className={`
-                                      flex size-5 items-center justify-center rounded-md border transition-colors
-                                      ${isSelected
-                                  ? 'border-blue-500 bg-blue-500 text-white'
-                                  : 'border-gray-300'
-                                }
-                                    `}
+                  <div className="nap-grid">
+                    <div className="nap-fields">
+                      <section className="nap-section" aria-labelledby="appointment-when-heading">
+                        <div className="nap-section-heading"><h3 id="appointment-when-heading">When & who</h3></div>
+                        <div className="nap-fields">
+                          <div className="nap-date-time">
+                            <div>
+                              <label htmlFor="appointment-date">Date</label>
+                              <input id="appointment-date" type="date" value={selectedDate} onChange={event => setSelectedDate(event.target.value)} min={formatDateForInput(new Date())} />
+                            </div>
+                            <div className="relative">
+                              <span className="nap-field-label" id="appointment-time-label">Time</span>
+                              <button
+                                type="button"
+                                aria-label="Appointment time"
+                                aria-expanded={showTimeDropdown}
+                                aria-controls="appointment-time-options"
+                                className="nap-field-button"
+                                onClick={() => {
+                                  setShowTimeDropdown(value => !value);
+                                  setShowTechDropdown(false);
+                                }}
+                              >
+                                <span>{selectedTime}</span>
+                                <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+                              </button>
+                              {showTimeDropdown && (
+                                <div id="appointment-time-options" className="nap-dropdown" aria-labelledby="appointment-time-label">
+                                  {timeSlots.map(time => (
+                                    <button
+                                      key={time}
+                                      type="button"
+                                      aria-pressed={time === selectedTime}
+                                      onClick={() => {
+                                        setSelectedTime(time);
+                                        setShowTimeDropdown(false);
+                                      }}
                                     >
-                                      {isSelected && <Check className="size-3" />}
-                                    </div>
-                                    <span className={isSelected ? 'font-medium text-blue-900' : 'text-gray-700'}>
-                                      {service.name}
-                                    </span>
-                                  </div>
-                                  <div className="text-right">
-                                    <span className="font-medium text-gray-900">
-                                      {formatCurrency(service.price)}
-                                    </span>
-                                    <span className="ml-2 text-xs text-gray-500">
-                                      {formatDuration(service.durationMinutes)}
-                                    </span>
-                                  </div>
+                                      {time}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="relative">
+                            <span className="nap-field-label" id="appointment-technician-label">Technician</span>
+                            <button
+                              type="button"
+                              aria-labelledby="appointment-technician-label appointment-technician-value"
+                              aria-expanded={showTechDropdown}
+                              aria-controls="appointment-technician-options"
+                              onClick={() => {
+                                setShowTechDropdown(value => !value);
+                                setShowTimeDropdown(false);
+                              }}
+                              className="nap-field-button"
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                {selectedTechnician && <span className="nap-avatar" aria-hidden="true">{selectedTechnician.name.split(' ').map(name => name[0]).join('').slice(0, 2).toUpperCase()}</span>}
+                                <span id="appointment-technician-value" className="break-words">{selectedTechnician?.name || 'Any available technician'}</span>
+                              </span>
+                              <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+                            </button>
+                            {showTechDropdown && (
+                              <div id="appointment-technician-options" className="nap-dropdown" aria-labelledby="appointment-technician-label">
+                                <button
+                                  type="button"
+                                  aria-pressed={!selectedTechnicianId}
+                                  onClick={() => {
+                                    setSelectedTechnicianId(null);
+                                    setShowTechDropdown(false);
+                                  }}
+                                >
+                                  Any available technician
                                 </button>
-                              );
-                            })}
+                                {technicians.map(tech => (
+                                  <button
+                                    key={tech.id}
+                                    type="button"
+                                    aria-pressed={tech.id === selectedTechnicianId}
+                                    onClick={() => {
+                                      setSelectedTechnicianId(tech.id);
+                                      setShowTechDropdown(false);
+                                    }}
+                                  >
+                                    {tech.name}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
-                      ))}
-
-                      {filteredServices.length === 0 && (
-                        <p className="py-4 text-center text-sm text-gray-500">
-                          No services found
-                        </p>
+                      </section>
+                      <section className="nap-section" aria-labelledby="appointment-client-heading">
+                        <div className="nap-section-heading">
+                          <h3 id="appointment-client-heading">Client</h3>
+                          {salonSlug && <button type="button" className="nap-link" aria-expanded={showClientSearch} onClick={() => setShowClientSearch(value => !value)}>{showClientSearch ? 'Close search' : 'Find existing client'}</button>}
+                        </div>
+                        {showClientSearch && salonSlug && (
+                          <AppointmentClientPicker
+                            salonSlug={salonSlug}
+                            onSelect={(client) => {
+                              setClientName(client.fullName || '');
+                              setClientPhone(client.phone);
+                              setClientEmail(client.email || '');
+                              setShowClientSearch(false);
+                              clientPhoneRef.current?.focus();
+                            }}
+                          />
+                        )}
+                        <div className="nap-fields">
+                          <div>
+                            <label htmlFor="new-appt-phone">Phone Number *</label>
+                            <input ref={clientPhoneRef} id="new-appt-phone" type="tel" inputMode="tel" autoComplete="off" value={formatPhoneDisplay(clientPhone)} onChange={event => handlePhoneChange(event.target.value)} placeholder="(555) 123-4567" aria-describedby={clientPhone.length > 10 ? 'appointment-phone-help' : undefined} />
+                            {clientPhone.length > 10 && <p className="nap-helper" id="appointment-phone-help">Enter a 10-digit phone number, with an optional +1 country code.</p>}
+                          </div>
+                          <div>
+                            <label htmlFor="new-appt-client-name">Client Name (optional)</label>
+                            <input id="new-appt-client-name" type="text" autoComplete="off" value={clientName} onChange={event => setClientName(event.target.value)} placeholder="Client name" />
+                          </div>
+                          <div>
+                            <label htmlFor="new-appt-client-email">Email (optional)</label>
+                            <input id="new-appt-client-email" type="email" autoComplete="off" value={clientEmail} onChange={event => setClientEmail(event.target.value)} placeholder="client@example.com" />
+                          </div>
+                        </div>
+                      </section>
+                      {googleEventPrefill && (
+                        <section className="nap-section" aria-labelledby="appointment-details-heading">
+                          <div className="nap-section-heading"><h3 id="appointment-details-heading">Event details</h3></div>
+                          <div className="nap-fields">
+                            <div className="nap-date-time">
+                              <div>
+                                <label htmlFor="google-event-price">Appointment price (CAD $)</label>
+                                <input id="google-event-price" type="number" min="0" step="0.01" value={priceOverride} onChange={event => setPriceOverride(event.target.value)} />
+                              </div>
+                              <div>
+                                <label htmlFor="google-event-duration">Duration (minutes)</label>
+                                <input id="google-event-duration" type="number" min="1" max="1440" step="1" value={durationOverride} onChange={event => setDurationOverride(event.target.value)} />
+                              </div>
+                            </div>
+                            <div>
+                              <label htmlFor="google-event-notes">Notes (optional)</label>
+                              <textarea id="google-event-notes" value={notes} maxLength={2000} rows={3} onChange={event => setNotes(event.target.value)} placeholder="Private appointment notes" />
+                            </div>
+                            {googleEventPrefill.isReadOnly && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Google event is read-only. Time changes continue to come from Google.</p>}
+                          </div>
+                        </section>
                       )}
                     </div>
+                    <section className="nap-section" aria-labelledby="appointment-services-heading">
+                      <div className="nap-section-heading">
+                        <h3 id="appointment-services-heading">Services *</h3>
+                        <span className="text-xs text-[var(--owner-muted)]">
+                          {selectedServices.length}
+                          {' '}
+                          selected
+                        </span>
+                      </div>
+                      <label className="sr-only" htmlFor="appointment-service-search">Search services</label>
+                      <div className="nap-search">
+                        <Search aria-hidden="true" />
+                        <input id="appointment-service-search" type="search" value={serviceSearch} onChange={event => setServiceSearch(event.target.value)} placeholder="Search services..." />
+                      </div>
+                      <div id="appointment-services-list">
+                        {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
+                          <div className="nap-service-group" key={category}>
+                            <h4>{BOOKING_CATEGORY_META[category as BookingCategory].label}</h4>
+                            {categoryServices.map(service => (
+                              <button key={service.id} type="button" className="nap-service" aria-pressed={selectedServiceIds.includes(service.id)} onClick={() => toggleService(service.id)}>
+                                <span className="nap-service-check" aria-hidden="true">{selectedServiceIds.includes(service.id) && <Check className="size-3.5" />}</span>
+                                <span className="nap-service-copy">
+                                  <span className="nap-service-name">{service.name}</span>
+                                  <span className="nap-service-meta">{formatDuration(service.durationMinutes)}</span>
+                                </span>
+                                <span className="nap-service-price">{formatCurrency(service.price)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                      {filteredServices.length === 0 && <p className="nap-helper py-4">{services.length ? 'No services found. Try another name or category.' : 'No services are available. Add a service in your catalog, then reopen this form.'}</p>}
+                      {!serviceSearch.trim() && services.length > 4 && (
+                        <button type="button" className="nap-link mt-3" aria-expanded={showAllServices} aria-controls="appointment-services-list" onClick={() => setShowAllServices(value => !value)}>
+                          {showAllServices ? 'Show fewer services' : hiddenServiceCount ? `Show all ${services.length} services` : 'Show all services'}
+                        </button>
+                      )}
+                    </section>
                   </div>
-                </div>
+                </>
               )}
         </div>
-
-        {/* Footer */}
-        <div className="shrink-0 border-t border-gray-100 bg-gray-50 px-5 py-4">
-          {/* Summary */}
-          {selectedServices.length > 0 && (
-            <div className="mb-4 flex items-center justify-between text-sm">
-              <div className="text-gray-600">
-                {selectedServices.length}
-                {' '}
-                service
-                {selectedServices.length !== 1 ? 's' : ''}
-                {' '}
-                ·
-                {formatDuration(googleEventPrefill && Number(durationOverride) > 0 ? Number(durationOverride) : totalDuration)}
-              </div>
-              <div className="text-right">
-                {clientPrefill?.nextVisitOffer && <div className="text-xs text-gray-500">Before offers</div>}
-                <div className="text-lg font-semibold text-gray-900">
-                  {formatCurrency(totalPrice)}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={submitting || selectedServiceIds.length === 0 || clientPhone.length !== 10 || (Boolean(googleEventPrefill) && effectiveSourceStatus !== 'available')}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#007AFF] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
-            >
+        <footer className="nap-footer">
+          <div className="nap-summary" aria-live="polite" data-testid="new-appointment-summary">
+            {selectedServices.length > 0
+              ? (
+                  <>
+                    <div className="nap-summary-copy">
+                      <p className="font-semibold text-[var(--owner-ink)]">
+                        {summaryDate}
+                        {' '}
+                        ·
+                        {' '}
+                        {selectedTime}
+                      </p>
+                      <p>
+                        {selectedServices.length}
+                        {' '}
+                        service
+                        {selectedServices.length !== 1 ? 's' : ''}
+                        {' '}
+                        ·
+                        {' '}
+                        {formatDuration(displayedDuration)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      {clientPrefill?.nextVisitOffer && <p className="text-xs">Before offers</p>}
+                      <strong>{formatCurrency(displayedPrice)}</strong>
+                    </div>
+                  </>
+                )
+              : <p>Add a phone number and choose a service.</p>}
+          </div>
+          <div className="nap-actions">
+            <button type="button" onClick={onClose} className="nap-cancel">Cancel</button>
+            <button type="button" onClick={handleSubmit} disabled={loading || loadFailed || !salonSlug || submitting || selectedServiceIds.length === 0 || clientPhone.length !== 10 || !selectedDate || (Boolean(googleEventPrefill) && effectiveSourceStatus !== 'available')} className="nap-submit">
               {submitting
                 ? (
                     <>
-                      <Loader2 className="size-4 animate-spin" />
+                      <Loader2 aria-hidden="true" className="size-4 shrink-0 animate-spin" />
                       Creating...
                     </>
                   )
                 : (
                     <>
-                      <Plus className="size-4" />
+                      <Plus aria-hidden="true" className="size-4 shrink-0" />
                       {submitFailed && googleEventPrefill ? 'Retry conversion' : 'Create Appointment'}
                     </>
                   )}
             </button>
           </div>
-        </div>
+        </footer>
       </div>
     </DialogShell>
   );

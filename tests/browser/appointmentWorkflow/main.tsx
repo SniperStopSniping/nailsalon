@@ -3,10 +3,13 @@ import '@/styles/global.css';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
+import { NewAppointmentModal } from '@/components/admin/NewAppointmentModal';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 
 const longServiceName = 'Russian Manicure with Structured Builder Gel, Detailed Cuticle Care and Long-Wear Chrome Finish';
+const appointmentDate = new Date(2099, 6, 20);
+const rebookClient = { name: 'Alexandria Verylongname', phone: '+14165550101', email: 'alex@example.test', serviceIds: ['service_6', 'service_7'], technicianId: 'tech_1' };
 
 function appointmentDetail(status = 'confirmed') {
   return {
@@ -55,6 +58,8 @@ function appointmentDetail(status = 'confirmed') {
 export function AppointmentWorkflowFixture() {
   const [quickOpen, setQuickOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
+  const [created, setCreated] = useState(false);
   const [status, setStatus] = useState('confirmed');
   const detail = appointmentDetail(status);
 
@@ -66,6 +71,9 @@ export function AppointmentWorkflowFixture() {
       </div>
       <button className="min-h-11 rounded-xl bg-black px-4 text-white" data-testid="open-appointment" onClick={() => setQuickOpen(true)} type="button">Open appointment</button>
       <button className="ml-2 min-h-11 rounded-xl bg-black px-4 text-white" data-testid="open-checkout" onClick={() => setCheckoutOpen(true)} type="button">Open checkout</button>
+      <button className="ml-2 min-h-11 rounded-xl bg-black px-4 text-white" data-testid="open-new-appointment" onClick={() => setNewOpen(true)} type="button">New appointment</button>
+      {created && <p data-testid="appointment-created">Appointment created</p>}
+      <NewAppointmentModal isOpen={newOpen} onClose={() => setNewOpen(false)} onSuccess={() => setCreated(true)} salonSlug="fixture" preselectedDate={appointmentDate} clientPrefill={new URLSearchParams(window.location.search).has('rebook') ? rebookClient : undefined} />
       <AppointmentQuickEditSheet
         actionError={null}
         detail={detail as never}
