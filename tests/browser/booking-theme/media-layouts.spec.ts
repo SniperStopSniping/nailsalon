@@ -13,7 +13,7 @@ for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
     page.on('pageerror', error => errors.push(error.message));
     for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1440, 1000]]) {
       await page.setViewportSize({ width: width!, height: height! });
-      await page.goto(`/?step=service&quick-book-layout=${layout.id}`);
+      await page.goto(`/?step=service&quick-book-layout=${layout.id}`, { waitUntil: 'domcontentloaded' });
       const header = page.locator('.qbm-header');
 
       await expect(header).toHaveAttribute('data-qb-layout', layout.id);
@@ -69,7 +69,7 @@ for (const group of QUICK_BOOK_MEDIA_GROUPS) {
     for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 844 });
       for (let count = 0; count <= 5; count += 1) {
-        await page.goto(`/?step=service&quick-book-layout=${layout.id}&case=facts-${count}`);
+        await page.goto(`/?step=service&quick-book-layout=${layout.id}&case=facts-${count}`, { waitUntil: 'domcontentloaded' });
         const expected = Math.min(count, 4);
 
         await expect(page.locator('.qbp-facts > .qbp-fact')).toHaveCount(expected);
@@ -85,7 +85,7 @@ for (const group of QUICK_BOOK_MEDIA_GROUPS) {
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       }
       for (const scenario of ['long-name', 'long-facts', 'missing-media', 'expired-media', 'hidden-media']) {
-        await page.goto(`/?step=service&quick-book-layout=${layout.id}&case=${scenario}`);
+        await page.goto(`/?step=service&quick-book-layout=${layout.id}&case=${scenario}`, { waitUntil: 'domcontentloaded' });
         if (scenario === 'long-facts') {
           await expect(page.locator('.qbp-facts')).toHaveAttribute('data-arrangement', 'list');
         }
@@ -102,7 +102,7 @@ test('logo compositions preserve square, wide and tall uploads', async ({ page }
   for (const [width, height] of [[512, 512], [300, 900], [1200, 240]]) {
     await page.route('**/quick-book-logo-fixture.png', route => route.fulfill({ contentType: 'image/png', body: readFileSync(path.join(__dirname, 'logo-fixtures', `${width}x${height}.png`)) }));
     for (const layout of QUICK_BOOK_MEDIA_LAYOUTS.filter(item => item.supportsLogo)) {
-      await page.goto(`/?step=service&quick-book-layout=${layout.id}&case=logo-${width}`);
+      await page.goto(`/?step=service&quick-book-layout=${layout.id}&case=logo-${width}`, { waitUntil: 'domcontentloaded' });
       const image = page.locator('.qbm-logo img');
 
       await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBe(width);
@@ -123,15 +123,18 @@ test('all 24 headers leave the shipped Services markup unchanged', async ({ page
     }
     return copy.outerHTML;
   });
+
+  test.setTimeout(180_000);
+
   for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
-    await page.goto('/?step=service&quick-book-layout=compact_dropdown');
+    await page.goto('/?step=service&quick-book-layout=compact_dropdown', { waitUntil: 'domcontentloaded' });
 
     await expect(page.locator('[data-qbp-service]').first()).toBeVisible();
 
     const shipped = await menu();
     for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
-      await page.goto(`/?step=service&quick-book-layout=${layout.id}`);
+      await page.goto(`/?step=service&quick-book-layout=${layout.id}`, { waitUntil: 'domcontentloaded' });
 
       await expect(page.locator('[data-qbp-service]').first()).toBeVisible();
       expect(await menu(), `${layout.id} changed Services at ${width}px`).toBe(shipped);

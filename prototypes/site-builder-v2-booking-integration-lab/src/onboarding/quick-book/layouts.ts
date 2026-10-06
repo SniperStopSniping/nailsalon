@@ -1,4 +1,4 @@
-import { isMediaQuickBookLayout, QUICK_BOOK_MEDIA_LAYOUTS } from './media-layouts';
+import { isMediaQuickBookLayout, type MediaLayoutId, QUICK_BOOK_MEDIA_LAYOUTS } from './media-layouts';
 /**
  * Quick Book site-layout registry.
  *
@@ -534,8 +534,11 @@ export const PREVIOUS_QUICK_BOOK_LAYOUTS = [
   },
 ] as const satisfies readonly QuickBookLayoutDefinition[];
 
-export const QUICK_BOOK_LAYOUTS = [...PREVIOUS_QUICK_BOOK_LAYOUTS, ...QUICK_BOOK_MEDIA_LAYOUTS] as const;
-export type QuickBookLayoutId = (typeof QUICK_BOOK_LAYOUTS)[number]['id'];
+export type QuickBookLayoutId = (typeof PREVIOUS_QUICK_BOOK_LAYOUTS)[number]['id'] | MediaLayoutId;
+export const QUICK_BOOK_LAYOUTS: readonly (QuickBookLayoutDefinition & { id: QuickBookLayoutId })[] = [
+  ...PREVIOUS_QUICK_BOOK_LAYOUTS,
+  ...QUICK_BOOK_MEDIA_LAYOUTS,
+];
 
 export const QUICK_BOOK_LAYOUT_IDS = QUICK_BOOK_LAYOUTS.map(layout => layout.id) as unknown as readonly [
   QuickBookLayoutId,
