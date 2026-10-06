@@ -439,7 +439,6 @@ function QuickBookIdentity({
     <div
       className="onboarding-quick-book-profile__identity"
       data-identity-layout={layout}
-      data-long-name={title.length > 26 ? 'true' : undefined}
     >
       <Brand
         ownerId={sectionId}
@@ -792,7 +791,8 @@ function QuickBookProfileHeader({
   }), [profile, state.reviewOptions.previewTimestamp, visibility]);
   const title = profile.businessName.trim() || 'Your nail studio';
   const layout = phase === 'identity' ? 'compact_dropdown' : state.recipe.quickBookLayout;
-  const sharedLayout = !isRetiredQuickBookLayout(layout) && (final || !isLegacyQuickBookLayoutId(layout));
+  const sharedLayout = !isRetiredQuickBookLayout(layout)
+    && (final || (business && layout === 'compact_dropdown') || !isLegacyQuickBookLayoutId(layout));
   // Design-system layouts mount the SAME renderer the public page uses, fed
   // by this draft through one adapter, so the Design step never previews a
   // composition the published page cannot produce.
@@ -841,7 +841,24 @@ function QuickBookProfileHeader({
     const deposit = final && getDepositPolicyMode(profile.policies) === 'fixed' && !policyEntries.some(entry => entry.label === 'Deposits & cancellations')
       ? [{ label: 'Deposit', text: deriveDepositPolicySummary(profile.policies) }]
       : [];
-    return { ...built, policies: [...policyEntries, ...minimumNotice, ...deposit] };
+    return {
+      ...built,
+      policies: [...policyEntries, ...minimumNotice, ...deposit],
+      // The starting preview uses the customer composition without promoting
+      // later setup fields into its header. Layout choice still owns media:
+      // Compact Dropdown has no portrait, just like its picker and public page.
+      ...(layout === 'compact_dropdown' && !final
+        ? {
+            reviews: null,
+            presentation: {
+              ...built.presentation,
+              bookingMethod: profile.bookingOnlyContact ? 'Online booking only' : null,
+              newClients: null,
+              specialties: [],
+            },
+          }
+        : {}),
+    };
   }, [identityAssets, layout, profile, sharedLayout, state.gallery.images, state.recipe.galleryEnabled, title, view, visibility.showBio, final, state.progress.visitedScreens, state.recipe.policiesEnabled]);
   const visitMode = final ? labelForVisitMode(profile) : null;
   const newClients = final ? labelForNewClients(profile) : null;

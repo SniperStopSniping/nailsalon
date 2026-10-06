@@ -449,10 +449,11 @@ describe('OnboardingSitePreview shared profile composition', () => {
       <OnboardingSitePreview document={null} label="Shared media role preview" quickBookPhase="business" state={state} />,
     );
 
-    expect(container.querySelectorAll('[data-media-id="same-stored-asset"]'))
+    expect(container.querySelectorAll('img[src="blob:same-stored-asset-thumbnail"]'))
       .toHaveLength(1);
-    expect(container.querySelector('[data-media-id="same-stored-asset"]'))
-      .toHaveAttribute('data-media-role', 'logo');
+    expect(container.querySelector('.qb-logo img'))
+      .toHaveAttribute('alt', 'Isla Nail Studio logo');
+    expect(container.querySelector('.qb-portrait')).toBeNull();
     expect(state.profile.profilePhoto.storageId).toBe('same-stored-asset');
   });
 
@@ -2341,6 +2342,34 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .not.toBeInTheDocument();
   });
 
+  it('keeps the Compact starting identity identical to its final customer composition', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'quick_book';
+    state.recipe.quickBookLayout = 'compact_dropdown';
+    state.recipe.quickBookProfile.showTechPhoto = true;
+    state.profile.about.visibility.new_client_status = true;
+    state.profile.bookingPreferences.newClientStatus = 'yes';
+    state.profile.logo = { id: 'logo', storageId: 'logo-asset', fileName: 'logo.png', mimeType: 'image/png', source: 'indexed_db' };
+    state.profile.profilePhoto = { id: 'portrait', storageId: 'portrait-asset', fileName: 'portrait.png', mimeType: 'image/png', source: 'indexed_db' };
+    const original = structuredClone(state);
+    const view = render(<OnboardingSitePreview document={null} label="Compact composition" quickBookPhase="business" state={state} />);
+    const preview = screen.getByRole('region', { name: 'Compact composition' });
+    const startingBrand = preview.querySelector('.qbp-compact .qbp-brand')!;
+    const identityMarkup = startingBrand.outerHTML;
+
+    expect(startingBrand.querySelector('img')).toHaveAttribute('src', 'blob:logo-asset-thumbnail');
+    expect(preview.querySelector('.onboarding-quick-book-profile__identity')).toBeNull();
+    expect(preview.querySelector('.qb-portrait')).toBeNull();
+    expect(preview.querySelector('[data-qb-fact="clients"]')).toBeNull();
+    expect(state).toEqual(original);
+
+    view.rerender(<OnboardingSitePreview document={null} label="Compact composition" quickBookPhase="final" state={state} />);
+
+    expect(preview.querySelector('.qbp-compact .qbp-brand')!.outerHTML).toBe(identityMarkup);
+    expect(preview.querySelector('[data-qb-fact="clients"]')).toHaveTextContent('Accepting new clients');
+    expect(state.profile.profilePhoto).toEqual(original.profile.profilePhoto);
+  });
+
   it('respects address privacy, general-area Directions permission, and Booking-only contact', () => {
     const state = createDanielaFixtureState();
     // Quick Book presents shared location data in its compact profile while
@@ -2367,7 +2396,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const profile = within(preview).getByRole('region', { name: state.profile.businessName });
 
     expect(within(profile).getByText('Scarborough, Ontario')).toBeVisible();
+    expect(within(profile).getByText('Exact address shared after booking.')).toBeInTheDocument();
+
+    fireEvent.click(within(profile).getByText('Details'));
+
     expect(within(profile).getByText('Exact address shared after booking.')).toBeVisible();
+    expect(within(profile).getByText('Online booking only')).toBeVisible();
     expect(within(profile).queryByText('123 Example Avenue')).not.toBeInTheDocument();
     expect(within(profile).queryByText('416-555-0100')).not.toBeInTheDocument();
     expect(within(profile).queryByRole('link')).not.toBeInTheDocument();

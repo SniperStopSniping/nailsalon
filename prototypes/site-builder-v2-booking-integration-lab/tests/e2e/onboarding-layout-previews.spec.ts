@@ -64,7 +64,7 @@ async function footerVisible(page: Page, dialog: Locator) {
   await dialog.getByRole('button', { name: 'Try another layout', exact: true }).click({ trial: true });
 }
 
-test('the Compact Dropdown starting preview gives identity media breathing room in both views', async ({ page }) => {
+test('the Compact Dropdown starting preview uses its customer composition in both views', async ({ page }) => {
   await fixtureAt(page, 'starting_preview');
   const shortName = 'The Nail Studio';
   const longName = 'The Nail Studio & Advanced Manicure Aesthetics';
@@ -91,33 +91,27 @@ test('the Compact Dropdown starting preview gives identity media breathing room 
     await expect(header).toHaveAttribute('data-quick-book-layout', 'compact_dropdown');
 
     const title = header.locator('[data-business-identity="quick_book_profile"]');
-    const logo = header.locator('[data-media-role="logo"]');
-    const portrait = header.locator('[data-media-role="profile"]');
+    const logo = header.locator('.qb-logo img');
 
     await expect(title).toHaveCSS('font-weight', '400');
-    await expect(title.locator('..')).toHaveCSS('text-align', 'center');
+    await expect(header.locator('.qbp-compact .qbp-brand-copy')).toBeVisible();
+    await expect(header.locator('.onboarding-quick-book-profile__identity')).toHaveCount(0);
+    await expect(header.locator('.qb-portrait, [data-media-role="profile"]')).toHaveCount(0);
 
     await expect(logo).toHaveCount(mediaCount);
-    await expect(portrait).toHaveCount(mediaCount);
 
     await logo.evaluateAll(images => Promise.all(images.map(image => (image as HTMLImageElement).decode())));
-    await portrait.evaluateAll(images => Promise.all(images.map(image => (image as HTMLImageElement).decode())));
     const headerBox = (await header.boundingBox())!;
-    const titleBox = (await title.boundingBox())!;
     const logos = await logo.evaluateAll(images => images.map(image => ({
       x: image.getBoundingClientRect().x,
       fit: getComputedStyle(image).objectFit,
       ratio: (image as HTMLImageElement).naturalWidth / (image as HTMLImageElement).naturalHeight,
     })));
-    const portraits = await portrait.evaluateAll(images => images.map(image => image.getBoundingClientRect().y));
 
     for (const image of logos) {
       expect(image.x - headerBox.x).toBeGreaterThan(12);
       expect(image.fit).toBe('contain');
       expect(image.ratio).toBe(3);
-    }
-    for (const top of portraits) {
-      expect(top).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
     }
   };
 
