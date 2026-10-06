@@ -226,7 +226,7 @@ describe('SettingsModal — one writer per record', () => {
     expect(message).toHaveValue('My unsaved welcome');
 
     fireEvent.click(screen.getByRole('button', { name: 'Another section' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Discard', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
 
     expect(navigate).toHaveBeenCalledOnce();
     expect(patchBodies('/api/admin/salon/settings')).toEqual([]);
