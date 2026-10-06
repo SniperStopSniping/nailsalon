@@ -2004,6 +2004,10 @@ type SettingsModalProps = {
   leafOnly?: boolean;
   /** Label for Back when this editor is hosted by another app. */
   leafBackLabel?: string;
+  /** Match the canonical destination when hosted in another editor. */
+  leafTitle?: string;
+  /** Keep host navigation inside this editor's explicit-save leave guard. */
+  renderLeafLayout?: (content: React.ReactNode, requestLeave: (action: () => void) => void) => React.ReactNode;
   /** Focus hint used by the Payments hub without creating another payment form. */
   paymentFocus?: 'deposits' | 'methods' | 'taxes' | 'history';
 };
@@ -2019,6 +2023,8 @@ export function SettingsModal({
   smartFitResultsAvailable = false,
   leafOnly = false,
   leafBackLabel = 'Back',
+  leafTitle,
+  renderLeafLayout,
   paymentFocus,
 }: SettingsModalProps) {
   const { salonSlug: providerSalonSlug } = useSalon();
@@ -2064,6 +2070,7 @@ export function SettingsModal({
     () => normalizeSettingsView(initialView),
   );
   const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const pendingLeafActionRef = useRef<(() => void) | null>(null);
   const [pendingWorkspaceApp, setPendingWorkspaceApp] = useState<string | null>(null);
 
   // Per-view unsaved-edit tracking (explicit-save views only; autosave views
@@ -3713,6 +3720,14 @@ export function SettingsModal({
   };
 
   const discardChanges = () => {
+    if (pendingLeafActionRef.current) {
+      const action = pendingLeafActionRef.current;
+      pendingLeafActionRef.current = null;
+      setConfirmingLeave(false);
+      revertViewDrafts(view);
+      action();
+      return;
+    }
     if (pendingWorkspaceApp && onOpenApp) {
       const appId = pendingWorkspaceApp;
       setPendingWorkspaceApp(null);
@@ -3734,6 +3749,7 @@ export function SettingsModal({
 
   /** Back from a focused view; warns when the view holds unsaved edits. */
   const handleBack = () => {
+    pendingLeafActionRef.current = null;
     if (view === 'index') {
       onClose();
       return;
@@ -3789,6 +3805,27 @@ export function SettingsModal({
     onOpenApp(appId);
   };
 
+  useEffect(() => {
+    if (!bookingFlowSaving && !bookingExperienceSaving) {
+      setBookingFlowExitMessage(current => current === 'Changes are saving. Please wait before leaving.' ? null : current);
+    }
+  }, [bookingFlowSaving, bookingExperienceSaving]);
+
+  const requestLeafLeave = (action: () => void) => {
+    if (bookingFlowSavingRef.current || bookingFlowSaving || bookingExperienceSaving) {
+      setBookingFlowExitMessage('Changes are saving. Please wait before leaving.');
+      return;
+    }
+    if (currentViewDirty) {
+      pendingLeafActionRef.current = action;
+      setConfirmingLeave(true);
+      return;
+    }
+    pendingLeafActionRef.current = null;
+    setConfirmingLeave(false);
+    action();
+  };
+
   // The system Back/Forward gesture moves the URL without going through the
   // handlers above; follow it so the sheet shows the level the URL names.
   useEffect(() => {
@@ -3817,31 +3854,34 @@ export function SettingsModal({
     window.requestAnimationFrame(() => document.getElementById(sectionId)?.scrollIntoView({ block: 'start' }));
   }, [leafOnly, paymentFocus, view]);
 
-  return (
+  const editorContent = (
     <div
       className="flex min-h-full w-full flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-[var(--owner-ground)] backdrop-blur-md">
-        <ModalHeader
-          title={VIEW_TITLES[view]}
-          leftAction={(
-            <BackButton
-              onClick={handleBack}
-              label={leafOnly ? leafBackLabel : view === 'index' ? 'Dashboard' : 'Settings'}
-            />
-          )}
-          transparent
-        />
-
-        {/* Large Title */}
+      {/* A hosted editor scrolls with its page; a tall sticky sheet heading
+          would otherwise cover the leave guard on a narrow phone. */}
+      <div className={renderLeafLayout ? 'bg-[var(--owner-ground)]' : 'sticky top-0 z-10 bg-[var(--owner-ground)] backdrop-blur-md'}>
+        {renderLeafLayout
+          ? <div className="px-4 py-3"><BackButton onClick={handleBack} label={leafBackLabel} /></div>
+          : (
+              <ModalHeader
+                title={VIEW_TITLES[view]}
+                leftAction={(
+                  <BackButton
+                    onClick={handleBack}
+                    label={leafOnly ? leafBackLabel : view === 'index' ? 'Dashboard' : 'Settings'}
+                  />
+                )}
+                transparent
+              />
+            )}
         <div className="px-4 pb-2">
-          <h1 className="owner-title text-[34px] font-bold text-[var(--owner-ink,#30262a)]">
-            {VIEW_TITLES[view]}
+          <h1 className={renderLeafLayout ? 'my-3 text-3xl font-semibold text-[var(--owner-ink)]' : 'owner-title text-[34px] font-bold text-[var(--owner-ink,#30262a)]'}>
+            {leafOnly && leafTitle ? leafTitle : VIEW_TITLES[view]}
           </h1>
         </div>
-        {bookingFlowExitMessage && view === 'booking-flow' && (
+        {bookingFlowExitMessage && (view === 'booking-flow' || leafOnly) && (
           <p className="px-4 pb-2 text-sm text-[var(--owner-muted)]" role="status">{bookingFlowExitMessage}</p>
         )}
       </div>
@@ -3849,7 +3889,7 @@ export function SettingsModal({
       {/* Unsaved-change guard */}
       {confirmingLeave && (
         <div
-          className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3"
+          className="mx-4 mb-3 flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3"
           role="alertdialog"
           aria-label="Unsaved changes"
         >
@@ -3861,6 +3901,7 @@ export function SettingsModal({
               type="button"
               onClick={() => {
                 setConfirmingLeave(false);
+                pendingLeafActionRef.current = null;
                 setPendingWorkspaceApp(null);
               }}
               className="rounded-full border border-amber-300 px-3 py-1.5 text-xs font-semibold text-amber-900"
@@ -6182,6 +6223,8 @@ export function SettingsModal({
       )}
     </div>
   );
+
+  return leafOnly && renderLeafLayout ? renderLeafLayout(editorContent, requestLeafLeave) : editorContent;
 }
 
 // Export sub-components for reuse

@@ -24,8 +24,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { BookingPageAppearance } from '@/components/admin/BookingPageAppearance';
 import { BookingPageBuilder } from '@/components/admin/BookingPageBuilder';
+import { BOOKING_PAGE_EDITORS, isBookingPagePanel } from '@/components/admin/bookingPageEditorSections';
 import { ADDRESS_PRIVACY_OPTIONS, BookingPageInformationEditor } from '@/components/admin/BookingPageInformationEditor';
 import type { BookingPagePresentationPreview, CoverUploadState } from '@/components/admin/BookingPageLayoutChooser';
+import { BookingPageEditorLayout } from '@/components/admin/BookingPageNavigation';
 import {
   BookingPagePresetPicker,
   type BookingPagePresetPickerStatus,
@@ -145,6 +147,7 @@ type FlowAccess = 'loading' | 'allowed' | 'free-solo' | 'unavailable';
 type BookingFlowLeafProps = {
   salonSlug: string;
   onClose: () => void;
+  renderLeafLayout: NonNullable<Parameters<typeof SettingsModal>[0]['renderLeafLayout']>;
 };
 
 /**
@@ -152,7 +155,7 @@ type BookingFlowLeafProps = {
  * another panel therefore starts loading and cannot flash the editor before
  * the exact salon result has been verified.
  */
-function BookingFlowLeaf({ salonSlug, onClose }: BookingFlowLeafProps) {
+function BookingFlowLeaf({ salonSlug, onClose, renderLeafLayout }: BookingFlowLeafProps) {
   const [access, setAccess] = useState<FlowAccess>('loading');
   const [attempt, setAttempt] = useState(0);
 
@@ -184,20 +187,21 @@ function BookingFlowLeaf({ salonSlug, onClose }: BookingFlowLeafProps) {
   }, [attempt, salonSlug]);
 
   if (access === 'loading') {
-    return (
+    return renderLeafLayout(
       <div className="px-4 pt-8">
         <button type="button" className="inline-flex min-h-11 items-center gap-2 text-sm text-[var(--owner-muted)]" onClick={onClose}>
           <ArrowLeft size={16} />
           Booking Page
         </button>
         <div role="status" className="py-8 text-center text-sm text-[var(--owner-muted)]">Checking booking flow access…</div>
-      </div>
+      </div>,
+      action => action(),
     );
   }
   if (access === 'allowed') {
-    return <SettingsModal key={`${salonSlug}:booking-flow`} initialView="booking-flow" isFreeSolo={false} leafBackLabel="Booking Page" leafOnly onClose={onClose} salonSlug={salonSlug} />;
+    return <SettingsModal key={`${salonSlug}:booking-flow`} initialView="booking-flow" leafTitle="Booking Flow" isFreeSolo={false} leafBackLabel="Booking Page" leafOnly renderLeafLayout={renderLeafLayout} onClose={onClose} salonSlug={salonSlug} />;
   }
-  return (
+  return renderLeafLayout(
     <div className="px-4 pt-8">
       <button type="button" className="inline-flex min-h-11 items-center gap-2 text-sm text-[var(--owner-muted)]" onClick={onClose}>
         <ArrowLeft size={16} />
@@ -208,7 +212,8 @@ function BookingFlowLeaf({ salonSlug, onClose }: BookingFlowLeafProps) {
         <p className="mt-2 text-sm text-[var(--owner-muted)]">{access === 'free-solo' ? 'Booking flow customization is not included with Free Solo.' : 'We could not verify access to booking flow customization. Try again before changing this setting.'}</p>
         {access === 'unavailable' && <button type="button" className="mt-4 min-h-11 rounded-xl border border-[var(--owner-line-strong)] px-4 text-sm font-semibold" onClick={() => setAttempt(current => current + 1)}>Retry</button>}
       </section>
-    </div>
+    </div>,
+    action => action(),
   );
 }
 
@@ -389,12 +394,33 @@ function BookingPageOwnerSurfaceContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const requestedPanel = searchParams.get('panel');
-  const panel = ['business', 'layouts', 'appearance', 'information', 'text', 'gallery', 'policies', 'experience', 'flow', 'publish'].includes(requestedPanel ?? '') ? requestedPanel : null;
+  const panel = isBookingPagePanel(requestedPanel) ? requestedPanel : null;
   const reviewPanels = ['information', 'text', 'gallery', 'policies', 'layouts', 'appearance', 'publish'];
   const reviewIndex = searchParams.get('guided') === '1' && panel ? reviewPanels.indexOf(panel) : -1;
   const show = (name: string) => !panel || panel === name;
   const locale = String(params?.locale || 'en');
   const [salonSlug, setSalonSlug] = useState(searchParams.get('salon') || '');
+  const [flowNavigationSalon, setFlowNavigationSalon] = useState<string | null>(null);
+  useEffect(() => {
+    if (!salonSlug) {
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/admin/auth/me?salonSlug=${encodeURIComponent(salonSlug)}`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) {
+          return;
+        }
+        const body = await response.json();
+        const salon = body?.user?.salons?.find((item: { slug?: unknown }) => item.slug === salonSlug);
+        if (!cancelled) {
+          setFlowNavigationSalon(salon?.freeSoloEnabled === false ? salonSlug : null);
+        }
+      }).catch(() => { /* The guarded Flow leaf remains the authority. */ });
+    return () => {
+      cancelled = true;
+    };
+  }, [salonSlug]);
 
   const [config, setConfig] = useState<BookingPageConfig | null>(null);
   const [content, setContent] = useState<BookingPageContent | null>(null);
@@ -1169,15 +1195,30 @@ function BookingPageOwnerSurfaceContent() {
     );
   }
 
-  // These are standalone leaves. Their one visible Back action belongs to
-  // SettingsModal's existing dirty guard, rather than a second page header
-  // that could route away from an unsaved explicit-save editor.
+  const navigationProps = {
+    editorHref: `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`,
+    includeFlow: flowNavigationSalon === salonSlug,
+    disabled: presentationPending || navigationPending || actionStatus !== 'idle',
+  };
+  // Explicit-save settings keep their existing leave/discard guard. A sidebar
+  // click must not become an unguarded route out of an edited message or flow.
+  const renderSettingsLayout: NonNullable<Parameters<typeof SettingsModal>[0]['renderLeafLayout']> = (editorContent, requestLeave) => (
+    <BookingPageEditorLayout
+      {...navigationProps}
+      panel={panel}
+      onNavigate={href => requestLeave(() => void navigateAfterSaving(href))}
+    >
+      {editorContent}
+    </BookingPageEditorLayout>
+  );
   if (panel === 'experience' && salonSlug) {
     return (
-      <main className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)]" data-theme-scope="owner">
+      <main className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)] px-4 py-6" data-theme-scope="owner">
         <SettingsModal
           key={`${salonSlug}:booking-experience`}
           initialView="booking-experience"
+          leafTitle="Booking Messages & Social Links"
+          renderLeafLayout={renderSettingsLayout}
           leafBackLabel="Booking Page"
           leafOnly
           onClose={() => void navigateAfterSaving(`/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`)}
@@ -1195,9 +1236,10 @@ function BookingPageOwnerSurfaceContent() {
 
   if (panel === 'flow' && salonSlug) {
     return (
-      <main className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)]" data-theme-scope="owner">
+      <main className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)] px-4 py-6" data-theme-scope="owner">
         <BookingFlowLeaf
           key={salonSlug}
+          renderLeafLayout={renderSettingsLayout}
           onClose={() => void navigateAfterSaving(`/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`)}
           salonSlug={salonSlug}
         />
@@ -1237,7 +1279,7 @@ function BookingPageOwnerSurfaceContent() {
 
   return (
     <main className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)] px-4 pb-16 pt-8 text-[var(--owner-ink)]" data-theme-scope="owner">
-      <div className="mx-auto max-w-3xl">
+      <BookingPageEditorLayout {...navigationProps} panel={panel} onNavigate={href => void navigateAfterSaving(href)}>
         <button
           type="button"
           onClick={() => void navigateAfterSaving(`/${locale}/admin/website${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
@@ -1252,7 +1294,7 @@ function BookingPageOwnerSurfaceContent() {
         <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--owner-accent)]">Booking Page</p>
-            <h1 className="mt-2 text-3xl font-semibold">{({ business: 'Business Information', layouts: 'Layout & Menu', appearance: 'Style, Colours & Fonts', information: 'What Clients See', text: 'About & Website Text', gallery: 'Photos & Gallery', policies: 'Policies Display', experience: 'Booking Messages & Social Links', flow: 'Booking Flow', publish: 'Preview & Publish' } as Record<string, string>)[panel ?? ''] ?? 'Layout, style and content'}</h1>
+            <h1 className="mt-2 text-3xl font-semibold">{BOOKING_PAGE_EDITORS[panel].title}</h1>
             <p className="mt-2 text-[var(--owner-muted)]" data-testid="booking-page-panel-subtitle">{PANEL_SUBTITLES[panel ?? ''] ?? DRAFT_PANEL_SUBTITLE}</p>
             {reviewIndex >= 0 && (
               <p className="mt-2 text-sm font-semibold text-[var(--owner-accent)]">
@@ -1274,7 +1316,7 @@ function BookingPageOwnerSurfaceContent() {
               Preview
               <ExternalLink size={14} />
             </a>
-            <span className="text-[11px] text-[var(--owner-line-strong)]">Shows your draft — only you can see it</span>
+            <span className="text-xs text-[var(--owner-muted)]">Shows your draft — only you can see it</span>
           </div>
         </div>
 
@@ -1283,13 +1325,19 @@ function BookingPageOwnerSurfaceContent() {
           <SalonPublishBanner status={salonPublishStatus} onPublish={handlePublishSalon} />
         )}
 
-        <div className="mt-3 h-5 text-xs text-[var(--owner-muted)]" role="status" aria-live="polite">
-          {saveStatus === 'saving' && 'Saving…'}
-          {saveStatus === 'dirty' && 'Unsaved changes'}
-          {saveStatus === 'saved' && 'Saved'}
-          {saveStatus === 'stale' && 'Your draft changed elsewhere. The latest presentation is loaded; review it before trying again.'}
-          {saveStatus === 'error' && 'Could not save — please retry.'}
-        </div>
+        {panel !== 'business' && (
+          <div className="mt-3 min-h-5 text-sm text-[var(--owner-muted)]" role="status" aria-label="Page draft status" aria-live="polite">
+            {saveStatus === 'saving' && 'Saving draft…'}
+            {saveStatus === 'dirty' && 'Unsaved page edits'}
+            {saveStatus === 'stale' && 'Your draft changed elsewhere. The latest presentation is loaded; review it before trying again.'}
+            {saveStatus === 'error' && 'Could not save the draft — please retry.'}
+            {(saveStatus === 'idle' || saveStatus === 'saved') && (
+              draftChanges.length > 0
+                ? `Draft saved · ${draftChanges.length} unpublished ${draftChanges.length === 1 ? 'change' : 'changes'}`
+                : salonPublicationStatus === 'published' ? 'Published · No page changes' : 'Draft saved · Website not published'
+            )}
+          </div>
+        )}
 
         <div className="mt-6 space-y-6">
           {(!panel || panel === 'layouts') && (
@@ -1724,7 +1772,13 @@ function BookingPageOwnerSurfaceContent() {
             specifically to keep it from being misread as the salon-level
             action in SalonPublishBanner above.
           */}
-          {(reviewIndex < 0 || panel === 'publish') && <p className="mb-3 text-xs text-[var(--owner-muted)]">Publishes booking-page layout &amp; content changes only — not the same as publishing your salon above.</p>}
+          {(reviewIndex < 0 || panel === 'publish') && (
+            <p className="mb-3 text-xs text-[var(--owner-muted)]">
+              {salonPublicationStatus === 'published'
+                ? 'Publishes the saved page layout and content to your live booking page.'
+                : 'Prepares your saved page layout and content. Publish your salon above to make the website public.'}
+            </p>
+          )}
           {(reviewIndex < 0 || panel === 'publish') && (
             <section className="mb-5 rounded-2xl border border-[var(--owner-line)] p-4" aria-labelledby="draft-review-title" data-testid="booking-page-draft-review">
               <h2 id="draft-review-title" className="text-base font-semibold text-[var(--owner-ink)]">
@@ -1790,7 +1844,7 @@ function BookingPageOwnerSurfaceContent() {
             <span role="status" className="text-sm text-[var(--owner-muted)]">{actionMessage}</span>
           )}
         </div>
-      </div>
+      </BookingPageEditorLayout>
 
       {/*
         AG-hub-publish-02 — one dialog component for both consequential

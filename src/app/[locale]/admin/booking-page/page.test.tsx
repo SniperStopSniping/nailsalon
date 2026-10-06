@@ -175,6 +175,29 @@ describe('BookingPageOwnerSurface', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/onboarding'))).toBe(false);
   });
 
+  it('saves text before a sidebar move and keeps the current form after a failed save', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
+    const originalFetch = fetchMock.getMockImplementation()!;
+    let failSave = true;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => init?.method === 'PATCH' && failSave
+      ? Promise.resolve(new Response(JSON.stringify({ error: 'Unavailable' }), { status: 503 }))
+      : originalFetch(input, init));
+    render(<BookingPageOwnerSurface />);
+    fireEvent.change(await screen.findByTestId('content-bio'), { target: { value: 'Keep my biography' } });
+    fireEvent.click(screen.getByRole('link', { name: 'Style, Colours & Fonts' }));
+    await screen.findByText('Your changes could not be saved. Please retry before leaving this editor.');
+
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('content-bio')).toHaveValue('Keep my biography');
+    expect(screen.getByRole('status', { name: 'Page draft status' })).toHaveTextContent('Could not save the draft');
+
+    failSave = false;
+    fireEvent.click(screen.getByRole('link', { name: 'Style, Colours & Fonts' }));
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-a&panel=appearance'));
+
+    expect(content.draft.bio).toBe('Keep my biography');
+  });
+
   it('replaces a legacy no-panel URL with the canonical hub while preserving its context', async () => {
     searchParamsMock.value = new URLSearchParams('salon=salon-a&returnTo=calendar');
     render(<BookingPageOwnerSurface />);
@@ -856,8 +879,8 @@ describe('BookingPageOwnerSurface', () => {
     const textBio = await screen.findByTestId('content-bio');
 
     expect(textBio).toHaveValue('New local unsaved bio');
-    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
-    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    expect(screen.getByText('Unsaved page edits')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Page draft status' })).not.toHaveTextContent(/Draft saved|Published · No page changes/);
     expect(content.draft.locationDisplayMode).toBe('city_only');
 
     fireEvent.blur(textBio);
@@ -897,9 +920,9 @@ describe('BookingPageOwnerSurface', () => {
     fireEvent.change(bio, { target: { value: 'Newer local bio' } });
     releaseOlderSave?.();
 
-    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Unsaved page edits')).toBeInTheDocument());
 
-    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Page draft status' })).not.toHaveTextContent(/Draft saved|Published · No page changes/);
     expect(bio).toHaveValue('Newer local bio');
     expect(content.draft.bio).toBe('Older server bio');
 
@@ -907,7 +930,8 @@ describe('BookingPageOwnerSurface', () => {
 
     await waitFor(() => expect(content.draft.bio).toBe('Newer local bio'));
 
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Page draft status' })).toHaveTextContent(/Draft saved|Published · No page changes/));
+
     expect(bio).toHaveValue('Newer local bio');
   });
 
@@ -1057,9 +1081,9 @@ describe('BookingPageOwnerSurface', () => {
 
     releaseOlderSave?.();
 
-    await screen.findByText('Could not save — please retry.');
+    await screen.findByText('Could not save the draft — please retry.');
 
-    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Page draft status' })).not.toHaveTextContent(/Draft saved|Published · No page changes/);
     expect(screen.getByTestId('content-bio')).toHaveValue('Newer failed bio');
     expect(content.draft.bio).toBe('Older saved bio');
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(2);
@@ -1590,7 +1614,7 @@ describe('BookingPageOwnerSurface', () => {
       });
     });
 
-    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Page draft status' })).toHaveTextContent(/Draft saved|Published · No page changes/));
   });
 
   it('does not publish or switch presets while a builder presentation write is pending', async () => {
@@ -1957,7 +1981,7 @@ describe('BookingPageOwnerSurface', () => {
     await screen.findByText(/Reverted\. Your draft now matches what is live\./);
 
     expect(screen.getByTestId('content-bio')).toHaveValue('');
-    expect(screen.getByText('Saved')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Page draft status' })).toHaveTextContent('Published · No page changes');
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
   });
 
@@ -1981,14 +2005,14 @@ describe('BookingPageOwnerSurface', () => {
     const bio = await screen.findByTestId('content-bio');
     fireEvent.change(bio, { target: { value: 'Unsaved bio' } });
     fireEvent.blur(bio);
-    await screen.findByText('Could not save — please retry.');
+    await screen.findByText('Could not save the draft — please retry.');
 
     searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=layouts');
     rerender(<BookingPageOwnerSurface />);
     fireEvent.click(screen.getByTestId('business-mode-option-team'));
     await waitFor(() => expect(config.draft.businessMode).toBe('team'));
 
-    expect(screen.getByText('Could not save — please retry.')).toBeInTheDocument();
+    expect(screen.getByText('Could not save the draft — please retry.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('booking-page-publish'));
     await screen.findByText(
@@ -2022,10 +2046,10 @@ describe('BookingPageOwnerSurface', () => {
     const bio = await screen.findByTestId('content-bio');
     fireEvent.change(bio, { target: { value: 'Retried bio' } });
     fireEvent.blur(bio);
-    await screen.findByText('Could not save — please retry.');
+    await screen.findByText('Could not save the draft — please retry.');
 
     fireEvent.blur(bio);
-    await screen.findByText('Saved');
+    await waitFor(() => expect(screen.getByRole('status', { name: 'Page draft status' })).toHaveTextContent(/Draft saved|Published · No page changes/));
 
     fireEvent.click(screen.getByTestId('booking-page-publish'));
     await screen.findByText(/Published\. Your live booking page now matches your draft\./);

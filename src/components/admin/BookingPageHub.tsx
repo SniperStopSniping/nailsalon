@@ -1,8 +1,9 @@
 'use client';
 
-import { ArrowLeft, Building2, Check, Copy, Images, LayoutTemplate, ListOrdered, Lock, MessageSquare, Palette, Scissors, ShieldCheck, Type, UserRound } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Lock, Scissors } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
+import { BookingPageNavigation } from '@/components/admin/BookingPageNavigation';
 import OwnerAssistantLauncher from '@/components/admin/ownerAssistant/OwnerAssistantLauncher';
 
 /**
@@ -12,21 +13,6 @@ import OwnerAssistantLauncher from '@/components/admin/ownerAssistant/OwnerAssis
  * fragment does not move focus in every browser, so the hub places it.
  */
 const PREVIEW_RETURN_HASH = '#preview-draft';
-
-const EDITORS = [
-  { id: 'business', title: 'Business Information', description: 'Salon name, contact, address and arrival details', icon: Building2 },
-  { id: 'information', title: 'What Clients See', description: 'Choose which saved business details customers see', icon: UserRound },
-  { id: 'text', title: 'About & Website Text', description: 'Your introduction and bio', icon: Type },
-  { id: 'gallery', title: 'Photos & Gallery', description: 'Logo, profile, cover and shared Portfolio', icon: Images },
-  { id: 'layouts', title: 'Layout & Menu', description: 'Page layout and how your booking menu appears', icon: LayoutTemplate },
-  // Fonts are named here on purpose. Each style preset now carries its own
-  // display typeface, and "the look you chose during setup" gave an owner
-  // looking for their fonts nothing to aim at.
-  { id: 'appearance', title: 'Style, Colours & Fonts', description: 'Fonts, colours and overall look', icon: Palette },
-  { id: 'policies', title: 'Policies Display', description: 'Show policies and open their canonical editor', icon: ShieldCheck },
-  { id: 'experience', title: 'Booking Messages & Social Links', description: 'Booking message, social links and confirmation text', icon: MessageSquare },
-  { id: 'publish', title: 'Preview & Publish', description: 'Preview the draft, publish changes or view the live site', icon: Check },
-] as const;
 
 export function BookingPageHub({
   locale,
@@ -57,9 +43,6 @@ export function BookingPageHub({
 }) {
   const [copyStatus, setCopyStatus] = useState('');
   const previewLinkRef = useRef<HTMLAnchorElement>(null);
-  const editors = isFreeSolo
-    ? EDITORS
-    : [...EDITORS, { id: 'flow', title: 'Booking Flow', description: 'Service, technician, date/time and confirmation order', icon: ListOrdered }];
   useEffect(() => {
     if (window.location.hash === PREVIEW_RETURN_HASH) {
       previewLinkRef.current?.focus();
@@ -83,7 +66,7 @@ export function BookingPageHub({
 
   return (
     <main className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)] px-4 pb-12 pt-6 text-[var(--owner-ink)]" data-theme-scope="owner">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-4xl">
         <a className={actionClass} href={`${workspace}&tab=more`}>
           <ArrowLeft aria-hidden="true" size={18} />
           More apps
@@ -115,19 +98,7 @@ export function BookingPageHub({
           </div>
           <p aria-live="polite" className="mt-2 text-sm text-[var(--owner-muted)]">{copyStatus}</p>
         </header>
-        <nav aria-label="Booking Page editors" className="grid grid-cols-2 gap-3">
-          {editors.map(({ id, title, description, icon: Icon }) => (
-            <a
-              className="min-w-0 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
-              href={`${editor}&panel=${id}`}
-              key={id}
-            >
-              <span className="mb-3 inline-flex size-11 items-center justify-center rounded-xl bg-[var(--owner-blush)] text-[var(--owner-accent)]"><Icon aria-hidden="true" size={22} /></span>
-              <span className="block text-base font-semibold leading-snug">{title}</span>
-              <span className="mt-1 block text-sm leading-snug text-[var(--owner-muted)]">{description}</span>
-            </a>
-          ))}
-        </nav>
+        <BookingPageNavigation editorHref={editor} includeFlow={!isFreeSolo} />
         <a className={`${actionClass} mt-4 w-full`} href={`${workspace}&app=services`}>
           <Scissors aria-hidden="true" size={18} />
           Services & Add-ons
