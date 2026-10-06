@@ -9,6 +9,6 @@ export default defineConfig({
   projects: [
     { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
     { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } },
-    { name: 'small-mobile-webkit', use: { ...devices['iPhone SE'] } },
+    { name: 'small-mobile-webkit', use: { ...devices['iPhone SE'], viewport: { width: 320, height: 568 } } },
   ],
 });
