@@ -355,12 +355,22 @@ test('the first preview uses Type Editorial with only entered facts and preserve
 });
 
 test('groups all media designs and keeps the readable scrolling phone preview', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 320, height: 568 });
   await fixtureAt(page, 'about_design');
   const choices = page.getByRole('group', { name: 'Quick Book layouts' });
 
   await expect(choices.locator('[data-media-group]')).toHaveCount(8);
   await expect(choices.locator('button:has([data-qb-layout])')).toHaveCount(25);
+
+  // A 390px miniature must never establish the picker card's intrinsic width.
+  for (const group of await choices.locator('[data-media-group]').all()) {
+    if (await group.getAttribute('open') === null) {
+      await group.locator('summary').click();
+    }
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await choices.locator('[data-media-group="text"] > summary').click();
+  await page.setViewportSize({ width: 390, height: 844 });
 
   await page.getByRole('button', { name: /^Type Editorial/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Preview your Quick Book layout' });
