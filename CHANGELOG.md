@@ -1,3 +1,10 @@
+## [1.136.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.136.1...v1.136.2) (2026-10-06)
+
+
+### Bug Fixes
+
+* **onboarding:** balance starting Quick Book identity spacing ([#354](https://github.com/SniperStopSniping/nailsalon/issues/354)) ([2d33db5](https://github.com/SniperStopSniping/nailsalon/commit/2d33db519d1da1e2a0828965334a2a37189541c2))
+
 ## [1.136.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.136.0...v1.136.1) (2026-10-05)
 
 
