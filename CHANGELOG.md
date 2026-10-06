@@ -1,3 +1,10 @@
+## [1.136.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.136.2...v1.136.3) (2026-10-06)
+
+
+### Bug Fixes
+
+* **onboarding:** reuse approved Compact customer header in starting preview ([#355](https://github.com/SniperStopSniping/nailsalon/issues/355)) ([5f902df](https://github.com/SniperStopSniping/nailsalon/commit/5f902dfee21af891360215f7fa226d4476c1bb02))
+
 ## [1.136.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.136.1...v1.136.2) (2026-10-06)
 
 
