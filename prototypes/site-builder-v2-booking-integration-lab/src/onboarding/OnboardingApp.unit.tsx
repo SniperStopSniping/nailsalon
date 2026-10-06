@@ -488,7 +488,7 @@ describe('OnboardingApp handoff boundaries', () => {
     state.recipe.starter = 'quick_book';
     renderAt(state);
     const baseEntry = currentBrowserHistoryEntry();
-    await user.click(screen.getByText(/With cover · Cover/u, { selector: '[data-media-group="cover"] > summary' }));
+    await user.click(screen.getByText('Cover photo', { selector: '[data-media-group="cover"] > summary span' }));
     const card = screen.getByRole('button', { name: /^Photo Split/u });
     const back = vi.spyOn(window.history, 'back').mockImplementation(() => undefined);
 
