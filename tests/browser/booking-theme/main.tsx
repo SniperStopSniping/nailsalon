@@ -85,7 +85,7 @@ const bookingPage = {
   tokenOverrides: null,
   serviceMenuLayout: 'visual_grid',
   quickBookProfile: {
-    version: 1,
+    version: query.has('legacy-profile') ? 0 : 1,
     showTechName: Boolean(quickBookFixture),
     showTechPhoto: false,
     showLocation: false,

@@ -365,6 +365,10 @@ export function BookServiceClient({
       : {};
   const compactQuickBookProfileEnabled = layout === 'quick_book'
     && usesCompactQuickBookProfile(bookingPage?.quickBookProfile);
+  // A new header selection is explicit presentation intent even for older
+  // profile records. Do not adopt their visibility marker or service styling.
+  const quickBookHeaderEnabled = compactQuickBookProfileEnabled
+    || (layout === 'quick_book' && isMediaQuickBookLayout(bookingPage?.quickBookLayout));
   const approvedQuickBookComposition = compactQuickBookProfileEnabled && (isApprovedQuickBookLayout(bookingPage?.quickBookLayout) || isMediaQuickBookLayout(bookingPage?.quickBookLayout));
   const quickBookSectionOrder = resolveQuickBookPublicSectionOrder(
     layout,
@@ -1600,6 +1604,7 @@ export function BookServiceClient({
 
               <div
                 data-public-surface="serviceSelectionControls"
+                id={quickBookHeaderEnabled && !compactQuickBookProfileEnabled ? 'quick-book-booking' : undefined}
                 ref={searchCardRef}
                 className={approvedQuickBookComposition ? 'qbp-public-search mb-3 scroll-mt-3' : 'mb-4 scroll-mt-3'}
                 style={{
@@ -2453,7 +2458,7 @@ export function BookServiceClient({
                       )
                     : undefined;
 
-                return compactQuickBookProfileEnabled
+                return quickBookHeaderEnabled
                   ? (
                       <QuickBookProfileHeader
                         profile={resolvedQuickBookProfile}

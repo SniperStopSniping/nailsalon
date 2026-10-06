@@ -149,3 +149,45 @@ test('all 24 headers leave the shipped Services markup unchanged', async ({ page
     }
   }
 });
+
+test('older profile records render a selected new header without adopting new Services or visibility settings', async ({ page }) => {
+  test.setTimeout(120_000);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?step=service&quick-book-layout=compact_dropdown&legacy-profile', { waitUntil: 'domcontentloaded' });
+  const controls = page.locator('[data-public-surface="serviceSelectionControls"]');
+  const catalogueMarkup = () => page.locator('[data-booking-menu-layout]').evaluate((element) => {
+    const copy = element.cloneNode(true) as HTMLElement;
+    for (const node of [copy, ...copy.querySelectorAll('*')]) {
+      for (const attribute of ['id', 'aria-controls', 'aria-labelledby', 'aria-describedby']) {
+        node.removeAttribute(attribute);
+      }
+    }
+    return copy.outerHTML;
+  });
+  const shippedCatalogue = await catalogueMarkup();
+  const shipped = await controls.evaluate((element) => {
+    const copy = element.cloneNode(true) as HTMLElement;
+    copy.removeAttribute('id');
+    return copy.outerHTML;
+  });
+
+  for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
+    await page.goto(`/?step=service&quick-book-layout=${layout.id}&legacy-profile`, { waitUntil: 'domcontentloaded' });
+
+    await expect(page.locator('.qbm-header')).toHaveAttribute('data-qb-layout', layout.id);
+    await expect(page.locator('#quick-book-booking')).toHaveCount(1);
+    await expect(page.locator('[data-qbp-service]')).toHaveCount(0);
+    expect(await catalogueMarkup()).toBe(shippedCatalogue);
+    expect(await controls.evaluate((element) => {
+      const copy = element.cloneNode(true) as HTMLElement;
+      copy.removeAttribute('id');
+      return copy.outerHTML;
+    })).toBe(shipped);
+
+    await page.getByTestId('quick-book-book-button').click();
+
+    await expect(controls).toBeInViewport();
+    expect(await page.locator('body').textContent()).not.toContain('880 Ellesmere');
+  }
+});
