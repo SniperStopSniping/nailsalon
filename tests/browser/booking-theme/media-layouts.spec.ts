@@ -112,3 +112,29 @@ test('logo compositions preserve square, wide and tall uploads', async ({ page }
     await page.unroute('**/quick-book-logo-fixture.png');
   }
 });
+
+test('all 24 headers leave the shipped Services markup unchanged', async ({ page }) => {
+  const menu = async () => page.locator('[data-public-surface="serviceMenu"]').evaluate((element) => {
+    const copy = element.cloneNode(true) as HTMLElement;
+    for (const node of copy.querySelectorAll('*')) {
+      for (const attribute of ['id', 'aria-controls', 'aria-labelledby', 'aria-describedby']) {
+        node.removeAttribute(attribute);
+      }
+    }
+    return copy.outerHTML;
+  });
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/?step=service&quick-book-layout=compact_dropdown');
+
+    await expect(page.locator('[data-qbp-service]').first()).toBeVisible();
+
+    const shipped = await menu();
+    for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
+      await page.goto(`/?step=service&quick-book-layout=${layout.id}`);
+
+      await expect(page.locator('[data-qbp-service]').first()).toBeVisible();
+      expect(await menu(), `${layout.id} changed Services at ${width}px`).toBe(shipped);
+    }
+  }
+});
