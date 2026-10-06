@@ -116,6 +116,58 @@ describe('NewAppointmentModal salon resolution', () => {
     expect(requested).toContain('/api/salon/services?salonSlug=salon-b');
     expect(screen.queryByText('Choose a salon to continue')).not.toBeInTheDocument();
   });
+
+  it('defaults one active technician without overriding a later explicit any-technician choice', async () => {
+    window.sessionStorage.clear();
+    render(<NewAppointmentModal {...modalProps({ googleEventPrefill: null })} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Technician Test Technician' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Any available technician' }));
+    fireEvent.change(screen.getByLabelText('Phone Number *'), { target: { value: '+1 (416) 555-0101' } });
+    fireEvent.click(screen.getByRole('button', { name: /Gel Manicure/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
+    await waitFor(() => expect(postCalls()).toHaveLength(1));
+    const body = JSON.parse(postCalls()[0]![1].body as string);
+
+    expect(body.clientPhone).toBe('4165550101');
+    expect(body.technicianId).toBeNull();
+  });
+
+  it('never truncates an unsupported prefilled international phone into a different identity', async () => {
+    render(<NewAppointmentModal {...modalProps({ googleEventPrefill: null, clientPrefill: { name: 'International client', phone: '+442079460958', email: null, serviceId: 'service_1' } })} />);
+    await waitForForm();
+
+    expect(screen.getByLabelText('Phone Number *')).toHaveValue('442079460958');
+    expect(screen.getByRole('button', { name: 'Create Appointment' })).toBeDisabled();
+    expect(postCalls()).toHaveLength(0);
+  });
+
+  it('preserves an explicit any-technician choice when restoring a saved draft', async () => {
+    window.sessionStorage.setItem('luster:new-appointment-draft:test-salon', JSON.stringify({
+      expiresAt: Date.now() + 60_000,
+      selectedTechnicianId: null,
+      selectedServiceIds: ['service_1'],
+      clientPhone: '4165550101',
+    }));
+    render(<NewAppointmentModal {...modalProps({ googleEventPrefill: null })} />);
+    await waitForForm();
+
+    expect(screen.getByRole('button', { name: 'Technician Any available technician' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
+    await waitFor(() => expect(postCalls()).toHaveLength(1));
+
+    expect(JSON.parse(postCalls()[0]![1].body as string).technicianId).toBeNull();
+  });
+
+  it('shows the edited Google event price and duration in the persistent summary', async () => {
+    render(<NewAppointmentModal {...modalProps()} />);
+    await waitForForm();
+    fireEvent.change(screen.getByLabelText('Appointment price (CAD $)'), { target: { value: '72.50' } });
+    fireEvent.change(screen.getByLabelText('Duration (minutes)'), { target: { value: '90' } });
+
+    expect(screen.getByTestId('new-appointment-summary')).toHaveTextContent('72.5');
+    expect(screen.getByTestId('new-appointment-summary')).toHaveTextContent('1h 30m');
+  });
 });
 
 describe('NewAppointmentModal Google conversion session', () => {
