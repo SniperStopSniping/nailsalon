@@ -1096,7 +1096,7 @@ export function QuickBookLayoutScreen({
               </section>
             )
           : null}
-        <p>Browse all 24 designs. Your photos and logo are used where available; supplied placeholders fill missing image slots.</p>
+        <p>Your photos and logo are used where available; supplied placeholders fill missing image slots.</p>
         <MediaLayoutCatalog selectedId={state.recipe.quickBookLayout} renderCard={renderLayoutCard} />
       </div>
       {selectedLayout.cover || selectedLayout.portrait === 'essential'

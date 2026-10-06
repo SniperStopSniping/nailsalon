@@ -257,7 +257,7 @@ export function BookingPageLayoutChooser({
             </section>
           )
         : null}
-      <p className="text-sm text-[var(--owner-muted)]">Browse all 24 designs. Missing images use the supplied placeholders; your uploads always take priority.</p>
+      <p className="text-sm text-[var(--owner-muted)]">Missing images use the supplied placeholders; your uploads always take priority.</p>
       <MediaLayoutCatalog
         selectedId={selectedId}
         renderCard={layout => (

@@ -6,14 +6,14 @@ export type MediaConfiguration = 'text' | 'logo' | 'profile' | 'logo_profile' | 
 export type MediaLayoutDefinition = QuickBookLayoutDefinition & { id: MediaLayoutId; mediaConfiguration: MediaConfiguration; variant: 'a' | 'b' | 'c'; supportsCover: boolean; supportsProfile: boolean; supportsLogo: boolean };
 
 export const QUICK_BOOK_MEDIA_GROUPS = [
-  { id: 'text', label: 'Text Only', number: 1, cover: false, profile: false, logo: false },
+  { id: 'text', label: 'Text only', number: 1, cover: false, profile: false, logo: false },
   { id: 'logo', label: 'Logo', number: 2, cover: false, profile: false, logo: true },
-  { id: 'profile', label: 'Profile', number: 3, cover: false, profile: true, logo: false },
-  { id: 'logo_profile', label: 'Logo + Profile', number: 4, cover: false, profile: true, logo: true },
-  { id: 'cover', label: 'Cover', number: 5, cover: true, profile: false, logo: false },
-  { id: 'cover_logo', label: 'Cover + Logo', number: 6, cover: true, profile: false, logo: true },
-  { id: 'cover_profile', label: 'Cover + Profile', number: 7, cover: true, profile: true, logo: false },
-  { id: 'complete', label: 'Cover + Profile + Logo', number: 8, cover: true, profile: true, logo: true },
+  { id: 'profile', label: 'Profile photo', number: 3, cover: false, profile: true, logo: false },
+  { id: 'logo_profile', label: 'Logo + profile', number: 4, cover: false, profile: true, logo: true },
+  { id: 'cover', label: 'Cover photo', number: 5, cover: true, profile: false, logo: false },
+  { id: 'cover_logo', label: 'Cover + logo', number: 6, cover: true, profile: false, logo: true },
+  { id: 'cover_profile', label: 'Cover + profile', number: 7, cover: true, profile: true, logo: false },
+  { id: 'complete', label: 'Cover + profile + logo', number: 8, cover: true, profile: true, logo: true },
 ] as const;
 
 type MediaDesign = Pick<MediaLayoutDefinition, 'id' | 'label' | 'description' | 'mediaConfiguration' | 'variant'>;

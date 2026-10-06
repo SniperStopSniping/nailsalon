@@ -176,7 +176,17 @@
 .onboarding-site-preview.qbp-page .onboarding-quick-book-profile.is-shared-presentation:has(> .qbm-header) { width: 100%; padding: 0; border: 0; margin: 0; border-radius: 0; box-shadow: none; background: transparent; }
 .qbm-catalog { display: grid; min-width: 0; gap: 12px; }
 .qbm-catalog > details { min-width: 0; border: 1px solid var(--owner-line, var(--qb-line, #ddd)); border-radius: 16px; padding: 0 16px 16px; }
-.qbm-catalog > details > summary { min-height: 60px; padding: 18px 0; cursor: pointer; font-size: 16px; font-weight: 500; }
+.qbm-catalog-intro { display: grid; gap: 4px; margin: 0 0 4px; font-size: 14px; line-height: 1.5; }
+.qbm-catalog-intro strong { font-size: 16px; font-weight: 600; }
+.qbm-catalog > details:not([open]) { padding-bottom: 0; }
+.qbm-catalog > details > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 14px 0; cursor: pointer; list-style: none; font-size: 16px; font-weight: 500; }
+.qbm-catalog > details > summary::-webkit-details-marker { display: none; }
+.qbm-catalog > details > summary::marker { content: ''; }
+.qbm-catalog > details > summary:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 4px; }
+.qbm-catalog-group-label { display: grid; min-width: 0; gap: 4px; line-height: 1.35; }
+.qbm-catalog-group-label small { color: var(--owner-muted, var(--qb-muted, #666)); font-size: 13px; font-weight: 400; }
+.qbm-catalog-chevron { flex: none; width: 20px; height: 20px; }
+.qbm-catalog > details[open] > summary .qbm-catalog-chevron { transform: rotate(180deg); }
 .qbm-catalog-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .qbm-catalog-grid > * { min-width: 0; }
 @media (max-width: 700px) { .qbm-catalog-grid { grid-template-columns: 1fr; } }
