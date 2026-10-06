@@ -82,6 +82,8 @@ type NewAppointmentModalProps = {
     phone: string;
     email: string | null;
     serviceId?: string | null;
+    /** Keeps a multi-service walk-in selection when switching to another day. */
+    serviceIds?: string[];
     technicianId?: string | null;
     nextVisitOffer?: { campaignToken: string; deadlineDate: string; discountType: 'percent' | 'fixed'; value: number };
   } | null;
@@ -278,7 +280,7 @@ export function NewAppointmentModal({
     setClientPhone(clientPrefill.phone.replace(/\D/g, '').slice(-10));
     setClientEmail(clientPrefill.email || '');
     setSelectedTechnicianId(clientPrefill.technicianId || null);
-    setSelectedServiceIds(clientPrefill.serviceId ? [clientPrefill.serviceId] : []);
+    setSelectedServiceIds(clientPrefill.serviceIds ?? (clientPrefill.serviceId ? [clientPrefill.serviceId] : []));
   }, [clientPrefill, isOpen]);
 
   // Fetch technicians and services

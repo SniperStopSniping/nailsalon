@@ -49,6 +49,7 @@ import type {
   BookingPageContent,
   LocationDisplayMode,
 } from '@/libs/bookingPageContent';
+import { summarizeBookingPageDraft } from '@/libs/bookingPageDraftSummary';
 import { getQuickBookLayout } from '@/libs/quickBookSiteLayout';
 import { SECTION_PRESENTATION_SECTION_IDS } from '@/libs/sectionPresentation';
 import { getI18nPath } from '@/utils/Helpers';
@@ -119,8 +120,8 @@ type BookingPageApiResponse = {
  * writes really are staged in `settings.bookingPage.draft` /
  * `bookingPageContent.draft`. `panel=information` writes the canonical salon
  * record through `PATCH /api/admin/salon/information` (name, phone, email,
- * hours, Instagram are public the moment they save), and `panel=policies`
- * only links out to Settings editors that are equally live-immediate. Saying
+ * hours, Instagram are public the moment they save). The Policies panel mixes
+ * draft visibility choices with links to policy editors that save immediately. Saying
  * "nothing goes live until you publish" on either one is false, and it sat
  * directly above body copy that said the opposite.
  */
@@ -130,7 +131,7 @@ const PANEL_SUBTITLES: Record<string, string> = {
   business: 'Your real salon record: contact, address and arrival details apply immediately.',
   gallery: 'Logo and profile changes save immediately. Cover changes stay in your website draft until you publish.',
   information: 'Choose which saved business details customers see. Display choices stay in your draft until you publish.',
-  policies: 'These links open settings that save immediately. Nothing here waits for a publish.',
+  policies: 'Policy display choices save to your draft until you publish. Policy text and booking rules save immediately in their linked settings.',
   experience: 'Booking messages and social links save immediately. They do not wait for a page publish.',
   flow: 'Booking flow changes apply to new bookings immediately. They do not wait for a page publish.',
 };
@@ -1211,6 +1212,7 @@ function BookingPageOwnerSurfaceContent() {
   }
 
   const draft = config.draft;
+  const draftChanges = summarizeBookingPageDraft(config, content);
   // Owner preview stays on a dedicated dashboard-origin route. That route
   // establishes Clerk context and performs an exact salon ownership /
   // impersonation check before invoking the same canonical booking renderer.
@@ -1723,6 +1725,45 @@ function BookingPageOwnerSurfaceContent() {
             action in SalonPublishBanner above.
           */}
           {(reviewIndex < 0 || panel === 'publish') && <p className="mb-3 text-xs text-[var(--owner-muted)]">Publishes booking-page layout &amp; content changes only — not the same as publishing your salon above.</p>}
+          {(reviewIndex < 0 || panel === 'publish') && (
+            <section className="mb-5 rounded-2xl border border-[var(--owner-line)] p-4" aria-labelledby="draft-review-title" data-testid="booking-page-draft-review">
+              <h2 id="draft-review-title" className="text-base font-semibold text-[var(--owner-ink)]">
+                {draftChanges.length === 0
+                  ? 'No unpublished page changes'
+                  : `${draftChanges.length} unpublished ${draftChanges.length === 1 ? 'change' : 'changes'}`}
+              </h2>
+              <p className="mt-1 text-sm text-[var(--owner-muted)]" role="status">
+                {saveStatus === 'error'
+                  ? 'Some changes could not be saved. Retry them before publishing.'
+                  : saveStatus === 'dirty'
+                    ? 'There are unsaved edits. This list shows the last saved draft.'
+                    : saveStatus === 'saving' || presentationPending
+                      ? 'Saving your draft. This list updates after changes are saved.'
+                      : saveStatus === 'stale'
+                        ? 'The draft changed elsewhere. Review the latest saved changes below.'
+                        : draftChanges.length > 0
+                          ? 'Draft saved. Preview these changes before publishing.'
+                          : 'Your saved page draft matches your published page settings.'}
+              </p>
+              {draftChanges.length > 0 && (
+                <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-[var(--owner-ink)]">
+                  {draftChanges.map(label => (
+                    <li key={label}>
+                      {label}
+                      {' '}
+                      changed
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {previewPath && (
+                <a href={previewPath} target="_blank" rel="noreferrer" className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-[var(--owner-accent)]">
+                  Preview draft
+                  <ExternalLink aria-hidden="true" size={14} />
+                </a>
+              )}
+            </section>
+          )}
           {(reviewIndex < 0 || panel === 'publish') && (
             <div className="flex flex-wrap items-center gap-3">
               <button

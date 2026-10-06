@@ -10,39 +10,24 @@
  * 4. Enter client info & book
  */
 
-import { motion } from 'framer-motion';
 import { Check, ChevronRight, Clock, Loader2, Phone, Search, User, X, Zap } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { NewAppointmentModal } from '@/components/admin/NewAppointmentModal';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
+import { serializeBookingBasket } from '@/libs/bookingParams';
 import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
+import { getDateKeyInTimeZone } from '@/libs/timeZone';
 import type { BookingCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { formatDuration } from '@/utils/Helpers';
 
 // Types
-type DaySchedule = {
-  start: string; // "09:00"
-  end: string; // "18:00"
-} | null;
-
-type WeeklySchedule = {
-  sunday: DaySchedule;
-  monday: DaySchedule;
-  tuesday: DaySchedule;
-  wednesday: DaySchedule;
-  thursday: DaySchedule;
-  friday: DaySchedule;
-  saturday: DaySchedule;
-};
-
 type Technician = {
   id: string;
   name: string;
   avatarUrl: string | null;
-  currentStatus: string;
-  weeklySchedule: WeeklySchedule | null;
 };
 
 type Service = {
@@ -52,12 +37,6 @@ type Service = {
   durationMinutes: number;
   category: string | null;
   bookingCategory?: BookingCategory | null;
-};
-
-type ExistingAppointment = {
-  startTime: string;
-  endTime: string;
-  technicianId: string | null;
 };
 
 type TimeSlot = {
@@ -91,201 +70,17 @@ function formatCurrency(cents: number): string {
   }).format(cents / 100);
 }
 
-function formatTimeSlot(date: Date): string {
+function formatTimeSlot(date: Date, timeZone: string): string {
   return date.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
+    timeZone,
   });
 }
 
 function getInitials(name: string): string {
   return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-}
-
-// Day names for schedule lookup
-const DAY_NAMES: (keyof WeeklySchedule)[] = [
-  'sunday',
-  'monday',
-  'tuesday',
-  'wednesday',
-  'thursday',
-  'friday',
-  'saturday',
-];
-
-// Get technician's working hours for today
-function getTechScheduleForToday(tech: Technician): { startHour: number; startMin: number; endHour: number; endMin: number } | null {
-  if (!tech.weeklySchedule) {
-    return null;
-  }
-
-  const today = new Date().getDay(); // 0 = Sunday
-  const dayName = DAY_NAMES[today];
-  const daySchedule = tech.weeklySchedule[dayName!];
-
-  if (!daySchedule) {
-    return null;
-  } // Tech doesn't work today
-
-  const [startH, startM] = daySchedule.start.split(':').map(Number);
-  const [endH, endM] = daySchedule.end.split(':').map(Number);
-
-  return {
-    startHour: startH ?? 9,
-    startMin: startM ?? 0,
-    endHour: endH ?? 18,
-    endMin: endM ?? 0,
-  };
-}
-
-// Check if a time slot fits within a tech's schedule
-function isWithinTechSchedule(
-  slotTime: Date,
-  slotEnd: Date,
-  tech: Technician,
-): boolean {
-  const schedule = getTechScheduleForToday(tech);
-  if (!schedule) {
-    return false;
-  } // Tech doesn't work today
-
-  const slotStartMinutes = slotTime.getHours() * 60 + slotTime.getMinutes();
-  const slotEndMinutes = slotEnd.getHours() * 60 + slotEnd.getMinutes();
-  const schedStartMinutes = schedule.startHour * 60 + schedule.startMin;
-  const schedEndMinutes = schedule.endHour * 60 + schedule.endMin;
-
-  // Slot must start at or after schedule start, and end at or before schedule end
-  return slotStartMinutes >= schedStartMinutes && slotEndMinutes <= schedEndMinutes;
-}
-
-// Generate available time slots for today starting from now
-function generateTimeSlots(
-  existingAppointments: ExistingAppointment[],
-  selectedTechId: string | null,
-  requiredDuration: number,
-  allTechnicians: Technician[],
-): TimeSlot[] {
-  const slots: TimeSlot[] = [];
-  const now = new Date();
-
-  // Get the selected tech (or null for "any")
-  const selectedTech = selectedTechId
-    ? allTechnicians.find(t => t.id === selectedTechId)
-    : null;
-
-  // Determine the time range to generate slots for
-  let earliestStart = 6; // 6 AM default
-  let latestEnd = 22; // 10 PM default
-
-  if (selectedTech) {
-    // Use selected tech's schedule
-    const schedule = getTechScheduleForToday(selectedTech);
-    if (!schedule) {
-      return []; // Tech doesn't work today
-    }
-    earliestStart = schedule.startHour;
-    latestEnd = schedule.endHour;
-  } else {
-    // "Any available" - find the earliest start and latest end across all working techs
-    const workingTechs = allTechnicians.filter(t => getTechScheduleForToday(t) !== null);
-    if (workingTechs.length === 0) {
-      return []; // No one works today
-    }
-
-    earliestStart = Math.min(...workingTechs.map((t) => {
-      const s = getTechScheduleForToday(t);
-      return s ? s.startHour : 24;
-    }));
-    latestEnd = Math.max(...workingTechs.map((t) => {
-      const s = getTechScheduleForToday(t);
-      return s ? s.endHour : 0;
-    }));
-  }
-
-  // Round up to next 15-minute interval + 15 min buffer (walk-in needs some prep time)
-  const bufferMinutes = 15;
-  const currentMinutes = now.getHours() * 60 + now.getMinutes() + bufferMinutes;
-  const minStartMinutes = earliestStart * 60;
-  const effectiveStartMinutes = Math.max(currentMinutes, minStartMinutes);
-  const startMinutes = Math.ceil(effectiveStartMinutes / 15) * 15;
-  const startHour = Math.floor(startMinutes / 60);
-  const startMin = startMinutes % 60;
-
-  // If it's already past the latest end time, no slots
-  if (startHour >= latestEnd) {
-    return slots;
-  }
-
-  for (let hour = startHour; hour < latestEnd; hour++) {
-    for (let min = (hour === startHour ? startMin : 0); min < 60; min += 30) {
-      const slotTime = new Date();
-      slotTime.setHours(hour, min, 0, 0);
-
-      const slotEnd = new Date(slotTime.getTime() + requiredDuration * 60 * 1000);
-
-      // Check if slot is available
-      let isAvailable = false;
-
-      if (selectedTech) {
-        // Check if this specific tech is available for the full duration
-        // First, check if it fits within their schedule
-        if (!isWithinTechSchedule(slotTime, slotEnd, selectedTech)) {
-          continue; // Skip this slot entirely - doesn't fit in tech's schedule
-        }
-
-        // Then check for appointment conflicts
-        isAvailable = !existingAppointments.some((appt) => {
-          if (appt.technicianId !== selectedTech.id) {
-            return false;
-          }
-
-          const apptStart = new Date(appt.startTime);
-          const apptEnd = new Date(appt.endTime);
-
-          // Add 10 min buffer between appointments
-          const bufferMs = 10 * 60 * 1000;
-          const apptEndWithBuffer = new Date(apptEnd.getTime() + bufferMs);
-
-          return slotTime < apptEndWithBuffer && slotEnd > apptStart;
-        });
-      } else {
-        // "Any available" - check if ANY tech is free for the full duration
-        isAvailable = allTechnicians.some((tech) => {
-          // First, check if this tech works today and the slot fits their schedule
-          if (!isWithinTechSchedule(slotTime, slotEnd, tech)) {
-            return false;
-          }
-
-          // Then check if this tech has any conflicting appointments
-          const hasConflict = existingAppointments.some((appt) => {
-            if (appt.technicianId !== tech.id) {
-              return false;
-            }
-
-            const apptStart = new Date(appt.startTime);
-            const apptEnd = new Date(appt.endTime);
-            const bufferMs = 10 * 60 * 1000;
-            const apptEndWithBuffer = new Date(apptEnd.getTime() + bufferMs);
-
-            return slotTime < apptEndWithBuffer && slotEnd > apptStart;
-          });
-
-          return !hasConflict;
-        });
-      }
-
-      if (isAvailable) {
-        slots.push({
-          time: slotTime,
-          label: formatTimeSlot(slotTime),
-          available: true,
-        });
-      }
-    }
-  }
-
-  return slots;
 }
 
 export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugProp }: WalkInModalProps) {
@@ -305,7 +100,15 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
   // Data state
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [existingAppointments, setExistingAppointments] = useState<ExistingAppointment[]>([]);
+  const [timeZone, setTimeZone] = useState<string | null>(null);
+  const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
+  const [availabilityStatus, setAvailabilityStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [canRetryAvailability, setCanRetryAvailability] = useState(true);
+  const [availabilityRevision, setAvailabilityRevision] = useState(0);
+  const [showNewAppointment, setShowNewAppointment] = useState(false);
+  const submitAttempt = useRef<{ body: string; key: string } | null>(null);
+  const submittingRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -314,12 +117,12 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
   const [serviceSearch, setServiceSearch] = useState('');
 
   // Fetch initial data
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     if (!salonSlug) {
       // No tenant to load against: surface it instead of spinning forever.
       setTechnicians([]);
       setServices([]);
-      setExistingAppointments([]);
+      setTimeZone(null);
       setError(MISSING_SALON_MESSAGE);
       setLoading(false);
       return;
@@ -327,48 +130,66 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
 
     try {
       setLoading(true);
+      setTimeZone(null);
       setError(null);
 
-      const today = new Date().toISOString().split('T')[0];
-
       const [techRes, servicesRes, apptsRes] = await Promise.all([
-        fetch(`/api/admin/technicians?salonSlug=${salonSlug}&status=active`),
-        fetch(`/api/salon/services?salonSlug=${salonSlug}`),
-        fetch(`/api/admin/appointments?date=${today}&status=pending,confirmed,in_progress,awaiting_payment`),
+        fetch(`/api/admin/technicians?salonSlug=${encodeURIComponent(salonSlug)}&status=active`, { signal }),
+        fetch(`/api/salon/services?salonSlug=${encodeURIComponent(salonSlug)}`, { signal }),
+        fetch(`/api/admin/appointments?salonSlug=${encodeURIComponent(salonSlug)}&limit=1`, { signal }),
       ]);
 
-      if (!techRes.ok || !servicesRes.ok) {
+      if (!techRes.ok || !servicesRes.ok || !apptsRes.ok) {
         throw new Error('Failed to load data');
       }
 
       const [techData, servicesData, apptsData] = await Promise.all([
         techRes.json(),
         servicesRes.json(),
-        apptsRes.ok ? apptsRes.json() : { data: { appointments: [] } },
+        apptsRes.json(),
       ]);
 
+      if (signal?.aborted) {
+        return;
+      }
       setTechnicians(techData.data?.technicians || []);
       setServices(servicesData.data?.services || []);
-      setExistingAppointments(
-        (apptsData.data?.appointments || []).map((a: { startTime: string; endTime: string; technician?: { id: string } | null }) => ({
-          startTime: a.startTime,
-          endTime: a.endTime,
-          technicianId: a.technician?.id || null,
-        })),
-      );
+      if (typeof apptsData.meta?.timeZone !== 'string') {
+        throw new TypeError('Could not load the salon time zone.');
+      }
+      setTimeZone(apptsData.meta.timeZone);
     } catch (err) {
+      if (signal?.aborted) {
+        return;
+      }
       console.error('Failed to fetch data:', err);
       setError('Failed to load data');
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
   }, [salonSlug]);
 
   useEffect(() => {
-    if (isOpen) {
-      fetchData();
+    if (!isOpen) {
+      return;
     }
+    const controller = new AbortController();
+    void fetchData(controller.signal);
+    return () => controller.abort();
   }, [isOpen, fetchData]);
+
+  useEffect(() => {
+    setStep('services');
+    setSelectedServiceIds([]);
+    setSelectedTechnicianId(null);
+    setSelectedTimeSlot(null);
+    setClientPhone('');
+    setClientName('');
+    setShowNewAppointment(false);
+    submitAttempt.current = null;
+  }, [salonSlug]);
 
   // Reset form when closing
   useEffect(() => {
@@ -381,6 +202,9 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
       setClientName('');
       setError(null);
       setServiceSearch('');
+      setShowNewAppointment(false);
+      setAvailableSlots([]);
+      submitAttempt.current = null;
     }
   }, [isOpen]);
 
@@ -389,16 +213,68 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
   const totalPrice = selectedServices.reduce((sum, s) => sum + s.price, 0);
   const totalDuration = selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0);
 
-  // Generate time slots based on selected technician and required duration
-  const timeSlots = useMemo(() => {
-    if (totalDuration === 0) {
-      return [];
-    }
-    return generateTimeSlots(existingAppointments, selectedTechnicianId, totalDuration, technicians);
-  }, [existingAppointments, selectedTechnicianId, totalDuration, technicians]);
+  const bookingBasket = useMemo(() => ({
+    version: 2 as const,
+    items: selectedServiceIds.map(serviceId => ({ serviceId, selectedAddOns: [] })),
+  }), [selectedServiceIds]);
 
-  // Get available slots only
-  const availableSlots = timeSlots.filter(s => s.available);
+  // The booking server owns notice, time zones, working hours, buffers,
+  // days off and calendar conflicts. Never manufacture bookable slots here.
+  useEffect(() => {
+    if (!isOpen || showNewAppointment || step !== 'time' || !salonSlug || !timeZone || !selectedServiceIds.length) {
+      return;
+    }
+    const controller = new AbortController();
+    let cancelled = false;
+    setAvailabilityStatus('loading');
+    setAvailabilityError(null);
+    setCanRetryAvailability(true);
+    setAvailableSlots([]);
+    const query = new URLSearchParams({
+      salonSlug,
+      date: getDateKeyInTimeZone(new Date(), timeZone),
+      bookingBasket: serializeBookingBasket(bookingBasket)!,
+    });
+    if (selectedTechnicianId) {
+      query.set('technicianId', selectedTechnicianId);
+    }
+    void fetch(`/api/appointments/availability?${query}`, { signal: controller.signal, cache: 'no-store' })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok) {
+          if (!cancelled) {
+            setCanRetryAvailability(result.error?.canRetry !== false);
+          }
+          throw new Error(result.error?.message || 'Could not check availability. Please try again.');
+        }
+        if (cancelled) {
+          return;
+        }
+        setAvailableSlots((result.slots ?? [])
+          .filter((slot: { availability: string; startTime: string }) => slot.availability === 'available' && Number.isFinite(Date.parse(slot.startTime)))
+          .map((slot: { startTime: string }) => ({ time: new Date(slot.startTime), label: formatTimeSlot(new Date(slot.startTime), timeZone), available: true })));
+        setAvailabilityStatus('ready');
+      })
+      .catch((reason) => {
+        if (cancelled) {
+          return;
+        }
+        setAvailabilityError(reason instanceof Error ? reason.message : 'Could not check availability. Please try again.');
+        setAvailabilityStatus('error');
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [isOpen, showNewAppointment, step, salonSlug, timeZone, bookingBasket, selectedServiceIds.length, selectedTechnicianId, availabilityRevision]);
+
+  useEffect(() => {
+    if (!isOpen || showNewAppointment || step !== 'time') {
+      return;
+    }
+    const interval = window.setInterval(() => setAvailabilityRevision(value => value + 1), 60_000);
+    return () => window.clearInterval(interval);
+  }, [isOpen, showNewAppointment, step]);
 
   // Filter services by search
   const filteredServices = services.filter(s =>
@@ -453,7 +329,12 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
       return;
     }
     setError(null);
-    setStep('tech');
+    if (technicians.length === 1) {
+      setSelectedTechnicianId(technicians[0]!.id);
+      setStep('time');
+    } else {
+      setStep('tech');
+    }
   };
 
   const handleTechSelect = (techId: string | null) => {
@@ -466,12 +347,16 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
     if (!slot.available) {
       return;
     }
+    setError(null);
     setSelectedTimeSlot(slot.time);
     setStep('confirm');
   };
 
   // Submit
   const handleSubmit = async () => {
+    if (submittingRef.current) {
+      return;
+    }
     if (!selectedTimeSlot) {
       setError('Please select a time slot');
       return;
@@ -482,25 +367,30 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
     }
 
     try {
+      submittingRef.current = true;
       setSubmitting(true);
       setError(null);
 
+      // Use the same owner-entry contract as New Appointment. Public basket
+      // submissions require a separately reviewed quote fingerprint.
+      const body = JSON.stringify({ salonSlug, serviceIds: selectedServiceIds, technicianId: selectedTechnicianId, clientPhone, clientName: clientName || undefined, startTime: selectedTimeSlot.toISOString() });
+      if (!submitAttempt.current || submitAttempt.current.body !== body) {
+        submitAttempt.current = { body, key: globalThis.crypto?.randomUUID?.() ?? `walk-in-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+      }
       const response = await fetch('/api/appointments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          salonSlug,
-          serviceIds: selectedServiceIds,
-          technicianId: selectedTechnicianId,
-          clientPhone,
-          clientName: clientName || undefined,
-          startTime: selectedTimeSlot.toISOString(),
-        }),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': submitAttempt.current.key },
+        body,
       });
 
       const result = await response.json();
 
       if (!response.ok) {
+        if (['TOO_SOON', 'TIME_CONFLICT', 'SLOT_UNAVAILABLE', 'TECHNICIAN_UNAVAILABLE'].includes(result.error?.code)) {
+          setSelectedTimeSlot(null);
+          setStep('time');
+          setAvailabilityRevision(value => value + 1);
+        }
         throw new Error(result.error?.message || 'Failed to create appointment');
       }
 
@@ -513,14 +403,32 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
       console.error('Failed to create appointment:', err);
       setError(err instanceof Error ? err.message : 'Failed to create appointment');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
   const selectedTechnician = technicians.find(t => t.id === selectedTechnicianId);
+  const steps = technicians.length === 1 ? ['services', 'time', 'confirm'] : ['services', 'tech', 'time', 'confirm'];
+  const stepLabels: Record<string, string> = { services: 'Services', tech: 'Tech', time: 'Time', confirm: 'Book' };
 
   if (!isOpen) {
     return null;
+  }
+
+  if (showNewAppointment) {
+    return (
+      <NewAppointmentModal
+        isOpen
+        onClose={() => setShowNewAppointment(false)}
+        onSuccess={() => {
+          onSuccess?.();
+          onClose();
+        }}
+        salonSlug={salonSlug}
+        clientPrefill={{ name: clientName || null, phone: clientPhone, email: null, serviceIds: selectedServiceIds, technicianId: selectedTechnicianId }}
+      />
+    );
   }
 
   return (
@@ -528,18 +436,18 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
       isOpen={isOpen}
       onClose={onClose}
       maxWidthClassName="max-w-lg"
-      contentClassName="h-[90vh] max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-2xl supports-[height:100dvh]:h-[90dvh] supports-[height:100dvh]:max-h-[90dvh]"
+      contentClassName="max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-2xl supports-[height:100dvh]:max-h-[90dvh]"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="walk-in-modal-title"
-        className="flex h-full flex-col"
+        className="owner-workspace-theme flex max-h-[90vh] flex-col supports-[height:100dvh]:max-h-[90dvh]"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 bg-white px-5 py-4">
           <div className="flex items-center gap-2">
-            <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-green-400 to-emerald-600">
+            <div className="flex size-8 items-center justify-center rounded-full bg-[var(--owner-accent)]">
               <Zap className="size-4 text-white" />
             </div>
             <h2 id="walk-in-modal-title" className="text-lg font-semibold text-gray-900">Quick Walk-in</h2>
@@ -555,12 +463,11 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
         </div>
 
         {/* Progress Steps */}
-        <div className="flex items-center justify-center gap-1 border-b border-gray-100 bg-gray-50 px-4 py-3">
-          {['services', 'tech', 'time', 'confirm'].map((s, idx) => {
+        <div className="flex shrink-0 items-center justify-center gap-1 border-b border-gray-100 bg-gray-50 px-4 py-3">
+          {steps.map((s, idx) => {
             const stepNum = idx + 1;
             const isActive = s === step;
-            const isPast = ['services', 'tech', 'time', 'confirm'].indexOf(step) > idx;
-            const labels = ['Services', 'Tech', 'Time', 'Book'];
+            const isPast = steps.indexOf(step) > idx;
 
             return (
               <div key={s} className="flex items-center">
@@ -575,24 +482,24 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                   className={`
                         flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-all
                         ${isActive
-                ? 'bg-[#007AFF] text-white'
+                ? 'bg-[var(--owner-accent)] text-white'
                 : isPast
-                  ? 'cursor-pointer bg-green-100 text-green-700 hover:bg-green-200'
+                  ? 'cursor-pointer bg-[var(--owner-blush)] text-[var(--owner-accent)] hover:bg-[var(--owner-ground)]'
                   : 'bg-gray-100 text-gray-400'
               }
                       `}
                 >
                   {isPast ? <Check className="size-3" /> : <span>{stepNum}</span>}
-                  <span>{labels[idx]}</span>
+                  <span>{stepLabels[s]}</span>
                 </button>
-                {idx < 3 && <ChevronRight className="mx-1 size-4 text-gray-300" />}
+                {idx < steps.length - 1 && <ChevronRight className="mx-1 size-4 text-gray-300" />}
               </div>
             );
           })}
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto bg-white p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-white p-5">
           {loading
             ? (
                 <div className="flex items-center justify-center py-20">
@@ -624,7 +531,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                           value={serviceSearch}
                           onChange={e => setServiceSearch(e.target.value)}
                           placeholder="Search services..."
-                          className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[var(--owner-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--owner-accent)]"
                         />
                       </div>
 
@@ -646,7 +553,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                                     className={`
                                       flex w-full items-center justify-between rounded-xl border-2 p-3 text-left transition-all
                                       ${isSelected
-                                    ? 'border-blue-500 bg-blue-50'
+                                    ? 'border-[var(--owner-accent)] bg-[var(--owner-blush)]'
                                     : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
                                   }
                                     `}
@@ -655,7 +562,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                                       <div className={`
                                         flex size-6 items-center justify-center rounded-full border-2 transition-colors
                                         ${isSelected
-                                    ? 'border-blue-500 bg-blue-500 text-white'
+                                    ? 'border-[var(--owner-accent)] bg-[var(--owner-accent)] text-white'
                                     : 'border-gray-300 bg-white'
                                   }
                                       `}
@@ -663,7 +570,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                                         {isSelected && <Check className="size-4" />}
                                       </div>
                                       <div>
-                                        <p className={`font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                                        <p className={`font-medium ${isSelected ? 'text-[var(--owner-ink)]' : 'text-gray-900'}`}>
                                           {service.name}
                                         </p>
                                         <p className="text-xs text-gray-500">
@@ -672,7 +579,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                                         </p>
                                       </div>
                                     </div>
-                                    <span className={`font-semibold ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                                    <span className={`font-semibold ${isSelected ? 'text-[var(--owner-ink)]' : 'text-gray-900'}`}>
                                       {formatCurrency(service.price)}
                                     </span>
                                   </button>
@@ -689,16 +596,16 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                   {step === 'tech' && (
                     <div className="space-y-4">
                       {/* Summary of selected services */}
-                      <div className="rounded-xl bg-blue-50 p-3">
+                      <div className="rounded-xl bg-[var(--owner-blush)] p-3">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-medium text-blue-900">
+                            <p className="text-sm font-medium text-[var(--owner-ink)]">
                               {selectedServices.length}
                               {' '}
                               service
                               {selectedServices.length !== 1 ? 's' : ''}
                             </p>
-                            <p className="text-xs text-blue-700">
+                            <p className="text-xs text-[var(--owner-accent)]">
                               {formatDuration(totalDuration)}
                               {' '}
                               total •
@@ -708,7 +615,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                           <button
                             type="button"
                             onClick={() => setStep('services')}
-                            className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                            className="text-xs font-medium text-[var(--owner-accent)] hover:text-[var(--owner-accent-strong)]"
                           >
                             Edit
                           </button>
@@ -720,134 +627,19 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                         <p className="text-sm text-gray-500">Select a technician</p>
                       </div>
 
-                      {/* Any Available Option */}
-                      {(() => {
-                        // Count how many techs work today and have availability
-                        const workingTechs = technicians.filter(t => getTechScheduleForToday(t) !== null);
-                        const anySlots = generateTimeSlots(existingAppointments, null, totalDuration, technicians);
-                        const firstSlot = anySlots[0];
-
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => handleTechSelect(null)}
-                            disabled={anySlots.length === 0}
-                            className={`
-                              flex w-full items-center gap-3 rounded-xl border-2 p-4 text-left transition-all
-                              ${anySlots.length > 0
-                            ? 'border-green-200 bg-green-50 hover:border-green-400 hover:bg-green-100'
-                            : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-60'
-                          }
-                            `}
-                          >
-                            <div className={`
-                              flex size-12 items-center justify-center rounded-full
-                              ${anySlots.length > 0
-                            ? 'bg-gradient-to-br from-green-400 to-emerald-600'
-                            : 'bg-gray-400'
-                          }
-                            `}
-                            >
-                              <User className="size-6 text-white" />
-                            </div>
-                            <div className="flex-1">
-                              <p className={`font-semibold ${anySlots.length > 0 ? 'text-gray-900' : 'text-gray-500'}`}>
-                                Any Available
-                              </p>
-                              {anySlots.length > 0
-                                ? (
-                                    <p className="text-sm text-green-600">
-                                      {workingTechs.length}
-                                      {' '}
-                                      tech
-                                      {workingTechs.length !== 1 ? 's' : ''}
-                                      {' '}
-                                      working • Next:
-                                      {firstSlot?.label}
-                                    </p>
-                                  )
-                                : (
-                                    <p className="text-sm text-gray-400">
-                                      No availability today
-                                    </p>
-                                  )}
-                            </div>
-                            {anySlots.length > 0 && <ChevronRight className="size-5 text-gray-400" />}
-                          </button>
-                        );
-                      })()}
-
-                      {/* Technician List */}
-                      {technicians.map((tech) => {
-                        // Check if tech works today
-                        const schedule = getTechScheduleForToday(tech);
-                        const worksToday = schedule !== null;
-
-                        // Check if this tech has ANY available slot for the required duration
-                        const techSlots = worksToday
-                          ? generateTimeSlots(existingAppointments, tech.id, totalDuration, technicians)
-                          : [];
-                        const nextAvailable = techSlots[0];
-
-                        return (
-                          <button
-                            key={tech.id}
-                            type="button"
-                            onClick={() => handleTechSelect(tech.id)}
-                            disabled={!worksToday}
-                            className={`
-                              flex w-full items-center gap-3 rounded-xl border-2 p-4 text-left transition-all
-                              ${worksToday
-                            ? 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50'
-                            : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-60'
-                          }
-                            `}
-                          >
-                            <div className={`
-                              flex size-12 items-center justify-center rounded-full text-sm font-bold text-white
-                              ${worksToday
-                            ? 'bg-gradient-to-br from-blue-400 to-blue-600'
-                            : 'bg-gray-400'
-                          }
-                            `}
-                            >
-                              {getInitials(tech.name)}
-                            </div>
-                            <div className="flex-1">
-                              <p className={`font-semibold ${worksToday ? 'text-gray-900' : 'text-gray-500'}`}>
-                                {tech.name}
-                              </p>
-                              {!worksToday
-                                ? (
-                                    <p className="text-sm text-gray-400">
-                                      Off today
-                                    </p>
-                                  )
-                                : nextAvailable
-                                  ? (
-                                      <p className="text-sm text-green-600">
-                                        Next:
-                                        {' '}
-                                        {nextAvailable.label}
-                                        {' '}
-                                        (
-                                        {techSlots.length}
-                                        {' '}
-                                        slot
-                                        {techSlots.length !== 1 ? 's' : ''}
-                                        )
-                                      </p>
-                                    )
-                                  : (
-                                      <p className="text-sm text-orange-600">
-                                        Fully booked today
-                                      </p>
-                                    )}
-                            </div>
-                            {worksToday && <ChevronRight className="size-5 text-gray-400" />}
-                          </button>
-                        );
-                      })}
+                      <button type="button" onClick={() => handleTechSelect(null)} className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-[var(--owner-line)] p-4 text-left">
+                        <User aria-hidden="true" className="size-5 text-[var(--owner-accent)]" />
+                        <span className="flex-1 font-medium">Any available technician</span>
+                        <ChevronRight aria-hidden="true" className="size-4" />
+                      </button>
+                      {technicians.map(tech => (
+                        <button key={tech.id} type="button" onClick={() => handleTechSelect(tech.id)} className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-[var(--owner-line)] p-4 text-left">
+                          <span className="flex size-10 items-center justify-center rounded-full bg-[var(--owner-blush)] text-sm font-semibold text-[var(--owner-accent)]">{getInitials(tech.name)}</span>
+                          <span className="flex-1 font-medium">{tech.name}</span>
+                          <ChevronRight aria-hidden="true" className="size-4" />
+                        </button>
+                      ))}
+                      <p className="text-xs text-gray-500">Available times are checked with your booking rules and calendar next.</p>
                     </div>
                   )}
 
@@ -855,13 +647,13 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                   {step === 'time' && (
                     <div className="space-y-4">
                       {/* Summary */}
-                      <div className="rounded-xl bg-blue-50 p-3">
+                      <div className="rounded-xl bg-[var(--owner-blush)] p-3">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-medium text-blue-900">
+                            <p className="text-sm font-medium text-[var(--owner-ink)]">
                               {selectedTechnician?.name || 'Any Available'}
                             </p>
-                            <p className="text-xs text-blue-700">
+                            <p className="text-xs text-[var(--owner-accent)]">
                               {formatDuration(totalDuration)}
                               {' '}
                               needed •
@@ -870,8 +662,8 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                           </div>
                           <button
                             type="button"
-                            onClick={() => setStep('tech')}
-                            className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                            onClick={() => setStep(technicians.length > 1 ? 'tech' : 'services')}
+                            className="text-xs font-medium text-[var(--owner-accent)] hover:text-[var(--owner-accent-strong)]"
                           >
                             Change
                           </button>
@@ -881,55 +673,59 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                       <div>
                         <h3 className="font-semibold text-gray-900">Pick a time</h3>
                         <p className="text-sm text-gray-500">
-                          {availableSlots.length}
-                          {' '}
-                          slot
-                          {availableSlots.length !== 1 ? 's' : ''}
-                          {' '}
-                          available today
+                          {availabilityStatus === 'ready'
+                            ? `${availableSlots.length} ${availableSlots.length === 1 ? 'slot' : 'slots'} available today`
+                            : 'Today’s availability'}
                         </p>
                       </div>
 
-                      {availableSlots.length === 0
+                      <p className="text-xs text-gray-500">
+                        Times are in
+                        {' '}
+                        {timeZone?.replace(/_/g, ' ')}
+                        . Your booking notice, preparation time and calendar rules apply.
+                      </p>
+                      {availabilityStatus === 'loading'
                         ? (
-                            <div className="rounded-xl bg-orange-50 p-6 text-center">
-                              <p className="font-medium text-orange-800">No slots available</p>
-                              <p className="mt-1 text-sm text-orange-600">
-                                No
-                                {' '}
-                                {formatDuration(totalDuration)}
-                                {' '}
-                                slots available today for
-                                {' '}
-                                {selectedTechnician?.name || 'any tech'}
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => setStep('tech')}
-                                className="mt-3 text-sm font-medium text-orange-700 hover:text-orange-900"
-                              >
-                                Try another technician →
-                              </button>
-                            </div>
+                            <p className="flex items-center gap-2 py-6 text-sm" role="status">
+                              <Loader2 className="size-4 animate-spin" />
+                              {' '}
+                              Checking available times…
+                            </p>
                           )
-                        : (
-                            <div className="grid grid-cols-3 gap-2">
-                              {availableSlots.map((slot, idx) => (
-                                <motion.button
-                                  key={idx}
-                                  type="button"
-                                  onClick={() => handleTimeSelect(slot)}
-                                  initial={{ opacity: 0, y: 10 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  transition={{ delay: idx * 0.02 }}
-                                  className="rounded-xl border-2 border-gray-200 bg-white p-3 text-center font-medium text-gray-900 transition-all hover:border-green-400 hover:bg-green-50"
-                                >
-                                  <Clock className="mx-auto mb-1 size-4 text-green-500" />
-                                  <span className="text-sm">{slot.label}</span>
-                                </motion.button>
-                              ))}
-                            </div>
-                          )}
+                        : availabilityStatus === 'error'
+                          ? (
+                              <div className="rounded-xl border border-red-200 bg-red-50 p-4" role="alert">
+                                <p className="text-sm text-red-800">{availabilityError}</p>
+                                <div className="mt-3 flex flex-wrap gap-3">
+                                  {canRetryAvailability && <button type="button" className="min-h-11 font-semibold underline" onClick={() => setAvailabilityRevision(value => value + 1)}>Retry availability</button>}
+                                  <button type="button" className="min-h-11 font-semibold underline" onClick={() => setStep('services')}>Change services</button>
+                                  {technicians.length > 1 && <button type="button" className="min-h-11 font-semibold underline" onClick={() => setStep('tech')}>Change technician</button>}
+                                </div>
+                              </div>
+                            )
+                          : availableSlots.length === 0
+                            ? (
+                                <div className="rounded-xl border border-[var(--owner-line)] bg-[var(--owner-ground)] p-5">
+                                  <p className="font-semibold">No bookable times today</p>
+                                  <p className="mt-2 text-sm text-gray-600">This selection has no available time under your current booking rules.</p>
+                                  <div className="mt-3 flex flex-wrap gap-3">
+                                    {technicians.length > 1 && <button type="button" className="min-h-11 font-semibold underline" onClick={() => setStep('tech')}>Change technician</button>}
+                                    <button type="button" className="min-h-11 font-semibold underline" onClick={() => setStep('services')}>Change services</button>
+                                    <button type="button" className="min-h-11 font-semibold text-[var(--owner-accent)] underline" onClick={() => setShowNewAppointment(true)}>Book another day</button>
+                                  </div>
+                                </div>
+                              )
+                            : (
+                                <div className="grid grid-cols-3 gap-2">
+                                  {availableSlots.map(slot => (
+                                    <button key={slot.time.toISOString()} type="button" onClick={() => handleTimeSelect(slot)} className="min-h-16 rounded-xl border border-[var(--owner-line)] bg-white p-3 text-center text-sm font-medium hover:border-[var(--owner-accent)] hover:bg-[var(--owner-blush)]">
+                                      <Clock aria-hidden="true" className="mx-auto mb-1 size-4 text-[var(--owner-accent)]" />
+                                      {slot.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                     </div>
                   )}
 
@@ -937,29 +733,29 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                   {step === 'confirm' && (
                     <div className="space-y-5">
                       {/* Booking Summary */}
-                      <div className="rounded-xl bg-green-50 p-4">
+                      <div className="rounded-xl bg-[var(--owner-blush)] p-4">
                         <div className="mb-3 flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-medium text-green-800">
+                            <p className="text-sm font-medium text-[var(--owner-accent)]">
                               {selectedTechnician?.name || 'Any Available'}
                             </p>
-                            <p className="text-2xl font-bold text-green-900">
-                              {selectedTimeSlot && formatTimeSlot(selectedTimeSlot)}
+                            <p className="text-2xl font-bold text-[var(--owner-ink)]">
+                              {selectedTimeSlot && formatTimeSlot(selectedTimeSlot, timeZone!)}
                             </p>
                           </div>
                           <button
                             type="button"
                             onClick={() => setStep('time')}
-                            className="text-sm font-medium text-green-700 hover:text-green-900"
+                            className="text-sm font-medium text-[var(--owner-accent)] hover:text-[var(--owner-ink)]"
                           >
                             Change
                           </button>
                         </div>
-                        <div className="border-t border-green-200 pt-3">
-                          <p className="text-sm text-green-700">
+                        <div className="border-t border-[var(--owner-line)] pt-3">
+                          <p className="text-sm text-[var(--owner-accent)]">
                             {selectedServices.map(s => s.name).join(', ')}
                           </p>
-                          <p className="mt-1 text-sm font-medium text-green-800">
+                          <p className="mt-1 text-sm font-medium text-[var(--owner-accent)]">
                             {formatDuration(totalDuration)}
                             {' '}
                             •
@@ -983,7 +779,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                             value={formatPhoneDisplay(clientPhone)}
                             onChange={e => handlePhoneChange(e.target.value)}
                             placeholder="(555) 123-4567"
-                            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[var(--owner-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--owner-accent)]"
                           />
                         </div>
 
@@ -998,7 +794,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
                             value={clientName}
                             onChange={e => setClientName(e.target.value)}
                             placeholder="Jane Doe"
-                            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[var(--owner-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--owner-accent)]"
                           />
                         </div>
                       </div>
@@ -1009,7 +805,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
         </div>
 
         {/* Footer */}
-        <div className="border-t border-gray-100 bg-gray-50 px-5 py-4">
+        <div className="shrink-0 border-t border-gray-100 bg-gray-50 px-5 py-4">
           {step === 'services' && (
             <div className="space-y-3">
               {selectedServices.length > 0 && (
@@ -1028,10 +824,10 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
               <button
                 type="button"
                 onClick={handleServicesNext}
-                disabled={selectedServiceIds.length === 0}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#007AFF] px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={selectedServiceIds.length === 0 || loading || !timeZone}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--owner-accent)] px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--owner-accent-strong)] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Choose Technician
+                {technicians.length === 1 ? 'Choose a time' : 'Choose technician'}
                 <ChevronRight className="size-4" />
               </button>
             </div>
@@ -1042,7 +838,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugPr
               type="button"
               onClick={handleSubmit}
               disabled={submitting || clientPhone.length !== 10}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--owner-accent)] px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--owner-accent-strong)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting
                 ? (
