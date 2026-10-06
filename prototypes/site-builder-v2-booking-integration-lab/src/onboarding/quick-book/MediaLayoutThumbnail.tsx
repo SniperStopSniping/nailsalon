@@ -5,7 +5,7 @@ import { MediaQuickBookHeader } from './MediaQuickBookHeader';
 import { deriveQuickBookPresentation, type QuickBookPresentationProfile, resolveQuickBookCoverSlot, resolveQuickBookPortraitSlot } from './presentation-view';
 import type { QuickBookLayoutPosterProps } from './QuickBookLayoutPoster';
 
-export function MediaLayoutThumbnail({ layout, businessName, technicianName, logoUrl, portraitUrl, portraitVisible, coverUrl, style, className, profile }: QuickBookLayoutPosterProps & { layout: MediaLayoutId }) {
+export function MediaLayoutThumbnail({ layout, businessName, technicianName, logoUrl, portraitUrl, portraitVisible, coverUrl, coverFocalPoint, portraitFocalPoint, style, className, profile }: QuickBookLayoutPosterProps & { layout: MediaLayoutId }) {
   const ref = useRef<HTMLSpanElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -60,8 +60,8 @@ export function MediaLayoutThumbnail({ layout, businessName, technicianName, log
       ...presentation,
       ...(profile?.presentation ?? {}),
       layoutId: layout,
-      cover: resolveQuickBookCoverSlot({ layout, url: coverUrl, focal: profile?.presentation.cover?.kind === 'custom' ? profile.presentation.cover.focal : null }),
-      portrait: resolveQuickBookPortraitSlot({ layout, url: portraitUrl, alt: technicianName ?? businessName, visible: portraitVisible, focal: profile?.presentation.portrait.kind === 'custom' ? profile.presentation.portrait.focal : null }),
+      cover: resolveQuickBookCoverSlot({ layout, url: coverUrl, focal: coverFocalPoint !== undefined ? coverFocalPoint : (profile?.presentation.cover?.kind === 'custom' ? profile.presentation.cover.focal : null) }),
+      portrait: resolveQuickBookPortraitSlot({ layout, url: portraitUrl, alt: technicianName ?? businessName, visible: portraitVisible, focal: portraitFocalPoint !== undefined ? portraitFocalPoint : (profile?.presentation.portrait.kind === 'custom' ? profile.presentation.portrait.focal : null) }),
       gallery: [],
     },
   };

@@ -184,6 +184,8 @@ function LayoutCard({
         businessName={preview?.salonName ?? 'Your business'}
         className="mb-2"
         coverUrl={content?.heroImageUrl ?? null}
+        coverFocalPoint={content?.coverFocalPoint ?? null}
+        portraitFocalPoint={content?.portraitFocalPoint ?? null}
         galleryCount={content?.galleryPhotoIds?.length ?? 0}
         hasStory={preview?.hasBio ?? false}
         layout={layout.id as QuickBookSiteLayout}

@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
+import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { getCustomerSitePresentationCssVariables } from '@/libs/customerSitePresentation';
 
 import { QUICK_BOOK_MEDIA_LAYOUTS } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/media-layouts';
@@ -46,6 +47,24 @@ describe('Booking Page appearance', () => {
     fireEvent.click(screen.getByTestId('quick-book-layout-option-profile_side'));
 
     expect(onChange).toHaveBeenLastCalledWith({ quickBookLayout: 'profile_side' });
+  });
+
+  it('keeps media thumbnail crops in step with saved focal-point changes', () => {
+    const draft = resolveBookingPageConfig({ bookingPage: { draft: { quickBookLayout: 'complete_split', quickBookProfile: { showTechPhoto: true } } } }).draft;
+    const content = resolveBookingPageContent({}).draft;
+    const preview = { salonName: 'Isla Nail Studio', logoUrl: '/logo.webp', technicianName: 'Daniela', technicianPhotoUrl: '/portrait.webp', specialties: [], hasBio: false, gallery: [] };
+    const props = { disabled: false, draft, mode: 'layouts' as const, onChange: vi.fn(), presentationPreview: preview };
+    const view = render(<BookingPageAppearance {...props} content={{ ...content, heroImageUrl: '/cover.webp', coverFocalPoint: { x: 75, y: 25 }, portraitFocalPoint: { x: 40, y: 30 } }} />);
+    const thumbnail = screen.getByTestId('quick-book-layout-poster-complete_split');
+
+    expect(thumbnail.querySelector('.qbm-cover img')).toHaveStyle({ objectPosition: '75% 25%' });
+    expect(thumbnail.querySelector('.qbm-profile img')).toHaveStyle({ objectPosition: '40% 30%' });
+
+    view.rerender(<BookingPageAppearance {...props} content={{ ...content, heroImageUrl: '/cover.webp', coverFocalPoint: { x: 20, y: 80 }, portraitFocalPoint: { x: 65, y: 45 } }} />);
+
+    expect(thumbnail.querySelector('.qbm-cover img')).toHaveStyle({ objectPosition: '20% 80%' });
+    expect(thumbnail.querySelector('.qbm-profile img')).toHaveStyle({ objectPosition: '65% 45%' });
+    expect(props.onChange).not.toHaveBeenCalled();
   });
 
   it('uses the shared styles, palettes and font choices, and writes only the chosen field', () => {

@@ -16,6 +16,7 @@ import { isMediaQuickBookLayout } from './media-layouts';
 import { MediaLayoutThumbnail } from './MediaLayoutThumbnail';
 import {
   type QuickBookCoverSlot,
+  type QuickBookFocalPoint,
   quickBookMonogram,
   type QuickBookPortraitSlot,
   type QuickBookPresentationProfile,
@@ -33,6 +34,8 @@ export type QuickBookLayoutPosterProps = {
   portraitVisible: boolean;
   /** The owner's custom cover URL, or null for the default. */
   coverUrl: string | null;
+  coverFocalPoint?: QuickBookFocalPoint | null;
+  portraitFocalPoint?: QuickBookFocalPoint | null;
   specialties?: readonly string[];
   hasStory?: boolean;
   galleryCount?: number;
