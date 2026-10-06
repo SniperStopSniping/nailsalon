@@ -290,6 +290,26 @@ describe('NewAppointmentModal Google conversion session', () => {
     expect(new Headers(requests[1]!.headers).get('Idempotency-Key')).toBe(new Headers(requests[0]!.headers).get('Idempotency-Key'));
   });
 
+  it('preserves every selected service when a walk-in moves to New Appointment', async () => {
+    const onSuccess = vi.fn();
+    render(
+      <NewAppointmentModal {...modalProps({
+        googleEventPrefill: null,
+        clientPrefill: { name: 'Walk-in client', phone: '4165550198', email: null, serviceIds: ['service_1', 'service_2'], technicianId: 'tech_1' },
+        onSuccess,
+      })}
+      />,
+    );
+    await waitForForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
+    const body = JSON.parse(String((postCalls()[0]![1] as RequestInit).body));
+
+    expect(body.serviceIds).toEqual(['service_1', 'service_2']);
+    expect(body.technicianId).toBe('tech_1');
+    expect(body.clientPhone).toBe('4165550198');
+  });
+
   it('creates a fresh request identity when an owner edits the failed request', async () => {
     installDefaultFetch(async () => jsonResponse({ error: { code: 'SLOT_UNAVAILABLE', message: 'Choose another time' } }, 409));
     render(

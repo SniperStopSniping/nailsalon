@@ -495,6 +495,8 @@ describe('BookingPageOwnerSurface', () => {
     render(<BookingPageOwnerSurface />);
 
     expect(await screen.findByRole('heading', { name: /^Policies Display$/ })).toBeInTheDocument();
+    expect(screen.getByText('Policy display choices save to your draft until you publish. Policy text and booking rules save immediately in their linked settings.')).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing here waits for a publish/)).not.toBeInTheDocument();
 
     const policySwitch = await screen.findByRole('switch', { name: /Show booking policy/i });
     const reviewsSwitch = screen.getByRole('switch', { name: /Show reviews/i });
@@ -519,6 +521,40 @@ describe('BookingPageOwnerSurface', () => {
     expect(policySwitch).toBeChecked();
     expect(reviewsSwitch).toBeChecked();
     expect(content).toEqual(baseContent());
+  });
+
+  it('lists saved presentation changes and clears the list after publishing', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=publish');
+    content = { ...content, draft: { ...content.draft, heroImageUrl: 'https://example.com/cover.jpg', locationDisplayMode: 'after_booking' } };
+    config = { ...config, draft: { ...config.draft, quickBookProfile: { ...config.draft.quickBookProfile, showBookingPolicy: true } } };
+    render(<BookingPageOwnerSurface />);
+    const review = await screen.findByTestId('booking-page-draft-review');
+
+    expect(within(review).getByRole('heading')).toHaveTextContent('3 unpublished changes');
+    expect(within(review).getAllByRole('listitem').map(item => item.textContent)).toEqual([
+      'Profile and policy visibility changed',
+      'Cover photo changed',
+      'Address visibility changed',
+    ]);
+    expect(within(review).getByRole('link', { name: 'Preview draft' })).toHaveAttribute('href', '/admin/booking-page/preview/salon-a');
+
+    await userEvent.click(screen.getByTestId('booking-page-publish'));
+
+    expect(await within(review).findByText('No unpublished page changes')).toBeInTheDocument();
+    expect(within(review).queryByRole('list')).not.toBeInTheDocument();
+    expect(within(review).getByText('Your saved page draft matches your published page settings.')).toBeInTheDocument();
+  });
+
+  it('does not count object-key order or hidden-section ordering as changed settings', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=publish');
+    config = {
+      ...config,
+      draft: { ...config.draft, hiddenSections: ['policies', 'socialLinks'], sectionVariants: { policies: 'inline', socialLinks: 'icons' } },
+      live: { ...config.live, hiddenSections: ['socialLinks', 'policies'], sectionVariants: { socialLinks: 'icons', policies: 'inline' } },
+    };
+    render(<BookingPageOwnerSurface />);
+
+    expect(await screen.findByText('No unpublished page changes')).toBeInTheDocument();
   });
 
   it('waits for a pending Policies Display visibility save and stays in place when that save fails', async () => {
