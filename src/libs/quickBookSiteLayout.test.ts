@@ -13,10 +13,12 @@ describe('quickBookSiteLayout', () => {
       getSelectableQuickBookLayoutsByFamily(family as 'simple' | 'profile' | 'cover')
     )).map(layout => layout.id);
 
-    expect(choices).toHaveLength(20);
+    expect(choices).toHaveLength(24);
     expect(choices).not.toContain('editorial');
     expect(choices).not.toContain('hub_menu');
-    expect(choices).toContain('editorial_split');
+    expect(choices).toContain('text_editorial');
+    expect(choices).toContain('complete_editorial');
+    expect(resolveQuickBookSiteLayout('editorial_split')).toBe('editorial_split');
     expect(resolveQuickBookSiteLayout('editorial')).toBe('editorial');
     expect(resolveQuickBookSiteLayout('hub_menu')).toBe('hub_menu');
   });

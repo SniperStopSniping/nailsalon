@@ -488,13 +488,14 @@ describe('OnboardingApp handoff boundaries', () => {
     state.recipe.starter = 'quick_book';
     renderAt(state);
     const baseEntry = currentBrowserHistoryEntry();
-    const card = screen.getByRole('button', { name: /^Hero Banner/u });
+    await user.click(screen.getByText(/With cover · Cover/u, { selector: '[data-media-group="cover"] > summary' }));
+    const card = screen.getByRole('button', { name: /^Photo Split/u });
     const back = vi.spyOn(window.history, 'back').mockImplementation(() => undefined);
 
     await user.click(card);
     let dialog = screen.getByRole('dialog', { name: 'Preview your Quick Book layout' });
 
-    expect(dialog.querySelector('[data-quick-book-layout="hero_banner"]')).toBeInTheDocument();
+    expect(dialog.querySelector('[data-quick-book-layout="cover_split"]')).toBeInTheDocument();
     expect(dialog.querySelector('.onboarding-preview-stage')).toHaveAttribute('data-preview-initial-target', 'top');
 
     await user.click(within(dialog).getByRole('button', { name: 'Try another layout' }));
@@ -503,12 +504,12 @@ describe('OnboardingApp handoff boundaries', () => {
 
     expect(card).toHaveAttribute('aria-pressed', 'true');
 
-    await waitFor(() => expect(parseOnboardingState(localStorage.getItem(ONBOARDING_STORAGE_KEY)!).state?.recipe.quickBookLayout).toBe('hero_banner'));
+    await waitFor(() => expect(parseOnboardingState(localStorage.getItem(ONBOARDING_STORAGE_KEY)!).state?.recipe.quickBookLayout).toBe('cover_split'));
 
     await user.click(card);
     dialog = screen.getByRole('dialog', { name: 'Preview your Quick Book layout' });
 
-    expect(dialog.querySelector('[data-quick-book-layout="hero_banner"]')).toBeInTheDocument();
+    expect(dialog.querySelector('[data-quick-book-layout="cover_split"]')).toBeInTheDocument();
 
     const accept = within(dialog).getByRole('button', { name: /^Continue$/u });
     back.mockClear();

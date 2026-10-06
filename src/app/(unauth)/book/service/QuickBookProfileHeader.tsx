@@ -25,6 +25,7 @@ import {
 } from '@/libs/quickBookSiteLayout';
 import { themeVars } from '@/theme';
 
+import { isMediaQuickBookLayout } from '../../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/media-layouts';
 import type { QuickBookProfileView } from './quickBookProfile';
 
 /**
@@ -144,6 +145,7 @@ export function QuickBookProfileHeader({
   // every field. A role a layout omits is still on the salon record and
   // still used by every layout that wants it.
   const approvedComposition = isApprovedQuickBookLayout(activeLayout);
+  const mediaComposition = isMediaQuickBookLayout(activeLayout);
   const recipe = getQuickBookLayout(activeLayout);
   const showsLogo = recipe.logo !== 'omitted' && Boolean(profile.identity.logoUrl);
   const showsPortrait = recipe.portrait !== 'none' && Boolean(profile.identity.technicianPhotoUrl);
@@ -172,7 +174,7 @@ export function QuickBookProfileHeader({
         data-layout-presentation={activeLayout}
         aria-labelledby="quick-book-profile-name"
         className={presentation
-          ? approvedComposition ? 'qbp-public-profile' : 'qb-public-profile mb-5'
+          ? mediaComposition ? 'qbm-public-profile' : approvedComposition ? 'qbp-public-profile' : 'qb-public-profile mb-5'
           : `mb-5 overflow-hidden border bg-white ${
             activeLayout === 'editorial'
               ? 'rounded-none border-x-0 shadow-none'
@@ -189,7 +191,7 @@ export function QuickBookProfileHeader({
         {presentation
           ? (
               <div
-                className={approvedComposition ? undefined : getQuickBookLayout(activeLayout).family === 'cover' ? 'p-3 pb-4 sm:p-4' : 'p-4 sm:p-5'}
+                className={approvedComposition || mediaComposition ? undefined : getQuickBookLayout(activeLayout).family === 'cover' ? 'p-3 pb-4 sm:p-4' : 'p-4 sm:p-5'}
                 style={approvedComposition ? undefined : PRESENTATION_TOKEN_STYLE}
               >
                 <QuickBookPresentation

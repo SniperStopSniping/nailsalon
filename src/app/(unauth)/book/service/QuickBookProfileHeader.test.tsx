@@ -78,7 +78,7 @@ describe('QuickBookProfileHeader', () => {
     // The design-system layouts share one class vocabulary and differ by
     // composition, so the fingerprint also captures their block structure
     // with text, media and the layout identifier itself stripped out.
-    const structure = (root: HTMLElement) => (root.querySelector('.qb-presentation')?.outerHTML ?? '')
+    const structure = (root: HTMLElement) => (root.querySelector('.qb-presentation, .qbm-header')?.outerHTML ?? '')
       .replace(/>[^<]+</g, '><')
       .replace(/ (?:id|alt|src|href|style|aria-[a-z-]+|data-qb-layout|data-qb-family)="[^"]*"/g, '');
 
@@ -93,7 +93,7 @@ describe('QuickBookProfileHeader', () => {
       );
       const header = screen.getByTestId('booking-step-header');
       const profile = screen.getByTestId('quick-book-profile');
-      const identity = screen.queryByTestId('quick-book-identity') ?? profile.querySelector('.qbp-brand')!;
+      const identity = screen.queryByTestId('quick-book-identity') ?? profile.querySelector('.qbp-brand, .qbm-identity')!;
       const details = screen.queryByTestId('quick-book-business-details') ?? profile.querySelector('.qbp-facts')!;
 
       expect(header).toHaveAttribute('data-quick-book-layout', layout);

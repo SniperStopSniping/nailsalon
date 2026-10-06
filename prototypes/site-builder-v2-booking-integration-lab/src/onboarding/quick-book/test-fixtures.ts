@@ -5,9 +5,9 @@ import { createOnboardingBookingFixture } from '../model/booking-preview';
 import { deriveDepositPolicySummary } from '../model/policies';
 import { resolveQuickBookProfile } from '../model/quick-book-profile';
 import { buildLabQuickBookPresentationProfile } from '../quick-book/lab-presentation';
-import type { ApprovedQuickBookLayout } from './ApprovedQuickBookComposition';
+import type { QuickBookLayoutId } from './layouts';
 
-export function createQuickBookFixture(layout: ApprovedQuickBookLayout, scenario: string) {
+export function createQuickBookFixture(layout: QuickBookLayoutId, scenario: string) {
   const state = createDanielaFixtureState();
   state.recipe.starter = 'quick_book';
   state.recipe.quickBookLayout = layout;

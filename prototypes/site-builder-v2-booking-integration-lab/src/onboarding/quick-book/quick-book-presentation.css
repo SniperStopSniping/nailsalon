@@ -1,4 +1,5 @@
 @import './approved-quick-book.css';
+@import './media-quick-book.css';
 /* Shared customer presentation. Container queries also work inside owner previews.
    The retired Editorial / Hub Menu renderers do not use this vocabulary. */
 .qb-presentation,

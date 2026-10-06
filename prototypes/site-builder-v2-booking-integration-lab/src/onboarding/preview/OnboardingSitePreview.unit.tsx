@@ -428,6 +428,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
   it('never publishes one stored asset under both Logo and Profile roles', () => {
     const state = createDefaultOnboardingState();
+    state.recipe.quickBookLayout = 'compact_dropdown';
     state.profile.businessName = 'Isla Nail Studio';
     state.profile.logo = {
       fileName: 'shared.png',

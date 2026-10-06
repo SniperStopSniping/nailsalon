@@ -26,5 +26,5 @@ export default defineConfig({
       { find: '@', replacement: path.join(repository, 'src') },
     ],
   },
-  server: { host: '127.0.0.1', port: 3138, strictPort: true, fs: { allow: [repository] } },
+  server: { host: '127.0.0.1', port: Number(process.env.BOOKING_THEME_PORT ?? 3138), strictPort: true, fs: { allow: [repository] } },
 });

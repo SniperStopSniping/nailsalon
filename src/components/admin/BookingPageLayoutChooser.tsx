@@ -29,15 +29,13 @@ import {
   describeQuickBookLayoutCapabilities,
   describeQuickBookNameAdvisory,
   getQuickBookLayout,
-  getSelectableQuickBookLayoutsByFamily,
-  isRecommendedQuickBookLayout,
-  isRetiredQuickBookLayout,
-  QUICK_BOOK_LAYOUT_FAMILIES,
-  QUICK_BOOK_LAYOUT_FAMILY_LABELS,
   type QuickBookLayoutDefinition,
   type QuickBookSiteLayout,
-  RECOMMENDED_QUICK_BOOK_LAYOUT_IDS,
 } from '@/libs/quickBookSiteLayout';
+
+import { isMediaQuickBookLayout } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/media-layouts';
+import { MediaLayoutCatalog } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/MediaLayoutCatalog';
+import type { QuickBookPresentationProfile } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/presentation-view';
 
 /** Owner-only preview facts returned by `GET /api/admin/booking-page`. */
 export type BookingPagePresentationPreview = {
@@ -47,6 +45,7 @@ export type BookingPagePresentationPreview = {
   technicianPhotoUrl: string | null;
   specialties: string[];
   hasBio: boolean;
+  publicProfile?: QuickBookPresentationProfile;
   gallery: Array<{ id: string; imageUrl: string; altText: string | null }>;
 };
 
@@ -181,6 +180,7 @@ function LayoutCard({
       type="button"
     >
       <QuickBookLayoutPoster
+        profile={preview?.publicProfile}
         businessName={preview?.salonName ?? 'Your business'}
         className="mb-2"
         coverUrl={content?.heroImageUrl ?? null}
@@ -227,7 +227,6 @@ export function BookingPageLayoutChooser({
 }: BookingPageLayoutChooserProps) {
   const selectedId = draft.quickBookLayout ?? 'clean_card';
   const selected = getQuickBookLayout(selectedId);
-  const [moreLayoutsOpen, setMoreLayoutsOpen] = useState(!isRecommendedQuickBookLayout(selectedId));
   const tokens = presentationTokens(draft);
   const [coverTextDraft, setCoverTextDraft] = useState(content?.coverText ?? '');
   useEffect(() => {
@@ -248,63 +247,35 @@ export function BookingPageLayoutChooser({
 
   return (
     <div className="space-y-6" data-testid="quick-book-layout-chooser">
-      {isRetiredQuickBookLayout(selectedId)
-        ? <p className="text-sm text-[var(--owner-muted)]">{`Your saved ${selected.label} layout is kept. You can preview it or choose another layout.`}</p>
+      {!isMediaQuickBookLayout(selectedId)
+        ? (
+            <section>
+              <p className="mb-3 text-sm">{`Your saved ${selected.label} layout is kept until you choose a new design.`}</p>
+              <LayoutCard content={content} disabled={disabled} draft={draft} layout={selected} onSelect={() => {}} preview={preview} selected tokens={tokens} />
+            </section>
+          )
         : null}
-      <fieldset className="rounded-2xl bg-[var(--owner-surface)] p-4" disabled={disabled}>
-        <legend className="px-2 text-xl font-semibold">Recommended</legend>
-        <p className="mb-3 text-sm text-[var(--owner-muted)]">Fast &amp; simple, personal brand, or visual brand.</p>
-        <div className="grid gap-3 sm:grid-cols-3">
-          {RECOMMENDED_QUICK_BOOK_LAYOUT_IDS.map(id => (
-            <LayoutCard
-              key={id}
-              content={content}
-              disabled={disabled}
-              draft={draft}
-              layout={getQuickBookLayout(id)}
-              onSelect={() => {
-                if (id !== selectedId) {
-                  onConfigPatch({ quickBookLayout: id });
-                }
-              }}
-              preview={preview}
-              selected={id === selectedId}
-              tokens={tokens}
-            />
-          ))}
-        </div>
-      </fieldset>
-      <button className={buttonClass} type="button" aria-expanded={moreLayoutsOpen} aria-controls="owner-quick-book-more-layouts" onClick={() => setMoreLayoutsOpen(value => !value)}>{moreLayoutsOpen ? 'Hide more layouts' : 'View more layouts'}</button>
-      <div id="owner-quick-book-more-layouts" hidden={!moreLayoutsOpen} className="space-y-6">
-        {QUICK_BOOK_LAYOUT_FAMILIES.map((family) => {
-          const meta = QUICK_BOOK_LAYOUT_FAMILY_LABELS[family];
-          return (
-            <fieldset className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4" data-testid={`quick-book-layout-family-${family}`} disabled={disabled} key={family}>
-              <legend className="px-2 text-xl font-semibold">{meta.title}</legend>
-              <p className="mb-3 text-xs text-[var(--owner-muted)]">{meta.description}</p>
-              <div className="grid grid-cols-2 gap-3">
-                {getSelectableQuickBookLayoutsByFamily(family, selectedId).filter(layout => !isRecommendedQuickBookLayout(layout.id)).map(layout => (
-                  <LayoutCard
-                    content={content}
-                    disabled={disabled}
-                    draft={draft}
-                    key={layout.id}
-                    layout={layout}
-                    onSelect={() => {
-                      if (layout.id !== selectedId) {
-                        onConfigPatch({ quickBookLayout: layout.id as QuickBookSiteLayout });
-                      }
-                    }}
-                    preview={preview}
-                    selected={layout.id === selectedId}
-                    tokens={tokens}
-                  />
-                ))}
-              </div>
-            </fieldset>
-          );
-        })}
-      </div>
+      <p className="text-sm text-[var(--owner-muted)]">Browse all 24 designs. Missing images use the supplied placeholders; your uploads always take priority.</p>
+      <MediaLayoutCatalog
+        selectedId={selectedId}
+        renderCard={layout => (
+          <LayoutCard
+            content={content}
+            disabled={disabled}
+            draft={draft}
+            key={layout.id}
+            layout={layout}
+            onSelect={() => {
+              if (layout.id !== selectedId) {
+                onConfigPatch({ quickBookLayout: layout.id });
+              }
+            }}
+            preview={preview}
+            selected={layout.id === selectedId}
+            tokens={tokens}
+          />
+        )}
+      />
 
       <section aria-labelledby="quick-book-layout-images-heading" className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4" data-testid="quick-book-layout-images">
         <h3 className="text-lg font-semibold" id="quick-book-layout-images-heading">{`Images for ${selected.label}`}</h3>
@@ -324,7 +295,7 @@ export function BookingPageLayoutChooser({
               ? <p className="text-sm text-[var(--owner-muted)]">Your logo is shown on this layout.</p>
               : (
                   <p className="text-sm text-[var(--owner-muted)]">
-                    No logo saved, so your business name is shown on its own.
+                    No logo saved. This design uses the supplied logo placeholder until you add yours.
                     {photosHref && (
                       <>
                         {' '}

@@ -146,18 +146,17 @@ test('the Layouts panel offers every family with truthful default-image guidance
 
   await expect(chooser).toBeVisible();
 
-  for (const family of ['simple', 'profile', 'cover']) {
-    await expect(page.getByTestId(`quick-book-layout-family-${family}`)).toBeVisible();
-  }
+  await expect(chooser.locator('[data-media-group]')).toHaveCount(8);
 
-  await expect(chooser.locator('[data-testid^="quick-book-layout-option-"]')).toHaveCount(22);
+  await expect(chooser.locator('[data-testid^="quick-book-layout-option-"]')).toHaveCount(25);
 
   try {
     // Choosing a profile-led layout immediately explains the default illustration
     // (the fixture is a team salon with no sole public portrait).
-    await page.getByTestId('quick-book-layout-option-side_portrait').click();
+    await chooser.locator('[data-media-group="profile"] > summary').click();
+    await page.getByTestId('quick-book-layout-option-profile_side').click();
 
-    await expect(page.getByTestId('quick-book-layout-option-side_portrait')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('quick-book-layout-option-profile_side')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('quick-book-portrait-default-note')).toContainText(/default profile illustration/iu);
 
     // A saved-but-unused cover is described, never silently dropped.
@@ -165,9 +164,10 @@ test('the Layouts panel offers every family with truthful default-image guidance
       await expect(page.getByTestId('quick-book-cover-unused-note')).toBeVisible();
     }
 
-    await page.getByTestId('quick-book-layout-option-hero_banner').click();
+    await chooser.locator('[data-media-group="cover"] > summary').click();
+    await page.getByTestId('quick-book-layout-option-cover_split').click();
 
-    await expect(page.getByTestId('quick-book-layout-option-hero_banner')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('quick-book-layout-option-cover_split')).toHaveAttribute('aria-pressed', 'true');
 
     if (!state.content.draft.heroImageUrl) {
       await expect(page.getByTestId('quick-book-cover-default-note')).toContainText(/default cover/iu);
@@ -175,7 +175,7 @@ test('the Layouts panel offers every family with truthful default-image guidance
 
     await expect(page.getByRole('link', { name: /cover in Photos & Gallery/ })).toHaveAttribute('href', /panel=gallery/);
     await expect(page.getByTestId('quick-book-cover-upload')).toHaveCount(0);
-    await expect(page.getByTestId('quick-book-layout-cover-text')).toBeVisible();
+    await expect(page.getByTestId('quick-book-layout-cover-text')).toHaveCount(0);
 
     await testInfo.attach(`layouts-panel-${testInfo.project.name}-${page.viewportSize()?.width ?? 0}`, {
       body: await page.screenshot({ fullPage: true }),
