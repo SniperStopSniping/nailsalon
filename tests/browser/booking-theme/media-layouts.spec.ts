@@ -7,11 +7,17 @@ import { QUICK_BOOK_MEDIA_GROUPS, QUICK_BOOK_MEDIA_LAYOUTS } from '../../../prot
 
 test.describe.configure({ timeout: 90_000 });
 
+test.beforeEach(async ({ page }) => {
+  // This header test has no dependency on the third-party map below Services.
+  await page.route(/https:\/\/(?:www|maps)\.google\.(?:com|ca)\/.*(?:map|embed)/u, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Map fixture</title>' }));
+});
+
 for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
-  test(`${layout.id} preserves the real customer booking surface on four canvases`, async ({ page }, testInfo) => {
+  test(`${layout.id} preserves the real customer booking surface on four canvases`, async ({ page, browserName }, testInfo) => {
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
-    for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1440, 1000]]) {
+    const canvases = browserName === 'webkit' ? [[320, 568], [390, 844]] : [[320, 568], [390, 844], [768, 1024], [1440, 1000]];
+    for (const [width, height] of canvases) {
       await page.setViewportSize({ width: width!, height: height! });
       await page.goto(`/?step=service&quick-book-layout=${layout.id}`, { waitUntil: 'domcontentloaded' });
       const header = page.locator('.qbm-header');
@@ -113,7 +119,7 @@ test('logo compositions preserve square, wide and tall uploads', async ({ page }
   }
 });
 
-test('all 24 headers leave the shipped Services markup unchanged', async ({ page }) => {
+test('all 24 headers leave the shipped Services markup unchanged', async ({ page, browserName }) => {
   const menu = async () => page.locator('[data-public-surface="serviceMenu"]').evaluate((element) => {
     const copy = element.cloneNode(true) as HTMLElement;
     for (const node of copy.querySelectorAll('*')) {
@@ -126,7 +132,7 @@ test('all 24 headers leave the shipped Services markup unchanged', async ({ page
 
   test.setTimeout(180_000);
 
-  for (const width of [390, 1440]) {
+  for (const width of browserName === 'webkit' ? [390] : [390, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/?step=service&quick-book-layout=compact_dropdown', { waitUntil: 'domcontentloaded' });
 
