@@ -769,6 +769,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
     Map<string, DaySummary>
   >(new Map());
   const [schedule, setSchedule] = useState<CalendarSchedule>(EMPTY_CALENDAR_SCHEDULE);
+  const [scheduleSalonSlug, setScheduleSalonSlug] = useState<string | null>(null);
   // 'all' or a technician id: filters the grid counts, the weekly agenda and
   // the day panel together, so one owner question ("what is Tiffany's week?")
   // has one answer everywhere (AG-today-calendar-04).
@@ -937,6 +938,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
           ? { ...EMPTY_CALENDAR_SCHEDULE, ...result.data.schedule } as CalendarSchedule
           : EMPTY_CALENDAR_SCHEDULE,
       );
+      setScheduleSalonSlug(salonSlug);
       const googlePayload = googleResponse?.ok
         ? await googleResponse.json()
         : null;
@@ -1237,7 +1239,9 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  if (localView === 'block-time' && !loading && salonSlug) {
+  // A background calendar refresh must not unmount the active block editor.
+  // Wait only for the initial schedule belonging to this salon.
+  if (localView === 'block-time' && salonSlug && scheduleSalonSlug === salonSlug) {
     return <CalendarBlockTime salonSlug={salonSlug} date={selectedDateKey ?? formatDateKey(currentDate)} technicians={schedule.technicians} technicianId={technicianFilter} onClose={() => navigateView('calendar')} />;
   }
   if (localView === 'google-review' && salonSlug) {
