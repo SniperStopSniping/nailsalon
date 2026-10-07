@@ -14,6 +14,8 @@ type ResponseBody = {
   error?: { message?: string };
 };
 
+const SHORT_REMINDER_MESSAGE = 'Hi {{first_name}}, book your next visit: {{booking_link}}';
+
 export function RebookingReminderSettings({ salonSlug, salonName, onClose }: Props) {
   const [savedSettings, setSavedSettings] = useState<RebookingReminderConfig | null>(null);
   const [draft, setDraft] = useState<RebookingReminderConfig>(defaultRebookingReminderSettings);
@@ -21,6 +23,7 @@ export function RebookingReminderSettings({ salonSlug, salonName, onClose }: Pro
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [previousWording, setPreviousWording] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -33,6 +36,7 @@ export function RebookingReminderSettings({ salonSlug, salonName, onClose }: Pro
       }
       setSavedSettings(body.data.settings);
       setDraft(body.data.settings);
+      setPreviousWording(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load rebooking reminders.');
     } finally {
@@ -78,6 +82,7 @@ export function RebookingReminderSettings({ salonSlug, salonName, onClose }: Pro
       }
       setSavedSettings(body.data.settings);
       setDraft(body.data.settings);
+      setPreviousWording(null);
       setSaved(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save rebooking reminders.');
@@ -111,13 +116,14 @@ export function RebookingReminderSettings({ salonSlug, salonName, onClose }: Pro
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <h2 className="text-[17px] font-semibold">Automatic rebooking reminders</h2>
-                        <p className="mt-1 text-[14px] leading-relaxed text-[var(--owner-muted)]">Automatically remind clients when it’s almost time for their next appointment.</p>
+                        <p className="mt-1 text-[14px] leading-relaxed text-[var(--owner-muted)]">Invite clients back after their latest completed visit.</p>
                       </div>
                       <button
                         type="button"
                         role="switch"
                         aria-checked={draft.enabled}
                         aria-label="Enable rebooking reminders"
+                        disabled={saving}
                         onClick={() => {
                           setDraft(current => ({ ...current, enabled: !current.enabled }));
                           setSaved(false);
@@ -127,7 +133,8 @@ export function RebookingReminderSettings({ salonSlug, salonName, onClose }: Pro
                         {draft.enabled ? 'On' : 'Off'}
                       </button>
                     </div>
-                    <p className="mt-3 text-[12px] leading-relaxed text-[var(--owner-muted)]">Only reminder dates from when you turn this on are considered. Clients with an upcoming booking will not get one.</p>
+                    <p className="mt-3 text-[13px] leading-relaxed text-[var(--owner-muted)]">For clients eligible for salon-promotion texts who have no upcoming appointment. Opted-out, blocked and archived clients are excluded.</p>
+                    <p className="mt-2 text-[13px] leading-relaxed text-[var(--owner-muted)]">Only reminder dates from when you turn this on are considered. Changes take effect when you save.</p>
                   </section>
                   <section className="rounded-[18px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
                     <label htmlFor="rebooking-reminder-interval" className="block text-[15px] font-semibold">Send after the last completed appointment</label>
@@ -138,6 +145,7 @@ export function RebookingReminderSettings({ salonSlug, salonName, onClose }: Pro
                         min={1}
                         max={52}
                         step={1}
+                        disabled={saving}
                         value={draft.defaultIntervalWeeks}
                         onChange={(event) => {
                           const value = event.currentTarget.valueAsNumber;
@@ -150,6 +158,7 @@ export function RebookingReminderSettings({ salonSlug, salonName, onClose }: Pro
                       />
                       <span className="text-[14px] text-[var(--owner-muted)]">weeks</span>
                     </div>
+                    <p className="mt-3 text-[13px] leading-relaxed text-[var(--owner-muted)]">Reminders become due at 10 AM in your salon’s time zone. Delivery may be later. A service-specific interval takes precedence when configured.</p>
                   </section>
                   <section className="rounded-[18px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
                     <label htmlFor="rebooking-reminder-message" className="block text-[15px] font-semibold">SMS wording</label>
@@ -157,6 +166,7 @@ export function RebookingReminderSettings({ salonSlug, salonName, onClose }: Pro
                       id="rebooking-reminder-message"
                       rows={6}
                       maxLength={REBOOKING_REMINDER_MAX_LENGTH}
+                      disabled={saving}
                       value={draft.messageTemplate}
                       onChange={(event) => {
                         const messageTemplate = event.currentTarget.value;
@@ -165,11 +175,40 @@ export function RebookingReminderSettings({ salonSlug, salonName, onClose }: Pro
                       }}
                       className="mt-2 w-full rounded-xl border border-[var(--owner-line)] bg-white px-3 py-2.5 text-[14px]"
                     />
-                    <p className="mt-1 text-[12px] text-[var(--owner-muted)]">
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={saving || draft.messageTemplate === SHORT_REMINDER_MESSAGE}
+                        className="min-h-11 rounded-xl border border-[var(--owner-line)] px-3 text-[13px] font-semibold text-[var(--owner-accent)] disabled:opacity-50"
+                        onClick={() => {
+                          setPreviousWording(draft.messageTemplate);
+                          setDraft(current => ({ ...current, messageTemplate: SHORT_REMINDER_MESSAGE }));
+                          setSaved(false);
+                        }}
+                      >
+                        Try shorter wording
+                      </button>
+                      {previousWording !== null && (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          className="min-h-11 rounded-xl px-3 text-[13px] font-semibold text-[var(--owner-accent)] underline underline-offset-4"
+                          onClick={() => {
+                            setDraft(current => ({ ...current, messageTemplate: previousWording }));
+                            setPreviousWording(null);
+                            setSaved(false);
+                          }}
+                        >
+                          Undo wording change
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-2 break-words text-[13px] leading-relaxed text-[var(--owner-muted)]">
                       Available variables:
+                      {' '}
                       {REBOOKING_REMINDER_VARIABLES.map(variable => `{{${variable}}}`).join(' · ')}
                     </p>
-                    <p className="mt-1 text-right text-[12px] text-[var(--owner-muted)]">
+                    <p className="mt-1 text-right text-[13px] text-[var(--owner-muted)]">
                       {draft.messageTemplate.length}
                       /
                       {REBOOKING_REMINDER_MAX_LENGTH}
@@ -177,21 +216,42 @@ export function RebookingReminderSettings({ salonSlug, salonName, onClose }: Pro
                   </section>
                   <section className="rounded-[18px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
                     <h2 className="text-[15px] font-semibold">Message preview</h2>
-                    <p className="mt-1 text-[12px] text-[var(--owner-muted)]">Sample client and booking link. The final SMS uses each client’s details.</p>
+                    <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">Sample client and booking link. Sender identification and opt-out instructions are included.</p>
+                    <div aria-live="polite" aria-atomic="true" className="mt-3 rounded-xl border border-[var(--owner-line)] bg-[var(--owner-ground)] px-3 py-2.5">
+                      <p className="text-[13px] text-[var(--owner-muted)]">Estimated usage for this sample</p>
+                      <p className="mt-1 text-lg font-semibold text-[var(--owner-accent)]">
+                        {segments.segments}
+                        {' '}
+                        {segments.segments === 1 ? 'SMS credit' : 'SMS credits'}
+                      </p>
+                    </div>
                     <p className="mt-3 whitespace-pre-wrap break-words rounded-xl bg-[var(--owner-ground)] p-3 text-[14px] [overflow-wrap:anywhere]">{preview}</p>
-                    <p className="mt-2 text-[12px] text-[var(--owner-muted)]">
+                    <p className="mt-2 text-[13px] text-[var(--owner-muted)]">
                       {formatSegmentPreview(segments)}
                       {' '}
                       with these sample values
                     </p>
+                    <p className="mt-2 text-[13px] leading-relaxed text-[var(--owner-muted)]">Final usage varies with each client’s details, booking link and characters in the message. One SMS credit covers one message segment.</p>
                   </section>
                   {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
                   {saved && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">Rebooking Reminders saved.</p>}
                 </div>
                 <div className="sticky bottom-0 border-t border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[13px] text-[var(--owner-muted)]">
+                    <span>{dirty ? 'Unsaved changes' : `Reminders ${savedSettings.enabled ? 'on' : 'off'}`}</span>
+                    <span>
+                      Sample:
+                      {' '}
+                      <strong className="text-[var(--owner-ink)]">
+                        {segments.segments}
+                        {' '}
+                        {segments.segments === 1 ? 'credit' : 'credits'}
+                      </strong>
+                    </span>
+                  </div>
                   <button type="button" onClick={() => void save()} disabled={!dirty || saving || draft.defaultIntervalWeeks < 1 || draft.defaultIntervalWeeks > 52} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white disabled:opacity-50">
                     <Save className="size-4" aria-hidden="true" />
-                    {saving ? 'Saving…' : 'Save Rebooking Reminders'}
+                    {saving ? 'Saving…' : 'Save reminders'}
                   </button>
                 </div>
               </>
