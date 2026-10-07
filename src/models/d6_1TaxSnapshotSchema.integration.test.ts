@@ -334,7 +334,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(96);
+    expect(journal.entries).toHaveLength(97);
     expect(journal.entries[86]).toMatchObject({ idx: 86, tag: '0087_network_no_show_protection' });
     expect(journal.entries[87]).toMatchObject({ idx: 87, tag: '0088_network_no_show_platform_control' });
     expect(journal.entries[88]).toMatchObject({ idx: 88, tag: '0089_service_add_on_manual_confirmation' });
@@ -345,6 +345,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     expect(journal.entries[93]).toMatchObject({ idx: 93, when: 1790609459475, tag: '0094_billing_phone_identity' });
     expect(journal.entries[94]).toMatchObject({ idx: 94, when: 1790745061453, tag: '0095_salon_chooser_visibility' });
     expect(journal.entries[95]).toMatchObject({ idx: 95, tag: '0096_rebooking_reminders' });
+    expect(journal.entries[96]).toMatchObject({ idx: 96, when: 1791382616696, tag: '0097_founding_lifetime_core' });
     // The Stripe prerequisite keeps its own identity assertion as the tail
     // grows: 0078 appends, it does not displace what 0076 pinned.
     expect(journal.entries[76]).toMatchObject({
@@ -379,7 +380,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     [77, 'Stripe 0076'],
     [78, 'Review 0077'],
     [94, 'phone identity 0094'],
-  ])('upgrades a %s ledger through review requests, booking service snapshots, voice reception, text defaults, chooser visibility, and rebooking reminders through 0096', async (existingCount) => {
+  ])('upgrades a %s ledger through review requests, booking service snapshots, voice reception, text defaults, chooser visibility, rebooking reminders, and lifetime core claims through 0097', async (existingCount) => {
     const upgradeClient = new PGlite();
     const upgradeDb = drizzle(upgradeClient);
     const migrationsFolder = path.join(process.cwd(), 'migrations');
@@ -397,10 +398,11 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
         'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',
       );
 
-      expect(rows.rows).toHaveLength(96);
+      expect(rows.rows).toHaveLength(97);
       expect(Number(rows.rows[93]?.created_at)).toBe(1790609459475);
       expect(Number(rows.rows[94]?.created_at)).toBe(1790745061453);
       expect(Number(rows.rows[95]?.created_at)).toBe(migrations[95]?.folderMillis);
+      expect(Number(rows.rows[96]?.created_at)).toBe(migrations[96]?.folderMillis);
       expect(Number(rows.rows[76]?.created_at)).toBe(1787476392670);
       expect(Number(rows.rows[77]?.created_at)).toBe(1787562792670);
       expect(Number(rows.rows[78]?.created_at)).toBe(1787649192670);

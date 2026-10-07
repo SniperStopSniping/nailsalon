@@ -42,6 +42,7 @@ const ACTIVE_PLAN: PlanOverride = {
 
 function usageResponse(overrides: {
   creditPurchasesAvailable?: boolean;
+  lifetime?: boolean;
   plan?: PlanOverride;
   pendingCredits?: number;
   history?: Array<Record<string, unknown>>;
@@ -63,6 +64,7 @@ function usageResponse(overrides: {
         { key: 'topup_250_paid_2026_08', credits: 250, priceCents: 1399 },
       ],
       usage: {
+        coreAccess: overrides.lifetime ? { status: 'active', monthlySoftwarePriceCents: 0, expiresAt: null, usageBilledSeparately: true } : null,
         availableCredits: 277,
         monthlyCredits: 277,
         starterCredits: 73,
@@ -131,6 +133,25 @@ describe('UsageBillingModal', () => {
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
     mockDefaultFetch();
+  });
+
+  it('shows lifetime core access alongside paid text subscriptions and top-ups', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/salon/communications/usage')) {
+        return usageResponse({ lifetime: true });
+      }
+      if (url.startsWith('/api/billing/topups')) {
+        return topupsResponse({ available: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
+
+    expect(await screen.findByText('Founding Salon · Free for life')).toBeInTheDocument();
+    expect(screen.getByText(/Optional text subscription:/)).toBeInTheDocument();
+    expect(screen.getByText(/AI receptionist, calls and other usage services are optional paid add-ons/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /100 credits — \$5\.99/ })).toBeInTheDocument();
   });
 
   it('leads with the primary total and speaks the owner vocabulary (§10.2)', async () => {

@@ -834,14 +834,14 @@ describe('OnboardingApp handoff boundaries', () => {
     ).state.canva.ownedAssetIds).toEqual(['fixture-orphan-retry']));
   });
 
-  it('shows the plan offer only after Finish setup and enters the dashboard after Continue free', async () => {
+  it('shows the plan offer only after Finish setup and enters the dashboard after Claim my free lifetime plan', async () => {
     const user = userEvent.setup();
     const state = stateAt('final_preview');
     const onEnterBuilder = vi.fn();
     const { lab } = renderAt(state, onEnterBuilder);
 
     expect(screen.getByRole('button', { name: 'Finish setup' })).toBeVisible();
-    expect(screen.queryByRole('dialog', { name: 'Your site is saved' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Your site is ready' })).not.toBeInTheDocument();
     expect(onEnterBuilder).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Finish setup' }));
@@ -864,18 +864,18 @@ describe('OnboardingApp handoff boundaries', () => {
       }),
     );
 
-    const offer = screen.getByRole('dialog', { name: 'Your site is saved' });
+    const offer = screen.getByRole('dialog', { name: 'Your site is ready' });
 
-    expect(within(offer).getByRole('button', { name: 'Continue free' })).toBeVisible();
+    expect(within(offer).getByRole('button', { name: 'Claim my free lifetime plan' })).toBeVisible();
     expect(onEnterBuilder).not.toHaveBeenCalled();
 
-    await user.click(within(offer).getByRole('button', { name: 'Continue free' }));
+    await user.click(within(offer).getByRole('button', { name: 'Claim my free lifetime plan' }));
 
     expect(onEnterBuilder).toHaveBeenCalledOnce();
 
     const saved = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
 
-    expect(saved).toContain('"planIntent":"free"');
+    expect(saved).toContain('"planIntent":"founding"');
     expect(saved).toContain('"sessionStatus":"dashboard"');
   });
 
@@ -963,11 +963,11 @@ describe('OnboardingApp handoff boundaries', () => {
     const planEntry = currentBrowserHistoryEntry();
 
     expect(planEntry).toMatchObject({ overlay: { kind: 'plan' }, screen: 'final_preview' });
-    expect(screen.getByRole('dialog', { name: 'Your site is saved' })).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'Your site is ready' })).toBeVisible();
 
     dispatchBrowserHistoryEntry(baseEntry);
     await waitFor(() => expect(screen.queryByRole('dialog', {
-      name: 'Your site is saved',
+      name: 'Your site is ready',
     })).not.toBeInTheDocument());
 
     expect(screen.getByRole('heading', { name: 'Review your site' })).toBeVisible();
@@ -975,9 +975,9 @@ describe('OnboardingApp handoff boundaries', () => {
     await waitFor(() => expect(builderTrigger).toHaveFocus());
 
     dispatchBrowserHistoryEntry(planEntry);
-    const reopened = await screen.findByRole('dialog', { name: 'Your site is saved' });
+    const reopened = await screen.findByRole('dialog', { name: 'Your site is ready' });
     await waitFor(() => expect(within(reopened).getByRole('heading', {
-      name: 'Your site is saved',
+      name: 'Your site is ready',
     })).toHaveFocus());
 
     expect(screen.getByRole('heading', { name: 'Review your site' })).toBeVisible();

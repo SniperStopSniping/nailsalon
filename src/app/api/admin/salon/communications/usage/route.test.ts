@@ -14,6 +14,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { FOUNDING_LIFETIME_TERMS } from '@/libs/billing/foundingLifetime';
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
@@ -124,6 +125,57 @@ async function getUsage(salonSlug = 'slug-ignored-by-mock') {
     `http://localhost/api/admin/salon/communications/usage?salonSlug=${salonSlug}`,
   ));
 }
+
+describe('founding lifetime core access', () => {
+  it('projects only the authorized salon claim and preserves its paid text subscription', async () => {
+    const salonId = await seedSalon();
+    await seedSubscription(salonId);
+    await db.insert(schema.foundingLifetimeClaimSchema).values({
+      id: `flc_${salonId}`,
+      salonId,
+      sourceSiteId: 'site_usage_fixture',
+      offerKey: 'founding_lifetime_2026',
+      termsVersion: 1,
+      terms: FOUNDING_LIFETIME_TERMS,
+      claimedAt: new Date('2026-10-07T00:00:00Z'),
+    });
+    const body = await (await getUsage()).json();
+
+    expect(body.data.usage.coreAccess).toEqual({
+      status: 'active',
+      offerKey: 'founding_lifetime_2026',
+      claimedAt: '2026-10-07T00:00:00.000Z',
+      expiresAt: null,
+      monthlySoftwarePriceCents: 0,
+      usageBilledSeparately: true,
+    });
+    expect(body.data.usage.plan).not.toBeNull();
+    expect(body.data.usage.plan.status).toBe('active');
+
+    await seedSalon();
+    const otherBody = await (await getUsage(salonId)).json();
+
+    expect(otherBody.data.usage.coreAccess).toBeNull();
+    expect(otherBody.data.usage.plan).toBeNull();
+  });
+
+  it('rejects incomplete terms instead of silently treating them as a lifetime grant', async () => {
+    const salonId = await seedSalon();
+
+    await expect(db.insert(schema.foundingLifetimeClaimSchema).values({
+      id: `flc_invalid_${salonId}`,
+      salonId,
+      sourceSiteId: 'site_usage_fixture',
+      offerKey: 'founding_lifetime_2026',
+      termsVersion: 1,
+      terms: {} as typeof FOUNDING_LIFETIME_TERMS,
+    })).rejects.toThrow();
+
+    const body = await (await getUsage()).json();
+
+    expect(body.data.usage.coreAccess).toBeNull();
+  });
+});
 
 describe('no subscription', () => {
   it('renders plan: null when the salon has no billing_subscription row', async () => {

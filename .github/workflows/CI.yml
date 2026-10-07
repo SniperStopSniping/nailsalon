@@ -473,6 +473,8 @@ jobs:
               migrations/0095_salon_chooser_visibility.sql) ;;
               # Default-off automatic rebooking reminder settings and interval contract.
               migrations/0096_rebooking_reminders.sql) ;;
+              # Explicit owner claim: lifetime core pricing, paid usage unchanged.
+              migrations/0097_founding_lifetime_core.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -490,6 +492,7 @@ jobs:
               migrations/meta/0094_snapshot.json) ;;
               migrations/meta/0095_snapshot.json) ;;
               migrations/meta/0096_snapshot.json) ;;
+              migrations/meta/0097_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -890,6 +893,37 @@ jobs:
             exit 1
           fi
 
+          # The founding claim is a new table; no backfill or usage billing changes.
+          # Pin both artifacts and the exact new journal entry before release.
+          if ! git diff --quiet "$base" -- migrations/0097_founding_lifetime_core.sql migrations/meta/0097_snapshot.json; then
+            if git cat-file -e "$base:migrations/0097_founding_lifetime_core.sql" 2>/dev/null \
+              || git cat-file -e "$base:migrations/meta/0097_snapshot.json" 2>/dev/null; then
+              echo "::error::Migration 0097 and its snapshot are already shipped and immutable."
+              exit 1
+            fi
+            migration_0097_sql_status="$(git diff --name-status "$base" -- migrations/0097_founding_lifetime_core.sql)"
+            migration_0097_snapshot_status="$(git diff --name-status "$base" -- migrations/meta/0097_snapshot.json)"
+            if [ "$migration_0097_sql_status" != $'A\tmigrations/0097_founding_lifetime_core.sql' ] \
+              || [ "$migration_0097_snapshot_status" != $'A\tmigrations/meta/0097_snapshot.json' ]; then
+              echo "::error::Migration 0097 must introduce exactly one SQL file and one snapshot."
+              exit 1
+            fi
+            migration_0097_sql_sha256="$(sha256sum migrations/0097_founding_lifetime_core.sql | awk '{print $1}')"
+            migration_0097_snapshot_sha256="$(sha256sum migrations/meta/0097_snapshot.json | awk '{print $1}')"
+            if [ "$migration_0097_sql_sha256" != "99c798be3d33bbedb72046cccd1616747452625c40d70ccceca2e59c46c813b7" ] \
+              || [ "$migration_0097_snapshot_sha256" != "61ea38d8397b7338cfeb20bcba25e7fdff4221e735f8bc7fc9b71c92c525e12a" ]; then
+              echo "::error::Migration 0097 artifacts do not match the reviewed founding lifetime postimage."
+              exit 1
+            fi
+          fi
+
+          expected_0097_journal='{"breakpoints":true,"idx":96,"tag":"0097_founding_lifetime_core","version":"7","when":1791382616696}'
+          actual_0097_journal="$(jq -cS '.entries[] | select(.tag == "0097_founding_lifetime_core")' migrations/meta/_journal.json)"
+          if [ "$actual_0097_journal" != "$expected_0097_journal" ]; then
+            echo "::error::Migration 0097 journal entry does not match the reviewed postimage."
+            exit 1
+          fi
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -954,6 +988,7 @@ jobs:
               0094_billing_phone_identity) ;;
               0095_salon_chooser_visibility) ;;
               0096_rebooking_reminders) ;;
+              0097_founding_lifetime_core) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1173,6 +1208,9 @@ jobs:
       - name: Verify owner destinations and Hours in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerNavigation/playwright.config.ts --output=test-results/owner-navigation-components
 
+      - name: Verify Luster owner entry screens in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerEntry/playwright.config.ts --output=test-results/owner-entry
+
       - name: Verify owner Marketing destinations in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerMarketing/playwright.config.ts --output=test-results/owner-marketing-components
 
@@ -1212,7 +1250,7 @@ jobs:
           LUSTER_LAB_PORT: '4199'
           LUSTER_LAB_URL: http://127.0.0.1:4199
           LUSTER_CAPTURE_EVIDENCE: '0'
-        run: npx playwright test --config playwright.config.ts tests/e2e/onboarding-desktop-layout.spec.ts --project=chromium --output=../../test-results/onboarding-desktop
+        run: npx playwright test --config playwright.config.ts tests/e2e/onboarding-desktop-layout.spec.ts tests/e2e/founding-offer.spec.ts --project=chromium --output=../../test-results/onboarding-desktop
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -1768,6 +1806,7 @@ jobs:
     env:
       CONCURRENCY_TEST_DATABASE_URL: postgresql://sms_credit_ci@127.0.0.1:5432/sms_credit_ci
       SMS_CREDIT_LEDGER_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+      CORE_LIFETIME_DISPOSABLE_DATABASE_CONFIRMED: 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1785,10 +1824,12 @@ jobs:
             src/libs/billing/creditReservation.concurrency.integration.test.ts \
             src/app/api/billing/checkout/topup/route.concurrency.integration.test.ts \
             src/libs/billing/subscriptionRefunds.concurrency.integration.test.ts \
+            src/libs/billing/foundingLifetime.concurrency.integration.test.ts \
             | tee billing-postgres-concurrency.log
           grep -Fqx 'BILLING_REFUND_POSTGRES_TESTS_EXECUTED=23 BILLING_REFUND_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
           grep -Fqx 'BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_EXECUTED=9 BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
           grep -Fqx 'BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_EXECUTED=3 BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
+          grep -Fqx 'FOUNDING_CORE_POSTGRES_TESTS_EXECUTED=7 FOUNDING_CORE_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
 
   booking-entitlement-override-postgres:
     name: Booking entitlement override PostgreSQL concurrency

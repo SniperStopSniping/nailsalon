@@ -24,6 +24,7 @@ import type { NextRequest } from 'next/server';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { getPublicBillingOffers } from '@/libs/billing/billingOffers';
 import { computeAvailableBalance } from '@/libs/billing/creditLedger';
+import { getFoundingLifetimeAccess } from '@/libs/billing/foundingLifetime.server';
 import { describeBillingState, resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
 import { getPlanDefinition, getPublicPlanCatalog, type PlanDefinitionKey } from '@/libs/billing/planDefinitions';
 import { getPromotion, isPromotionWindowOpen } from '@/libs/billing/promotions';
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
   const salonId = guard.salon.id;
   const now = new Date();
+  const coreAccess = await getFoundingLifetimeAccess(salonId);
   // Server-resolved, audience-correct Buy More offers (§9.1): the client
   // never sees the other audience's pricing, let alone chooses it.
   const topupAudience = resolveTopupAudienceForLegacyPlan(guard.salon.plan ?? null);
@@ -162,6 +164,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   // into one "bonus" bucket — the distinction is operator detail.
   const byBucket = balance.byBucket;
   const usage = {
+    coreAccess,
     availableCredits: balance.available,
     // Owner-facing counterpart to the ledger's `reserved` bucket: credits
     // held for texts that are queued/sending but not yet settled.

@@ -15,21 +15,31 @@ export const lusterClerkVariables = {
   colorTextSecondary: '#706267',
 };
 
-/**
- * Sign-in card overrides:
- * - `headerTitle` is hidden because the page owns the only <h1>
- *   ("Salon owner sign in"); Clerk's per-step subtitle keeps the step
- *   context ("Welcome back…", "Enter the password associated with…").
- * - the sign-in card's footer action ("Don't have an account? Sign up") is
- *   hidden because owner accounts are invitation-only during the pilot, so
- *   the link is a dead end. Clerk ids that row by the card it belongs to, so
- *   the key is `footerAction__signIn`; the password step's own footer action
- *   (`__havingTrouble`, "Get help") is untouched.
- */
+/** Only the start title is redundant; Clerk retains all step and recovery copy. */
 export const lusterOwnerSignInAppearance = {
   elements: {
+    card: 'luster-auth-card',
+    cardBox: 'luster-auth-box',
+    dividerLine: 'luster-auth-divider',
+    footer: 'luster-auth-footer',
+    // The page links to the canonical salon builder when self-service is enabled.
     footerAction__signIn: { display: 'none' },
+    formButtonPrimary: 'luster-auth-primary',
+    formFieldInput: 'luster-auth-input',
+    formFieldLabel: 'luster-auth-label',
+    headerSubtitle: 'luster-auth-subtitle',
     headerTitle: { display: 'none' },
+    rootBox: 'luster-auth-root',
+    socialButtonsBlockButton: 'luster-auth-social',
+    socialButtonsBlockButtonText: 'luster-auth-social-text',
   },
-  variables: lusterClerkVariables,
+  layout: {
+    socialButtonsPlacement: 'bottom' as const,
+    socialButtonsVariant: 'blockButton' as const,
+  },
+  variables: {
+    ...lusterClerkVariables,
+    fontFamily: 'var(--font-owner-sans, Inter, ui-sans-serif, system-ui, sans-serif)',
+    fontSize: '16px',
+  },
 };

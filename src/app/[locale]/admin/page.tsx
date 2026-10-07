@@ -224,6 +224,7 @@ type AdminUser = {
     id: string;
     slug: string;
     name: string;
+    logoUrl?: string | null;
     status?: string | null;
     role: string;
     freeSoloEnabled?: boolean;

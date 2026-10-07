@@ -3,44 +3,49 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import OwnerSignInPage from './page';
 
-const mocks = vi.hoisted(() => ({
-  card: vi.fn(),
+const mocks = vi.hoisted(() => ({ card: vi.fn(), enabled: vi.fn(() => false) }));
+vi.mock('next/font/google', () => ({
+  Inter: () => ({ variable: 'entry-sans' }),
+  Newsreader: () => ({ variable: 'entry-display' }),
 }));
-
+vi.mock('@/features/onboarding-v1-integration/config.server', () => ({
+  isOnboardingV1IntegrationEnabled: mocks.enabled,
+}));
 vi.mock('@/components/auth/OwnerSignInCard', () => ({
-  OwnerSignInCard: (props: { dashboardUrl: string }) => {
+  OwnerSignInCard: (props: { dashboardUrl: string; createSalonUrl?: string }) => {
     mocks.card(props);
-
     return <div data-testid="owner-sign-in-card" />;
   },
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.enabled.mockReturnValue(false);
 });
 
 describe('OwnerSignInPage', () => {
-  it('names Luster once, under a single page heading', async () => {
+  it('has one calm welcome heading and the existing authentication card', async () => {
     render(await OwnerSignInPage({ params: Promise.resolve({ locale: 'en' }) }));
 
-    const headings = screen.getAllByRole('heading', { level: 1 });
-
-    expect(headings).toHaveLength(1);
-    expect(headings[0]).toHaveTextContent('Salon owner sign in');
-    expect(screen.getByText('Sign in to Luster to open your salon workspace.')).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+    expect(screen.getByText('Sign in to manage your salon, bookings and clients.')).toBeInTheDocument();
     expect(screen.getByTestId('owner-sign-in-card')).toBeInTheDocument();
+    expect(screen.queryByText('Salon owner sign in')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy');
+    expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');
   });
 
-  it('offers no self-serve sign-up path (owner accounts are invitation-only)', async () => {
+  it('does not send new owners into disabled onboarding', async () => {
     render(await OwnerSignInPage({ params: Promise.resolve({ locale: 'en' }) }));
 
-    expect(screen.queryByRole('link', { name: /sign up/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/My Application/i)).not.toBeInTheDocument();
+    expect(mocks.card).toHaveBeenCalledWith(expect.objectContaining({ createSalonUrl: undefined }));
   });
 
-  it('sends the owner to the workspace for the active locale', async () => {
+  it('uses the canonical enabled salon builder and localized dashboard', async () => {
+    mocks.enabled.mockReturnValue(true);
     render(await OwnerSignInPage({ params: Promise.resolve({ locale: 'fr' }) }));
 
-    expect(mocks.card).toHaveBeenCalledWith(expect.objectContaining({ dashboardUrl: '/fr/admin' }));
+    expect(mocks.card).toHaveBeenCalledWith(expect.objectContaining({ dashboardUrl: '/fr/admin', createSalonUrl: '/fr/onboarding-v1' }));
   });
 });

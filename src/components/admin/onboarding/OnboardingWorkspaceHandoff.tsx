@@ -18,12 +18,14 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { completeOnboardingDashboardHandoff } from '@/features/onboarding-v1-integration/flow-storage';
+import type { FoundingLifetimeAccess } from '@/libs/billing/foundingLifetime';
 
 export type HandoffSetupStatus = 'complete' | 'needs_attention' | 'not_started';
 export type OnboardingHandoffResolution = 'absent' | 'available' | 'error';
 
 export type OnboardingSiteHandoff = {
   handoff: {
+    coreAccess?: FoundingLifetimeAccess | null;
     planIntent: 'founding_interest' | 'free' | 'monthly_interest' | null;
     showWelcome: boolean;
     tourCompleted: boolean;
@@ -317,18 +319,26 @@ export function OnboardingWorkspaceHandoff({
                 <p className="mt-2 max-w-xl text-[15px] leading-6 text-[var(--owner-muted)]">
                   Your website, booking page and service menu are set up.
                 </p>
-                {handoff.handoff.planIntent === 'founding_interest'
-                || handoff.handoff.planIntent === 'monthly_interest'
+                {handoff.handoff.coreAccess?.status === 'active'
                   ? (
-                      <p className="mt-3 rounded-2xl border border-[var(--owner-line)] bg-white/75 px-4 py-3 text-sm font-semibold text-[var(--owner-ink)]" role="status">
-                        {handoff.handoff.planIntent === 'founding_interest'
-                          ? 'Founding offer reserved.'
-                          : 'Monthly interest saved.'}
-                        {' '}
-                        <span className="font-normal text-[var(--owner-muted)]">Nothing was charged today.</span>
-                      </p>
+                      <div className="mt-3 rounded-2xl border border-[var(--owner-line)] bg-white/75 px-4 py-3 text-sm text-[var(--owner-ink)]" role="status">
+                        <p className="font-semibold">Your core Luster app is free for life.</p>
+                        <p className="mt-1 text-[var(--owner-muted)]">$0 monthly software fee. Unlimited emails included. Extra texts, AI receptionist and phone usage are paid separately.</p>
+                        <p className="mt-1 text-[var(--owner-muted)]">Your one-time 100-text allowance uses business verification. View your text balance and any verification steps in Plan &amp; Usage.</p>
+                      </div>
                     )
-                  : null}
+                  : handoff.handoff.planIntent === 'founding_interest'
+                    || handoff.handoff.planIntent === 'monthly_interest'
+                    ? (
+                        <p className="mt-3 rounded-2xl border border-[var(--owner-line)] bg-white/75 px-4 py-3 text-sm font-semibold text-[var(--owner-ink)]" role="status">
+                          {handoff.handoff.planIntent === 'founding_interest'
+                            ? 'Founding offer reserved.'
+                            : 'Monthly interest saved.'}
+                          {' '}
+                          <span className="font-normal text-[var(--owner-muted)]">Nothing was charged today.</span>
+                        </p>
+                      )
+                    : null}
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                   <a
                     className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--owner-accent)] px-5 text-sm font-semibold text-white transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"

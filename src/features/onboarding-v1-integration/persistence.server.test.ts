@@ -2060,7 +2060,7 @@ describe.sequential('account-backed onboarding persistence', () => {
     }, handle())).rejects.toMatchObject({ code: 'SITE_NOT_FOUND', status: 404 });
   });
 
-  it('stores plan intent only, with stable idempotency and tenant-scoped loading', async () => {
+  it('preserves intent compatibility while granting lifetime core access with tenant-scoped loading', async () => {
     const owner = identity('plan');
     const claim = await claimOnboardingDraft(owner, request('plan'), handle());
     if (claim.kind !== 'success') {
@@ -2086,10 +2086,12 @@ describe.sequential('account-backed onboarding persistence', () => {
       idempotencyKey: opaque('plan_new_key'),
       intent: 'founding_interest',
       siteId: claim.data.siteId,
-    }, handle());
+    }, handle(), new Date('2026-10-07T12:00:00Z'));
 
     expect(free).toMatchObject({ dashboardUrl: expect.stringMatching(/^\/admin/), intent: 'free' });
     expect(changed.intent).toBe('founding_interest');
+    expect(changed.coreAccess).toMatchObject({ status: 'active', expiresAt: null, monthlySoftwarePriceCents: 0, usageBilledSeparately: true });
+    expect(changed.starterCreditsStatus).toBe('verification_required');
 
     const [admin] = await database.select({ id: schema.adminUserSchema.id })
       .from(schema.adminUserSchema)
@@ -2145,6 +2147,114 @@ describe.sequential('account-backed onboarding persistence', () => {
       database: handle(),
       siteId: claim.data.siteId,
     })).resolves.toBeNull();
+  });
+
+  it('claims lifetime software once and preserves the existing verified-business text allowance', async () => {
+    const owner = { ...identity('lifetime_verified'), phoneE164: '+14165550081' };
+    const saved = await claimOnboardingDraft(owner, request('lifetime_verified'), handle());
+    if (saved.kind !== 'success') {
+      throw new Error('Expected saved site.');
+    }
+    const input = { siteId: saved.data.siteId, intent: 'founding_interest' as const, idempotencyKey: opaque('lifetime_verified_plan') };
+    const first = await saveOnboardingPlanIntent(owner, input, handle(), new Date('2026-10-07T12:00:00Z'));
+    const replay = await saveOnboardingPlanIntent(owner, input, handle(), new Date('2028-01-01T12:00:00Z'));
+    const newKey = await saveOnboardingPlanIntent(owner, { ...input, idempotencyKey: opaque('lifetime_new_key') }, handle(), new Date('2028-01-01T12:00:00Z'));
+
+    expect(first.coreAccess).toEqual(replay.coreAccess);
+    expect(first.coreAccess).toEqual(newKey.coreAccess);
+    expect(first.starterCreditsStatus).toBe('already_claimed');
+
+    const claims = await database.select().from(schema.foundingLifetimeClaimSchema).where(eq(schema.foundingLifetimeClaimSchema.salonId, saved.data.salonId));
+
+    expect(claims).toHaveLength(1);
+    expect(claims[0]?.terms).toMatchObject({ coreSoftwareMonthlyPriceCents: 0, coreSoftwareAccess: 'lifetime', starterTextCredits: 100, emails: 'unlimited', additionalTexts: 'paid_separately', aiReceptionist: 'paid_separately', phoneUsage: 'paid_separately' });
+
+    const credits = await starterLots(saved.data.salonId);
+
+    expect(credits).toHaveLength(1);
+    expect(credits[0]?.amount).toBe(100);
+    expect(await database.select().from(schema.billingSubscriptionSchema).where(eq(schema.billingSubscriptionSchema.salonId, saved.data.salonId))).toHaveLength(0);
+  });
+
+  it('keeps core access active while text verification is pending and grants texts only once after verification', async () => {
+    const owner = identity('lifetime_pending_phone');
+    const saved = await claimOnboardingDraft(owner, request('lifetime_pending_phone'), handle());
+    if (saved.kind !== 'success') {
+      throw new Error('Expected saved site.');
+    }
+    const input = { siteId: saved.data.siteId, intent: 'founding_interest' as const, idempotencyKey: opaque('lifetime_pending_plan') };
+    const pending = await saveOnboardingPlanIntent(owner, input, handle(), new Date('2026-10-07T12:00:00Z'));
+
+    expect(pending.coreAccess?.status).toBe('active');
+    expect(pending.starterCreditsStatus).toBe('verification_required');
+    expect(await starterLots(saved.data.salonId)).toHaveLength(0);
+
+    const verified = { ...owner, phoneE164: '+14165550082' };
+    const ready = await saveOnboardingPlanIntent(verified, input, handle(), new Date('2027-02-01T12:00:00Z'));
+
+    expect(ready.coreAccess).toEqual(pending.coreAccess);
+    expect(ready.starterCreditsStatus).toBe('granted');
+
+    await saveOnboardingPlanIntent(verified, input, handle(), new Date('2027-02-01T12:00:00Z'));
+
+    expect(await starterLots(saved.data.salonId)).toHaveLength(1);
+
+    const second = await claimOnboardingDraft(verified, request('lifetime_second_business', { target: { mode: 'create_business' } }), handle());
+    if (second.kind !== 'success') {
+      throw new Error('Expected second saved site.');
+    }
+    const secondClaim = await saveOnboardingPlanIntent(verified, { ...input, siteId: second.data.siteId, idempotencyKey: opaque('lifetime_second_plan') }, handle(), new Date('2026-10-07T12:00:00Z'));
+
+    expect(secondClaim.coreAccess?.status).toBe('active');
+    expect(secondClaim.starterCreditsStatus).toBe('already_claimed');
+    expect(await starterLots(second.data.salonId)).toHaveLength(0);
+  });
+
+  it('refuses new claims at the deadline atomically while retaining the saved site', async () => {
+    const owner = identity('lifetime_closed');
+    const saved = await claimOnboardingDraft(owner, request('lifetime_closed'), handle());
+    if (saved.kind !== 'success') {
+      throw new Error('Expected saved site.');
+    }
+    const input = { siteId: saved.data.siteId, intent: 'founding_interest' as const, idempotencyKey: opaque('lifetime_closed_plan') };
+
+    await expect(saveOnboardingPlanIntent(owner, input, handle(), new Date('2027-01-02T05:00:00Z'))).rejects.toMatchObject({ code: 'FOUNDING_OFFER_CLOSED', status: 409 });
+    expect(await database.select().from(schema.foundingLifetimeClaimSchema).where(eq(schema.foundingLifetimeClaimSchema.salonId, saved.data.salonId))).toHaveLength(0);
+
+    const [site] = await database.select().from(schema.onboardingSiteSchema).where(eq(schema.onboardingSiteSchema.id, saved.data.siteId));
+
+    expect(site?.planIntent).toBeNull();
+
+    const accepted = await saveOnboardingPlanIntent(owner, input, handle(), new Date('2027-01-02T04:59:59.999Z'));
+
+    expect(accepted.coreAccess?.status).toBe('active');
+  });
+
+  it('does not change an optional paid text subscription when granting lifetime software', async () => {
+    const owner = identity('lifetime_paid_texts');
+    const saved = await claimOnboardingDraft(owner, request('lifetime_paid_texts'), handle());
+    if (saved.kind !== 'success') {
+      throw new Error('Expected saved site.');
+    }
+    const [subscription] = await database.insert(schema.billingSubscriptionSchema).values({
+      id: 'lifetime_text_subscription',
+      salonId: saved.data.salonId,
+      stripeSubscriptionId: 'sub_lifetime_usage_fixture',
+      stripeCustomerId: 'cus_lifetime_usage_fixture',
+      planDefinitionKey: 'pro_2026_08',
+      billingOfferKey: 'pro_2026_08_monthly',
+      billingCadence: 'monthly',
+      status: 'active',
+      paidThrough: new Date('2026-11-07T12:00:00Z'),
+      creditCycleAnchor: new Date('2026-10-07T12:00:00Z'),
+    }).returning();
+    const result = await saveOnboardingPlanIntent(owner, { siteId: saved.data.siteId, intent: 'founding_interest', idempotencyKey: opaque('lifetime_paid_plan') }, handle(), new Date('2026-10-07T12:00:00Z'));
+
+    expect(result.coreAccess?.monthlySoftwarePriceCents).toBe(0);
+
+    const [after] = await database.select().from(schema.billingSubscriptionSchema).where(eq(schema.billingSubscriptionSchema.id, subscription!.id));
+
+    expect(after).toEqual(subscription);
   });
 
   it('loads setup rehydration only for an owner, exact revision, and unpublished draft', async () => {

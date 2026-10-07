@@ -289,7 +289,7 @@ for (const [width, height] of sizes) {
     await preview.getByRole('button', { name: /Return to setup|Continue setup/ }).click();
     await page.getByRole('button', { name: 'Finish setup', exact: true }).click();
 
-    await expect(page.getByRole('button', { name: 'Continue free', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Claim my free lifetime plan', exact: true })).toBeVisible();
 
     await noOverflow(page);
 

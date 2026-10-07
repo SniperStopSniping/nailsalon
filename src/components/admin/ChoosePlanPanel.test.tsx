@@ -43,7 +43,7 @@ type FoundingFixture = {
   endsAt: string | null;
 } | null;
 
-function usageResponse(overrides: { subscriptions?: boolean; founding?: FoundingFixture } = {}) {
+function usageResponse(overrides: { subscriptions?: boolean; founding?: FoundingFixture; lifetime?: boolean } = {}) {
   return new Response(JSON.stringify({
     data: {
       salonId: 'salon_1',
@@ -58,6 +58,7 @@ function usageResponse(overrides: { subscriptions?: boolean; founding?: Founding
         founding: overrides.founding ?? null,
       },
       usage: {
+        coreAccess: overrides.lifetime ? { status: 'active' } : null,
         availableCredits: 0,
         monthlyCredits: 0,
         starterCredits: 0,
@@ -76,7 +77,7 @@ function usageResponse(overrides: { subscriptions?: boolean; founding?: Founding
   }), { status: 200 });
 }
 
-function mockUsage(overrides: { subscriptions?: boolean; founding?: FoundingFixture } = {}) {
+function mockUsage(overrides: { subscriptions?: boolean; founding?: FoundingFixture; lifetime?: boolean } = {}) {
   fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.startsWith('/api/admin/salon/communications/usage')) {
@@ -115,6 +116,15 @@ describe('dark (capabilities.subscriptions is false)', () => {
 });
 
 describe('enabled (capabilities.subscriptions is true)', () => {
+  it('keeps paid text plans optional alongside a claimed lifetime core app', async () => {
+    mockUsage({ subscriptions: true, lifetime: true });
+    render(<ChoosePlanPanel salonSlug="salon-a" onClose={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: 'Optional text plans' })).toBeInTheDocument();
+    expect(screen.getByText(/do not change your lifetime software access/)).toBeInTheDocument();
+    expect(screen.getByTestId('choose-plan-monthly-starter')).toBeEnabled();
+  });
+
   it('shows Choose buttons and walks a monthly checkout to the disclosure confirmation', async () => {
     mockUsage({ subscriptions: true });
 

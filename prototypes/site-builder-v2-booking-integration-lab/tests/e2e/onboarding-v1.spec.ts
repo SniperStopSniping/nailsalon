@@ -77,7 +77,10 @@ async function waitForOnboardingSave(page: Page): Promise<void> {
  */
 async function enterSetupFromStarter(page: Page): Promise<void> {
   await openFreshOnboarding(page);
-  await chooseStarter(page, 'Start with One-page');
+  await page.getByRole('button', { name: 'Start with Quick Book' }).click();
+
+  await expect(page.getByLabel('More onboarding options')).toBeVisible();
+
   await waitForOnboardingSave(page);
 }
 
@@ -198,7 +201,7 @@ test.describe('Onboarding V1 UX Lab', () => {
   test('real form fast path reaches the personalized starting preview without exposing final setup or plans', async ({ page }) => {
     await openFreshOnboarding(page);
 
-    await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Your site is ready' })).toHaveCount(0);
     await expect(page.getByLabel('Luster', { exact: true })).toBeVisible();
     await expect(page.getByText('Your website starts here')).toBeVisible();
     await expect(page.getByText('Start simple or with a full website. You can add or change pages and sections anytime.')).toBeVisible();
@@ -231,7 +234,7 @@ test.describe('Onboarding V1 UX Lab', () => {
     expect(saved.recipe.starterDocumentSiteId).toBeTruthy();
 
     await expect(page.getByRole('button', { name: 'Finish setup' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Continue free' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Claim my free lifetime plan' })).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Preview my site' }).click();
 
@@ -240,13 +243,13 @@ test.describe('Onboarding V1 UX Lab', () => {
     await expect(preview).toBeVisible();
     await expect(preview.getByText('This is the customer experience. Builder controls and plan choices are not available here.')).toBeVisible();
     await expect(preview.getByRole('button', { name: 'Finish setup' })).toHaveCount(0);
-    await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Your site is ready' })).toHaveCount(0);
     await expect(preview.getByRole('button', { name: 'Continue setup' })).toBeVisible();
 
     await preview.getByRole('button', { name: 'Continue setup' }).click();
 
     await expect(heading(page, 'Where can clients find you?')).toBeVisible();
-    await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Your site is ready' })).toHaveCount(0);
 
     await page.getByLabel('City or general service area').fill('Scarborough, Ontario');
     await page.getByRole('group', { name: 'Where do you see clients?' })
@@ -267,7 +270,7 @@ test.describe('Onboarding V1 UX Lab', () => {
     await page.getByRole('button', { name: 'Save booking setup' }).click();
 
     await expect(heading(page, 'Would you like an About section?')).toBeVisible();
-    await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Your site is ready' })).toHaveCount(0);
   });
 
   test('Journey B follows the Canva-intent Quick Book path and saves founding interest before the dashboard handoff', async ({ page }) => {
@@ -345,7 +348,7 @@ test.describe('Onboarding V1 UX Lab', () => {
 
     await expect(finalPhonePreview).toBeVisible();
     await expect(finalPhonePreview.locator('[data-section-type="custom_design"]')).toHaveCount(1);
-    await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Your site is ready' })).toHaveCount(0);
 
     await waitForOnboardingSave(page);
     let saved = await readOnboardingState(page);
@@ -366,16 +369,13 @@ test.describe('Onboarding V1 UX Lab', () => {
     expect(saved.canva.images).toHaveLength(1);
 
     await page.getByRole('button', { name: 'Finish setup' }).click();
-    const planSheet = page.getByRole('dialog', { name: 'Your site is saved' });
+    const planSheet = page.getByRole('dialog', { name: 'Your site is ready' });
 
     await expect(planSheet).toBeVisible();
 
-    const founding = planSheet.getByRole('radio', { name: /^Founding offer/ });
-    await founding.press('Space');
+    await expect(planSheet.getByRole('radio')).toHaveCount(0);
 
-    await expect(founding).toBeChecked();
-
-    await planSheet.getByRole('button', { name: 'Reserve founding offer' }).click();
+    await planSheet.getByRole('button', { name: 'Claim my free lifetime plan' }).click();
 
     await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
     await expect(page.getByText('Founding offer reserved — we’ll let you know when details are ready'))
@@ -562,25 +562,22 @@ test.describe('Onboarding V1 UX Lab', () => {
     expect(saved.canva.status).toBe('ready');
 
     await page.getByRole('button', { name: 'Finish setup' }).click();
-    const planSheet = page.getByRole('dialog', { name: 'Your site is saved' });
+    const planSheet = page.getByRole('dialog', { name: 'Your site is ready' });
 
     await expect(planSheet).toBeVisible();
 
-    const monthly = planSheet.getByRole('radio', { name: /^Monthly/ });
-    await monthly.press('Space');
+    await expect(planSheet.getByRole('radio')).toHaveCount(0);
 
-    await expect(monthly).toBeChecked();
-
-    await planSheet.getByRole('button', { name: 'I’m interested in monthly' }).click();
+    await planSheet.getByRole('button', { name: 'Claim my free lifetime plan' }).click();
 
     await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
-    await expect(page.getByText('Monthly interest saved — we’ll let you know when details are ready'))
+    await expect(page.getByText('Founding offer reserved — we’ll let you know when details are ready'))
       .toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Dashboard destinations' })).toBeVisible();
 
     saved = await readOnboardingState(page);
 
-    expect(saved.planOffer.planIntent).toBe('monthly');
+    expect(saved.planOffer.planIntent).toBe('founding');
     expect(saved.progress.sessionStatus).toBe('dashboard');
   });
 
@@ -640,13 +637,13 @@ test.describe('Onboarding V1 UX Lab', () => {
 
     await expect(heading(page, 'Review your site')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Finish 1 required step' })).toBeVisible();
-    await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Your site is ready' })).toHaveCount(0);
     await expect(heading(page, 'Your Luster site is ready')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Finish 1 required step' }).click();
 
     await expect(heading(page, 'Choose your website style')).toBeVisible();
-    await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Your site is ready' })).toHaveCount(0);
     await expect(heading(page, 'Your Luster site is ready')).toHaveCount(0);
   });
 
@@ -711,49 +708,38 @@ test.describe('Onboarding V1 UX Lab', () => {
     await expect(heading(page, 'Choose your starting point')).toBeVisible();
   });
 
-  test('Finish setup opens the configured plan choices and Continue free enters the dashboard', async ({ page }) => {
+  test('Finish setup opens the configured plan choices and Claim my free lifetime plan enters the dashboard', async ({ page }) => {
     await enterSetupFromStarter(page);
     await applyFixture(page, 'All essentials complete');
 
     await expect(heading(page, 'Review your site')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Finish setup' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Continue free' })).toHaveCount(0);
-    await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Claim my free lifetime plan' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Your site is ready' })).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Finish setup' }).click();
-    const planSheet = page.getByRole('dialog', { name: 'Your site is saved' });
+    const planSheet = page.getByRole('dialog', { name: 'Your site is ready' });
 
     await expect(planSheet).toBeVisible();
 
-    const free = planSheet.getByRole('radio', { name: /^Free/ });
-    const founding = planSheet.getByRole('radio', { name: /^Founding offer/ });
-    const monthly = planSheet.getByRole('radio', { name: /^Monthly/ });
+    await expect(planSheet.getByRole('radio')).toHaveCount(0);
 
-    await expect(free).toBeChecked();
-    await expect(founding).toBeVisible();
-    await expect(monthly).toBeVisible();
-    await expect(planSheet.getByRole('radio')).toHaveCount(3);
-
-    const continueFree = planSheet.getByRole('button', { name: 'Continue free' });
+    const continueFree = planSheet.getByRole('button', { name: 'Claim my free lifetime plan' });
 
     await expect(continueFree).toBeVisible();
-    await expect(planSheet.getByRole('button', {
-      name: /Continue free|Reserve founding offer|I’m interested in monthly/,
-    })).toHaveCount(1);
-    await expect(planSheet.getByRole('heading', { level: 2, name: 'Your site is saved' }))
-      .toBeFocused();
-    await expect(planSheet).toContainText('Final paid-plan pricing and features are still being confirmed.');
-    await expect(planSheet).toContainText('There is no payment or plan access change today.');
+    await expect(planSheet.getByRole('heading', { level: 2, name: 'Your site is ready' })).toBeFocused();
+    await expect(planSheet).toContainText('100 free texts included');
+    await expect(planSheet).toContainText('Additional SMS, AI receptionist, phone calls, and other usage-based services are billed separately.');
 
     await continueFree.click();
 
     await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
-    await expect(page.getByText('Free selected')).toBeVisible();
+    await expect(page.getByText('Founding offer reserved — we’ll let you know when details are ready')).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Dashboard destinations' })).toBeVisible();
 
     const saved = await readOnboardingState(page);
 
-    expect(saved.planOffer.planIntent).toBe('free');
+    expect(saved.planOffer.planIntent).toBe('founding');
     expect(saved.progress.sessionStatus).toBe('dashboard');
   });
 

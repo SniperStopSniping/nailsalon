@@ -89,6 +89,7 @@ describe('GET /api/admin/auth/me', () => {
       id: 'salon_locked',
       slug: 'locked-salon',
       name: 'Locked Salon',
+      logoUrl: null,
       status: null,
       role: 'impersonation',
       freeSoloEnabled: false,

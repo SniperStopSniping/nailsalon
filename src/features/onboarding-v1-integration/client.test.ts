@@ -140,7 +140,8 @@ describe('onboarding integration client', () => {
 
   it('stores plan intent through one truthful server response', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: {
-      confirmationMessage: 'Nothing was charged today.',
+      confirmationMessage: 'Your core Luster app is free for life.',
+      coreAccess: { status: 'active', offerKey: 'founding_lifetime_2026', claimedAt: '2026-10-07T12:00:00.000Z', expiresAt: null, monthlySoftwarePriceCents: 0, usageBilledSeparately: true },
       dashboardUrl: '/en/admin',
       intent: 'founding_interest',
       siteId: savedSite.siteId,
@@ -154,6 +155,20 @@ describe('onboarding integration client', () => {
       intent: 'founding_interest',
       siteId: savedSite.siteId,
     });
+  });
+
+  it('does not accept a legacy interest-only response as a lifetime grant', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: {
+      confirmationMessage: 'Founding offer reserved.',
+      intent: 'founding_interest',
+      siteId: savedSite.siteId,
+    } }));
+
+    await expect(saveOnboardingPlanIntent({
+      idempotencyKey: 'lifetime_key_123456789012345678901234567890',
+      intent: 'founding_interest',
+      siteId: savedSite.siteId,
+    }, { fetcher })).rejects.toMatchObject({ code: 'LIFETIME_CLAIM_UNCONFIRMED' });
   });
 
   it('preserves the owner-safe API error for retry', async () => {
