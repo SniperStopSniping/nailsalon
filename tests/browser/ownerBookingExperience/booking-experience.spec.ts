@@ -15,6 +15,7 @@ test('experience is mobile canonical and Flow fails closed for Free Solo', async
   await page.goto('/?salon=isla&panel=flow');
 
   await expect(page.getByTestId('booking-flow-unavailable')).toContainText('not included with Free Solo');
+  await expect(page.getByRole('heading', { level: 1, name: 'Booking Flow', exact: true })).toBeFocused();
 
   await page.getByRole('button', { name: 'Booking Page' }).click();
 
@@ -54,6 +55,8 @@ test('team Flow stays closed while its scoped access check is pending', async ({
   await page.goto('/?salon=isla&panel=flow');
 
   await expect(page.getByRole('status')).toContainText('Checking booking flow access');
+  await expect(page.getByRole('heading', { level: 1, name: 'Booking Flow', exact: true })).toBeFocused();
   await expect(page.getByText('Customize Booking Flow')).toHaveCount(0);
   await expect(page.getByText('Customize Booking Flow')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Booking Flow', exact: true })).toBeFocused();
 });

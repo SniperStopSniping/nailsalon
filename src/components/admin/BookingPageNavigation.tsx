@@ -66,7 +66,9 @@ export function BookingPageEditorLayout({ children, panel, ...navigation }: {
   panel: BookingPagePanel;
 } & Omit<Parameters<typeof BookingPageNavigation>[0], 'currentPanel'>) {
   const [expanded, setExpanded] = useState(false);
-  const previousPanel = useRef(panel);
+  // Settings-backed sections remount this layout. Treat that first committed
+  // heading as a destination too, then leave focus alone during normal edits.
+  const previousPanel = useRef<BookingPagePanel | null>(null);
   const previouslyExpanded = useRef(expanded);
   const contentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
