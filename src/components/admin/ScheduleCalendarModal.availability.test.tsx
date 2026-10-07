@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -214,5 +214,101 @@ describe('ScheduleCalendarModal availability overlay', () => {
     await waitFor(() => {
       expect(appointmentsCallCount).toBeGreaterThan(before);
     });
+  });
+
+  it('waits for the initial schedule before opening the block editor', async () => {
+    const originalFetch = fetchMock.getMockImplementation()!;
+    let finish: ((value: unknown) => void) | undefined;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/admin/appointments')) {
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      }
+      if (url.startsWith('/api/admin/calendar-blocks')) {
+        return { ok: true, json: async () => ({ data: { blocks: [], timeZone: 'America/Toronto' } }) };
+      }
+      return originalFetch(url);
+    });
+    render(<ScheduleCalendarModal onClose={vi.fn()} salonSlug="nail-salon-no5" initialView="block-time" />);
+
+    expect(screen.queryByTestId('calendar-block-time')).not.toBeInTheDocument();
+
+    await act(async () => finish?.({ ok: true, json: async () => appointmentsPayload() }));
+    await screen.findByText(/No saved intraday blocks/);
+
+    expect(screen.getByLabelText('Technician')).toHaveValue('tech_daniela');
+  });
+
+  it.each([true, false])('keeps a block draft mounted during a background refresh (success=%s)', async (success) => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const originalFetch = fetchMock.getMockImplementation()!;
+    let deferRefresh = false;
+    let finish: ((value: unknown) => void) | undefined;
+    fetchMock.mockImplementation((url: string) => {
+      if (deferRefresh && url.startsWith('/api/admin/appointments')) {
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      }
+      if (url.startsWith('/api/admin/calendar-blocks')) {
+        return { ok: true, json: async () => ({ data: { blocks: [], timeZone: 'America/Toronto' } }) };
+      }
+      return originalFetch(url);
+    });
+    await renderCalendar();
+    fireEvent.click(screen.getByRole('button', { name: 'Block Time' }));
+    await screen.findByText(/No saved intraday blocks/);
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-09-22' } });
+    fireEvent.change(screen.getByLabelText('Technician'), { target: { value: 'tech_tiffany' } });
+    fireEvent.change(screen.getByLabelText('Start time'), { target: { value: '12:00' } });
+    fireEvent.change(screen.getByLabelText('Label (optional)'), { target: { value: 'Lunch draft' } });
+    const editor = screen.getByTestId('calendar-block-time');
+    deferRefresh = true;
+    act(() => window.dispatchEvent(new Event(APPOINTMENT_DATA_CHANGED_EVENT)));
+    await waitFor(() => expect(finish).toBeDefined());
+
+    expect(screen.getByTestId('calendar-block-time')).toBe(editor);
+    expect(screen.getByLabelText('Label (optional)')).toHaveValue('Lunch draft');
+
+    await act(async () => finish?.({ ok: success, json: async () => appointmentsPayload() }));
+
+    expect(screen.getByTestId('calendar-block-time')).toBe(editor);
+    expect(screen.getByLabelText('Date')).toHaveValue('2026-09-22');
+    expect(screen.getByLabelText('Technician')).toHaveValue('tech_tiffany');
+    expect(screen.getByLabelText('Start time')).toHaveValue('12:00');
+
+    if (!success) {
+      expect(consoleError).toHaveBeenCalledWith('Failed to fetch appointments:', expect.any(Error));
+    }
+    consoleError.mockRestore();
+  });
+
+  it('retains the saved date, technician and success notice after the calendar refresh', async () => {
+    const originalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/admin/calendar-blocks')) {
+        if (init?.method === 'POST') {
+          expect(JSON.parse(String(init.body))).toMatchObject({ date: '2026-09-22', technicianId: 'tech_tiffany', startTime: '12:00' });
+        }
+        return { ok: true, json: async () => ({ data: { blocks: [], timeZone: 'America/Toronto' } }) };
+      }
+      return originalFetch(url);
+    });
+    await renderCalendar();
+    fireEvent.click(screen.getByRole('button', { name: 'Block Time' }));
+    await screen.findByText(/No saved intraday blocks/);
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-09-22' } });
+    fireEvent.change(screen.getByLabelText('Technician'), { target: { value: 'tech_tiffany' } });
+    fireEvent.change(screen.getByLabelText('Start time'), { target: { value: '12:00' } });
+    const before = appointmentsCallCount;
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Block time' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Block time' }));
+    await waitFor(() => expect(appointmentsCallCount).toBeGreaterThan(before));
+
+    expect(screen.getByLabelText('Date')).toHaveValue('2026-09-22');
+    expect(screen.getByLabelText('Technician')).toHaveValue('tech_tiffany');
+    expect(screen.getByLabelText('Start time')).toHaveValue('12:00');
+    expect(screen.getByRole('status')).toHaveTextContent('Time blocked. Clients cannot book this technician during it.');
   });
 });

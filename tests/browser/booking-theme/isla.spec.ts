@@ -49,7 +49,9 @@ for (const width of [320, 390, 768, 1440]) {
 }
 
 test('categories, search and policy controls work without replacing the service engine', async ({ page }) => {
-  await page.goto('/?step=service&isla');
+  // The footer must respect the salon's enabled policy and service-page
+  // placement. Explicitly configure both instead of relying on fallback copy.
+  await page.goto('/?step=service&isla&service-policy=visible');
   await page.getByRole('button', { name: 'Pedicure', exact: true }).click();
 
   await expect(page.getByTestId('service-card-isla-pedi')).toBeVisible();
@@ -63,10 +65,33 @@ test('categories, search and policy controls work without replacing the service 
   await page.getByRole('button', { name: 'Booking policies', exact: true }).click();
 
   await expect(page.getByRole('dialog', { name: 'Appointment agreement' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toContainText('Changes or cancellations must be made at least 24 hours before your appointment.');
 
   await page.keyboard.press('Escape');
 
   await expect(page.getByRole('dialog', { name: 'Appointment agreement' })).toHaveCount(0);
+});
+
+for (const { policyState, policyQuery } of [
+  { policyState: 'absent', policyQuery: '' },
+  { policyState: 'hidden', policyQuery: '&service-policy=hidden' },
+  { policyState: 'disabled', policyQuery: '&service-policy=disabled' },
+]) {
+  test(`Isla does not expose ${policyState} service-page policy content`, async ({ page }) => {
+    await page.goto(`/?step=service&isla${policyQuery}`);
+
+    await expect(page.getByTestId('service-card-isla-russian')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Booking policies', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Appointment agreement' })).toHaveCount(0);
+    await expect(page.getByText('Please arrive on time.', { exact: false })).toHaveCount(0);
+  });
+}
+
+test('Isla preserves the canonical required-acknowledgment policy rule', async ({ page }) => {
+  await page.goto('/?step=service&isla&service-policy=required');
+  await page.getByRole('button', { name: 'Booking policies', exact: true }).click();
+
+  await expect(page.getByRole('dialog', { name: 'Appointment agreement' })).toContainText('Please arrive on time.');
 });
 
 test('other salon pages retain their existing presentation', async ({ page }) => {

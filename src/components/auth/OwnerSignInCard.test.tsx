@@ -52,21 +52,34 @@ beforeEach(() => {
 });
 
 describe('OwnerSignInCard branding', () => {
+  it('uses the supplied salon builder link when self-service onboarding is enabled', () => {
+    render(<OwnerSignInCard dashboardUrl="/en/admin" createSalonUrl="/en/onboarding-v1" />);
+
+    expect(mocks.signIn).toHaveBeenCalledWith(expect.objectContaining({
+      signUpUrl: '/en/onboarding-v1',
+      appearance: expect.objectContaining({
+        elements: expect.objectContaining({ footerAction__signIn: 'luster-auth-create' }),
+      }),
+    }));
+  });
+
   it('themes the Clerk widget with Luster tokens and hides the sign-up footer', () => {
     render(<OwnerSignInCard dashboardUrl="/en/admin" />);
 
     expect(screen.getByTestId('clerk-sign-in')).toBeInTheDocument();
     expect(mocks.signIn).toHaveBeenCalledWith(expect.objectContaining({
-      appearance: {
-        elements: {
+      appearance: expect.objectContaining({
+        elements: expect.objectContaining({
           footerAction__signIn: { display: 'none' },
           headerTitle: { display: 'none' },
-        },
+          formButtonPrimary: 'luster-auth-primary',
+        }),
         variables: expect.objectContaining({
           borderRadius: '14px',
           colorPrimary: '#8f3155',
         }),
-      },
+        layout: { socialButtonsPlacement: 'bottom', socialButtonsVariant: 'blockButton' },
+      }),
       fallbackRedirectUrl: '/en/admin',
     }));
   });

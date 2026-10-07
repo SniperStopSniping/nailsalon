@@ -160,6 +160,59 @@ describe('BookingPageOwnerSurface', () => {
   let salonPublicationStatus: string;
   let salonPublishShouldFail: boolean;
 
+  it('shows Isla’s custom layout without standard-template controls or writes', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=isla-nail-studio&panel=layouts');
+    render(<BookingPageOwnerSurface />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Custom Layout & Menu' })).toBeVisible();
+    expect(screen.getByTitle('Live booking page preview')).toBeInTheDocument();
+    expect(screen.getByText('Made for Isla')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Edit services, prices & add-ons' })).toHaveAttribute('href', '/en/admin?salon=isla-nail-studio&app=services');
+    expect(screen.getByTestId('business-type-advanced')).toBeInTheDocument();
+    expect(screen.queryByTestId('booking-page-preset-picker')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-page-builder')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Booking menu layout' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
+  });
+
+  it('shows Isla’s custom copy and keeps stored standard-template text untouched', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=isla-nail-studio&panel=text');
+    content.draft.bio = 'Existing saved biography';
+    render(<BookingPageOwnerSurface />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Custom Page Copy' })).toBeVisible();
+    expect(screen.getByText('Your next beautiful set.')).toBeVisible();
+    expect(screen.queryByTestId('content-bio')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('content-specialty-line')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('link', { name: 'Edit booking message & social links' }));
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(new URL('/en/admin/booking-page?salon=isla-nail-studio&panel=experience', window.location.origin).href));
+
+    expect(content.draft.bio).toBe('Existing saved biography');
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
+  });
+
+  it('keeps Isla style controls and explains their later-step scope', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=isla-nail-studio&panel=appearance');
+    render(<BookingPageOwnerSurface />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Booking Step Style' })).toBeVisible();
+    expect(screen.getByText(/These styles apply after service selection/)).toBeVisible();
+    expect(screen.getByRole('group', { name: 'Choose your colours' })).toBeVisible();
+    expect(screen.getByRole('group', { name: 'Choose your fonts' })).toBeVisible();
+  });
+
+  it('keeps Isla canonical policy actions without ineffective Quick Book switches', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=isla-nail-studio&panel=policies');
+    render(<BookingPageOwnerSurface />);
+
+    expect(await screen.findByRole('link', { name: 'Edit client policies' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Booking rules' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Payments & deposits' })).toBeVisible();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(screen.getByTestId('booking-page-panel-subtitle')).toHaveTextContent('apply immediately');
+  });
+
   it('reviews current published data without restarting onboarding and saves text before continuing', async () => {
     searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text&guided=1');
     render(<BookingPageOwnerSurface />);

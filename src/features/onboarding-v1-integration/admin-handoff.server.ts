@@ -6,6 +6,8 @@ import type {
   HandoffSetupStatus,
   OnboardingSiteHandoff,
 } from '@/components/admin/onboarding/OnboardingWorkspaceHandoff';
+import type { FoundingLifetimeAccess } from '@/libs/billing/foundingLifetime';
+import { getFoundingLifetimeAccess } from '@/libs/billing/foundingLifetime.server';
 import { db } from '@/libs/DB';
 import { getSalonIntegrationHealth } from '@/libs/integrationHealth';
 import {
@@ -43,6 +45,7 @@ export function hasVisibleBookingSection(
 
 export function deriveOnboardingSiteHandoff(input: {
   canEditSetup: boolean;
+  coreAccess?: FoundingLifetimeAccess | null;
   document: OnboardingCompiledSiteDocument;
   googleReadiness: string;
   hasActiveServices: boolean;
@@ -75,6 +78,7 @@ export function deriveOnboardingSiteHandoff(input: {
 
   return {
     handoff: {
+      coreAccess: input.coreAccess ?? null,
       planIntent: input.site.planIntent,
       showWelcome: input.site.dashboardWelcomeDismissedAt === null,
       tourCompleted: input.site.dashboardTourCompletedAt !== null,
@@ -106,7 +110,7 @@ export async function getOnboardingSiteHandoff(input: {
   locale: string;
   salon: HandoffSalon;
 }): Promise<OnboardingSiteHandoff | null> {
-  const [siteRows, services, health] = await Promise.all([
+  const [siteRows, services, health, coreAccess] = await Promise.all([
     db
       .select({
         dashboardTourCompletedAt: onboardingSiteSchema.dashboardTourCompletedAt,
@@ -142,6 +146,7 @@ export async function getOnboardingSiteHandoff(input: {
       ))
       .limit(1),
     getSalonIntegrationHealth(input.salon.id),
+    getFoundingLifetimeAccess(input.salon.id),
   ]);
   const site = siteRows[0];
   if (!site) {
@@ -150,6 +155,7 @@ export async function getOnboardingSiteHandoff(input: {
 
   return deriveOnboardingSiteHandoff({
     canEditSetup: input.canEditSetup,
+    coreAccess,
     document: site.document,
     googleReadiness: health.google.readiness,
     hasActiveServices: services.length > 0,

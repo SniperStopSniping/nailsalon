@@ -53,6 +53,7 @@ export type SalonMembership = {
   salonId: string;
   salonSlug: string;
   salonName: string;
+  logoUrl?: string | null;
   customDomain?: string | null;
   status?: string | null;
   role: string;
@@ -83,6 +84,7 @@ async function loadAdminWithSalons(admin: AdminUser): Promise<AdminWithSalons> {
       role: adminSalonMembershipSchema.role,
       salonSlug: salonSchema.slug,
       salonName: salonSchema.name,
+      logoUrl: salonSchema.logoUrl,
       customDomain: salonSchema.customDomain,
       salonStatus: salonSchema.status,
       freeSoloEnabled: salonSchema.freeSoloEnabled,
@@ -98,6 +100,7 @@ async function loadAdminWithSalons(admin: AdminUser): Promise<AdminWithSalons> {
       salonId: m.salonId,
       salonSlug: m.salonSlug,
       salonName: m.salonName,
+      logoUrl: m.logoUrl,
       customDomain: m.customDomain,
       status: m.salonStatus,
       role: m.role,
@@ -786,6 +789,7 @@ export async function getAdminWithSalons(adminId: string): Promise<AdminWithSalo
       role: adminSalonMembershipSchema.role,
       salonSlug: salonSchema.slug,
       salonName: salonSchema.name,
+      logoUrl: salonSchema.logoUrl,
       customDomain: salonSchema.customDomain,
       salonStatus: salonSchema.status,
     })
@@ -799,6 +803,7 @@ export async function getAdminWithSalons(adminId: string): Promise<AdminWithSalo
       salonId: m.salonId,
       salonSlug: m.salonSlug,
       salonName: m.salonName,
+      logoUrl: m.logoUrl,
       customDomain: m.customDomain,
       status: m.salonStatus,
       role: m.role,

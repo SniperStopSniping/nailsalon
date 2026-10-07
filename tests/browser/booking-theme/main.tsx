@@ -15,10 +15,12 @@ import { isMediaQuickBookLayout } from '../../../prototypes/site-builder-v2-book
 import { createQuickBookFixture } from './quick-book-fixture';
 
 const query = new URLSearchParams(window.location.search);
+const servicePolicy = query.get('service-policy');
+const hasPolicyFixture = query.has('review-policy') || servicePolicy !== null;
 // PublicSalonPageShell normally resolves policy versions on the Node server.
 // This isolated UI harness runs that shell in a browser; substitute only the
 // server crypto adapter, using a fixed synthetic version (never booking auth).
-if (query.has('review-policy')) {
+if (hasPolicyFixture) {
   Object.assign(globalThis, { process: { env: {}, getBuiltinModule: () => ({ createHash: () => ({ update: () => ({ digest: () => 'a'.repeat(64) }) }) }) } });
 }
 const requestedLayout = query.get('quick-book-layout');
@@ -81,13 +83,28 @@ const islaSocialLinks = query.get('socials') === 'cleared'
       }
     : { instagram: 'https://www.instagram.com/Isla_nail_studio/', facebook: null, tiktok: null };
 
+const policyFixture = hasPolicyFixture
+  ? {
+      policy: {
+        enabled: servicePolicy !== 'disabled' && servicePolicy !== 'required',
+        title: 'Appointment agreement',
+        text: 'Please arrive on time. Changes or cancellations must be made at least 24 hours before your appointment. Contact the salon if you cannot attend.',
+        showOnServicePage: ['visible', 'disabled', 'required'].includes(servicePolicy ?? ''),
+        showBeforeConfirmation: true,
+        // Required acknowledgment intentionally keeps a configured policy enabled.
+        acknowledgment: { required: servicePolicy !== 'disabled', text: 'I agree to the appointment policy.' },
+      },
+      quickFacts: { depositNotice: { enabled: true, label: 'No deposit required.' } },
+    }
+  : {};
+
 const salon = {
   id: 'synthetic-salon',
   slug: isla ? 'isla-nail-studio' : 'theme-fixture',
   name: 'Isla Nail Studio',
   themeKey,
   status: 'active',
-  settings: { bookingExperience: { ...(isla ? { socialLinks: islaSocialLinks } : {}), ...(query.has('primary-color') ? { primaryColor: query.get('primary-color') } : {}), ...(query.has('review-policy') ? { policy: { enabled: true, title: 'Appointment agreement', text: 'Please arrive on time. Changes or cancellations must be made at least 24 hours before your appointment. Contact the salon if you cannot attend.', showBeforeConfirmation: true, acknowledgment: { required: true, text: 'I agree to the appointment policy.' } }, quickFacts: { depositNotice: { enabled: true, label: 'No deposit required.' } } } : {}) } },
+  settings: { bookingExperience: { ...(isla ? { socialLinks: islaSocialLinks } : {}), ...(query.has('primary-color') ? { primaryColor: query.get('primary-color') } : {}), ...policyFixture } },
 } as ComponentProps<typeof PublicSalonPageShell>['salon'];
 const bookingPage = {
   layout: 'quick_book',

@@ -16,10 +16,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { StarterSmsCreditsCard } from '@/components/admin/StarterSmsCreditsCard';
 import { DialogShell } from '@/components/ui/dialog-shell';
+import type { FoundingLifetimeAccess } from '@/libs/billing/foundingLifetime';
 
 type UsagePayload = {
   salonId: string;
   usage: {
+    coreAccess?: FoundingLifetimeAccess | null;
     availableCredits: number;
     monthlyCredits: number;
     starterCredits: number;
@@ -548,11 +550,19 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
               )}
 
               <section aria-labelledby="plan-heading" className="space-y-2">
-                <h3 id="plan-heading" className="text-[15px] font-medium text-gray-900">Plan</h3>
+                <h3 id="plan-heading" className="text-[15px] font-medium text-gray-900">{usage.coreAccess ? 'Core app & optional usage' : 'Plan'}</h3>
+                {usage.coreAccess?.status === 'active' && (
+                  <div className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 text-sm text-[var(--owner-ink)]">
+                    <p className="font-semibold">Founding Salon · Free for life</p>
+                    <p className="mt-1">$0/month for the core Luster app. Unlimited emails included.</p>
+                    <p className="mt-1 text-[var(--owner-muted)]">Additional texts, AI receptionist, calls and other usage services are optional paid add-ons.</p>
+                  </div>
+                )}
                 {usage.plan === null
-                  ? <p className="text-[14px] text-gray-600">No subscription — starter and purchased credits only.</p>
+                  ? <p className="text-[14px] text-gray-600">{usage.coreAccess ? 'No text subscription. Your included and purchased text credits remain available.' : 'No subscription — starter and purchased credits only.'}</p>
                   : (
                       <p className="text-[14px] text-gray-600">
+                        {usage.coreAccess && 'Optional text subscription: '}
                         {usage.plan.displayName}
                         {' '}
                         (

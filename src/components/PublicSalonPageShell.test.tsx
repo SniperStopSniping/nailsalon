@@ -315,7 +315,8 @@ describe('PublicSalonPageShell owner-preview wiring', () => {
     const banner = screen.getByTestId('owner-preview-banner');
 
     expect(banner).toHaveAttribute('data-preview-variant', 'draft-config');
-    expect(banner).toHaveTextContent('Previewing unpublished changes');
+    expect(banner).toHaveTextContent('Private preview of your booking page');
+    expect(banner).not.toHaveTextContent('unpublished changes');
   });
 });
 

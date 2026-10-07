@@ -133,6 +133,7 @@ export function BookingPageAppearance({
   photosHref = null,
   textHref = null,
   portfolioHref = null,
+  customIsla = false,
 }: {
   draft: BookingPageConfigSide;
   disabled: boolean;
@@ -145,6 +146,7 @@ export function BookingPageAppearance({
   photosHref?: string | null;
   textHref?: string | null;
   portfolioHref?: string | null;
+  customIsla?: boolean;
 }) {
   const groups = mode === 'layouts'
     ? [
@@ -157,7 +159,11 @@ export function BookingPageAppearance({
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-[var(--owner-muted)]">These choices change presentation only. Your business details and services stay the same. Preview your draft before publishing.</p>
+      <p className="text-sm text-[var(--owner-muted)]">
+        {customIsla
+          ? 'These styles apply after service selection, including the artist, time and confirmation steps. Isla’s custom opening page keeps its cream, gold and black design. Changes go live when you publish.'
+          : 'These choices change presentation only. Your business details and services stay the same. Preview your draft before publishing.'}
+      </p>
       {mode === 'layouts' && draft.layout === 'quick_book' && (
         <BookingPageLayoutChooser
           content={content}

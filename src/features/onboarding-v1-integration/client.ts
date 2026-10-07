@@ -1,3 +1,4 @@
+import type { FoundingLifetimeAccess } from '@/libs/billing/foundingLifetime';
 import { normalizeSalonSlug } from '@/libs/tenantSlug';
 
 import type {
@@ -24,6 +25,7 @@ export type ClaimSiteResult =
   | { conflict: OnboardingClaimConflict; status: 'conflict' };
 
 export type SavePlanIntentResult = {
+  coreAccess?: FoundingLifetimeAccess | null;
   confirmationMessage: string;
   dashboardUrl: string;
   intent: OnboardingPlanIntent;
@@ -213,6 +215,17 @@ export const saveOnboardingPlanIntent = async (
         code: typeof body?.error?.code === 'string' ? body.error.code : undefined,
         status: response.status,
       },
+    );
+  }
+  if (request.intent === 'founding_interest' && (
+    body.data.coreAccess?.status !== 'active'
+    || body.data.coreAccess.monthlySoftwarePriceCents !== 0
+    || body.data.coreAccess.expiresAt !== null
+    || body.data.coreAccess.usageBilledSeparately !== true
+  )) {
+    throw new OnboardingIntegrationRequestError(
+      'Your lifetime claim has not been confirmed. Please try again; your saved site is safe.',
+      { code: 'LIFETIME_CLAIM_UNCONFIRMED', status: 502 },
     );
   }
   return body.data;

@@ -82,7 +82,9 @@ async function applyFixture(
   destinationHeading: string,
 ): Promise<void> {
   if (await heading(page, 'Choose your starting point').isVisible()) {
-    await chooseStartingPoint(page, /Start with Quick Book/u);
+    await page.getByRole('button', { name: 'Start with Quick Book' }).click();
+
+    await expect(page.getByLabel('More onboarding options')).toBeVisible();
   }
   const dialog = await openReviewOptions(page);
   await dialog.getByRole('button', { exact: true, name: fixtureLabel }).click();
@@ -454,18 +456,17 @@ test.describe('Onboarding owner-review browser acceptance', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('Continue free pays off in the isolated dashboard handoff, tour, and state-derived checklist', async ({ page }) => {
+  test('Claim my free lifetime plan pays off in the isolated dashboard handoff, tour, and state-derived checklist', async ({ page }) => {
     await page.setViewportSize({ height: 800, width: 1180 });
     await openFresh(page);
     await applyFixture(page, 'All essentials complete', 'Review your site');
     await page.getByRole('button', { name: 'Finish setup' }).click();
-    const planSheet = page.getByRole('dialog', { name: 'Your site is saved' });
+    const planSheet = page.getByRole('dialog', { name: 'Your site is ready' });
 
     await expect(planSheet).toBeVisible();
-    await expect(planSheet.locator('.dialog-header p'))
-      .toContainText('Nothing is charged now');
+    await expect(planSheet).toContainText('No charge');
 
-    await planSheet.getByRole('button', { name: 'Continue free' }).click();
+    await planSheet.getByRole('button', { name: 'Claim my free lifetime plan' }).click();
 
     const tour = page.getByRole('dialog', { name: 'A quick look around Luster' });
 

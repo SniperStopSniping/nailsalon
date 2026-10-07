@@ -67,10 +67,14 @@ test.describe('Sanity', () => {
         waitUntil: 'domcontentloaded',
       });
 
-      await expect(page.getByRole('main').getByText('Luster', { exact: true })).toBeVisible();
+      await expect(page.getByRole('main').getByRole('img', { name: 'Luster', exact: true })).toBeVisible();
       await expect(
-        page.getByRole('heading', { name: /salon owner sign in/i }),
+        page.getByRole('heading', { name: 'Welcome back', exact: true, level: 1 }),
       ).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+      await expect(page.getByText('Salon owner sign in', { exact: true })).toHaveCount(0);
+      await expect(page.getByRole('navigation', { name: 'Legal' }).getByRole('link', { name: 'Privacy' })).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'Legal' }).getByRole('link', { name: 'Terms' })).toBeVisible();
     });
 
     test('clients can recover a private booking link', async ({

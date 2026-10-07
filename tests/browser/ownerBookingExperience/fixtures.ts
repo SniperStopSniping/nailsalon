@@ -1,5 +1,5 @@
 /* eslint-disable style/max-statements-per-line */
-export async function mockApi(page: import('@playwright/test').Page, freeSolo: boolean, authDelayMs = 0) {
+export async function mockApi(page: import('@playwright/test').Page, freeSolo: boolean, authDelayMs = 0, salonSlug = 'isla') {
   const control = { failSave: false, patches: [] as unknown[] };
   let bio: string | null = null;
   await page.route('**/*', async (route) => {
@@ -15,7 +15,7 @@ export async function mockApi(page: import('@playwright/test').Page, freeSolo: b
       if (authDelayMs) {
         await new Promise(resolve => setTimeout(resolve, authDelayMs));
       }
-      await route.fulfill({ json: { user: { id: 'owner', salons: [{ slug: 'isla', freeSoloEnabled: freeSolo }] } } }); return;
+      await route.fulfill({ json: { user: { id: 'owner', salons: [{ slug: salonSlug, freeSoloEnabled: freeSolo }] } } }); return;
     }
     if (url.pathname === '/api/admin/booking-page') {
       if (request.method() === 'PATCH') {

@@ -673,6 +673,13 @@
       "when": 1790801118004,
       "tag": "0096_rebooking_reminders",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1791382616696,
+      "tag": "0097_founding_lifetime_core",
+      "breakpoints": true
     }
   ]
 }

@@ -31,6 +31,9 @@ export default function AuthLayout(props: {
       start: {
         ...clerkLocale.signIn?.start,
         title: params.locale === 'fr' ? 'Connectez-vous à Luster' : 'Sign in to Luster',
+        subtitle: params.locale === 'fr' ? 'Connectez-vous pour continuer' : 'Sign in to continue',
+        actionText: params.locale === 'fr' ? 'Nouveau sur Luster ?' : 'New to Luster?',
+        actionLink: params.locale === 'fr' ? 'Créez votre salon gratuit' : 'Create your free salon',
       },
     },
   };

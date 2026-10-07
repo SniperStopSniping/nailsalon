@@ -229,6 +229,17 @@ describe('OnboardingWorkspaceHandoff', () => {
     expect(await screen.findByRole('link', { name: /Preview website/i })).toHaveAttribute('href', '/en/admin/website/preview/site_2');
   });
 
+  it('shows lifetime software confirmation only from a persisted active claim', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: { ...handoff, handoff: { ...handoff.handoff, planIntent: 'founding_interest', coreAccess: { status: 'active', monthlySoftwarePriceCents: 0, expiresAt: null, usageBilledSeparately: true } } },
+    }), { status: 200 }));
+    render(<OnboardingWorkspaceHandoff locale="en" onTakeTour={vi.fn()} salonSlug="isla" />);
+
+    expect(await screen.findByText('Your core Luster app is free for life.')).toBeInTheDocument();
+    expect(screen.queryByText(/Founding offer reserved/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Extra texts, AI receptionist and phone usage are paid separately/)).toBeInTheDocument();
+  });
+
   it('shows paid interest only from the persisted handoff intent', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: {

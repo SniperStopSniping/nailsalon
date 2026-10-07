@@ -216,7 +216,10 @@ async function applyFixtureFromFresh(
   destinationHeading: string,
 ): Promise<void> {
   await openFresh(page);
-  await chooseStarterFromEntry(page);
+  await page.getByRole('button', { name: 'Start with Quick Book' }).click();
+
+  await expect(page.getByLabel('More onboarding options')).toBeVisible();
+
   await applyFixture(page, label, destinationHeading);
 }
 
@@ -718,8 +721,8 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await applyFixtureFromFresh(page, 'All essentials complete', 'Review your site');
     const finishSetup = page.getByRole('button', { name: 'Finish setup' });
     await finishSetup.click();
-    let dialog = page.getByRole('dialog', { name: 'Your site is saved' });
-    const planHeading = dialog.getByRole('heading', { level: 2, name: 'Your site is saved' });
+    let dialog = page.getByRole('dialog', { name: 'Your site is ready' });
+    const planHeading = dialog.getByRole('heading', { level: 2, name: 'Your site is ready' });
 
     await expect(planHeading).toBeFocused();
 
@@ -731,24 +734,11 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     expect(dialogBox?.y ?? -1).toBeGreaterThanOrEqual(0);
     expect((dialogBox?.y ?? 9999) + (dialogBox?.height ?? 0)).toBeLessThanOrEqual(430);
 
-    const freeOption = dialog.getByRole('radio', { name: /^Free/u });
-    const foundingOption = dialog.getByRole('radio', { name: /^Founding offer/u });
-    const monthlyOption = dialog.getByRole('radio', { name: /^Monthly/u });
+    await expect(dialog.getByRole('radio')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Claim my free lifetime plan' })).toBeVisible();
+    await expect(dialog).toContainText('100 free texts included');
+    await expect(dialog).toContainText('Unlimited emails');
 
-    await expect(freeOption).toBeVisible();
-    await expect(foundingOption).toBeAttached();
-    await expect(monthlyOption).toBeAttached();
-    await expect(dialog.getByRole('button', { name: 'Continue free' })).toBeVisible();
-
-    await dialog.locator('label.is-founding').click();
-
-    await expect(dialog.getByRole('button', { name: 'Reserve founding offer' })).toBeVisible();
-
-    await dialog.locator('label.is-monthly').click();
-
-    await expect(dialog.getByRole('button', { name: 'I’m interested in monthly' })).toBeVisible();
-
-    await dialog.locator('label.is-free').click();
     await capture(page, '14-plan-sheet-heading-focus');
     await capture(page, '36-unclipped-landscape-plan-sheet');
     await page.setViewportSize({ height: 900, width: 1440 });
@@ -762,10 +752,10 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
 
     await capture(page, '11-plan-back-closes-only-sheet');
     await page.goForward();
-    dialog = page.getByRole('dialog', { name: 'Your site is saved' });
+    dialog = page.getByRole('dialog', { name: 'Your site is ready' });
 
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('heading', { name: 'Your site is saved' })).toBeFocused();
+    await expect(dialog.getByRole('heading', { name: 'Your site is ready' })).toBeFocused();
 
     await page.keyboard.press('Escape');
 
@@ -773,14 +763,14 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await expect(finishSetup).toBeFocused();
 
     await finishSetup.click();
-    dialog = page.getByRole('dialog', { name: 'Your site is saved' });
-    await dialog.getByRole('button', { name: 'Close Your site is saved' }).click();
+    dialog = page.getByRole('dialog', { name: 'Your site is ready' });
+    await dialog.getByRole('button', { name: 'Close Your site is ready' }).click();
 
     await expect(dialog).toBeHidden();
     await expect(finishSetup).toBeFocused();
 
     await finishSetup.click();
-    dialog = page.getByRole('dialog', { name: 'Your site is saved' });
+    dialog = page.getByRole('dialog', { name: 'Your site is ready' });
     await page.getByTestId('dialog-backdrop').dispatchEvent('mousedown');
 
     await expect(dialog).toBeHidden();
@@ -788,10 +778,10 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
 
     await finishSetup.click();
     await page.reload();
-    dialog = page.getByRole('dialog', { name: 'Your site is saved' });
+    dialog = page.getByRole('dialog', { name: 'Your site is ready' });
 
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('heading', { name: 'Your site is saved' })).toBeFocused();
+    await expect(dialog.getByRole('heading', { name: 'Your site is ready' })).toBeFocused();
 
     await page.keyboard.press('Escape');
 
@@ -799,8 +789,8 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await expect(finishSetup).toBeFocused();
 
     await finishSetup.click();
-    await page.getByRole('dialog', { name: 'Your site is saved' })
-      .getByRole('button', { name: 'Continue free' })
+    await page.getByRole('dialog', { name: 'Your site is ready' })
+      .getByRole('button', { name: 'Claim my free lifetime plan' })
       .click();
     const dashboardHeading = page.getByRole('heading', {
       level: 1,
@@ -1626,15 +1616,15 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
 
     await page.keyboard.press('Enter');
 
-    const plan = page.getByRole('dialog', { name: 'Your site is saved' });
+    const plan = page.getByRole('dialog', { name: 'Your site is ready' });
 
-    await expect(plan.getByRole('heading', { name: 'Your site is saved' })).toBeFocused();
+    await expect(plan.getByRole('heading', { name: 'Your site is ready' })).toBeFocused();
 
     let tabsToFree = 0;
     while (tabsToFree < 12) {
       await page.keyboard.press('Tab');
       tabsToFree += 1;
-      if (await plan.getByRole('button', { name: 'Continue free' }).evaluate(
+      if (await plan.getByRole('button', { name: 'Claim my free lifetime plan' }).evaluate(
         element => element === document.activeElement,
       )) {
         break;
@@ -1642,7 +1632,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     }
 
     expect(tabsToFree).toBeLessThan(12);
-    await expect(plan.getByRole('button', { name: 'Continue free' })).toBeFocused();
+    await expect(plan.getByRole('button', { name: 'Claim my free lifetime plan' })).toBeFocused();
 
     await page.keyboard.press('Enter');
 

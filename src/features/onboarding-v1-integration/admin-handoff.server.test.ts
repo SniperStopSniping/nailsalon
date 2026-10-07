@@ -75,6 +75,7 @@ describe('admin onboarding-site handoff', () => {
       shareLink: 'not_started',
     });
     expect(handoff.handoff).toEqual({
+      coreAccess: null,
       planIntent: 'founding_interest',
       showWelcome: true,
       tourCompleted: false,
