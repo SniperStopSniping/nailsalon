@@ -1575,7 +1575,7 @@ export function BookTimeClient({
           }}
         >
           <p className="text-xs text-neutral-400">
-            ✨ No payment required to reserve
+            Review your booking before confirming.
           </p>
           <p className="mt-0.5 text-xs text-neutral-400">
             Online changes follow this salon&apos;s cancellation policy
