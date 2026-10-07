@@ -1,3 +1,23 @@
+# [1.140.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.139.2...v1.140.0) (2026-10-07)
+
+
+### Bug Fixes
+
+* **booking-page:** scope Isla editors to custom presentation ([8a91ceb](https://github.com/SniperStopSniping/nailsalon/commit/8a91ceb195915e76dbbaf685a7ac450bb5ddf05a))
+* **booking:** avoid premature payment promises ([37c1b6b](https://github.com/SniperStopSniping/nailsalon/commit/37c1b6bd8a35f594a36aa232e1613a4ae51886f8))
+* **booking:** keep availability recovery accurate and cancellable ([2b9f9af](https://github.com/SniperStopSniping/nailsalon/commit/2b9f9af332ae168891c46c24b53a7b456d0401ec))
+* **booking:** respect policy placement and clarify private preview ([8fc181b](https://github.com/SniperStopSniping/nailsalon/commit/8fc181bba0e66cf174b20e2011b951bafc3b86f7))
+* **calendar:** preserve block editor during background refresh ([fa6109e](https://github.com/SniperStopSniping/nailsalon/commit/fa6109e6ee9b36dfb820417d41b66040981453c6))
+* **platform:** restore location creation and preserve salon drafts ([201b90f](https://github.com/SniperStopSniping/nailsalon/commit/201b90f0a7da85afa3fd76125e166e78af1e7531))
+* theme owner sign-in recovery states ([823bb6c](https://github.com/SniperStopSniping/nailsalon/commit/823bb6ced1968ca4fd546a646733404cfc722af3))
+
+
+### Features
+
+* **billing:** grant founding lifetime core access ([edcbff4](https://github.com/SniperStopSniping/nailsalon/commit/edcbff4a7bc74a4cf10767f339b1312ada5e16aa))
+* **reminders:** clarify sample costs and offer shorter wording ([bb1d62c](https://github.com/SniperStopSniping/nailsalon/commit/bb1d62c5415129fa808ea634e3ad4bea3abc22e7))
+* unify premium Luster owner entry screens ([8127633](https://github.com/SniperStopSniping/nailsalon/commit/81276339aad3ff36b117b285de009e39bdf11d77))
+
 ## [1.139.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.139.1...v1.139.2) (2026-10-07)
 
 
