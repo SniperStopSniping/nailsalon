@@ -40,3 +40,15 @@ This draft combines the changes for review; it does not authorize merging both t
 ## Review artifacts
 
 The self-contained PDF, editable Markdown, screenshot manifest, screen/flow index and consolidated blocker list are retained in the task's final review package. Stable references S01–S126 and F01–F16 distinguish historical evidence, current isolated observations, design opinions and unverified configurations.
+
+## Acceptance follow-up — 7 October 2026, after the PDF checkpoint
+
+- Fresh `origin/main` remains `93986694`; this integration includes it, and the worktree was clean before this continuation. The user's main checkout and its eight untracked entries remain untouched.
+- Hosted run `37679357967` passed the onboarding confirmation/booking-notice step, including the layout-preview suite. Its actual failure was three Isla browser cases waiting for a policy button while the fixture configured no visible service-page policy. This is distinct from the older saved-history failure on component PRs #368/#370.
+- Reproduced all three failures locally before editing. The correction is confined to the browser fixture and tests: explicitly configure a visible policy, assert its real content and Escape dismissal, and cover absent, hidden, disabled, and required-acknowledgment states. Required acknowledgment deliberately keeps the canonical policy enabled; no production policy rule or approved design is changed.
+- Final unchanged-source run: 135 Isla/confirmation browser cases passed across desktop Chromium, mobile Chromium and mobile WebKit. One earlier mixed run reached the generic booking-received recovery state in a WebKit confirmation case; the full unchanged-source rerun passed. The initial failure artifacts are retained, rather than erased.
+- The saved-history browser case passed nine local repetitions (three per desktop/mobile/small-mobile project). This does not substitute for a fresh complete hosted run on the new commit.
+- PR366 preview was rechecked through authenticated Vercel access: tenant URL still returns an app-level 404; health reports database reachable, Redis unhealthy, billing dark, and missing external-provider configurations. Deployment READY does not establish tenant or account acceptance. No publication/auth guard was weakened and no provider credential was retrieved or changed.
+- A fresh anonymous `Luster Acceptance Studio` draft was prepared through the ordinary PR365 preview UI (source `edcbff4a`): Quick Book, business, city-only synthetic address, online booking only, weekday hours, and default style. It reached the ordinary account gate and was handed to the owner for email/credential verification. This is browser-local progress, not a persisted salon or lifetime grant, and is not combined-PR hosted acceptance.
+- Owner decision: AI voice/receptionist acceptance is deferred and does not block core-app work. Unrelated auth, SMS/email, payment, calendar and role controls retain their gates.
+- No merge, production deployment, customer message, call, payment, production migration or cancellation of provider services occurred in this continuation.
