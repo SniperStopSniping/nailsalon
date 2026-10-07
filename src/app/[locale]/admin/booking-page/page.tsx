@@ -186,18 +186,6 @@ function BookingFlowLeaf({ salonSlug, onClose, renderLeafLayout }: BookingFlowLe
     };
   }, [attempt, salonSlug]);
 
-  if (access === 'loading') {
-    return renderLeafLayout(
-      <div className="px-4 pt-8">
-        <button type="button" className="inline-flex min-h-11 items-center gap-2 text-sm text-[var(--owner-muted)]" onClick={onClose}>
-          <ArrowLeft size={16} />
-          Booking Page
-        </button>
-        <div role="status" className="py-8 text-center text-sm text-[var(--owner-muted)]">Checking booking flow access…</div>
-      </div>,
-      action => action(),
-    );
-  }
   if (access === 'allowed') {
     return <SettingsModal key={`${salonSlug}:booking-flow`} initialView="booking-flow" leafTitle="Booking Flow" isFreeSolo={false} leafBackLabel="Booking Page" leafOnly renderLeafLayout={renderLeafLayout} onClose={onClose} salonSlug={salonSlug} />;
   }
@@ -207,11 +195,15 @@ function BookingFlowLeaf({ salonSlug, onClose, renderLeafLayout }: BookingFlowLe
         <ArrowLeft size={16} />
         Booking Page
       </button>
-      <section className="mt-6 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5" data-testid="booking-flow-unavailable">
-        <h2 className="text-lg font-semibold">Booking Flow</h2>
-        <p className="mt-2 text-sm text-[var(--owner-muted)]">{access === 'free-solo' ? 'Booking flow customization is not included with Free Solo.' : 'We could not verify access to booking flow customization. Try again before changing this setting.'}</p>
-        {access === 'unavailable' && <button type="button" className="mt-4 min-h-11 rounded-xl border border-[var(--owner-line-strong)] px-4 text-sm font-semibold" onClick={() => setAttempt(current => current + 1)}>Retry</button>}
-      </section>
+      <h1 className="my-3 text-3xl font-semibold">Booking Flow</h1>
+      {access === 'loading'
+        ? <div role="status" className="py-8 text-center text-sm text-[var(--owner-muted)]">Checking booking flow access…</div>
+        : (
+            <section className="mt-6 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5" data-testid="booking-flow-unavailable">
+              <p className="text-sm text-[var(--owner-muted)]">{access === 'free-solo' ? 'Booking flow customization is not included with Free Solo.' : 'We could not verify access to booking flow customization. Try again before changing this setting.'}</p>
+              {access === 'unavailable' && <button type="button" className="mt-4 min-h-11 rounded-xl border border-[var(--owner-line-strong)] px-4 text-sm font-semibold" onClick={() => setAttempt(current => current + 1)}>Retry</button>}
+            </section>
+          )}
     </div>,
     action => action(),
   );

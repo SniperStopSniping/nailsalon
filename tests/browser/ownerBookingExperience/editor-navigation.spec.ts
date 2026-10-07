@@ -19,12 +19,81 @@ test.afterEach(async ({ page }, testInfo) => {
 });
 
 async function openSections(page: import('@playwright/test').Page) {
+  await expect(page.getByRole('complementary', { name: 'Booking Page sections' })).toBeVisible();
+
   const toggle = page.getByRole('button', { name: /^Sections/ });
   if (await toggle.isVisible() && await toggle.getAttribute('aria-expanded') === 'false') {
     await toggle.click();
   }
   return page.getByRole('navigation', { name: 'Booking Page editors' });
 }
+
+for (const width of [390, 1440]) {
+  test(`keyboard focus follows hosted editor transitions at ${width}px`, async ({ page }, testInfo) => {
+    const control = await mockApi(page, false);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/?salon=isla&panel=appearance');
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Style, Colours & Fonts' })).toBeVisible();
+
+    await (await openSections(page)).getByRole('link', { name: 'Booking Messages & Social Links', exact: true }).press('Enter');
+
+    await expect(page).toHaveURL(/panel=experience$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Booking Messages & Social Links' })).toBeFocused();
+
+    const message = page.getByLabel('Booking message');
+
+    await expect(message).toHaveValue('Welcome');
+
+    const initialMessage = await message.inputValue();
+    await message.fill('Focus stays in my message.');
+
+    await expect(message).toBeFocused();
+
+    await message.fill(initialMessage);
+    await (await openSections(page)).getByRole('link', { name: 'Booking Flow', exact: true }).press('Enter');
+
+    await expect(page).toHaveURL(/panel=flow$/);
+    await expect(page.getByText('Customize Booking Flow')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Booking Flow', exact: true })).toBeFocused();
+
+    await page.screenshot({ path: testInfo.outputPath(`hosted-flow-focus-${width}.png`), fullPage: false });
+    await (await openSections(page)).getByRole('link', { name: 'Style, Colours & Fonts', exact: true }).press('Enter');
+
+    await expect(page).toHaveURL(/panel=appearance$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Style, Colours & Fonts' })).toBeFocused();
+    expect(control.patches).toHaveLength(0);
+  });
+}
+
+test('flow access failure and retry retain a focused destination heading', async ({ page }) => {
+  const control = await mockApi(page, false);
+  await page.goto('/?salon=isla&panel=appearance');
+  const nav = await openSections(page);
+
+  await expect(nav.getByRole('link', { name: 'Booking Flow', exact: true })).toBeVisible();
+
+  let authUnavailable = true;
+  await page.route('**/api/admin/auth/me?salonSlug=isla', async (route) => {
+    if (authUnavailable) {
+      await route.fulfill({ status: 503, json: { error: 'Synthetic access check unavailable' } });
+      return;
+    }
+    await route.fallback();
+  });
+  await nav.getByRole('link', { name: 'Booking Flow', exact: true }).press('Enter');
+
+  await expect(page.getByTestId('booking-flow-unavailable')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Booking Flow', exact: true })).toBeFocused();
+
+  authUnavailable = false;
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+
+  await expect(page.getByTestId('booking-flow-unavailable')).toHaveCount(0);
+  await expect(page.getByText('Customize Booking Flow')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Booking Flow', exact: true })).toBeFocused();
+  expect(control.patches).toHaveLength(0);
+});
 
 for (const width of [320, 390, 1440]) {
   test(`grouped entry and section changes at ${width}px and enlarged text`, async ({ page }, testInfo) => {

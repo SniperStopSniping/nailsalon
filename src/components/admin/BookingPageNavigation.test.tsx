@@ -50,4 +50,29 @@ describe('Booking Page navigation', () => {
     expect(within(sections).getByRole('button')).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
   });
+
+  it('focuses a newly mounted hosted editor without taking focus back during editing', () => {
+    const { rerender } = render(
+      <BookingPageEditorLayout {...props} panel="experience">
+        <h1>Booking Messages &amp; Social Links</h1>
+        <textarea aria-label="Booking message" defaultValue="" />
+      </BookingPageEditorLayout>,
+    );
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+
+    const message = screen.getByRole('textbox', { name: 'Booking message' });
+    message.focus();
+    fireEvent.change(message, { target: { value: 'My draft' } });
+    rerender(
+      <BookingPageEditorLayout {...props} panel="experience">
+        <h1>Booking Messages &amp; Social Links</h1>
+        <textarea aria-label="Booking message" defaultValue="" />
+        <p>Draft updated</p>
+      </BookingPageEditorLayout>,
+    );
+
+    expect(message).toHaveFocus();
+    expect(message).toHaveValue('My draft');
+  });
 });
