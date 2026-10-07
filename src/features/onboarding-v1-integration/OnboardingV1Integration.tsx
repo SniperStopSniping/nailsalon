@@ -4,7 +4,6 @@ import { useAuth, useClerk, useUser } from '@clerk/nextjs';
 import {
   Check,
   CheckCircle2,
-  ChevronDown,
   CircleAlert,
   CloudUpload,
   Sparkles,
@@ -13,13 +12,13 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
 } from 'react';
 import { ZodError } from 'zod';
 
+import { FoundingSalonOffer } from '@/components/owner-entry/FoundingSalonOffer';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 import {
@@ -43,7 +42,6 @@ import {
   OnboardingApp,
   type OnboardingSavePayload,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/OnboardingApp';
-import { createLabPlanConfiguration } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/overlays/PlanOfferSheet';
 import { clearOnboardingState as clearLabOnboardingState, loadOnboardingState, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import { useLabDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/useLabDocument';
 import { PremiumAccountGate } from './account-gate/AccountGate';
@@ -102,22 +100,10 @@ type IntegrationTarget = OnboardingDraftClaimRequest['target'];
 
 type SavingStep = 'core' | 'finalizing' | 'media';
 
-const PLAN_INTENT_BY_LAB_INTENT: Record<PlanIntent, OnboardingPlanIntent> = {
-  founding: 'founding_interest',
-  free: 'free',
-  monthly: 'monthly_interest',
-};
-
 const LAB_INTENT_BY_PLAN_INTENT: Record<OnboardingPlanIntent, PlanIntent> = {
   founding_interest: 'founding',
   free: 'free',
   monthly_interest: 'monthly',
-};
-
-const PLAN_ACTIONS: Record<OnboardingPlanIntent, string> = {
-  founding_interest: 'Reserve founding offer',
-  free: 'Continue free',
-  monthly_interest: 'I’m interested in monthly',
 };
 
 /**
@@ -1012,10 +998,13 @@ function OnboardingIntegrationController({
     planInFlightRef.current = true;
     setPlanPending(true);
     setPlanConfirmation(null);
-    setFlow(current => ({ ...current, selectedPlan: intent }));
+    const planIdempotencyKey = flow.selectedPlan === intent
+      ? flow.planIdempotencyKey
+      : renewPlanIdempotencyKey();
+    setFlow(current => ({ ...current, planIdempotencyKey, selectedPlan: intent }));
     try {
       const result = await saveOnboardingPlanIntent({
-        idempotencyKey: flow.planIdempotencyKey,
+        idempotencyKey: planIdempotencyKey,
         intent,
         siteId: flow.savedSite.siteId,
       });
@@ -1059,7 +1048,7 @@ function OnboardingIntegrationController({
       setPlanPending(false);
       planInFlightRef.current = false;
     }
-  }, [flow.planIdempotencyKey, flow.savedSite, locale, savedSiteVerified, setFlow]);
+  }, [flow.planIdempotencyKey, flow.savedSite, flow.selectedPlan, locale, savedSiteVerified, setFlow]);
 
   const currentPayload = resolvePayload();
 
@@ -1189,15 +1178,7 @@ function OnboardingIntegrationController({
             <PlanSelection
               confirmation={planConfirmation}
               onChoose={choosePlan}
-              onSelect={intent => setFlow(current => intent === current.selectedPlan
-                ? current
-                : {
-                    ...current,
-                    planIdempotencyKey: renewPlanIdempotencyKey(),
-                    selectedPlan: intent,
-                  })}
               pending={planPending}
-              selectedIntent={flow.selectedPlan}
             />
           )
         : <IntegrationFailure message="Save your site before choosing how to start." onReturn={returnToReview} onRetry={returnToReview} />;
@@ -1604,129 +1585,17 @@ function SavedCelebration({
 function PlanSelection({
   confirmation,
   onChoose,
-  onSelect,
   pending,
-  selectedIntent,
 }: {
   confirmation: string | null;
   onChoose: (intent: OnboardingPlanIntent) => void;
-  onSelect: (intent: OnboardingPlanIntent) => void;
   pending: boolean;
-  selectedIntent: OnboardingPlanIntent;
 }) {
-  const feedback = useFeedback();
-  const radioName = useId();
-  const configuration = useMemo(() => createLabPlanConfiguration('free_beta'), []);
-  const selectedLabIntent = LAB_INTENT_BY_PLAN_INTENT[selectedIntent];
   return (
-    <OwnerSurface modifier="is-plans">
-      <section className="onboarding-account-plans">
-        <header>
-          <p className="onboarding-integration-eyebrow">Your site is safely saved</p>
-          <h1>Choose how you want to start</h1>
-          <p className="onboarding-integration-lede">
-            Start free today, or tell us which upcoming Luster plan interests you. You can change this later.
-          </p>
-        </header>
-        <fieldset className="onboarding-account-plan-grid" disabled={pending}>
-          <legend className="visually-hidden">Choose how you want to start</legend>
-          {configuration.options.map((option) => {
-            const integrationIntent = PLAN_INTENT_BY_LAB_INTENT[option.planIntent];
-            const selected = option.planIntent === selectedLabIntent;
-            return (
-              <label className={selected ? 'is-selected' : ''} key={option.id}>
-                <input
-                  checked={selected}
-                  name={radioName}
-                  type="radio"
-                  value={integrationIntent}
-                  onChange={() => {
-                    onSelect(integrationIntent);
-                    feedback.send({
-                      kind: 'selection',
-                      message: `${option.title} selected.`,
-                      replaceVisual: true,
-                    });
-                  }}
-                />
-                <span className="onboarding-account-plan-radio" aria-hidden="true">
-                  {selected ? <Check size={15} /> : null}
-                </span>
-                <span className="onboarding-account-plan-heading">
-                  <strong>{option.title}</strong>
-                  {option.badge ? <small>{option.badge}</small> : null}
-                </span>
-                <b>{option.priceLabel}</b>
-                <p>{option.description}</p>
-                <ul>
-                  {option.features.map(feature => (
-                    <li key={feature}>
-                      <Check aria-hidden="true" size={15} />
-                      {' '}
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-              </label>
-            );
-          })}
-        </fieldset>
-        {configuration.showPlanComparison
-          ? (
-              <details className="onboarding-account-plan-comparison">
-                <summary>
-                  Compare options
-                  <ChevronDown aria-hidden="true" size={18} />
-                </summary>
-                <div>
-                  <section>
-                    <h2>Included now</h2>
-                    <ul>
-                      {configuration.comparisonRows
-                        .filter(row => row.group === 'included_now')
-                        .map(row => (
-                          <li key={row.feature}>
-                            <Check aria-hidden="true" size={14} />
-                            {' '}
-                            {row.feature}
-                          </li>
-                        ))}
-                    </ul>
-                  </section>
-                  <section>
-                    <h2>Planned for paid options</h2>
-                    <ul>
-                      {configuration.comparisonRows
-                        .filter(row => row.group === 'planned_paid')
-                        .map(row => (
-                          <li key={row.feature}>
-                            <Check aria-hidden="true" size={14} />
-                            {' '}
-                            {row.feature}
-                          </li>
-                        ))}
-                    </ul>
-                  </section>
-                </div>
-              </details>
-            )
-          : null}
-        <p className="onboarding-plan-truth-note">
-          Final paid-plan pricing and features are still being confirmed. No payment is collected here.
-        </p>
-        {confirmation ? <p className="onboarding-plan-confirmation" role="status">{confirmation}</p> : null}
-      </section>
-      <footer className="onboarding-account-plan-footer">
-        <button
-          className="onboarding-integration-primary"
-          disabled={pending}
-          type="button"
-          onClick={() => onChoose(selectedIntent)}
-        >
-          {pending ? 'Saving your choice…' : PLAN_ACTIONS[selectedIntent]}
-        </button>
-        <p>Nothing is charged today.</p>
-      </footer>
-    </OwnerSurface>
+    <FoundingSalonOffer
+      message={confirmation}
+      onClaim={() => onChoose('founding_interest')}
+      pending={pending}
+    />
   );
 }

@@ -1173,6 +1173,9 @@ jobs:
       - name: Verify owner destinations and Hours in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerNavigation/playwright.config.ts --output=test-results/owner-navigation-components
 
+      - name: Verify Luster owner entry screens in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerEntry/playwright.config.ts --output=test-results/owner-entry
+
       - name: Verify owner Marketing destinations in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerMarketing/playwright.config.ts --output=test-results/owner-marketing-components
 
@@ -1212,7 +1215,7 @@ jobs:
           LUSTER_LAB_PORT: '4199'
           LUSTER_LAB_URL: http://127.0.0.1:4199
           LUSTER_CAPTURE_EVIDENCE: '0'
-        run: npx playwright test --config playwright.config.ts tests/e2e/onboarding-desktop-layout.spec.ts --project=chromium --output=../../test-results/onboarding-desktop
+        run: npx playwright test --config playwright.config.ts tests/e2e/onboarding-desktop-layout.spec.ts tests/e2e/founding-offer.spec.ts --project=chromium --output=../../test-results/onboarding-desktop
 
       - uses: actions/upload-artifact@v4
         if: always()

@@ -1012,7 +1012,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await captureEvidence(page, '10-closed-state');
   });
 
-  test('Journey G uses distinct business/location/contact/deposit concepts and carries Mia identity through Continue free', async ({ page }) => {
+  test('Journey G uses distinct business/location/contact/deposit concepts and carries Mia identity through Claim my free lifetime plan', async ({ page }) => {
     const longBusinessName = 'Mia’s Nail Studio & Natural Nail Care Collective';
     await openFreshOnboarding(page);
     await chooseStarter(page, 'quick_book');
@@ -1087,8 +1087,8 @@ test.describe('Onboarding V1 final correction matrix', () => {
     expect(state.profile.policies.deposits.mode).toBe('fixed');
 
     await page.getByRole('button', { name: 'Finish setup' }).click();
-    const offer = page.getByRole('dialog', { name: 'Your site is saved' });
-    const continueFree = offer.getByRole('button', { name: 'Continue free' });
+    const offer = page.getByRole('dialog', { name: 'Your site is ready' });
+    const continueFree = offer.getByRole('button', { name: 'Claim my free lifetime plan' });
 
     await expect(continueFree).toBeVisible();
 

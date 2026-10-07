@@ -41,6 +41,7 @@ const RESOLUTION_FAILED_MESSAGE
 
 export type OwnerSignInCardProps = {
   dashboardUrl: string;
+  createSalonUrl?: string;
 };
 
 /**
@@ -57,7 +58,7 @@ export type OwnerSignInCardProps = {
  * `POST /api/onboarding/v1/organization`, then `setActive` — and continues to
  * the workspace, so the owner sees a status message instead of a form.
  */
-export function OwnerSignInCard({ dashboardUrl }: OwnerSignInCardProps) {
+export function OwnerSignInCard({ dashboardUrl, createSalonUrl }: OwnerSignInCardProps) {
   const clerk = useClerk();
   const [pendingTask, setPendingTask] = useState<PendingSessionTask | null>(null);
   const [phase, setPhase] = useState<'failed' | 'resolving'>('resolving');
@@ -114,7 +115,14 @@ export function OwnerSignInCard({ dashboardUrl }: OwnerSignInCardProps) {
 
   const signInCard = (
     <SignIn
-      appearance={lusterOwnerSignInAppearance}
+      appearance={{
+        ...lusterOwnerSignInAppearance,
+        elements: {
+          ...lusterOwnerSignInAppearance.elements,
+          ...(createSalonUrl ? { footerAction__signIn: 'luster-auth-create' } : {}),
+        },
+      }}
+      signUpUrl={createSalonUrl}
       fallbackRedirectUrl={dashboardUrl}
       routing="hash"
     />

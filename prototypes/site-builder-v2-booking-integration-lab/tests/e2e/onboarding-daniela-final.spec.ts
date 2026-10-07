@@ -168,7 +168,9 @@ async function applyFixture(
   await expect(entryOrShell).toBeVisible();
 
   if (await heading(page, 'Choose your starting point').isVisible()) {
-    await chooseStartingPoint(page, 'One-page');
+    await page.getByRole('button', { name: 'Start with Quick Book' }).click();
+
+    await expect(page.getByLabel('More onboarding options')).toBeVisible();
   }
   const dialog = await openReviewOptions(page);
   await dialog.getByRole('button', { exact: true, name: fixtureLabel }).click();
@@ -698,8 +700,8 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await expect(heading(page, 'Review your site')).toBeVisible();
 
     await page.getByRole('button', { name: 'Finish setup' }).click();
-    await page.getByRole('dialog', { name: 'Your site is saved' })
-      .getByRole('button', { name: 'Continue free' })
+    await page.getByRole('dialog', { name: 'Your site is ready' })
+      .getByRole('button', { name: 'Claim my free lifetime plan' })
       .click();
 
     await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
@@ -1546,90 +1548,48 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('V06 plan cards preserve one selected intent and a usable short-phone layout', async ({ page }) => {
+  test('V06 the single founding offer keeps its disclosure and action usable on short phones', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openAuditFresh(page);
     await applyFixture(page, 'All essentials complete', 'Review your site');
     await page.getByRole('button', { name: 'Finish setup' }).click();
-    const plan = page.getByRole('dialog', { name: 'Your site is saved' });
-    const free = plan.getByRole('radio', { name: /^Free/u });
-    const founding = plan.getByRole('radio', { name: /^Founding offer/u });
-    const monthly = plan.getByRole('radio', { name: /^Monthly/u });
-    const planAction = plan.locator('.onboarding-plan-sheet__action');
+    const plan = page.getByRole('dialog', { name: 'Your site is ready' });
+    const planAction = plan.locator('.luster-offer-claim');
 
-    await expect(free).toBeChecked();
-    await expect(free.locator('xpath=..')).toContainText('$0 to start');
-    await expect(founding.locator('xpath=..')).toContainText('Price coming soon');
-    await expect(monthly.locator('xpath=..')).toContainText('Price coming soon');
+    await expect(plan.getByRole('radio')).toHaveCount(0);
     await expect(planAction.getByRole('button')).toHaveCount(1);
-    await expect(planAction.getByRole('button', { name: 'Continue free' })).toBeVisible();
-    await expect(plan).not.toContainText(/Lifetime|limited time|countdown|buy now|purchase/u);
-    await expect(plan).toContainText('There is no payment or plan access change today.');
+    await expect(planAction.getByRole('button', { name: 'Claim my free lifetime plan' })).toBeVisible();
+    await expect(plan).toContainText('100 free texts included');
+    await expect(plan).toContainText('Unlimited emails');
 
-    const freeCardBox = await free.locator('xpath=..').boundingBox();
+    await captureViewport(page, '27-founding-offer-initial-viewport');
+    await plan.getByText('Usage-based features are separate').scrollIntoViewIfNeeded();
 
-    expect(freeCardBox).not.toBeNull();
-    expect((freeCardBox?.y ?? 9999) + (freeCardBox?.height ?? 0)).toBeLessThanOrEqual(844);
+    await expect(plan).toContainText('Additional SMS, AI receptionist, phone calls, and other usage-based services are billed separately.');
 
-    await captureViewport(page, '27-plan-free-initial-viewport');
-
-    await founding.locator('xpath=..').click();
-
-    await expect(founding).toBeChecked();
-    await expect(planAction.getByRole('button', { name: 'Reserve founding offer' })).toBeVisible();
-    await expect(planAction.getByRole('button')).toHaveCount(1);
-
-    await captureViewport(page, '28-plan-founding-selected');
-
-    await monthly.locator('xpath=..').click();
-
-    await expect(monthly).toBeChecked();
-    await expect(planAction.getByRole('button', { name: 'I’m interested in monthly' })).toBeVisible();
-    await expect(planAction.getByRole('button')).toHaveCount(1);
-
-    await captureViewport(page, '29-plan-monthly-selected');
-    await plan.getByText('Compare options', { exact: true }).click();
-    const comparison = plan.locator('.onboarding-plan-comparison');
-
-    await expect(comparison.getByRole('heading', { name: 'Included now' })).toBeVisible();
-    await expect(comparison.getByRole('heading', { name: 'Planned for paid options' }))
-      .toBeVisible();
-
-    const comparisonGeometry = await comparison.evaluate(element => ({
-      clientWidth: element.clientWidth,
-      scrollWidth: element.scrollWidth,
-    }));
-
-    expect(comparisonGeometry.scrollWidth).toBeLessThanOrEqual(comparisonGeometry.clientWidth + 1);
-
-    await capture(page, '30-plan-compact-comparison');
-
+    await captureViewport(page, '30-founding-offer-usage-disclosure');
     await page.setViewportSize({ height: 568, width: 320 });
-    await free.locator('xpath=..').click();
 
-    await expect(planAction.getByRole('button', { name: 'Continue free' })).toBeVisible();
-    await expect(planAction.getByRole('button')).toHaveCount(1);
+    await expect(planAction.getByRole('button', { name: 'Claim my free lifetime plan' })).toBeVisible();
 
     await expectNoHorizontalOverflow(page);
     await captureViewport(page, '31-plan-short-phone');
   });
 
-  test('V07 Continue free reaches the dashboard directly with normal owner controls', async ({ page }) => {
+  test('V07 Claim my free lifetime plan reaches the dashboard directly with normal owner controls', async ({ page }) => {
     await page.setViewportSize({ height: 800, width: 1180 });
     await openAuditFresh(page);
     await applyFixture(page, 'All essentials complete', 'Review your site');
     await page.getByRole('button', { name: 'Finish setup' }).click();
-    const plan = page.getByRole('dialog', { name: 'Your site is saved' });
+    const plan = page.getByRole('dialog', { name: 'Your site is ready' });
 
     await expect(plan).toBeVisible();
-    await expect(plan.getByRole('radio', { name: /^Free/u })).toBeChecked();
-    await expect(plan.getByRole('radio', { name: /^Founding offer/u })).toBeVisible();
-    await expect(plan.getByRole('radio', { name: /^Monthly/u })).toBeVisible();
-    await expect(plan.getByRole('button', { name: 'Continue free' })).toBeVisible();
-    await expect(plan).toContainText('There is no payment or plan access change today.');
+    await expect(plan.getByRole('radio')).toHaveCount(0);
+    await expect(plan.getByRole('button', { name: 'Claim my free lifetime plan' })).toBeVisible();
+    await expect(plan).toContainText('Usage-based features are separate');
 
     await captureLocator(plan, '39-plan-free-initial');
-    await plan.getByRole('button', { name: 'Continue free' }).click();
+    await plan.getByRole('button', { name: 'Claim my free lifetime plan' }).click();
 
     await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
     await expect(page.getByText(/Daniela, your website, booking page and service menu are set up/u))
@@ -1698,8 +1658,8 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await openAuditFresh(page);
     await applyFixture(page, 'All essentials complete', 'Review your site');
     await page.getByRole('button', { name: 'Finish setup' }).click();
-    await page.getByRole('dialog', { name: 'Your site is saved' })
-      .getByRole('button', { name: 'Continue free' })
+    await page.getByRole('dialog', { name: 'Your site is ready' })
+      .getByRole('button', { name: 'Claim my free lifetime plan' })
       .click();
     await page.goto('/');
 
