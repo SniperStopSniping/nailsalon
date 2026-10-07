@@ -20,6 +20,7 @@ import { ZodError } from 'zod';
 
 import { FoundingSalonOffer } from '@/components/owner-entry/FoundingSalonOffer';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { isFoundingLifetimeOfferOpen } from '@/libs/billing/foundingLifetime';
 
 import {
   CustomDesignAssetProvider,
@@ -369,6 +370,7 @@ function OnboardingIntegrationController({
     return queryMode === 'sign-in' ? 'sign-in' : flow.authMode;
   });
   const [planPending, setPlanPending] = useState(false);
+  const [planOfferClosed, setPlanOfferClosed] = useState(() => !isFoundingLifetimeOfferOpen());
   const [planConfirmation, setPlanConfirmation] = useState<string | null>(null);
   const payloadRef = useRef(payload);
   const claimInFlightRef = useRef(false);
@@ -1041,6 +1043,9 @@ function OnboardingIntegrationController({
       if (accountIdRef.current !== planAccountId) {
         return;
       }
+      if (error instanceof OnboardingIntegrationRequestError && error.code === 'FOUNDING_OFFER_CLOSED') {
+        setPlanOfferClosed(true);
+      }
       setPlanConfirmation(error instanceof Error
         ? error.message
         : 'Your plan choice could not be saved. Nothing was charged.');
@@ -1176,6 +1181,8 @@ function OnboardingIntegrationController({
       return flow.savedSite
         ? (
             <PlanSelection
+              closed={planOfferClosed}
+              onContinue={() => window.location.assign(`/${locale}/admin?salon=${encodeURIComponent(flow.savedSite!.salonSlug)}`)}
               confirmation={planConfirmation}
               onChoose={choosePlan}
               pending={planPending}
@@ -1583,16 +1590,22 @@ function SavedCelebration({
 }
 
 function PlanSelection({
+  closed,
+  onContinue,
   confirmation,
   onChoose,
   pending,
 }: {
+  closed: boolean;
+  onContinue: () => void;
   confirmation: string | null;
   onChoose: (intent: OnboardingPlanIntent) => void;
   pending: boolean;
 }) {
   return (
     <FoundingSalonOffer
+      closed={closed}
+      onContinue={onContinue}
       message={confirmation}
       onClaim={() => onChoose('founding_interest')}
       pending={pending}

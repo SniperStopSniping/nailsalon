@@ -3,7 +3,9 @@ import 'server-only';
 import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import { formatPhoneE164 } from '@/libs/adminAuth';
-import { claimVerifiedStarterCredits } from '@/libs/billing/verifiedStarterGrant';
+import type { FoundingLifetimeAccess } from '@/libs/billing/foundingLifetime';
+import { getFoundingLifetimeAccess, grantFoundingLifetimeAccess } from '@/libs/billing/foundingLifetime.server';
+import { claimVerifiedStarterCredits, type StarterClaimStatus } from '@/libs/billing/verifiedStarterGrant';
 import {
   BOOKING_EXPERIENCE_LIMITS,
   bookingExperienceUpdateSchema,
@@ -2344,8 +2346,11 @@ export async function saveOnboardingPlanIntent(
   identity: AuthenticatedOnboardingIdentity,
   input: OnboardingPlanIntentRequest,
   database: QueryDatabase = db,
+  now: Date = new Date(),
 ): Promise<{
     confirmationMessage: string;
+    coreAccess: FoundingLifetimeAccess | null;
+    starterCreditsStatus: StarterClaimStatus | null;
     dashboardUrl: string;
     intent: OnboardingPlanIntentRequest['intent'];
     siteId: string;
@@ -2354,88 +2359,120 @@ export async function saveOnboardingPlanIntent(
   if (!admin) {
     throw new OnboardingPersistenceError('OWNER_NOT_FOUND', 'Save the site to this Luster account first.', 409);
   }
-  const [site] = await database
-    .select({
-      id: onboardingSiteSchema.id,
-      planIntent: onboardingSiteSchema.planIntent,
-      planIntentIdempotencyKeyHash: onboardingSiteSchema.planIntentIdempotencyKeyHash,
-      salonId: onboardingSiteSchema.salonId,
-      salonSlug: salonSchema.slug,
-    })
-    .from(onboardingSiteSchema)
-    .innerJoin(
-      adminSalonMembershipSchema,
-      and(
-        eq(adminSalonMembershipSchema.salonId, onboardingSiteSchema.salonId),
-        eq(adminSalonMembershipSchema.adminId, admin.id),
-        eq(adminSalonMembershipSchema.role, 'owner'),
-      ),
-    )
-    .innerJoin(salonSchema, eq(salonSchema.id, onboardingSiteSchema.salonId))
-    .where(and(
-      eq(onboardingSiteSchema.id, input.siteId),
-      eq(onboardingSiteSchema.isCurrent, true),
-      isNull(salonSchema.deletedAt),
-    ))
-    .limit(1);
-  if (!site) {
-    throw new OnboardingPersistenceError('SITE_NOT_FOUND', 'The saved site was not found for this account.', 404);
-  }
-  const idempotencyKeyHash = hashOpaqueToken(input.idempotencyKey);
-  if (
-    site.planIntentIdempotencyKeyHash === idempotencyKeyHash
-    && site.planIntent
-    && site.planIntent !== input.intent
-  ) {
-    throw new OnboardingPersistenceError(
-      'PLAN_INTENT_IDEMPOTENCY_CONFLICT',
-      'Choose the plan again so Luster can save your latest selection.',
-      409,
-    );
-  }
-  let savedIntent = site.planIntent;
-  if (site.planIntentIdempotencyKeyHash !== idempotencyKeyHash || !savedIntent) {
-    const [updated] = await database.update(onboardingSiteSchema).set({
-      planIntent: input.intent,
-      planIntentIdempotencyKeyHash: idempotencyKeyHash,
-      planIntentUpdatedAt: new Date(),
-      updatedAt: new Date(),
-    }).where(and(
-      eq(onboardingSiteSchema.id, site.id),
-      eq(onboardingSiteSchema.salonId, site.salonId),
-      or(
-        isNull(onboardingSiteSchema.planIntentIdempotencyKeyHash),
-        ne(onboardingSiteSchema.planIntentIdempotencyKeyHash, idempotencyKeyHash),
-      ),
-    )).returning();
-    if (updated?.planIntent) {
-      savedIntent = updated.planIntent;
-    } else {
-      const [winner] = await database.select({ intent: onboardingSiteSchema.planIntent })
-        .from(onboardingSiteSchema)
-        .where(and(
-          eq(onboardingSiteSchema.id, site.id),
-          eq(onboardingSiteSchema.salonId, site.salonId),
-          eq(onboardingSiteSchema.planIntentIdempotencyKeyHash, idempotencyKeyHash),
-        ))
-        .limit(1);
-      savedIntent = winner?.intent ?? null;
+  return database.transaction(async (tx) => {
+    const [site] = await tx
+      .select({
+        id: onboardingSiteSchema.id,
+        planIntent: onboardingSiteSchema.planIntent,
+        planIntentIdempotencyKeyHash: onboardingSiteSchema.planIntentIdempotencyKeyHash,
+        salonId: onboardingSiteSchema.salonId,
+        salonSlug: salonSchema.slug,
+      })
+      .from(onboardingSiteSchema)
+      .innerJoin(
+        adminSalonMembershipSchema,
+        and(
+          eq(adminSalonMembershipSchema.salonId, onboardingSiteSchema.salonId),
+          eq(adminSalonMembershipSchema.adminId, admin.id),
+          eq(adminSalonMembershipSchema.role, 'owner'),
+        ),
+      )
+      .innerJoin(salonSchema, eq(salonSchema.id, onboardingSiteSchema.salonId))
+      .where(and(
+        eq(onboardingSiteSchema.id, input.siteId),
+        eq(onboardingSiteSchema.isCurrent, true),
+        isNull(salonSchema.deletedAt),
+      ))
+      .limit(1)
+      .for('no key update');
+    if (!site) {
+      throw new OnboardingPersistenceError('SITE_NOT_FOUND', 'The saved site was not found for this account.', 404);
     }
-  }
-  if (!savedIntent) {
-    throw new OnboardingPersistenceError('PLAN_INTENT_SAVE_FAILED', 'Your plan choice could not be saved.', 500);
-  }
-  const confirmationMessage = savedIntent === 'free'
-    ? 'Your free start is ready.'
-    : savedIntent === 'founding_interest'
-      ? 'Founding offer reserved. We’ll let you know when final details are ready. Nothing was charged today.'
-      : 'Monthly interest saved. We’ll let you know when final details are ready. Nothing was charged today.';
-  return {
-    confirmationMessage,
-    dashboardUrl: `/admin?salon=${encodeURIComponent(site.salonSlug)}`,
-    intent: savedIntent,
-    siteId: site.id,
-  };
+    const idempotencyKeyHash = hashOpaqueToken(input.idempotencyKey);
+    if (
+      site.planIntentIdempotencyKeyHash === idempotencyKeyHash
+      && site.planIntent
+      && site.planIntent !== input.intent
+    ) {
+      throw new OnboardingPersistenceError(
+        'PLAN_INTENT_IDEMPOTENCY_CONFLICT',
+        'Choose the plan again so Luster can save your latest selection.',
+        409,
+      );
+    }
+    let coreAccess = await getFoundingLifetimeAccess(site.salonId, tx);
+    let starterCreditsStatus: StarterClaimStatus | null = null;
+    if (input.intent === 'founding_interest') {
+      const claim = await grantFoundingLifetimeAccess(tx, {
+        salonId: site.salonId,
+        siteId: site.id,
+        ownerAdminId: admin.id,
+        now,
+      });
+      if (!claim.ok) {
+        throw new OnboardingPersistenceError(
+          claim.reason,
+          'The founding offer ended January 1, 2027. Your saved site is ready to open from your dashboard.',
+          409,
+        );
+      }
+      coreAccess = claim.access;
+      // The existing verified-business grant is the only source of the 100
+      // texts. Replays, another salon and old allowances never mint more.
+      const starter = await claimVerifiedStarterCredits(tx, {
+        salonId: site.salonId,
+        clerkUserId: identity.clerkUserId,
+        verifiedEmail: identity.verifiedEmail ?? identity.email,
+        verifiedPhone: identity.phoneE164,
+      });
+      starterCreditsStatus = starter.status;
+    }
+    let savedIntent = site.planIntent;
+    if (site.planIntentIdempotencyKeyHash !== idempotencyKeyHash || !savedIntent) {
+      const [updated] = await tx.update(onboardingSiteSchema).set({
+        planIntent: input.intent,
+        planIntentIdempotencyKeyHash: idempotencyKeyHash,
+        planIntentUpdatedAt: now,
+        updatedAt: now,
+      }).where(and(
+        eq(onboardingSiteSchema.id, site.id),
+        eq(onboardingSiteSchema.salonId, site.salonId),
+        or(
+          isNull(onboardingSiteSchema.planIntentIdempotencyKeyHash),
+          ne(onboardingSiteSchema.planIntentIdempotencyKeyHash, idempotencyKeyHash),
+        ),
+      )).returning();
+      if (updated?.planIntent) {
+        savedIntent = updated.planIntent;
+      } else {
+        const [winner] = await tx.select({ intent: onboardingSiteSchema.planIntent })
+          .from(onboardingSiteSchema)
+          .where(and(
+            eq(onboardingSiteSchema.id, site.id),
+            eq(onboardingSiteSchema.salonId, site.salonId),
+            eq(onboardingSiteSchema.planIntentIdempotencyKeyHash, idempotencyKeyHash),
+          ))
+          .limit(1);
+        savedIntent = winner?.intent ?? null;
+      }
+    }
+    if (!savedIntent) {
+      throw new OnboardingPersistenceError('PLAN_INTENT_SAVE_FAILED', 'Your plan choice could not be saved.', 500);
+    }
+    const confirmationMessage = savedIntent === 'free'
+      ? 'Your free start is ready.'
+      : savedIntent === 'founding_interest'
+        ? 'Your core Luster app is now free for life. Additional texts, AI receptionist and phone usage are paid separately. Nothing was charged today.'
+        : 'Monthly interest saved. We’ll let you know when final details are ready. Nothing was charged today.';
+    return {
+      confirmationMessage,
+      coreAccess,
+      starterCreditsStatus,
+      dashboardUrl: `/admin?salon=${encodeURIComponent(site.salonSlug)}`,
+      intent: savedIntent,
+      siteId: site.id,
+    };
+  });
 }
 
 /**

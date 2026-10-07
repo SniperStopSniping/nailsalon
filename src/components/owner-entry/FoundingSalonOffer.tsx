@@ -16,11 +16,42 @@ export function FoundingSalonOffer({
   onClaim,
   pending = false,
   message,
+  closed = false,
+  onContinue,
 }: {
   onClaim: () => void;
   pending?: boolean;
   message?: string | null;
+  closed?: boolean;
+  onContinue?: () => void;
 }) {
+  if (closed) {
+    return (
+      <LusterEntryShell variant="offer">
+        <main>
+          <LusterWordmark />
+          <header className="luster-entry-header luster-offer-header">
+            <p className="luster-offer-eyebrow">Your site is saved</p>
+            <h1>
+              Your next chapter
+              <br />
+              <em>starts here.</em>
+            </h1>
+          </header>
+          <section className="luster-entry-card luster-offer-card">
+            <h2>The founding offer has ended</h2>
+            <p>New claims closed on January 1, 2027. Your saved site is ready to open, and any lifetime access you already claimed stays active.</p>
+          </section>
+          <footer className="luster-offer-claim">
+            <button className="luster-entry-button luster-entry-button--primary" type="button" disabled={!onContinue} onClick={onContinue}>
+              Go to my dashboard
+              <ArrowRight aria-hidden="true" />
+            </button>
+          </footer>
+        </main>
+      </LusterEntryShell>
+    );
+  }
   return (
     <LusterEntryShell variant="offer">
       <main>
@@ -78,6 +109,7 @@ export function FoundingSalonOffer({
               <strong>Unlimited emails</strong>
             </li>
           </ul>
+          <p className="luster-offer-description">Texts are a one-time allowance per verified business. Add more whenever you need them.</p>
         </section>
         <aside className="luster-entry-card luster-offer-usage" aria-labelledby="usage-heading">
           <span className="luster-offer-usage-icon"><MessageCircle aria-hidden="true" /></span>

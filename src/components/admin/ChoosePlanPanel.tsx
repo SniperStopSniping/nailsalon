@@ -95,6 +95,7 @@ function formatCents(cents: number): string {
 
 export function ChoosePlanPanel({ salonSlug, onClose }: ChoosePlanPanelProps) {
   const [loading, setLoading] = useState(true);
+  const [hasLifetimeAccess, setHasLifetimeAccess] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [salonId, setSalonId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
@@ -117,6 +118,7 @@ export function ChoosePlanPanel({ salonSlug, onClose }: ChoosePlanPanelProps) {
         const body = await response.json();
         if (!cancelled) {
           setSalonId(body.data.salonId);
+          setHasLifetimeAccess(body.data.usage?.coreAccess?.status === 'active');
           setCapabilities(body.data.capabilities);
           setCatalog(body.data.catalog);
         }
@@ -225,7 +227,9 @@ export function ChoosePlanPanel({ salonSlug, onClose }: ChoosePlanPanelProps) {
       <div role="dialog" aria-modal="true" aria-labelledby="choose-plan-title" data-testid="choose-plan-panel">
         <div className="flex items-center justify-between border-b border-[var(--owner-line)] px-5 py-4">
           <h2 id="choose-plan-title" className="text-lg font-semibold text-[var(--owner-ink)]">
-            {checkoutResult !== null ? 'Confirm your plan' : 'Choose plan'}
+            {hasLifetimeAccess
+              ? checkoutResult !== null ? 'Confirm your text plan' : 'Optional text plans'
+              : checkoutResult !== null ? 'Confirm your plan' : 'Choose plan'}
           </h2>
           <button
             type="button"
@@ -242,6 +246,10 @@ export function ChoosePlanPanel({ salonSlug, onClose }: ChoosePlanPanelProps) {
             <p role="status" aria-live="polite" className="text-sm text-[var(--owner-muted)]">Loading plans…</p>
           )}
           {loadError !== null && <p className="text-sm text-red-600">{loadError}</p>}
+
+          {hasLifetimeAccess && !loading && (
+            <p className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-ground)] p-4 text-sm text-[var(--owner-ink)]">Your core Luster app is free for life. These optional plans add text credits; they do not change your lifetime software access.</p>
+          )}
 
           {showCards && (
             <>

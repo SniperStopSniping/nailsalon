@@ -4,6 +4,20 @@ import { describe, expect, it, vi } from 'vitest';
 import { FoundingSalonOffer } from './FoundingSalonOffer';
 
 describe('FoundingSalonOffer', () => {
+  it('provides a dashboard exit after the acquisition deadline without promising a new grant', () => {
+    const onClaim = vi.fn();
+    const onContinue = vi.fn();
+    render(<FoundingSalonOffer onClaim={onClaim} closed onContinue={onContinue} />);
+
+    expect(screen.queryByRole('button', { name: 'Claim my free lifetime plan' })).not.toBeInTheDocument();
+    expect(screen.getByText('The founding offer has ended')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to my dashboard' }));
+
+    expect(onContinue).toHaveBeenCalledOnce();
+    expect(onClaim).not.toHaveBeenCalled();
+  });
+
   it('offers one claim with the approved price and separate usage disclosure', () => {
     const onClaim = vi.fn();
     render(<FoundingSalonOffer onClaim={onClaim} />);

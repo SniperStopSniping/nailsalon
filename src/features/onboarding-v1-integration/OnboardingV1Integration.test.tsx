@@ -67,6 +67,8 @@ const verifiedClerkUser = (): NonNullable<MockedClerkUser> => ({
   reload: vi.fn().mockResolvedValue(undefined),
 });
 
+vi.mock('@/libs/billing/foundingLifetime', () => ({ isFoundingLifetimeOfferOpen: () => true }));
+
 vi.mock('@clerk/nextjs', () => ({
   AuthenticateWithRedirectCallback: () => null,
   useAuth: () => mocks.auth,

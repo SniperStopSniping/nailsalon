@@ -4305,6 +4305,26 @@ export const billingStarterGrantSchema = pgTable(
 );
 export type BillingStarterGrant = typeof billingStarterGrantSchema.$inferSelect;
 
+/** Core-software pricing rights are independent from paid communications. */
+export const foundingLifetimeClaimSchema = pgTable(
+  'founding_lifetime_claim',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+    sourceSiteId: text('source_site_id').notNull(),
+    claimedByAdminId: text('claimed_by_admin_id').references(() => adminUserSchema.id, { onDelete: 'set null' }),
+    offerKey: text('offer_key').notNull(),
+    termsVersion: integer('terms_version').notNull(),
+    terms: jsonb('terms').$type<typeof import('@/libs/billing/foundingLifetime').FOUNDING_LIFETIME_TERMS>().notNull(),
+    claimedAt: timestamp('claimed_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    salonUnique: uniqueIndex('founding_lifetime_claim_salon_uniq').on(table.salonId),
+    offerValid: check('founding_lifetime_claim_offer_valid', sql`${table.offerKey} = 'founding_lifetime_2026' AND ${table.termsVersion} = 1`),
+    coreTermsValid: check('founding_lifetime_claim_core_terms_valid', sql`(${table.terms}->>'coreSoftwareAccess' = 'lifetime' AND ${table.terms}->>'coreSoftwareMonthlyPriceCents' = '0' AND ${table.terms}->>'emails' = 'unlimited' AND ${table.terms}->>'starterTextCredits' = '100' AND ${table.terms}->>'starterTextCreditsFrequency' = 'once_per_verified_business' AND ${table.terms}->>'additionalTexts' = 'paid_separately' AND ${table.terms}->>'aiReceptionist' = 'paid_separately' AND ${table.terms}->>'phoneUsage' = 'paid_separately' AND ${table.terms}->>'otherUsageServices' = 'paid_separately') IS TRUE`),
+  }),
+);
+
 export const billingPromotionCounterSchema = pgTable('billing_promotion_counter', {
   promotionKey: text('promotion_key').primaryKey(),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),

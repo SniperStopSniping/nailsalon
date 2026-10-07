@@ -77,3 +77,11 @@ test('native Vitest shard selection covers every discovered test file exactly on
   assert.deepEqual(shards.flat().map(spec => spec.moduleId).sort(), [...files].sort());
   assert.equal(new Set(shards.flat().map(spec => spec.moduleId)).size, files.length);
 });
+
+test('founding lifetime claims require real PostgreSQL evidence without skips', () => {
+  const job = jobs['sms-credit-ledger-postgres'];
+  assert.equal(job.env.CORE_LIFETIME_DISPOSABLE_DATABASE_CONFIRMED, 'true');
+  const step = job.steps.find(candidate => candidate.name === 'Run billing real-PostgreSQL money suites and prove zero skips');
+  assert.ok(step.run.includes('src/libs/billing/foundingLifetime.concurrency.integration.test.ts'));
+  assert.ok(step.run.includes('grep -Fqx \'FOUNDING_CORE_POSTGRES_TESTS_EXECUTED=7 FOUNDING_CORE_POSTGRES_TESTS_SKIPPED=0\''));
+});
