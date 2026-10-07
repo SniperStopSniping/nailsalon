@@ -1,3 +1,10 @@
+## [1.139.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.139.1...v1.139.2) (2026-10-07)
+
+
+### Bug Fixes
+
+* **booking:** respect saved Isla social profiles ([#364](https://github.com/SniperStopSniping/nailsalon/issues/364)) ([8079154](https://github.com/SniperStopSniping/nailsalon/commit/8079154bbb92165ad63b734f2a846eaa815653cb))
+
 ## [1.139.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.139.0...v1.139.1) (2026-10-07)
 
 
