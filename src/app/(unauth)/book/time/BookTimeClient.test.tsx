@@ -501,6 +501,153 @@ describe('BookTimeClient', () => {
     });
   });
 
+  describe('next available recovery', () => {
+    const emptyDay = () => Response.json({ slots: [], visibleSlots: [], bookedSlots: [] });
+    const renderRecovery = () => render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
+        technician={null}
+        bookingFlow={['service', 'time', 'confirm']}
+      />,
+    );
+
+    beforeEach(() => {
+      searchParamsState.value = 'serviceIds=srv_1&techId=tech_1&date=2026-03-20';
+    });
+
+    it('does not call incomplete live checks a fully booked month', async () => {
+      fetchMock.mockImplementation((url: string) => Promise.resolve(
+        url.includes('date=2026-03-22') ? Response.json({}, { status: 503 }) : emptyDay(),
+      ));
+      renderRecovery();
+      await screen.findByText('No openings on Friday, Mar 20');
+      fireEvent.click(screen.getByRole('button', { name: 'Find next available' }));
+
+      expect(await screen.findByText('We couldn’t finish checking availability. Please try again or choose a date.')).toBeInTheDocument();
+      expect(screen.queryByText(/No openings were found in the next 30 days/)).not.toBeInTheDocument();
+      expect(screen.getByTestId('calendar-day-2026-03-20')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('keeps a manually selected date when an older search returns later', async () => {
+      let finishSearch!: (response: Response) => void;
+      fetchMock.mockImplementation((url: string) => url.includes('date=2026-03-21')
+        ? new Promise<Response>((resolve) => {
+          finishSearch = resolve;
+        })
+        : Promise.resolve(emptyDay()));
+      renderRecovery();
+      await screen.findByText('No openings on Friday, Mar 20');
+      fireEvent.click(screen.getByRole('button', { name: 'Find next available' }));
+      await waitFor(() => expect(finishSearch).toBeDefined());
+      fireEvent.click(screen.getByTestId('calendar-day-2026-03-23'));
+      await act(async () => {
+        finishSearch(Response.json({ slots: [{ time: '13:00', availability: 'available' }] }));
+      });
+
+      expect(screen.getByTestId('calendar-day-2026-03-23')).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Find next available' })).toBeEnabled();
+    });
+  });
+
+  describe('next available result boundaries', () => {
+    const emptyDay = () => Response.json({ slots: [], visibleSlots: [], bookedSlots: [] });
+    const renderRecovery = () => render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
+        technician={null}
+        bookingFlow={['service', 'time', 'confirm']}
+      />,
+    );
+
+    beforeEach(() => {
+      searchParamsState.value = 'serviceIds=srv_1&techId=tech_1&date=2026-03-20';
+    });
+
+    it('shows loading rather than no openings before a day has been checked', async () => {
+      let finishDay!: (response: Response) => void;
+      fetchMock.mockImplementation(() => new Promise<Response>((resolve) => {
+        finishDay = resolve;
+      }));
+      renderRecovery();
+
+      expect(await screen.findByText('Checking live availability')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Find next available' })).not.toBeInTheDocument();
+
+      await act(async () => {
+        finishDay(emptyDay());
+      });
+
+      expect(await screen.findByRole('button', { name: 'Find next available' })).toBeEnabled();
+    });
+
+    it('finds an opening, preserves service selection and loads that date', async () => {
+      fetchMock.mockImplementation((url: string) => Promise.resolve(url.includes('date=2026-03-22')
+        ? Response.json({ slots: [{ time: '13:00', availability: 'available' }], visibleSlots: ['13:00'], bookedSlots: [] })
+        : emptyDay()));
+      renderRecovery();
+      await screen.findByText('No openings on Friday, Mar 20');
+      fireEvent.click(screen.getByRole('button', { name: 'Find next available' }));
+
+      expect(await screen.findByRole('button', { name: '1:00 PM' })).toBeInTheDocument();
+      expect(screen.getByTestId('calendar-day-2026-03-22')).toHaveAttribute('aria-pressed', 'true');
+      expect(fetchMock.mock.calls.every(([url]) => String(url).includes('serviceIds=srv_1'))).toBe(true);
+    });
+
+    it('only reports an empty month after all 30 dates were checked', async () => {
+      fetchMock.mockImplementation(() => Promise.resolve(emptyDay()));
+      renderRecovery();
+      await screen.findByText('No openings on Friday, Mar 20');
+      fireEvent.click(screen.getByRole('button', { name: 'Find next available' }));
+
+      expect(await screen.findByText('No openings were found in the next 30 days. Contact the salon or try another service.')).toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledTimes(31);
+    });
+
+    it.each([
+      () => Promise.reject(new Error('Network unavailable')),
+      () => Promise.resolve(new Response('not json', { status: 200 })),
+      () => Promise.resolve(Response.json({})),
+    ])('keeps network or malformed responses separate from no openings', async (failedResponse) => {
+      fetchMock.mockImplementation((url: string) => url.includes('date=2026-03-20') ? Promise.resolve(emptyDay()) : failedResponse());
+      renderRecovery();
+      await screen.findByText('No openings on Friday, Mar 20');
+      fireEvent.click(screen.getByRole('button', { name: 'Find next available' }));
+
+      expect(await screen.findByText('We couldn’t finish checking availability. Please try again or choose a date.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Find next available' })).toBeEnabled();
+    });
+
+    it('aborts a pending search when leaving the time screen', async () => {
+      let signal: AbortSignal | undefined;
+      let finishSearch!: (response: Response) => void;
+      fetchMock.mockImplementation((url: string, options?: RequestInit) => {
+        if (url.includes('date=2026-03-20')) {
+          return Promise.resolve(emptyDay());
+        }
+        signal = options?.signal ?? undefined;
+        return new Promise<Response>((resolve) => {
+          finishSearch = resolve;
+        });
+      });
+      const view = renderRecovery();
+      await screen.findByText('No openings on Friday, Mar 20');
+      fireEvent.click(screen.getByRole('button', { name: 'Find next available' }));
+      view.unmount();
+
+      expect(signal?.aborted).toBe(true);
+
+      await act(async () => {
+        finishSearch(emptyDay());
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('Smart Fit presentation (P7.3)', () => {
     const SMART_FIT_ANNOTATION = {
       eligible: true,
