@@ -31,6 +31,7 @@ import {
 } from '@/components/admin/onboarding/WorkspaceQuickTour';
 import OwnerAssistantLauncher from '@/components/admin/ownerAssistant/OwnerAssistantLauncher';
 import { OwnerTodayWorkspace } from '@/components/admin/OwnerTodayWorkspace';
+import { OwnerWorkspaceHeader } from '@/components/admin/OwnerWorkspaceHeader';
 import {
   OwnerWorkspaceNav,
   type OwnerWorkspaceTab,
@@ -38,7 +39,6 @@ import {
 import { UsageBillingModal } from '@/components/admin/UsageBillingModal';
 import { LuckyCharmLoader } from '@/components/loading/LuckyCharmLoader';
 import { buttonVariants } from '@/components/ui/buttonVariants';
-import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 import { formatMoney } from '@/libs/formatMoney';
 import { resolveOwnerNavigationAlias, resolveOwnerNavigationPathAlias } from '@/libs/ownerNavigation';
 // =============================================================================
@@ -1895,16 +1895,14 @@ function AdminDashboardContent() {
       {/* Safe Area Top Padding */}
       <div style={{ paddingTop: 'env(safe-area-inset-top, 20px)' }}>
         {/* Header */}
-        <div className="mx-auto max-w-2xl px-5 pb-3 pt-4">
-          <WorkspacePageHeader
+        <div>
+          <OwnerWorkspaceHeader
             title={workspaceTab === 'more' ? 'More' : 'Today'}
             subtitle={
               activeDashboardSalonName
                 ? `Managing ${activeDashboardSalonName}`
                 : 'Salon owner workspace'
             }
-            titleClassName="owner-title text-[28px] font-semibold tracking-tight text-[var(--owner-ink)]"
-            subtitleClassName="text-[15px] text-[var(--owner-muted)]"
             actions={(
               <>
                 {!adminUser.impersonation?.isActive
@@ -1936,7 +1934,7 @@ function AdminDashboardContent() {
                   confirmation.
                 */}
                 <div
-                  className="flex size-11 items-center justify-center rounded-full bg-gradient-to-br from-[var(--owner-accent-strong)] to-[var(--owner-accent)] text-[15px] font-semibold text-white shadow-sm"
+                  className="flex size-11 items-center justify-center rounded-full bg-[var(--owner-blush)] text-[15px] font-semibold text-[var(--owner-accent)]"
                   title="Luster owner account"
                 >
                   {userInitial || <Sparkles size={16} />}

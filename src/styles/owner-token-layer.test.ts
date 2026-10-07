@@ -38,21 +38,38 @@ describe('owner token layer', () => {
   it('defines the Luster owner palette once, on the owner scopes', () => {
     expect(ownerScope).toContain('--owner-accent: #8f3155;');
     expect(ownerScope).toContain('--owner-accent-strong: #70213f;');
-    expect(ownerScope).toContain('--owner-ground: #f8f2ed;');
-    expect(ownerScope).toContain('--owner-surface: #fffdfb;');
-    expect(ownerScope).toContain('--owner-ink: #30262a;');
-    expect(ownerScope).toContain('--owner-muted: #706267;');
-    expect(ownerScope).toContain('--owner-line: #dfd1d4;');
+    expect(ownerScope).toContain('--owner-ground: #fcf3f2;');
+    expect(ownerScope).toContain('--owner-surface: #fffcfa;');
+    expect(ownerScope).toContain('--owner-ink: #3b192b;');
+    expect(ownerScope).toContain('--owner-muted: #75656b;');
+    expect(ownerScope).toContain('--owner-line: #ead7de;');
     expect(ownerScope).toContain('--owner-line-strong: #d8c1c8;');
-    expect(ownerScope).toContain('--owner-focus: #b85075;');
+    expect(ownerScope).toContain('--owner-focus: #8f3155;');
   });
 
   it('carries the shared radii, shadow and faces', () => {
-    expect(ownerScope).toContain('--owner-radius-card: 20px;');
-    expect(ownerScope).toContain('--owner-radius-sheet: 24px;');
-    expect(ownerScope).toContain('--owner-shadow-card: 0 10px 30px rgb(76 29 46 / 6%);');
+    expect(ownerScope).toContain('--owner-radius-card: 26px;');
+    expect(ownerScope).toContain('--owner-radius-sheet: 28px;');
+    expect(ownerScope).toContain('--owner-shadow-card: 0 8px 26px rgb(96 41 58 / 4%), 0 2px 5px rgb(96 41 58 / 1%);');
     expect(ownerScope).toContain('--owner-font-display: var(--font-owner-display,');
     expect(ownerScope).toContain('--owner-font-body: var(--font-owner-sans,');
+  });
+
+  it('matches the approved owner-entry palette without changing customer tokens', () => {
+    const entry = readFileSync(join(process.cwd(), 'src/components/owner-entry/owner-entry.css'), 'utf8');
+    const pairs = [
+      ['ground', 'ground'],
+      ['surface', 'card'],
+      ['ink', 'ink'],
+      ['muted', 'muted'],
+      ['line', 'border'],
+      ['accent', 'plum'],
+    ];
+    for (const [ownerName, entryName] of pairs) {
+      const entryValue = entry.match(new RegExp(`--entry-${entryName}: ([^;]+);`))![1];
+
+      expect(ownerScope).toContain(`--owner-${ownerName}: ${entryValue};`);
+    }
   });
 
   it('covers the onboarding hand-off surfaces from the same definition', () => {

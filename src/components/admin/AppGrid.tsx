@@ -5,10 +5,7 @@
  *
  * The "More" workspace application launcher.
  * Mobile-first, ranked destination rows:
- * - Icon chips painted from the owner plum/rose/amber palette. Every stop is
- *   dark enough that the white glyph clears 4.5:1 (AppGrid.contrast.test.ts
- *   asserts it): the old chips ran to stone-300 / yellow-300, where a white
- *   icon sat at ~1.3:1 and simply disappeared.
+ * - Quiet blush icon chips using the shared owner plum accent.
  * - Whole card is the tap target (spring press animation, focus ring)
  * - Short descriptions that name the destination, not the department
  * - Real notification badges only (counts come from API data)
@@ -58,10 +55,6 @@ type AppItem = {
   name: string;
   description: string;
   icon: LucideIcon;
-  /** Icon chip gradient, top-left stop. Hex so the contrast test can read it. */
-  iconFrom: string;
-  /** Icon chip gradient, bottom-right stop (the lighter end). */
-  iconTo: string;
   badge?: number;
 };
 
@@ -80,16 +73,12 @@ const APPS: AppItem[] = [
     name: 'Hours & Availability',
     description: 'Working hours, time off and availability',
     icon: CalendarDays,
-    iconFrom: '#70213F',
-    iconTo: '#A83A5F',
   },
   {
     id: 'booking-rules',
     name: 'Booking Rules & Policies',
     description: 'How clients book, change and cancel',
     icon: BookOpen,
-    iconFrom: '#7C4A24',
-    iconTo: '#A2570B',
   },
   {
     // Luster UI/UX plan rev 3, PR 5 / section 10: "Booking Page becomes a
@@ -102,136 +91,102 @@ const APPS: AppItem[] = [
     name: 'Booking Page',
     description: 'Layout, style, text and publishing',
     icon: LayoutTemplate,
-    iconFrom: '#70213F',
-    iconTo: '#A83A5F',
   },
   {
     id: 'marketing',
     name: 'Marketing & Messages',
     description: 'Text clients, follow up and manage reviews',
     icon: Bell,
-    iconFrom: '#9F1239',
-    iconTo: '#BB3E5F',
   },
   {
     id: 'analytics',
     name: 'Analytics',
     description: 'Revenue, bookings and trends',
     icon: BarChart3,
-    iconFrom: '#7C4A24',
-    iconTo: '#A2570B',
   },
   {
     id: 'team',
     name: 'Team',
     description: 'People, services and permissions',
     icon: Shield,
-    iconFrom: '#4A4340',
-    iconTo: '#6B6461',
   },
   {
     id: 'payments',
     name: 'Payments',
     description: 'Deposits, payment methods and taxes',
     icon: CreditCard,
-    iconFrom: '#70213F',
-    iconTo: '#A83A5F',
   },
   {
     id: 'integrations',
     name: 'Integrations',
     description: 'Calendar and connection setup',
     icon: Plug,
-    iconFrom: '#44403C',
-    iconTo: '#78716C',
   },
   {
     id: 'rewards-reviews',
     name: 'Rewards & Reviews',
     description: 'Loyalty, referrals and review rewards',
     icon: Gift,
-    iconFrom: '#881337',
-    iconTo: '#B1414F',
   },
   {
     id: 'schedule',
     name: 'Schedule',
     description: 'Calendar overview',
     icon: CalendarDays,
-    iconFrom: '#70213F',
-    iconTo: '#A83A5F',
   },
   {
     id: 'bookings',
     name: 'Bookings',
     description: 'All appointments',
     icon: Calendar,
-    iconFrom: '#881337',
-    iconTo: '#B1414F',
   },
   {
     id: 'clients',
     name: 'Clients',
     description: 'Client list',
     icon: Users,
-    iconFrom: '#7C4A24',
-    iconTo: '#A2570B',
   },
   {
     id: 'services',
     name: 'Services',
     description: 'Menu and pricing',
     icon: Scissors,
-    iconFrom: '#9F1239',
-    iconTo: '#BB3E5F',
   },
   {
     id: 'portfolio',
     name: 'Portfolio',
     description: 'Photos of your nail work',
     icon: Images,
-    iconFrom: '#7A2E10',
-    iconTo: '#C2410C',
   },
   {
     id: 'no-show-records',
     name: 'No-show records',
     description: 'Review and correct mistaken no-shows',
     icon: ShieldCheck,
-    iconFrom: '#70213F',
-    iconTo: '#A83A5F',
   },
   {
     id: 'settings',
     name: 'Settings',
     description: 'Account, notifications and workspace preferences',
     icon: Settings,
-    iconFrom: '#292524',
-    iconTo: '#57534E',
   },
   {
     id: 'luster',
     name: 'Luster',
     description: 'Products, offers and education',
     icon: BookOpen,
-    iconFrom: '#4C1D2E',
-    iconTo: '#8B1538',
   },
   {
     id: 'plan-usage',
     name: 'Plan & Usage',
     description: 'Subscription, credits and usage',
     icon: CreditCard,
-    iconFrom: '#4C1D2E',
-    iconTo: '#8B1538',
   },
   {
     id: 'help',
     name: 'Help & Resources',
     description: 'Guides, support and workspace tour',
     icon: HelpCircle,
-    iconFrom: '#4A4340',
-    iconTo: '#6B6461',
   },
 ];
 
@@ -295,27 +250,17 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
       className={`
         relative flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors
         focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus,#b85075)]
-        ${theme === 'tesla' ? 'bg-stone-900 active:bg-stone-800' : 'bg-white active:bg-rose-50/60'}
+        ${theme === 'tesla' ? 'bg-stone-900 active:bg-stone-800' : 'bg-[var(--owner-surface)] hover:bg-[var(--owner-surface-soft)] active:bg-[var(--owner-blush)]'}
       `}
     >
-      {/*
-        Gradient icon. Flat, with no white gloss overlay: the old
-        `from-white/30` sheen lifted the top of every chip by ~1.3 contrast
-        points, which is part of what pushed the pale chips below legibility.
-      */}
       <span
-        className="relative flex size-10 shrink-0 items-center justify-center rounded-xl"
-        style={{
-          backgroundColor: app.iconFrom,
-          backgroundImage: `linear-gradient(135deg, ${app.iconFrom} 0%, ${app.iconTo} 100%)`,
-          boxShadow:
-            theme === 'apple' ? `0 8px 18px -6px ${app.iconFrom}55` : 'none',
-        }}
+        data-owner-icon="true"
+        className="relative flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--owner-blush)] text-[var(--owner-accent)]"
       >
-        <Icon className="relative z-10 size-5 text-white" strokeWidth={2.5} />
+        <Icon className="size-5" strokeWidth={1.7} aria-hidden="true" />
         {/* Real notification badge only (0 renders nothing) */}
         {typeof app.badge === 'number' && app.badge > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF3B30] px-1">
+          <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-700 px-1">
             <span className="text-[11px] font-bold text-white">
               {app.badge > 99 ? '99+' : app.badge}
             </span>
@@ -326,14 +271,14 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
       <span className="min-w-0 flex-1">
         <span
           className={`block text-[15px] font-semibold leading-tight ${
-            theme === 'tesla' ? 'text-gray-100' : 'text-stone-950'
+            theme === 'tesla' ? 'text-gray-100' : 'text-[var(--owner-ink)]'
           }`}
         >
           {app.name}
         </span>
         <span
           className={`mt-0.5 block text-[13px] leading-snug ${
-            theme === 'tesla' ? 'text-gray-400' : 'text-stone-500'
+            theme === 'tesla' ? 'text-gray-400' : 'text-[var(--owner-muted)]'
           }`}
         >
           {app.description}
@@ -384,11 +329,11 @@ function AccountSection({ account, theme }: { account: AppGridAccount; theme: Th
   return (
     <section
       aria-labelledby="more-account-heading"
-      className="mx-auto mt-6 w-full max-w-md"
+      className="mx-auto mt-6 w-full max-w-2xl"
       data-testid="more-account"
     >
       <h2
-        className="px-1 text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--owner-muted,#706267)]"
+        className="owner-section-title px-1"
         id="more-account-heading"
       >
         Account
@@ -504,21 +449,21 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
   return (
     <div
       className={`
-        min-h-full w-full px-4 pb-24 pt-6
-        ${theme === 'tesla' ? 'bg-black' : 'bg-[#F8F3F0]'}
+        mx-auto min-h-full w-full max-w-2xl px-5 pb-24 pt-5
+        ${theme === 'tesla' ? 'bg-black' : 'bg-[var(--owner-ground)]'}
       `}
       style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 6rem)' }}
     >
-      <div className="mx-auto max-w-md space-y-6">
+      <div className="mx-auto max-w-2xl space-y-6">
         {visibleGroups.map(group => (
           <section aria-labelledby={`more-${group.id}-heading`} key={group.id}>
             <h2
-              className="px-1 text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--owner-muted,#706267)]"
+              className="owner-section-title px-1"
               id={`more-${group.id}-heading`}
             >
               {group.name}
             </h2>
-            <div className={`mt-2 overflow-hidden rounded-2xl border shadow-sm ${theme === 'tesla' ? 'border-white/10' : 'border-[var(--owner-line,#dfd1d4)]'}`}>
+            <div className={`mt-3 overflow-hidden rounded-owner-card border shadow-owner-card ${theme === 'tesla' ? 'border-white/10' : 'border-[var(--owner-line,#dfd1d4)]'}`}>
               {group.apps.map((app, index) => (
                 <div className={index === 0 ? '' : theme === 'tesla' ? 'border-t border-white/10' : 'border-t border-[var(--owner-line,#dfd1d4)]'} key={app.id}>
                   <AppTile app={app} theme={theme} onTap={onAppTap} />
@@ -532,11 +477,11 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
       {lockedApps.length > 0 && (
         <section
           aria-labelledby="more-locked-heading"
-          className="mx-auto mt-6 w-full max-w-md"
+          className="mx-auto mt-6 w-full max-w-2xl"
           data-testid="more-locked-apps"
         >
           <h2
-            className="px-1 text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--owner-muted,#706267)]"
+            className="owner-section-title px-1"
             id="more-locked-heading"
           >
             Not on this salon’s plan
