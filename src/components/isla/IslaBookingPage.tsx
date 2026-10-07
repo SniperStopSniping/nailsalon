@@ -12,11 +12,6 @@ import type { BookingExperience } from '@/types/salonPolicy';
 
 const ASSETS = '/isla';
 
-/** Custom presentation commissioned for Isla; every booking action remains canonical. */
-export function isIslaBookingPage(salonSlug: string | null | undefined) {
-  return salonSlug === 'isla-nail-studio';
-}
-
 export function IslaCategoryIcon({ category }: { category: string }) {
   return (
     <svg viewBox="0 0 24 24" className="isla-icon" aria-hidden="true">

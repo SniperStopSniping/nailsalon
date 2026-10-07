@@ -3,7 +3,7 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 
-import { BOOKING_PAGE_EDITORS, BOOKING_PAGE_GROUPS, type BookingPagePanel } from './bookingPageEditorSections';
+import { BOOKING_PAGE_GROUPS, type BookingPagePanel, getBookingPageEditor } from './bookingPageEditorSections';
 
 /** One destination list for the entry page and the persistent editor navigation. */
 export function BookingPageNavigation({
@@ -12,12 +12,14 @@ export function BookingPageNavigation({
   currentPanel,
   disabled = false,
   onNavigate,
+  customIsla = false,
 }: {
   editorHref: string;
   includeFlow: boolean;
   currentPanel?: BookingPagePanel;
   disabled?: boolean;
   onNavigate?: (href: string) => void;
+  customIsla?: boolean;
 }) {
   return (
     <nav aria-label="Booking Page editors" className={currentPanel ? 'space-y-5' : 'grid gap-5 md:grid-cols-2 md:items-start'}>
@@ -26,7 +28,7 @@ export function BookingPageNavigation({
           <h2 id={`booking-page-group-${group.id}`} className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--owner-muted)]">{group.title}</h2>
           <ul className={currentPanel ? 'space-y-1' : 'divide-y divide-[var(--owner-line)] overflow-hidden rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)]'}>
             {group.panels.filter(id => id !== 'flow' || includeFlow).map((id) => {
-              const { title, description, icon: Icon } = BOOKING_PAGE_EDITORS[id];
+              const { title, description, icon: Icon } = getBookingPageEditor(id, customIsla);
               const selected = currentPanel === id;
               return (
                 <li key={id}>
@@ -105,7 +107,7 @@ export function BookingPageEditorLayout({ children, panel, ...navigation }: {
         >
           <span className="min-w-0">
             <span className="block text-xs font-normal text-[var(--owner-muted)]">Sections</span>
-            {BOOKING_PAGE_EDITORS[panel].title}
+            {getBookingPageEditor(panel, navigation.customIsla).title}
           </span>
           <ChevronDown aria-hidden="true" className={`shrink-0 ${expanded ? 'rotate-180' : ''}`} size={18} />
         </button>

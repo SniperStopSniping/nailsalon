@@ -168,6 +168,29 @@ describe('BookingPageInformationEditor', () => {
     return { onAddressPrivacyChange, onConfigPatch, registerFlush };
   }
 
+  it('keeps Isla address privacy while omitting unused opening-page switches', async () => {
+    const { onAddressPrivacyChange, onConfigPatch } = renderEditor({ mode: 'booking', salonSlug: 'isla-nail-studio' });
+    await screen.findByText('Current Studio');
+    fireEvent.click(screen.getByText('Location', { exact: true }));
+    fireEvent.click(screen.getByTestId('address-privacy-city_only'));
+
+    expect(onAddressPrivacyChange).toHaveBeenCalledWith('city_only');
+    expect(onConfigPatch).not.toHaveBeenCalled();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(calls.filter(call => call.method !== 'GET')).toHaveLength(0);
+  });
+
+  it('keeps Isla shared media editors and distinguishes its fixed editorial assets', async () => {
+    renderEditor({ mode: 'gallery', salonSlug: 'isla-nail-studio', onUploadCover: vi.fn() });
+    await screen.findByTestId('information-logo-upload');
+
+    expect(screen.getByTestId('information-publish-summary')).toHaveTextContent('separate, fixed design assets');
+    expect(screen.getByText('Upload profile photo')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Manage Portfolio' })).toBeVisible();
+    expect(screen.queryByTestId('information-cover-upload')).not.toBeInTheDocument();
+    expect(calls.filter(call => call.method !== 'GET')).toHaveLength(0);
+  });
+
   it('opens only regular hours in the Hours destination and saves through the existing business endpoint', async () => {
     renderEditor({ mode: 'hours' });
 

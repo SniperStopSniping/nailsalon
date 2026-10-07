@@ -37,6 +37,7 @@ import {
   INSTAGRAM_FIELD_LABEL,
   toInstagramHandle,
 } from '@/libs/instagramHandle';
+import { isIslaBookingPage } from '@/libs/islaBookingPage';
 import { validateServiceImageFile } from '@/libs/serviceImageClient';
 
 import {
@@ -341,7 +342,8 @@ export function BookingPageInformationEditor({
   const workspace = `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}`;
   const businessInformationHref = `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=business`;
   const policiesDisplayHref = `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=policies`;
-  const showSwitches = mode !== 'hours' && mode !== 'business' && mode !== 'gallery' && draft.layout === 'quick_book';
+  const customIsla = isIslaBookingPage(salonSlug);
+  const showSwitches = !customIsla && mode !== 'hours' && mode !== 'business' && mode !== 'gallery' && draft.layout === 'quick_book';
   const showEditors = mode !== 'booking' && mode !== 'gallery';
 
   const loadInformation = useCallback(async () => {
@@ -730,7 +732,7 @@ export function BookingPageInformationEditor({
               <p className="mt-1 text-xs text-[var(--owner-muted)]">This is the same photo used by your Team profile. Profile-led website layouts can show it; it is never used as your logo.</p>
             </div>
 
-            {onUploadCover && (
+            {onUploadCover && !customIsla && (
               <div className="sm:col-span-2" data-testid="information-cover">
                 <span className={labelClass}>Cover photo · optional</span>
                 <p className="mt-0.5 text-xs text-[var(--owner-muted)]">A large photo of your work or studio, used in selected layouts.</p>
@@ -770,8 +772,12 @@ export function BookingPageInformationEditor({
   if (mode === 'gallery') {
     return (
       <section className="rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm" data-testid="booking-page-information-editor">
-        <h2 className="text-lg font-semibold text-[var(--owner-ink)]">Photos &amp; Gallery</h2>
-        <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-publish-summary">Your logo and profile photo update everywhere as soon as they save. Your cover stays in the website draft until you publish.</p>
+        <h2 className="text-lg font-semibold text-[var(--owner-ink)]">{customIsla ? 'Shared profile images' : 'Photos & Gallery'}</h2>
+        <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-publish-summary">
+          {customIsla
+            ? 'These images belong to your shared business and nail-tech profiles and save immediately. Isla’s custom booking-page logo, hero photo and three editorial photos are separate, fixed design assets.'
+            : 'Your logo and profile photo update everywhere as soon as they save. Your cover stays in the website draft until you publish.'}
+        </p>
         <div className="mt-5">{mediaControls}</div>
         <div className="mt-6 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-ground)] p-4" data-testid="photos-gallery-portfolio">
           <h3 className="font-semibold text-[var(--owner-ink)]">Nail-work Portfolio</h3>
@@ -785,13 +791,15 @@ export function BookingPageInformationEditor({
   return (
     <section className="rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm" data-testid="booking-page-information-editor">
       <h2 className="text-lg font-semibold text-[var(--owner-ink)]">
-        {mode === 'hours' ? 'Regular salon hours' : mode === 'booking' ? 'What Clients See' : mode === 'business' ? 'Business Information' : 'Your Information'}
+        {mode === 'hours' ? 'Regular salon hours' : mode === 'booking' ? customIsla ? 'Business Details & Privacy' : 'What Clients See' : mode === 'business' ? 'Business Information' : 'Your Information'}
       </h2>
       <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-publish-summary">
         {mode === 'hours'
           ? 'Set your normal opening hours and timezone. Changes apply to your live business immediately.'
           : mode === 'booking'
-            ? 'These are the current business values customers may see. Change what appears here; edit the actual business record in Business Information. Display choices wait in your website draft until you publish.'
+            ? customIsla
+              ? 'Review your saved business details and set address privacy for the booking journey. Isla’s opening page uses its custom content. Edit the shared record in Business Information.'
+              : 'These are the current business values customers may see. Change what appears here; edit the actual business record in Business Information. Display choices wait in your website draft until you publish.'
             : mode === 'business'
               ? 'This is the actual business record used by your live site and bookings. Name, contact and address take effect as soon as each section is saved. Regular hours are managed in Hours & Availability.'
               : 'These are the details you saved during setup. Editing changes the same business record your live site and bookings use, so name, contact and hours go public as soon as you save them. Address privacy is the one setting here that waits in your draft until you publish; hiding a detail keeps it saved.'}
