@@ -2,14 +2,15 @@
 
 import './isla-booking.css';
 
-import { ArrowRight, Check, ChevronDown, Instagram, Plus, Search, Sparkles, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, Facebook, Instagram, Music2, Plus, Search, Sparkles, X } from 'lucide-react';
 import { Fragment, type ReactNode, useState } from 'react';
 
 import { DialogShell } from '@/components/ui/dialog-shell';
 import type { BookingStep } from '@/libs/bookingFlow';
+import { formatInstagramHandle } from '@/libs/instagramHandle';
+import type { BookingExperience } from '@/types/salonPolicy';
 
 const ASSETS = '/isla';
-const INSTAGRAM = 'https://www.instagram.com/Isla_nail_studio/';
 
 /** Custom presentation commissioned for Isla; every booking action remains canonical. */
 export function isIslaBookingPage(salonSlug: string | null | undefined) {
@@ -95,25 +96,31 @@ export function IslaServiceCard({ id, name, description, image, duration, price,
   );
 }
 
-export function IslaBookingPage({ children, continueBar, flow, manageHref, policy, moreCount, categoryLabel, onShowMore, onSearch }: {
+export function IslaBookingPage({ children, continueBar, flow, manageHref, policy, socialLinks, moreCount, categoryLabel, onShowMore, onSearch }: {
   children: ReactNode;
   continueBar: ReactNode;
   flow: BookingStep[];
   manageHref: string;
   policy: { title: string; text: string } | null;
+  socialLinks: BookingExperience['socialLinks'];
   moreCount: number;
   categoryLabel: string;
   onShowMore: () => void;
   onSearch: () => void;
 }) {
   const [policyOpen, setPolicyOpen] = useState(false);
+  const configuredSocials = [
+    { name: 'Instagram', label: formatInstagramHandle(socialLinks.instagram) ?? 'Instagram', href: socialLinks.instagram, Icon: Instagram },
+    { name: 'Facebook', label: 'Facebook', href: socialLinks.facebook, Icon: Facebook },
+    { name: 'TikTok', label: 'TikTok', href: socialLinks.tiktok, Icon: Music2 },
+  ].filter(social => social.href);
   return (
     <div className="isla-shell">
       <header className="isla-navigation">
         <img className="isla-logo" src={`${ASSETS}/isla-logo-original.jpg`} alt="Isla Nail Studio" width="145" height="96" />
         <nav className="isla-navigation-links" aria-label="Studio links">
           <a className="isla-manage" href={manageHref}>Manage my booking</a>
-          <a className="isla-instagram" href={INSTAGRAM} target="_blank" rel="noopener noreferrer" aria-label="Isla Nail Studio on Instagram"><Instagram aria-hidden="true" /></a>
+          {socialLinks.instagram && <a className="isla-instagram" href={socialLinks.instagram} target="_blank" rel="noopener noreferrer" aria-label="Isla Nail Studio on Instagram"><Instagram aria-hidden="true" /></a>}
         </nav>
       </header>
       <div className="isla-main-grid">
@@ -198,11 +205,17 @@ export function IslaBookingPage({ children, continueBar, flow, manageHref, polic
             <p className="isla-small-caps">FROM THE STUDIO</p>
             <h2 id="isla-gallery-title">An Isla moment.</h2>
           </div>
-          <a href={INSTAGRAM} className="isla-instagram-link" target="_blank" rel="noopener noreferrer">
-            <Instagram aria-hidden="true" />
-            @isla_nail_studio
-            <ArrowRight aria-hidden="true" />
-          </a>
+          {configuredSocials.length > 0 && (
+            <nav className="isla-studio-socials" aria-label="Salon social links">
+              {configuredSocials.map(({ name, label, href, Icon }) => (
+                <a key={name} href={href ?? undefined} className="isla-instagram-link" target="_blank" rel="noopener noreferrer" aria-label={`Isla Nail Studio on ${name}`}>
+                  <Icon aria-hidden="true" />
+                  <span>{label}</span>
+                  <ArrowRight aria-hidden="true" />
+                </a>
+              ))}
+            </nav>
+          )}
         </div>
         <div className="isla-gallery-grid">
           {[
