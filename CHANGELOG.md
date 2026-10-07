@@ -1,3 +1,10 @@
+## [1.139.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.139.0...v1.139.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* **admin:** focus hosted Booking Page destinations ([#363](https://github.com/SniperStopSniping/nailsalon/issues/363)) ([51542f5](https://github.com/SniperStopSniping/nailsalon/commit/51542f51fcbeefab95c64b6f2658d20c1c57d3ea))
+
 # [1.139.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.138.0...v1.139.0) (2026-10-07)
 
 
