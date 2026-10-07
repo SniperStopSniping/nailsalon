@@ -406,6 +406,7 @@ export function BookTimeClient({
   const [availabilityError, setAvailabilityError] = useState<AvailabilityError | null>(null);
   const [findingNextAvailable, setFindingNextAvailable] = useState(false);
   const [nextAvailableMessage, setNextAvailableMessage] = useState<string | null>(null);
+  const nextAvailableRequestRef = useRef<AbortController | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
   // Refs for smooth scrolling to time slot sections
@@ -485,6 +486,23 @@ export function BookTimeClient({
     const manageTokenParam = manageToken ? `&manageToken=${encodeURIComponent(manageToken)}` : '';
     return `/api/appointments/availability?date=${dateStr}&salonSlug=${salonSlug}${techParam}${durationParam}${serviceParam}${baseServiceParam}${addOnsParam}${basketParam}${locationParam}${rescheduleParam}${manageTokenParam}`;
   }, [baseServiceId, bookingBasket, effectiveTechId, locationId, manageToken, originalAppointmentId, salonSlug, selectedAddOns, serviceIdsParam, totalDuration]);
+
+  const cancelNextAvailableSearch = useCallback(() => {
+    nextAvailableRequestRef.current?.abort();
+    nextAvailableRequestRef.current = null;
+    setFindingNextAvailable(false);
+    setNextAvailableMessage(null);
+  }, []);
+
+  // A new date, service, artist or location makes the old search irrelevant.
+  // Abort on unmount as well, so a late response cannot change a later choice.
+  useEffect(() => {
+    cancelNextAvailableSearch();
+    return () => {
+      nextAvailableRequestRef.current?.abort();
+      nextAvailableRequestRef.current = null;
+    };
+  }, [buildAvailabilityUrl, selectedDate, cancelNextAvailableSearch]);
 
   // Fetch booked slots for selected date and technician
   const fetchBookedSlots = useCallback(async (date: Date) => {
@@ -585,12 +603,13 @@ export function BookTimeClient({
   }, [searchParams]);
 
   const findNextAvailableDate = useCallback(async () => {
-    if (!selectedDate || findingNextAvailable) {
+    if (!selectedDate || nextAvailableRequestRef.current) {
       return;
     }
+    const controller = new AbortController();
+    nextAvailableRequestRef.current = controller;
     setFindingNextAvailable(true);
     setNextAvailableMessage(null);
-    let successfulChecks = 0;
     try {
       for (let dayOffset = 1; dayOffset <= 30; dayOffset += 1) {
         const candidate = new Date(selectedDate);
@@ -600,14 +619,18 @@ export function BookTimeClient({
         if (isClosedDay(candidate, closedWeekdaySet)) {
           continue;
         }
-        const response = await fetch(buildAvailabilityUrl(candidate), { cache: 'no-store' }).catch(() => null);
-        if (!response?.ok) {
-          continue;
+        const response = await fetch(buildAvailabilityUrl(candidate), { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) {
+          throw new Error('Availability search was incomplete');
         }
-        successfulChecks += 1;
         const data = await response.json();
-        const hasAvailableSlot = Array.isArray(data.slots)
-          && data.slots.some((slot: { availability?: string }) => slot.availability === 'available');
+        if (controller.signal.aborted || nextAvailableRequestRef.current !== controller) {
+          return;
+        }
+        if (!Array.isArray(data.slots)) {
+          throw new TypeError('Availability search returned an invalid response');
+        }
+        const hasAvailableSlot = data.slots.some((slot: { availability?: string } | null) => slot?.availability === 'available');
         if (hasAvailableSlot) {
           allowTodayAutoAdvanceRef.current = false;
           setSelectedTime(null);
@@ -621,32 +644,18 @@ export function BookTimeClient({
           return;
         }
       }
-      setNextAvailableMessage(successfulChecks > 0
-        ? 'No openings were found in the next 30 days. Contact the salon or try another service.'
-        : 'Live availability could not be checked. Please try again shortly.');
+      setNextAvailableMessage('No openings were found in the next 30 days. Contact the salon or try another service.');
+    } catch {
+      if (!controller.signal.aborted && nextAvailableRequestRef.current === controller) {
+        setNextAvailableMessage('We couldn’t finish checking availability. Please try again or choose a date.');
+      }
     } finally {
-      setFindingNextAvailable(false);
+      if (nextAvailableRequestRef.current === controller) {
+        nextAvailableRequestRef.current = null;
+        setFindingNextAvailable(false);
+      }
     }
-  }, [buildAvailabilityUrl, closedWeekdaySet, findingNextAvailable, selectedDate, syncSelectedDateToUrl]);
-
-  // Check if there are any available slots for a given date (unused for now)
-  // const getAvailableSlotsForDate = useCallback((date: Date, booked: string[] = []) => {
-  //   const filteredByTime = filterPastTimeSlots(allTimeSlots, date);
-  //   return filteredByTime.filter(slot => !booked.includes(slot.time));
-  // }, [allTimeSlots]);
-
-  // Find next available date starting from given date (unused for now)
-  // const findNextAvailableDate = useCallback(async (startDate: Date): Promise<Date> => {
-  //   let checkDate = new Date(startDate);
-  //   const maxDays = 30;
-  //   for (let i = 0; i < maxDays; i++) {
-  //     const availableSlots = getAvailableSlotsForDate(checkDate, []);
-  //     if (availableSlots.length > 0) return checkDate;
-  //     checkDate = new Date(checkDate);
-  //     checkDate.setDate(checkDate.getDate() + 1);
-  //   }
-  //   return startDate;
-  // }, [getAvailableSlotsForDate]);
+  }, [buildAvailabilityUrl, closedWeekdaySet, selectedDate, syncSelectedDateToUrl]);
 
   // Initialize and check if today has available slots (using Toronto timezone)
   useEffect(() => {
@@ -901,6 +910,7 @@ export function BookTimeClient({
       return;
     }
 
+    cancelNextAvailableSearch();
     // Manual selection should not trigger surprise auto-advancing to tomorrow.
     allowTodayAutoAdvanceRef.current = false;
     autoAdvancedTodayRef.current = false;
@@ -919,7 +929,7 @@ export function BookTimeClient({
   };
 
   const handleTimeSelect = (slot: DisplayTimeSlot) => {
-    if (!selectedDate || isSlotBooked(slot.time)) {
+    if (!selectedDate || loadingSlots || loadedAvailabilityDateKey !== getDateKey(selectedDate) || isSlotBooked(slot.time)) {
       return;
     }
 
@@ -981,6 +991,7 @@ export function BookTimeClient({
   };
 
   const handleBack = () => {
+    cancelNextAvailableSearch();
     const prevStep = getPrevStep('time', bookingFlow);
     if (prevStep) {
       router.push(buildBookingUrl(`/${locale}/book/${prevStep}`, {
@@ -1005,6 +1016,7 @@ export function BookTimeClient({
   };
 
   const handleChooseAnotherTechnician = () => {
+    cancelNextAvailableSearch();
     router.push(buildBookingUrl(`/${locale}/book/tech`, {
       salonSlug,
       serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
@@ -1029,6 +1041,7 @@ export function BookTimeClient({
   };
 
   const handleChooseAnotherDate = () => {
+    cancelNextAvailableSearch();
     calendarRef.current?.focus();
     calendarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
@@ -1036,6 +1049,7 @@ export function BookTimeClient({
   // Check if there are no available slots at all for today
   const noSlotsAvailable = selectedDate && availableTimeSlots.length === 0;
   const allSlotsBooked = selectedDate && availableTimeSlots.length > 0 && bookableTimeSlots.length === 0;
+  const availabilityReady = !loadingSlots && selectedDate !== null && loadedAvailabilityDateKey === getDateKey(selectedDate);
 
   return (
     <main
@@ -1257,7 +1271,7 @@ export function BookTimeClient({
           />
         )}
 
-        {(noSlotsAvailable || allSlotsBooked) && !availabilityError && (
+        {availabilityReady && (noSlotsAvailable || allSlotsBooked) && !availabilityError && (
           <section
             aria-labelledby="no-openings-title"
             data-public-surface="timeSelectionControls"
@@ -1282,7 +1296,7 @@ export function BookTimeClient({
               {' '}
               {selectedDate ? formatSelectedDate(selectedDate) : 'this date'}
             </h2>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-6" style={{ color: themeVars.secondaryText }}>
+            <p role="status" className="mx-auto mt-2 max-w-sm text-sm leading-6" style={{ color: themeVars.secondaryText }}>
               {nextAvailableMessage || 'Try another date to find the next available appointment.'}
             </p>
             <div className="mt-5 flex flex-col gap-2.5 sm:flex-row sm:justify-center">
@@ -1301,14 +1315,14 @@ export function BookTimeClient({
                 className="min-h-12 rounded-2xl border bg-white px-5 py-3 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                 style={{ borderColor: themeVars.borderMuted, color: themeVars.titleText }}
               >
-                Choose another date
+                {findingNextAvailable ? 'Choose a date instead' : 'Choose another date'}
               </button>
             </div>
           </section>
         )}
 
         {/* Time Selection - Only shows when date is selected and has available slots */}
-        {selectedDate && !noSlotsAvailable && !allSlotsBooked && (
+        {selectedDate && !availabilityError && (!availabilityReady || (!noSlotsAvailable && !allSlotsBooked)) && (
           <div
             className="space-y-4"
             style={{
@@ -1318,7 +1332,7 @@ export function BookTimeClient({
             }}
           >
             {/* Loading indicator */}
-            {loadingSlots && (
+            {!availabilityReady && (
               <StateCard
                 className="border-dashed"
                 contentClassName="py-5"
@@ -1327,7 +1341,7 @@ export function BookTimeClient({
               />
             )}
 
-            {!loadingSlots && (
+            {availabilityReady && (
               <div
                 className="booking-preparation flex items-start gap-3 rounded-2xl border bg-white/75 px-4 py-3 text-[13px] leading-5"
                 style={{ borderColor: themeVars.cardBorder, color: themeVars.titleText }}
@@ -1352,7 +1366,7 @@ export function BookTimeClient({
               </div>
             )}
 
-            {!loadingSlots && (
+            {availabilityReady && (
               <section
                 aria-labelledby="availability-heading"
                 data-public-surface="timeSelectionControls"
