@@ -52,6 +52,17 @@ beforeEach(() => {
 });
 
 describe('OwnerSignInCard branding', () => {
+  it('uses the supplied salon builder link when self-service onboarding is enabled', () => {
+    render(<OwnerSignInCard dashboardUrl="/en/admin" createSalonUrl="/en/onboarding-v1" />);
+
+    expect(mocks.signIn).toHaveBeenCalledWith(expect.objectContaining({
+      signUpUrl: '/en/onboarding-v1',
+      appearance: expect.objectContaining({
+        elements: expect.objectContaining({ footerAction__signIn: 'luster-auth-create' }),
+      }),
+    }));
+  });
+
   it('themes the Clerk widget with Luster tokens and hides the sign-up footer', () => {
     render(<OwnerSignInCard dashboardUrl="/en/admin" />);
 

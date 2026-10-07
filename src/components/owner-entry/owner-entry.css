@@ -870,3 +870,36 @@
 .luster-salon-avatar { overflow: hidden; }
 .luster-salon-avatar img { width: 100%; height: 100%; object-fit: contain; }
 .luster-entry .luster-auth-create { align-items: center; }
+.luster-auth-recovery,
+.luster-auth-session-status {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  text-align: left;
+}
+.luster-auth-session-status p {
+  margin: 0;
+  color: var(--entry-muted);
+  overflow-wrap: anywhere;
+}
+.luster-auth-session-status .luster-auth-session-title {
+  color: var(--entry-ink);
+  font-weight: 600;
+}
+.luster-auth-recovery-note {
+  font-size: 14px;
+}
+.luster-auth-opening {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.luster-auth-spinner {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--entry-border);
+  border-top-color: var(--entry-plum);
+  border-radius: 50%;
+}

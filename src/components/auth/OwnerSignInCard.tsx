@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { resolveOnboardingOrganization } from '@/features/onboarding-v1-integration/client';
 
 import { lusterOwnerSignInAppearance } from './clerkAppearance';
+import { OwnerSignInStatus } from './OwnerSignInStatus';
 
 type PendingSessionTask = {
   sessionId: string;
@@ -132,43 +133,9 @@ export function OwnerSignInCard({ dashboardUrl, createSalonUrl }: OwnerSignInCar
     return signInCard;
   }
 
-  if (phase === 'resolving') {
-    return (
-      <div
-        className="w-full rounded-3xl border border-stone-200 bg-white p-6 shadow-sm"
-        role="status"
-      >
-        <div className="flex items-center justify-center gap-3">
-          <span
-            aria-hidden="true"
-            className="size-4 rounded-full border-2 border-stone-300 border-t-rose-800 motion-safe:animate-spin"
-          />
-          <p className="text-sm text-stone-700">Opening your workspace…</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="w-full space-y-4 rounded-3xl border border-stone-200 bg-white p-6 text-left shadow-sm">
-      <p className="text-sm font-semibold text-stone-900">
-        We couldn’t open your workspace automatically
-      </p>
-      <p className="text-sm leading-6 text-stone-600" role="alert">
-        {errorMessage}
-      </p>
-      <button
-        className="inline-flex min-h-11 items-center rounded-full bg-rose-800 px-5 text-sm font-medium text-white"
-        onClick={retry}
-        type="button"
-      >
-        Try again
-      </button>
-      <p className="text-xs leading-5 text-stone-500">
-        If it keeps failing, finish the step below — your salon is already
-        waiting in Luster.
-      </p>
+    <OwnerSignInStatus busy={phase === 'resolving'} errorMessage={errorMessage} onRetry={retry}>
       {signInCard}
-    </div>
+    </OwnerSignInStatus>
   );
 }

@@ -106,3 +106,23 @@ test('offer has one keyboard-accessible action and disables it while saving', as
   await expect(page.getByRole('button', { name: 'Saving your claim…' })).toBeDisabled();
   await expect(page.getByRole('status')).toHaveText('Visual review only: no live plan or text credits were changed.');
 });
+
+for (const width of [320, 390]) {
+  test(`sign-in recovery keeps its notice and retry usable at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/?screen=sign-in-recovery');
+
+    await expect(page.getByRole('alert')).toContainText('Try again.');
+
+    const retry = page.getByRole('button', { name: 'Try again', exact: true });
+    const box = await retry.boundingBox();
+
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+    await retry.click();
+
+    await expect(page.getByRole('status')).toHaveText('Opening your workspace…');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+}

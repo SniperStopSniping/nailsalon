@@ -7,7 +7,9 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
+import { OwnerSignInStatus } from '@/components/auth/OwnerSignInStatus';
 import { FoundingSalonOffer } from '@/components/owner-entry/FoundingSalonOffer';
+import { LusterEntryShell, LusterWordmark } from '@/components/owner-entry/LusterEntryShell';
 import { OwnerSignInScreen } from '@/components/owner-entry/OwnerSignInScreen';
 
 const query = new URLSearchParams(location.search);
@@ -22,6 +24,26 @@ function EntryReview() {
   const [destination, setDestination] = useState('');
   if (destination) {
     return <p role="status">{destination}</p>;
+  }
+  if (query.get('screen') === 'sign-in-recovery' || query.get('screen') === 'sign-in-opening') {
+    return (
+      <LusterEntryShell>
+        <main>
+          <LusterWordmark />
+          <header className="luster-entry-header">
+            <h1>Welcome back</h1>
+            <p>Sign in to manage your salon, bookings and clients.</p>
+          </header>
+          <OwnerSignInStatus
+            busy={query.get('screen') === 'sign-in-opening' || claimed}
+            errorMessage="We couldn’t finish setting up your business. Try again."
+            onRetry={() => setClaimed(true)}
+          >
+            <p className="luster-auth-review-note">Isolated recovery review. The live screen keeps Clerk’s recovery form below this notice.</p>
+          </OwnerSignInStatus>
+        </main>
+      </LusterEntryShell>
+    );
   }
   if (query.get('screen') === 'offer') {
     return <FoundingSalonOffer onClaim={() => setClaimed(true)} pending={claimed} message={claimed ? 'Visual review only: no live plan or text credits were changed.' : null} />;
