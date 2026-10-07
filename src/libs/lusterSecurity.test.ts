@@ -27,12 +27,23 @@ describe('Luster integration security', () => {
     expect(second.tokenHash).not.toBe(first.tokenHash);
   });
 
-  it('encrypts refresh tokens with authenticated encryption', () => {
+  it.each([
+    ['ciphertext', 4],
+    ['authentication tag', 3],
+  ] as const)('encrypts refresh tokens and rejects a modified %s', (_label, partIndex) => {
     const encrypted = encryptIntegrationSecret('refresh-token-secret');
 
     expect(encrypted.ciphertext).not.toContain('refresh-token-secret');
     expect(decryptIntegrationSecret(encrypted.ciphertext)).toBe('refresh-token-secret');
-    expect(() => decryptIntegrationSecret(`${encrypted.ciphertext.slice(0, -2)}aa`)).toThrow();
+
+    // Changing base64url padding bits can leave the decoded bytes unchanged.
+    // Flip an actual byte so every generated token is meaningfully tampered with.
+    const tampered = encrypted.ciphertext.split('.');
+    const bytes = Buffer.from(tampered[partIndex] ?? '', 'base64url');
+    bytes.writeUInt8(bytes.readUInt8(0) ^ 0x01, 0);
+    tampered[partIndex] = bytes.toString('base64url');
+
+    expect(() => decryptIntegrationSecret(tampered.join('.'))).toThrow();
   });
 
   it('signs OAuth state and rejects tampering', () => {
