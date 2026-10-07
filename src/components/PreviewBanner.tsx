@@ -18,16 +18,16 @@ export type PreviewBannerProps = {
   /**
    * 'draft-salon': the whole salon is unpublished — "Draft — only you can
    * see this". 'draft-config': the salon is published but the owner (or an
-   * impersonating super admin) is looking at unpublished `bookingPage.draft`
-   * changes on top of an otherwise-live page — "Previewing unpublished
-   * changes".
+   * impersonating super admin) is looking at `bookingPage.draft` on top of an otherwise-live page.
+   * A draft can match the published values, so the label describes the
+   * private view without asserting that changes exist.
    */
   variant: PreviewBannerVariant;
 };
 
 const COPY: Record<PreviewBannerVariant, string> = {
   'draft-salon': 'Draft — only you can see this',
-  'draft-config': 'Previewing unpublished changes',
+  'draft-config': 'Private preview of your booking page',
 };
 
 export function PreviewBanner({ variant }: PreviewBannerProps) {

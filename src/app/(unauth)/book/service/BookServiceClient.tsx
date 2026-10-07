@@ -3077,8 +3077,8 @@ export function BookServiceClient({
                 flow={effectiveBookingFlow}
                 manageHref={appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug: salonSlug, locale })}
                 socialLinks={quickBookContent.social}
-                policy={quickBookContent.policies.policy.enabled && quickBookContent.policies.policy.text?.trim()
-                  ? { title: quickBookContent.policies.policy.title || 'Booking policies', text: quickBookContent.policies.policy.text }
+                policy={servicePagePolicyText
+                  ? { title: quickBookContent.policies.policy.title || 'Booking policies', text: servicePagePolicyText }
                   : null}
                 moreCount={islaMoreCount}
                 categoryLabel={BOOKING_CATEGORY_META[selectedCategory].label}
