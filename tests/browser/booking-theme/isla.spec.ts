@@ -75,3 +75,51 @@ test('other salon pages retain their existing presentation', async ({ page }) =>
   await expect(page.locator('.isla-page')).toHaveCount(0);
   await expect(page.locator('.qbm-header')).toBeVisible();
 });
+
+for (const width of [320, 390, 1440]) {
+  test(`Isla reads configured social links without overflow at ${width}px`, async ({ page, browserName }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/?step=service&isla&socials=updated');
+
+    const studioLinks = page.getByRole('navigation', { name: 'Studio links' });
+    const galleryLinks = page.getByRole('navigation', { name: 'Salon social links' });
+    const instagram = 'https://www.instagram.com/abcdefghijklmnopqrstuvwxyz1234/';
+
+    await expect(studioLinks.getByRole('link', { name: 'Isla Nail Studio on Instagram' })).toHaveAttribute('href', instagram);
+    await expect(galleryLinks.getByRole('link', { name: 'Isla Nail Studio on Instagram' })).toHaveAttribute('href', instagram);
+    await expect(galleryLinks).toContainText('@abcdefghijklmnopqrstuvwxyz1234');
+    await expect(galleryLinks.getByRole('link', { name: 'Isla Nail Studio on Facebook' })).toHaveAttribute('href', 'https://www.facebook.com/isla.contract.fixture');
+    await expect(galleryLinks.getByRole('link', { name: 'Isla Nail Studio on TikTok' })).toHaveAttribute('href', 'https://www.tiktok.com/@isla.contract.fixture');
+    await expect(page.locator('.isla-photograph-frame img')).toHaveAttribute('src', '/isla/gel-x.jpg');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+    await galleryLinks.getByRole('link', { name: 'Isla Nail Studio on Facebook' }).focus();
+    // macOS WebKit includes links in keyboard traversal with Option-Tab.
+    await page.keyboard.press(browserName === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab');
+
+    await expect(galleryLinks.getByRole('link', { name: 'Isla Nail Studio on TikTok' })).toBeFocused();
+
+    await page.addStyleTag({ content: '.isla-studio-socials a { font-size: 22px; letter-spacing: 0.12em; }' });
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+    const visibleLinks = await galleryLinks.getByRole('link').all();
+    for (const link of visibleLinks) {
+      const bounds = await link.boundingBox();
+
+      expect(bounds).not.toBeNull();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
+    }
+  });
+}
+
+test('cleared Isla profiles stay absent while booking and approved gallery remain', async ({ page }) => {
+  await page.goto('/?step=service&isla&socials=cleared');
+
+  await expect(page.getByRole('navigation', { name: 'Salon social links' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /Isla Nail Studio on / })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Manage my booking' })).toHaveCount(2);
+  await expect(page.locator('.isla-gallery-grid img')).toHaveCount(3);
+  await expect(page.getByTestId('service-card-isla-russian')).toBeVisible();
+});

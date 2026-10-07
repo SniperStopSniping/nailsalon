@@ -3076,6 +3076,7 @@ export function BookServiceClient({
               <IslaBookingPage
                 flow={effectiveBookingFlow}
                 manageHref={appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug: salonSlug, locale })}
+                socialLinks={quickBookContent.social}
                 policy={quickBookContent.policies.policy.enabled && quickBookContent.policies.policy.text?.trim()
                   ? { title: quickBookContent.policies.policy.title || 'Booking policies', text: quickBookContent.policies.policy.text }
                   : null}

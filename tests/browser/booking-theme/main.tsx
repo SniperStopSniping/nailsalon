@@ -71,13 +71,23 @@ window.fetch = async (input) => {
   throw new Error(`Unexpected fixture request: ${String(input)}`);
 };
 
+const islaSocialLinks = query.get('socials') === 'cleared'
+  ? { instagram: null, facebook: null, tiktok: null }
+  : query.get('socials') === 'updated'
+    ? {
+        instagram: 'https://www.instagram.com/abcdefghijklmnopqrstuvwxyz1234/',
+        facebook: 'https://www.facebook.com/isla.contract.fixture',
+        tiktok: 'https://www.tiktok.com/@isla.contract.fixture',
+      }
+    : { instagram: 'https://www.instagram.com/Isla_nail_studio/', facebook: null, tiktok: null };
+
 const salon = {
   id: 'synthetic-salon',
   slug: isla ? 'isla-nail-studio' : 'theme-fixture',
   name: 'Isla Nail Studio',
   themeKey,
   status: 'active',
-  settings: { bookingExperience: { ...(query.has('primary-color') ? { primaryColor: query.get('primary-color') } : {}), ...(query.has('review-policy') ? { policy: { enabled: true, title: 'Appointment agreement', text: 'Please arrive on time. Changes or cancellations must be made at least 24 hours before your appointment. Contact the salon if you cannot attend.', showBeforeConfirmation: true, acknowledgment: { required: true, text: 'I agree to the appointment policy.' } }, quickFacts: { depositNotice: { enabled: true, label: 'No deposit required.' } } } : {}) } },
+  settings: { bookingExperience: { ...(isla ? { socialLinks: islaSocialLinks } : {}), ...(query.has('primary-color') ? { primaryColor: query.get('primary-color') } : {}), ...(query.has('review-policy') ? { policy: { enabled: true, title: 'Appointment agreement', text: 'Please arrive on time. Changes or cancellations must be made at least 24 hours before your appointment. Contact the salon if you cannot attend.', showBeforeConfirmation: true, acknowledgment: { required: true, text: 'I agree to the appointment policy.' } }, quickFacts: { depositNotice: { enabled: true, label: 'No deposit required.' } } } : {}) } },
 } as ComponentProps<typeof PublicSalonPageShell>['salon'];
 const bookingPage = {
   layout: 'quick_book',
