@@ -97,7 +97,12 @@ vi.mock('./DeleteSalonModal', () => ({
 }));
 
 vi.mock('./LocationForm', () => ({
-  LocationForm: () => null,
+  LocationForm: ({ onClose, onLocationsLoaded }: { onClose: () => void; onLocationsLoaded?: (count: number) => void }) => (
+    <div>
+      <button type="button" onClick={() => onLocationsLoaded?.(3)}>Locations loaded</button>
+      <button type="button" onClick={onClose}>Done with locations</button>
+    </div>
+  ),
 }));
 
 vi.mock('./ResetDataModal', () => ({
@@ -264,5 +269,22 @@ describe('SalonDetailPanel Booking Experience entitlement wiring', () => {
       features: { smsReminders: false, marketing: { smsReminders: false } },
       smsRemindersEnabled: false,
     });
+  });
+
+  it('updates location counts without discarding an unsaved salon draft on close', async () => {
+    const user = userEvent.setup();
+    render(<SalonDetailPanel salonId="salon_1" onClose={vi.fn()} />);
+    await screen.findByLabelText('Internal Notes');
+    await user.type(screen.getByLabelText('Internal Notes'), 'Keep this draft');
+    await user.click(screen.getByRole('button', { name: 'Locations 1/Unlimited' }));
+    await user.click(screen.getByRole('button', { name: 'Manage Locations' }));
+    const readsBefore = fetchMock.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'Locations loaded' }));
+    await user.click(screen.getByRole('button', { name: 'Done with locations' }));
+
+    expect(screen.getByLabelText('Internal Notes')).toHaveValue('Keep this draft');
+    expect(screen.getByRole('button', { name: 'Locations 3/Unlimited' })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(readsBefore);
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
   });
 });
