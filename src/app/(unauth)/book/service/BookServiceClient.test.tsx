@@ -46,6 +46,7 @@ const {
     searchParams: new URLSearchParams('salonSlug=salon-a'),
   },
   salonContextMock: {
+    salonSlug: 'salon-a',
     bookingPage: {
       layout: 'quick_book',
       serviceMenuLayout: 'visual_grid',
@@ -297,12 +298,13 @@ vi.mock('@/providers/SalonProvider', () => ({
     bookingExperience: salonContextMock.bookingExperience,
     bookingPage: salonContextMock.bookingPage,
     salonName: 'Salon A',
-    salonSlug: 'salon-a',
+    salonSlug: salonContextMock.salonSlug,
     salonId: 'salon-a-id',
   }),
 }));
 
 function resetBookingExperienceMock() {
+  salonContextMock.salonSlug = 'salon-a';
   salonProviderPropsMock.bookingExperience = null;
   salonContextMock.bookingExperience = {
     primaryColor: null,
@@ -1264,6 +1266,34 @@ describe('BookServiceClient', () => {
 
     expect(screen.queryByTestId('booking-policy')).not.toBeInTheDocument();
     expect(screen.queryByText('Please provide 24 hours notice.')).not.toBeInTheDocument();
+  });
+
+  it.each([false, true])('honours Isla service policy placement: %s', (showOnServicePage) => {
+    salonContextMock.salonSlug = 'isla-nail-studio';
+    navigationMock.searchParams = new URLSearchParams('salonSlug=isla-nail-studio');
+    salonContextMock.bookingExperience = {
+      ...DEFAULT_BOOKING_EXPERIENCE,
+      policy: {
+        ...DEFAULT_BOOKING_EXPERIENCE.policy,
+        enabled: true,
+        title: 'Appointment agreement',
+        text: 'Please arrive on time.',
+        showOnServicePage,
+      },
+    };
+
+    render(<BookServiceClient services={[services[0]!]} bookingFlow={['service', 'time', 'confirm']} locations={[]} />);
+
+    const policyLink = screen.queryByRole('button', { name: 'Booking policies' });
+    if (showOnServicePage) {
+      expect(policyLink).toBeInTheDocument();
+
+      fireEvent.click(policyLink!);
+
+      expect(screen.getByRole('dialog', { name: 'Appointment agreement' })).toHaveTextContent('Please arrive on time.');
+    } else {
+      expect(policyLink).not.toBeInTheDocument();
+    }
   });
 
   it('keeps a disabled policy unpublished and displays only configured social platforms', () => {
