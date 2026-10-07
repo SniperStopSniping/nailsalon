@@ -1,3 +1,11 @@
+# [1.139.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.138.0...v1.139.0) (2026-10-07)
+
+
+### Features
+
+* **admin:** organize Booking Page editor navigation ([#362](https://github.com/SniperStopSniping/nailsalon/issues/362)) ([b5a9e6e](https://github.com/SniperStopSniping/nailsalon/commit/b5a9e6ec120167356999bbfce4fd3bdae8ba5162))
+* **admin:** streamline owner appointment creation ([#361](https://github.com/SniperStopSniping/nailsalon/issues/361)) ([3e677c0](https://github.com/SniperStopSniping/nailsalon/commit/3e677c04a62173ab25771191bb0b02ddc34c1925))
+
 # [1.138.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.137.0...v1.138.0) (2026-10-06)
 
 
