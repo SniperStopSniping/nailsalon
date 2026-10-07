@@ -432,6 +432,10 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
     }));
   }, []);
 
+  const handleLocationsLoaded = useCallback((count: number) => {
+    setMetrics(current => current ? { ...current, locationsCount: count } : current);
+  }, []);
+
   // Fetch salon details
   const fetchSalon = useCallback(async () => {
     setLoading(true);
@@ -2124,10 +2128,8 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
         <LocationForm
           salonId={salonId}
           maxLocations={maxLocations}
-          onClose={() => {
-            setShowLocationForm(false);
-            fetchSalon();
-          }}
+          onLocationsLoaded={handleLocationsLoaded}
+          onClose={() => setShowLocationForm(false)}
         />
       )}
     </div>
