@@ -4,6 +4,19 @@ test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-09-12T12:00:00Z'));
 });
 
+test('time selection does not promise a payment-free reservation', async ({ page }) => {
+  await page.goto('/?step=time&count=1');
+
+  await expect(page.getByRole('button', { name: '1:45 PM', exact: true })).toBeVisible();
+  await expect(page.getByText(/no payment required to reserve/i)).toHaveCount(0);
+
+  const reviewCopy = page.getByText('Review your booking before confirming.', { exact: true });
+  await reviewCopy.scrollIntoViewIfNeeded();
+
+  await expect(reviewCopy).toBeVisible();
+  await expect(page.getByText(/online changes follow this salon's cancellation policy/i)).toBeVisible();
+});
+
 test('week navigation and full calendar preserve date selection and keyboard access', async ({ page }) => {
   await page.goto('/?count=1');
   const days = page.locator('[data-testid^="calendar-day-"]');

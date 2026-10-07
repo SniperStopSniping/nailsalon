@@ -198,6 +198,29 @@ describe('BookTimeClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(initialCallCount);
   });
 
+  it('does not promise a payment-free reservation before confirmation resolves the deposit', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      visibleSlots: ['09:00'],
+      bookedSlots: [],
+    }), { status: 200 }));
+
+    render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    await screen.findByRole('button', { name: '9:00 AM' });
+
+    expect(screen.queryByText(/no payment required to reserve/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Review your booking before confirming.')).toBeInTheDocument();
+    expect(screen.getByText(/online changes follow this salon's cancellation policy/i)).toBeInTheDocument();
+  });
+
   it('provides one non-nested main landmark for the time step', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       visibleSlots: ['09:00'],
