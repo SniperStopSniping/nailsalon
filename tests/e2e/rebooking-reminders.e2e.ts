@@ -45,7 +45,7 @@ test('mobile owner can manage a separate automatic rebooking reminder @mobile-sa
 
   await expect(page.getByText(/Hi Alex, book Gel manicure at/)).toBeVisible();
 
-  await page.getByRole('button', { name: 'Save Rebooking Reminders' }).click();
+  await page.getByRole('button', { name: 'Save reminders' }).click();
 
   await expect(page.getByRole('status')).toContainText('Rebooking Reminders saved.');
   expect(saves).toEqual([{ enabled: true, defaultIntervalWeeks: 4, messageTemplate: 'Hi {{first_name}}, book {{service_name}} at {{salon_name}}: {{booking_link}}' }]);
