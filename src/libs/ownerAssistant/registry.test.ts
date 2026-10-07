@@ -14,6 +14,8 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { BOOKING_PAGE_EDITORS, BOOKING_PAGE_GROUPS, isBookingPagePanel } from '@/components/admin/bookingPageEditorSections';
+
 import {
   buildRegistryHref,
   getRegistryEntry,
@@ -113,13 +115,17 @@ describe('the duplicated allowlists still match their source files', () => {
   it('pins the booking-page panel allowlist to the booking-page route', () => {
     const source = sourceText('src/app/[locale]/admin/booking-page/page.tsx');
 
+    expect(Object.keys(BOOKING_PAGE_EDITORS).sort()).toEqual([...BOOKING_PAGE_PANEL_IDS].sort());
+    expect(BOOKING_PAGE_GROUPS.flatMap(group => group.panels).sort()).toEqual([...BOOKING_PAGE_PANEL_IDS].sort());
+
     for (const panel of BOOKING_PAGE_PANEL_IDS) {
-      expect(source, panel).toContain(`'${panel}'`);
+      expect(isBookingPagePanel(panel), panel).toBe(true);
     }
 
-    expect(source).toContain(
-      `['business', 'layouts', 'appearance', 'information', 'text', 'gallery', 'policies', 'experience', 'flow', 'publish'].includes(`,
-    );
+    expect(isBookingPagePanel('constructor')).toBe(false);
+    expect(isBookingPagePanel('retired-panel')).toBe(false);
+    expect(source).toContain('from \'@/components/admin/bookingPageEditorSections\'');
+    expect(source).toContain('isBookingPagePanel(requestedPanel)');
   });
 });
 

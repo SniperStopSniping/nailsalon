@@ -198,6 +198,40 @@ describe('SettingsModal — one writer per record', () => {
     mockEndpoints();
   });
 
+  it('keeps host navigation behind the explicit-save message guard without writing on leave', async () => {
+    const navigate = vi.fn();
+    render(
+      <SettingsModal
+        initialView="booking-experience"
+        leafOnly
+        salonSlug="salon-a"
+        onClose={vi.fn()}
+        renderLeafLayout={(content, requestLeave) => (
+          <>
+            <button type="button" onClick={() => requestLeave(navigate)}>Another section</button>
+            {content}
+          </>
+        )}
+      />,
+    );
+    const message = await screen.findByLabelText('Booking message');
+    fireEvent.change(message, { target: { value: 'My unsaved welcome' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Another section' }));
+
+    expect(screen.getByRole('alertdialog', { name: 'Unsaved changes' })).toBeVisible();
+    expect(navigate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+
+    expect(message).toHaveValue('My unsaved welcome');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Another section' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    expect(navigate).toHaveBeenCalledOnce();
+    expect(patchBodies('/api/admin/salon/settings')).toEqual([]);
+  });
+
   describe('minimum booking notice (AG-w2-settings-integrations-01)', () => {
     it('defaults to automatic confirmation and saves review mode without changing notice', async () => {
       open();

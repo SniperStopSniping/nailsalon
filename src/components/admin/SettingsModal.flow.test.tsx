@@ -13,9 +13,26 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/providers/SalonProvider', () => ({ useSalon: () => ({ salonSlug: null }) }));
 
-function LeafHarness() {
+function LeafHarness({ hostNavigation = false }: { hostNavigation?: boolean }) {
   const [open, setOpen] = useState(true);
-  return open ? <SettingsModal initialView="booking-flow" leafOnly onClose={() => setOpen(false)} salonSlug="salon-a" /> : <div>Closed</div>;
+  return open
+    ? (
+        <SettingsModal
+          initialView="booking-flow"
+          leafOnly
+          renderLeafLayout={hostNavigation
+            ? (content, requestLeave) => (
+                <>
+                  <button type="button" onClick={() => requestLeave(() => setOpen(false))}>Another section</button>
+                  {content}
+                </>
+              )
+            : undefined}
+          onClose={() => setOpen(false)}
+          salonSlug="salon-a"
+        />
+      )
+    : <div>Closed</div>;
 }
 
 function json(data: unknown, status = 200) {
@@ -122,9 +139,9 @@ describe('SettingsModal booking-flow leaf', () => {
     expect(fetchMock.mock.calls.filter(([url, init]) => String(url).includes('/api/admin/settings/booking-flow') && (init as RequestInit | undefined)?.method === 'PUT')).toHaveLength(1);
   });
 
-  it('does not offer discard while a flow write is already in flight', async () => {
+  it.each(['Back', 'Another section'])('does not offer discard via %s while a flow write is already in flight', async (action) => {
     putMode = 'held';
-    render(<LeafHarness />);
+    render(<LeafHarness hostNavigation />);
     const toggle = await screen.findByTitle('Click to hide technician step');
     await act(async () => {
       await Promise.resolve();
@@ -140,9 +157,9 @@ describe('SettingsModal booking-flow leaf', () => {
 
       expect(releasePut).toBeTypeOf('function');
 
-      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+      fireEvent.click(screen.getByRole('button', { name: action }));
 
-      expect(screen.getByText('Booking flow is saving. Please wait before leaving.')).toBeVisible();
+      expect(screen.getByText(action === 'Back' ? 'Booking flow is saving. Please wait before leaving.' : 'Changes are saving. Please wait before leaving.')).toBeVisible();
       expect(screen.queryByRole('alertdialog', { name: 'Unsaved changes' })).not.toBeInTheDocument();
 
       await act(async () => {
