@@ -15,6 +15,19 @@ export const BOOKING_PAGE_EDITORS = {
 
 export type BookingPagePanel = keyof typeof BOOKING_PAGE_EDITORS;
 
+/** Isla's commissioned service page does not consume standard template controls. */
+const ISLA_EDITOR_LABELS: Partial<Record<BookingPagePanel, { title: string; description: string }>> = {
+  text: { title: 'Custom Page Copy', description: 'Review the wording in Isla’s custom design' },
+  gallery: { title: 'Profile & Portfolio', description: 'Shared profile images and nail-work Portfolio' },
+  layouts: { title: 'Custom Layout & Menu', description: 'Isla’s page preview and service editing' },
+  appearance: { title: 'Booking Step Style', description: 'Colours and fonts after service selection' },
+  information: { title: 'Business Details & Privacy', description: 'Saved business details and booking address privacy' },
+};
+
+export function getBookingPageEditor(panel: BookingPagePanel, customIsla = false) {
+  return { ...BOOKING_PAGE_EDITORS[panel], ...(customIsla ? ISLA_EDITOR_LABELS[panel] : undefined) };
+}
+
 export const BOOKING_PAGE_GROUPS: ReadonlyArray<{ id: string; title: string; panels: readonly BookingPagePanel[] }> = [
   { id: 'content', title: 'Business profile & content', panels: ['business', 'text', 'gallery', 'experience'] },
   { id: 'design', title: 'Design', panels: ['layouts', 'appearance'] },

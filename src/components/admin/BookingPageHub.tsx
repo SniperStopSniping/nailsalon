@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { BookingPageNavigation } from '@/components/admin/BookingPageNavigation';
 import OwnerAssistantLauncher from '@/components/admin/ownerAssistant/OwnerAssistantLauncher';
+import { isIslaBookingPage } from '@/libs/islaBookingPage';
 
 /**
  * AG-hub-publish-08 — the owner draft preview's "Back to editor" control
@@ -98,7 +99,7 @@ export function BookingPageHub({
           </div>
           <p aria-live="polite" className="mt-2 text-sm text-[var(--owner-muted)]">{copyStatus}</p>
         </header>
-        <BookingPageNavigation editorHref={editor} includeFlow={!isFreeSolo} />
+        <BookingPageNavigation editorHref={editor} includeFlow={!isFreeSolo} customIsla={isIslaBookingPage(salonSlug)} />
         <a className={`${actionClass} mt-4 w-full`} href={`${workspace}&app=services`}>
           <Scissors aria-hidden="true" size={18} />
           Services & Add-ons

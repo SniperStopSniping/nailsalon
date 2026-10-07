@@ -13,7 +13,7 @@ import {
 import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { isApprovedQuickBookLayout } from '@/components/customer-site/QuickBookPresentation';
-import { isIslaBookingPage, IslaBookingPage, IslaCategoryIcon, IslaServiceCard } from '@/components/isla/IslaBookingPage';
+import { IslaBookingPage, IslaCategoryIcon, IslaServiceCard } from '@/components/isla/IslaBookingPage';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { StateCard } from '@/components/ui/state-card';
@@ -33,6 +33,7 @@ import {
   resolveCustomerSiteStylePreset,
 } from '@/libs/customerSitePresentation';
 import { triggerHaptic } from '@/libs/haptics';
+import { isIslaBookingPage } from '@/libs/islaBookingPage';
 import { clearResolvedPublicBookingAttempt } from '@/libs/publicBookingRecovery.client';
 import {
   getPublicTechnicianCompatibility,

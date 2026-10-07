@@ -7,6 +7,15 @@ import { BookingPageEditorLayout, BookingPageNavigation } from './BookingPageNav
 const props = { editorHref: '/fr/admin/booking-page?salon=salon%20a', includeFlow: false };
 
 describe('Booking Page navigation', () => {
+  it('labels Isla’s editor scope consistently without changing destinations', () => {
+    render(<BookingPageNavigation {...props} customIsla />);
+
+    expect(screen.getAllByRole('link')).toHaveLength(9);
+    expect(screen.getByRole('link', { name: /Booking Step Style/ })).toHaveAttribute('href', `${props.editorHref}&panel=appearance`);
+    expect(screen.getByRole('link', { name: /Custom Layout & Menu/ })).toHaveAttribute('href', `${props.editorHref}&panel=layouts`);
+    expect(screen.queryByRole('link', { name: /Style, Colours & Fonts/ })).not.toBeInTheDocument();
+  });
+
   it('organizes each existing destination once and retains locale and salon context', () => {
     render(<BookingPageNavigation {...props} />);
 

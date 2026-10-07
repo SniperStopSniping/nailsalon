@@ -24,7 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { BookingPageAppearance } from '@/components/admin/BookingPageAppearance';
 import { BookingPageBuilder } from '@/components/admin/BookingPageBuilder';
-import { BOOKING_PAGE_EDITORS, isBookingPagePanel } from '@/components/admin/bookingPageEditorSections';
+import { getBookingPageEditor, isBookingPagePanel } from '@/components/admin/bookingPageEditorSections';
 import { ADDRESS_PRIVACY_OPTIONS, BookingPageInformationEditor } from '@/components/admin/BookingPageInformationEditor';
 import type { BookingPagePresentationPreview, CoverUploadState } from '@/components/admin/BookingPageLayoutChooser';
 import { BookingPageEditorLayout } from '@/components/admin/BookingPageNavigation';
@@ -52,6 +52,7 @@ import type {
   LocationDisplayMode,
 } from '@/libs/bookingPageContent';
 import { summarizeBookingPageDraft } from '@/libs/bookingPageDraftSummary';
+import { isIslaBookingPage } from '@/libs/islaBookingPage';
 import { getQuickBookLayout } from '@/libs/quickBookSiteLayout';
 import { SECTION_PRESENTATION_SECTION_IDS } from '@/libs/sectionPresentation';
 import { getI18nPath } from '@/utils/Helpers';
@@ -136,6 +137,15 @@ const PANEL_SUBTITLES: Record<string, string> = {
   policies: 'Policy display choices save to your draft until you publish. Policy text and booking rules save immediately in their linked settings.',
   experience: 'Booking messages and social links save immediately. They do not wait for a page publish.',
   flow: 'Booking flow changes apply to new bookings immediately. They do not wait for a page publish.',
+};
+
+const ISLA_PANEL_SUBTITLES: Record<string, string> = {
+  text: 'The opening page uses the wording created for Isla’s custom design.',
+  gallery: 'Shared profile images save immediately. Isla’s custom logo, hero and editorial gallery stay part of its design.',
+  layouts: 'Isla uses a custom layout and service list. Business setup below saves to your draft.',
+  appearance: 'Style the steps after service selection. Changes save to your draft until you publish.',
+  information: 'Review your saved business details. Address privacy saves to your draft until you publish.',
+  policies: 'Manage the policy wording and booking rules used by Isla. Changes in the linked settings apply immediately.',
 };
 
 const EDITABLE_CONTENT_FIELDS = ['bio', 'specialtyLine', 'heroImageUrl'] as const;
@@ -392,6 +402,7 @@ function BookingPageOwnerSurfaceContent() {
   const show = (name: string) => !panel || panel === name;
   const locale = String(params?.locale || 'en');
   const [salonSlug, setSalonSlug] = useState(searchParams.get('salon') || '');
+  const customIsla = isIslaBookingPage(salonSlug);
   const [flowNavigationSalon, setFlowNavigationSalon] = useState<string | null>(null);
   useEffect(() => {
     if (!salonSlug) {
@@ -1191,6 +1202,7 @@ function BookingPageOwnerSurfaceContent() {
     editorHref: `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`,
     includeFlow: flowNavigationSalon === salonSlug,
     disabled: presentationPending || navigationPending || actionStatus !== 'idle',
+    customIsla,
   };
   // Explicit-save settings keep their existing leave/discard guard. A sidebar
   // click must not become an unguarded route out of an edited message or flow.
@@ -1286,8 +1298,8 @@ function BookingPageOwnerSurfaceContent() {
         <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--owner-accent)]">Booking Page</p>
-            <h1 className="mt-2 text-3xl font-semibold">{BOOKING_PAGE_EDITORS[panel].title}</h1>
-            <p className="mt-2 text-[var(--owner-muted)]" data-testid="booking-page-panel-subtitle">{PANEL_SUBTITLES[panel ?? ''] ?? DRAFT_PANEL_SUBTITLE}</p>
+            <h1 className="mt-2 text-3xl font-semibold">{getBookingPageEditor(panel, customIsla).title}</h1>
+            <p className="mt-2 text-[var(--owner-muted)]" data-testid="booking-page-panel-subtitle">{(customIsla && ISLA_PANEL_SUBTITLES[panel]) || PANEL_SUBTITLES[panel] || DRAFT_PANEL_SUBTITLE}</p>
             {reviewIndex >= 0 && (
               <p className="mt-2 text-sm font-semibold text-[var(--owner-accent)]">
                 {`Guided review · Step ${reviewIndex + 1} of ${reviewPanels.length} · Your current saved setup`}
@@ -1335,7 +1347,7 @@ function BookingPageOwnerSurfaceContent() {
           {(!panel || panel === 'layouts') && (
             <SectionCard
               title="Live preview"
-              description="This is your real draft booking page. Saved presentation changes refresh here before anything is published."
+              description={customIsla ? 'Your custom Isla page, using current draft booking data. Its layout, headline and editorial photos are fixed.' : 'This is your real draft booking page. Saved presentation changes refresh here before anything is published.'}
             >
               <div
                 data-booking-page-preview-scroll
@@ -1455,8 +1467,9 @@ function BookingPageOwnerSurfaceContent() {
             />
           )}
 
-          {(panel === 'layouts' || panel === 'appearance') && (
+          {((panel === 'layouts' && !customIsla) || panel === 'appearance') && (
             <BookingPageAppearance
+              customIsla={customIsla}
               content={content?.draft ?? null}
               disabled={presentationPending}
               draft={draft}
@@ -1472,13 +1485,30 @@ function BookingPageOwnerSurfaceContent() {
 
           {panel === 'layouts' && (
             <>
-              <BookingPagePresetPicker
-                draft={{ ...draft, presetBase: config.draftPresetBase }}
-                pending={presentationPending}
-                status={presetStatus}
-                previewBaseUrl={previewFrameSrc}
-                onOperation={operation => void handleBuilderOperation(operation)}
-              />
+              {customIsla
+                ? (
+                    <SectionCard title="Made for Isla" description="Your custom layout includes the Isla hero, compact service list and editorial gallery.">
+                      <a
+                        className="inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline"
+                        href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=services`}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          void navigateAfterSaving(event.currentTarget.href);
+                        }}
+                      >
+                        Edit services, prices &amp; add-ons
+                      </a>
+                    </SectionCard>
+                  )
+                : (
+                    <BookingPagePresetPicker
+                      draft={{ ...draft, presetBase: config.draftPresetBase }}
+                      pending={presentationPending}
+                      status={presetStatus}
+                      previewBaseUrl={previewFrameSrc}
+                      onOperation={operation => void handleBuilderOperation(operation)}
+                    />
+                  )}
               <SectionCard
                 title="Business type"
                 description="Choose whether your booking page and calendar show one nail tech or several."
@@ -1507,24 +1537,26 @@ function BookingPageOwnerSurfaceContent() {
                   </div>
                 </details>
               </SectionCard>
-              <BookingPageBuilder
-                draft={draft}
-                completedMoveRevision={completedMoveRevision}
-                hideServiceMenuPresentation
-                pending={presentationPending}
-                presetBase={config.draftPresetBase}
-                previewAdmissionRevision={previewAdmission?.revision ?? null}
-                previewRequestRevision={previewRevision}
-                previewedSectionIds={previewAdmission?.sectionIds ?? null}
-                previewedReorderableSectionOrder={previewAdmission?.reorderableSectionOrder ?? null}
-                onOperation={operation => void handleBuilderOperation(operation)}
-              />
+              {!customIsla && (
+                <BookingPageBuilder
+                  draft={draft}
+                  completedMoveRevision={completedMoveRevision}
+                  hideServiceMenuPresentation
+                  pending={presentationPending}
+                  presetBase={config.draftPresetBase}
+                  previewAdmissionRevision={previewAdmission?.revision ?? null}
+                  previewRequestRevision={previewRevision}
+                  previewedSectionIds={previewAdmission?.sectionIds ?? null}
+                  previewedReorderableSectionOrder={previewAdmission?.reorderableSectionOrder ?? null}
+                  onOperation={operation => void handleBuilderOperation(operation)}
+                />
+              )}
             </>
           )}
 
           {panel === 'policies' && (
             <>
-              {draft.layout === 'quick_book' && (
+              {!customIsla && draft.layout === 'quick_book' && (
                 <SectionCard title="Policies display" description="Choose which saved policies and real review information appear on Quick Book. These display choices wait for Publish.">
                   <fieldset disabled={presentationPending} className="divide-y divide-[var(--owner-line)]">
                     <legend className="sr-only">Policies shown publicly</legend>
@@ -1623,7 +1655,23 @@ function BookingPageOwnerSurfaceContent() {
             />
           )}
 
-          {show('text') && (
+          {show('text') && customIsla && (
+            <SectionCard title="Your next beautiful set." description="Thoughtful nail care. Beautiful detail. Your service. Your moment.">
+              <p className="text-sm text-[var(--owner-muted)]">This wording is part of Isla’s custom page. You can update the booking message and social links separately.</p>
+              <a
+                className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline"
+                href={`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=experience`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  void navigateAfterSaving(event.currentTarget.href);
+                }}
+              >
+                Edit booking message &amp; social links
+              </a>
+            </SectionCard>
+          )}
+
+          {show('text') && !customIsla && (
             <SectionCard title="About & Website Text" description="Edit the introduction and bio used by your customer site.">
               <div className="space-y-4">
                 {!panel && (
@@ -1767,7 +1815,9 @@ function BookingPageOwnerSurfaceContent() {
           {(reviewIndex < 0 || panel === 'publish') && (
             <p className="mb-3 text-xs text-[var(--owner-muted)]">
               {salonPublicationStatus === 'published'
-                ? 'Publishes the saved page layout and content to your live booking page.'
+                ? customIsla
+                  ? 'Publishes your saved booking-step styles, business setup and address privacy. Isla’s custom opening design stays the same.'
+                  : 'Publishes the saved page layout and content to your live booking page.'
                 : 'Prepares your saved page layout and content. Publish your salon above to make the website public.'}
             </p>
           )}
