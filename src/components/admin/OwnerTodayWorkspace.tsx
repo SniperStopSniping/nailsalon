@@ -6,7 +6,6 @@ import {
   CalendarDays,
   ChevronDown,
   ChevronRight,
-  CircleDollarSign,
   Clock3,
   ExternalLink,
   Link2,
@@ -696,12 +695,12 @@ export function OwnerTodayWorkspace({
   const attentionSection = today?.failedConfirmations.length || integrationNeedsAttention
     ? (
         <section
-          className="rounded-3xl border border-stone-200 bg-white p-4 shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
+          className="owner-card p-5"
           data-testid="owner-needs-attention"
         >
           <div className="flex items-center gap-2">
             <AlertCircle size={18} className="text-stone-700" />
-            <h2 className="text-[15px] font-semibold text-stone-950">Needs attention</h2>
+            <h2 className="owner-section-title">Needs attention</h2>
           </div>
           <div className="mt-3 space-y-2">
             {Boolean(today?.failedConfirmations.length) && (
@@ -744,7 +743,7 @@ export function OwnerTodayWorkspace({
 
   return (
     <main
-      className="mx-auto max-w-2xl space-y-4 px-5 pb-28 pt-3"
+      className="mx-auto max-w-2xl space-y-5 px-5 pb-28 pt-3"
       data-testid="owner-today-workspace"
     >
       {urgentSection}
@@ -778,14 +777,14 @@ export function OwnerTodayWorkspace({
               className="overflow-hidden rounded-owner-card border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] shadow-owner-card"
               data-testid="owner-current-next-appointment"
             >
-              <div className="bg-gradient-to-br from-[#4C1D2E] to-[#8B1538] px-5 py-4 text-white">
-                <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-rose-100">
+              <div className="owner-today-highlight">
+                <p className="owner-today-highlight__eyebrow">
                   {displayedOperationalState.currentAppointment ? 'Current appointment' : 'Next appointment'}
                 </p>
-                <p className="mt-1 text-2xl font-semibold leading-tight">
+                <p className="owner-today-highlight__name">
                   {currentOrNextAppointment.clientName || 'Guest client'}
                 </p>
-                <p className="mt-1 text-sm text-rose-100">
+                <p className="mt-2 text-sm leading-relaxed text-[var(--owner-muted)]">
                   {formatTime(currentOrNextAppointment.startTime)}
                   {' '}
                   ·
@@ -830,10 +829,10 @@ export function OwnerTodayWorkspace({
       >
         <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4">
           <div>
-            <h2 className="font-semibold text-stone-950">
+            <h2 className="owner-section-title">
               {currentOrNextAppointment ? 'Rest of today' : 'Today'}
             </h2>
-            <p className="mt-0.5 text-xs text-stone-500">
+            <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">
               Appointments in your salon timezone
             </p>
           </div>
@@ -888,8 +887,8 @@ export function OwnerTodayWorkspace({
                         onClick={() => onOpenAppointment(appointment.id)}
                         className="flex min-h-[64px] w-full items-center gap-3 bg-[var(--owner-surface,#fffdfb)] px-5 py-4 text-left outline-none transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus,#b85075)]"
                       >
-                        <div className="w-16 shrink-0">
-                          <p className="text-sm font-semibold text-[var(--owner-accent-strong,#70213f)]">
+                        <div className="w-[72px] shrink-0 self-start">
+                          <p className="text-[13px] font-semibold leading-relaxed text-[var(--owner-accent-strong,#70213f)]">
                             {formatTime(appointment.startTime)}
                           </p>
                           <p className="text-[12px] text-[var(--owner-muted,#706267)]">
@@ -899,10 +898,10 @@ export function OwnerTodayWorkspace({
                           </p>
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-stone-950">
+                          <p className="break-words text-[15px] font-semibold text-[var(--owner-ink)]">
                             {appointment.clientName || 'Guest client'}
                           </p>
-                          <p className="truncate text-xs text-stone-500">
+                          <p className="mt-1 break-words text-[13px] leading-relaxed text-[var(--owner-muted)]">
                             {appointment.services.join(', ')}
                             {appointment.technicianName
                               ? ` · ${appointment.technicianName}`
@@ -916,10 +915,10 @@ export function OwnerTodayWorkspace({
                               </span>
                             </p>
                           )}
+                          <span className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${appointmentStatusChipClasses(appointment.status)}`}>
+                            {formatAppointmentStatus(appointment.status)}
+                          </span>
                         </div>
-                        <span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${appointmentStatusChipClasses(appointment.status)}`}>
-                          {formatAppointmentStatus(appointment.status)}
-                        </span>
                         <ChevronRight size={16} className="shrink-0 text-stone-300" />
                       </button>
                     ))}
@@ -997,12 +996,9 @@ export function OwnerTodayWorkspace({
       >
         <div className="flex items-center justify-between gap-3 border-b border-stone-100 px-5 py-4">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent,#8f3155)]">
-              <CircleDollarSign size={20} />
-            </span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-semibold text-stone-950">Completed service revenue</h2>
+                <h2 className="owner-section-title">Completed service revenue</h2>
                 {/*
                   The caveats used to be two amber banners at the bottom of the
                   card. One neutral chip beside the headline says the same
@@ -1018,7 +1014,7 @@ export function OwnerTodayWorkspace({
                   </span>
                 )}
               </div>
-              <p className="mt-0.5 text-xs text-stone-500">
+              <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">
                 {financialSummaryOwnerOnly
                   ? 'Owner only'
                   : 'Completed appointments · tax and tips separate'}
@@ -1197,17 +1193,17 @@ export function OwnerTodayWorkspace({
 
                     return (
                       <div className="space-y-3 p-4">
-                        <div className="rounded-2xl bg-gradient-to-br from-[#4C1D2E] to-[#8B1538] p-4 text-white">
-                          <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-rose-100">
+                        <div className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface-soft)] p-5">
+                          <p className="owner-today-highlight__eyebrow">
                             Completed service revenue today
                           </p>
-                          <p className="mt-1 text-3xl font-bold tabular-nums">
+                          <p className="owner-revenue-amount">
                             {formatMoney(
                               todayPeriod.completedAppointmentRevenueCents,
                               financialSummary.currency,
                             )}
                           </p>
-                          <p className="mt-1 text-xs text-rose-100">
+                          <p className="mt-2 text-[13px] text-[var(--owner-muted)]">
                             Completed appointment revenue
                           </p>
                         </div>
@@ -1226,9 +1222,9 @@ export function OwnerTodayWorkspace({
                             return (
                               <div
                                 key={label as string}
-                                className="rounded-2xl border border-rose-100 bg-rose-50/50 p-3"
+                                className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3"
                               >
-                                <p className="text-[12px] font-bold uppercase tracking-widest text-[var(--owner-accent,#8f3155)]">
+                                <p className="text-[13px] font-medium leading-relaxed text-[var(--owner-muted)]">
                                   {label as string}
                                 </p>
                                 <p className="mt-1 text-xl font-bold tabular-nums text-stone-950">

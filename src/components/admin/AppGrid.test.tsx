@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -17,11 +20,6 @@ function relativeLuminance(hex: string): number {
       : ((channel + 0.055) / 1.055) ** 2.4;
   });
   return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
-}
-
-/** Contrast of a white glyph on the given fill. */
-function contrastWithWhite(hex: string): number {
-  return 1.05 / (relativeLuminance(hex) + 0.05);
 }
 
 describe('AppGrid', () => {
@@ -141,19 +139,22 @@ describe('AppGrid', () => {
     expect(screen.getByTestId('admin-app-tile-plan-usage')).not.toHaveTextContent(/\d/);
   });
 
-  it('keeps every icon chip dark enough for its white glyph', () => {
-    // The old chips ran to stone-300 (#d6d3d1) and yellow-300 (#fde047),
-    // where a white icon sits near 1.3:1. 4.5:1 is the text minimum and is
-    // comfortably above the 3:1 floor for a graphical object.
-    const failures = APPS.flatMap(app => [
-      ['from', app.iconFrom] as const,
-      ['to', app.iconTo] as const,
-    ].filter(([, hex]) => contrastWithWhite(hex) < 4.5)
-      .map(([stop, hex]) =>
-        `${app.id} ${stop} ${hex} = ${contrastWithWhite(hex).toFixed(2)}:1`,
-      ));
+  it('uses the shared plum and blush icon colours with clear contrast', () => {
+    const css = readFileSync(join(process.cwd(), 'src/styles/global.css'), 'utf8');
+    const accent = css.match(/--owner-accent: (#[a-f0-9]+);/)![1]!;
+    const blush = css.match(/--owner-blush: (#[a-f0-9]+);/)![1]!;
+    const contrast = (relativeLuminance(blush) + 0.05) / (relativeLuminance(accent) + 0.05);
 
-    expect(failures).toEqual([]);
+    expect(contrast).toBeGreaterThanOrEqual(4.5);
+
+    render(<AppGrid onAppTap={vi.fn()} />);
+    const icons = document.querySelectorAll('[data-owner-icon]');
+
+    expect(icons.length).toBeGreaterThan(0);
+
+    for (const icon of icons) {
+      expect(icon).toHaveClass('bg-[var(--owner-blush)]', 'text-[var(--owner-accent)]');
+    }
   });
 
   describe('Account row', () => {

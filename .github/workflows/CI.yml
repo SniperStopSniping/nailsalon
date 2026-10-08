@@ -1208,6 +1208,9 @@ jobs:
       - name: Verify owner destinations and Hours in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerNavigation/playwright.config.ts --output=test-results/owner-navigation-components
 
+      - name: Verify owner dashboard polish and shared dialogs in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerPolish/playwright.config.ts --output=test-results/owner-polish-components
+
       - name: Verify Luster owner entry screens in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerEntry/playwright.config.ts --output=test-results/owner-entry
 

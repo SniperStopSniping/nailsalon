@@ -137,7 +137,7 @@ export function AppModal({
             aria-label={title}
             data-modal-focus-root="true"
             data-testid="app-modal-panel"
-            className="owner-theme-scope fixed inset-x-0 bottom-0 z-50 flex min-h-0 flex-col overflow-hidden rounded-t-owner-sheet bg-[var(--owner-surface)] text-[var(--owner-ink)] shadow-2xl"
+            className="owner-theme-scope fixed inset-x-0 bottom-0 z-50 flex min-h-0 flex-col overflow-hidden rounded-t-owner-sheet bg-[var(--owner-surface)] text-[var(--owner-ink)] shadow-[0_-8px_40px_rgba(59,25,43,0.12)]"
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
@@ -179,7 +179,7 @@ export function AppModal({
             {/* Optional Header */}
             {title && (
               <div className="border-b border-[var(--owner-line)] px-4 pb-3">
-                <h2 className="owner-title text-center text-[19px] font-semibold text-[var(--owner-ink)]">
+                <h2 className="owner-title text-center text-[24px] font-normal text-[var(--owner-ink)]">
                   {title}
                 </h2>
               </div>
@@ -230,31 +230,21 @@ export function ModalHeader({
         ${transparent ? 'bg-transparent' : 'border-b border-[var(--owner-line)] bg-[var(--owner-surface)] backdrop-blur-xl'}
       `}
     >
-      {/*
-        The title column needs `min-w-0` and the side columns need `shrink-0`.
-        Without them a long title — "Gel Manicure + Gel Pedicure" is a real
-        one — grew past its track and wrapped, which both overflowed this
-        fixed 52px row and printed the second line straight through the Back
-        control beside it. A nav-bar title truncates instead; the full name is
-        always the heading of the screen underneath.
-      */}
-      <div className="flex h-[52px] items-center justify-between gap-2 px-4">
-        {/* `min-w-[80px]` rather than a fixed `w-20`: a back label longer than
-            80 px ("‹ Services" in the service detail) overflowed the fixed
-            track and printed through the title beside it. Growing the side
-            track instead makes the title — which already truncates — yield. */}
-        <div className="flex min-w-[80px] shrink-0 justify-start">{leftAction}</div>
-        <div className="flex min-w-0 flex-1 flex-col items-center">
-          <span className="owner-title w-full truncate text-center text-[19px] font-semibold leading-none text-[var(--owner-ink)]">
+      {/* The header grows when a service name wraps. Bounded action columns
+          keep Back and Save reachable at 320px without overlapping the title. */}
+      <div className={`flex min-h-16 items-center justify-between gap-3 px-4 py-3 ${title.length > 20 ? 'owner-modal-header--long' : ''}`}>
+        <div className="owner-modal-header__back flex min-w-11 max-w-[30%] shrink-0 justify-start">{leftAction}</div>
+        <div className="owner-modal-header__title flex min-w-0 flex-1 flex-col items-center">
+          <span className="owner-title w-full break-words text-center text-[24px] font-normal leading-tight text-[var(--owner-ink)]">
             {title}
           </span>
           {subtitle && (
-            <span className="mt-0.5 w-full truncate text-center text-[11px] font-medium text-[var(--owner-muted)]">
+            <span className="mt-1 w-full break-words text-center text-[12px] font-medium leading-relaxed text-[var(--owner-muted)]">
               {subtitle}
             </span>
           )}
         </div>
-        <div className="flex min-w-[80px] shrink-0 justify-end">{rightAction}</div>
+        <div className="owner-modal-header__action flex min-w-11 max-w-[30%] shrink-0 justify-end">{rightAction}</div>
       </div>
     </div>
   );
