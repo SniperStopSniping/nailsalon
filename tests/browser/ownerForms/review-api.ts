@@ -4,6 +4,7 @@ const service = { id: 'svc_1', name: 'Russian Manicure', description: 'Detailed 
 export function installReviewApi() {
   const originalFetch = window.fetch.bind(window);
   const scenario = new URLSearchParams(window.location.search).get('state');
+  const showAddOns = new URLSearchParams(window.location.search).has('addons');
   window.fetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, window.location.href);
     if (url.origin !== window.location.origin) {
@@ -29,7 +30,10 @@ export function installReviewApi() {
     if (path === '/api/salon/services') {
       return Response.json({ data: { services: [service], activeTechnicianCount: 1 } });
     }
-    if (path === '/api/salon/add-ons' || /\/api\/salon\/services\/[^/]+\/add-ons/.test(path)) {
+    if (path === '/api/salon/add-ons') {
+      return Response.json({ data: { addOns: showAddOns ? [{ id: 'addon_fixture', name: 'French finish', category: 'design', priceCents: 1000, priceDisplayText: null, descriptionItems: ['A delicate tip finish'], durationMinutes: 10, pricingType: 'fixed', unitLabel: null, maxQuantity: null, isActive: true, compatibleServiceIds: ['svc_1'] }] : [] } });
+    }
+    if (/\/api\/salon\/services\/[^/]+\/add-ons/.test(path)) {
       return Response.json({ data: { addOns: [] } });
     }
     if (path === '/api/admin/salon/settings') {

@@ -27,6 +27,8 @@ async function actionVisible(action: Locator) {
 }
 
 async function readableFields(container: Locator) {
+  await expect(container).toBeVisible();
+
   const fields = await container.locator('input:not([type="checkbox"]):not([type="file"]), select, textarea').evaluateAll(elements => elements.filter(element => element.getBoundingClientRect().height > 0).map(element => ({ font: Number.parseFloat(getComputedStyle(element).fontSize), height: element.getBoundingClientRect().height })));
 
   expect(fields.length).toBeGreaterThan(0);
@@ -38,6 +40,52 @@ async function readableFields(container: Locator) {
 }
 
 for (const width of [320, 390, 430, 1280]) {
+  test(`add-on editing creation and selection keep actions visible at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/?screen=services&addons=1&state=error');
+    await page.getByRole('tab', { name: 'Add-ons', exact: true }).click();
+    const edit = page.getByTestId('addon-row-addon_fixture');
+    await edit.click();
+    const editor = page.getByRole('dialog', { name: 'Edit Add-on', exact: true });
+    await readableFields(editor);
+    await editor.getByRole('textbox', { name: 'Description', exact: true }).fill('Detailed finish');
+    await actionVisible(editor.getByRole('button', { name: 'Update Add-on', exact: true }));
+    await editor.getByRole('button', { name: 'Update Add-on', exact: true }).click();
+
+    await expect(editor.getByRole('alert')).toContainText('Synthetic save failure');
+    await expect(editor.getByRole('alert')).toBeInViewport();
+    await expect(editor.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Detailed finish');
+
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    await expect(edit).toBeFocused();
+
+    await page.getByRole('button', { name: 'New add-on', exact: true }).click();
+    const create = page.getByRole('dialog', { name: 'New add-on', exact: true });
+    await readableFields(create);
+    await actionVisible(create.getByRole('button', { name: 'Create Add-on', exact: true }));
+    await create.getByRole('button', { name: 'Create Add-on', exact: true }).click();
+
+    await expect(create.getByRole('alert')).toBeInViewport();
+
+    await create.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('tab', { name: 'My Menu', exact: true }).click();
+    await page.getByRole('button', { name: 'New service', exact: true }).click();
+    const service = page.getByRole('dialog', { name: 'Add Service', exact: true });
+    await service.getByLabel('Name', { exact: true }).fill('Review service');
+    await service.getByRole('button', { name: 'Choose add-ons', exact: true }).click();
+    const picker = page.getByRole('dialog', { name: 'Add-ons for Review service', exact: true });
+
+    await expect(picker).toBeVisible();
+
+    await actionVisible(picker.getByRole('button', { name: 'Done', exact: true }));
+    await noOverflow(page);
+    await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    await expect(service.getByLabel('Name', { exact: true })).toHaveValue('Review service');
+    await expect(service.getByRole('button', { name: 'Choose add-ons', exact: true })).toBeFocused();
+  });
+
   test(`service form keeps actions reachable and restores focus at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto('/?screen=services');
