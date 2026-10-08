@@ -153,6 +153,19 @@ describe('dark switch', () => {
 });
 
 describe('tenant scoping', () => {
+  it('selects the exact returned purchase and never a foreign or older fulfilled purchase', async () => {
+    const salonId = await seedSalon();
+    const other = await seedSalon();
+    await seedPurchase(salonId, { status: 'fulfilled' });
+    const pending = await seedPurchase(salonId);
+    const foreign = await seedPurchase(other);
+    const result = await (await getTopups(`salonId=${salonId}&purchaseId=${pending}`)).json();
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ id: pending, status: 'pending' });
+    expect((await (await getTopups(`salonId=${salonId}&purchaseId=${foreign}`)).json()).items).toEqual([]);
+  });
+
   it('rejects a salon the admin is not a member of with 403', async () => {
     const salonId = await seedSalon();
     adminHolder.allowed = false;

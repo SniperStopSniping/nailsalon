@@ -1217,6 +1217,9 @@ jobs:
       - name: Verify Portfolio controls and failure recovery in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerPortfolio/playwright.config.ts --output=test-results/owner-portfolio-components
 
+      - name: Verify owner settings and payment presentation in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerSecondary/playwright.config.ts --output=test-results/owner-secondary-components
+
       - name: Verify Luster owner entry screens in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerEntry/playwright.config.ts --output=test-results/owner-entry
 
@@ -1251,6 +1254,9 @@ jobs:
 
       - name: Verify owner Calendar Clients and Services polish
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerCoreTabs/playwright.config.ts --output=test-results/owner-core-tabs-components
+
+      - name: Verify SMS balances and top-up entry in desktop and mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/smsCredits/playwright.config.ts --output=test-results/sms-credit-components
 
       - name: Run storybook tests
         run: npm run test-storybook:ci

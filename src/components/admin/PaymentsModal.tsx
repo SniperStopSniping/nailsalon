@@ -4,6 +4,7 @@ import { BadgeDollarSign, Coins, CreditCard, Landmark, ReceiptText } from 'lucid
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
+import { BackButton } from './AppModal';
 import { OwnerAppHub, type OwnerAppHubItem } from './OwnerAppHub';
 import { SettingsModal } from './SettingsModal';
 import { StripeConnectPanel } from './StripeConnectPanel';
@@ -72,9 +73,8 @@ export function PaymentsModal({
   if (view === 'stripe') {
     return (
       <div className="flex min-h-full flex-col bg-[var(--owner-ground)]">
-        <div className="sticky top-0 z-20 bg-[var(--owner-ground)]">
-          <button
-            type="button"
+        <div className="sticky top-0 z-20 mx-auto w-full max-w-3xl bg-[var(--owner-ground)] px-4 py-3">
+          <BackButton
             onClick={() => {
               setView('home');
               if (pushed.current) {
@@ -84,14 +84,12 @@ export function PaymentsModal({
                 router.replace(href('home'), { scroll: false });
               }
             }}
-            className="min-h-11 px-4 text-sm font-semibold"
-          >
-            Back to Payments
-          </button>
+            label="Back to Payments"
+          />
         </div>
-        <main className="grow px-4 pb-10">
-          <h2 className="mb-1 text-xl font-bold">Stripe & Payouts</h2>
-          <p className="mb-4 text-sm text-[var(--owner-muted)]">Deposit collection and payout readiness.</p>
+        <main className="mx-auto w-full max-w-3xl grow px-4 pb-10">
+          <h2 className="owner-title mb-2 text-[34px] text-[var(--owner-ink)]">Stripe & Payouts</h2>
+          <p className="mb-6 text-[15px] leading-relaxed text-[var(--owner-muted)]">Deposit collection and payout readiness.</p>
           <StripeConnectPanel salonSlug={salonSlug} />
         </main>
       </div>

@@ -8,6 +8,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { NextRequest } from 'next/server';
@@ -28,7 +29,7 @@ const envHolder = vi.hoisted(() => ({
   BILLING_TOPUPS_ENABLED: undefined as string | undefined,
 }));
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
-const sendTransactionalEmailDetailed = vi.hoisted(() => vi.fn(async () => ({ sent: true })));
+const sendTransactionalEmailDetailed = vi.hoisted(() => vi.fn(async () => ({ ok: true, errorCode: null, providerMessageId: 'email_fixture' })));
 vi.mock('@/libs/email', () => ({ sendTransactionalEmailDetailed }));
 vi.mock('@/libs/rateLimit', () => ({
   checkEndpointRateLimit: () => ({ allowed: true }),
@@ -38,6 +39,8 @@ vi.mock('@/libs/rateLimit', () => ({
 
 const guardHolder = vi.hoisted(() => ({ salonId: 's_usage' }));
 vi.mock('@/libs/adminAuth', () => ({
+  requireAdmin: vi.fn(async () => ({ ok: true, admin: { role: 'owner' } })),
+  isSalonOwner: vi.fn(() => true),
   requireAdminSalon: vi.fn(async (slug: string) => (
     slug === `slug-${guardHolder.salonId}`
       ? { error: null, salon: { id: guardHolder.salonId } }
@@ -94,70 +97,108 @@ describe('masking (§10.4)', () => {
   });
 });
 
-describe('low-balance warnings (§10.3)', () => {
-  it.each(['20pct', '0'] as const)('directs the %s warning to credits without requiring a plan upgrade', async (tier) => {
-    const { sendLowBalanceWarningEmail } = await import('./lowBalanceWarnings');
-    sendTransactionalEmailDetailed.mockClear();
-    await sendLowBalanceWarningEmail({
-      salonId: 's_warning_copy',
-      ownerEmail: 'owner@example.invalid',
-      tier,
-      availableCredits: tier === '0' ? 0 : 20,
-    });
+describe('durable low-balance warnings', () => {
+  const jobs = (salonId: string) => db.select().from(schema.integrationOutboxSchema).where(eq(schema.integrationOutboxSchema.salonId, salonId));
 
-    expect(sendTransactionalEmailDetailed).toHaveBeenCalledOnce();
-    expect(sendTransactionalEmailDetailed).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'owner@example.invalid',
-      text: expect.stringContaining('Usage'),
-    }));
-    expect(sendTransactionalEmailDetailed).toHaveBeenCalledWith(expect.objectContaining({
-      text: expect.not.stringMatching(/upgrade|buy more|email confirmations and reminders continue/i),
-    }));
+  it('queues one durable job per crossing, retries the same provider key and never sends at page load', async () => {
+    const { evaluateLowBalanceWarnings, deliverLowBalanceWarning } = await import('./lowBalanceWarnings');
+    await seedAccount('s_warn1', 25);
+    sendTransactionalEmailDetailed.mockClear();
+
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn1' })).warned).toEqual([{ salonId: 's_warn1', tier: '20pct' }]);
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn1' })).warned).toEqual([]);
+    expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+
+    const [job] = await jobs('s_warn1');
+
+    expect(job).toBeDefined();
+
+    sendTransactionalEmailDetailed.mockResolvedValueOnce({ ok: false, errorCode: 'RESEND_TIMEOUT', providerMessageId: null } as never);
+
+    await expect(deliverLowBalanceWarning(job!)).rejects.toThrow('RESEND_TIMEOUT');
+    expect(await deliverLowBalanceWarning(job!)).toBe('sent');
+    expect(sendTransactionalEmailDetailed.mock.calls[0]).toEqual(sendTransactionalEmailDetailed.mock.calls[1]);
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledWith(expect.objectContaining({ to: 's_warn1@example.com', text: expect.stringContaining('25 or fewer') }), expect.objectContaining({ idempotencyKey: `luster-sms-warning/${job!.id}` }));
+    expect(await deliverLowBalanceWarning(job!, { now: new Date(job!.createdAt.getTime() + 24 * 60 * 60 * 1000) })).toBe('expired');
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(2);
   });
 
-  it('warns exactly once per tier, moves only downward, resets on grant', async () => {
+  it('re-arms only recovered thresholds after a top-up, not a one-credit refund fluctuation', async () => {
     const { evaluateLowBalanceWarnings } = await import('./lowBalanceWarnings');
-    const { appendLotGrant } = await import('./billing/creditLedger');
-    await seedAccount('s_warn1', 8); // inside the 10-credit tier
-    const emails: Array<{ tier: string }> = [];
-    const sendWarningEmail = vi.fn(async (input: { tier: string }) => {
-      emails.push({ tier: input.tier });
-    });
-
-    const first = await evaluateLowBalanceWarnings({ sendWarningEmail, salonId: 's_warn1' });
-
-    expect(first.warned).toEqual([{ salonId: 's_warn1', tier: '10' }]);
-
-    // Same state re-evaluated: silent (once per tier per epoch).
-    const second = await evaluateLowBalanceWarnings({ sendWarningEmail, salonId: 's_warn1' });
-
-    expect(second.warned).toEqual([]);
-
-    // Balance hits zero: the DEEPER tier still warns within the same epoch.
+    const { appendLotGrant, lockCreditAccount } = await import('./billing/creditLedger');
     const { reserveSmsCredits, settleReservationOnAccept } = await import('./billing/creditReservation');
-    const reserved = await reserveSmsCredits({ salonId: 's_warn1', dedupeKey: 'warn_spend', segments: 8 });
-    await settleReservationOnAccept({
-      reservationId: (reserved as { reservationId: string }).reservationId,
-      providerSid: 'SM_warn',
+    await seedAccount('s_warn_rearm', 10);
+
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn_rearm' })).warned[0]?.tier).toBe('10');
+
+    const add = async (amount: number, key: string, entryType: 'grant' | 'sms_refund' = 'grant') => db.transaction(async (tx) => {
+      await lockCreditAccount(tx, 's_warn_rearm');
+      return appendLotGrant(tx, { salonId: 's_warn_rearm', amount, bucket: 'purchased', expiresAt: null, idempotencyKey: key, reason: 'test', entryType });
     });
-    const third = await evaluateLowBalanceWarnings({ sendWarningEmail, salonId: 's_warn1' });
+    const spend = async (segments: number, key: string) => {
+      const held = await reserveSmsCredits({ salonId: 's_warn_rearm', dedupeKey: key, segments });
+      if (!held.ok) {
+        throw new Error('reserve failed');
+      }
+      await settleReservationOnAccept({ reservationId: held.reservationId, providerSid: key });
+    };
+    await add(1, 'warning_refund', 'sms_refund');
+    await spend(1, 'warning_flap');
 
-    expect(third.warned).toEqual([{ salonId: 's_warn1', tier: '0' }]);
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn_rearm' })).warned).toEqual([]);
 
-    // A grant bumps the epoch (appendLotGrant), resetting eligibility…
-    await db.transaction(async tx => appendLotGrant(tx, {
-      salonId: 's_warn1',
-      bucket: 'purchased',
-      amount: 5,
-      expiresAt: null,
-      idempotencyKey: 'warn_regrant',
-      reason: 'seed',
-    }));
-    const fourth = await evaluateLowBalanceWarnings({ sendWarningEmail, salonId: 's_warn1' });
+    await add(100, 'warning_topup');
 
-    expect(fourth.warned).toEqual([{ salonId: 's_warn1', tier: '10' }]);
-    expect(emails.map(entry => entry.tier)).toEqual(['10', '0', '10']);
-    // No SMS was ever part of this: the sender is email-only by construction.
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn_rearm' })).warned).toEqual([]);
+
+    await spend(85, 'warning_spend25');
+
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn_rearm' })).warned[0]?.tier).toBe('20pct');
+
+    await spend(15, 'warning_spend10');
+
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn_rearm' })).warned[0]?.tier).toBe('10');
+
+    await spend(10, 'warning_spend0');
+
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn_rearm' })).warned[0]?.tier).toBe('0');
+
+    await add(5, 'warning_small_topup');
+
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn_rearm' })).warned).toEqual([]);
+
+    await spend(5, 'warning_small_spend');
+
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn_rearm' })).warned[0]?.tier).toBe('0');
+  });
+
+  it('honors the owner recipient and preferences, and cancels obsolete queued emails', async () => {
+    const { evaluateLowBalanceWarnings, deliverLowBalanceWarning } = await import('./lowBalanceWarnings');
+    const { appendLotGrant, lockCreditAccount } = await import('./billing/creditLedger');
+    await seedAccount('s_warn_preferences', 10);
+    await db.update(schema.salonSchema).set({ settings: { notifications: { salonEmail: { lowSmsBalance: false, recipientEmail: 'billing@example.com' } } } }).where(eq(schema.salonSchema.id, 's_warn_preferences'));
+
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn_preferences' })).warned).toEqual([]);
+
+    await db.update(schema.salonSchema).set({ settings: { notifications: { salonEmail: { lowSmsBalance: true, recipientEmail: 'billing@example.com' } } } }).where(eq(schema.salonSchema.id, 's_warn_preferences'));
+    await evaluateLowBalanceWarnings({ salonId: 's_warn_preferences' });
+    const [job] = await jobs('s_warn_preferences');
+
+    expect(job!.payload.to).toBe('billing@example.com');
+
+    await db.transaction(async (tx) => {
+      await lockCreditAccount(tx, 's_warn_preferences');
+      await appendLotGrant(tx, { salonId: 's_warn_preferences', amount: 100, bucket: 'purchased', expiresAt: null, idempotencyKey: 'pref_topup', reason: 'test' });
+    });
+
+    expect(await deliverLowBalanceWarning(job!)).toBe('cancelled');
+  });
+
+  it('does not email a brand-new account with no activity', async () => {
+    const { evaluateLowBalanceWarnings } = await import('./lowBalanceWarnings');
+    await seedAccount('s_warn_new', 0);
+
+    expect((await evaluateLowBalanceWarnings({ salonId: 's_warn_new' })).warned).toEqual([]);
   });
 });
 
@@ -175,6 +216,24 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
     const { GET } = await import('../app/api/admin/salon/communications/usage/route');
     return GET(new NextRequest(`http://localhost/api/admin/salon/communications/usage${query}`));
   };
+
+  it('returns actual balance and activity through the same salon authorization without exposing messages', async () => {
+    await seedAccount('s_balance_api', 18);
+    guardHolder.salonId = 's_balance_api';
+    const response = await get('?salonSlug=slug-s_balance_api&view=credits');
+
+    expect(response.status).toBe(200);
+
+    const body = await response.json();
+
+    expect(body.data.balance).toMatchObject({ availableCredits: 18, allocationCredits: 18, status: 'low' });
+    expect(body.data.topupOffers.map((offer: { priceCents: number }) => offer.priceCents)).toEqual([2000, 3000, 5000]);
+    expect(body.data.creditPurchasesAvailable).toBe(false);
+    expect(body.data.activity.items).toHaveLength(1);
+    expect(JSON.stringify(body)).not.toMatch(/recipient|messageBody|stripeCheckoutSessionId/);
+    expect((await get('?salonSlug=another-salon&view=credits')).status).toBe(403);
+    expect((await get('?salonSlug=slug-s_balance_api&view=credits&cursor=invalid')).status).toBe(400);
+  });
 
   it('serves owner-vocabulary balances, masked history and a working compound cursor', async () => {
     await seedAccount('s_usage', 40);
@@ -415,7 +474,7 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
     envHolder.BILLING_TOPUPS_ENABLED = 'true';
     const priceMap = await import('./billing/stripePriceMap');
     const priceResolver = vi.spyOn(priceMap, 'resolveStripePriceIdForTopup').mockImplementation((key) => {
-      if (key === 'topup_100_free_2026_08') {
+      if (key === 'topup_100_2026_10') {
         return 'price_configured_fixture';
       }
       throw new priceMap.BillingCatalogError('PRICE_UNCONFIGURED', key);
@@ -424,8 +483,8 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
     const { data } = await (await get('?salonSlug=slug-s_usage')).json();
 
     expect(data.creditPurchasesAvailable).toBe(true);
-    expect(data.topupOffers).toEqual([{ key: 'topup_100_free_2026_08', credits: 100, priceCents: 699 }]);
-    expect(priceResolver.mock.calls.every(([key]) => key.includes('_free_'))).toBe(true);
+    expect(data.topupOffers).toEqual([{ key: 'topup_100_2026_10', credits: 100, priceCents: 2000 }]);
+    expect(priceResolver.mock.calls.every(([key]) => key.endsWith('_2026_10'))).toBe(true);
     expect(JSON.stringify(data)).not.toContain('price_configured_fixture');
     expect(data.usage.availableCredits).toBe(40);
     expect(fetchSpy).not.toHaveBeenCalled();

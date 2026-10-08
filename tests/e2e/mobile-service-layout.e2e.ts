@@ -1132,9 +1132,14 @@ test.describe('selected service options on mobile', () => {
   for (const browserTag of ['@mobile-chrome', '@mobile-safari']) {
     test(`keyboard selects a searched service and exposes add-ons immediately ${browserTag}`, async ({ page }) => {
       await openServicePage(page);
-      await page.getByPlaceholder('Search services...').fill(e2eConfig.serviceName);
+      const search = page.getByPlaceholder('Search services...');
+      // The server-rendered input accepts native text before React attaches its
+      // handler. Wait for hydration so this scenario actually filters the menu.
+      await expectHydratedControl(search);
+      await search.fill(e2eConfig.serviceName);
       const card = page.getByTestId(`service-card-${e2eConfig.serviceId}`);
 
+      await expect(page.locator('button[data-testid^="service-card-"]')).toHaveCount(1);
       await expect(card).toBeEnabled();
 
       await card.focus();

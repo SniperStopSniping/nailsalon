@@ -1666,7 +1666,7 @@ describe('AdminDashboardPage', () => {
       render(<AdminDashboardPage />);
 
       expect(await screen.findByTestId('topup-return-notice')).toHaveTextContent(
-        'Payment received — credits usually arrive within a minute.',
+        'Checkout returned. Open usage history to check your purchase status.',
       );
       expect(await screen.findByTestId('usage-billing-modal')).toBeInTheDocument();
       expect(usageBillingModalSpy).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'salon-b' }));
@@ -1692,7 +1692,7 @@ describe('AdminDashboardPage', () => {
       render(<AdminDashboardPage />);
 
       expect(await screen.findByTestId('topup-return-notice')).toHaveTextContent(
-        'Checkout cancelled — nothing was charged.',
+        'Checkout closed. If you completed payment, check your purchase in usage history.',
       );
       expect(screen.queryByTestId('usage-billing-modal')).not.toBeInTheDocument();
       expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/billing/topups'))).toBe(false);
@@ -1702,10 +1702,13 @@ describe('AdminDashboardPage', () => {
       });
     });
 
-    it('success: polls /api/billing/topups every 5s until the newest purchase is fulfilled, then stops', async () => {
+    it('success: polls /api/billing/topups every 5s for the exact returned purchase, then stops', async () => {
       searchParamGet.mockImplementation((key: string) => {
         if (key === 'salon') {
           return 'salon-b';
+        }
+        if (key === 'purchase') {
+          return 'stp_returned';
         }
         return key === 'topup' ? 'success' : null;
       });
@@ -1735,7 +1738,7 @@ describe('AdminDashboardPage', () => {
         if (url.startsWith('/api/billing/topups')) {
           topupsCallCount += 1;
           const status = topupsCallCount >= 2 ? 'fulfilled' : 'pending';
-          return new Response(JSON.stringify({ available: true, items: [{ status }], nextCursor: null }), { status: 200 });
+          return new Response(JSON.stringify({ available: true, items: [{ id: 'stp_returned', credits: 100, fulfilledAt: status === 'fulfilled' ? new Date().toISOString() : null, status }], nextCursor: null }), { status: 200 });
         }
         throw new Error(`Unhandled fetch: ${url}`);
       });
@@ -1754,7 +1757,8 @@ describe('AdminDashboardPage', () => {
         expect(setTimeoutSpy.mock.calls.some(([, delay]) => delay === 5000)).toBe(true);
       });
 
-      expect(topupsCallCount).toBe(0);
+      expect(topupsCallCount).toBe(1);
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('purchaseId=stp_returned'))).toBe(true);
 
       setTimeoutSpy.mockRestore();
     });

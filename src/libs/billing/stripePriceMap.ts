@@ -65,6 +65,9 @@ const OFFER_PRICE_IDS: Record<BillingOfferKey, StripeIdByEnv> = Object.freeze({
 });
 
 const TOPUP_PRICE_IDS: Record<TopupOfferKey, StripeIdByEnv> = Object.freeze({
+  topup_100_2026_10: unconfigured(),
+  topup_200_2026_10: unconfigured(),
+  topup_500_2026_10: unconfigured(),
   topup_100_free_2026_08: unconfigured(),
   topup_250_free_2026_08: unconfigured(),
   topup_500_free_2026_08: unconfigured(),

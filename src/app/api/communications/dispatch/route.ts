@@ -6,7 +6,7 @@
  * additionally require platform enablement, pilot eligibility and credits.
  */
 import { processDueCommunications } from '@/libs/communicationDispatcher';
-import { evaluateLowBalanceWarnings, sendLowBalanceWarningEmail } from '@/libs/lowBalanceWarnings';
+import { evaluateLowBalanceWarnings } from '@/libs/lowBalanceWarnings';
 import { materializeRebookingReminders } from '@/libs/rebookingReminders.server';
 import { materializeCompletedReviewTriggers, scanScheduledEndReviewTriggers } from '@/libs/reviewRequests.server';
 import { releaseExpiredInboundEvidence } from '@/libs/smsInboundRetention';
@@ -38,9 +38,7 @@ async function run(request: Request): Promise<Response> {
   // over-budget unknowns. Never resends, never releases without proof.
   const unknownOutcomes = await resolveUnknownOutcomes();
   // §10.3 low-balance sweep: email + in-app only, once per tier per epoch.
-  const lowBalance = await evaluateLowBalanceWarnings({
-    sendWarningEmail: sendLowBalanceWarningEmail,
-  });
+  const lowBalance = await evaluateLowBalanceWarnings();
   // Keep review automation after every established dispatcher/maintenance
   // phase. Its own bounded failures are observable but cannot delay reminders.
   let reviewTriggers;

@@ -28,6 +28,7 @@ export const DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS = {
   newBooking: true,
   rescheduled: true,
   cancelled: true,
+  lowSmsBalance: true,
   refundFailed: true,
   refundAccountDisconnected: true,
   recipientEmail: null,
@@ -39,6 +40,7 @@ export const salonEmailNotificationSettingsSchema = z.object({
   newBooking: z.boolean().default(DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS.newBooking),
   rescheduled: z.boolean().default(DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS.rescheduled),
   cancelled: z.boolean().default(DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS.cancelled),
+  lowSmsBalance: z.boolean().default(DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS.lowSmsBalance),
   refundFailed: z.boolean().default(DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS.refundFailed),
   refundAccountDisconnected: z.boolean().default(
     DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS.refundAccountDisconnected,
@@ -51,6 +53,7 @@ export const salonEmailNotificationSettingsUpdateSchema = z.object({
   newBooking: z.boolean().optional(),
   rescheduled: z.boolean().optional(),
   cancelled: z.boolean().optional(),
+  lowSmsBalance: z.boolean().optional(),
   // An empty string clears the override rather than failing validation: the
   // settings form submits "" when the owner blanks the field.
   recipientEmail: z

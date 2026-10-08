@@ -24,6 +24,7 @@ import 'server-only';
 import { and, eq, sql } from 'drizzle-orm';
 
 import type { db } from '@/libs/DB';
+import { smsCreditStatus } from '@/libs/smsCreditStatus';
 import {
   smsCreditAccountSchema,
   type SmsCreditBucket,
@@ -206,9 +207,9 @@ export type LotGrantInput = {
 
 /**
  * Append a positive lot. Idempotent on the ledger's unique key: a replay
- * returns the existing lot id and grants nothing. Every NEW lot bumps
- * warning_epoch, deterministically resetting low-balance warning
- * eligibility (contract §7.1 — C4 needs no further migration).
+ * returns the existing lot id and grants nothing. Non-refund grants re-arm
+ * only warnings below the recovered balance. Refund fluctuations never
+ * restart a notification cycle. No credit lifetime or expiry rules change.
  * Caller must hold the account lock.
  */
 export async function appendLotGrant(
@@ -218,6 +219,8 @@ export async function appendLotGrant(
   if (!Number.isInteger(input.amount) || input.amount <= 0) {
     throw new RangeError(`lot grant amount must be a positive integer, got ${input.amount}`);
   }
+  const now = new Date();
+  const before = input.entryType === 'sms_refund' ? null : await computeAvailableBalance(tx, input.salonId, now);
   const id = `scl_${crypto.randomUUID()}`;
   const inserted = await tx
     .insert(smsCreditLedgerSchema)
@@ -246,16 +249,21 @@ export async function appendLotGrant(
     return { lotId: existing[0]!.id, created: false };
   }
 
-  await tx
-    .update(smsCreditAccountSchema)
-    .set({
+  // A refund/retry fluctuation must not re-arm email warnings. A genuine
+  // grant re-arms only thresholds the available balance has recovered above.
+  if (input.entryType !== 'sms_refund') {
+    const balance = await computeAvailableBalance(tx, input.salonId, now);
+    const status = smsCreditStatus(balance.available);
+    const recoveryRank = { healthy: 3, low: 2, critical: 1, empty: 0 };
+    if (before && recoveryRank[status] <= recoveryRank[smsCreditStatus(before.available)]) {
+      return { lotId: inserted[0]!.id, created: true };
+    }
+    const recoveredTier = ({ healthy: null, low: '20pct', critical: '10', empty: '0' } as const)[status];
+    await tx.update(smsCreditAccountSchema).set({
       warningEpoch: sql`${smsCreditAccountSchema.warningEpoch} + 1`,
-      // "Deterministically resetting warning eligibility" (§7.1) means the
-      // TIER resets with the epoch: a fresh epoch must not inherit the old
-      // epoch's rank, or a post-top-up drop back into a tier stays silent.
-      lastWarningTier: null,
-    })
-    .where(eq(smsCreditAccountSchema.salonId, input.salonId));
+      lastWarningTier: recoveredTier,
+    }).where(eq(smsCreditAccountSchema.salonId, input.salonId));
+  }
 
   return { lotId: inserted[0]!.id, created: true };
 }
