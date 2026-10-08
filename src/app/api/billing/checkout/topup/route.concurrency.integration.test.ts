@@ -410,5 +410,8 @@ suite('top-up checkout — real-lock concurrency', () => {
 
     expect(attempt?.status).toBe('completed');
     expect(Number(purchasedLedger.rows[0].count)).toBe(1);
-  });
+    // The lock-observation probe above has its own 15 s budget. Vitest's
+    // default 5 s test deadline must not preempt its finally/release path.
+    // The independent 3 s deadlock guard and all ledger assertions stay intact.
+  }, 30_000);
 });

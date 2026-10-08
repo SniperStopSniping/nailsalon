@@ -13,6 +13,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Calendar,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -602,7 +603,7 @@ function DayDetailPanel({
               <div key={techName}>
                 {/* Technician Header */}
                 <div className="mb-3 flex items-center gap-2">
-                  <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-xs font-bold text-white">
+                  <div className="flex size-9 items-center justify-center rounded-full bg-[var(--owner-blush)] text-xs font-semibold text-[var(--owner-accent)]">
                     {techName
                       .split(' ')
                       .map(n => n[0])
@@ -1259,15 +1260,10 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
   }
 
   return (
-    <div className="flex min-h-full w-full flex-col bg-[#FFF8F5] font-sans text-black">
+    <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]">
       {/* Header */}
       <ModalHeader
         title="Calendar"
-        subtitle={
-          viewMode === 'weekly'
-            ? formatWeekRange(getWeekStart(currentDate))
-            : formatMonthYear(currentDate)
-        }
         leftAction={<BackButton onClick={onClose} label="Back" />}
         rightAction={(
           <button
@@ -1280,20 +1276,13 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
         )}
       />
 
-      <div className="flex flex-wrap gap-2 border-b border-gray-200 bg-white px-4 py-3">
-        <button type="button" className="min-h-11 rounded-xl border border-stone-300 px-3 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-rose-700" disabled={loading || Boolean(error) || schedule.technicians.length === 0} onClick={() => navigateView('block-time')}>Block Time</button>
-        {onNavigate && <button type="button" className="min-h-11 rounded-xl border border-stone-300 px-3 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-rose-700" onClick={() => onNavigate('hours', 'working-hours', technicianFilter === 'all' ? undefined : technicianFilter)}>Edit working hours</button>}
-        {onNavigate && <button type="button" className="min-h-11 rounded-xl border border-stone-300 px-3 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-rose-700" onClick={() => onNavigate('hours', 'time-off', technicianFilter === 'all' ? undefined : technicianFilter)}>Days Off</button>}
-        {googleConnected && <button type="button" className="min-h-11 rounded-xl px-3 py-2 text-sm font-semibold underline focus-visible:ring-2 focus-visible:ring-rose-700" onClick={() => navigateView('google-review')}>Review Google events</button>}
-      </div>
-      {/* View Mode Toggle */}
-      <div className="flex justify-center border-b border-gray-200 bg-white px-4 pb-3 pt-2">
-        <div className="flex rounded-lg bg-gray-100 p-1">
+      <div className="relative z-20 mx-4 mt-4 flex flex-wrap items-start justify-between gap-2">
+        <div className="flex rounded-full bg-[var(--owner-blush)] p-1">
           <button
             type="button"
             onClick={() => setViewMode('weekly')}
             className={`
-              min-h-11 rounded-full px-4 py-1.5 text-sm font-medium outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]
+              min-h-11 rounded-full px-3 py-1.5 text-[13px] font-medium outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]
               ${
     viewMode === 'weekly'
       ? 'bg-[var(--owner-surface,#fffdfb)] text-[var(--owner-ink,#30262a)] shadow-sm'
@@ -1307,7 +1296,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
             type="button"
             onClick={() => setViewMode('monthly')}
             className={`
-              min-h-11 rounded-full px-4 py-1.5 text-sm font-medium outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]
+              min-h-11 rounded-full px-3 py-1.5 text-[13px] font-medium outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]
               ${
     viewMode === 'monthly'
       ? 'bg-[var(--owner-surface,#fffdfb)] text-[var(--owner-ink,#30262a)] shadow-sm'
@@ -1318,10 +1307,42 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
             Monthly
           </button>
         </div>
+        {/* Native details keeps its built-in keyboard toggle; Escape dismisses its disclosure. */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+        <details
+          className="group relative"
+          data-testid="calendar-availability-menu"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.stopPropagation();
+              event.currentTarget.open = false;
+              event.currentTarget.querySelector('summary')?.focus();
+            }
+          }}
+          onBlur={(event) => {
+            // Safari does not focus buttons on pointer click. A null target
+            // must not close the disclosure before its button receives click.
+            if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
+              event.currentTarget.open = false;
+            }
+          }}
+        >
+          <summary className="flex min-h-[52px] cursor-pointer list-none items-center gap-2 rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 text-[13px] font-semibold text-[var(--owner-accent)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] [&::-webkit-details-marker]:hidden">
+            Availability
+            <ChevronDown aria-hidden="true" className="size-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid w-64 max-w-[calc(100vw-32px)] gap-2 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3 shadow-owner-card">
+            <button type="button" className="min-h-11 rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 py-2 text-[13px] font-semibold text-[var(--owner-accent)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-50" disabled={loading || Boolean(error) || schedule.technicians.length === 0} onClick={() => navigateView('block-time')}>Block Time</button>
+            {onNavigate && <button type="button" className="min-h-11 rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 py-2 text-[13px] font-semibold text-[var(--owner-accent)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-50" onClick={() => onNavigate('hours', 'working-hours', technicianFilter === 'all' ? undefined : technicianFilter)}>Edit working hours</button>}
+            {onNavigate && <button type="button" className="min-h-11 rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 py-2 text-[13px] font-semibold text-[var(--owner-accent)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-50" onClick={() => onNavigate('hours', 'time-off', technicianFilter === 'all' ? undefined : technicianFilter)}>Days Off</button>}
+            {googleConnected && <button type="button" className="min-h-11 rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 py-2 text-[13px] font-semibold text-[var(--owner-accent)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]" onClick={() => navigateView('google-review')}>Review Google events</button>}
+
+          </div>
+        </details>
       </div>
 
       {/* Navigation */}
-      <div className="flex items-center justify-between bg-white px-4 py-3">
+      <div className="flex items-center justify-between gap-2 p-4">
         <button
           type="button"
           onClick={handlePrev}
@@ -1333,7 +1354,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
           <ChevronLeft className="size-6 text-[var(--owner-accent,#8f3155)]" />
         </button>
 
-        <h2 className="owner-title text-lg font-semibold text-[var(--owner-ink,#30262a)]">
+        <h2 className="owner-title text-center text-[24px] font-normal leading-tight text-[var(--owner-ink,#30262a)]">
           {viewMode === 'weekly'
             ? formatWeekRange(getWeekStart(currentDate))
             : formatMonthYear(currentDate)}
@@ -1350,7 +1371,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
       </div>
 
       {/* Calendar Grid */}
-      <div className="flex-1 overflow-y-auto bg-[var(--owner-surface,#fffdfb)] px-3 pb-24">
+      <div className="mx-4 mb-4 flex-1 overflow-y-auto rounded-owner-card border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 pb-24 shadow-owner-card">
         {/*
           Five chips do not fit at 390 px. The row scrolls horizontally and a
           right-edge fade advertises the overflow; trailing padding keeps the
@@ -1383,7 +1404,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
                 type="button"
                 onClick={() => setScheduleFilter(id)}
                 aria-pressed={scheduleFilter === id}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${scheduleFilter === id ? 'bg-[var(--owner-accent,#8f3155)] text-white' : 'bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent-strong,#70213f)]'}`}
+                className={`min-h-11 shrink-0 rounded-full px-3 py-2 text-[13px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${scheduleFilter === id ? 'bg-[var(--owner-accent,#8f3155)] text-white' : 'bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent-strong,#70213f)]'}`}
               >
                 {label}
               </button>
@@ -1412,10 +1433,10 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
                 onClick={() => setTechnicianFilter(technician.id)}
                 aria-pressed={technicianFilter === technician.id}
                 data-testid={`calendar-technician-chip-${technician.id}`}
-                className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${
+                className={`min-h-11 shrink-0 rounded-full border px-3 py-2 text-[13px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${
                   technicianFilter === technician.id
-                    ? 'border-transparent bg-stone-900 text-white'
-                    : 'border-stone-200 bg-white text-stone-600'
+                    ? 'border-transparent bg-[var(--owner-accent)] text-white'
+                    : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
                 }`}
               >
                 {technician.name}
@@ -1424,7 +1445,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
           </div>
         )}
         {/* Day Names Header */}
-        <div className="sticky top-0 z-10 grid grid-cols-7 gap-1 bg-white py-2">
+        <div className="sticky top-0 z-10 grid grid-cols-7 gap-1 bg-[var(--owner-surface)] py-3">
           {dayNames.map(day => (
             <div
               key={day}
@@ -1595,7 +1616,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
         type="button"
         onClick={() => setShowNewAppointmentModal(true)}
         aria-label="Add new appointment"
-        className="fixed bottom-24 right-5 z-40 flex size-14 items-center justify-center rounded-full bg-[var(--owner-accent,#8f3155)] text-white shadow-[0_10px_24px_rgb(143_49_85_/_28%)] outline-none transition-transform focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-2 active:scale-90"
+        className="fixed bottom-24 right-[max(1.25rem,calc((100vw-1024px)/2+1.25rem))] z-40 flex size-14 items-center justify-center rounded-full bg-[var(--owner-accent,#8f3155)] text-white shadow-[0_10px_24px_rgb(143_49_85_/_28%)] outline-none transition-transform focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-2 active:scale-90"
       >
         <Plus className="size-8" />
       </button>
@@ -1606,7 +1627,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
         onClose={() => setSelectedDate(null)}
         alignClassName="items-end justify-center p-0"
         maxWidthClassName="max-w-none"
-        contentClassName="max-h-[70dvh] overflow-hidden rounded-t-[24px] bg-white shadow-2xl"
+        contentClassName="max-h-[70dvh] overflow-hidden rounded-t-owner-sheet bg-[var(--owner-surface)] shadow-[0_-8px_40px_rgba(59,25,43,0.12)]"
       >
         <AnimatePresence>
           {selectedDate && (

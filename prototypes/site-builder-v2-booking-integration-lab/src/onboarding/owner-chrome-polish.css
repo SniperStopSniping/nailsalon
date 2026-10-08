@@ -1,0 +1,191 @@
+/* Luster product chrome only. Customer preview surfaces keep their own themes. */
+@font-face {
+  font-family: 'Luster Onboarding Display';
+  src: url('./quick-book/fonts/newsreader-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Luster Onboarding Sans';
+  src: url('./quick-book/fonts/inter-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+.onboarding-app,
+.onboarding-paused-state {
+  --onboarding-display-font: 'Luster Onboarding Display', Georgia, serif;
+  font-family: 'Luster Onboarding Sans', sans-serif;
+}
+
+.onboarding-app .onboarding-starter-entry {
+  background: var(--onboarding-ground);
+}
+
+.onboarding-app .onboarding-starter-entry::before,
+.onboarding-app .onboarding-starter-entry::after {
+  border-color: rgb(184 149 117 / 12%);
+}
+
+.onboarding-app .onboarding-brand-mark,
+.onboarding-paused-card .onboarding-brand-mark {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  color: var(--onboarding-accent);
+}
+
+.onboarding-app .onboarding-shell__brand,
+.onboarding-app .onboarding-starter-entry__brand {
+  gap: 8px;
+  color: var(--onboarding-accent);
+}
+
+.onboarding-app .onboarding-shell__brand > strong,
+.onboarding-app .onboarding-starter-entry__brand > strong {
+  display: inline;
+  font-size: 0.76rem;
+  font-weight: 650;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+
+.onboarding-app .onboarding-shell__header {
+  border-color: var(--onboarding-line);
+  background: var(--onboarding-surface);
+  box-shadow: 0 4px 18px rgb(59 25 43 / 3%);
+}
+
+.onboarding-app .onboarding-shell__current-stage,
+.onboarding-app .onboarding-autosave-status {
+  font-size: 0.72rem;
+}
+
+.onboarding-app .onboarding-shell__more > summary {
+  border-radius: 999px;
+  color: var(--onboarding-accent);
+  background: var(--onboarding-surface-soft);
+}
+
+.onboarding-app .onboarding-screen__heading h1,
+.onboarding-app .onboarding-screen-heading h1,
+.onboarding-app .onboarding-starter-entry__heading h1,
+.onboarding-app .onboarding-save-progress__heading h1,
+.onboarding-paused-card h1 {
+  font-family: var(--onboarding-display-font);
+  font-size: clamp(2.25rem, 8.5vw, 3.6rem);
+  font-weight: 450;
+  letter-spacing: -0.035em;
+  line-height: 1.06;
+}
+
+.onboarding-app .onboarding-screen__heading > p:last-child,
+.onboarding-app .onboarding-starter-entry__heading > p:not(.onboarding-screen-kicker) {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.onboarding-app .onboarding-business-card,
+.onboarding-app .onboarding-hours-card,
+.onboarding-app .onboarding-collapsible-card,
+.onboarding-app .onboarding-quick-book-profile-settings,
+.onboarding-app .onboarding-starter-entry__grid .final-starter-card {
+  border-color: var(--onboarding-line);
+  border-radius: 26px;
+  background: var(--onboarding-surface);
+  box-shadow: 0 10px 30px rgb(59 25 43 / 5%);
+}
+
+.onboarding-app .onboarding-business-card h2,
+.onboarding-app .onboarding-business-type > legend {
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.onboarding-app .onboarding-starter-entry__grid .final-starter-card[aria-pressed="true"] {
+  border-color: var(--onboarding-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--onboarding-accent) 15%, transparent);
+}
+
+.onboarding-app .onboarding-collapsible-card.has-error,
+.onboarding-app .onboarding-field.has-error input,
+.onboarding-app .onboarding-field.has-error textarea {
+  border-color: var(--onboarding-danger);
+}
+
+.onboarding-app .onboarding-business-card header p,
+.onboarding-app .onboarding-business-type > p,
+.onboarding-app .onboarding-field__hint,
+.onboarding-app .onboarding-field__error {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.onboarding-app .onboarding-field > label,
+.onboarding-app .onboarding-field > span,
+.onboarding-app .onboarding-select-field > span {
+  color: var(--onboarding-ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.onboarding-app .onboarding-field input,
+.onboarding-app .onboarding-field textarea,
+.onboarding-app .onboarding-select-field select {
+  min-height: 50px;
+  border-color: var(--onboarding-line);
+  border-radius: 16px;
+  font-size: 16px;
+}
+
+.onboarding-app .onboarding-business-type label strong {
+  font-size: 0.875rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.onboarding-app .onboarding-business-type label small {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.onboarding-app .onboarding-business-type label > span {
+  height: 100%;
+  border-radius: 18px;
+  background: var(--onboarding-surface);
+}
+
+.onboarding-app .onboarding-business-type input:checked + span {
+  border-color: var(--onboarding-accent);
+  background: var(--onboarding-accent-soft);
+}
+
+.onboarding-app .sticky-onboarding-actions {
+  border-color: var(--onboarding-line);
+  background: var(--onboarding-surface);
+  box-shadow: 0 -5px 22px rgb(59 25 43 / 5%);
+}
+
+.onboarding-app .sticky-onboarding-actions > button {
+  min-height: 48px;
+  border-radius: 999px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+@media (max-width: 359px) {
+  .onboarding-app .onboarding-shell__brand > strong {
+    font-size: 0.64rem;
+    letter-spacing: 0.12em;
+  }
+
+  .onboarding-app .onboarding-shell__brand {
+    gap: 5px;
+  }
+
+  .onboarding-app .onboarding-brand-mark {
+    width: 25px;
+    height: 25px;
+  }
+}

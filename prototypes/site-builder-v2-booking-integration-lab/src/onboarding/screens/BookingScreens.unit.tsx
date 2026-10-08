@@ -706,7 +706,7 @@ describe('StartingPointScreen', () => {
     expect(screen.getByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
     expect(screen.getByLabelText('Luster')).toBeVisible();
     expect(screen.getByText('Your progress saves automatically on this device.')).toBeVisible();
-    expect(screen.getByText('You’ll preview your site before choosing a plan.')).toBeVisible();
+    expect(screen.getByText('You’ll preview your site before claiming your free plan.')).toBeVisible();
     expect(screen.getByText('Nothing is permanent.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
 

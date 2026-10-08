@@ -25,6 +25,7 @@ import {
   TextField,
   ValidationSummary,
 } from '../components/FormFields';
+import { OnboardingBrandMark } from '../components/OnboardingBrandMark';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import { SCREEN_METADATA, STARTER_ENTRY_COPY } from '../copy';
 import { useFeedback } from '../feedback/useFeedback';
@@ -1167,7 +1168,7 @@ export function StartingPointScreen({
   return (
     <main className="onboarding-starter-entry" id="onboarding-starter-entry">
       <div aria-label="Luster" className="onboarding-starter-entry__brand">
-        <span aria-hidden="true">L</span>
+        <OnboardingBrandMark />
         <strong>Luster</strong>
       </div>
       <section aria-labelledby="starting-point-heading" className="onboarding-starter-entry__content">

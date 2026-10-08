@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Calendar,
+  ChevronDown,
   ChevronRight,
   Loader2,
   Mail,
@@ -809,14 +810,14 @@ function ClientRow({
       type="button"
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
-      className="flex min-h-[60px] w-full items-center pl-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus,#b85075)] active:bg-[var(--owner-blush,#f6e7ec)]"
+      className="flex min-h-[84px] w-full items-center pl-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus,#b85075)] active:bg-[var(--owner-blush,#f6e7ec)]"
       onClick={onClick}
     >
-      <div className="mr-3 flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-[var(--owner-accent-strong,#70213f)] to-[var(--owner-accent,#8f3155)] text-[13px] font-bold text-white shadow-sm">
+      <div className="mr-3 flex size-11 shrink-0 items-center justify-center rounded-full border border-[var(--owner-line)] bg-[var(--owner-blush)] text-[13px] font-semibold text-[var(--owner-accent)]">
         {getInitials(client.fullName)}
       </div>
 
-      <div className={`flex flex-1 items-center justify-between py-3 pr-4 ${!isLast ? 'border-b border-gray-100' : ''}`}>
+      <div className={`flex min-w-0 flex-1 items-center justify-between py-4 pr-4 ${!isLast ? 'border-b border-gray-100' : ''}`}>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5 text-[16px] font-medium text-[var(--owner-ink,#30262a)]">
             <span className="truncate">{name}</span>
@@ -1024,19 +1025,20 @@ function ProfileNavigation({
     );
   };
   return (
-    <nav aria-label="Client profile sections" className="sticky top-[3.75rem] z-30 -mx-4 mb-4 border-y border-rose-100 bg-[#fffaf5]/95 px-4 py-2 backdrop-blur">
-      <label className="block lg:hidden">
+    <nav aria-label="Client profile sections" className="sticky top-[3.75rem] z-30 -mx-4 mb-4 border-y border-[var(--owner-line)] bg-[var(--owner-ground)] px-4 py-2 backdrop-blur">
+      <label className="relative block lg:hidden">
         <span className="sr-only">Client profile section</span>
         <select
           aria-label="Client profile section"
           value={sectionForLane(activeSection, 'mobile')}
           onChange={event => onChange(event.target.value as ProfileSection)}
-          className="min-h-11 w-full rounded-xl border border-rose-200 bg-white px-3 text-sm font-semibold text-stone-800"
+          className="min-h-12 w-full appearance-none rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-4 pr-10 text-[16px] font-medium text-[var(--owner-ink)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
         >
           {MOBILE_PROFILE_SECTIONS.map(section => (
             <option key={section.id} value={section.id}>{section.label}</option>
           ))}
         </select>
+        <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-[var(--owner-accent)]" />
       </label>
       <div className="hidden flex-wrap gap-2 lg:flex">
         {DESKTOP_PROFILE_SECTIONS.map(section => renderButton(section, 'desktop'))}
@@ -1081,7 +1083,7 @@ function AppointmentCard({
             }
           }
         : undefined}
-      className={`rounded-[14px] border border-neutral-100 bg-white p-3 shadow-[0_2px_10px_rgba(0,0,0,0.03)] ${interactive ? 'cursor-pointer text-left transition-transform active:scale-[0.99]' : ''}`}
+      className={`rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 ${interactive ? 'cursor-pointer text-left transition-transform active:scale-[0.99]' : ''}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -1854,7 +1856,7 @@ function ClientDetail({
       exit={{ x: '100%' }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       data-testid="client-detail-scroll"
-      className="fixed inset-0 z-50 overflow-y-auto overflow-x-hidden bg-[#fbf5ed] pt-[env(safe-area-inset-top)]"
+      className="fixed inset-0 z-50 overflow-y-auto overflow-x-hidden bg-[var(--owner-ground)] pt-[env(safe-area-inset-top)]"
     >
       <ModalHeader
         title="Client"
@@ -1870,14 +1872,14 @@ function ClientDetail({
       />
 
       <div className="mx-auto w-full max-w-6xl p-4 pb-32 lg:pb-12">
-        <AdminDetailCard className="mb-4 overflow-hidden border border-rose-100 bg-white">
+        <AdminDetailCard className="mb-5 overflow-hidden">
           <div className="flex min-w-0 flex-wrap items-start gap-3 text-left">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-sm font-bold text-white shadow-sm">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-full border border-[var(--owner-line)] bg-[var(--owner-blush)] text-sm font-semibold text-[var(--owner-accent)]">
               {getInitials(statsSource.fullName)}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="break-words text-lg font-semibold text-[#3f1727]">{detailName}</h2>
+                <h2 className="owner-title break-words text-[28px] font-normal leading-tight text-[var(--owner-ink)]">{detailName}</h2>
                 {profile?.tags?.map(tag => (
                   <span key={tag} className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-800">
                     {tag}
@@ -3457,7 +3459,7 @@ export function ClientsModal({
               )}
         />
         <div className="space-y-3 px-4 pb-3">
-          <div className="flex rounded-[10px] bg-[var(--owner-blush,#f6e7ec)] p-0.5" role="tablist" aria-label="Clients or Insights and Follow-ups">
+          <div className="flex rounded-full bg-[var(--owner-blush,#f6e7ec)] p-1" role="tablist" aria-label="Clients or Insights and Follow-ups">
             {([['clients', messageIntent ? 'Choose a client to message' : 'Clients'], ['insights', 'Insights & Follow-ups']] as const).map(([id, label]) => (
               <button
                 key={id}
@@ -3494,7 +3496,7 @@ export function ClientsModal({
                   }
                   setShowHub(id === 'insights');
                 }}
-                className={`min-h-11 flex-1 rounded-[8px] text-[14px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] ${showHub === (id === 'insights') ? 'bg-[var(--owner-surface,#fffdfb)] text-[var(--owner-ink,#30262a)] shadow-sm' : 'text-[var(--owner-muted,#706267)]'}`}
+                className={`min-h-11 flex-1 rounded-full px-2 text-[13px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] ${showHub === (id === 'insights') ? 'bg-[var(--owner-surface,#fffdfb)] text-[var(--owner-ink,#30262a)] shadow-sm' : 'text-[var(--owner-muted,#706267)]'}`}
               >
                 {label}
               </button>
@@ -3506,7 +3508,7 @@ export function ClientsModal({
                 value={searchQuery}
                 onChange={handleSearchChange}
                 placeholder="Search clients"
-                inputClassName="rounded-[10px] bg-[#767680]/12 py-2 text-[16px] shadow-none focus:ring-1 focus:ring-[var(--owner-focus,#b85075)]/40"
+                inputClassName="shadow-none"
               />
               <SortPills sortBy={sortBy} onChange={handleSortChange} />
               {sortBy === 'spent' && spendUnderReviewCount > 0 && (
@@ -3656,7 +3658,7 @@ export function ClientsModal({
                                 Array.from(groupedClients.entries()).map(([letter, letterClients]) => (
                                   <div key={letter}>
                                     <SectionHeader letter={letter} />
-                                    <ListSurface className="mx-4 mb-2 rounded-[10px]">
+                                    <ListSurface className="mx-4 mb-3 rounded-owner-card border border-[var(--owner-line)] bg-[var(--owner-surface)] shadow-owner-card">
                                       {letterClients.map((client, index) => (
                                         <ClientRow
                                           key={client.id}
@@ -3670,7 +3672,7 @@ export function ClientsModal({
                                 ))
                               )
                             : (
-                                <ListSurface className="mx-4 rounded-[10px]">
+                                <ListSurface className="mx-4 rounded-owner-card border border-[var(--owner-line)] bg-[var(--owner-surface)] shadow-owner-card">
                                   {clients.map((client, index) => (
                                     <ClientRow
                                       key={client.id}

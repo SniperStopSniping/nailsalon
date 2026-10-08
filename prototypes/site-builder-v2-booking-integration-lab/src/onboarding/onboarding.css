@@ -7,18 +7,18 @@
 
 .onboarding-app {
   --onboarding-accent: #8f3155;
-  --onboarding-accent-dark: #70223f;
+  --onboarding-accent-dark: #70213f;
   --onboarding-accent-soft: #f8e9ee;
   --onboarding-danger: #a52f3c;
-  --onboarding-focus: #7359d6;
-  --onboarding-ground: #f5f0ea;
-  --onboarding-ink: #2f2729;
-  --onboarding-line: #ddd3d0;
-  --onboarding-muted: #74696b;
-  --onboarding-shadow: 0 20px 60px rgba(67, 43, 48, 0.12);
+  --onboarding-focus: #8f3155;
+  --onboarding-ground: #fcf3f2;
+  --onboarding-ink: #3b192b;
+  --onboarding-line: #ead7de;
+  --onboarding-muted: #75656b;
+  --onboarding-shadow: 0 18px 48px rgba(59, 25, 43, 0.09);
   --onboarding-success: #267253;
-  --onboarding-surface: #fffdfb;
-  --onboarding-surface-soft: #fbf6f3;
+  --onboarding-surface: #fffcfa;
+  --onboarding-surface-soft: #fbf0f1;
   --onboarding-width: 1180px;
   --final-accent: var(--onboarding-accent);
   --final-accent-dark: var(--onboarding-accent-dark);
@@ -53,18 +53,18 @@
 .dialog-panel:has(.onboarding-confirmation),
 .dialog-panel:has(.onboarding-lab-options) {
   --onboarding-accent: #8f3155;
-  --onboarding-accent-dark: #70223f;
+  --onboarding-accent-dark: #70213f;
   --onboarding-accent-soft: #f8e9ee;
   --onboarding-danger: #a52f3c;
-  --onboarding-focus: #7359d6;
-  --onboarding-ground: #f5f0ea;
-  --onboarding-ink: #2f2729;
-  --onboarding-line: #ddd3d0;
-  --onboarding-muted: #74696b;
-  --onboarding-shadow: 0 20px 60px rgba(67, 43, 48, 0.12);
+  --onboarding-focus: #8f3155;
+  --onboarding-ground: #fcf3f2;
+  --onboarding-ink: #3b192b;
+  --onboarding-line: #ead7de;
+  --onboarding-muted: #75656b;
+  --onboarding-shadow: 0 18px 48px rgba(59, 25, 43, 0.09);
   --onboarding-success: #267253;
-  --onboarding-surface: #fffdfb;
-  --onboarding-surface-soft: #fbf6f3;
+  --onboarding-surface: #fffcfa;
+  --onboarding-surface-soft: #fbf0f1;
 }
 
 .onboarding-app,
