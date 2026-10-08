@@ -33,6 +33,7 @@ for (const width of [320, 390, 430, 1280]) {
 
     for (const [screen, selector] of screens) {
       await expect(page.getByLabel('Autosave status')).toHaveText('Saved');
+
       // This saved-state hop is confined to the disposable lab fixture. It
       // covers each real screen's chrome without claiming live signup success.
       await page.evaluate(({ key, screen }) => {
