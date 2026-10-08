@@ -24,6 +24,7 @@ import {
   ArrowLeft,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CreditCard,
   Mail,
@@ -203,6 +204,8 @@ export function IntegrationsModal({
   const [calendarReloadKey, setCalendarReloadKey] = useState(0);
   const [working, setWorking] = useState('');
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  const googleConnectionCanRetry = health?.google.status === 'active' || health?.google.status === 'degraded';
+  const googleSyncWasSuperseded = googleConnectionCanRetry && health?.google.inboundSyncError === 'GOOGLE_CALENDAR_CONNECTION_WRITE_FENCE_LOST';
 
   const [smsCapableDevice, setSmsCapableDevice] = useState(true);
 
@@ -236,7 +239,7 @@ export function IntegrationsModal({
 
   // Load calendar options whenever Google is connected and the view needs them.
   useEffect(() => {
-    if (view !== 'google' || !salonSlug || health?.google.status !== 'active') {
+    if (view !== 'google' || !salonSlug || !googleConnectionCanRetry) {
       return;
     }
     let cancelled = false;
@@ -274,7 +277,7 @@ export function IntegrationsModal({
     return () => {
       cancelled = true;
     };
-  }, [view, salonSlug, health?.google.status, calendarReloadKey]);
+  }, [view, salonSlug, googleConnectionCanRetry, calendarReloadKey]);
 
   async function saveCalendars() {
     setWorking('calendar');
@@ -393,7 +396,7 @@ export function IntegrationsModal({
               setConfirmingDisconnect(false);
             }}
             aria-label="Back to integrations"
-            className="flex size-9 items-center justify-center rounded-full text-[var(--owner-muted)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-[var(--owner-ground)]"
+            className="flex size-11 items-center justify-center rounded-full text-[var(--owner-muted)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-[var(--owner-ground)]"
           >
             <ArrowLeft size={20} />
           </button>
@@ -404,7 +407,7 @@ export function IntegrationsModal({
         type="button"
         onClick={onClose}
         aria-label="Close integrations"
-        className="flex size-9 items-center justify-center rounded-full bg-[var(--owner-ground)] text-[var(--owner-muted)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-stone-200"
+        className="flex size-11 items-center justify-center rounded-full bg-[var(--owner-ground)] text-[var(--owner-muted)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-stone-200"
       >
         <X size={18} />
       </button>
@@ -523,7 +526,7 @@ export function IntegrationsModal({
               </div>
             )}
             <div className={card}>
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between">
                 <p className="text-sm text-[var(--owner-muted)]">
                   Busy events block availability. Luster appointments sync both ways when their Google event is
                   moved, resized, or deleted.
@@ -535,6 +538,13 @@ export function IntegrationsModal({
                   tone={health ? (googleUnavailable ? 'muted' : googleStatusTone(googleReadiness)) : 'muted'}
                 />
               </div>
+
+              {googleSyncWasSuperseded && (
+                <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900" role="status">
+                  The connection changed during this check. This sync attempt was skipped;
+                  Luster will try again on the next scheduled check.
+                </p>
+              )}
 
               {googleUnavailable
                 ? (
@@ -561,12 +571,12 @@ export function IntegrationsModal({
                       </p>
                     </div>
                   )
-                : health?.google.status === 'active'
+                : health && googleConnectionCanRetry
                   ? (
                       <div className="mt-4 space-y-4">
                         {health.google.email && (
                           <p className="text-sm text-[var(--owner-muted)]">
-                            Connected account:
+                            Google account:
                             {' '}
                             <span className="font-medium text-[var(--owner-ink)]">{health.google.email}</span>
                           </p>
@@ -595,26 +605,29 @@ export function IntegrationsModal({
                         )}
                         <label className="block text-sm">
                           Appointment calendar
-                          <select
-                            className="mt-1 w-full rounded-xl border border-[var(--owner-line-strong)] px-3 py-2"
-                            value={destinationCalendarId}
-                            onChange={(event) => {
-                              setDestinationCalendarId(event.target.value);
-                              setCalendarDirty(true);
-                            }}
-                          >
-                            {calendars
-                              .filter(calendar => ['owner', 'writer'].includes(calendar.accessRole))
-                              .map(calendar => (
-                                <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>
-                              ))}
-                          </select>
+                          <span className="relative mt-1 block">
+                            <select
+                              className="min-h-11 w-full appearance-none rounded-xl border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] py-2 pl-3 pr-10 text-base"
+                              value={destinationCalendarId}
+                              onChange={(event) => {
+                                setDestinationCalendarId(event.target.value);
+                                setCalendarDirty(true);
+                              }}
+                            >
+                              {calendars
+                                .filter(calendar => ['owner', 'writer'].includes(calendar.accessRole))
+                                .map(calendar => (
+                                  <option key={calendar.id} value={calendar.id}>{calendar.summary}</option>
+                                ))}
+                            </select>
+                            <ChevronDown size={18} aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--owner-muted)]" />
+                          </span>
                         </label>
                         <fieldset>
                           <legend className="text-sm font-medium">Calendars that prevent double-booking</legend>
                           <div className="mt-2 space-y-2">
                             {calendars.map(calendar => (
-                              <label key={calendar.id} className="flex gap-2 text-sm">
+                              <label key={calendar.id} className="flex min-h-11 items-center gap-2 text-sm">
                                 <input
                                   type="checkbox"
                                   checked={busyCalendarIds.includes(calendar.id)}
@@ -636,7 +649,7 @@ export function IntegrationsModal({
                           type="button"
                           disabled={working === 'calendar' || !busyCalendarIds.length || !calendarDirty}
                           onClick={saveCalendars}
-                          className="rounded-full bg-[var(--owner-accent)] px-5 py-2.5 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:opacity-50"
+                          className="min-h-11 rounded-full bg-[var(--owner-accent)] px-5 py-2.5 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:opacity-50"
                         >
                           {working === 'calendar' ? 'Saving…' : calendarDirty ? 'Save blocking calendars' : 'Calendars saved'}
                         </button>
@@ -660,22 +673,22 @@ export function IntegrationsModal({
                         </div>
                       </div>
                     )
-                  : (
-                      <a
-                        className="mt-4 inline-flex rounded-full bg-[var(--owner-accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-rose-400"
-                        href={`/api/integrations/google/connect?salonSlug=${encodeURIComponent(salonSlug ?? '')}`}
-                      >
-                        Connect Google Calendar
-                      </a>
-                    )}
+                  : googleReadiness !== 'reconnect_required' && (
+                    <a
+                      className="mt-4 inline-flex rounded-full bg-[var(--owner-accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-rose-400"
+                      href={`/api/integrations/google/connect?salonSlug=${encodeURIComponent(salonSlug ?? '')}`}
+                    >
+                      Connect Google Calendar
+                    </a>
+                  )}
 
-              {health?.google.lastError && (
+              {health?.google.lastError && googleReadiness !== 'reconnect_required' && (
                 <p className="mt-3 flex items-start gap-1.5 text-xs text-red-700">
                   <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                   {health.google.lastError}
                 </p>
               )}
-              {health?.google.inboundSyncError && (
+              {health?.google.inboundSyncError && !googleSyncWasSuperseded && (
                 <p className="mt-3 text-xs text-red-700">
                   Two-way sync:
                   {' '}
@@ -684,7 +697,7 @@ export function IntegrationsModal({
               )}
             </div>
 
-            {health?.google.status === 'active' && (
+            {googleConnectionCanRetry && (
               <div className={card}>
                 <p className="text-sm font-semibold text-[var(--owner-ink)]">Disconnect</p>
                 <p className="mt-1 text-sm text-[var(--owner-muted)]">
@@ -699,14 +712,14 @@ export function IntegrationsModal({
                           disabled={working === 'disconnect'}
                           onClick={disconnectGoogle}
                           data-testid="google-disconnect-confirm"
-                          className="rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
+                          className="min-h-11 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
                         >
                           {working === 'disconnect' ? 'Disconnecting…' : 'Yes, disconnect'}
                         </button>
                         <button
                           type="button"
                           onClick={() => setConfirmingDisconnect(false)}
-                          className="rounded-full border border-[var(--owner-line-strong)] px-4 py-2 text-sm font-semibold text-[var(--owner-muted)] outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                          className="min-h-11 rounded-full border border-[var(--owner-line-strong)] px-4 py-2 text-sm font-semibold text-[var(--owner-muted)] outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
                         >
                           Keep connected
                         </button>
@@ -717,7 +730,7 @@ export function IntegrationsModal({
                         type="button"
                         onClick={() => setConfirmingDisconnect(true)}
                         data-testid="google-disconnect"
-                        className="mt-3 rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-red-400 active:bg-red-50"
+                        className="mt-3 min-h-11 rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-red-400 active:bg-red-50"
                       >
                         Disconnect Google Calendar
                       </button>

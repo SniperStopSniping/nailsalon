@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { logAppointmentChange } from '@/libs/appointmentAudit';
 import {
@@ -12,6 +12,7 @@ import {
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import {
+  GoogleCalendarConnectionWriteFenceError,
   type GoogleCalendarRemoteEvent,
   listGoogleCalendarEventsForSalon,
   listGoogleCalendarsForSalon,
@@ -594,6 +595,17 @@ export async function processGoogleCalendarInboundSync(
   for (const connection of connections) {
     throwIfInboundAborted(options.signal);
     const checkpoint = new Date();
+    // A newer completed scan or authorization decision owns its result. Token
+    // refreshes advance xmin themselves, so compare the inbound checkpoint and
+    // eligible state here rather than reusing the pre-refresh row revision.
+    const currentInboundConnection = and(
+      eq(salonGoogleCalendarConnectionSchema.salonId, connection.salonId),
+      eq(salonGoogleCalendarConnectionSchema.inboundSyncEnabled, true),
+      inArray(salonGoogleCalendarConnectionSchema.status, ['active', 'degraded']),
+      connection.inboundSyncedAt
+        ? eq(salonGoogleCalendarConnectionSchema.inboundSyncedAt, connection.inboundSyncedAt)
+        : isNull(salonGoogleCalendarConnectionSchema.inboundSyncedAt),
+    );
     try {
       const [salon] = await db.select({
         name: salonSchema.name,
@@ -1011,14 +1023,20 @@ export async function processGoogleCalendarInboundSync(
       await db.update(salonGoogleCalendarConnectionSchema).set({
         inboundSyncedAt: checkpoint,
         inboundSyncError: null,
-      }).where(eq(salonGoogleCalendarConnectionSchema.salonId, connection.salonId));
+      }).where(currentInboundConnection);
     } catch (error) {
       throwIfInboundAborted(options.signal);
+      summary.failedConnections += 1;
+      // Lost ownership is not a provider outage. In particular, do not undo a
+      // newer disconnect/reconnect-required decision or overwrite its error.
+      // Leave the checkpoint unchanged so a later eligible scan can retry.
+      if (error instanceof GoogleCalendarConnectionWriteFenceError) {
+        continue;
+      }
       await db.update(salonGoogleCalendarConnectionSchema).set({
         inboundSyncError: safeError(error),
         status: 'degraded',
-      }).where(eq(salonGoogleCalendarConnectionSchema.salonId, connection.salonId));
-      summary.failedConnections += 1;
+      }).where(currentInboundConnection);
     }
   }
 

@@ -164,7 +164,11 @@ const {
 });
 
 vi.mock('@/libs/DB', () => ({ db }));
-vi.mock('@/libs/googleCalendar', () => ({ listGoogleCalendarEventsForSalon, listGoogleCalendarsForSalon }));
+vi.mock('@/libs/googleCalendar', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/googleCalendar')>()),
+  listGoogleCalendarEventsForSalon,
+  listGoogleCalendarsForSalon,
+}));
 vi.mock('@/libs/appointmentManage', () => ({
   AppointmentManageError,
   getAppointmentCalendarEventForSync,

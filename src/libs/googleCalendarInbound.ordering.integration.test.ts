@@ -55,6 +55,7 @@ import {
   processIntegrationOutbox,
 } from '@/libs/integrationOutbox';
 
+import { GoogleCalendarConnectionWriteFenceError } from './googleCalendar';
 import { processGoogleCalendarInboundSync } from './googleCalendarInbound';
 /* eslint-enable import/first */
 
@@ -224,6 +225,109 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await client.close();
+});
+
+describe('Google inbound connection failure ownership', () => {
+  it.each(['active', 'degraded', 'reconnect_required', 'disconnected'])(
+    'does not replace a newer %s connection after losing its write fence',
+    async (status) => {
+      const newerCheckpoint = new Date('2099-09-07T13:30:00.000Z');
+      boundaries.listGoogleCalendarsForSalon.mockImplementationOnce(async () => {
+        await db.update(schema.salonGoogleCalendarConnectionSchema).set({
+          status,
+          inboundSyncedAt: newerCheckpoint,
+          inboundSyncError: 'newer-result',
+          lastError: 'newer-health',
+        }).where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID));
+        throw new GoogleCalendarConnectionWriteFenceError();
+      });
+
+      const result = await processGoogleCalendarInboundSync(1, SALON_ID);
+
+      expect(result.failedConnections).toBe(1);
+      expect(boundaries.listGoogleCalendarEventsForSalon).not.toHaveBeenCalled();
+      expect((await db.select().from(schema.salonGoogleCalendarConnectionSchema)
+        .where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID)))[0])
+        .toMatchObject({ status, inboundSyncedAt: newerCheckpoint, inboundSyncError: 'newer-result', lastError: 'newer-health' });
+    },
+  );
+
+  it.each(['reconnect_required', 'disconnected'])(
+    'preserves %s when a provider failure already updated the connection',
+    async (status) => {
+      boundaries.listGoogleCalendarsForSalon.mockImplementationOnce(async () => {
+        await db.update(schema.salonGoogleCalendarConnectionSchema).set({
+          status,
+          lastError: 'current authorization result',
+        }).where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID));
+        throw new Error('Calendar list failed');
+      });
+
+      expect((await processGoogleCalendarInboundSync(1, SALON_ID)).failedConnections).toBe(1);
+      expect((await db.select().from(schema.salonGoogleCalendarConnectionSchema)
+        .where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID)))[0])
+        .toMatchObject({ status, lastError: 'current authorization result', inboundSyncError: null });
+    },
+  );
+
+  it('does not replace a newer successful inbound checkpoint with an older failure', async () => {
+    const newerCheckpoint = new Date('2099-09-07T13:30:00.000Z');
+    boundaries.listGoogleCalendarsForSalon.mockImplementationOnce(async () => {
+      await db.update(schema.salonGoogleCalendarConnectionSchema).set({
+        inboundSyncedAt: newerCheckpoint,
+        inboundSyncError: null,
+      }).where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID));
+      throw new Error('An older request timed out');
+    });
+
+    expect((await processGoogleCalendarInboundSync(1, SALON_ID)).failedConnections).toBe(1);
+    expect((await db.select().from(schema.salonGoogleCalendarConnectionSchema)
+      .where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID)))[0])
+      .toMatchObject({ status: 'active', inboundSyncedAt: newerCheckpoint, inboundSyncError: null });
+  });
+
+  it('still records a current temporary failure without advancing the checkpoint', async () => {
+    boundaries.listGoogleCalendarsForSalon.mockRejectedValueOnce(new Error('Calendar temporarily unavailable'));
+
+    expect((await processGoogleCalendarInboundSync(1, SALON_ID)).failedConnections).toBe(1);
+    expect((await db.select().from(schema.salonGoogleCalendarConnectionSchema)
+      .where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID)))[0])
+      .toMatchObject({
+        status: 'degraded',
+        inboundSyncedAt: new Date('2099-09-07T12:00:00.000Z'),
+        inboundSyncError: 'Calendar temporarily unavailable',
+      });
+  });
+
+  it('preserves a later checkpoint when an older successful scan finishes last', async () => {
+    const newerCheckpoint = new Date('2099-09-07T13:30:00.000Z');
+    boundaries.listGoogleCalendarEventsForSalon.mockImplementationOnce(async () => {
+      await db.update(schema.salonGoogleCalendarConnectionSchema).set({
+        inboundSyncedAt: newerCheckpoint,
+        inboundSyncError: 'newer-result',
+      }).where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID));
+      return [];
+    });
+
+    expect((await processGoogleCalendarInboundSync(1, SALON_ID)).failedConnections).toBe(0);
+    expect((await db.select().from(schema.salonGoogleCalendarConnectionSchema)
+      .where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID)))[0])
+      .toMatchObject({ status: 'active', inboundSyncedAt: newerCheckpoint, inboundSyncError: 'newer-result' });
+  });
+
+  it('does not mark a disabled inbound sync degraded after an older request fails', async () => {
+    boundaries.listGoogleCalendarsForSalon.mockImplementationOnce(async () => {
+      await db.update(schema.salonGoogleCalendarConnectionSchema).set({
+        inboundSyncEnabled: false,
+      }).where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID));
+      throw new Error('Older request failed');
+    });
+
+    expect((await processGoogleCalendarInboundSync(1, SALON_ID)).failedConnections).toBe(1);
+    expect((await db.select().from(schema.salonGoogleCalendarConnectionSchema)
+      .where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID)))[0])
+      .toMatchObject({ status: 'active', inboundSyncEnabled: false, inboundSyncError: null });
+  });
 });
 
 describe('Google inbound move ordering', () => {

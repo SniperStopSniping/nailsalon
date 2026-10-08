@@ -56,7 +56,29 @@ export function installReviewApi() {
       return json({ data: { bookingFlowCustomizationEnabled: false, bookingFlow: null } });
     }
     if (url.pathname === '/api/integrations/health') {
+      if (new URLSearchParams(window.location.search).get('app') === 'integrations') {
+        const state = new URLSearchParams(window.location.search).get('google') ?? 'degraded';
+        return json({ data: {
+          availability: { google: true, email: true, twilio: false, photos: false },
+          google: {
+            status: state,
+            readiness: state === 'reconnect_required' ? 'reconnect_required' : state === 'active' ? 'ready' : 'attention_required',
+            email: 'calendar-review@example.invalid',
+            lastError: state === 'reconnect_required' ? '[invalid_grant] Google authorization was revoked' : null,
+            inboundSyncEnabled: true,
+            inboundSyncedAt: '2026-10-08T10:00:00Z',
+            inboundSyncError: state === 'degraded' ? 'GOOGLE_CALENDAR_CONNECTION_WRITE_FENCE_LOST' : null,
+          },
+          twilio: { status: 'disconnected' },
+        } });
+      }
       return json({ data: { stripeConnect: { salonId: 'salon_1', visible: true, status: 'onboarding_incomplete', chargeReady: false, payoutsPending: true, requirements: { currentlyDue: ['business_profile.url', 'external_account'] }, lastSyncedAt: null, hasBindingHistory: true } } });
+    }
+    if (url.pathname === '/api/integrations/google/calendars') {
+      return json({ data: {
+        calendars: [{ id: 'review-calendar', summary: 'Studio appointments', primary: true, accessRole: 'owner' }],
+        selection: { destinationCalendarId: 'review-calendar', busyCalendarIds: ['review-calendar'] },
+      } });
     }
     if (url.pathname.startsWith('/api/admin/owner-assistant')) {
       return json({}, 404);

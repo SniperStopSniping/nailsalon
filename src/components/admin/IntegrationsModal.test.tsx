@@ -156,6 +156,41 @@ describe('IntegrationsModal', () => {
     });
   });
 
+  it('keeps a degraded connection manageable and explains a skipped stale scan', async () => {
+    mockEndpoints({ health: { google: {
+      status: 'degraded',
+      readiness: 'attention_required',
+      email: 'owner@example.invalid',
+      inboundSyncEnabled: true,
+      inboundSyncError: 'GOOGLE_CALENDAR_CONNECTION_WRITE_FENCE_LOST',
+    } } });
+    render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="google" />);
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Appointment calendar' })).toHaveValue('cal_1'));
+
+    expect(screen.getByText('Needs attention')).toBeInTheDocument();
+    expect(screen.getByText(/This sync attempt was skipped/i)).toBeInTheDocument();
+    expect(screen.queryByText('GOOGLE_CALENDAR_CONNECTION_WRITE_FENCE_LOST')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /connect google calendar/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('google-disconnect')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method && init.method !== 'GET')).toBe(false);
+  });
+
+  it('still requires reconnecting after confirmed authorization rejection', async () => {
+    mockEndpoints({ health: { google: {
+      status: 'reconnect_required',
+      readiness: 'reconnect_required',
+      lastError: '[invalid_grant] Google authorization was revoked',
+    } } });
+    render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="google" />);
+
+    expect(await screen.findByRole('link', { name: 'Reconnect Google Calendar' })).toHaveAttribute('href', '/api/integrations/google/connect?salonSlug=salon-a');
+    expect(screen.getAllByRole('link', { name: /connect google calendar/i })).toHaveLength(1);
+    expect(screen.getAllByText('[invalid_grant] Google authorization was revoked')).toHaveLength(1);
+    expect(screen.queryByRole('combobox', { name: 'Appointment calendar' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/integrations/google/calendars'))).toBe(false);
+  });
+
   it('distinguishes the phone composer from unavailable Luster texting', async () => {
     stubUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)');
     mockEndpoints({ health: { twilio: { status: 'disconnected' } } });

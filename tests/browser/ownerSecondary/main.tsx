@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createRoot } from 'react-dom/client';
 
 import { AppModal } from '@/components/admin/AppModal';
+import { IntegrationsModal } from '@/components/admin/IntegrationsModal';
 import { OwnerManagementModal } from '@/components/admin/OwnerManagementModal';
 import { PaymentsModal } from '@/components/admin/PaymentsModal';
 import { SettingsModal } from '@/components/admin/SettingsModal';
@@ -33,11 +34,13 @@ export function OwnerSecondaryReview() {
           ? <UsageBillingModal salonSlug="isla-browser" onClose={close} />
           : (
               <AppModal isOpen onClose={close} topInset="tall">
-                {app === 'payments'
-                  ? <PaymentsModal salonSlug="isla-browser" salonId="salon_1" onClose={close} />
-                  : app === 'booking-rules' || app === 'plan-usage'
-                    ? <OwnerManagementModal app={app} salonSlug="isla-browser" salonId="salon_1" isFreeSolo={false} teamAvailable={false} onClose={close} onOpenApp={open} />
-                    : <SettingsModal salonSlug="isla-browser" salonId="salon_1" userName="Review owner" onClose={close} onOpenApp={open} />}
+                {app === 'integrations'
+                  ? <IntegrationsModal salonSlug="isla-browser" initialView="google" onClose={close} />
+                  : app === 'payments'
+                    ? <PaymentsModal salonSlug="isla-browser" salonId="salon_1" onClose={close} />
+                    : app === 'booking-rules' || app === 'plan-usage'
+                      ? <OwnerManagementModal app={app} salonSlug="isla-browser" salonId="salon_1" isFreeSolo={false} teamAvailable={false} onClose={close} onOpenApp={open} />
+                      : <SettingsModal salonSlug="isla-browser" salonId="salon_1" userName="Review owner" onClose={close} onOpenApp={open} />}
               </AppModal>
             )}
       </main>
