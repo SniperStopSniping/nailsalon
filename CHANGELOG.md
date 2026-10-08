@@ -1,3 +1,10 @@
+## [1.142.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.2...v1.142.3) (2026-10-08)
+
+
+### Bug Fixes
+
+* **onboarding:** restore access to saved custom designs ([9bd0dba](https://github.com/SniperStopSniping/nailsalon/commit/9bd0dba009d8eb26cd59dc6b64efc4e2e84f5a2e))
+
 ## [1.142.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.1...v1.142.2) (2026-10-08)
 
 
