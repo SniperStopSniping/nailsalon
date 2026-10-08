@@ -3,6 +3,9 @@ import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { computeCheckoutTotals } from '@/libs/checkoutTotals';
+import { buildBookingTaxSnapshot, buildFinalTaxSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
+
 vi.mock('@/libs/clientProfileOffer.server', () => ({ getClientProfileNextVisitOffer: vi.fn(async () => ({ state: 'none' })) }));
 
 const {
@@ -329,6 +332,125 @@ describe('GET /api/admin/clients/[id]', () => {
     expect(JSON.stringify(body)).not.toMatch(
       /phone|email|currency|timezone|financial|preference|record/i,
     );
+  });
+
+  it.each([
+    ['upcoming', null],
+    ['completed', null],
+    ['completed with deposit', null],
+    ['legacy completed', null],
+    ['missing currency and snapshots', 'FINANCIAL_SNAPSHOT_RECONCILIATION_REQUIRED'],
+    ['payment cache mismatch', 'PAYMENT_LEDGER_RECONCILIATION_REQUIRED'],
+    ['foreign payment', 'PAYMENT_LEDGER_RECONCILIATION_REQUIRED'],
+    ['deposit currency mismatch', 'DEPOSIT_CURRENCY_MISMATCH'],
+  ] as const)('preserves financial evidence for %s rows', async (scenario, blockCode) => {
+    requireAdminSalon.mockResolvedValue({ error: null, salon: { id: 'salon_1' } });
+    const capturedAt = new Date('2026-03-10T14:00:00.000Z');
+    const completedAt = new Date('2026-03-10T15:00:00.000Z');
+    const taxConfig = resolveTaxConfig({ payments: { tax: { enabled: false } } }, capturedAt);
+    const totals = computeCheckoutTotals({ items: [{ lineTotalCents: 6500, taxable: true }], taxConfig });
+    const bookingSnapshot = buildBookingTaxSnapshot({ taxConfig, totals, capturedAt, currency: 'CAD' });
+    const completed = scenario !== 'upcoming';
+    const missingSnapshots = scenario === 'missing currency and snapshots' || scenario === 'legacy completed';
+    const paymentCents = scenario === 'completed with deposit' ? 5500 : completed ? 6500 : 0;
+    const appointment = {
+      id: 'appt_financial',
+      startTime: capturedAt,
+      endTime: new Date('2026-03-10T15:00:00.000Z'),
+      completedAt: completed ? completedAt : null,
+      status: completed ? 'completed' : 'confirmed',
+      paymentStatus: completed ? 'paid' : 'pending',
+      totalPrice: 6500,
+      finalPriceCents: completed ? 6500 : null,
+      finalDiscountCents: 0,
+      taxableSubtotalCents: completed ? totals.taxableSubtotalCents : null,
+      taxAmountCents: completed ? 0 : null,
+      taxExempt: false,
+      taxExemptReason: null,
+      tipCents: 0,
+      amountPaidCents: scenario === 'payment cache mismatch' ? 5000 : paymentCents,
+      invoiceCurrency: scenario === 'missing currency and snapshots' ? null : 'CAD',
+      bookingTaxSnapshot: missingSnapshots ? null : bookingSnapshot,
+      rescheduleTaxSnapshot: null,
+      finalTaxSnapshot: completed && !missingSnapshots
+        ? buildFinalTaxSnapshot({ taxConfig, totals, capturedAt: completedAt, currency: 'CAD', taxExempt: false })
+        : null,
+      technicianId: null,
+      locationId: null,
+      notes: null,
+    };
+    selectQueue.push(
+      [{ id: 'client_1', phone: '1111111111', fullName: 'Synthetic review client', preferredTechnicianId: null, birthday: null, createdAt: capturedAt, updatedAtVersion: capturedAt.toISOString() }],
+      completed ? [] : [appointment],
+      completed ? [appointment] : [],
+      [], // Recent issues.
+      [{ appointmentId: appointment.id, serviceId: 'svc_1', serviceName: 'Synthetic manicure', priceAtBooking: 6500 }],
+      [], // Add-ons.
+      [], // Final items.
+      completed ? [{ id: 'payment_1', appointmentId: appointment.id, salonId: scenario === 'foreign payment' ? 'other_salon' : 'salon_1', amountCents: paymentCents, voidedAt: null, method: 'cash', recordedAt: capturedAt }] : [],
+      scenario === 'deposit currency mismatch' || scenario === 'completed with deposit'
+        ? [{
+            id: 'deposit_1',
+            appointmentId: appointment.id,
+            status: 'paid',
+            amountCents: 1000,
+            currency: scenario === 'deposit currency mismatch' ? 'USD' : 'CAD',
+            stripePaymentIntentId: 'pi_synthetic',
+            stripeRefundId: null,
+            refundedAt: null,
+            refundStatus: null,
+            refundStatusChangedAt: null,
+            refundAmountCents: null,
+            refundRequestedAt: null,
+            refundTrigger: null,
+            refundLastErrorCode: null,
+            refundFailureReason: null,
+            externalRefundObservedCents: null,
+            refundConflictFlag: false,
+            refundTerminalFailureCount: 0,
+            priorRefundIds: [],
+            forfeitedAt: null,
+            forfeitureTaxSnapshot: null,
+            createdAt: capturedAt,
+          }]
+        : [],
+      [], // Lifetime aggregate.
+      [], // Month aggregate.
+      [], // Submitted preferences.
+      [], // Most-booked service.
+      [], // Photos.
+      [], // Next appointment.
+    );
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/clients/client_1?salonSlug=salon-a'),
+      { params: Promise.resolve({ id: 'client_1' }) },
+    );
+    const body = await response.json();
+    const row = completed ? body.data.pastAppointments[0] : body.data.upcomingAppointments[0];
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(row.financial.depositBlockCode).toBe(blockCode);
+    expect(row.financial.depositState).toBe(blockCode === null ? 'resolved' : 'blocked');
+
+    if (blockCode === null) {
+      expect(row.financial).toMatchObject({
+        completedValueCents: completed ? 6500 : null,
+        amountAlreadyPaidCents: completed ? 6500 : 0,
+        balanceCents: completed ? 0 : 6500,
+      });
+      expect(row.services).toEqual([{ id: 'svc_1', name: 'Synthetic manicure', price: 6500 }]);
+    } else {
+      expect(row.financial.completedValueCents).toBeNull();
+      expect(row.financial.amountAlreadyPaidCents).toBeNull();
+      expect(row.financial.balanceCents).toBeNull();
+    }
+    if (scenario === 'foreign payment') {
+      expect(row.financial.payments).toEqual([]);
+    }
+
+    expect(selectQueue).toHaveLength(0);
   });
 
   it('returns upcoming appointments separately from completed history and recent issues', async () => {

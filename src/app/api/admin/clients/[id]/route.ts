@@ -935,10 +935,13 @@ export async function GET(
             : canonicalSummary.depositBlockedCode === null
               ? 'resolved'
               : 'blocked',
-          depositBlockCode: canonicalSummary?.depositBlockedCode
-            ?? (paymentLedger.ok
-              ? 'FINANCIAL_SNAPSHOT_RECONCILIATION_REQUIRED'
-              : paymentLedger.code),
+          // A resolved summary deliberately has a null block code. Only a
+          // missing summary needs the fallback reconciliation reason.
+          depositBlockCode: canonicalSummary !== null
+            ? canonicalSummary.depositBlockedCode
+            : (paymentLedger.ok
+                ? 'FINANCIAL_SNAPSHOT_RECONCILIATION_REQUIRED'
+                : paymentLedger.code),
           depositPresentationState: canonicalFinancialsResolved
             ? canonicalSummary.depositPresentationState
             : 'blocked',
