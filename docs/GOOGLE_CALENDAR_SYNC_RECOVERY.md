@@ -38,3 +38,12 @@ unchanged. Each job installs the shared onboarding presentation dependencies.
 The existing `Run all tests (20.x)` aggregate still requires the application
 job and every browser matrix member; failure, cancellation, missing or skipped
 evidence cannot satisfy it. Fresh exact-head hosted checks remain required.
+
+The partitioned hosted customer job then passed all 381 cases. The owner job
+found a separate test measurement race in service-catalog return scrolling:
+its trace records 1477 before click actionability, 1436 at the actual click,
+and 1436 after returning from details. The application restored the exact
+click-time position. The test now captures that position in a native capture
+listener before React handles the click, and retains the exact-equality return
+assertion. Its four viewport variants run as separate cases. No runtime code,
+timeouts, retries or browser worker settings changed for this correction.
