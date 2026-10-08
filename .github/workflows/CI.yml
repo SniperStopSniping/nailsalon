@@ -281,6 +281,9 @@ jobs:
               # Voice receptionist: ws runtime sideband + matching TypeScript
               # types on the current main manifests; payment dependencies unchanged.
               f7c4952389da41ef8ad7a16fc3c71ccd785140f3:75eb90cb75b577a9b9ea9b9f84a1ec928ad20e34) ;;
+              # Node 24 monitoring compatibility: Sentry 8.55.2, its resolved
+              # dependency graph and the native regression command only.
+              2d308eb94fc47228b1f8cefb95e5109674a6c7b6:16a00768b1248501e221a5af2350d2a49a27d3d4) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"

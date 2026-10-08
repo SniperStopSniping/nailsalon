@@ -46,6 +46,30 @@ test('the required aggregate includes Node 24 monitoring evidence with zero skip
   assert.match(jobs.test.steps[0].run, /test "\$MONITORING_RESULT" = success/);
 });
 
+test('dependency protection accepts reviewed pairs and rejects changed or mixed manifests', () => {
+  const step = jobs['test-core'].steps.find(candidate => candidate.name === 'Deposits ladder protected surfaces');
+  assert.ok(step.run.includes('if ! git diff --quiet "$base" -- package.json package-lock.json; then'));
+  const statement = step.run.match(/case "\$dependency_manifest_blob:\$dependency_lock_blob" in[\s\S]*?esac/)?.[0];
+  assert.ok(statement);
+  const reviewed = [...statement.matchAll(/([a-f0-9]{40}):([a-f0-9]{40})\) ;;/g)].map(match => [match[1], match[2]]);
+  const monitoringPair = ['2d308eb94fc47228b1f8cefb95e5109674a6c7b6', '16a00768b1248501e221a5af2350d2a49a27d3d4'];
+  assert.ok(reviewed.some(([manifest, lock]) => manifest === monitoringPair[0] && lock === monitoringPair[1]));
+  const run = (manifest, lock) => spawnSync('bash', ['-eu', '-c', statement], {
+    env: { dependency_manifest_blob: manifest, dependency_lock_blob: lock },
+  }).status;
+  for (const [manifest, lock] of reviewed) {
+    assert.equal(run(manifest, lock), 0);
+    assert.notEqual(run('0'.repeat(40), lock), 0);
+    assert.notEqual(run(manifest, '0'.repeat(40)), 0);
+    for (const [, otherLock] of reviewed) {
+      if (otherLock !== lock) {
+        assert.notEqual(run(manifest, otherLock), 0);
+      }
+    }
+  }
+  assert.notEqual(run('0'.repeat(40), '0'.repeat(40)), 0);
+});
+
 test('all execution checkouts use the reviewed head and shards cannot fail fast', () => {
   for (const job of Object.values(jobs)) {
     for (const step of job.steps ?? []) {
