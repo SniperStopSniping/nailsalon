@@ -1,3 +1,10 @@
+## [1.142.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.3...v1.142.4) (2026-10-08)
+
+
+### Bug Fixes
+
+* **calendar:** recover concurrent listing context safely ([#387](https://github.com/SniperStopSniping/nailsalon/issues/387)) ([3e05589](https://github.com/SniperStopSniping/nailsalon/commit/3e055896e924015bb736541ae1d2b3998de2fe74))
+
 ## [1.142.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.2...v1.142.3) (2026-10-08)
 
 
