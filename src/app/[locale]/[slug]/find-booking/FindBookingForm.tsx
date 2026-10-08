@@ -1,13 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useRef, useState } from 'react';
 
 export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; salonPhone?: string | null }) {
+  const formId = useId();
+  const contactHintId = `${formId}-contact-hint`;
+  const validationId = `${formId}-validation`;
+  const emailInput = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [requestedChannel, setRequestedChannel] = useState<'email' | 'sms'>('email');
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const contactDescription = validationMessage ? `${contactHintId} ${validationId}` : contactHintId;
   const deliveryLabel = email.trim() || !phone.trim() ? 'Email my booking link' : 'Text my booking link';
 
   async function submit(event: React.FormEvent) {
@@ -16,6 +21,7 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
     const trimmedPhone = phone.trim();
     if (!trimmedEmail && !trimmedPhone) {
       setValidationMessage('Enter the email or phone number you booked with.');
+      emailInput.current?.focus();
       return;
     }
     setValidationMessage(null);
@@ -35,7 +41,7 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
 
   if (state === 'sent') {
     return (
-      <div className="mt-6 rounded-2xl bg-emerald-50 p-5 text-sm leading-6 text-emerald-900" data-testid="find-booking-sent">
+      <div role="status" className="mt-6 rounded-2xl bg-emerald-50 p-5 text-sm leading-6 text-emerald-900" data-testid="find-booking-sent">
         <p className="font-semibold">Request received</p>
         <p>
           If we find a matching appointment, we&apos;ll
@@ -62,9 +68,24 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
     <form className="mt-7 space-y-4" onSubmit={submit}>
       <label className="block">
         <span className="text-sm font-semibold text-stone-800">Booking email</span>
-        <input type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" className="mt-2 h-12 w-full rounded-xl border border-stone-300 px-4 text-base outline-none focus:border-rose-700 focus:ring-2 focus:ring-rose-100" />
+        <input
+          ref={emailInput}
+          type="email"
+          autoComplete="email"
+          value={email}
+          aria-describedby={contactDescription}
+          aria-invalid={validationMessage ? true : undefined}
+          onChange={(event) => {
+            setEmail(event.target.value);
+            if (event.target.value.trim()) {
+              setValidationMessage(null);
+            }
+          }}
+          placeholder="you@example.com"
+          className="mt-2 h-12 w-full rounded-xl border border-stone-300 px-4 text-base outline-none focus:border-rose-700 focus:ring-2 focus:ring-rose-100"
+        />
       </label>
-      <p className="text-sm text-stone-600">
+      <p id={contactHintId} className="text-sm text-stone-600">
         Use the email
         {' '}
         <strong>or</strong>
@@ -73,12 +94,27 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
       </p>
       <label className="block">
         <span className="text-sm font-semibold text-stone-800">Mobile phone</span>
-        <input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={event => setPhone(event.target.value)} placeholder="(416) 555-1234" className="mt-2 h-12 w-full rounded-xl border border-stone-300 px-4 text-base outline-none focus:border-rose-700 focus:ring-2 focus:ring-rose-100" />
+        <input
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          value={phone}
+          aria-describedby={contactDescription}
+          aria-invalid={validationMessage ? true : undefined}
+          onChange={(event) => {
+            setPhone(event.target.value);
+            if (event.target.value.trim()) {
+              setValidationMessage(null);
+            }
+          }}
+          placeholder="(416) 555-1234"
+          className="mt-2 h-12 w-full rounded-xl border border-stone-300 px-4 text-base outline-none focus:border-rose-700 focus:ring-2 focus:ring-rose-100"
+        />
       </label>
       <button type="submit" disabled={state === 'sending'} className="h-auto min-h-12 w-full rounded-full bg-rose-800 px-4 py-3 font-semibold text-white disabled:opacity-60">{state === 'sending' ? 'Sending request…' : deliveryLabel}</button>
-      {validationMessage && <p className="text-sm text-amber-700" data-testid="find-booking-validation">{validationMessage}</p>}
+      {validationMessage && <p id={validationId} role="alert" className="text-sm text-amber-700" data-testid="find-booking-validation">{validationMessage}</p>}
       {state === 'error' && (
-        <p className="text-sm text-red-700" data-testid="find-booking-error">
+        <p role="alert" className="text-sm text-red-700" data-testid="find-booking-error">
           We could not process the request right now. Your details are still filled in — please try again shortly
           {salonPhone
             ? (
