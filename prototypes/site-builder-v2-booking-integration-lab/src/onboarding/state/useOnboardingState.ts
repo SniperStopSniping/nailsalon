@@ -87,7 +87,7 @@ export function useOnboardingState(
   const mountedRef = useRef(false);
   const initialWelcomeViewRecordedRef = useRef(false);
   const pendingSaveRef = useRef(false);
-  const skipNextSaveRef = useRef(false);
+  const skipSaveForStateRef = useRef<OnboardingLabState | null>(null);
   const timeoutRef = useRef<number | null>(null);
   const debounceMs = options.debounceMs ?? 220;
 
@@ -123,7 +123,7 @@ export function useOnboardingState(
       return result;
     }
     pendingSaveRef.current = false;
-    skipNextSaveRef.current = true;
+    skipSaveForStateRef.current = result.state;
     replaceState(result.state);
     setStorageIssue(null);
     setSaveStatus('saved');
@@ -156,8 +156,11 @@ export function useOnboardingState(
       mountedRef.current = true;
       return undefined;
     }
-    if (skipNextSaveRef.current) {
-      skipNextSaveRef.current = false;
+    const alreadyHandledState = skipSaveForStateRef.current;
+    skipSaveForStateRef.current = null;
+    // React can batch a new edit with the state replacement from save/reset.
+    // Skip only that exact snapshot, never a newer edit that still needs saving.
+    if (state === alreadyHandledState) {
       return undefined;
     }
     setSaveStatus('saving');
@@ -457,8 +460,9 @@ export function useOnboardingState(
       return false;
     }
     pendingSaveRef.current = false;
-    skipNextSaveRef.current = true;
-    replaceState(createDefaultOnboardingState());
+    const resetState = createDefaultOnboardingState();
+    skipSaveForStateRef.current = resetState;
+    replaceState(resetState);
     setSaveStatus('idle');
     setStorageIssue(null);
     return true;

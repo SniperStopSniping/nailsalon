@@ -8,7 +8,7 @@
  */
 
 import { AlertCircle, Camera, Check, Loader2, Share2, Shield, Sparkles } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 
 // =============================================================================
 // TYPES
@@ -54,6 +54,7 @@ export function SuperAdminPolicyForm({
   initialPolicy,
   onSave,
 }: SuperAdminPolicyFormProps) {
+  const fieldId = useId();
   const [policy, setPolicy] = useState<SuperAdminPolicy>(initialPolicy);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -122,10 +123,11 @@ export function SuperAdminPolicyForm({
         <div className="space-y-4">
           {/* Before Photo to Start */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label htmlFor={`${fieldId}-before-photo`} className="mb-1 block text-sm font-medium text-gray-700">
               Before Photo to Start
             </label>
             <select
+              id={`${fieldId}-before-photo`}
               value={policy.requireBeforePhotoToStart ?? ''}
               onChange={(e) => {
                 const val = e.target.value;
@@ -146,10 +148,11 @@ export function SuperAdminPolicyForm({
 
           {/* After Photo to Finish */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label htmlFor={`${fieldId}-finish-photo`} className="mb-1 block text-sm font-medium text-gray-700">
               After Photo to Finish
             </label>
             <select
+              id={`${fieldId}-finish-photo`}
               value={policy.requireAfterPhotoToFinish ?? ''}
               onChange={(e) => {
                 const val = e.target.value;
@@ -170,10 +173,11 @@ export function SuperAdminPolicyForm({
 
           {/* After Photo to Pay */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label htmlFor={`${fieldId}-payment-photo`} className="mb-1 block text-sm font-medium text-gray-700">
               After Photo to Pay
             </label>
             <select
+              id={`${fieldId}-payment-photo`}
               value={policy.requireAfterPhotoToPay ?? ''}
               onChange={(e) => {
                 const val = e.target.value;
@@ -204,10 +208,11 @@ export function SuperAdminPolicyForm({
         <div className="space-y-4">
           {/* Enable Auto-Post */}
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label htmlFor={`${fieldId}-autopost`} className="mb-1 block text-sm font-medium text-gray-700">
               Enable Auto-Post
             </label>
             <select
+              id={`${fieldId}-autopost`}
               value={policy.autoPostEnabled === null ? '' : policy.autoPostEnabled.toString()}
               onChange={(e) => {
                 const val = e.target.value;
@@ -230,11 +235,12 @@ export function SuperAdminPolicyForm({
           <div>
             <div className="mb-1 flex items-center gap-2">
               <Sparkles className="size-4 text-amber-500" />
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor={`${fieldId}-ai-caption`} className="text-sm font-medium text-gray-700">
                 AI Caption
               </label>
             </div>
             <select
+              id={`${fieldId}-ai-caption`}
               value={policy.autoPostAiCaptionEnabled === null ? '' : policy.autoPostAiCaptionEnabled.toString()}
               onChange={(e) => {
                 const val = e.target.value;

@@ -14,7 +14,7 @@
  *    `billing` block. `scripts/billing-readiness-check.ts` now surfaces it
  *    only under `--developer` (a local shell is never deployment evidence).
  *  - `evaluateBillingReadiness` (PR-4, handoff §5) evaluates a named TARGET
- *    (`dark` / `rehearsal` / `activate-topups` / `activate-subscriptions`)
+ *    (`dark` / `rehearsal` / `rehearse-topups` / `activate-topups` / `activate-subscriptions`)
  *    against an explicit evidence bundle gathered from the deployment
  *    itself. See the "Per-target readiness" section at the bottom of this
  *    file.
@@ -667,12 +667,14 @@ export function runBillingReadinessCheck(
 export type BillingReadinessTarget
   = | 'dark'
   | 'rehearsal'
+  | 'rehearse-topups'
   | 'activate-topups'
   | 'activate-subscriptions';
 
 export const BILLING_READINESS_TARGETS: readonly BillingReadinessTarget[] = [
   'dark',
   'rehearsal',
+  'rehearse-topups',
   'activate-topups',
   'activate-subscriptions',
 ] as const;
@@ -803,6 +805,7 @@ export type BillingReadinessEvaluation = {
 function expectedPlanEnvForTarget(target: BillingReadinessTarget): BillingPlanEnvLiteral | null {
   switch (target) {
     case 'rehearsal':
+    case 'rehearse-topups':
       return 'test';
     case 'activate-topups':
     case 'activate-subscriptions':
@@ -815,6 +818,7 @@ function expectedPlanEnvForTarget(target: BillingReadinessTarget): BillingPlanEn
 function expectedEnvironmentForTarget(target: BillingReadinessTarget): BillingReadinessEnvironment | null {
   switch (target) {
     case 'rehearsal':
+    case 'rehearse-topups':
       return 'preview';
     case 'activate-topups':
     case 'activate-subscriptions':
@@ -826,8 +830,8 @@ function expectedEnvironmentForTarget(target: BillingReadinessTarget): BillingRe
 
 /**
  * D11: `PUBLIC_PRICING_ENABLED` and `BILLING_TAX_COLLECTION_ENABLED` are
- * blocked for every target. `activate-subscriptions` is the ONLY target that
- * tolerates an already-flipped `BILLING_TOPUPS_ENABLED` — activating
+ * blocked for every target. `activate-subscriptions` is the only production
+ * target that tolerates an already-flipped `BILLING_TOPUPS_ENABLED` — activating
  * subscriptions after top-ups is the documented order, and requiring all four
  * switches unset is exactly the defect (#225 finding B2) that made that
  * sequence unprovable.
@@ -841,6 +845,8 @@ function expectedSwitchesForTarget(target: BillingReadinessTarget): {
   switch (target) {
     case 'rehearsal':
       return { subscriptions: true, topups: true, publicPricing: false, taxCollection: false };
+    case 'rehearse-topups':
+      return { subscriptions: false, topups: true, publicPricing: false, taxCollection: false };
     case 'activate-subscriptions':
       return { subscriptions: false, topups: 'any', publicPricing: false, taxCollection: false };
     case 'activate-topups':
@@ -1157,16 +1163,21 @@ function evaluateCarrier(
     return;
   }
 
-  // §5.1 requires BOTH catalogues complete. The coupon is reported but not
-  // required: the founding promotion is offered per owner decision, and its
-  // redemption window is closed in code until separately configured.
-  const missingKeys = [...inspection.missingOfferKeys, ...inspection.missingTopupKeys];
+  // Paid SMS can be rehearsed and activated independently of core software
+  // subscriptions. Retain the full catalogue requirement for legacy combined
+  // rehearsal and subscription activation. Historical mappings stay valid.
+  const topupsOnly = target === 'rehearse-topups' || target === 'activate-topups';
+  const missingKeys = [
+    ...(topupsOnly ? [] : inspection.missingOfferKeys),
+    ...inspection.missingTopupKeys,
+  ];
+  const activeTopupCount = ACTIVE_TOPUP_KEYS.length - inspection.missingTopupKeys.length;
   const carrierEnvOk = inspection.carrierEnv === expectedPlanEnv && deployed.env === expectedPlanEnv;
   const parseOk = deployed.parse === 'ok';
   collector.add(
     'carrier_complete',
     missingKeys.length === 0 && carrierEnvOk && parseOk,
-    `pulled env file carrier env="${inspection.carrierEnv}" (expected "${expectedPlanEnv}"), deployment carrier env="${deployed.env ?? 'null'}" parse="${deployed.parse}"; offers ${inspection.configuredCounts.offers}/${KNOWN_OFFER_KEYS.length}, topups ${inspection.configuredCounts.topups}/${KNOWN_TOPUP_KEYS.length}, coupons ${inspection.configuredCounts.coupons}/${KNOWN_COUPON_KEYS.length}${missingKeys.length > 0 ? `; missing catalogue keys: ${missingKeys.join(', ')}` : ''}`,
+    `pulled env file carrier env="${inspection.carrierEnv}" (expected "${expectedPlanEnv}"), deployment carrier env="${deployed.env ?? 'null'}" parse="${deployed.parse}"; ${activeTopupCount}/${ACTIVE_TOPUP_KEYS.length} active topups; offers ${inspection.configuredCounts.offers}/${KNOWN_OFFER_KEYS.length}${topupsOnly ? ' (optional for this target)' : ''}, coupons ${inspection.configuredCounts.coupons}/${KNOWN_COUPON_KEYS.length}${missingKeys.length > 0 ? `; missing catalogue keys: ${missingKeys.join(', ')}` : ''}`,
   );
 
   const localDigest = envFileCarrier.digest;
@@ -1206,15 +1217,15 @@ type CronBodyExpectation = 'dark-skip' | 'no-skip' | 'any-record';
  *    are still off, the skip IS required — a working body would mean billing
  *    was already live.
  *
- * A rehearsal deliberately runs with both switches ON, so neither job skips
- * and the body is informational only.
+ * The legacy combined rehearsal runs with both switches ON. A top-up-only
+ * rehearsal must retain the subscription-window skip and run reconciliation.
  */
 function expectedCronBody(
   target: BillingReadinessTarget,
   path: string,
   switches: BillingReadinessSwitches | null,
 ): CronBodyExpectation {
-  if (target !== 'activate-topups' && target !== 'activate-subscriptions') {
+  if (target !== 'activate-topups' && target !== 'activate-subscriptions' && target !== 'rehearse-topups') {
     return 'any-record';
   }
   if (path === '/api/billing/windows/evaluate') {

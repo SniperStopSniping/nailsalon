@@ -59,6 +59,50 @@ describe('useOnboardingState', () => {
     expect(restored.result.current.saveStatus).toBe('saved');
   });
 
+  it.each(['save', 'reset'] as const)('persists a new edit batched immediately after %s', (operation) => {
+    const storage = createMemoryStorage();
+    const hook = renderHook(() => useOnboardingState({ debounceMs: 200, storage }));
+
+    act(() => {
+      if (operation === 'save') {
+        expect(hook.result.current.saveNow().success).toBe(true);
+      } else {
+        expect(hook.result.current.reset()).toBe(true);
+      }
+      hook.result.current.updateProfile({ businessName: 'New edit after synchronous save' });
+    });
+
+    expect(hook.result.current.saveStatus).toBe('saving');
+
+    act(() => vi.advanceTimersByTime(200));
+
+    expect(hook.result.current.saveStatus).toBe('saved');
+    expect(JSON.parse(storage.values.get(ONBOARDING_STORAGE_KEY) ?? '{}').profile.businessName)
+      .toBe('New edit after synchronous save');
+
+    hook.unmount();
+
+    const restored = renderHook(() => useOnboardingState({ storage }));
+
+    expect(restored.result.current.state.profile.businessName).toBe('New edit after synchronous save');
+  });
+
+  it('does not repeatedly save the exact snapshot already persisted synchronously', () => {
+    const storage = createMemoryStorage();
+    const hook = renderHook(() => useOnboardingState({ debounceMs: 200, storage }));
+
+    act(() => {
+      hook.result.current.saveNow();
+    });
+
+    const savedCount = vi.mocked(storage.setItem).mock.calls.length;
+
+    act(() => vi.advanceTimersByTime(2_000));
+
+    expect(hook.result.current.saveStatus).toBe('saved');
+    expect(storage.setItem).toHaveBeenCalledTimes(savedCount);
+  });
+
   it('flushes the latest pending state on pagehide before the debounce expires', () => {
     const storage = createMemoryStorage();
     const hook = renderHook(() => useOnboardingState({

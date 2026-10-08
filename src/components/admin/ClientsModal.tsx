@@ -2513,7 +2513,7 @@ function ClientDetail({
                                           </div>
                                         )
                                       : financial && (
-                                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                                        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-xs sm:grid-cols-4 [&_strong]:mt-1 [&_strong]:block [&_strong]:text-sm">
                                           <span>
                                             Deposit paid
                                             <strong>

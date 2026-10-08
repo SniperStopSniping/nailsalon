@@ -1,10 +1,14 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const sourcePathspecs = ['*.js', '*.jsx', '*.ts', '*.tsx', '*.mjs', '*.cjs'];
 const ignoredPrefixes = ['docs/', 'public/', 'migrations/', 'tests/e2e/'];
 const testFilePattern = /\.test\.(?:[cm]?js|jsx|tsx?)$/;
+// Match the root vitest.config.mts ownership. Prototype packages run their
+// own required suites in CI with their own configuration and dependencies.
+const rootVitestTestPattern = /^(?:src\/.*\.test\.(?:js|jsx|ts|tsx)|scripts\/.*\.test\.(?:js|ts))$/;
 const sourceFilePattern = /\.(?:[cm]?js|jsx|tsx?)$/;
 const zeroSha = /^0+$/;
 
@@ -100,7 +104,7 @@ function getPossibleSiblingTests(file) {
   ];
 }
 
-function getTestFiles(changedFiles) {
+export function getTestFiles(changedFiles, testExists = existsSync) {
   const testFiles = new Set();
 
   for (const file of changedFiles) {
@@ -110,13 +114,13 @@ function getTestFiles(changedFiles) {
     }
 
     for (const possibleTest of getPossibleSiblingTests(file)) {
-      if (existsSync(possibleTest)) {
+      if (testExists(possibleTest)) {
         testFiles.add(possibleTest);
       }
     }
   }
 
-  return [...testFiles].sort();
+  return [...testFiles].filter(file => rootVitestTestPattern.test(file)).sort();
 }
 
 function runVitest(testFiles) {
@@ -132,14 +136,16 @@ function runVitest(testFiles) {
   return result.status ?? 1;
 }
 
-const range = readGithubRange() ?? getFallbackRange();
-const changedFiles = getChangedFiles(range);
-const testFiles = getTestFiles(changedFiles);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const range = readGithubRange() ?? getFallbackRange();
+  const changedFiles = getChangedFiles(range);
+  const testFiles = getTestFiles(changedFiles);
 
-if (testFiles.length === 0) {
-  writeLine('No changed unit tests to run.');
-} else {
-  writeLine('Running changed unit tests:');
-  testFiles.forEach(file => writeLine(` - ${file}`));
-  process.exitCode = runVitest(testFiles);
+  if (testFiles.length === 0) {
+    writeLine('No changed root Vitest unit tests to run.');
+  } else {
+    writeLine('Running changed unit tests:');
+    testFiles.forEach(file => writeLine(` - ${file}`));
+    process.exitCode = runVitest(testFiles);
+  }
 }

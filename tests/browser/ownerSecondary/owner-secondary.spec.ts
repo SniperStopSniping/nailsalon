@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test';
 
+// Transformed sheets can report 44px as 43.99998474121094 in Chromium.
+// Check the CSS minimum too, and round only floating-point noise below .001px.
+async function expectTouchTarget(target: import('@playwright/test').Locator, minimum: number) {
+  expect(await target.evaluate(element => Number.parseFloat(getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(minimum);
+  await expect.poll(async () => target.evaluate(element =>
+    Math.round(element.getBoundingClientRect().height * 1000) / 1000)).toBeGreaterThanOrEqual(minimum);
+}
+
 async function expectReadableFields(page: import('@playwright/test').Page) {
   const fields = page.locator('input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]), select, textarea');
 
@@ -58,7 +66,8 @@ for (const width of [320, 390, 430, 1280]) {
 
     await expect(claim).toBeVisible();
     expect(await claim.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(143, 49, 85)');
-    expect(await claim.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+
+    await expectTouchTarget(claim, 48);
 
     await claim.click();
 
@@ -67,7 +76,9 @@ for (const width of [320, 390, 430, 1280]) {
     const verify = page.getByRole('button', { name: 'Verify email and phone', exact: true });
 
     await expect(verify).toBeVisible();
-    expect(await verify.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+
+    await expectTouchTarget(verify, 48);
+
     await expect(page.getByText('0 SMS credits remaining', { exact: true })).toBeVisible();
     await expect(page.getByText('100 free SMS credits have been added.', { exact: true })).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -91,9 +102,7 @@ for (const width of [320, 390, 430, 1280]) {
     await expect(guard).toBeVisible();
 
     for (const label of ['Keep editing', 'Discard']) {
-      const height = await guard.getByRole('button', { name: label, exact: true }).evaluate(element => element.getBoundingClientRect().height);
-
-      expect(height).toBeGreaterThanOrEqual(44);
+      await expectTouchTarget(guard.getByRole('button', { name: label, exact: true }), 44);
     }
     await guard.getByRole('button', { name: 'Keep editing', exact: true }).click();
 
@@ -142,7 +151,8 @@ for (const width of [320, 390, 430, 1280]) {
 
     await expect(setup).toBeVisible();
     expect(await setup.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(143, 49, 85)');
-    expect(await setup.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+
+    await expectTouchTarget(setup, 48);
 
     const status = page.getByText('Status not confirmed yet.', { exact: true });
 
@@ -169,7 +179,9 @@ test('usage portal failure remains recoverable with the unchanged balance', asyn
 
   await expect(page.getByText('Could not open the billing portal. Please try again.', { exact: true })).toBeVisible();
   await expect(portal).toBeEnabled();
-  expect(await portal.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+
+  await expectTouchTarget(portal, 48);
+
   await expect(page.getByText('83 SMS credits remaining', { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/app=usage/);
 });
@@ -180,7 +192,9 @@ test('allowance lookup failure offers a reachable retry without a claim', async 
   await retry.click();
 
   await expect(page.getByText('We could not check your free-text allowance. Please try again.', { exact: true })).toBeVisible();
-  expect(await retry.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+
+  await expectTouchTarget(retry, 48);
+
   await expect(page.getByRole('button', { name: /Claim 100 free texts|Verify free-text allowance/ })).toHaveCount(0);
 });
 

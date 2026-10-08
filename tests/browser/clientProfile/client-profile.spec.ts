@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-type Scenario = 'default' | 'empty' | 'empty-profile' | 'no-offer';
+type Scenario = 'default' | 'empty' | 'empty-profile' | 'no-offer' | 'financial-blocked';
 
 const longName = 'Alexandria Maximiliana Longcontactname With A Very Deliberately Long Address';
 
@@ -31,7 +31,7 @@ function clientList(scenario: Scenario) {
   };
 }
 
-function clientDetail(noUpcoming = false) {
+function clientDetail(noUpcoming = false, financialBlocked = false) {
   return {
     data: {
       client: {
@@ -57,7 +57,7 @@ function clientDetail(noUpcoming = false) {
         updatedAt: '2026-09-20T00:00:00.000Z',
       },
       upcomingAppointments: noUpcoming ? [] : [{ id: 'appt_upcoming', startTime: '2026-09-24T15:00:00.000Z', endTime: '2026-09-24T16:00:00.000Z', status: 'confirmed', totalPrice: 9500, currency: 'CAD', technician: { id: 'tech_1', name: 'Daniela', avatarUrl: null }, services: [{ id: 'svc_1', name: 'Structured Builder Gel', price: 9500 }], notes: null }],
-      pastAppointments: [{ id: 'appt_completed', startTime: '2026-09-01T15:00:00.000Z', endTime: '2026-09-01T16:00:00.000Z', status: 'completed', totalPrice: 8200, currency: 'CAD', technician: { id: 'tech_1', name: 'Daniela', avatarUrl: null }, services: [{ id: 'svc_1', name: 'Structured Builder Gel', price: 8200 }], addOns: [], financial: { completedValueCents: 8200, paymentsReceivedCents: 8200, balanceCents: 0, financialState: 'resolved' }, notes: null }],
+      pastAppointments: [{ id: 'appt_completed', startTime: '2026-09-01T15:00:00.000Z', endTime: '2026-09-01T16:00:00.000Z', status: 'completed', totalPrice: 8200, currency: 'CAD', technician: { id: 'tech_1', name: 'Daniela', avatarUrl: null }, services: [{ id: 'svc_1', name: 'Structured Builder Gel', price: 8200 }], addOns: [], financial: { completedValueCents: financialBlocked ? null : 8200, paymentsReceivedCents: financialBlocked ? null : 8200, amountAlreadyPaidCents: financialBlocked ? null : 8200, balanceCents: financialBlocked ? null : 0, taxCents: financialBlocked ? null : 0, tipsCents: financialBlocked ? null : 0, depositState: financialBlocked ? 'blocked' : 'resolved', depositBlockCode: financialBlocked ? 'PAYMENT_LEDGER_RECONCILIATION_REQUIRED' : null }, notes: null }],
       recentIssues: [],
       photos: [],
       summary: { currency: 'CAD', timeZone: 'America/Toronto', lifetimeSpendCents: 45500, spendThisMonthCents: 8200, completedOutstandingCents: 0, financialState: 'resolved', completedVisits: 6, mostBookedService: { id: 'svc_1', name: 'Structured Builder Gel', count: 3 }, rebooking: { status: 'due_soon', dueAt: '2026-09-22T14:00:00.000Z' }, provenance: { lifetimeSpend: { mode: 'finalized', unresolvedAppointmentCount: 0, isEstimated: false }, spendThisMonth: { mode: 'finalized', unresolvedAppointmentCount: 0, isEstimated: false }, completedOutstanding: { mode: 'finalized', unresolvedAppointmentCount: 0, isEstimated: false } } },
@@ -149,7 +149,7 @@ async function mockClientProfileApi(page: import('@playwright/test').Page) {
     if (url.pathname === '/api/admin/clients/client_browser') {
       return json(scenario === 'empty-profile'
         ? emptyClientDetail()
-        : clientDetail(scenario === 'no-offer'));
+        : clientDetail(scenario === 'no-offer', scenario === 'financial-blocked'));
     }
     if (url.pathname === '/api/admin/clients/client_browser/flags') {
       return json({ data: { client: { id: 'client_browser', phone: '4165550101', fullName: longName, adminFlags: { isProblemClient: false, flagReason: '' }, isBlocked: false, blockedReason: '', noShowCount: 0, lateCancelCount: 0 } } });
@@ -325,3 +325,45 @@ test('brand-new client profile does not invent visits, preferences, notes, photo
   expect(writes).toEqual([]);
   expect(unexpected).toEqual([]);
 });
+
+for (const blocked of [false, true]) {
+  test(`payment rows keep ${blocked ? 'unresolved amounts hidden' : 'validated amounts visible'}`, async ({ page }, testInfo) => {
+    const { writes, unexpected } = await mockClientProfileApi(page);
+    await page.goto(`/?scenario=${blocked ? 'financial-blocked' : 'default'}`);
+    await page.getByRole('button', { name: new RegExp(longName, 'i') }).click();
+
+    await expect.poll(async () => {
+      const box = await page.getByTestId('client-detail-scroll').boundingBox();
+      return Math.abs(box?.x ?? Number.POSITIVE_INFINITY);
+    }).toBeLessThanOrEqual(1);
+
+    await page.getByLabel('Client profile section', { exact: true }).selectOption('payments');
+    const payment = page.getByTestId('client-payment-appointment-appt_completed');
+
+    await expect(payment).toBeVisible();
+
+    if (blocked) {
+      await expect(payment).toContainText('Under review');
+      await expect(payment).toContainText('Financial details under review. Amounts and balance are unavailable.');
+      await expect(payment).not.toContainText('$82.00');
+    } else {
+      await expect(payment).toContainText('$82.00');
+      await expect(payment).toContainText('Already paid');
+      await expect(payment).toContainText('Balance');
+      await expect(payment).not.toContainText('Under review');
+      await expect(payment.locator('strong').first()).toHaveCSS('display', 'block');
+      await expect(payment.locator('strong').first()).toHaveCSS('margin-top', '4px');
+    }
+
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    await payment.scrollIntoViewIfNeeded();
+
+    await expect(payment).toBeInViewport();
+
+    await page.screenshot({ path: testInfo.outputPath(`S28-${blocked ? 'blocked' : 'resolved'}-${testInfo.project.name}.png`) });
+
+    expect(writes).toEqual([]);
+    expect(unexpected).toEqual([]);
+  });
+}
