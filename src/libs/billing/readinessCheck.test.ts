@@ -575,6 +575,116 @@ function evaluation(target: BillingReadinessTarget, evidence: BillingReadinessEv
   return evaluateBillingReadiness({ target, evidence });
 }
 
+const SMS_TOPUP_KEYS = ['topup_100_2026_10', 'topup_200_2026_10', 'topup_500_2026_10'] as const;
+
+function topupOnlyEvidence(target: 'rehearse-topups' | 'activate-topups', omitKey?: string): BillingReadinessEvidence {
+  const rehearsal = target === 'rehearse-topups';
+  const env = rehearsal ? 'test' : 'prod';
+  const carrier = inspectEnvFileCarrier(JSON.stringify({
+    env,
+    offers: {},
+    topups: Object.fromEntries(SMS_TOPUP_KEYS.filter(key => key !== omitKey).map((key, index) => [key, `price_smsfixture${index}`])),
+    coupons: {},
+  }), env);
+  const base = rehearsal ? rehearsalEvidence() : productionEvidence();
+  return {
+    ...base,
+    health: rehearsal ? base.health : healthFacts({ httpStatus: 200, status: 'ok' }),
+    envFileCarrier: carrier,
+    cronProof: productionCronProof(rehearsal),
+    readiness: {
+      ...base.readiness!,
+      switches: { subscriptions: false, topups: rehearsal, publicPricing: false, taxCollection: false },
+      carrier: { present: true, env, offers: 0, topups: omitKey ? 2 : 3, coupons: 0, digest: carrier.digest, parse: 'ok' },
+    },
+  };
+}
+
+describe('SMS top-up-only readiness', () => {
+  for (const target of ['rehearse-topups', 'activate-topups'] as const) {
+    it(`${target} needs only the three active text packages, without paid core plans`, () => {
+      const result = evaluation(target, topupOnlyEvidence(target));
+
+      expect(result.checks.filter(check => !check.ok)).toEqual([]);
+      expect(result.met).toBe(true);
+      expect(checkOf(result, 'carrier_complete').detail).toContain('3/3 active topups');
+    });
+
+    it.each(SMS_TOPUP_KEYS)(`${target} still requires %s`, (key) => {
+      const result = evaluation(target, topupOnlyEvidence(target, key));
+
+      expect(result.met).toBe(false);
+      expect(checkOf(result, 'carrier_complete').ok).toBe(false);
+      expect(checkOf(result, 'carrier_complete').detail).toContain(key);
+    });
+
+    it.each(['subscriptions', 'publicPricing', 'taxCollection'] as const)(`${target} refuses an enabled %s switch`, (key) => {
+      const evidence = topupOnlyEvidence(target);
+      evidence.readiness!.switches[key] = true;
+      const result = evaluation(target, evidence);
+
+      expect(checkOf(result, 'readiness_switches').ok).toBe(false);
+      expect(result.met).toBe(false);
+    });
+
+    it(`${target} keeps deployment, signature, price digest and evidence-source protections`, () => {
+      for (const mutate of [
+        (evidence: BillingReadinessEvidence) => {
+          evidence.readiness!.gitSha = 'different-sha';
+        },
+        (evidence: BillingReadinessEvidence) => {
+          evidence.readiness!.webhookSecretDistinct = false;
+        },
+        (evidence: BillingReadinessEvidence) => {
+          evidence.readiness!.carrier.digest = 'different-digest';
+        },
+        (evidence: BillingReadinessEvidence) => {
+          evidence.source = 'env-file';
+        },
+        (evidence: BillingReadinessEvidence) => {
+          evidence.readiness!.stripeKeyMode = target === 'rehearse-topups' ? 'live' : 'test';
+        },
+      ]) {
+        const evidence = topupOnlyEvidence(target);
+        mutate(evidence);
+
+        expect(evaluation(target, evidence).met).toBe(false);
+      }
+    });
+  }
+
+  it('rehearse-topups requires Preview, top-ups enabled, and subscriptions disabled', () => {
+    const wrongEnvironment = topupOnlyEvidence('rehearse-topups');
+    wrongEnvironment.environment = 'production';
+    wrongEnvironment.readiness!.vercelEnv = 'production';
+    const disabledTopups = topupOnlyEvidence('rehearse-topups');
+    disabledTopups.readiness!.switches.topups = false;
+
+    expect(evaluation('rehearse-topups', wrongEnvironment).met).toBe(false);
+    expect(evaluation('rehearse-topups', disabledTopups).met).toBe(false);
+  });
+
+  it.each([0, 1])('rehearse-topups checks the actual response of cron %s', (index) => {
+    const evidence = topupOnlyEvidence('rehearse-topups');
+    evidence.cronProof = {
+      ...evidence.cronProof!,
+      invocations: evidence.cronProof!.invocations.map((invocation, current) => current === index
+        ? { ...invocation, body: index === 0 ? { evaluated: 1 } : { skipped: 'BILLING_DISABLED' } }
+        : invocation),
+    };
+
+    expect(evaluation('rehearse-topups', evidence).met).toBe(false);
+  });
+
+  it('retains the legacy subscription activation catalogue requirement', () => {
+    const result = evaluation('activate-subscriptions', topupOnlyEvidence('activate-topups'));
+
+    expect(checkOf(result, 'carrier_complete').ok).toBe(false);
+    expect(checkOf(result, 'carrier_complete').detail).toContain('starter_2026_08_monthly');
+    expect(result.met).toBe(false);
+  });
+});
+
 function checkOf(result: BillingReadinessEvaluation, id: string) {
   const check = result.checks.find(entry => entry.id === id);
 

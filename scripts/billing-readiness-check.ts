@@ -25,7 +25,7 @@
  * saying so, and can never exit 0.
  *
  * FLAGS
- *   --target dark|rehearsal|activate-topups|activate-subscriptions   (required)
+ *   --target dark|rehearsal|rehearse-topups|activate-topups|activate-subscriptions (required)
  *   --env-source deployed|env-file|local                             (required)
  *   --developer                     allows --env-source local; never exits 0
  *   --health-url <url>              public health of the target deployment
@@ -40,7 +40,7 @@
  *   --env-file <path>               a `vercel env pull` output for the scope;
  *                                   REQUIRED with --env-source env-file
  *   --environment preview|production  REQUIRED, and pinned to the target:
- *                                   rehearsal ⇒ preview, activate-* ⇒
+ *                                   rehearsal/rehearse-topups ⇒ preview, activate-* ⇒
  *                                   production, dark ⇒ either. It is an
  *                                   operator ASSERTION about which deployment
  *                                   is being proven — it is what unlocks the
@@ -192,6 +192,7 @@ const ENVIRONMENTS: readonly BillingReadinessEnvironment[] = ['preview', 'produc
 const TARGET_ENVIRONMENT: Record<BillingReadinessTarget, BillingReadinessEnvironment | null> = {
   'dark': null,
   'rehearsal': 'preview',
+  'rehearse-topups': 'preview',
   'activate-topups': 'production',
   'activate-subscriptions': 'production',
 };
@@ -329,7 +330,7 @@ export function parseReadinessArguments(argv: readonly string[]): ReadinessArgum
   };
 
   if (argv.includes('--mode')) {
-    return fail('--mode was replaced by --target dark|rehearsal|activate-topups|activate-subscriptions', EXIT_SOURCE_INSUFFICIENT);
+    return fail('--mode was replaced by --target dark|rehearsal|rehearse-topups|activate-topups|activate-subscriptions', EXIT_SOURCE_INSUFFICIENT);
   }
 
   parsed.developer = argv.includes('--developer');
