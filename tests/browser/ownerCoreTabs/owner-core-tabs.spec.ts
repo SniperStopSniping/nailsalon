@@ -144,8 +144,8 @@ test('services: search recovery and detail navigation preserve the catalog', asy
   await expect(search).toBeVisible();
 });
 
-test('services: a scrolled catalog opens readable details and restores its place', async ({ page }) => {
-  for (const width of [320, 390, 430, 1280]) {
+for (const width of [320, 390, 430, 1280]) {
+  test(`services: a scrolled catalog opens readable details and restores its place at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto('/?screen=services&state=long&surface=sheet');
     const scroller = page.getByTestId('app-modal-scroll-region');
@@ -154,8 +154,21 @@ test('services: a scrolled catalog opens readable details and restores its place
 
     await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(100);
 
-    const catalogPosition = await scroller.evaluate(element => element.scrollTop);
+    // The browser may finish layout or scroll the row while click() waits for
+    // actionability. Record the same user click that the app uses to remember
+    // its return position, before React replaces the catalog with the detail.
+    await row.evaluate((element) => {
+      element.addEventListener('click', () => {
+        const scrollRegion = element.closest<HTMLElement>('[data-testid="app-modal-scroll-region"]');
+        if (scrollRegion) {
+          scrollRegion.dataset.testCatalogPosition = String(scrollRegion.scrollTop);
+        }
+      }, { capture: true, once: true });
+    });
     await row.click();
+    const catalogPosition = Number(await scroller.getAttribute('data-test-catalog-position'));
+
+    expect(catalogPosition).toBeGreaterThan(100);
 
     await expect(page.getByTestId('services-sticky-chrome')).toBeHidden();
     await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(0);
@@ -174,8 +187,8 @@ test('services: a scrolled catalog opens readable details and restores its place
 
     await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(catalogPosition);
     await expect(row).toBeVisible();
-  }
-});
+  });
+}
 
 for (const screen of ['calendar', 'clients', 'services']) {
   test(`${screen}: empty and error states keep recovery controls readable`, async ({ page }) => {

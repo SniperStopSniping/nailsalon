@@ -1138,7 +1138,13 @@ jobs:
           retention-days: 7
 
   test-components:
-    name: Component and onboarding browsers
+    # Keep the independent fixture suites within the existing job budget.
+    # Both groups are required through the unchanged aggregate check below.
+    name: Component and onboarding browsers (${{ matrix.suite }})
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [onboarding-owner, customer-booking]
     needs: secret-scan
     runs-on: ubuntu-latest
     timeout-minutes: 55
@@ -1180,7 +1186,13 @@ jobs:
         timeout-minutes: 38
         uses: ./.github/actions/install-playwright
 
+      - name: Install shared onboarding presentation dependencies
+        if: matrix.suite == 'customer-booking'
+        working-directory: prototypes/site-builder-v2-booking-integration-lab
+        run: npm ci
+
       - name: Verify onboarding confirmation and booking notice
+        if: matrix.suite == 'onboarding-owner'
         working-directory: prototypes/site-builder-v2-booking-integration-lab
         timeout-minutes: 10
         run: |
@@ -1191,80 +1203,105 @@ jobs:
           npx playwright test --config playwright.layout-previews.config.ts
 
       - name: Verify SMS components and plan access in desktop and mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/@playwright/test/cli.js test --config tests/browser/sms/playwright.config.ts --output=test-results/sms-components
 
       - name: Verify review previews and delivery states in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/reviews/playwright.config.ts --output=test-results/review-components
 
       - name: Verify no-show correction in desktop and mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/noShowRecords/playwright.config.ts --output=test-results/no-show-components
 
       - name: Verify review automation settings in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/reviewAutomationSettings/playwright.config.ts --output=test-results/review-automation-settings-components
 
       - name: Verify dark customer assistant proposal shell in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/customerAssistant/playwright.config.ts --output=test-results/customer-assistant-components
 
       - name: Verify platform policy labels and navigation
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/platformPolicy/playwright.config.ts --output=test-results/platform-policy-components
 
       - name: Verify owner destinations and Hours in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerNavigation/playwright.config.ts --output=test-results/owner-navigation-components
 
       - name: Verify owner dashboard polish and shared dialogs in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerPolish/playwright.config.ts --output=test-results/owner-polish-components
 
       - name: Verify owner forms and error recovery in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerForms/playwright.config.ts --output=test-results/owner-forms-components
 
       - name: Verify Portfolio controls and failure recovery in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerPortfolio/playwright.config.ts --output=test-results/owner-portfolio-components
 
       - name: Verify owner settings and payment presentation in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerSecondary/playwright.config.ts --output=test-results/owner-secondary-components
 
       - name: Verify Luster owner entry screens in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerEntry/playwright.config.ts --output=test-results/owner-entry
 
       - name: Verify owner Marketing destinations in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerMarketing/playwright.config.ts --output=test-results/owner-marketing-components
 
       - name: Verify Booking Page business information in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerBusinessInformation/playwright.config.ts --output=test-results/owner-business-information-components
 
       - name: Verify Booking Page experience and flow in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerBookingExperience/playwright.config.ts --output=test-results/owner-booking-experience-components
 
       - name: Verify Settings and Plan destinations in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerSettingsPlan/playwright.config.ts --output=test-results/owner-settings-plan-components
 
       - name: Verify Next Visit settings and guest rebooking in mobile browsers
+        if: matrix.suite == 'customer-booking'
         run: node node_modules/playwright/cli.js test --config tests/browser/nextVisitOffer/playwright.config.ts --output=test-results/next-visit-components
 
       - name: Verify customer review and confirmation in desktop and mobile browsers
+        if: matrix.suite == 'customer-booking'
         run: node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts confirmation-polish.spec.ts --output=test-results/booking-confirmation
 
       - name: Verify approved Quick Book customer compositions
+        if: matrix.suite == 'customer-booking'
         # Fixture-only browser contexts have no shared writes. Two workers keep
         # the expanded 24-design matrix bounded without reducing its coverage.
         run: node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts quick-book.spec.ts media-layouts.spec.ts isla.spec.ts --workers=2 --output=test-results/quick-book-compositions
 
       - name: Verify appointment management and checkout in mobile browsers
+        if: matrix.suite == 'customer-booking'
         run: node node_modules/playwright/cli.js test --config tests/browser/appointmentWorkflow/playwright.config.ts --output=test-results/appointment-workflow-components
 
       - name: Verify owner client profiles in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/clientProfile/playwright.config.ts --output=test-results/client-profile-components
 
       - name: Verify owner Calendar Clients and Services polish
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerCoreTabs/playwright.config.ts --output=test-results/owner-core-tabs-components
 
       - name: Verify SMS balances and top-up entry in desktop and mobile browsers
+        if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/smsCredits/playwright.config.ts --output=test-results/sms-credit-components
 
       - name: Run storybook tests
+        if: matrix.suite == 'onboarding-owner'
         run: npm run test-storybook:ci
 
       - name: Verify onboarding desktop and phone geometry
+        if: matrix.suite == 'onboarding-owner'
         timeout-minutes: 5
         working-directory: prototypes/site-builder-v2-booking-integration-lab
         env:
@@ -1276,12 +1313,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: component-test-results
+          name: component-test-results-${{ matrix.suite }}
           path: test-results/
           retention-days: 7
 
   test:
-    # Preserve the live ruleset context; success requires both execution jobs.
+    # Preserve the live ruleset context; success requires the application job
+    # and every browser matrix member. A failed/cancelled shard cannot pass.
     name: Run all tests (20.x)
     needs: [test-core, test-components]
     if: ${{ always() }}
