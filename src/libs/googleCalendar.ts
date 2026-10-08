@@ -840,6 +840,7 @@ async function recordConnectionFailure(
 async function getGoogleCalendarRequestContext(
   salonId?: string,
   options: GoogleCalendarRequestOptions = {},
+  requireExistingConnection = false,
 ): Promise<GoogleCalendarRequestContext | null> {
   throwIfGoogleRequestAborted(options.signal);
   if (salonId) {
@@ -967,6 +968,12 @@ async function getGoogleCalendarRequestContext(
     }
   }
 
+  // A listing retry belongs to the tenant connection that lost its revision.
+  // If it was deleted meanwhile, never fall back to the process-global account.
+  if (requireExistingConnection) {
+    throw new GoogleCalendarConnectionWriteFenceError();
+  }
+
   const legacy = getGoogleCalendarConfig();
   // A public request must be explicitly tenant-bound. The legacy integration
   // is process-global, so silently using it when this salon has no connection
@@ -988,6 +995,31 @@ async function getGoogleCalendarRequestContext(
   };
 }
 
+async function getGoogleCalendarListingContext(
+  salonId: string,
+  options: GoogleCalendarRequestOptions,
+): Promise<GoogleCalendarRequestContext | null> {
+  try {
+    return await getGoogleCalendarRequestContext(salonId, options);
+  } catch (error) {
+    if (
+      !(error instanceof GoogleCalendarConnectionWriteFenceError)
+      || options.attemptFence
+      || options.dispatchFence
+      || options.readOnly
+    ) {
+      throw error;
+    }
+    // Concurrent inbound/reconciliation reads can both refresh one revision.
+    // Discard the losing token response and retry acquisition once from the
+    // current row. Every identity/status/rotation/revision check still runs;
+    // a second collision, disconnect or abort fails closed. No Calendar read
+    // has been dispatched yet, and mutation/attempt-fenced callers never retry.
+    throwIfGoogleRequestAborted(options.signal);
+    return getGoogleCalendarRequestContext(salonId, options, true);
+  }
+}
+
 export async function listGoogleCalendarsForSalon(
   salonId: string,
   options: GoogleCalendarRequestOptions = {},
@@ -997,7 +1029,7 @@ export async function listGoogleCalendarsForSalon(
     primary: boolean;
     accessRole: string;
   }>> {
-  const context = await getGoogleCalendarRequestContext(salonId, options);
+  const context = await getGoogleCalendarListingContext(salonId, options);
   if (!context) {
     return [];
   }
@@ -1161,7 +1193,7 @@ export async function listGoogleCalendarEventsForSalon(args: GoogleCalendarEvent
       requestTimeoutMs: options.requestTimeoutMs,
       signal: controller.signal,
     };
-    const context = await getGoogleCalendarRequestContext(args.salonId, requestOptions);
+    const context = await getGoogleCalendarListingContext(args.salonId, requestOptions);
     if (!context || context.connectionType !== 'oauth') {
       return [];
     }
