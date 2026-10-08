@@ -32,6 +32,13 @@ for (const { screen, ready } of screenCases) {
       const back = await page.getByRole('button', { name: 'Back', exact: true }).boundingBox();
 
       expect(back?.height).toBeGreaterThanOrEqual(44);
+
+      if (screen === 'calendar') {
+        const canvas = await page.locator('main').boundingBox();
+        const add = await page.getByRole('button', { name: 'Add new appointment' }).boundingBox();
+
+        expect(add!.x + add!.width).toBeLessThanOrEqual(canvas!.x + canvas!.width);
+      }
     }
   });
 }

@@ -19,7 +19,7 @@ export function CoreTabsReview() {
   const close = () => setClosed(true);
   return (
     <SalonProvider>
-      <main className="owner-workspace-theme owner-theme-scope mx-auto min-h-screen max-w-2xl bg-[var(--owner-ground)]">
+      <main className={`owner-workspace-theme owner-theme-scope mx-auto min-h-screen bg-[var(--owner-ground)] ${screen === 'calendar' ? 'max-w-5xl' : 'max-w-2xl'}`}>
         <p className="px-4 py-2 text-center text-xs text-[var(--owner-muted)]">Isolated component review · synthetic data</p>
         {closed
           ? (
