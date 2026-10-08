@@ -2,8 +2,9 @@
 
 Part of the approved dashboard/onboarding visual brief, October 7, 2026.
 Started from current main `c1334f1c` in the separate `codex/owner-form-polish`
-worktree while PR375's required checks run. Finish PR375's release and integrate
-its main result before releasing this follow-up.
+worktree. PR375 subsequently passed every required gate and merged at
+`7eb2045d`; that main result is integrated here at `cd24884d` without conflicts.
+Its production deployment is READY on lustergel.app with matching live health.
 
 ## Scope and evidence
 
@@ -54,6 +55,10 @@ responses. It rejects external requests; no API write reaches a server.
 - Block editing, cancel, remove confirmation recovery and failed-save retention.
 - Existing Service, Client, Calendar Block and owner-token unit coverage.
 - Hosted CI includes this browser suite; normal lint/typecheck hooks remain.
+
+After the current-main integration: 112 focused unit checks, 36 owner-form
+browser cases and 22 core-tab browser regressions all pass. Hosted checks and
+an exact-head Preview remain separate release gates for this follow-up.
 
 Before/after screenshots and release results are kept in the dated companion
 folder `/Users/me/Documents/Codex/2026-10-07/owner-form-polish`. Baselines are in
