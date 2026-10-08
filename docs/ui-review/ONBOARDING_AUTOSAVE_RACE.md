@@ -47,3 +47,14 @@ files found. The changed-test selector now matches root Vitest ownership;
 the required component job still runs the complete onboarding package suite.
 Node test regressions cover root/sibling/mixed/prototype selections and assert
 that the package suite and selector regressions remain in required CI.
+
+## Browser measurement precision
+
+CI37755496364 then passed the application job and onboarding stages but stopped
+on an existing account leave-guard geometry assertion at 430px Chromium:
+43.99998474121094 was compared directly to 44. The buttons already have a 44px
+CSS minimum. Owner-secondary button assertions now independently require the
+existing CSS minimum and the rendered height at 0.001px precision. The 44px and
+48px requirements, functional checks and retry count are unchanged. This also
+addresses the same previously recorded 47.99993896484375 payment-button case.
+No application styles or behavior changed for this correction.
