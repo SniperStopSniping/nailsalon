@@ -151,22 +151,24 @@
   .owner-theme-scope,
   .onboarding-integration-owner,
   .onboarding-integration-loading {
-    --owner-ground: #f8f2ed;
-    --owner-surface: #fffdfb;
+    --owner-ground: #fcf3f2;
+    --owner-surface: #fffcfa;
+    --owner-surface-soft: #fbf0f1;
     --owner-blush: #f6e7ec;
-    --owner-ink: #30262a;
-    --owner-muted: #706267;
-    --owner-line: #dfd1d4;
+    --owner-ink: #3b192b;
+    --owner-muted: #75656b;
+    --owner-line: #ead7de;
     --owner-line-strong: #d8c1c8;
     --owner-accent: #8f3155;
     --owner-accent-strong: #70213f;
     /* Legacy alias: onboarding-integration.css consumers spell it "dark". */
     --owner-accent-dark: #70213f;
-    --owner-focus: #b85075;
+    --owner-focus: #8f3155;
+    --owner-champagne: #b89575;
 
-    --owner-radius-card: 20px;
-    --owner-radius-sheet: 24px;
-    --owner-shadow-card: 0 10px 30px rgb(76 29 46 / 6%);
+    --owner-radius-card: 26px;
+    --owner-radius-sheet: 28px;
+    --owner-shadow-card: 0 8px 26px rgb(96 41 58 / 4%), 0 2px 5px rgb(96 41 58 / 1%);
 
     /* Faces are loaded by next/font in src/app/[locale]/admin/layout.tsx and
        in the onboarding stylesheet bundle; both fall back to the platform
@@ -388,7 +390,129 @@
 .owner-title {
   font-family: var(--owner-font-display);
   font-optical-sizing: auto;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.035em;
+}
+
+/* Owner product chrome. Customer booking and preview content retain their own
+   theme. These opt-in classes also work inside portalled owner dialogs. */
+.owner-card {
+  border: 1px solid var(--owner-line);
+  border-radius: var(--owner-radius-card);
+  background: var(--owner-surface);
+  box-shadow: var(--owner-shadow-card);
+}
+.owner-section-title {
+  color: var(--owner-ink);
+  font-family: var(--owner-font-display);
+  font-size: 25px;
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+.owner-action {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid var(--owner-line);
+  border-radius: 999px;
+  padding: 12px 16px;
+  background: var(--owner-surface);
+  color: var(--owner-accent);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.owner-action:hover { background: var(--owner-blush); }
+.owner-action:focus-visible {
+  outline: 3px solid var(--owner-focus);
+  outline-offset: 3px;
+}
+.owner-action--primary {
+  border-color: var(--owner-accent);
+  background: var(--owner-accent);
+  color: white;
+  box-shadow: 0 5px 12px rgb(143 49 85 / 10%);
+}
+.owner-action--primary:hover {
+  border-color: var(--owner-accent-strong);
+  background: var(--owner-accent-strong);
+}
+.owner-action svg { flex-shrink: 0; stroke-width: 1.7; }
+.owner-action--shortcut {
+  min-height: 72px;
+  flex-direction: column;
+  gap: 7px;
+  border-radius: 20px;
+  padding: 12px 8px;
+  font-size: 13px;
+}
+.owner-action--shortcut span { white-space: nowrap; }
+.owner-workspace-header {
+  max-width: 672px;
+  margin-inline: auto;
+  padding: 24px 20px 8px;
+}
+.owner-workspace-header__title {
+  font-size: clamp(34px, 8vw, 40px);
+  font-weight: 400;
+  line-height: 1.08;
+}
+.owner-workspace-header > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+.owner-workspace-header__subtitle {
+  color: var(--owner-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.owner-today-highlight {
+  padding: 22px 20px 20px;
+  background: var(--owner-surface-soft);
+  color: var(--owner-ink);
+  border-bottom: 1px solid var(--owner-line);
+}
+.owner-today-highlight__eyebrow {
+  color: var(--owner-accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.owner-today-highlight__name {
+  margin-top: 8px;
+  font-family: var(--owner-font-display);
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+.owner-revenue-amount {
+  margin-top: 8px;
+  color: var(--owner-ink);
+  font-family: var(--owner-font-display);
+  font-size: 40px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .owner-modal-header--long {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    row-gap: 8px;
+  }
+  .owner-modal-header--long .owner-modal-header__back { grid-column: 1; grid-row: 1; max-width: 100%; }
+  .owner-modal-header--long .owner-modal-header__action { grid-column: 2; grid-row: 1; max-width: 100%; }
+  .owner-modal-header--long .owner-modal-header__title { grid-column: 1 / -1; grid-row: 2; }
+  .owner-modal-header--long .owner-modal-header__title > span { text-align: left; }
 }
 
 /* ==========================================================================

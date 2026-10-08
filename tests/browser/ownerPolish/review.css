@@ -1,0 +1,18 @@
+@font-face {
+  font-family: 'Newsreader';
+  src: url('../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/fonts/newsreader-latin.woff2')
+    format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/fonts/inter-latin.woff2')
+    format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+:root {
+  --font-owner-display: Newsreader;
+  --font-owner-sans: Inter;
+}

@@ -29,13 +29,14 @@ vi.mock('framer-motion', async () => {
 
 /**
  * A real service called "Gel Manicure + Gel Pedicure" wrapped this header's
- * title onto a second line, which overflowed the fixed 52px row and printed
- * through the Back control next to it.
+ * title onto a second line, which overflowed a fixed-height row. The current
+ * layout gives long mobile titles their own row and lets the header grow.
+ * Browser coverage verifies actual non-overlap at 320px.
  */
 const LONG_TITLE = 'Gel Manicure + Gel Pedicure';
 
 describe('ModalHeader long titles', () => {
-  it('keeps a long title on one truncated line instead of wrapping into the actions', () => {
+  it('lets a long title wrap in a growing header with a separate mobile row', () => {
     render(
       <ModalHeader
         title={LONG_TITLE}
@@ -46,10 +47,17 @@ describe('ModalHeader long titles', () => {
 
     const title = screen.getByText(LONG_TITLE);
 
-    expect(title).toHaveClass('truncate');
-    // Truncation only works if the flex item is allowed to shrink below its
-    // content width; without this the title grows and overlaps the actions.
+    expect(title).toHaveClass('break-words');
+    expect(title).not.toHaveClass('truncate');
     expect(title.parentElement).toHaveClass('min-w-0');
+    expect(title.parentElement?.parentElement).toHaveClass('owner-modal-header--long', 'min-h-16');
+    expect(title.parentElement?.parentElement).not.toHaveClass('h-[52px]');
+  });
+
+  it('keeps short titles in the compact action row', () => {
+    render(<ModalHeader title="Services" />);
+
+    expect(screen.getByText('Services').parentElement?.parentElement).not.toHaveClass('owner-modal-header--long');
   });
 
   it('never lets the side actions be squeezed by the title', () => {

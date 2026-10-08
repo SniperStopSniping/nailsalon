@@ -22,7 +22,7 @@ export function OwnerWorkspaceNav({
   return (
     <nav
       aria-label="Owner workspace"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-rose-100 bg-white/95 shadow-[0_-8px_30px_rgba(76,29,46,0.06)] backdrop-blur-xl"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--owner-line)] bg-[var(--owner-surface)] shadow-[0_-4px_24px_rgba(96,41,58,0.04)]"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       {/*
@@ -36,7 +36,7 @@ export function OwnerWorkspaceNav({
         role="tablist"
         aria-label="Owner workspace sections"
         aria-orientation="horizontal"
-        className="mx-auto grid max-w-2xl grid-cols-5 px-2 pt-2"
+        className="mx-auto grid max-w-2xl grid-cols-5 gap-1 px-3 py-2"
       >
         {ITEMS.map((item, index) => {
           const Icon = item.icon;
@@ -66,13 +66,13 @@ export function OwnerWorkspaceNav({
                   .querySelector<HTMLButtonElement>(`[data-testid="owner-nav-${next.id}"]`)
                   ?.focus();
               }}
-              className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[12px] font-medium leading-tight outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${
+              className={`flex min-h-14 flex-col items-center justify-center gap-1.5 rounded-2xl px-0.5 text-[12px] font-medium leading-tight outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${
                 selected
                   ? 'bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent,#8f3155)]'
                   : 'text-[var(--owner-muted,#706267)]'
               }`}
             >
-              <Icon size={21} strokeWidth={selected ? 2.6 : 2} />
+              <Icon size={21} strokeWidth={selected ? 2 : 1.65} aria-hidden="true" />
               {item.label}
             </button>
           );
