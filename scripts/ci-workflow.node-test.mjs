@@ -52,8 +52,13 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
   const statement = step.run.match(/case "\$dependency_manifest_blob:\$dependency_lock_blob" in[\s\S]*?esac/)?.[0];
   assert.ok(statement);
   const reviewed = [...statement.matchAll(/([a-f0-9]{40}):([a-f0-9]{40})\) ;;/g)].map(match => [match[1], match[2]]);
-  const monitoringPair = ['2d308eb94fc47228b1f8cefb95e5109674a6c7b6', '16a00768b1248501e221a5af2350d2a49a27d3d4'];
-  assert.ok(reviewed.some(([manifest, lock]) => manifest === monitoringPair[0] && lock === monitoringPair[1]));
+  const monitoringPairs = [
+    ['2d308eb94fc47228b1f8cefb95e5109674a6c7b6', '16a00768b1248501e221a5af2350d2a49a27d3d4'],
+    ['81033b57a45e03fa3fb84b35435d5c511c945dc6', '9c7d5702e010a55e897258fee728c517b20d0593'],
+  ];
+  for (const pair of monitoringPairs) {
+    assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
+  }
   const run = (manifest, lock) => spawnSync('bash', ['-eu', '-c', statement], {
     env: { dependency_manifest_blob: manifest, dependency_lock_blob: lock },
   }).status;

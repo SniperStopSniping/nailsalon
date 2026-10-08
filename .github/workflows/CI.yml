@@ -284,6 +284,8 @@ jobs:
               # Node 24 monitoring compatibility: Sentry 8.55.2, its resolved
               # dependency graph and the native regression command only.
               2d308eb94fc47228b1f8cefb95e5109674a6c7b6:16a00768b1248501e221a5af2350d2a49a27d3d4) ;;
+              # Same reviewed graph after main's 1.142.4 release-version bump.
+              81033b57a45e03fa3fb84b35435d5c511c945dc6:9c7d5702e010a55e897258fee728c517b20d0593) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
