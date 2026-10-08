@@ -1,3 +1,11 @@
+## [1.142.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.1...v1.142.2) (2026-10-08)
+
+
+### Bug Fixes
+
+* **calendar:** preserve newer connection state after stale sync ([c393d6e](https://github.com/SniperStopSniping/nailsalon/commit/c393d6ea3e6ca8343771bf273c5aae52ed3292e1))
+* **calendar:** scope scheduled retry guidance to enabled sync ([fa22379](https://github.com/SniperStopSniping/nailsalon/commit/fa22379c11ef68cc9cd32b72e8e77394d0ac5ddf))
+
 ## [1.142.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.0...v1.142.1) (2026-10-08)
 
 
