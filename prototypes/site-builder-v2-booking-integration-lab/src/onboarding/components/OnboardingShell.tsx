@@ -14,6 +14,7 @@ import {
   type OnboardingAutosaveState,
 } from './AutosaveStatus';
 import { EssentialsCounter } from './EssentialsCounter';
+import { OnboardingBrandMark } from './OnboardingBrandMark';
 import { getRailStepLabel, OnboardingStageProgress } from './OnboardingStageProgress';
 import { useOnboardingKeyboard } from './useOnboardingKeyboard';
 
@@ -165,7 +166,7 @@ export function OnboardingShell({
     <div ref={shellRef} className="onboarding-shell" data-keyboard-open={keyboardOpen} data-onboarding-stage={currentStage}>
       <header className="onboarding-shell__header">
         <a aria-label="Luster onboarding" className="onboarding-shell__brand" href={`#${contentId}`}>
-          <span aria-hidden="true">L</span>
+          <OnboardingBrandMark />
           <strong>Luster</strong>
         </a>
         <p aria-live="polite" className="onboarding-shell__current-stage">

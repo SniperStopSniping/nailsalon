@@ -15,6 +15,7 @@ import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboa
 import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/feedback/feedback.css';
 import '@/features/onboarding-v1-integration/onboarding-integration.css';
 import '@/features/onboarding-v1-integration/account-gate/account-gate.css';
+import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/owner-chrome-polish.css';
 
 import { enUS, frFR } from '@clerk/localizations';
 import { ClerkProvider } from '@clerk/nextjs';

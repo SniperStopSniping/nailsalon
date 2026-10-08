@@ -11,6 +11,7 @@ import './onboarding/screen-seven-booking.css';
 import './onboarding/screen-eight-about.css';
 import './onboarding/booking-layout-screen.css';
 import './onboarding/feedback/feedback.css';
+import './onboarding/owner-chrome-polish.css';
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
