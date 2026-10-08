@@ -124,6 +124,7 @@ beforeEach(async () => {
     providerPaths.push(url.pathname);
 
     expect(init.method ?? 'GET').toBe('GET');
+    expect(new Headers(init.headers).get('authorization')).toBe('Bearer synthetic-access');
 
     if (url.pathname === '/calendar/v3/users/me/calendarList') {
       return Response.json({ items: [{ id: CALENDAR_ID, summary: 'Synthetic calendar', accessRole: 'owner' }] });
