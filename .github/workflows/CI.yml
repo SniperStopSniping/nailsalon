@@ -1217,6 +1217,9 @@ jobs:
       - name: Verify owner forms and error recovery in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerForms/playwright.config.ts --output=test-results/owner-forms-components
 
+      - name: Verify Portfolio controls and failure recovery in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerPortfolio/playwright.config.ts --output=test-results/owner-portfolio-components
+
       - name: Verify owner settings and payment presentation in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerSecondary/playwright.config.ts --output=test-results/owner-secondary-components
 

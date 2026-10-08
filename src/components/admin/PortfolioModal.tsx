@@ -117,6 +117,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [photoPendingDeletion, setPhotoPendingDeletion] = useState<PortfolioPhoto | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const photoDeleteInFlightRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -152,6 +153,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
   }, [load]);
 
   const toggleSelected = useCallback((photoId: string) => {
+    setActionError(current => current?.source === 'library' ? null : current);
     setSelected((current) => {
       const next = new Set(current);
 
@@ -172,6 +174,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
       }
 
       setBusy(true);
+      setActionError(null);
 
       try {
         const response = await fetch('/api/admin/portfolio', {
@@ -192,6 +195,8 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
 
         setSelected(new Set());
         await load();
+      } catch {
+        setActionError({ message: 'Could not confirm the update. Check your connection and try again.', source: 'library' });
       } finally {
         setBusy(false);
       }
@@ -207,14 +212,27 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
 
       photoDeleteInFlightRef.current = true;
       setBusy(true);
+      setDeleteError(null);
 
       try {
-        await fetch(
+        const response = await fetch(
           `/api/admin/portfolio/${encodeURIComponent(photoId)}?salonSlug=${encodeURIComponent(salonSlug)}`,
           { method: 'DELETE' },
         );
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null) as PortfolioResponse | null;
+          setDeleteError(payload?.error?.message ?? 'Could not delete this photo. Please try again.');
+          return;
+        }
+        setSelected((current) => {
+          const next = new Set(current);
+          next.delete(photoId);
+          return next;
+        });
         await load();
         setPhotoPendingDeletion(null);
+      } catch {
+        setDeleteError('Could not confirm the deletion. Check your connection and try again.');
       } finally {
         photoDeleteInFlightRef.current = false;
         setBusy(false);
@@ -289,14 +307,14 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
   );
 
   return (
-    <div className="flex h-full flex-col bg-[var(--owner-ground)]">
+    <div className="mx-auto flex size-full max-w-4xl flex-col bg-[var(--owner-ground)]">
       <ModalHeader
         title="Portfolio"
         subtitle={data ? usageLabel(data.usage) : undefined}
         leftAction={<BackButton onClick={onClose} />}
       />
 
-      <div className="flex-1 overflow-y-auto px-4 pb-24 pt-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-4">
         {loading && (
           <div className="flex items-center justify-center py-16 text-[var(--owner-muted)]">
             <Loader2 className="size-5 animate-spin" aria-hidden="true" />
@@ -305,22 +323,12 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
         )}
 
         {loadError && (
-          <InlineFeedback
-            tone="error"
-            message={loadError}
-            className="mb-4"
-            data-testid="portfolio-load-error"
-          />
-        )}
-
-        {actionError?.source === 'library' && (
-          <InlineFeedback
-            tone="error"
-            message={actionError.message}
-            className="mb-4"
-            data-testid="portfolio-action-error"
-            onDismiss={() => setActionError(null)}
-          />
+          <div className="mb-4 space-y-3">
+            <InlineFeedback tone="error" message={loadError} data-testid="portfolio-load-error" />
+            <button type="button" className="owner-action" disabled={loading} onClick={() => void load()}>
+              Retry loading portfolio
+            </button>
+          </div>
         )}
 
         {data && !loading && (
@@ -335,7 +343,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                   <p className="font-medium">
                     You have more photos than your current plan allows.
                   </p>
-                  <p className="mt-1 text-[13px]">
+                  <p className="mt-1 text-sm">
                     Nothing has been deleted. The first
                     {' '}
                     {data.usage.max}
@@ -360,17 +368,17 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
               </div>
             )}
 
-            <section className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
-              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+            <section className="owner-card mb-4 p-5">
+              <h3 className="text-sm font-semibold text-[var(--owner-muted)]">
                 Add photos
               </h3>
 
-              <label className="mt-3 flex items-start gap-3 text-[15px] text-gray-800">
+              <label className="mt-3 flex min-h-11 items-start gap-3 text-base leading-relaxed text-[var(--owner-ink)]">
                 <input
                   type="checkbox"
                   checked={rightsConfirmed}
                   onChange={event => setRightsConfirmed(event.target.checked)}
-                  className="mt-1 size-4"
+                  className="mt-1.5 size-4 shrink-0 accent-[var(--owner-accent)]"
                 />
                 <span>
                   I confirm I have permission to publicly display this image.
@@ -394,7 +402,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                 type="button"
                 disabled={!rightsConfirmed || uploading || atLimit}
                 onClick={() => fileInputRef.current?.click()}
-                className="mt-3 flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-[15px] text-white disabled:opacity-40"
+                className="owner-action owner-action--primary mt-4 w-full gap-2 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
               >
                 {uploading
                   ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -403,7 +411,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
               </button>
 
               {!rightsConfirmed && (
-                <p className="mt-2 text-[13px] text-[var(--owner-muted)]">
+                <p className="mt-3 text-sm leading-relaxed text-[var(--owner-muted)]">
                   Confirm the permission above to add photos.
                 </p>
               )}
@@ -424,8 +432,8 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
               )}
             </section>
 
-            <section className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
-              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+            <section className="owner-card mb-4 p-5">
+              <h3 className="text-sm font-semibold text-[var(--owner-muted)]">
                 Discover readiness
               </h3>
               <p className="mt-2 text-[15px] text-[var(--owner-ink)]">
@@ -435,7 +443,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                 {' '}
                 ready for Discover.
               </p>
-              <ul className="mt-2 space-y-1 text-[13px] text-[var(--owner-muted)]">
+              <ul className="mt-3 space-y-1 text-sm leading-relaxed text-[var(--owner-muted)]">
                 {data.readiness.missingServiceFamily > 0 && (
                   <li>
                     {data.readiness.missingServiceFamily}
@@ -470,13 +478,22 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
             {selected.size > 0 && (
               <section
                 aria-label="Batch tagging"
-                className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4"
+                className="owner-card mb-4 p-5"
               >
                 <p className="text-[15px] font-medium text-[var(--owner-ink)]">
                   {selected.size}
                   {' '}
                   selected
                 </p>
+                {actionError?.source === 'library' && (
+                  <InlineFeedback
+                    tone="error"
+                    message={actionError.message}
+                    className="mt-3"
+                    data-testid="portfolio-action-error"
+                    onDismiss={() => setActionError(null)}
+                  />
+                )}
 
                 <div className="mt-3 flex flex-wrap gap-2">
                   {ASSIGNABLE_DISCOVER_SERVICE_FAMILIES.map(family => (
@@ -485,7 +502,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                       type="button"
                       disabled={busy || !data.bookableFamilies.includes(family)}
                       onClick={() => void applyBatch({ serviceFamily: family })}
-                      className="rounded-full border border-gray-300 px-3 py-1.5 text-[13px] disabled:opacity-40"
+                      className="owner-action disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {discoverServiceFamilyLabel(family)}
                     </button>
@@ -499,19 +516,19 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                       type="button"
                       disabled={busy}
                       onClick={() => void applyBatch({ nailLength: length })}
-                      className="rounded-full border border-gray-300 px-3 py-1.5 text-[13px] disabled:opacity-40"
+                      className="owner-action disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {discoverNailLengthLabel(length)}
                     </button>
                   ))}
                 </div>
 
-                <div className="mt-3 flex gap-2">
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => void applyBatch({ discoverIncluded: true })}
-                    className="rounded-full bg-gray-900 px-3 py-1.5 text-[13px] text-white disabled:opacity-40"
+                    className="owner-action owner-action--primary disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Show in Discover
                   </button>
@@ -519,7 +536,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                     type="button"
                     disabled={busy}
                     onClick={() => void applyBatch({ discoverIncluded: false })}
-                    className="rounded-full border border-gray-300 px-3 py-1.5 text-[13px] disabled:opacity-40"
+                    className="owner-action disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Hide from Discover
                   </button>
@@ -531,7 +548,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
               ? (
                   <div className="rounded-2xl border border-dashed border-gray-300 bg-[var(--owner-surface)] px-6 py-12 text-center">
                     <ImagePlus className="mx-auto size-8 text-[var(--owner-muted)]" aria-hidden="true" />
-                    <p className="mt-3 text-[17px] font-medium text-[var(--owner-ink)]">
+                    <p className="owner-title mt-3 text-[28px] text-[var(--owner-ink)]">
                       Add your first photos
                     </p>
                     <p className="mt-1 text-[15px] text-[var(--owner-muted)]">
@@ -553,8 +570,8 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                             aria-label={photo.altText ?? 'Portfolio photo'}
                             onClick={() => toggleSelected(photo.id)}
                             className={`
-                              block w-full overflow-hidden rounded-2xl border-2 bg-[var(--owner-surface)]
-                              ${isSelected ? 'border-gray-900' : 'border-transparent'}
+                              block w-full overflow-hidden rounded-2xl border-2 bg-[var(--owner-surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--owner-focus)]
+                              ${isSelected ? 'border-[var(--owner-accent)]' : 'border-transparent'}
                             `}
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element -- admin-only
@@ -571,26 +588,29 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                           </button>
 
                           {isSelected && (
-                            <span className="absolute left-2 top-2 rounded-full bg-gray-900 p-1 text-white">
+                            <span className="absolute left-2 top-2 rounded-full bg-[var(--owner-accent)] p-1.5 text-white">
                               <Check className="size-3" aria-hidden="true" />
                             </span>
                           )}
 
                           {photo.eligibility?.retainedOverAllowance && (
-                            <span className="absolute right-2 top-2 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-medium text-white">
+                            <span className="absolute right-2 top-2 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900">
                               Over plan
                             </span>
                           )}
 
-                          <div className="mt-1 flex items-center justify-between px-1">
-                            <span className="text-[12px] text-[var(--owner-muted)]">
+                          <div className="mt-2 flex items-center justify-between gap-2 px-1">
+                            <span className="text-sm text-[var(--owner-muted)]">
                               {discoverServiceFamilyLabel(photo.serviceFamily)}
                             </span>
                             <button
                               type="button"
                               aria-label={`Delete ${photo.altText || 'portfolio photo'}`}
                               disabled={busy}
-                              onClick={() => setPhotoPendingDeletion(photo)}
+                              onClick={() => {
+                                setDeleteError(null);
+                                setPhotoPendingDeletion(photo);
+                              }}
                               className="flex size-11 items-center justify-center rounded-lg text-[var(--owner-muted)] hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-40"
                             >
                               <Trash2 className="size-4" aria-hidden="true" />
@@ -613,13 +633,18 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
         confirmLabel="Delete photo"
         tone="danger"
         busy={busy}
-        onClose={() => setPhotoPendingDeletion(null)}
+        onClose={() => {
+          setDeleteError(null);
+          setPhotoPendingDeletion(null);
+        }}
         onConfirm={() => {
           if (photoPendingDeletion) {
             void removePhoto(photoPendingDeletion.id);
           }
         }}
-      />
+      >
+        {deleteError && <InlineFeedback tone="error" message={deleteError} data-testid="portfolio-delete-error" />}
+      </ConfirmDialog>
     </div>
   );
 }
