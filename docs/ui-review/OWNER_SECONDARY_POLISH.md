@@ -1,8 +1,8 @@
 # Owner settings and payment presentation polish
 
 Part of the approved dashboard/onboarding brief. Began from clean main 7eb2045d
-in codex/owner-settings-polish on October 7, 2026 Toronto. Related form PR376
-remains the active delivery path; integrate its released main before this follow-up.
+in codex/owner-settings-polish on October 7, 2026 Toronto. Related form PR376 is merged and live at 7db6e01e. That released main is
+integrated in this follow-up; both forms and settings CI commands are retained.
 
 ## Actual observations and changes
 
@@ -61,7 +61,13 @@ changes were cleared after review.
 
 ## Delivery and remaining acceptance
 
-This follow-up remains local pending PR376 delivery, fresh main integration,
-required hosted CI/Preview and normal protected-main merge. Real-account,
+After integrating released main 7db6e01e, 253 focused unit checks and 160
+browser cases pass together: 50 secondary, 52 forms, 4 Settings/Plan, 28 Booking
+Page editor, 4 SMS allowance and 22 core-tab cases. Production types and explicit
+source/fixture lint pass; only the two existing fast-refresh warnings remain.
+The only merge conflict was adjacent CI registrations, resolved by retaining
+both suites. No application conflict or production data operation occurred.
+
+This follow-up awaits required hosted CI/Preview and normal protected-main merge. Real-account,
 physical-phone/screenreader and controlled provider acceptance remain separately
 recorded in the master audit companion. AI voice stays deferred.

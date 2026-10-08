@@ -85,7 +85,7 @@ export function ServiceAddOnSummary({
         type="button"
         variant={hasAny ? 'ownerSecondary' : 'ownerPrimary'}
         size="pillSm"
-        className="mt-3"
+        className="mt-3 min-h-11"
         data-testid={`${testId}-manage`}
         disabled={disabled || busy}
         onClick={onManage}

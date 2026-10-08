@@ -29,7 +29,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { CatalogConfigTab } from '@/components/admin/catalogConfig/CatalogConfigTab';
@@ -583,6 +583,7 @@ function AddServiceDialog({
     options?: { imageOperationError?: ServiceImageError },
   ) => void;
 }) {
+  const formId = useId();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [priceDisplayText, setPriceDisplayText] = useState('');
@@ -1184,414 +1185,419 @@ function AddServiceDialog({
       }}
       closeOnBackdrop={!saving}
       closeOnEscape={!saving}
-      maxWidthClassName="max-w-md"
-      contentClassName="max-h-[90dvh] overflow-y-auto rounded-3xl bg-[var(--owner-surface)] p-6 shadow-2xl"
-      alignClassName="items-end justify-center p-4 sm:items-center"
+      maxWidthClassName="max-w-lg"
+      contentClassName="owner-card flex max-h-[calc(100dvh-1.5rem)] min-h-0 flex-col overflow-hidden sm:max-h-[calc(100dvh-2.5rem)]"
+      alignClassName="items-end justify-center p-3 sm:items-center sm:p-5"
     >
-      <div className="space-y-4" aria-busy={saving}>
-        <div>
-          <h2 className="text-xl font-semibold text-[var(--owner-ink)]">
+      <div role="dialog" aria-modal="true" aria-labelledby={`${formId}-title`} aria-describedby={`${formId}-description`} className="flex min-h-0 flex-col" aria-busy={saving}>
+        <div className="shrink-0 border-b border-[var(--owner-line)] p-5">
+          <h2 id={`${formId}-title`} className="owner-title text-[28px] font-normal leading-tight text-[var(--owner-ink)]">
             {service ? 'Edit Service' : 'Add Service'}
           </h2>
-          <p className="mt-1 text-sm text-[var(--owner-muted)]">
+          <p id={`${formId}-description`} className="mt-2 text-[15px] leading-relaxed text-[var(--owner-muted)]">
             {service
               ? 'Update what clients see and how much calendar time this service reserves.'
               : 'Create a new bookable service for this salon.'}
           </p>
         </div>
 
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-            Name
-          </span>
-          <input
-            type="text"
-            value={name}
-            disabled={saving}
-            onChange={(event) => {
-              setName(event.target.value);
-              onDraftNameChange(event.target.value);
-            }}
-            placeholder="BIAB Short"
-            className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-          />
-        </label>
-
-        <div className="grid grid-cols-2 gap-3">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-5" data-testid="service-form-body">
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-              Price
+              Name
             </span>
             <input
-              type="number"
-              min="0"
-              step="0.01"
-              inputMode="decimal"
-              value={price}
+              type="text"
+              value={name}
               disabled={saving}
-              onChange={event => setPrice(event.target.value)}
-              placeholder="65"
-              className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
+              onChange={(event) => {
+                setName(event.target.value);
+                onDraftNameChange(event.target.value);
+              }}
+              placeholder="BIAB Short"
+              className="owner-form-field"
             />
           </label>
 
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                Price
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={price}
+                disabled={saving}
+                onChange={event => setPrice(event.target.value)}
+                placeholder="65"
+                className="owner-form-field"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                Duration
+              </span>
+              <input
+                type="number"
+                min="5"
+                step="5"
+                inputMode="numeric"
+                value={durationMinutes}
+                disabled={saving}
+                onChange={event => setDurationMinutes(event.target.value)}
+                placeholder="75"
+                className="owner-form-field"
+              />
+            </label>
+          </div>
+
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-              Duration
+              Category
             </span>
-            <input
-              type="number"
-              min="5"
-              step="5"
-              inputMode="numeric"
-              value={durationMinutes}
+            <select
+              data-testid="service-category"
+              value={category}
               disabled={saving}
-              onChange={event => setDurationMinutes(event.target.value)}
-              placeholder="75"
-              className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-            />
-          </label>
-        </div>
-
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-            Category
-          </span>
-          <select
-            data-testid="service-category"
-            value={category}
-            disabled={saving}
-            onChange={(event) => {
-              const nextCategory = event.target.value as ServiceCategory;
-              setCategory(nextCategory);
-              if (!bookingCategoryTouched) {
-                setBookingCategory(deriveBookingCategory(nextCategory));
-              }
-            }}
-            className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-          >
-            <option value="manicure">Manicure</option>
-            <option value="builder_gel">Builder Gel</option>
-            <option value="extensions">Extensions</option>
-            <option value="pedicure">Pedicure</option>
-            <option value="combo">Combo</option>
-            <option value="hands">Hands</option>
-            <option value="feet">Feet</option>
-          </select>
-          {/* The old copy claimed hands/feet services are hidden from the
+              onChange={(event) => {
+                const nextCategory = event.target.value as ServiceCategory;
+                setCategory(nextCategory);
+                if (!bookingCategoryTouched) {
+                  setBookingCategory(deriveBookingCategory(nextCategory));
+                }
+              }}
+              className="owner-form-field"
+            >
+              <option value="manicure">Manicure</option>
+              <option value="builder_gel">Builder Gel</option>
+              <option value="extensions">Extensions</option>
+              <option value="pedicure">Pedicure</option>
+              <option value="combo">Combo</option>
+              <option value="hands">Hands</option>
+              <option value="feet">Feet</option>
+            </select>
+            {/* The old copy claimed hands/feet services are hidden from the
               booking page. They are not: public visibility is decided by the
               Booking page section below plus technician assignment, and
               category-'hands' services sit on live menus today
               (AG-w2-services-06). */}
-          {['hands', 'feet'].includes(category) && (
-            <span
-              data-testid="service-category-internal-note"
-              className="mt-1.5 block text-xs text-[var(--owner-muted)]"
-            >
-              Clients never see this label. Choose where they find the service
-              under “Booking page section” below.
+            {['hands', 'feet'].includes(category) && (
+              <span
+                data-testid="service-category-internal-note"
+                className="mt-1.5 block text-xs text-[var(--owner-muted)]"
+              >
+                Clients never see this label. Choose where they find the service
+                under “Booking page section” below.
+              </span>
+            )}
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+              Booking page section
             </span>
-          )}
-        </label>
+            <select
+              data-testid="service-booking-category"
+              value={bookingCategory}
+              disabled={saving}
+              onChange={(event) => {
+                setBookingCategory(event.target.value as BookingCategory);
+                setBookingCategoryTouched(true);
+              }}
+              className="owner-form-field"
+            >
+              <option value="manicure">Manicure</option>
+              <option value="pedicure">Pedicure</option>
+              <option value="combo">Combos</option>
+            </select>
+            <span className="mt-1.5 block text-xs text-[var(--owner-muted)]">
+              Which tab clients find this service under on your booking page.
+            </span>
+          </label>
 
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-            Booking page section
-          </span>
-          <select
-            data-testid="service-booking-category"
-            value={bookingCategory}
-            disabled={saving}
-            onChange={(event) => {
-              setBookingCategory(event.target.value as BookingCategory);
-              setBookingCategoryTouched(true);
-            }}
-            className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-          >
-            <option value="manicure">Manicure</option>
-            <option value="pedicure">Pedicure</option>
-            <option value="combo">Combos</option>
-          </select>
-          <span className="mt-1.5 block text-xs text-[var(--owner-muted)]">
-            Which tab clients find this service under on your booking page.
-          </span>
-        </label>
-
-        {/* Add-ons sit directly after the essentials (name, price, duration,
+          {/* Add-ons sit directly after the essentials (name, price, duration,
             category) and before the less-common controls. Never a
             prerequisite: the service saves whether or not any are chosen. */}
-        <ServiceAddOnSummary
-          testId="service-form-addons"
-          assignedNames={addOnSummaryNames}
-          optional
-          busy={addOnSummaryBusy}
-          disabled={saving}
-          onManage={onManageAddOns}
-        />
+          <ServiceAddOnSummary
+            testId="service-form-addons"
+            assignedNames={addOnSummaryNames}
+            optional
+            busy={addOnSummaryBusy}
+            disabled={saving}
+            onManage={onManageAddOns}
+          />
 
-        {/* Everything a nail tech does NOT have to decide to put a service
+          {/* Everything a nail tech does NOT have to decide to put a service
             on their menu. Collapsed while creating so the primary flow is
             name, price, duration, category; open by default while editing,
             where the owner came specifically to change one of these. */}
-        <details
-          className="rounded-2xl border border-[var(--owner-line)] px-3 py-1"
-          data-testid="service-form-advanced"
-          open={Boolean(service)}
-        >
-          <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-[var(--owner-ink)]">
-            Photo, buffers &amp; display options
-          </summary>
-          <div className="space-y-4 border-t border-[var(--owner-line)] py-3">
-            <fieldset
-              className="space-y-3 rounded-2xl border border-[var(--owner-line)] p-3"
-              disabled={saving}
-              aria-describedby={imageError ? 'service-image-error' : 'service-image-help'}
-            >
-              <legend className="px-1 text-sm font-semibold text-[var(--owner-ink)]">
-                Service image
-              </legend>
-              <div className="overflow-hidden rounded-xl border border-[var(--owner-line)] bg-[var(--owner-ground)]">
-                {/* A native img can preview browser blob URLs selected before save. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={previewImageUrl}
-                  alt={
-                    previewIsCustom
-                      ? `Preview of custom image for ${name.trim() || 'this service'}`
-                      : `Built-in booking artwork preview for ${name.trim() || 'this service'}`
-                  }
-                  data-testid="service-image-preview"
-                  className="aspect-[16/9] w-full object-cover"
-                />
-              </div>
-              <p
-                id="service-image-help"
-                className="text-xs leading-5 text-[var(--owner-muted)]"
-              >
-                {previewIsCustom
-                  ? 'Custom image. Replacing or removing it takes effect only when you save.'
-                  : imageIntent === 'remove'
-                    ? 'The custom image will be removed when you update. Built-in booking artwork will remain.'
-                    : 'Built-in booking artwork is shown until you add a custom image.'}
-              </p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                onChange={handleImageSelection}
-                className="sr-only"
-                aria-label="Service image"
-                aria-invalid={Boolean(imageError)}
+          <details
+            className="rounded-2xl border border-[var(--owner-line)] px-3 py-1"
+            data-testid="service-form-advanced"
+            open={Boolean(service)}
+          >
+            <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-[var(--owner-ink)]">
+              Photo, buffers &amp; display options
+            </summary>
+            <div className="space-y-4 border-t border-[var(--owner-line)] py-3">
+              <fieldset
+                className="space-y-3 rounded-2xl border border-[var(--owner-line)] p-3"
+                disabled={saving}
                 aria-describedby={imageError ? 'service-image-error' : 'service-image-help'}
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="brandSoft"
-                  size="pillSm"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={saving}
-                >
-                  <ImagePlus className="mr-2 size-4" />
-                  {hasCurrentCustomImage ? 'Replace image' : 'Add image'}
-                </Button>
-                {imageIntent === 'remove'
-                  ? (
-                      <Button
-                        type="button"
-                        variant="brandSoft"
-                        size="pillSm"
-                        onClick={handleUndoImageRemoval}
-                        disabled={saving}
-                      >
-                        Undo removal
-                      </Button>
-                    )
-                  : (
-                      <Button
-                        type="button"
-                        variant="brandSoft"
-                        size="pillSm"
-                        onClick={handleRemoveImage}
-                        disabled={saving || (!stagedImageFile && !hasPersistedCustomImage)}
-                      >
-                        <Trash2 className="mr-2 size-4" />
-                        Remove image
-                      </Button>
-                    )}
-              </div>
-              {imageError && (
+              >
+                <legend className="px-1 text-sm font-semibold text-[var(--owner-ink)]">
+                  Service image
+                </legend>
+                <div className="overflow-hidden rounded-xl border border-[var(--owner-line)] bg-[var(--owner-ground)]">
+                  {/* A native img can preview browser blob URLs selected before save. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={previewImageUrl}
+                    alt={
+                      previewIsCustom
+                        ? `Preview of custom image for ${name.trim() || 'this service'}`
+                        : `Built-in booking artwork preview for ${name.trim() || 'this service'}`
+                    }
+                    data-testid="service-image-preview"
+                    className="aspect-[16/9] w-full object-cover"
+                  />
+                </div>
                 <p
-                  id="service-image-error"
-                  role="alert"
-                  className="text-sm text-red-600"
+                  id="service-image-help"
+                  className="text-xs leading-5 text-[var(--owner-muted)]"
                 >
-                  {imageError}
+                  {previewIsCustom
+                    ? 'Custom image. Replacing or removing it takes effect only when you save.'
+                    : imageIntent === 'remove'
+                      ? 'The custom image will be removed when you update. Built-in booking artwork will remain.'
+                      : 'Built-in booking artwork is shown until you add a custom image.'}
                 </p>
-              )}
-            </fieldset>
-
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-                  Preparation buffer
-                </span>
                 <input
-                  type="number"
-                  min="0"
-                  max="120"
-                  step="5"
-                  inputMode="numeric"
-                  value={preparationBufferMinutes}
-                  disabled={saving}
-                  onChange={event =>
-                    setPreparationBufferMinutes(event.target.value)}
-                  className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                  onChange={handleImageSelection}
+                  className="sr-only"
+                  aria-label="Service image"
+                  aria-invalid={Boolean(imageError)}
+                  aria-describedby={imageError ? 'service-image-error' : 'service-image-help'}
                 />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-                  Cleanup buffer
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  max="120"
-                  step="5"
-                  inputMode="numeric"
-                  value={cleanupBufferMinutes}
-                  disabled={saving}
-                  onChange={event => setCleanupBufferMinutes(event.target.value)}
-                  className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-                />
-              </label>
-              <p className="col-span-2 text-xs leading-5 text-[var(--owner-muted)]">
-                Luster reserves the larger of the salon-wide buffer or these service
-                buffers after the client duration, preventing back-to-back overlap.
-              </p>
-            </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="ownerSecondary"
+                    size="pill"
+                    className="min-h-11"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={saving}
+                  >
+                    <ImagePlus className="mr-2 size-4" />
+                    {hasCurrentCustomImage ? 'Replace image' : 'Add image'}
+                  </Button>
+                  {imageIntent === 'remove'
+                    ? (
+                        <Button
+                          type="button"
+                          variant="ownerSecondary"
+                          size="pill"
+                          className="min-h-11"
+                          onClick={handleUndoImageRemoval}
+                          disabled={saving}
+                        >
+                          Undo removal
+                        </Button>
+                      )
+                    : (
+                        <Button
+                          type="button"
+                          variant="ownerSecondary"
+                          size="pill"
+                          className="min-h-11"
+                          onClick={handleRemoveImage}
+                          disabled={saving || (!stagedImageFile && !hasPersistedCustomImage)}
+                        >
+                          <Trash2 className="mr-2 size-4" />
+                          Remove image
+                        </Button>
+                      )}
+                </div>
+                {imageError && (
+                  <p
+                    id="service-image-error"
+                    role="alert"
+                    className="text-sm text-red-600"
+                  >
+                    {imageError}
+                  </p>
+                )}
+              </fieldset>
 
-            <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
-              <span>
-                <span className="block text-sm font-medium text-[var(--owner-ink)]">
-                  ⭐ Feature this service
-                </span>
-                <span className="block text-xs text-[var(--owner-muted)]">
-                  {isFeatured && service?.featuredOrder != null
-                    ? `Featured — position ${service.featuredOrder}`
-                    : 'Show it in Featured Services on your booking page.'}
-                </span>
-              </span>
-              <input
-                type="checkbox"
-                data-testid="service-featured-toggle"
-                checked={isFeatured}
-                disabled={saving}
-                onChange={event => setIsFeatured(event.target.checked)}
-                className="size-4"
-              />
-            </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                    Preparation buffer
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="120"
+                    step="5"
+                    inputMode="numeric"
+                    value={preparationBufferMinutes}
+                    disabled={saving}
+                    onChange={event =>
+                      setPreparationBufferMinutes(event.target.value)}
+                    className="owner-form-field"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                    Cleanup buffer
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="120"
+                    step="5"
+                    inputMode="numeric"
+                    value={cleanupBufferMinutes}
+                    disabled={saving}
+                    onChange={event => setCleanupBufferMinutes(event.target.value)}
+                    className="owner-form-field"
+                  />
+                </label>
+                <p className="col-span-2 text-xs leading-5 text-[var(--owner-muted)]">
+                  Luster reserves the larger of the salon-wide buffer or these service
+                  buffers after the client duration, preventing back-to-back overlap.
+                </p>
+              </div>
 
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-                Description items
-              </span>
-              <textarea
-                value={description}
-                disabled={saving}
-                onChange={event => setDescription(event.target.value)}
-                rows={3}
-                placeholder={
-                  'One benefit per line\nDry manicure\nDetailed cuticle work'
-                }
-                className="w-full rounded-xl border border-[var(--owner-line)] px-3 py-2 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-                Price display text
-              </span>
-              <input
-                type="text"
-                value={priceDisplayText}
-                disabled={saving}
-                onChange={event => setPriceDisplayText(event.target.value)}
-                placeholder="$70+"
-                className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-              />
-            </label>
-
-            <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
-              <span className="text-sm font-medium text-[var(--owner-ink)]">
-                Intro pricing badge
-              </span>
-              <input
-                type="checkbox"
-                checked={isIntroPrice}
-                disabled={saving}
-                onChange={event => setIsIntroPrice(event.target.checked)}
-                className="size-4"
-              />
-            </label>
-
-            {service && (
               <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
                 <span>
                   <span className="block text-sm font-medium text-[var(--owner-ink)]">
-                    Bookable
+                    ⭐ Feature this service
                   </span>
                   <span className="block text-xs text-[var(--owner-muted)]">
-                    Turn off to hide this service without deleting history.
+                    {isFeatured && service?.featuredOrder != null
+                      ? `Featured — position ${service.featuredOrder}`
+                      : 'Show it in Featured Services on your booking page.'}
                   </span>
                 </span>
                 <input
                   type="checkbox"
-                  checked={isActive}
+                  data-testid="service-featured-toggle"
+                  checked={isFeatured}
                   disabled={saving}
-                  onChange={event => setIsActive(event.target.checked)}
-                  className="size-4"
+                  onChange={event => setIsFeatured(event.target.checked)}
+                  className="size-4 accent-[var(--owner-accent)]"
                 />
               </label>
-            )}
 
-            {isIntroPrice && (
               <label className="block">
                 <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-                  Intro label
+                  Description items
+                </span>
+                <textarea
+                  value={description}
+                  disabled={saving}
+                  onChange={event => setDescription(event.target.value)}
+                  rows={3}
+                  placeholder={
+                    'One benefit per line\nDry manicure\nDetailed cuticle work'
+                  }
+                  className="owner-form-field resize-y"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                  Price display text
                 </span>
                 <input
                   type="text"
-                  value={introPriceLabel}
+                  value={priceDisplayText}
                   disabled={saving}
-                  onChange={event => setIntroPriceLabel(event.target.value)}
-                  placeholder="Founding Client Price"
-                  className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
+                  onChange={event => setPriceDisplayText(event.target.value)}
+                  placeholder="$70+"
+                  className="owner-form-field"
                 />
               </label>
-            )}
-          </div>
-        </details>
 
-        {error && (
-          <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-            {error}
-          </div>
-        )}
+              <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
+                <span className="text-sm font-medium text-[var(--owner-ink)]">
+                  Intro pricing badge
+                </span>
+                <input
+                  type="checkbox"
+                  checked={isIntroPrice}
+                  disabled={saving}
+                  onChange={event => setIsIntroPrice(event.target.checked)}
+                  className="size-4 accent-[var(--owner-accent)]"
+                />
+              </label>
 
-        <p
-          className="sr-only"
-          aria-live="polite"
-          data-testid="service-save-status"
-        >
-          {saveStatus}
-        </p>
+              {service && (
+                <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
+                  <span>
+                    <span className="block text-sm font-medium text-[var(--owner-ink)]">
+                      Bookable
+                    </span>
+                    <span className="block text-xs text-[var(--owner-muted)]">
+                      Turn off to hide this service without deleting history.
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={isActive}
+                    disabled={saving}
+                    onChange={event => setIsActive(event.target.checked)}
+                    className="size-4 accent-[var(--owner-accent)]"
+                  />
+                </label>
+              )}
 
-        <div className="flex justify-end gap-2">
+              {isIntroPrice && (
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                    Intro label
+                  </span>
+                  <input
+                    type="text"
+                    value={introPriceLabel}
+                    disabled={saving}
+                    onChange={event => setIntroPriceLabel(event.target.value)}
+                    placeholder="Founding Client Price"
+                    className="owner-form-field"
+                  />
+                </label>
+              )}
+            </div>
+          </details>
+
+          <p
+            className="sr-only"
+            aria-live="polite"
+            data-testid="service-save-status"
+          >
+            {saveStatus}
+          </p>
+
+        </div>
+        <div className="owner-form-actions">
+          {error && (
+            <div role="alert" className="col-span-2 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          )}
           <Button
             type="button"
-            variant="brandSoft"
-            size="pillSm"
+            variant="ownerSecondary"
+            size="pill"
+            className="h-auto min-h-12 min-w-0 whitespace-normal px-4 py-3 text-[15px]"
             onClick={onClose}
             disabled={saving}
           >
@@ -1599,8 +1605,9 @@ function AddServiceDialog({
           </Button>
           <Button
             type="button"
-            variant="brand"
-            size="pillSm"
+            variant="ownerPrimary"
+            size="pill"
+            className="h-auto min-h-12 min-w-0 whitespace-normal px-4 py-3 text-[15px]"
             onClick={handleSubmit}
             disabled={saving}
           >
@@ -1955,6 +1962,7 @@ function AddOnEditDialog({
   onClose: () => void;
   onSaved: (addOn: AddOnData) => void;
 }) {
+  const formId = useId();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
@@ -2050,157 +2058,159 @@ function AddOnEditDialog({
     <DialogShell
       isOpen
       onClose={onClose}
-      maxWidthClassName="max-w-md"
-      contentClassName="max-h-[90dvh] overflow-y-auto rounded-3xl bg-[var(--owner-surface)] p-6 shadow-2xl"
-      alignClassName="items-end justify-center p-4 sm:items-center"
+      maxWidthClassName="max-w-lg"
+      contentClassName="owner-card flex max-h-[calc(100dvh-1.5rem)] min-h-0 flex-col overflow-hidden sm:max-h-[calc(100dvh-2.5rem)]"
+      alignClassName="items-end justify-center p-3 sm:items-center sm:p-5"
     >
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-xl font-semibold text-[var(--owner-ink)]">Edit Add-on</h2>
-          <p className="mt-1 text-sm text-[var(--owner-muted)]">
+      <div role="dialog" aria-modal="true" aria-labelledby={`${formId}-title`} aria-describedby={`${formId}-description`} className="flex min-h-0 flex-col">
+        <div className="shrink-0 border-b border-[var(--owner-line)] p-5">
+          <h2 id={`${formId}-title`} className="owner-title text-[28px] font-normal leading-tight text-[var(--owner-ink)]">Edit Add-on</h2>
+          <p id={`${formId}-description`} className="mt-2 text-[15px] leading-relaxed text-[var(--owner-muted)]">
             Add-ons appear for clients after they pick a compatible base
             service — they are never listed on their own.
           </p>
         </div>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Name</span>
-          <input
-            type="text"
-            value={name}
-            onChange={event => setName(event.target.value)}
-            className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Description</span>
-          <textarea
-            value={description}
-            rows={2}
-            data-testid="addon-edit-description"
-            onChange={event => setDescription(event.target.value)}
-            placeholder="What the client gets — one line per point."
-            className="w-full rounded-xl border border-[var(--owner-line)] p-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-          />
-        </label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-5">
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Price</span>
+            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Name</span>
             <input
-              type="number"
-              min="0"
-              step="0.01"
-              inputMode="decimal"
-              value={price}
-              onChange={event => setPrice(event.target.value)}
-              className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
+              type="text"
+              value={name}
+              onChange={event => setName(event.target.value)}
+              className="owner-form-field"
             />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Duration (min)</span>
-            <input
-              type="number"
-              min="0"
-              step="5"
-              inputMode="numeric"
-              value={durationMinutes}
-              onChange={event => setDurationMinutes(event.target.value)}
-              className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
+            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Description</span>
+            <textarea
+              value={description}
+              rows={2}
+              data-testid="addon-edit-description"
+              onChange={event => setDescription(event.target.value)}
+              placeholder="What the client gets — one line per point."
+              className="owner-form-field resize-y"
             />
           </label>
-        </div>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Price display text</span>
-          <input
-            type="text"
-            value={priceDisplayText}
-            onChange={event => setPriceDisplayText(event.target.value)}
-            placeholder="$10+"
-            className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-          />
-        </label>
-        {addOn.pricingType === 'per_unit' && (
-          <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-              Quantity limit
-              {addOn.unitLabel ? ` (per ${addOn.unitLabel})` : ''}
-            </span>
-            <input
-              type="number"
-              min="1"
-              inputMode="numeric"
-              value={maxQuantity}
-              onChange={event => setMaxQuantity(event.target.value)}
-              placeholder="10"
-              className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-            />
-          </label>
-        )}
-        <div data-testid="addon-edit-compatibility">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-            Offered with
-          </span>
-          <p className="mb-2 text-xs text-[var(--owner-muted)]">
-            Clients see this add-on only after choosing one of these services.
-          </p>
-          {services.length === 0
-            ? (
-                <p className="rounded-xl border border-[var(--owner-line)] p-3 text-xs text-[var(--owner-muted)]">
-                  Add a service first, then choose where this add-on appears.
-                </p>
-              )
-            : (
-                <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-[var(--owner-line)] p-2">
-                  {services.map(service => (
-                    <label
-                      key={service.id}
-                      className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
-                    >
-                      <span className="min-w-0 truncate text-[13px] text-[var(--owner-ink)]">
-                        {service.name}
-                        {!service.isActive && (
-                          <span className="ml-1 text-[11px] text-[var(--owner-muted)]">(inactive)</span>
-                        )}
-                      </span>
-                      <input
-                        type="checkbox"
-                        className="size-4 shrink-0"
-                        data-testid={`addon-edit-service-${service.id}`}
-                        checked={serviceIds.includes(service.id)}
-                        onChange={(event) => {
-                          setServiceIds(current => (event.target.checked
-                            ? [...current, service.id]
-                            : current.filter(id => id !== service.id)));
-                        }}
-                      />
-                    </label>
-                  ))}
-                </div>
-              )}
-        </div>
-        <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
-          <span>
-            <span className="block text-sm font-medium text-[var(--owner-ink)]">Bookable</span>
-            <span className="block text-xs text-[var(--owner-muted)]">
-              Turn off to hide this add-on without deleting history.
-            </span>
-          </span>
-          <input
-            type="checkbox"
-            checked={isActive}
-            onChange={event => setIsActive(event.target.checked)}
-            className="size-4"
-          />
-        </label>
-        {error && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-            {error}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Price</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={price}
+                onChange={event => setPrice(event.target.value)}
+                className="owner-form-field"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Duration (min)</span>
+              <input
+                type="number"
+                min="0"
+                step="5"
+                inputMode="numeric"
+                value={durationMinutes}
+                onChange={event => setDurationMinutes(event.target.value)}
+                className="owner-form-field"
+              />
+            </label>
           </div>
-        )}
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="brandSoft" size="pillSm" onClick={onClose} disabled={saving}>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Price display text</span>
+            <input
+              type="text"
+              value={priceDisplayText}
+              onChange={event => setPriceDisplayText(event.target.value)}
+              placeholder="$10+"
+              className="owner-form-field"
+            />
+          </label>
+          {addOn.pricingType === 'per_unit' && (
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                Quantity limit
+                {addOn.unitLabel ? ` (per ${addOn.unitLabel})` : ''}
+              </span>
+              <input
+                type="number"
+                min="1"
+                inputMode="numeric"
+                value={maxQuantity}
+                onChange={event => setMaxQuantity(event.target.value)}
+                placeholder="10"
+                className="owner-form-field"
+              />
+            </label>
+          )}
+          <div data-testid="addon-edit-compatibility">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+              Offered with
+            </span>
+            <p className="mb-2 text-xs text-[var(--owner-muted)]">
+              Clients see this add-on only after choosing one of these services.
+            </p>
+            {services.length === 0
+              ? (
+                  <p className="rounded-xl border border-[var(--owner-line)] p-3 text-xs text-[var(--owner-muted)]">
+                    Add a service first, then choose where this add-on appears.
+                  </p>
+                )
+              : (
+                  <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-[var(--owner-line)] p-2">
+                    {services.map(service => (
+                      <label
+                        key={service.id}
+                        className="flex min-h-11 items-center justify-between gap-2 rounded-lg p-2"
+                      >
+                        <span className="min-w-0 truncate text-[13px] text-[var(--owner-ink)]">
+                          {service.name}
+                          {!service.isActive && (
+                            <span className="ml-1 text-[11px] text-[var(--owner-muted)]">(inactive)</span>
+                          )}
+                        </span>
+                        <input
+                          type="checkbox"
+                          className="size-4 shrink-0 accent-[var(--owner-accent)]"
+                          data-testid={`addon-edit-service-${service.id}`}
+                          checked={serviceIds.includes(service.id)}
+                          onChange={(event) => {
+                            setServiceIds(current => (event.target.checked
+                              ? [...current, service.id]
+                              : current.filter(id => id !== service.id)));
+                          }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+          </div>
+          <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
+            <span>
+              <span className="block text-sm font-medium text-[var(--owner-ink)]">Bookable</span>
+              <span className="block text-xs text-[var(--owner-muted)]">
+                Turn off to hide this add-on without deleting history.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={isActive}
+              onChange={event => setIsActive(event.target.checked)}
+              className="size-4 accent-[var(--owner-accent)]"
+            />
+          </label>
+        </div>
+        <div className="owner-form-actions">
+          {error && (
+            <div role="alert" className="col-span-2 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+          <Button type="button" variant="ownerSecondary" size="pill" className="h-auto min-h-12 min-w-0 whitespace-normal px-4 py-3 text-[15px]" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button type="button" variant="brand" size="pillSm" onClick={handleSubmit} disabled={saving}>
+          <Button type="button" variant="ownerPrimary" size="pill" className="h-auto min-h-12 min-w-0 whitespace-normal px-4 py-3 text-[15px]" onClick={handleSubmit} disabled={saving}>
             {saving
               ? (
                   <>
