@@ -188,7 +188,7 @@ function fieldErrorProps(field: AddClientField, errors: FieldErrors) {
 }
 
 const INPUT_CLASS
-  = 'min-h-11 w-full min-w-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-base text-stone-900 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-200 disabled:bg-stone-100';
+  = 'owner-form-field';
 
 /**
  * Records a walk-in or phone client straight into the salon book.
@@ -207,9 +207,20 @@ export function AddClientDialog({
   const [draft, setDraft] = useState<AddClientDraft>(EMPTY_DRAFT);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [errorFocusVersion, setErrorFocusVersion] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const firstFieldRef = useRef<HTMLInputElement | null>(null);
+  const formBodyRef = useRef<HTMLDivElement | null>(null);
+  const errorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (errorFocusVersion === 0) {
+      return;
+    }
+    const invalidField = formBodyRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    (invalidField ?? errorRef.current)?.focus();
+  }, [errorFocusVersion]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -253,6 +264,7 @@ export function AddClientDialog({
     if (Object.keys(errors).length > 0 || !phone) {
       setFieldErrors(errors);
       setFormError('Review the highlighted fields and try again.');
+      setErrorFocusVersion(current => current + 1);
       return;
     }
 
@@ -280,6 +292,7 @@ export function AddClientDialog({
         const nextFieldErrors = apiFieldErrors(payload);
         setFieldErrors(nextFieldErrors);
         setFormError(errorMessage(payload?.error?.code));
+        setErrorFocusVersion(current => current + 1);
         return;
       }
 
@@ -296,6 +309,7 @@ export function AddClientDialog({
       onClose();
     } catch {
       setFormError('We could not add this client. Check your connection and try again. Your entries are still here.');
+      setErrorFocusVersion(current => current + 1);
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -310,7 +324,7 @@ export function AddClientDialog({
       closeOnEscape={!submitting}
       alignClassName="items-end justify-center sm:items-center sm:p-4"
       maxWidthClassName="max-w-lg"
-      contentClassName="flex max-h-[calc(100vh-0.5rem)] min-h-0 flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl supports-[height:100dvh]:max-h-[calc(100dvh-0.5rem)] sm:max-h-[calc(100vh-2rem)] sm:rounded-3xl supports-[height:100dvh]:sm:max-h-[calc(100dvh-2rem)]"
+      contentClassName="flex max-h-[calc(100vh-0.5rem)] min-h-0 flex-col overflow-hidden rounded-t-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] shadow-[var(--owner-shadow-card)] supports-[height:100dvh]:max-h-[calc(100dvh-0.5rem)] sm:max-h-[calc(100vh-2rem)] sm:rounded-3xl supports-[height:100dvh]:sm:max-h-[calc(100dvh-2rem)]"
     >
       <div
         role="dialog"
@@ -320,17 +334,17 @@ export function AddClientDialog({
         data-testid="add-client-dialog"
         className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       >
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-stone-200 p-4 sm:px-6">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--owner-line)] p-4 sm:px-6">
           <div className="min-w-0">
             <h2
               id="add-client-dialog-title"
-              className="text-lg font-semibold text-stone-900"
+              className="owner-title text-[28px] font-normal leading-tight text-[var(--owner-ink)]"
             >
               Add client
             </h2>
             <p
               id="add-client-dialog-description"
-              className="mt-1 text-sm text-stone-500"
+              className="mt-2 text-[15px] leading-relaxed text-[var(--owner-muted)]"
             >
               Record a walk-in or phone client. If the number is already in your
               book we open that client instead of creating a second one.
@@ -341,7 +355,7 @@ export function AddClientDialog({
             aria-label="Close add client dialog"
             onClick={handleClose}
             disabled={submitting}
-            className="-m-2 flex size-10 shrink-0 items-center justify-center rounded-full text-stone-500 transition hover:bg-stone-100 disabled:opacity-50"
+            className="-m-2 flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--owner-muted)] transition hover:bg-[var(--owner-blush)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-50"
           >
             <X className="size-5" />
           </button>
@@ -353,12 +367,15 @@ export function AddClientDialog({
           className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
         >
           <div
+            ref={formBodyRef}
             data-testid="add-client-dialog-body"
             className="min-h-0 min-w-0 flex-1 touch-pan-y space-y-4 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-5 sm:px-6"
           >
             {formError && (
               <div
+                ref={errorRef}
                 role="alert"
+                tabIndex={-1}
                 className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
               >
                 {formError}
@@ -367,7 +384,7 @@ export function AddClientDialog({
 
             <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="min-w-0" htmlFor={FIELD_IDS.firstName}>
-                <span className="mb-1.5 block text-sm font-medium text-stone-700">
+                <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
                   First name
                 </span>
                 <input
@@ -386,7 +403,7 @@ export function AddClientDialog({
               </label>
 
               <label className="min-w-0" htmlFor={FIELD_IDS.lastName}>
-                <span className="mb-1.5 block text-sm font-medium text-stone-700">
+                <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
                   Last name
                 </span>
                 <input
@@ -405,7 +422,7 @@ export function AddClientDialog({
             </div>
 
             <label className="block min-w-0" htmlFor={FIELD_IDS.phone}>
-              <span className="mb-1.5 block text-sm font-medium text-stone-700">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
                 Phone
               </span>
               <input
@@ -425,10 +442,10 @@ export function AddClientDialog({
             </label>
 
             <label className="block min-w-0" htmlFor={FIELD_IDS.email}>
-              <span className="mb-1.5 block text-sm font-medium text-stone-700">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
                 Email
                 {' '}
-                <span className="font-normal text-stone-400">(optional)</span>
+                <span className="font-normal text-[var(--owner-muted)]">(optional)</span>
               </span>
               <input
                 id={FIELD_IDS.email}
@@ -447,10 +464,10 @@ export function AddClientDialog({
             </label>
 
             <label className="block min-w-0" htmlFor={FIELD_IDS.notes}>
-              <span className="mb-1.5 block text-sm font-medium text-stone-700">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
                 Notes
                 {' '}
-                <span className="font-normal text-stone-400">
+                <span className="font-normal text-[var(--owner-muted)]">
                   (optional, staff only)
                 </span>
               </span>
@@ -463,28 +480,30 @@ export function AddClientDialog({
                 rows={4}
                 disabled={submitting}
                 {...fieldErrorProps('notes', fieldErrors)}
-                className="w-full min-w-0 resize-y rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-base text-stone-900 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-200 disabled:bg-stone-100"
+                className="owner-form-field resize-y"
               />
               <FieldError field="notes" errors={fieldErrors} />
             </label>
           </div>
 
-          <div className="grid shrink-0 grid-cols-2 gap-3 border-t border-stone-200 bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-6">
+          <div className="grid shrink-0 grid-cols-2 gap-3 border-t border-[var(--owner-line)] bg-[var(--owner-surface)] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:px-6">
             <Button
               type="button"
-              variant="brandSoft"
+              variant="ownerSecondary"
+              size="pill"
               onClick={handleClose}
               disabled={submitting}
-              className="min-h-11 min-w-0"
+              className="h-auto min-h-12 min-w-0 px-4 py-3 text-[15px]"
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              variant="brand"
+              variant="ownerPrimary"
+              size="pill"
               data-testid="add-client-save"
               disabled={submitting}
-              className="min-h-11 min-w-0"
+              className="h-auto min-h-12 min-w-0 px-4 py-3 text-[15px]"
             >
               {submitting
                 ? (
