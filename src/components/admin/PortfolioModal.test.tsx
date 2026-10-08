@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,7 +24,7 @@ const portfolioPayload = {
     missingNailLength: 0,
     unbookableFamily: 0,
   },
-  bookableFamilies: ['nail_art'],
+  bookableFamilies: ['manicure'],
   photos: [{
     id: 'photo-1',
     publicId: 'portfolio/photo-1',
@@ -33,7 +33,7 @@ const portfolioPayload = {
     height: 1000,
     ownerVisible: true,
     discoverIncluded: true,
-    serviceFamily: 'nail_art',
+    serviceFamily: 'manicure',
     nailLength: 'short',
     altText: 'Cherry ombré manicure',
     crop: null,
@@ -79,6 +79,79 @@ describe('PortfolioModal destructive confirmation', () => {
       '/api/admin/portfolio/photo-1?salonSlug=salon-a',
       { method: 'DELETE' },
     );
+  });
+
+  it.each([
+    [JSON.stringify({ error: { message: 'Photo could not be removed.' } }), 'Photo could not be removed.'],
+    ['upstream unavailable', 'Could not delete this photo. Please try again.'],
+  ])('keeps a refused deletion open and retains the selected photo', async (body, message) => {
+    fetchMock.mockImplementation((_input, init) => Promise.resolve(init?.method === 'DELETE'
+      ? new Response(body, { status: 503 })
+      : Response.json(portfolioPayload)));
+    const user = userEvent.setup();
+    render(<PortfolioModal onClose={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: 'Cherry ombré manicure' }));
+    await user.click(screen.getByRole('button', { name: 'Delete Cherry ombré manicure' }));
+    await user.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    expect(await screen.findByTestId('portfolio-delete-error')).toHaveTextContent(message);
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.getByTestId('confirm-dialog-confirm')).toBeEnabled();
+
+    await user.click(screen.getByTestId('confirm-dialog-cancel'));
+
+    expect(screen.getByRole('button', { name: 'Cherry ombré manicure' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('portfolio-delete-error')).not.toBeInTheDocument();
+  });
+
+  it('reports an interrupted deletion without dismissing the confirmation', async () => {
+    fetchMock.mockImplementation((_input, init) => init?.method === 'DELETE'
+      ? Promise.reject(new Error('connection interrupted'))
+      : Promise.resolve(Response.json(portfolioPayload)));
+    const user = userEvent.setup();
+    render(<PortfolioModal onClose={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: 'Delete Cherry ombré manicure' }));
+    await user.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    expect(await screen.findByTestId('portfolio-delete-error')).toHaveTextContent('Could not confirm the deletion.');
+    expect(screen.getByTestId('confirm-dialog-confirm')).toBeEnabled();
+  });
+
+  it('removes a successfully deleted photo from selection and the refreshed library', async () => {
+    let deleted = false;
+    fetchMock.mockImplementation((_input, init) => {
+      if (init?.method === 'DELETE') {
+        deleted = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return Promise.resolve(Response.json({ ...portfolioPayload, photos: deleted ? [] : portfolioPayload.photos }));
+    });
+    const user = userEvent.setup();
+    render(<PortfolioModal onClose={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: 'Cherry ombré manicure' }));
+    await user.click(screen.getByRole('button', { name: 'Delete Cherry ombré manicure' }));
+    await user.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+
+    expect(screen.queryByRole('region', { name: 'Batch tagging' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cherry ombré manicure' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the batch selection and local error after an interrupted update', async () => {
+    fetchMock.mockImplementation((_input, init) => init?.method === 'PATCH'
+      ? Promise.reject(new Error('connection interrupted'))
+      : Promise.resolve(Response.json(portfolioPayload)));
+    const user = userEvent.setup();
+    render(<PortfolioModal onClose={vi.fn()} />);
+    const photo = await screen.findByRole('button', { name: 'Cherry ombré manicure' });
+    await user.click(photo);
+    const batch = screen.getByRole('region', { name: 'Batch tagging' });
+    await user.click(within(batch).getByRole('button', { name: 'Short' }));
+
+    expect(await within(batch).findByRole('alert')).toHaveTextContent('Could not confirm the update.');
+    expect(photo).toHaveAttribute('aria-pressed', 'true');
+    expect(within(batch).getByRole('button', { name: 'Short' })).toBeEnabled();
   });
 });
 
