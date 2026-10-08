@@ -37,3 +37,13 @@ Full-suite/build/hosted results and release state are recorded separately in
 the dated onboarding-autosave-race evidence folder. Synthetic browser storage
 does not prove a new owner's authenticated account-save and return journey.
 No migration or configuration change is required.
+
+## Hosted test selection
+
+CI37753402021 passed the actual onboarding suite and its layout-preview stage,
+but the application job selected the changed prototype test for root Vitest,
+whose configuration only owns src/ and scripts/ tests. It failed with No test
+files found. The changed-test selector now matches root Vitest ownership;
+the required component job still runs the complete onboarding package suite.
+Node test regressions cover root/sibling/mixed/prototype selections and assert
+that the package suite and selector regressions remain in required CI.
