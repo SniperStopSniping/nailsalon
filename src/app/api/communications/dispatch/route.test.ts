@@ -73,7 +73,7 @@ describe('communications cron review-phase compatibility', () => {
       expect(mocks.dispatch).toHaveBeenCalledWith(expect.objectContaining({ providerSend: mocks.sms, emailSend: mocks.email }));
       expect(mocks.retention).toHaveBeenCalledOnce();
       expect(mocks.unknownOutcomes).toHaveBeenCalledOnce();
-      expect(mocks.lowBalance).toHaveBeenCalledWith({ sendWarningEmail: mocks.warningEmail });
+      expect(mocks.lowBalance).toHaveBeenCalledWith();
       expect(mocks.reviews).not.toHaveBeenCalled();
     } finally {
       releaseMaintenance({ warnings: 0 });

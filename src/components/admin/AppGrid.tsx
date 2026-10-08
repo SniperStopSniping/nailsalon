@@ -45,6 +45,7 @@ import {
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 
+import { SmsBalanceCard } from '@/components/admin/SmsBalanceCard';
 import { LockedFeatureRow } from '@/components/ui/locked-feature-row';
 
 // Types
@@ -405,6 +406,8 @@ function AccountSection({ account, theme }: { account: AppGridAccount; theme: Th
  * App Grid Container
  */
 type AppGridProps = {
+  salonSlug?: string;
+  onOpenCredits?: (view: 'topup' | 'history') => void;
   theme?: Theme;
   badges?: Record<string, number>;
   onAppTap?: (appId: string) => void;
@@ -422,7 +425,7 @@ type AppGridProps = {
 const EMPTY_BADGES: Record<string, number> = {};
 const EMPTY_HIDDEN_IDS: string[] = [];
 
-export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, isTeamSalon = false, account }: AppGridProps) {
+export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, isTeamSalon = false, account, salonSlug, onOpenCredits }: AppGridProps) {
   const t = useTranslations('NoShowRecords');
   const appById = new Map(APPS.map(app => [app.id, app]));
   const visibleGroups = MORE_GROUPS.map(group => ({
@@ -455,6 +458,7 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
       style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 6rem)' }}
     >
       <div className="mx-auto max-w-2xl space-y-6">
+        {salonSlug && onOpenCredits && <SmsBalanceCard salonSlug={salonSlug} onBuy={() => onOpenCredits('topup')} onHistory={() => onOpenCredits('history')} />}
         {visibleGroups.map(group => (
           <section aria-labelledby={`more-${group.id}-heading`} key={group.id}>
             <h2

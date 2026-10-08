@@ -562,6 +562,7 @@ export type SalonSettings = {
     // Canonical zod shape lives in salonNotificationEmailSettings.ts; only the
     // booking alerts and recipient are owner-editable in v1.
     salonEmail?: {
+      lowSmsBalance?: boolean;
       newBooking?: boolean;
       rescheduled?: boolean;
       cancelled?: boolean;

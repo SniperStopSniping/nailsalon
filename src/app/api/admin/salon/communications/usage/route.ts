@@ -21,15 +21,17 @@
 import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
-import { requireAdminSalon } from '@/libs/adminAuth';
+import { isSalonOwner, requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
 import { getPublicBillingOffers } from '@/libs/billing/billingOffers';
 import { computeAvailableBalance } from '@/libs/billing/creditLedger';
 import { getFoundingLifetimeAccess } from '@/libs/billing/foundingLifetime.server';
 import { describeBillingState, resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
 import { getPlanDefinition, getPublicPlanCatalog, type PlanDefinitionKey } from '@/libs/billing/planDefinitions';
 import { getPromotion, isPromotionWindowOpen } from '@/libs/billing/promotions';
+import { decodeCreditActivityCursor, readSmsCreditActivity, readSmsCreditOverview } from '@/libs/billing/smsCreditOverview';
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
 import { listActiveTopupOffersForAudience } from '@/libs/billing/topupOffers';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig.shared';
 import { friendlyFailureReason, maskRecipient, ownerSmsDeliveryStatus } from '@/libs/communicationMasking';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
@@ -64,6 +66,45 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
   const salonId = guard.salon.id;
   const now = new Date();
+  const view = request.nextUrl.searchParams.get('view');
+  if (view === 'balance' || view === 'credits') {
+    let cursor;
+    try {
+      cursor = decodeCreditActivityCursor(view === 'credits' ? request.nextUrl.searchParams.get('cursor') : null);
+    } catch {
+      return Response.json({ error: { code: 'INVALID_CURSOR', message: 'The history cursor is not valid.' } }, { status: 400, ...NO_STORE });
+    }
+    const permission = await requireAdmin(salonId);
+    if (!permission.ok) {
+      return permission.response;
+    }
+    const offers = listActiveTopupOffersForAudience(resolveTopupAudienceForLegacyPlan(guard.salon.plan ?? null)).map((offer) => {
+      let available = false;
+      if (Env.BILLING_TOPUPS_ENABLED === 'true') {
+        try {
+          resolveStripePriceIdForTopup(offer.key);
+          available = true;
+        } catch (error) {
+          if (!(error instanceof BillingCatalogError)) {
+            throw error;
+          }
+        }
+      }
+      return { key: offer.key, credits: offer.credits, priceCents: offer.priceCents, currency: offer.currency, available };
+    });
+    const timeZone = resolveBookingConfigFromSettings(guard.salon.settings).timezone;
+    const snapshot = await db.transaction(async tx => ({
+      balance: await readSmsCreditOverview(tx, salonId, timeZone, now),
+      ...(view === 'credits' ? { activity: await readSmsCreditActivity(tx, salonId, cursor) } : {}),
+    }), { isolationLevel: 'repeatable read', accessMode: 'read only' });
+    return Response.json({ data: {
+      salonId,
+      ...snapshot,
+      topupOffers: offers,
+      creditPurchasesAvailable: offers.some(offer => offer.available),
+      canPurchase: isSalonOwner(permission.admin, salonId),
+    } }, NO_STORE);
+  }
   const coreAccess = await getFoundingLifetimeAccess(salonId);
   // Server-resolved, audience-correct Buy More offers (§9.1): the client
   // never sees the other audience's pricing, let alone chooses it.

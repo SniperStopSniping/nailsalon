@@ -19,6 +19,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { QuickActionsWidget } from '@/components/admin/QuickActionsWidget';
+import { SmsBalanceCard } from '@/components/admin/SmsBalanceCard';
 import { appointmentStatusChipClasses, formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import {
   APPOINTMENT_DATA_CHANGED_EVENT,
@@ -252,6 +253,7 @@ export function OwnerTodayWorkspace({
   onOpenClient,
   onOpenFollowups,
   onOpenGoogleReview,
+  onBuyTexts,
 }: {
   salonSlug: string;
   appointments: AppointmentGlance;
@@ -266,6 +268,7 @@ export function OwnerTodayWorkspace({
   onOpenClient: (clientId: string) => void;
   onOpenFollowups?: () => void;
   onOpenGoogleReview?: () => void;
+  onBuyTexts?: () => void;
 }) {
   const [today, setToday] = useState<TodayData | null>(null);
   const [todayLoading, setTodayLoading] = useState(true);
@@ -746,6 +749,7 @@ export function OwnerTodayWorkspace({
       className="mx-auto max-w-2xl space-y-5 px-5 pb-28 pt-3"
       data-testid="owner-today-workspace"
     >
+      {onBuyTexts && <SmsBalanceCard compact salonSlug={salonSlug} onBuy={onBuyTexts} />}
       {urgentSection}
       {technicians.length > 1 && Boolean(today?.appointments.length) && (
         <div className="flex gap-2 overflow-x-auto border-b border-stone-100 px-4 py-3" aria-label="Filter schedule by technician">

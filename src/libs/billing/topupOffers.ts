@@ -1,96 +1,10 @@
-/**
- * Canonical SMS top-up offers — Founding Plans v1.
- *
- * Governing contract: docs/luster-billing-communications-rev-2-2.md §3.5.
- *
- * Top-ups are versioned, never discounted by the annual promotion, roll
- * over, are spent after expiring allowances and starter value, and are
- * granted only from verified Stripe payment evidence (Gate B/C work). This
- * module is pure data + lookups.
- */
-
 import 'server-only';
 
 import type { PlanFamily } from './planDefinitions';
+import { TOPUP_OFFERS, type TopupAudience, type TopupOffer, type TopupOfferKey } from './topupCatalog';
 
-export type TopupAudience = 'free_plan' | 'paid_plan';
-
-export type TopupOfferKey =
-  | 'topup_100_free_2026_08'
-  | 'topup_250_free_2026_08'
-  | 'topup_500_free_2026_08'
-  | 'topup_100_paid_2026_08'
-  | 'topup_250_paid_2026_08'
-  | 'topup_500_paid_2026_08'
-  | 'topup_1000_paid_2026_08';
-
-export type TopupOffer = {
-  key: TopupOfferKey;
-  credits: 100 | 250 | 500 | 1000;
-  priceCents: number;
-  currency: 'cad';
-  audience: TopupAudience;
-  active: boolean;
-};
-
-export const TOPUP_OFFERS: Record<TopupOfferKey, TopupOffer> = {
-  topup_100_free_2026_08: {
-    key: 'topup_100_free_2026_08',
-    credits: 100,
-    priceCents: 699,
-    currency: 'cad',
-    audience: 'free_plan',
-    active: true,
-  },
-  topup_250_free_2026_08: {
-    key: 'topup_250_free_2026_08',
-    credits: 250,
-    priceCents: 1599,
-    currency: 'cad',
-    audience: 'free_plan',
-    active: true,
-  },
-  topup_500_free_2026_08: {
-    key: 'topup_500_free_2026_08',
-    credits: 500,
-    priceCents: 2999,
-    currency: 'cad',
-    audience: 'free_plan',
-    active: true,
-  },
-  topup_100_paid_2026_08: {
-    key: 'topup_100_paid_2026_08',
-    credits: 100,
-    priceCents: 599,
-    currency: 'cad',
-    audience: 'paid_plan',
-    active: true,
-  },
-  topup_250_paid_2026_08: {
-    key: 'topup_250_paid_2026_08',
-    credits: 250,
-    priceCents: 1399,
-    currency: 'cad',
-    audience: 'paid_plan',
-    active: true,
-  },
-  topup_500_paid_2026_08: {
-    key: 'topup_500_paid_2026_08',
-    credits: 500,
-    priceCents: 2699,
-    currency: 'cad',
-    audience: 'paid_plan',
-    active: true,
-  },
-  topup_1000_paid_2026_08: {
-    key: 'topup_1000_paid_2026_08',
-    credits: 1000,
-    priceCents: 4999,
-    currency: 'cad',
-    audience: 'paid_plan',
-    active: true,
-  },
-};
+export { TOPUP_OFFERS };
+export type { TopupAudience, TopupOffer, TopupOfferKey };
 
 export function getTopupOffer(key: string): TopupOffer | null {
   return Object.prototype.hasOwnProperty.call(TOPUP_OFFERS, key)
@@ -105,7 +19,7 @@ export function resolveTopupAudienceForFamily(family: PlanFamily): TopupAudience
 export function resolveTopupOffersForFamily(family: PlanFamily): TopupOffer[] {
   const audience = resolveTopupAudienceForFamily(family);
   return Object.values(TOPUP_OFFERS).filter(
-    offer => offer.active && offer.audience === audience,
+    offer => offer.active && (offer.audience === 'all_plans' || offer.audience === audience),
   );
 }
 
@@ -128,12 +42,9 @@ export function getPublicTopupOffers(family: PlanFamily): PublicTopupOfferProjec
   }));
 }
 
-Object.freeze(TOPUP_OFFERS);
-Object.values(TOPUP_OFFERS).forEach(Object.freeze);
-
 /** Active offers for ONE audience — the Buy More list, server-resolved (§9.1). */
 export function listActiveTopupOffersForAudience(audience: TopupAudience): TopupOffer[] {
   return Object.values(TOPUP_OFFERS)
-    .filter(offer => offer.active && offer.audience === audience)
+    .filter(offer => offer.active && (offer.audience === 'all_plans' || offer.audience === audience))
     .sort((a, b) => a.credits - b.credits);
 }
