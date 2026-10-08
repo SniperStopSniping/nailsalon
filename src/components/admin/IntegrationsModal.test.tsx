@@ -170,10 +170,24 @@ describe('IntegrationsModal', () => {
 
     expect(screen.getByText('Needs attention')).toBeInTheDocument();
     expect(screen.getByText(/This sync attempt was skipped/i)).toBeInTheDocument();
+    expect(screen.getByText(/try again on the next scheduled check/i)).toBeInTheDocument();
     expect(screen.queryByText('GOOGLE_CALENDAR_CONNECTION_WRITE_FENCE_LOST')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /connect google calendar/i })).not.toBeInTheDocument();
     expect(screen.getByTestId('google-disconnect')).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method && init.method !== 'GET')).toBe(false);
+  });
+
+  it.each([false, undefined])('does not promise a scheduled retry when inbound sync is %s', async (inboundSyncEnabled) => {
+    mockEndpoints({ health: { google: {
+      status: 'degraded',
+      readiness: 'attention_required',
+      inboundSyncEnabled,
+      inboundSyncError: 'GOOGLE_CALENDAR_CONNECTION_WRITE_FENCE_LOST',
+    } } });
+    render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="google" />);
+
+    expect(await screen.findByText(/This sync attempt was skipped/i)).toBeInTheDocument();
+    expect(screen.queryByText(/try again on the next scheduled check/i)).not.toBeInTheDocument();
   });
 
   it('still requires reconnecting after confirmed authorization rejection', async () => {

@@ -541,8 +541,10 @@ export function IntegrationsModal({
 
               {googleSyncWasSuperseded && (
                 <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900" role="status">
-                  The connection changed during this check. This sync attempt was skipped;
-                  Luster will try again on the next scheduled check.
+                  The connection changed during this check. This sync attempt was skipped
+                  {health?.google.inboundSyncEnabled === true
+                    ? '; Luster will try again on the next scheduled check.'
+                    : '.'}
                 </p>
               )}
 

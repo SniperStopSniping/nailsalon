@@ -13,6 +13,7 @@ Isolated PGlite regression tests reproduced the error-reporting bug: after anoth
 - The original connection revision check, dispatch fence and fail-closed availability behavior remain authoritative. No booking conflict is bypassed.
 - A degraded connection keeps the existing calendar-management interface. Confirmed rejected authorization keeps its reconnect action; disconnected connections keep Connect. Existing historical fence messages are explained in readable language near the status, without rewriting stored provider evidence.
 - Reconnect-required details show one reconnect link and one error. The Google controls and integration header have comfortable touch targets, and the status/explanation stack at small widths.
+- Scheduled retry guidance appears only when inbound sync is explicitly enabled; a disabled or unknown sync state does not promise an automatic retry.
 
 ## Verification and limits
 
