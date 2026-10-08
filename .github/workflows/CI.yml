@@ -1344,8 +1344,8 @@ jobs:
         run: |
           set -euo pipefail
           npm run test:monitoring:node24 | tee monitoring-node24.log
-          grep -Fqx '# tests 14' monitoring-node24.log
-          grep -Fqx '# pass 14' monitoring-node24.log
+          grep -Fqx '# tests 17' monitoring-node24.log
+          grep -Fqx '# pass 17' monitoring-node24.log
           grep -Fqx '# skipped 0' monitoring-node24.log
 
   test:

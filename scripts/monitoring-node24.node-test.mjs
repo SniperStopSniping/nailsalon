@@ -137,6 +137,40 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
       }
     });
   }
+
+  for (const route of routes) {
+    await t.test(`scrubs transaction requests and span attributes for ${route}`, async () => {
+      const start = Date.now() / 1000;
+      const url = `https://example.invalid${route}?salon=synthetic`;
+      sentry.captureEvent({
+        type: 'transaction',
+        transaction: route,
+        start_timestamp: start,
+        timestamp: start + 1,
+        contexts: { trace: { trace_id: '11111111111111111111111111111111', span_id: '2222222222222222', op: 'http.server', data: { 'db.user': 'synthetic-private-db-user', 'http.url': url, 'http.status_code': 200 } } },
+        spans: [{ trace_id: '11111111111111111111111111111111', span_id: '3333333333333333', parent_span_id: '2222222222222222', op: 'db', start_timestamp: start, timestamp: start + 0.5, data: { 'db.user': 'synthetic-private-db-user', 'db.system': 'postgresql', 'http.url': url } }],
+        request: {
+          url,
+          data: { message: 'synthetic-private-body' },
+          cookies: { session: 'synthetic-private-cookie' },
+          headers: { Authorization: 'Bearer synthetic-private-auth', Cookie: 'synthetic-private-cookie', Accept: 'application/json' },
+        },
+      });
+      assert.equal(await sentry.flush(2000), true);
+      const transactions = envelopes.flatMap(envelope => envelope[1].filter(item => item[0].type === 'transaction').map(item => item[1]));
+      const transaction = transactions.find(candidate => candidate.transaction === route);
+      assert.ok(transaction);
+      assert.equal(JSON.stringify(transaction).includes('synthetic-private-'), false);
+      assert.equal(transaction.contexts.trace.data['http.status_code'], 200);
+      assert.equal(transaction.spans.length, 1);
+      assert.equal(transaction.spans[0].data['db.system'], 'postgresql');
+      const expectedUrl = route.startsWith('/api/public/') ? url.split('?')[0] : url;
+      assert.equal(transaction.request.url, expectedUrl);
+      assert.equal(transaction.contexts.trace.data['http.url'], expectedUrl);
+      assert.equal(transaction.spans[0].data['http.url'], expectedUrl);
+      assert.equal(transaction.request.headers?.Accept, route.startsWith('/api/public/') ? undefined : 'application/json');
+    });
+  }
   await setImmediate();
   assert.ok(!warnings.includes('DEP0169'));
   assert.equal(networkAttempts, 0);

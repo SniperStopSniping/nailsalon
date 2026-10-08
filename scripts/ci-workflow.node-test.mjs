@@ -39,8 +39,8 @@ test('the required aggregate includes Node 24 monitoring evidence with zero skip
   const step = job.steps.find(candidate => candidate.name === 'Verify monitoring URL compatibility and privacy with zero skips');
   assert.match(step.run, /set -euo pipefail/);
   assert.match(step.run, /npm run test:monitoring:node24/);
-  assert.ok(step.run.includes('grep -Fqx \'# tests 14\''));
-  assert.ok(step.run.includes('grep -Fqx \'# pass 14\''));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 17\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 17\''));
   assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
   assert.equal(jobs.test.steps[0].env.MONITORING_RESULT, '${{ needs.monitoring-node24.result }}');
   assert.match(jobs.test.steps[0].run, /test "\$MONITORING_RESULT" = success/);
