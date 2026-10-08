@@ -1,3 +1,10 @@
+# [1.141.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.140.0...v1.141.0) (2026-10-08)
+
+
+### Features
+
+* **owner:** polish Today and shared workspace styling ([1d4493c](https://github.com/SniperStopSniping/nailsalon/commit/1d4493c05f3f1863aad5b4be044767b20fd758ae))
+
 # [1.140.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.139.2...v1.140.0) (2026-10-07)
 
 
