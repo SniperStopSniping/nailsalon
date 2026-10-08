@@ -215,7 +215,12 @@ test('Quick Book cards preview the latest choice and restore the chooser through
 
   await page.reload();
 
+  await expect(page.locator('[data-screen="policies"]')).toBeVisible();
+  await expect(page.getByLabel('Autosave status')).toHaveText('Saved');
+
   expect((await savedState(page)).recipe.quickBookLayout).toBe('complete_editorial');
+
+  await page.screenshot({ path: test.info().outputPath(`F14-autosave-restored-${test.info().project.name}.png`) });
 });
 
 test('retires weak choices while preserving a resumed saved layout until its owner switches', async ({ page }) => {

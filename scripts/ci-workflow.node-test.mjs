@@ -85,3 +85,12 @@ test('founding lifetime claims require real PostgreSQL evidence without skips', 
   assert.ok(step.run.includes('src/libs/billing/foundingLifetime.concurrency.integration.test.ts'));
   assert.ok(step.run.includes('grep -Fqx \'FOUNDING_CORE_POSTGRES_TESTS_EXECUTED=7 FOUNDING_CORE_POSTGRES_TESTS_SKIPPED=0\''));
 });
+
+test('the required component job runs onboarding tests with their package configuration', () => {
+  assert.ok(jobs.test.needs.includes('test-components'));
+  const step = jobs['test-components'].steps.find(candidate => candidate.name === 'Verify onboarding confirmation and booking notice');
+  assert.equal(step['working-directory'], 'prototypes/site-builder-v2-booking-integration-lab');
+  assert.match(step.run, /npm test -- --maxWorkers=2 --minWorkers=1/);
+  assert.match(step.run, /playwright\.layout-previews\.config\.ts/);
+  assert.ok(jobs['test-core'].steps.some(candidate => candidate.run?.includes('scripts/test-changed-source.node-test.mjs')));
+});
