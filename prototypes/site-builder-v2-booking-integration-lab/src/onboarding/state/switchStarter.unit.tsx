@@ -4,6 +4,7 @@ import { createDefaultCustomDesignSettings } from '../../custom-design/model/set
 import type { CustomDesignImageItem } from '../../custom-design/model/types';
 import {
   type CustomDesignSectionInstance,
+  initializeStarter,
   parseSiteBuilderDocument,
   SITE_BUILDER_STORAGE_KEY,
   type SiteBuilderDocument,
@@ -12,7 +13,7 @@ import { useLabDocument } from '../../ui/useLabDocument';
 import { getCanvaPlacementTarget } from '../extras/useCanvaIntegration';
 import { createDefaultOnboardingState } from '../model/defaults';
 import type { OnboardingLabState, StarterId } from '../model/types';
-import { switchOnboardingStarter } from './switchStarter';
+import { resolveOnboardingDesignSectionId, switchOnboardingStarter } from './switchStarter';
 
 const canvaImage: CustomDesignImageItem = {
   altText: 'Uploaded Canva page',
@@ -187,6 +188,77 @@ const runStarterSwitch = (
 describe('switchOnboardingStarter', () => {
   beforeEach(() => {
     window.localStorage.removeItem(SITE_BUILDER_STORAGE_KEY);
+  });
+
+  it('does not substitute an empty starter section for missing saved artwork', () => {
+    const document = initializeStarter('your_design');
+    const state = createState();
+    state.canva.images = [{
+      fileName: canvaImage.fileName,
+      id: canvaImage.id,
+      mimeType: canvaImage.mimeType,
+      source: 'indexed_db',
+      storageId: canvaImage.assetId,
+    }];
+
+    expect(resolveOnboardingDesignSectionId(document, state)).toBeNull();
+    expect(getCustomDesigns(document)[0]?.settings.images).toEqual([]);
+  });
+
+  it('does not guess between multiple untracked design sections', () => {
+    const document = initializeStarter('your_design');
+    const original = getCustomDesigns(document)[0]!;
+    document.pages[0]!.sections.push({ ...structuredClone(original), id: 'another-design' });
+
+    expect(resolveOnboardingDesignSectionId(document, createState())).toBeNull();
+    expect(getCustomDesigns(document)).toHaveLength(2);
+  });
+
+  it.each(['multi_page', 'quick_book'] as const)('tracks the existing blank design section when switching from %s to Your Design', (starter) => {
+    const hook = renderHook(() => useLabDocument());
+    const state = createState();
+    state.recipe.starter = starter;
+    act(() => {
+      expect(hook.result.current.createStarterOnce(starter, { siteName: state.profile.businessName }).success).toBe(true);
+    });
+    const originalState = structuredClone(state);
+    const switched = runStarterSwitch(hook.result.current, state, 'your_design');
+
+    expect(switched.success).toBe(true);
+
+    if (!switched.success) {
+      throw new Error(switched.message);
+    }
+    const sections = getCustomDesigns(switched.document);
+
+    expect(sections).toHaveLength(1);
+    expect(switched.customDesignSectionId).toBe(sections[0]?.id);
+    expect(sections[0]?.settings.images).toEqual([]);
+    expect(state).toEqual(originalState);
+  });
+
+  it('retains confirmed artwork exactly once when switching to Your Design', () => {
+    const hook = renderHook(() => useLabDocument());
+    const state = createState();
+    act(() => {
+      expect(hook.result.current.createStarterOnce('quick_book', { siteName: state.profile.businessName }).success).toBe(true);
+
+      addConfirmedCanva(hook.result.current, state);
+    });
+    const originalState = structuredClone(state);
+    const switched = runStarterSwitch(hook.result.current, state, 'your_design');
+
+    expect(switched.success).toBe(true);
+
+    if (!switched.success) {
+      throw new Error(switched.message);
+    }
+    const populated = getCustomDesigns(switched.document).filter(section => section.settings.images.length > 0);
+
+    expect(populated).toHaveLength(1);
+    expect(populated[0]?.id).toBe(switched.customDesignSectionId);
+    expect(populated[0]?.settings.images.map(image => image.assetId)).toEqual([canvaImage.assetId]);
+    expect(state).toEqual(originalState);
   });
 
   it('switches across every starter without duplicating or losing confirmed Canva assets', () => {

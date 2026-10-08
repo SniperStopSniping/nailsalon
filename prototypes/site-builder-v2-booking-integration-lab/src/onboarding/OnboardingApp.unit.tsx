@@ -983,6 +983,65 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(screen.getByRole('heading', { name: 'Review your site' })).toBeVisible();
   });
 
+  it.each(['business', 'starting_preview'] as const)('reopens Your Design from %s after cancellation and restores its editor after reload', async (screenId) => {
+    const user = userEvent.setup();
+    const state = stateAt(screenId);
+    state.recipe.starter = 'your_design';
+    state.recipe.canvaEnabled = false;
+    state.canva.images = [];
+    state.canva.customDesignSectionId = null;
+    state.canva.status = 'empty';
+    const document = initializeStarter('your_design', { siteName: state.profile.businessName });
+    state.recipe.starterDocumentSiteId = document.siteId;
+    const sectionId = document.pages.flatMap(page => page.sections).find(section => section.sectionType === 'custom_design')?.id;
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, serializeOnboardingState(state));
+    window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, exportSiteBuilderDocument(document));
+
+    // Compare with the loaded profile; storage already normalizes Instagram handles.
+    const loadedProfile = parseOnboardingState(serializeOnboardingState(state)).state.profile;
+
+    const firstRender = render(<RealLabHarness />);
+    await user.click(screen.getByRole('button', { name: 'Add your design' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Upload a Canva design' });
+
+    expect(within(dialog).getByRole('button', { name: 'Save Canva design' })).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add your design' })).toHaveFocus());
+
+    await waitFor(() => {
+      const saved = parseOnboardingState(window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '');
+
+      expect(saved.state.canva.customDesignSectionId).toBe(sectionId);
+      expect(saved.state.profile).toEqual(loadedProfile);
+    });
+    firstRender.unmount();
+    render(<RealLabHarness />);
+    await user.click(screen.getByRole('button', { name: 'Add your design' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Upload a Canva design' })).toBeVisible();
+  });
+
+  it('reopens the existing Your Design editor when the same starting point is chosen again', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('starter');
+    state.recipe.starter = 'your_design';
+    state.recipe.canvaEnabled = false;
+    state.canva.images = [];
+    state.canva.customDesignSectionId = null;
+    const document = initializeStarter('your_design', { siteName: state.profile.businessName });
+    state.recipe.starterDocumentSiteId = document.siteId;
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, serializeOnboardingState(state));
+    window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, exportSiteBuilderDocument(document));
+    render(<RealLabHarness />);
+    await user.click(screen.getByRole('button', { name: /Current starting point.*Your Design/u }));
+    const dialog = await screen.findByRole('dialog', { name: 'Upload a Canva design' });
+
+    expect(within(dialog).getByRole('button', { name: 'Save Canva design' })).toBeInTheDocument();
+  });
+
   it('confirms a starter change, preserves profile data, and resumes the switched starter after reload', async () => {
     const user = userEvent.setup();
     const state = stateAt('starter');

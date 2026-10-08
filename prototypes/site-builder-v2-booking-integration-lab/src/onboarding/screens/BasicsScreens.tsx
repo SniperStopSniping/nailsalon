@@ -32,6 +32,7 @@ import {
 } from '../components/FormFields';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import { WeeklyHoursEditor } from '../components/WeeklyHoursEditor';
+import { YourDesignAction } from '../components/YourDesignAction';
 import { SCREEN_METADATA } from '../copy';
 import { useFeedback } from '../feedback/useFeedback';
 import { resolveOnboardingImage } from '../integrations/adapters/media';
@@ -107,6 +108,8 @@ export type SiteSlugAvailabilityCheck = {
 };
 
 type BrandBasicsScreenProps = SharedBasicsScreenProps & {
+  hasDesign?: boolean;
+  onOpenDesign?: () => void;
   checkSiteSlugAvailability?: (
     slug: string,
     signal?: AbortSignal,
@@ -125,16 +128,19 @@ type OptionalBusinessSection = 'cover_photo' | 'instagram' | 'logo' | 'profile_p
 
 export function BrandBasicsScreen({
   checkSiteSlugAvailability,
+  hasDesign = false,
   onBack,
   onContinue,
   onCoverPhotoSelected,
   onLogoSelected,
+  onOpenDesign,
   onProfileChange,
   onProfilePhotoSelected,
   onQuickBookProfileChange,
   onValidationFailure,
   profile,
   reveal = false,
+  starter,
 }: BrandBasicsScreenProps) {
   const formId = useId();
   const slugStatusId = useId();
@@ -370,6 +376,9 @@ export function BrandBasicsScreen({
         <h1 id="business-screen-heading">Let’s start with your business</h1>
         <p>Tell us a few basics and we’ll start building your site.</p>
       </header>
+      {starter === 'your_design' && onOpenDesign
+        ? <YourDesignAction hasDesign={hasDesign} onOpen={onOpenDesign} />
+        : null}
       <form id={formId} noValidate ref={formRef} onSubmit={submit}>
         <ValidationSummary errors={errors} />
         <section className="onboarding-business-card is-expanded">
