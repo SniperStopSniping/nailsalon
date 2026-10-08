@@ -130,6 +130,7 @@ describe('CLI arguments', () => {
     ['dark', 'preview'],
     ['dark', 'production'],
     ['rehearsal', 'preview'],
+    ['rehearse-topups', 'preview'],
     ['activate-topups', 'production'],
     ['activate-subscriptions', 'production'],
   ])('accepts --target %s with --environment %s', (target, environment) => {
@@ -178,6 +179,22 @@ describe('CLI arguments', () => {
   it('refuses the removed --mode flag with a migration message', () => {
     expect(parseReadinessArguments(['--mode', 'activation', '--target', 'dark', '--env-source', 'deployed']).error)
       .toContain('--mode was replaced by --target');
+  });
+
+  it('pins the top-up-only rehearsal to Preview', () => {
+    const parsed = parseReadinessArguments([
+      '--target',
+      'rehearse-topups',
+      '--env-source',
+      'deployed',
+      '--environment',
+      'production',
+      '--health-url',
+      'https://production.example/api/health',
+    ]);
+
+    expect(parsed.error).toBe('--target rehearse-topups requires --environment preview');
+    expect(parsed.errorExit).toBe(EXIT_SOURCE_INSUFFICIENT);
   });
 
   it('refuses --env-source local without --developer, and never lets it exit 0', () => {
@@ -829,7 +846,7 @@ describe('CLI exit codes', () => {
   });
 });
 
-describe('CLI — a deployed run with evidence files omitted', () => {
+describe('CLI — deployed evidence and top-up-only rehearsal', () => {
   const CRON_SECRET_ENV = 'PR4_TEST_CRON_SECRET';
   const CRON_SECRET_VALUE = 'cli-cron-secret-never-printed';
 
@@ -858,14 +875,14 @@ describe('CLI — a deployed run with evidence files omitted', () => {
     delete process.env[CRON_SECRET_ENV];
   });
 
-  it('exit 5: the omitted portal export and integrity report are MISSING evidence, and the cron secret is never printed', async () => {
+  it.each([false, true])('handles a complete top-up-only bundle: %s, without printing secrets', async (topupsOnly) => {
     process.env[CRON_SECRET_ENV] = CRON_SECRET_VALUE;
 
     const carrierJson = JSON.stringify({
       env: 'test',
-      offers: Object.fromEntries(OFFER_KEYS.map((key, index) => [key, `price_cli${String(index).padStart(8, '0')}`])),
-      topups: Object.fromEntries(TOPUP_KEYS.map((key, index) => [key, `price_clitop${String(index).padStart(8, '0')}`])),
-      coupons: { founding_annual_2026: 'coupon_cli12345678' },
+      offers: Object.fromEntries((topupsOnly ? [] : OFFER_KEYS).map((key, index) => [key, `price_cli${String(index).padStart(8, '0')}`])),
+      topups: Object.fromEntries((topupsOnly ? TOPUP_KEYS.slice(0, 3) : TOPUP_KEYS).map((key, index) => [key, `price_clitop${String(index).padStart(8, '0')}`])),
+      coupons: topupsOnly ? {} : { founding_annual_2026: 'coupon_cli12345678' },
     });
     const inspected = inspectEnvFileCarrier(carrierJson, 'test');
 
@@ -909,7 +926,7 @@ describe('CLI — a deployed run with evidence files omitted', () => {
       recordedAt: '2026-09-16T00:05:00.000Z',
       invocations: [
         { path: '/api/billing/windows/evaluate', status: 200, body: { skipped: 'BILLING_DISABLED' } },
-        { path: '/api/billing/reconcile', status: 200, body: { skipped: 'BILLING_DISABLED', purged: 0 } },
+        { path: '/api/billing/reconcile', status: 200, body: topupsOnly ? { purged: 0, topups: { checked: 0 } } : { skipped: 'BILLING_DISABLED', purged: 0 } },
       ],
     });
 
@@ -927,14 +944,14 @@ describe('CLI — a deployed run with evidence files omitted', () => {
       vercelEnv: 'preview',
       gitSha: 'c1a1234',
       appOrigin: 'https://preview.example',
-      switches: { subscriptions: true, topups: true, publicPricing: false, taxCollection: false },
+      switches: { subscriptions: !topupsOnly, topups: true, publicPricing: false, taxCollection: false },
       webhookSecretConfigured: true,
       webhookSecretDistinct: true,
       stripeKeyMode: 'test',
       cronSecretConfigured: true,
       identityHmacConfigured: true,
       identityHmacVersion: 1,
-      carrier: { present: true, env: 'test', offers: 6, topups: 10, coupons: 1, digest: inspected.digest, parse: 'ok' },
+      carrier: { present: true, env: 'test', offers: topupsOnly ? 0 : 6, topups: topupsOnly ? 3 : 10, coupons: topupsOnly ? 0 : 1, digest: inspected.digest, parse: 'ok' },
       deploymentMarker: true,
       timestamp: '2026-09-16T00:00:00.000Z',
     };
@@ -954,7 +971,7 @@ describe('CLI — a deployed run with evidence files omitted', () => {
       'node',
       'billing-readiness-check.ts',
       '--target',
-      'rehearsal',
+      topupsOnly ? 'rehearse-topups' : 'rehearsal',
       '--env-source',
       'deployed',
       '--environment',
@@ -975,6 +992,14 @@ describe('CLI — a deployed run with evidence files omitted', () => {
       cronProofFile,
     ];
 
+    if (topupsOnly) {
+      process.argv.push(
+        '--portal-config-file',
+        writeFixture('portal.json', { data: [{ id: 'bpc_test', is_default: true, livemode: false, features: { subscription_update: { enabled: false } } }] }),
+        '--integrity-report',
+        writeFixture('integrity.json', { exitCode: 0, violations: [] }),
+      );
+    }
     const output = captureOutput();
 
     await main();
@@ -985,17 +1010,20 @@ describe('CLI — a deployed run with evidence files omitted', () => {
       checks: Array<{ id: string; ok: boolean }>;
     };
 
-    expect(parsed.missingEvidence).toEqual([
-      'Stripe portal export (--portal-config-file)',
-      'integrity report (--integrity-report)',
-    ]);
-    // Everything else is green, so the exit code can only come from those two.
-    expect(parsed.checks.filter(check => !check.ok).map(check => check.id)).toEqual([
-      'portal_subscription_update_disabled',
-      'integrity_report_clean',
-    ]);
-    expect(parsed.met).toBe(false);
-    expect(process.exitCode).toBe(EXIT_EVIDENCE_MISSING);
+    expect(parsed.missingEvidence).toEqual(topupsOnly
+      ? []
+      : [
+          'Stripe portal export (--portal-config-file)',
+          'integrity report (--integrity-report)',
+        ]);
+    expect(parsed.checks.filter(check => !check.ok).map(check => check.id)).toEqual(topupsOnly
+      ? []
+      : [
+          'portal_subscription_update_disabled',
+          'integrity_report_clean',
+        ]);
+    expect(parsed.met).toBe(topupsOnly);
+    expect(process.exitCode).toBe(topupsOnly ? EXIT_TARGET_MET : EXIT_EVIDENCE_MISSING);
     // The readiness endpoint is authorized by a Bearer header, and neither the
     // secret nor the env var's value ever reaches stdout or stderr.
     expect(seenAuthorization).toContain(`Bearer ${CRON_SECRET_VALUE}`);

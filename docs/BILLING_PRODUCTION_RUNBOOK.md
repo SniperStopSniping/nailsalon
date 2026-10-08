@@ -1,5 +1,14 @@
 # Luster billing — production activation runbook
 
+## Current SMS rollout — October 2026
+
+For the free founding core app and current 100/$20, 200/$30, 500/$50 CAD text
+packages, use [SMS_TOPUP_ACTIVATION_RUNBOOK.md](./SMS_TOPUP_ACTIVATION_RUNBOOK.md).
+It provides a top-up-only rehearsal and activation path with core subscriptions
+off. The subscription tiers, coupon and older package tables below document the
+legacy billing rollout; they are not instructions to provision or activate those
+products for the current SMS upgrade. Preserve historical mappings and records.
+
 Governing contract: [luster-billing-communications-rev-2-2.md](luster-billing-communications-rev-2-2.md) (Rev 2.2), specifically §3 (frozen commercial terms), §4 (Stripe id mapping), §7.3 (identity/HMAC), §8.1/§8.4 (webhook), §12 (dark switches/publication gates), §20 (activation order this runbook specialises), §21 (Isla pilot billing checks). Plan: [luster-billing-remaining-work-plan.md](luster-billing-remaining-work-plan.md) §5 "P8c", §6 (D2/D3/D7/D10/D11/D16), §9 (per-switch acceptance). Gate record: [billing-gate-c-record.md](billing-gate-c-record.md). Companion: [BILLING_IDENTITY_KEY_LIFECYCLE.md](BILLING_IDENTITY_KEY_LIFECYCLE.md). House style follows [TWILIO_COMMUNICATIONS_RUNBOOK.md](TWILIO_COMMUNICATIONS_RUNBOOK.md) / [TWILIO_PILOT_CHECKLIST.md](TWILIO_PILOT_CHECKLIST.md): every step names an owner, an exact command or dashboard action, a verification, and a rollback.
 
 ## 0. Status banner
