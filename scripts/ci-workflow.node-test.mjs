@@ -28,8 +28,22 @@ test('required aggregates reject failed, skipped, cancelled and missing evidence
   }
   assert.equal(jobs['full-vitest'].name, 'Full Vitest Suite');
   assert.equal(jobs.test.name, 'Run all tests (20.x)');
-  assert.deepEqual(jobs.test.needs, ['test-core', 'test-components']);
+  assert.deepEqual(jobs.test.needs, ['test-core', 'test-components', 'monitoring-node24']);
   assert.equal(jobs['full-vitest'].needs, 'full-vitest-shards');
+});
+
+test('the required aggregate includes Node 24 monitoring evidence with zero skips', () => {
+  const job = jobs['monitoring-node24'];
+  assert.equal(job.needs, 'secret-scan');
+  assert.ok(job.steps.some(step => step.uses === 'actions/setup-node@v4' && step.with['node-version'] === '24.x'));
+  const step = job.steps.find(candidate => candidate.name === 'Verify monitoring URL compatibility and privacy with zero skips');
+  assert.match(step.run, /set -euo pipefail/);
+  assert.match(step.run, /npm run test:monitoring:node24/);
+  assert.ok(step.run.includes('grep -Fqx \'# tests 14\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 14\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
+  assert.equal(jobs.test.steps[0].env.MONITORING_RESULT, '${{ needs.monitoring-node24.result }}');
+  assert.match(jobs.test.steps[0].run, /test "\$MONITORING_RESULT" = success/);
 });
 
 test('all execution checkouts use the reviewed head and shards cannot fail fast', () => {

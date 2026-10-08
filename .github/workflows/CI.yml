@@ -1317,11 +1317,37 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  monitoring-node24:
+    name: Monitoring Node 24 regression
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+      - name: Install dependencies
+        run: HUSKY=0 npm ci
+      - name: Verify monitoring URL compatibility and privacy with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:monitoring:node24 | tee monitoring-node24.log
+          grep -Fqx '# tests 14' monitoring-node24.log
+          grep -Fqx '# pass 14' monitoring-node24.log
+          grep -Fqx '# skipped 0' monitoring-node24.log
+
   test:
     # Preserve the live ruleset context; success requires the application job
     # and every browser matrix member. A failed/cancelled shard cannot pass.
     name: Run all tests (20.x)
-    needs: [test-core, test-components]
+    needs: [test-core, test-components, monitoring-node24]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -1329,9 +1355,11 @@ jobs:
         env:
           CORE_RESULT: ${{ needs.test-core.result }}
           COMPONENTS_RESULT: ${{ needs.test-components.result }}
+          MONITORING_RESULT: ${{ needs.monitoring-node24.result }}
         run: |
           test "$CORE_RESULT" = success
           test "$COMPONENTS_RESULT" = success
+          test "$MONITORING_RESULT" = success
 
   uiqi-release-conditions:
     name: UIQI release conditions
