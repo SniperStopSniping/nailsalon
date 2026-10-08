@@ -17,4 +17,12 @@ describe('onboarding integration styles', () => {
       layoutSource.indexOf(onboardingImport),
     );
   });
+
+  it('includes the same scoped owner polish in the production route and local review', () => {
+    const layoutSource = readFileSync(join(process.cwd(), 'src/app/[locale]/onboarding-v1/layout.tsx'), 'utf8');
+    const labSource = readFileSync(join(process.cwd(), 'prototypes/site-builder-v2-booking-integration-lab/src/main.tsx'), 'utf8');
+
+    expect(layoutSource).toContain('onboarding/owner-chrome-polish.css');
+    expect(labSource).toContain('onboarding/owner-chrome-polish.css');
+  });
 });

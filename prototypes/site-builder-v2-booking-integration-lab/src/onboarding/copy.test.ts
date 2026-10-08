@@ -63,7 +63,7 @@ describe('centralized onboarding metadata', () => {
       'Your progress saves automatically on this device.',
     );
     expect(STARTER_ENTRY_COPY.reassurance).toBe(
-      'You’ll preview your site before choosing a plan.',
+      'You’ll preview your site before claiming your free plan.',
     );
   });
 });
