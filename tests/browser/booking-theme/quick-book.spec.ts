@@ -5,13 +5,14 @@ import { expect, test } from '@playwright/test';
 
 const layouts = ['compact_dropdown', 'side_portrait', 'hero_banner'] as const;
 for (const layout of layouts) {
-  test(`${layout} contains square, uploaded-aspect, tall and panoramic logos`, async ({ page }) => {
-    let dimensions = { width: 512, height: 512 };
-    await page.route('**/quick-book-logo-fixture.png', route => route.fulfill({
-      contentType: 'image/png',
-      body: readFileSync(path.join(__dirname, 'logo-fixtures', `${dimensions.width}x${dimensions.height}.png`)),
-    }));
-    for (const width of [320, 390, 768, 1440]) {
+  // Each viewport keeps its own time budget while retaining all four logo shapes.
+  for (const width of [320, 390, 768, 1440]) {
+    test(`${layout} contains square, uploaded-aspect, tall and panoramic logos at ${width}px`, async ({ page }) => {
+      let dimensions = { width: 512, height: 512 };
+      await page.route('**/quick-book-logo-fixture.png', route => route.fulfill({
+        contentType: 'image/png',
+        body: readFileSync(path.join(__dirname, 'logo-fixtures', `${dimensions.width}x${dimensions.height}.png`)),
+      }));
       await page.setViewportSize({ width, height: 1000 });
       for (const [naturalWidth, naturalHeight] of [[512, 512], [894, 600], [300, 900], [1200, 240]]) {
         dimensions = { width: naturalWidth!, height: naturalHeight! };
@@ -43,18 +44,18 @@ for (const layout of layouts) {
 
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       }
-    }
-    if (layout === 'compact_dropdown') {
-      await page.setViewportSize({ width: 320, height: 568 });
-      await page.goto('/?step=service&quick-book-layout=compact_dropdown&case=logo-long-name');
-      const title = page.locator('.qbp-brand h1');
-      const brand = page.locator('.qbp-brand');
+      if (layout === 'compact_dropdown' && width === 320) {
+        await page.setViewportSize({ width: 320, height: 568 });
+        await page.goto('/?step=service&quick-book-layout=compact_dropdown&case=logo-long-name');
+        const title = page.locator('.qbp-brand h1');
+        const brand = page.locator('.qbp-brand');
 
-      await expect(title).toBeVisible();
-      expect((await title.boundingBox())!.width).toBe((await brand.boundingBox())!.width);
-      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    }
-  });
+        await expect(title).toBeVisible();
+        expect((await title.boundingBox())!.width).toBe((await brand.boundingBox())!.width);
+        await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      }
+    });
+  }
 
   for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1440, 1000]]) {
     test(`${layout} approved customer composition at ${width}px`, async ({ page }) => {
