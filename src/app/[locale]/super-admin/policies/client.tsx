@@ -88,9 +88,10 @@ export function SuperAdminPoliciesClient({
             <button
               type="button"
               onClick={() => router.push(`/${locale}/super-admin`)}
-              className="-ml-2 rounded-lg p-2 transition-colors hover:bg-gray-100"
+              aria-label="Back to platform dashboard"
+              className="-ml-2 flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg p-2 transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900"
             >
-              <ArrowLeft className="size-5 text-gray-600" />
+              <ArrowLeft aria-hidden="true" className="size-5 text-gray-600" />
             </button>
             <div>
               <h1 className="text-xl font-semibold text-gray-900">Global Policies</h1>
