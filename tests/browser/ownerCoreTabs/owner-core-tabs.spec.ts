@@ -81,6 +81,7 @@ test('calendar: block-time entry and cancellation remain available', async ({ pa
 test('clients: search, clear, profile sections and back preserve the directory', async ({ page }) => {
   await page.goto('/?screen=clients');
   const search = page.getByRole('textbox', { name: 'Search clients' });
+  await expect(search).toHaveCSS('font-size', '16px');
   await search.fill('Sofia');
 
   await expect(page.getByRole('button', { name: /SM Sofia Martin/ })).toBeVisible();
@@ -112,6 +113,7 @@ test('clients: search, clear, profile sections and back preserve the directory',
 test('services: search recovery and detail navigation preserve the catalog', async ({ page }) => {
   await page.goto('/?screen=services');
   const search = page.getByPlaceholder('Search services…');
+  await expect(search).toHaveCSS('font-size', '16px');
   await search.fill('not-a-service');
 
   await expect(page.getByText('No matching services')).toBeVisible();

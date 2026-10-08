@@ -3227,7 +3227,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                   onChange={event => setMenuQuery(event.target.value)}
                   placeholder="Search services…"
                   data-testid="services-menu-search"
-                  className="min-h-12 w-full rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] pl-9 pr-3 text-[15px] text-[var(--owner-ink)] outline-none transition placeholder:text-[var(--owner-muted)] focus:border-[var(--owner-accent)]"
+                  className="min-h-12 w-full rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] pl-9 pr-3 text-[16px] text-[var(--owner-ink)] outline-none transition placeholder:text-[var(--owner-muted)] focus:border-[var(--owner-accent)]"
                 />
               </div>
             </div>
