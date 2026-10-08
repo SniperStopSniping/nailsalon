@@ -51,6 +51,26 @@ const locateCustomDesign = (
   return null;
 };
 
+/** Recover only the unambiguous empty section created by the Your Design starter. */
+export const resolveOnboardingDesignSectionId = (
+  document: SiteBuilderDocument,
+  state: OnboardingLabState,
+): string | null => {
+  const trackedId = state.canva.customDesignSectionId;
+  if (trackedId && locateCustomDesign(document, trackedId)) {
+    return trackedId;
+  }
+  if (document.originStarter !== 'your_design' || state.canva.images.length > 0) {
+    return null;
+  }
+  const sections = document.pages.flatMap(page => page.sections).filter(
+    (section): section is CustomDesignSectionInstance => section.sectionType === 'custom_design',
+  );
+  return sections.length === 1 && sections[0]?.settings.images.length === 0
+    ? sections[0].id
+    : null;
+};
+
 const getPreservedCustomDesign = (
   state: OnboardingLabState,
   document: SiteBuilderDocument,
@@ -178,7 +198,7 @@ export const switchOnboardingStarter = (
   if (checkpoint.present.originStarter === starter) {
     return {
       changed: false,
-      customDesignSectionId: state.canva.customDesignSectionId,
+      customDesignSectionId: resolveOnboardingDesignSectionId(checkpoint.present, state),
       document: checkpoint.present,
       success: true,
     };
@@ -199,7 +219,7 @@ export const switchOnboardingStarter = (
     let stagedHistory = createHistoryState(initializeStarter(starter, {
       siteName: state.profile.businessName.trim() || 'My nail studio',
     }));
-    let customDesignSectionId: string | null = null;
+    let customDesignSectionId = resolveOnboardingDesignSectionId(stagedHistory.present, state);
     if (preservedCustomDesign) {
       const restoredCustomDesign = addPreservedCustomDesign(
         stagedHistory,

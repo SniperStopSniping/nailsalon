@@ -27,6 +27,7 @@ import {
 } from '../components/FormFields';
 import { OnboardingBrandMark } from '../components/OnboardingBrandMark';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
+import { YourDesignAction } from '../components/YourDesignAction';
 import { SCREEN_METADATA, STARTER_ENTRY_COPY } from '../copy';
 import { useFeedback } from '../feedback/useFeedback';
 import { bookingPreferencesPort } from '../integrations/adapters/booking-preferences';
@@ -1229,9 +1230,11 @@ export function StartingPointScreen({
 export { StartingPointScreen as StarterScreen };
 
 type StartingPreviewScreenProps = {
+  hasDesign?: boolean;
   onBack: () => void;
   onContinue: () => void;
   onOpenPreview: () => void;
+  onOpenDesign?: () => void;
   preview: ReactNode;
   profile: BusinessProfileDraft;
   reveal?: boolean;
@@ -1246,9 +1249,11 @@ const STARTER_LABELS: Record<StarterId, string> = {
 };
 
 export function StartingPreviewScreen({
+  hasDesign = false,
   onBack,
   onContinue,
   onOpenPreview,
+  onOpenDesign,
   preview,
   profile,
   reveal = false,
@@ -1274,6 +1279,9 @@ export function StartingPreviewScreen({
             )
           : null}
       </div>
+      {starter === 'your_design' && onOpenDesign
+        ? <YourDesignAction hasDesign={hasDesign} onOpen={onOpenDesign} />
+        : null}
       <section
         aria-label={`${profile.businessName || 'Your business'} starting website preview`}
         className="onboarding-starting-preview__canvas"

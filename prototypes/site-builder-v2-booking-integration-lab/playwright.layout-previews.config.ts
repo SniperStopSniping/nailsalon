@@ -5,7 +5,7 @@ import base from './playwright.config';
 export default defineConfig({
   ...base,
   outputDir: '/tmp/luster-layout-preview-browser-results',
-  testMatch: /onboarding-layout-previews\.spec\.ts/u,
+  testMatch: /onboarding-(?:layout-previews|design-recovery)\.spec\.ts/u,
   projects: [
     { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
     { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } },

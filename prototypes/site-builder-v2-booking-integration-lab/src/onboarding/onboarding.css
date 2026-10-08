@@ -687,6 +687,15 @@ body.onboarding-modal-open {
 
 /* Screens and controls */
 
+.onboarding-app .onboarding-design-entry {
+  min-height: 44px;
+  margin-bottom: 16px;
+  border-color: var(--onboarding-line);
+  border-radius: 999px;
+  color: var(--onboarding-accent-dark);
+  background: var(--onboarding-surface);
+}
+
 .onboarding-screen {
   width: min(100%, var(--onboarding-width));
   min-width: 0;

@@ -91,7 +91,7 @@ import {
   FinalReviewScreen,
 } from './screens/ReviewScreen';
 import { SaveProgressScreen } from './screens/SaveProgressScreen';
-import { switchOnboardingStarter } from './state/switchStarter';
+import { resolveOnboardingDesignSectionId, switchOnboardingStarter } from './state/switchStarter';
 import { useOnboardingState } from './state/useOnboardingState';
 
 type PreviewSource =
@@ -1081,9 +1081,31 @@ export function OnboardingApp({
     }
   };
 
+  const openCanva = () => {
+    if (lab.document?.originStarter === 'your_design') {
+      const sectionId = resolveOnboardingDesignSectionId(lab.document, onboarding.state);
+      if (!sectionId) {
+        setError('Your saved design could not be found. Reload this draft before editing your design.');
+        return false;
+      }
+      if (sectionId !== onboarding.state.canva.customDesignSectionId) {
+        onboarding.updateState(current => ({
+          ...current,
+          canva: { ...current.canva, customDesignSectionId: sectionId },
+        }));
+      }
+    }
+    setError('');
+    setCanvaOpen(true);
+    return true;
+  };
+
   const selectStarter = (starter: StarterId) => {
     if (lab.document) {
       if (lab.document.originStarter === starter) {
+        if (starter === 'your_design' && !openCanva()) {
+          return;
+        }
         onboarding.continueFlow();
       } else {
         setPendingStarter(starter);
@@ -1452,6 +1474,8 @@ export function OnboardingApp({
         return (
           <BrandBasicsScreen
             checkSiteSlugAvailability={integration?.checkSiteSlugAvailability}
+            hasDesign={onboarding.state.canva.images.length > 0}
+            onOpenDesign={openCanva}
             onBack={goBack}
             onContinue={() => {
               if (!syncBuilderSiteName()) {
@@ -1540,6 +1564,8 @@ export function OnboardingApp({
         return onboarding.state.recipe.starter
           ? (
               <StartingPreviewScreen
+                hasDesign={onboarding.state.canva.images.length > 0}
+                onOpenDesign={openCanva}
                 onBack={goBack}
                 onContinue={onboarding.continueFlow}
                 onOpenPreview={() => openPreview('starting_preview')}
@@ -1657,7 +1683,7 @@ export function OnboardingApp({
           <ExtrasScreen
             onBack={goBack}
             onContinue={onboarding.continueFlow}
-            onOpenCanva={() => setCanvaOpen(true)}
+            onOpenCanva={openCanva}
             onOpenGallery={() => setGalleryOpen(true)}
             onSkip={() => onboarding.skip('extras')}
             state={onboarding.state}
@@ -1670,8 +1696,9 @@ export function OnboardingApp({
             onBack={goBack}
             onEdit={target => onboarding.viewScreen(target)}
             onEditCanva={() => {
-              onboarding.viewScreen('extras');
-              setCanvaOpen(true);
+              if (openCanva()) {
+                onboarding.viewScreen('extras');
+              }
             }}
             onOpenBuilder={openBuilder}
             onOpenPreview={() => openPreview('final_preview')}
