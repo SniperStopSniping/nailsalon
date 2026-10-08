@@ -52,7 +52,11 @@ export function installReviewApi() {
       return Response.json({ data: { generatedAt: new Date().toISOString(), timeZone: 'America/Toronto', rulesVersion: 'fixture', kpis: { active: 1, new_this_month: 0, due_to_return: 1, overdue: 0 }, segments: [], attention: { total: 0, items: [] } } });
     }
     if (path === '/api/salon/services') {
-      return Response.json({ data: { services: scenario === 'empty' ? [] : [service, { ...service, id: 'svc_2', name: 'Gel Manicure + Gel Pedicure', price: 9000, durationMinutes: 150, category: 'combo', bookingCategory: 'combo' }], activeTechnicianCount: 1 } });
+      const services = [service, { ...service, id: 'svc_2', name: 'Gel Manicure + Gel Pedicure', price: 9000, durationMinutes: 150, category: 'combo', bookingCategory: 'combo' }];
+      if (scenario === 'long') {
+        services.unshift(...Array.from({ length: 20 }, (_, index) => ({ ...service, id: `svc_extra_${index}`, name: `Signature manicure ${String(index + 1).padStart(2, '0')}` })));
+      }
+      return Response.json({ data: { services: scenario === 'empty' ? [] : services, activeTechnicianCount: 1 } });
     }
     if (path === '/api/salon/add-ons') {
       return Response.json({ data: { addOns: [] } });

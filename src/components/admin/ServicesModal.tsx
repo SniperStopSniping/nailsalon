@@ -2297,6 +2297,8 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const tabScrollOffsets = useRef<Partial<Record<typeof activeTab, number>>>({});
   const renderedTabRef = useRef(activeTab);
   const cancelTabScrollRestore = useRef<(() => void) | null>(null);
+  const catalogReturnScroll = useRef(0);
+  const renderedServiceId = useRef<string | null>(null);
   const [ownedTemplateKeys, setOwnedTemplateKeys] = useState<Set<string>>(new Set());
   const [bulkAddBusy, setBulkAddBusy] = useState(false);
   const [toggleActiveBusy, setToggleActiveBusy] = useState(false);
@@ -3104,6 +3106,22 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
     cancelTabScrollRestore.current = stop;
   }, [activeTab, getTabScroller]);
 
+  const selectedServiceId = selectedService?.id ?? null;
+  useLayoutEffect(() => {
+    if (renderedServiceId.current === selectedServiceId) {
+      return;
+    }
+    renderedServiceId.current = selectedServiceId;
+    // Details replace the catalog in the same sheet. A long catalog's offset
+    // would otherwise open the shorter detail halfway down. Cancel any tab
+    // restoration before moving to the detail, and restore the catalog on Back.
+    cancelTabScrollRestore.current?.();
+    const scroller = getTabScroller();
+    if (scroller) {
+      scroller.scrollTop = selectedServiceId ? 0 : catalogReturnScroll.current;
+    }
+  }, [getTabScroller, selectedServiceId]);
+
   useEffect(() => () => cancelTabScrollRestore.current?.(), []);
 
   return (
@@ -3698,6 +3716,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                           onMoveUp={() => void handleReorder(service.id, 'up', filteredServiceIds)}
                           onMoveDown={() => void handleReorder(service.id, 'down', filteredServiceIds)}
                           onClick={() => {
+                            catalogReturnScroll.current = getTabScroller()?.scrollTop ?? 0;
                             setSelectedService(service);
                             setToggleActiveError(null);
                           }}
@@ -3918,6 +3937,9 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           setShowAddDialog(false);
           setEditingService(null);
           setAddDialogPrefill(null);
+          if (!selectedService) {
+            catalogReturnScroll.current = activeTab === 'menu' ? getTabScroller()?.scrollTop ?? 0 : 0;
+          }
           setSelectedService(savedService);
           selectTab('menu');
           // The header count and the category chips read from `services`.

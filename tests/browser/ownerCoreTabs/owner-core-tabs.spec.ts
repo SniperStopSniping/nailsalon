@@ -144,6 +144,39 @@ test('services: search recovery and detail navigation preserve the catalog', asy
   await expect(search).toBeVisible();
 });
 
+test('services: a scrolled catalog opens readable details and restores its place', async ({ page }) => {
+  for (const width of [320, 390, 430, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/?screen=services&state=long&surface=sheet');
+    const scroller = page.getByTestId('app-modal-scroll-region');
+    const row = page.getByTestId('service-row-svc_2');
+    await row.scrollIntoViewIfNeeded();
+
+    await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(100);
+
+    const catalogPosition = await scroller.evaluate(element => element.scrollTop);
+    await row.click();
+
+    await expect(page.getByTestId('services-sticky-chrome')).toBeHidden();
+    await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(0);
+
+    const detail = page.getByTestId('service-detail-root');
+    const header = detail.locator(':scope > .sticky');
+    const icon = page.getByTestId('service-detail-hero-icon');
+
+    await expect.poll(async () => {
+      const headerBox = await header.boundingBox();
+      const iconBox = await icon.boundingBox();
+      return Boolean(headerBox && iconBox && iconBox.y >= headerBox.y + headerBox.height && iconBox.y + iconBox.height <= 844 && iconBox.x >= 0 && iconBox.x + iconBox.width <= width);
+    }).toBe(true);
+
+    await page.getByRole('button', { name: 'Services', exact: true }).click();
+
+    await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(catalogPosition);
+    await expect(row).toBeVisible();
+  }
+});
+
 for (const screen of ['calendar', 'clients', 'services']) {
   test(`${screen}: empty and error states keep recovery controls readable`, async ({ page }) => {
     await page.goto(`/?screen=${screen}&state=empty`);

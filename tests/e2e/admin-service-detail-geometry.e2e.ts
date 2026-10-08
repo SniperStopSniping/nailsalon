@@ -1,6 +1,6 @@
 /**
  * Regression: the admin Services detail view must start BELOW the sticky
- * chrome (Services header + tabs + category chips) at rest — the hero icon
+ * detail header at rest. The catalog header is hidden in detail. The hero icon
  * was previously hidden behind the sticky region and only revealed by iOS
  * overscroll bounce. Measures real DOM geometry with no drag/overscroll.
  *
@@ -124,8 +124,10 @@ for (const viewport of VIEWPORTS) {
       expect(scrollState).not.toBeNull();
       expect(scrollState!.scrollTop).toBe(0);
 
+      await expect(page.getByTestId('services-sticky-chrome')).toBeHidden();
+
       const [chromeBox, iconBox] = await Promise.all([
-        page.getByTestId('services-sticky-chrome').boundingBox(),
+        page.getByTestId('service-detail-root').locator(':scope > .sticky').boundingBox(),
         page.getByTestId('service-detail-hero-icon').boundingBox(),
       ]);
 
