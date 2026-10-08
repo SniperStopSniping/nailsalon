@@ -1,3 +1,23 @@
+# [1.142.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.141.0...v1.142.0) (2026-10-08)
+
+
+### Bug Fixes
+
+* **owner:** keep mobile search text consistently readable ([ba8b1f7](https://github.com/SniperStopSniping/nailsalon/commit/ba8b1f7a8b6582bce735c77556c3584639b156f2))
+* **owner:** preserve service catalog scroll through detail navigation ([64823ab](https://github.com/SniperStopSniping/nailsalon/commit/64823ab96762543810dfc86d0011024d515097a7))
+
+
+### Features
+
+* align owner add-on forms with service editor ([dc83d99](https://github.com/SniperStopSniping/nailsalon/commit/dc83d99246f87774d1126e29b1477528a20f74c2))
+* align usage and text allowance with owner styling ([2c94b22](https://github.com/SniperStopSniping/nailsalon/commit/2c94b22ab3401addb56de909cf2bb835056d22d5))
+* **onboarding:** align setup with Luster owner visual system ([12934fd](https://github.com/SniperStopSniping/nailsalon/commit/12934fda39ec34fcc4f9264446869fa213b7875a))
+* **owner:** combine core tabs and onboarding visual polish ([7c25e99](https://github.com/SniperStopSniping/nailsalon/commit/7c25e99ad29690a99eae33940f176725ce0ded71))
+* **owner:** polish calendar clients and service workflows ([89c1bb0](https://github.com/SniperStopSniping/nailsalon/commit/89c1bb0a799fd52d231121da40a93a6e7e36a8a1))
+* polish owner forms and visible error recovery ([fada9b6](https://github.com/SniperStopSniping/nailsalon/commit/fada9b64cd7127f69f6270c30f35d48116e65aef))
+* polish owner settings and payment presentation ([55e71d3](https://github.com/SniperStopSniping/nailsalon/commit/55e71d30d8a9fbfa311eaedc40818e77ab16df91))
+* **sms:** add owner credit balance and simple top-ups ([7ba674f](https://github.com/SniperStopSniping/nailsalon/commit/7ba674fc012bab3ca1f8095eecd6bb85d4a38a8a))
+
 # [1.141.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.140.0...v1.141.0) (2026-10-08)
 
 
