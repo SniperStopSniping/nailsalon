@@ -187,7 +187,7 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
             ...(!isFreeSolo ? [{ id: 'plans', title: 'Compare plans', description: 'Current Luster plans and available options', icon: CalendarClock, disabled: !salonSlug }] : []),
           ]}
         />
-        {view === 'usage' && salonSlug && <UsageBillingModal salonSlug={salonSlug} onClose={back} />}
+        {(view === 'usage' || view === 'topup' || view === 'history') && salonSlug && <UsageBillingModal salonSlug={salonSlug} initialView={view === 'usage' ? 'overview' : view} onClose={back} />}
         {view === 'plans' && !isFreeSolo && salonSlug && <ChoosePlanPanel salonSlug={salonSlug} onClose={back} />}
       </>
     );

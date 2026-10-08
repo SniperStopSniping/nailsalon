@@ -131,11 +131,11 @@ function Section({ title, footer, children }: SectionProps) {
           {title}
         </div>
       )}
-      <div className="mx-4 overflow-visible rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-surface)] shadow-sm">
+      <div className="owner-card mx-4 overflow-visible">
         {children}
       </div>
       {footer && (
-        <div className="mt-2 px-8 text-[12px] leading-snug text-[var(--owner-muted)]">
+        <div className="mt-3 px-6 text-sm leading-relaxed text-[var(--owner-muted)]">
           {footer}
         </div>
       )}
@@ -781,7 +781,7 @@ function BookingExperienceEditor({
             rows={2}
             maxLength={160}
             placeholder="A short welcome shown near the top of booking."
-            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+            className="w-full resize-y rounded-2xl border border-[var(--owner-line)] p-3 text-base leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
           />
           <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.bookingMessage ?? '').length}
@@ -838,7 +838,7 @@ function BookingExperienceEditor({
                     })}
                   maxLength={isInstagram ? 200 : 500}
                   placeholder={isInstagram ? 'yourstudio' : `https://${social.label.toLowerCase()}.com/your-profile`}
-                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                  className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                 />
                 {isInstagram && (
                   <span
@@ -871,7 +871,7 @@ function BookingExperienceEditor({
             rows={3}
             maxLength={500}
             placeholder="Shown below appointment details and in the confirmation email."
-            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+            className="w-full resize-y rounded-2xl border border-[var(--owner-line)] p-3 text-base leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
           />
           <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.confirmationMessage ?? '').length}
@@ -988,7 +988,7 @@ function BookingExperienceEditor({
             type="button"
             onClick={onSave}
             disabled={saving || !dirty}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="owner-action owner-action--primary min-h-12 gap-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="size-4" />
             <span>{saving ? 'Saving...' : 'Save booking experience'}</span>
@@ -1189,7 +1189,7 @@ function BookingPolicyEditor({
                 },
               }));
             }}
-            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
           />
         </label>
         {acknowledgmentRequired && (
@@ -1217,7 +1217,7 @@ function BookingPolicyEditor({
               }))}
             maxLength={60}
             placeholder="Booking policy"
-            className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+            className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
           />
           <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.policy.title ?? '').length}
@@ -1245,7 +1245,7 @@ function BookingPolicyEditor({
             maxLength={1500}
             required={draft.policy.enabled}
             placeholder="Explain cancellation, no-show, and deposit expectations."
-            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+            className="w-full resize-y rounded-2xl border border-[var(--owner-line)] p-3 text-base leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
           />
           <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.policy.text ?? '').length}
@@ -1285,7 +1285,7 @@ function BookingPolicyEditor({
                       [key]: event.target.checked,
                     },
                   }))}
-                className="size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                className="size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
               />
               {label}
             </label>
@@ -1332,7 +1332,7 @@ function BookingPolicyEditor({
                 },
               }));
             }}
-            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
           />
         </label>
 
@@ -1364,7 +1364,7 @@ function BookingPolicyEditor({
             rows={4}
             required={acknowledgmentRequired}
             placeholder={DEFAULT_BOOKING_POLICY_ACKNOWLEDGMENT_TEXT}
-            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+            className="w-full resize-y rounded-2xl border border-[var(--owner-line)] p-3 text-base leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
           />
           <div className="flex flex-wrap items-start justify-between gap-2">
             <p
@@ -1464,7 +1464,7 @@ function BookingPolicyEditor({
                         },
                       },
                     }))}
-                  className="mt-0.5 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                  className="mt-0.5 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                 />
                 {field.title}
               </label>
@@ -1551,7 +1551,7 @@ function BookingPolicyEditor({
               checked={previewAcknowledged}
               onChange={event =>
                 setPreviewAcknowledged(event.target.checked)}
-              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
             />
             <span className="min-w-0 break-words">{acknowledgmentText}</span>
           </label>
@@ -1595,7 +1595,7 @@ function BookingPolicyEditor({
               || !dirty
               || !acknowledgmentDependenciesValid
             }
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="owner-action owner-action--primary min-h-12 gap-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="size-4" />
             <span>{saving ? 'Saving...' : 'Save booking policy'}</span>
@@ -1629,6 +1629,7 @@ type BookingNotificationCapabilitiesState = {
 };
 
 type SalonEmailNotificationFormState = {
+  lowSmsBalance: boolean;
   newBooking: boolean;
   rescheduled: boolean;
   cancelled: boolean;
@@ -1642,6 +1643,7 @@ type SalonNotificationRecipientState = {
 };
 
 const DEFAULT_SALON_EMAIL_NOTIFICATION_FORM_STATE: SalonEmailNotificationFormState = {
+  lowSmsBalance: true,
   newBooking: true,
   rescheduled: true,
   cancelled: true,
@@ -1649,7 +1651,7 @@ const DEFAULT_SALON_EMAIL_NOTIFICATION_FORM_STATE: SalonEmailNotificationFormSta
 };
 
 const SALON_EMAIL_NOTIFICATION_EVENT_OPTIONS: Array<{
-  key: 'newBooking' | 'rescheduled' | 'cancelled';
+  key: 'newBooking' | 'rescheduled' | 'cancelled' | 'lowSmsBalance';
   label: string;
   description: string;
 }> = [
@@ -1662,6 +1664,11 @@ const SALON_EMAIL_NOTIFICATION_EVENT_OPTIONS: Array<{
     key: 'rescheduled',
     label: 'Reschedule emails',
     description: 'Email the salon when a client moves an appointment.',
+  },
+  {
+    key: 'lowSmsBalance',
+    label: 'Low text balance emails',
+    description: 'Email the salon at 25 and 10 credits, and when texts run out.',
   },
   {
     key: 'cancelled',
@@ -2528,6 +2535,7 @@ export function SettingsModal({
           newBooking: data.salonEmailNotifications?.newBooking ?? true,
           rescheduled: data.salonEmailNotifications?.rescheduled ?? true,
           cancelled: data.salonEmailNotifications?.cancelled ?? true,
+          lowSmsBalance: data.salonEmailNotifications?.lowSmsBalance ?? true,
           recipientEmail: data.salonEmailNotifications?.recipientEmail ?? '',
         });
         setSalonNotificationRecipient({
@@ -3196,6 +3204,7 @@ export function SettingsModal({
               newBooking: salonEmailNotificationsForm.newBooking,
               rescheduled: salonEmailNotificationsForm.rescheduled,
               cancelled: salonEmailNotificationsForm.cancelled,
+              lowSmsBalance: salonEmailNotificationsForm.lowSmsBalance,
               recipientEmail: trimmedRecipient,
             },
           }),
@@ -3208,6 +3217,7 @@ export function SettingsModal({
 
       const data = await response.json();
       setSalonEmailNotificationsForm({
+        lowSmsBalance: data.salonEmailNotifications?.lowSmsBalance ?? salonEmailNotificationsForm.lowSmsBalance,
         newBooking:
           data.salonEmailNotifications?.newBooking
           ?? salonEmailNotificationsForm.newBooking,
@@ -3856,13 +3866,13 @@ export function SettingsModal({
 
   const editorContent = (
     <div
-      className="flex min-h-full w-full flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]"
+      className="mx-auto flex min-h-full w-full max-w-4xl flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       {/* A hosted editor scrolls with its page; a tall sticky sheet heading
           would otherwise cover the leave guard on a narrow phone. */}
       <div className={renderLeafLayout ? 'bg-[var(--owner-ground)]' : 'sticky top-0 z-10 bg-[var(--owner-ground)] backdrop-blur-md'}>
-        {renderLeafLayout
+        {leafOnly || renderLeafLayout
           ? <div className="px-4 py-3"><BackButton onClick={handleBack} label={leafBackLabel} /></div>
           : (
               <ModalHeader
@@ -3877,7 +3887,7 @@ export function SettingsModal({
               />
             )}
         <div className="px-4 pb-2">
-          <h1 className={renderLeafLayout ? 'my-3 text-3xl font-semibold text-[var(--owner-ink)]' : 'owner-title text-[34px] font-bold text-[var(--owner-ink,#30262a)]'}>
+          <h1 className="owner-title my-3 text-[34px] text-[var(--owner-ink)]">
             {leafOnly && leafTitle ? leafTitle : VIEW_TITLES[view]}
           </h1>
         </div>
@@ -3904,14 +3914,14 @@ export function SettingsModal({
                 pendingLeafActionRef.current = null;
                 setPendingWorkspaceApp(null);
               }}
-              className="rounded-full border border-amber-300 px-3 py-1.5 text-xs font-semibold text-amber-900"
+              className="min-h-11 rounded-full border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--owner-focus)]"
             >
               Keep editing
             </button>
             <button
               type="button"
               onClick={discardChanges}
-              className="rounded-full bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white"
+              className="min-h-11 rounded-full bg-amber-800 px-4 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--owner-focus)]"
             >
               Discard
             </button>
@@ -4156,7 +4166,7 @@ export function SettingsModal({
                                     ),
                                   ),
                                 }))}
-                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                             />
                           </label>
 
@@ -4174,7 +4184,7 @@ export function SettingsModal({
                                     10,
                                   ) as BookingConfigFormState['slotIntervalMinutes'],
                                 }))}
-                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                             >
                               {SLOT_INTERVAL_OPTIONS.map(option => (
                                 <option key={option} value={option}>
@@ -4209,7 +4219,7 @@ export function SettingsModal({
                                       ),
                                     ),
                                   }))}
-                                className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-16 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                className="h-12 w-full rounded-2xl border border-[var(--owner-line)] px-3 pr-16 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                               />
                               <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
                                 hours
@@ -4231,7 +4241,7 @@ export function SettingsModal({
                                 ...prev,
                                 confirmationMode: event.target.value as BookingConfigFormState['confirmationMode'],
                               }))}
-                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)]"
+                              className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                             >
                               <option value="instant">Automatically confirm appointments</option>
                               <option value="request_approval">Review each request first</option>
@@ -4262,7 +4272,7 @@ export function SettingsModal({
                                   minimumNoticeMinutes: Number.parseInt(event.target.value, 10),
                                 }));
                               }}
-                              className="h-11 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              className="h-12 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                             >
                               {MINIMUM_NOTICE_OPTIONS.map(option => (
                                 <option key={option.minutes} value={option.minutes}>
@@ -4292,7 +4302,7 @@ export function SettingsModal({
                                         ),
                                       ),
                                     }))}
-                                  className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-20 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                  className="h-12 w-full rounded-2xl border border-[var(--owner-line)] px-3 pr-20 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                                 />
                                 <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
                                   minutes
@@ -4314,7 +4324,7 @@ export function SettingsModal({
                             type="button"
                             onClick={() => void saveBookingConfig()}
                             disabled={bookingConfigSaving || !bookingConfigDirty}
-                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="owner-action owner-action--primary min-h-12 gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <Save className="size-4" />
                             <span>
@@ -4359,7 +4369,7 @@ export function SettingsModal({
                                 currency: event.target
                                   .value as BookingConfigFormState['currency'],
                               }))}
-                            className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                            className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                           >
                             {CURRENCY_OPTIONS.map(option => (
                               <option key={option} value={option}>
@@ -4450,7 +4460,7 @@ export function SettingsModal({
                                 ...prev,
                                 taxEnabled: event.target.checked,
                               }))}
-                            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                           />
                         </label>
 
@@ -4471,7 +4481,7 @@ export function SettingsModal({
                                   }))}
                                 placeholder="HST"
                                 maxLength={40}
-                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                               />
                             </label>
 
@@ -4491,7 +4501,7 @@ export function SettingsModal({
                                       taxRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
                                     }))}
                                   placeholder="13"
-                                  className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-10 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                  className="h-12 w-full rounded-2xl border border-[var(--owner-line)] px-3 pr-10 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                                 />
                                 <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
                                   %
@@ -4517,7 +4527,7 @@ export function SettingsModal({
                                       }))}
                                     placeholder="Ontario HST"
                                     maxLength={120}
-                                    className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                    className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                                   />
                                 </label>
                                 <label className="flex flex-col gap-1">
@@ -4533,7 +4543,7 @@ export function SettingsModal({
                                       }))}
                                     placeholder="CA"
                                     maxLength={120}
-                                    className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                    className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                                   />
                                 </label>
                                 <label className="flex flex-col gap-1">
@@ -4549,7 +4559,7 @@ export function SettingsModal({
                                       }))}
                                     placeholder="ON"
                                     maxLength={120}
-                                    className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                    className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                                   />
                                 </label>
                               </div>
@@ -4588,7 +4598,7 @@ export function SettingsModal({
                                     ...prev,
                                     forfeitureTaxEstimationEnabled: event.target.checked,
                                   }))}
-                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                               />
                             </label>
 
@@ -4611,7 +4621,7 @@ export function SettingsModal({
                                     ...prev,
                                     pricesIncludeTax: event.target.checked,
                                   }))}
-                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                               />
                             </label>
 
@@ -4635,7 +4645,7 @@ export function SettingsModal({
                                           ...prev,
                                           [key]: event.target.checked,
                                         }))}
-                                      className="size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                                      className="size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                                     />
                                   </label>
                                 ))}
@@ -4664,7 +4674,7 @@ export function SettingsModal({
                                           scheduledRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
                                         }))}
                                       placeholder="15"
-                                      className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-10 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                      className="h-12 w-full rounded-2xl border border-[var(--owner-line)] px-3 pr-10 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                                     />
                                     <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
                                       %
@@ -4682,7 +4692,7 @@ export function SettingsModal({
                                         ...prev,
                                         scheduledEffectiveFrom: event.target.value,
                                       }))}
-                                    className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                    className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                                   />
                                 </label>
                               </div>
@@ -4730,7 +4740,7 @@ export function SettingsModal({
                                 ...prev,
                                 etransferEnabled: event.target.checked,
                               }))}
-                            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                           />
                         </label>
 
@@ -4751,7 +4761,7 @@ export function SettingsModal({
                                   }))}
                                 placeholder="pay@yoursalon.ca"
                                 maxLength={200}
-                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                               />
                             </label>
 
@@ -4769,7 +4779,7 @@ export function SettingsModal({
                                   }))}
                                 placeholder="Your salon name"
                                 maxLength={120}
-                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                               />
                             </label>
 
@@ -4791,7 +4801,7 @@ export function SettingsModal({
                                     ...prev,
                                     etransferAutodeposit: event.target.checked,
                                   }))}
-                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                               />
                             </label>
 
@@ -4809,7 +4819,7 @@ export function SettingsModal({
                                 rows={3}
                                 maxLength={1000}
                                 placeholder="Please include the appointment reference in the message field."
-                                className="rounded-[10px] border border-[var(--owner-line)] px-3 py-2 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                className="rounded-2xl border border-[var(--owner-line)] px-3 py-2 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                               />
                             </label>
 
@@ -4830,7 +4840,7 @@ export function SettingsModal({
                                     ...prev,
                                     etransferRequireReference: event.target.checked,
                                   }))}
-                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                               />
                             </label>
 
@@ -4853,7 +4863,7 @@ export function SettingsModal({
                                     ...prev,
                                     etransferQrEnabled: event.target.checked,
                                   }))}
-                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                               />
                             </label>
                           </div>
@@ -4966,7 +4976,7 @@ export function SettingsModal({
                               setDepositEnabledDirty(true);
                               setDepositSaved(false);
                             }}
-                            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                           />
                         </label>
 
@@ -5026,7 +5036,7 @@ export function SettingsModal({
                                         setNoShowProtectionDirty(true);
                                         setDepositSaved(false);
                                       }}
-                                      className="mt-1 size-4 border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                                      className="mt-1 size-4 border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                                     />
                                     <span>
                                       <span className="block text-sm font-semibold text-[var(--owner-ink)]">{label}</span>
@@ -5077,7 +5087,7 @@ export function SettingsModal({
                               depositSaving
                               || (!depositEnabledDirty && !depositAmountDirty && !noShowProtectionDirty)
                             }
-                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="owner-action owner-action--primary min-h-12 gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <Save className="size-4" />
                             <span>{depositSaving ? 'Saving...' : 'Save deposits'}</span>
@@ -5117,7 +5127,7 @@ export function SettingsModal({
                     data-testid="payments-save"
                     onClick={() => void savePayments()}
                     disabled={paymentsSaving || !paymentsDirty}
-                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="owner-action owner-action--primary min-h-12 gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Save className="size-4" />
                     <span className="whitespace-nowrap">
@@ -5476,7 +5486,7 @@ export function SettingsModal({
                                       technicianEnabled: event.target.checked,
                                     },
                                   )}
-                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                                 aria-label={`Notify assigned technician for ${notificationEvent.title.toLowerCase()}`}
                               />
                             </div>
@@ -5496,7 +5506,7 @@ export function SettingsModal({
                                     },
                                   )}
                                 disabled={!eventForm.technicianEnabled}
-                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] disabled:cursor-not-allowed disabled:bg-[var(--owner-ground)] disabled:text-[var(--owner-muted)]"
+                                className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[var(--owner-ground)] disabled:text-[var(--owner-muted)]"
                                 aria-label={`Technician notification channel for ${notificationEvent.title.toLowerCase()}`}
                               >
                                 {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(
@@ -5558,7 +5568,7 @@ export function SettingsModal({
                                       ownerEnabled: event.target.checked,
                                     },
                                   )}
-                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                                 aria-label={`Notify salon owner for ${notificationEvent.title.toLowerCase()}`}
                               />
                             </div>
@@ -5578,7 +5588,7 @@ export function SettingsModal({
                                     },
                                   )}
                                 disabled={!eventForm.ownerEnabled}
-                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] disabled:cursor-not-allowed disabled:bg-[var(--owner-ground)] disabled:text-[var(--owner-muted)]"
+                                className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[var(--owner-ground)] disabled:text-[var(--owner-muted)]"
                                 aria-label={`Owner notification channel for ${notificationEvent.title.toLowerCase()}`}
                               >
                                 {OWNER_NOTIFICATION_CHANNEL_OPTIONS.map((option) => {
@@ -5645,7 +5655,7 @@ export function SettingsModal({
                         type="button"
                         onClick={() => void saveBookingNotifications()}
                         disabled={bookingNotificationsSaving || !notificationsDirty}
-                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                        className="owner-action owner-action--primary min-h-12 gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Save className="size-4" />
                         <span>
@@ -5687,7 +5697,7 @@ export function SettingsModal({
                                 updateSalonEmailNotifications({
                                   [option.key]: event.target.checked,
                                 })}
-                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] accent-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                               aria-label={option.label}
                             />
                           </div>
@@ -5707,7 +5717,7 @@ export function SettingsModal({
                               updateSalonEmailNotifications({
                                 recipientEmail: event.target.value,
                               })}
-                            className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                            className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                             aria-label="Salon notification email address"
                           />
                         </label>
@@ -5752,7 +5762,7 @@ export function SettingsModal({
                             salonEmailNotificationsSaving
                             || !salonEmailNotificationsDirty
                           }
-                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                          className="owner-action owner-action--primary min-h-12 gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Save className="size-4" />
                           <span>
@@ -6039,7 +6049,7 @@ export function SettingsModal({
                       setProfileDirty(true);
                       setProfileSaved(false);
                     }}
-                    className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                    className="h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                   />
                 </label>
                 <label className="flex flex-col gap-1">
@@ -6060,7 +6070,7 @@ export function SettingsModal({
                       setProfileDirty(true);
                       setProfileSaved(false);
                     }}
-                    className={`h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] ${
+                    className={`h-12 rounded-2xl border border-[var(--owner-line)] px-3 text-base outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 ${
                       profileEmailLocked
                         ? 'bg-[var(--owner-ground)] text-[var(--owner-muted)]'
                         : 'text-[var(--owner-ink)]'
@@ -6093,7 +6103,7 @@ export function SettingsModal({
                       || !profileName.trim()
                       || (!profileEmailLocked && !profileEmail.includes('@'))
                     }
-                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="owner-action owner-action--primary min-h-12 gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Save className="size-4" />
                     <span>{profileSaving ? 'Saving...' : 'Save profile'}</span>
@@ -6110,7 +6120,7 @@ export function SettingsModal({
                 <button
                   type="button"
                   onClick={() => openWorkspaceApp('plan-usage')}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-4 text-sm font-semibold text-[var(--owner-ink)]"
+                  className="owner-action min-h-12 gap-2"
                 >
                   <CreditCard className="size-4" />
                   Open Plan & Usage
@@ -6177,7 +6187,7 @@ export function SettingsModal({
                             onClick={() => void openBillingPortal()}
                             disabled={portalOpening}
                             data-testid="manage-billing-button"
-                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="owner-action owner-action--primary min-h-12 gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <CreditCard className="size-4" />
                             <span>{portalOpening ? 'Opening…' : 'Manage billing'}</span>
@@ -6187,7 +6197,7 @@ export function SettingsModal({
                           <button
                             type="button"
                             onClick={() => setShowChoosePlan(true)}
-                            className="rounded-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
+                            className="owner-action min-h-12"
                           >
                             Plans
                           </button>
@@ -6195,7 +6205,7 @@ export function SettingsModal({
                         <button
                           type="button"
                           onClick={() => setShowUsageBilling(true)}
-                          className="rounded-[10px] border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
+                          className="owner-action min-h-12"
                         >
                           Usage & billing
                         </button>

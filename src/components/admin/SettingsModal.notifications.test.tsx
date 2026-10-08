@@ -329,6 +329,7 @@ describe('SettingsModal booking notifications', () => {
               newBooking: true,
               rescheduled: true,
               cancelled: false,
+              lowSmsBalance: true,
               recipientEmail: 'frontdesk@example.com',
             },
           }),

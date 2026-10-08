@@ -41,6 +41,7 @@ import { LuckyCharmLoader } from '@/components/loading/LuckyCharmLoader';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { formatMoney } from '@/libs/formatMoney';
 import { resolveOwnerNavigationAlias, resolveOwnerNavigationPathAlias } from '@/libs/ownerNavigation';
+import { SMS_CREDITS_CHANGED_EVENT } from '@/libs/smsCreditStatus';
 // =============================================================================
 // Main Page Component
 // =============================================================================
@@ -447,6 +448,7 @@ function AdminDashboardContent() {
   const [showTopupUsageBilling, setShowTopupUsageBilling] = useState(false);
   const [pollingTopupFulfillment, setPollingTopupFulfillment] = useState(false);
   const handledBillingReturnRef = useRef(false);
+  const [returnedPurchase, setReturnedPurchase] = useState<{ id: string; salonSlug: string } | null>(null);
   const activeDashboardSalonSlug
     = adminUser?.impersonation?.salonSlug
     ?? requestedSalonSlug
@@ -486,11 +488,14 @@ function AdminDashboardContent() {
     }
     handledBillingReturnRef.current = true;
     const outcome = kind === 'topup' ? topupParam : billingParam;
+    if (kind === 'topup' && searchParams.get('purchase') && searchParams.get('salon')) {
+      setReturnedPurchase({ id: searchParams.get('purchase')!, salonSlug: searchParams.get('salon')! });
+    }
     if (outcome === 'success') {
       setBillingReturnNotice({
         kind,
         message: kind === 'topup'
-          ? 'Payment received — credits usually arrive within a minute.'
+          ? 'Confirming your purchase. Credits appear after payment is verified.'
           : 'Payment received — your plan updates within a minute.',
       });
       setShowTopupUsageBilling(true);
@@ -498,21 +503,31 @@ function AdminDashboardContent() {
         // Subscription state arrives from the stripe-billing webhook; there
         // is no equivalent read-back endpoint to poll here (unlike top-up
         // purchases, which read back from /api/billing/topups).
-        setPollingTopupFulfillment(true);
+        const purchase = searchParams.get('purchase');
+        const salonSlug = searchParams.get('salon');
+        if (purchase && salonSlug) {
+          setReturnedPurchase({ id: purchase, salonSlug });
+          setPollingTopupFulfillment(true);
+        } else {
+          setBillingReturnNotice({ kind, message: 'Checkout returned. Open usage history to check your purchase status.' });
+        }
       }
     } else {
-      setBillingReturnNotice({ kind, message: 'Checkout cancelled — nothing was charged.' });
+      setBillingReturnNotice({ kind, message: kind === 'topup' ? 'Checkout closed. If you completed payment, check your purchase in usage history.' : 'Checkout cancelled — nothing was charged.' });
     }
     const url = new URL(window.location.href);
     url.searchParams.delete(kind);
+    if (kind === 'topup') {
+      url.searchParams.delete('purchase');
+    }
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }, [searchParams]);
 
-  // Poll the top-up purchase history every 5s (up to 60s) until the newest
-  // purchase reads back as fulfilled — the success redirect itself is never
+  // Poll the exact salon-scoped purchase every 5s (up to 60s) until it
+  // reads back as fulfilled — the success redirect itself is never
   // authoritative (fulfilment happens only from verified webhook evidence).
   useEffect(() => {
-    if (!pollingTopupFulfillment || !activeDashboardSalon?.id) {
+    if (!pollingTopupFulfillment || !activeDashboardSalon?.id || !returnedPurchase || activeDashboardSalon.slug !== returnedPurchase.salonSlug) {
       return;
     }
     const salonId = activeDashboardSalon.id;
@@ -524,13 +539,22 @@ function AdminDashboardContent() {
         return;
       }
       try {
-        const response = await fetch(`/api/billing/topups?salonId=${encodeURIComponent(salonId)}&limit=1`);
+        const response = await fetch(`/api/billing/topups?${new URLSearchParams({ salonId, purchaseId: returnedPurchase.id, limit: '1' })}`);
         if (response.ok) {
           const body = await response.json();
-          if (body?.items?.[0]?.status === 'fulfilled') {
+          const purchase = body?.items?.find((item: { id: string }) => item.id === returnedPurchase.id);
+          if (purchase?.status === 'fulfilled' && purchase.fulfilledAt) {
             if (!cancelled) {
               setPollingTopupFulfillment(false);
+              setBillingReturnNotice({ kind: 'topup', message: `${purchase.credits.toLocaleString()} text credits added to this salon.` });
+              window.dispatchEvent(new Event(SMS_CREDITS_CHANGED_EVENT));
             }
+            return;
+          }
+          if (purchase && ['expired', 'refunded', 'reversed', 'disputed'].includes(purchase.status) && !cancelled) {
+            setPollingTopupFulfillment(false);
+            setBillingReturnNotice({ kind: 'topup', message: purchase.status === 'expired' ? 'This checkout was not completed. No credits were added.' : 'This purchase has an adjustment. Open usage and billing to review its status.' });
+            window.dispatchEvent(new Event(SMS_CREDITS_CHANGED_EVENT));
             return;
           }
         }
@@ -542,18 +566,19 @@ function AdminDashboardContent() {
       }
       if (Date.now() >= deadline) {
         setPollingTopupFulfillment(false);
+        setBillingReturnNotice({ kind: 'topup', message: 'Your purchase is still being confirmed. Check usage history before trying another purchase.' });
         return;
       }
       timer = setTimeout(poll, 5000);
     };
-    timer = setTimeout(poll, 5000);
+    void poll();
     return () => {
       cancelled = true;
       if (timer) {
         clearTimeout(timer);
       }
     };
-  }, [pollingTopupFulfillment, activeDashboardSalon?.id]);
+  }, [pollingTopupFulfillment, activeDashboardSalon?.id, activeDashboardSalon?.slug, returnedPurchase]);
 
   useEffect(() => {
     setOnboardingHandoffAvailable(false);
@@ -2003,7 +2028,7 @@ function AdminDashboardContent() {
 
         {/* Returned from a Checkout (G19, §8.5 UX) — top-up or subscription,
             non-authoritative either way. */}
-        {billingReturnNotice && (
+        {billingReturnNotice && (billingReturnNotice.kind !== 'topup' || !returnedPurchase || returnedPurchase.salonSlug === activeDashboardSalonSlug) && (
           <div
             className="mx-4 mt-2 flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3"
             data-testid={billingReturnNotice.kind === 'topup' ? 'topup-return-notice' : 'billing-return-notice'}
@@ -2027,6 +2052,8 @@ function AdminDashboardContent() {
                 data-testid="owner-more-workspace"
               >
                 <AppGrid
+                  salonSlug={activeDashboardSalonSlug ?? undefined}
+                  onOpenCredits={view => openAppViaUrl('plan-usage', view)}
                   theme="apple"
                   isTeamSalon={isTeamSalon}
                   badges={appBadges}
@@ -2085,6 +2112,7 @@ function AdminDashboardContent() {
                   onOpenGoogleReview={() => openAppViaUrl('schedule', 'google-review')}
                   onOpenFollowups={() => openAppViaUrl('clients', 'insights')}
                   onOpenIntegrations={() => openAppViaUrl('integrations')}
+                  onBuyTexts={() => openAppViaUrl('plan-usage', 'topup')}
                   onOpenAppointment={(appointmentId) => {
                     setInitialClientId(null);
                     setInitialAppointmentId(appointmentId);

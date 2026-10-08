@@ -7,8 +7,8 @@ import { getDateKeyInTimeZone, getTimeKeyInTimeZone } from '@/libs/timeZone';
 
 type Block = { id: string; technicianId: string; startsAt: string; endsAt: string; label: string | null; updatedAt: string };
 type Props = { salonSlug: string; date: string; technicians: Array<{ id: string; name: string }>; technicianId?: string; onClose: () => void };
-const fieldClass = 'min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-base';
-const buttonClass = 'min-h-11 rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700';
+const fieldClass = 'owner-form-field mt-2';
+const buttonClass = 'owner-action disabled:opacity-50';
 
 /** One editor for exact intraday blocks, distinct from date-based Days Off. */
 export function CalendarBlockTime({ salonSlug, date, technicians, technicianId, onClose }: Props) {
@@ -29,6 +29,7 @@ export function CalendarBlockTime({ salonSlug, date, technicians, technicianId, 
   const inFlight = useRef(false);
   const loadSequence = useRef(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
   const endpoint = `/api/admin/calendar-blocks?salonSlug=${encodeURIComponent(salonSlug)}`;
   const load = useCallback(async () => {
     const sequence = ++loadSequence.current;
@@ -66,6 +67,11 @@ export function CalendarBlockTime({ salonSlug, date, technicians, technicianId, 
   useEffect(() => {
     headingRef.current?.focus();
   }, []);
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.focus();
+    }
+  }, [error]);
   const reset = () => {
     setEditing(null);
     setLabel('');
@@ -104,19 +110,19 @@ export function CalendarBlockTime({ salonSlug, date, technicians, technicianId, 
     }
   };
   return (
-    <section className="space-y-4 p-4 pb-28" aria-labelledby="block-time-title" data-testid="calendar-block-time">
+    <section className="mx-auto w-full max-w-2xl space-y-5 p-4 pb-28 text-[var(--owner-ink)]" aria-labelledby="block-time-title" data-testid="calendar-block-time">
       <button type="button" className={buttonClass} onClick={onClose} disabled={saving}>Back to Calendar</button>
-      <h2 ref={headingRef} tabIndex={-1} id="block-time-title" className="text-xl font-semibold">Block Time</h2>
-      <p className="text-sm text-stone-600">Reserve part of a day for a break or personal commitment. Existing appointments are kept; overlapping blocks are refused. For a whole day away, use Days Off.</p>
+      <h2 ref={headingRef} tabIndex={-1} id="block-time-title" className="owner-title rounded text-[30px] font-normal leading-tight focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--owner-focus)]">Block Time</h2>
+      <p className="text-sm text-[var(--owner-muted)]">Reserve part of a day for a break or personal commitment. Existing appointments are kept; overlapping blocks are refused. For a whole day away, use Days Off.</p>
       {timeZone && (
-        <p className="text-sm text-stone-600">
+        <p className="text-sm text-[var(--owner-muted)]">
           Times in
           {' '}
           {timeZone}
         </p>
       )}
       {error && (
-        <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-900">
+        <div ref={errorRef} role="alert" tabIndex={-1} className="rounded-xl bg-red-50 p-3 text-sm text-red-900">
           {error}
           <button type="button" className={`${buttonClass} ml-2`} disabled={saving} onClick={() => void load()}>Refresh</button>
         </div>
@@ -127,7 +133,7 @@ export function CalendarBlockTime({ salonSlug, date, technicians, technicianId, 
           event.preventDefault();
           void save();
         }}
-        className="space-y-3"
+        className="owner-card space-y-5 p-5"
       >
         {technicians.length > 1 && (
           <label className="block text-sm font-medium">
@@ -164,16 +170,16 @@ export function CalendarBlockTime({ salonSlug, date, technicians, technicianId, 
           Label (optional)
           <input className={fieldClass} value={label} maxLength={120} disabled={saving} onChange={event => setLabel(event.target.value)} placeholder="Lunch, break, personal…" />
         </label>
-        <p className="text-xs text-stone-600">This label is for your salon. Clients only see that the time is unavailable.</p>
+        <p className="text-xs text-[var(--owner-muted)]">This label is for your salon. Clients only see that the time is unavailable.</p>
         <div className="flex flex-wrap gap-2">
-          <button className={`${buttonClass} bg-rose-900 text-white disabled:opacity-50`} type="submit" disabled={saving || loading || !timeZone || !selectedTechnician}>{saving ? 'Saving…' : editing ? 'Save block' : 'Block time'}</button>
+          <button className={`${buttonClass} owner-action--primary`} type="submit" disabled={saving || loading || !timeZone || !selectedTechnician}>{saving ? 'Saving…' : editing ? 'Save block' : 'Block time'}</button>
           {editing && <button type="button" className={buttonClass} disabled={saving} onClick={reset}>Cancel edit</button>}
         </div>
       </form>
-      <h3 className="font-semibold">Blocked time on this date</h3>
-      {loading ? <p role="status">Loading blocked time…</p> : !blocks.length && <p className="text-sm text-stone-600">No saved intraday blocks on this date.</p>}
+      <h3 className="owner-section-title">Blocked time on this date</h3>
+      {loading ? <p role="status">Loading blocked time…</p> : !blocks.length && <p className="text-sm text-[var(--owner-muted)]">No saved intraday blocks on this date.</p>}
       {blocks.map(block => (
-        <article key={block.id} className="space-y-2 rounded-xl border border-stone-200 p-3">
+        <article key={block.id} className="owner-card space-y-3 p-4">
           <p className="font-semibold">{block.label || 'Blocked time'}</p>
           <p className="text-sm">
             {timeZone && `${getTimeKeyInTimeZone(new Date(block.startsAt), timeZone)}–${getTimeKeyInTimeZone(new Date(block.endsAt), timeZone)}`}

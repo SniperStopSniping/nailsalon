@@ -2,7 +2,7 @@
 export const OWNER_MANAGEMENT_VIEWS = {
   'hours': ['home', 'working-hours', 'time-off', 'requests'],
   'booking-rules': ['home', 'rules', 'policies'],
-  'plan-usage': ['home', 'billing', 'usage', 'plans'],
+  'plan-usage': ['home', 'billing', 'usage', 'plans', 'topup', 'history'],
   'help': ['home'],
 } as const;
 

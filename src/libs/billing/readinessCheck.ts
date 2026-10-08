@@ -47,19 +47,10 @@
  * or a Client Component references it), so the omission carries no bundling
  * risk in practice.
  *
- * The catalogue-key lists below (`KNOWN_OFFER_KEYS` / `KNOWN_TOPUP_KEYS` /
- * `KNOWN_COUPON_KEYS`) are a DELIBERATE, hand-maintained duplicate of the
- * keys in `billingOffers.ts` / `topupOffers.ts` / `promotions.ts` — those
- * modules are `server-only` and importing them here would reintroduce the
- * exact problem this file's header just explained. This is the same
- * trade-off `environmentIsolation.ts` already made for its own
- * `inspectBillingStripePriceIdsShape` (see that function's doc comment): a
- * minimal, import-free, structural check that is NOT the same function as
- * (and is never a substitute for) the catalogue-aware
- * `parseStripePriceCarrier`. A stale list here can only make this
- * diagnostic under- or over-report "still lacks an id" for a renamed
- * catalogue key; it never changes what the live boot check or checkout path
- * actually accepts.
+ * The top-up catalogue is shared pure data: active offers are required for
+ * readiness; retired keys remain valid for historical purchase resolution.
+ * Subscription and coupon key lists remain mirrored here to avoid importing
+ * server-only implementations into the CLI diagnostic.
  */
 
 import { createHash } from 'node:crypto';
@@ -71,6 +62,7 @@ import {
 } from '@/libs/environmentIsolation';
 
 import { BILLING_WEBHOOK_HANDLED_TYPES } from './billingWebhookEvents';
+import { TOPUP_OFFERS } from './topupCatalog';
 
 /**
  * Local alias for the three billing plan environments. Deliberately NOT
@@ -90,15 +82,8 @@ const KNOWN_OFFER_KEYS = [
   'elite_2026_08_annual',
 ] as const;
 
-const KNOWN_TOPUP_KEYS = [
-  'topup_100_free_2026_08',
-  'topup_250_free_2026_08',
-  'topup_500_free_2026_08',
-  'topup_100_paid_2026_08',
-  'topup_250_paid_2026_08',
-  'topup_500_paid_2026_08',
-  'topup_1000_paid_2026_08',
-] as const;
+const KNOWN_TOPUP_KEYS = Object.keys(TOPUP_OFFERS);
+const ACTIVE_TOPUP_KEYS = Object.values(TOPUP_OFFERS).filter(offer => offer.active).map(offer => offer.key);
 
 const KNOWN_COUPON_KEYS = ['founding_annual_2026'] as const;
 
@@ -297,7 +282,7 @@ function inspectCarrier(raw: string | undefined, expectedEnv: string | undefined
       }
     }
     configuredCounts[section] = configuredKeys.size;
-    for (const knownKey of knownKeys) {
+    for (const knownKey of section === 'topups' ? ACTIVE_TOPUP_KEYS : knownKeys) {
       if (!configuredKeys.has(knownKey)) {
         missing[section].push(knownKey);
       }
@@ -332,7 +317,7 @@ function checkStripePriceCarrier(env: BillingReadinessEnv): BillingReadinessChec
       const totalMissing = inspection.missingOfferKeys.length
         + inspection.missingTopupKeys.length
         + inspection.missingCouponKeys.length;
-      const totalKnown = KNOWN_OFFER_KEYS.length + KNOWN_TOPUP_KEYS.length + KNOWN_COUPON_KEYS.length;
+      const totalKnown = KNOWN_OFFER_KEYS.length + ACTIVE_TOPUP_KEYS.length + KNOWN_COUPON_KEYS.length;
       const parts = [
         `offers missing ids: ${inspection.missingOfferKeys.join(', ') || 'none'}`,
         `topups missing ids: ${inspection.missingTopupKeys.join(', ') || 'none'}`,
