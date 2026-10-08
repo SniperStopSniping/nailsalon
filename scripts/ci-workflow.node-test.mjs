@@ -94,3 +94,65 @@ test('the required component job runs onboarding tests with their package config
   assert.match(step.run, /playwright\.layout-previews\.config\.ts/);
   assert.ok(jobs['test-core'].steps.some(candidate => candidate.run?.includes('scripts/test-changed-source.node-test.mjs')));
 });
+
+test('all browser evidence runs exactly once across required independent groups', () => {
+  const job = jobs['test-components'];
+  assert.deepEqual(job.strategy.matrix.suite, ['onboarding-owner', 'customer-booking']);
+  assert.equal(job.strategy['fail-fast'], false);
+  assert.equal(job['continue-on-error'], undefined);
+  assert.equal(job['timeout-minutes'], 55);
+  const expected = {
+    'onboarding-owner': [
+      'Verify onboarding confirmation and booking notice',
+      'Verify SMS components and plan access in desktop and mobile browsers',
+      'Verify review previews and delivery states in mobile browsers',
+      'Verify no-show correction in desktop and mobile browsers',
+      'Verify review automation settings in mobile browsers',
+      'Verify dark customer assistant proposal shell in mobile browsers',
+      'Verify platform policy labels and navigation',
+      'Verify owner destinations and Hours in mobile browsers',
+      'Verify owner dashboard polish and shared dialogs in mobile browsers',
+      'Verify owner forms and error recovery in mobile browsers',
+      'Verify Portfolio controls and failure recovery in mobile browsers',
+      'Verify owner settings and payment presentation in mobile browsers',
+      'Verify Luster owner entry screens in mobile browsers',
+      'Verify owner Marketing destinations in mobile browsers',
+      'Verify Booking Page business information in mobile browsers',
+      'Verify Booking Page experience and flow in mobile browsers',
+      'Verify Settings and Plan destinations in mobile browsers',
+      'Verify owner client profiles in mobile browsers',
+      'Verify owner Calendar Clients and Services polish',
+      'Verify SMS balances and top-up entry in desktop and mobile browsers',
+      'Run storybook tests',
+      'Verify onboarding desktop and phone geometry',
+    ],
+    'customer-booking': [
+      'Verify Next Visit settings and guest rebooking in mobile browsers',
+      'Verify customer review and confirmation in desktop and mobile browsers',
+      'Verify approved Quick Book customer compositions',
+      'Verify appointment management and checkout in mobile browsers',
+    ],
+  };
+  const evidence = job.steps.filter(step => step.name?.startsWith('Verify ') || step.name === 'Run storybook tests');
+  assert.equal(evidence.length, 26);
+  assert.equal(new Set(evidence.map(step => step.name)).size, evidence.length);
+  for (const [suite, names] of Object.entries(expected)) {
+    const selected = evidence.filter(step => step.if === `matrix.suite == '${suite}'`);
+    assert.deepEqual(selected.map(step => step.name), names);
+    for (const step of selected) {
+      assert.equal(typeof step.run, 'string');
+      assert.equal(step['continue-on-error'], undefined);
+    }
+  }
+  const install = job.steps.find(step => step.name === 'Install shared onboarding presentation dependencies');
+  assert.equal(install.if, 'matrix.suite == \'customer-booking\'');
+  assert.equal(install['working-directory'], 'prototypes/site-builder-v2-booking-integration-lab');
+  assert.equal(install.run, 'npm ci');
+  assert.ok(job.steps.indexOf(install) < job.steps.indexOf(evidence[0]));
+  const upload = job.steps.at(-1);
+  assert.equal(upload.if, 'always()');
+  assert.equal(upload.with.name, 'component-test-results-${{ matrix.suite }}');
+  assert.equal(upload.with.path, 'test-results/');
+  assert.ok(jobs.test.needs.includes('test-components'));
+  assert.equal(jobs.test.steps[0].env.COMPONENTS_RESULT, '${{ needs.test-components.result }}');
+});

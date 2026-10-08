@@ -26,3 +26,15 @@ These tests do not prove a real Google round trip or identify the specific produ
 The first final-head CI run completed 236 of 237 Quick Book composition cases, then failed a WebKit logo test that grouped sixteen page loads under one 30-second test budget. Its trace reached the final image check at the overall deadline, without a preceding dimension mismatch. The existing logo test is now parameterized by viewport, retaining all 144 logo/browser/viewport combinations and the compact long-name check. Timeouts, retries, workers and runtime customer UI remain unchanged. Fresh full hosted checks are still required before release.
 
 The complete local composition suite passes all 264 cases with the same two-worker setting as CI. A separate fresh serialized WebKit repeat passes 36 cases. An earlier two-worker triple stress repeat failed late and its evidence is retained; no product defect or host-resource cause was established from that run. The 198 focused Calendar checks, explicit-environment TypeScript, scoped lint and secret scan also pass. Lint retains conditional-test warnings.
+
+The unchanged-source hosted retry passed all 264 composition cases and every
+subsequent component stage through Storybook, then reached the job's 55-minute
+limit during the last of 17 onboarding geometry cases. GitHub's annotation
+explicitly confirms the job timeout; the original failure log and artifacts
+remain retained. The 26 verification steps are now partitioned between two
+independent required browser jobs, with unique artifact names and fail-fast
+disabled. Commands, test cases, worker counts, retries and timeout values are
+unchanged. Each job installs the shared onboarding presentation dependencies.
+The existing `Run all tests (20.x)` aggregate still requires the application
+job and every browser matrix member; failure, cancellation, missing or skipped
+evidence cannot satisfy it. Fresh exact-head hosted checks remain required.
