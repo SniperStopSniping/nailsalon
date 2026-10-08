@@ -1,3 +1,15 @@
+## [1.142.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.0...v1.142.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* **billing:** support top-up readiness with core subscriptions off ([0331f41](https://github.com/SniperStopSniping/nailsalon/commit/0331f411f20a1295b4a0ed76414765d520ee8304))
+* **ci:** select changed tests owned by the root runner ([ae08f0a](https://github.com/SniperStopSniping/nailsalon/commit/ae08f0a466b8aea1a208031df6be5514550cda26))
+* name platform policy controls and back navigation ([0a2c41a](https://github.com/SniperStopSniping/nailsalon/commit/0a2c41a29df3931d83a6f753ff5577af1073f3d3))
+* **onboarding:** persist edits batched after save or reset ([ee1f2bf](https://github.com/SniperStopSniping/nailsalon/commit/ee1f2bfb97e70d6f67f8c5c7cc0e95c9621f1728))
+* polish portfolio controls and preserve failure recovery ([aa795b6](https://github.com/SniperStopSniping/nailsalon/commit/aa795b6db24a9074501a75e7b7a4768723fbc889))
+* preserve resolved client payment review state ([14c15aa](https://github.com/SniperStopSniping/nailsalon/commit/14c15aac312c028a9a18caca6e70f913c1126b1d))
+
 # [1.142.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.141.0...v1.142.0) (2026-10-08)
 
 
