@@ -1243,6 +1243,9 @@ jobs:
       - name: Verify owner client profiles in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/clientProfile/playwright.config.ts --output=test-results/client-profile-components
 
+      - name: Verify owner Calendar Clients and Services polish
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerCoreTabs/playwright.config.ts --output=test-results/owner-core-tabs-components
+
       - name: Run storybook tests
         run: npm run test-storybook:ci
 
@@ -1253,7 +1256,7 @@ jobs:
           LUSTER_LAB_PORT: '4199'
           LUSTER_LAB_URL: http://127.0.0.1:4199
           LUSTER_CAPTURE_EVIDENCE: '0'
-        run: npx playwright test --config playwright.config.ts tests/e2e/onboarding-desktop-layout.spec.ts tests/e2e/founding-offer.spec.ts --project=chromium --output=../../test-results/onboarding-desktop
+        run: npx playwright test --config playwright.config.ts tests/e2e/onboarding-desktop-layout.spec.ts tests/e2e/founding-offer.spec.ts tests/e2e/owner-chrome-polish.spec.ts --project=chromium --output=../../test-results/onboarding-desktop
 
       - uses: actions/upload-artifact@v4
         if: always()

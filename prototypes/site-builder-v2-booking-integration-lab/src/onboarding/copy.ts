@@ -181,7 +181,7 @@ export const STARTER_ENTRY_COPY = {
   canvaConfirmed: 'Noted — we’ll bring your Canva design in at the Extras step.',
   canvaIntent: 'I want to use a Canva design',
   kicker: 'Your website starts here',
-  reassurance: 'You’ll preview your site before choosing a plan.',
+  reassurance: 'You’ll preview your site before claiming your free plan.',
 } as const;
 
 export const ONBOARDING_STAGE_ORDER = (

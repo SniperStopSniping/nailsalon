@@ -18,6 +18,7 @@ import { reconcileV1StarterDocument } from '../model/v1-starter-recipes';
 import { Dialog } from '../ui/Dialog';
 import { ConfirmationDialog } from '../ui/EditorDialogs';
 import type { LabDocumentController } from '../ui/useLabDocument';
+import { OnboardingBrandMark } from './components/OnboardingBrandMark';
 import { OnboardingShell } from './components/OnboardingShell';
 import { CORE_SCREEN_ORDER } from './copy';
 import { recordOnboardingEvent } from './events/journal';
@@ -418,7 +419,7 @@ function PausedState({ onResume }: { onResume: () => void }) {
   return (
     <main className="onboarding-paused-state">
       <section className="onboarding-paused-card" aria-labelledby="paused-heading">
-        <span aria-hidden="true">L</span>
+        <OnboardingBrandMark />
         <p className="onboarding-screen-kicker">Saved in this browser</p>
         <h1 id="paused-heading" ref={headingRef} tabIndex={-1}>Setup saved</h1>
         <p aria-live="polite" className="visually-hidden" role="status">Your setup is saved.</p>

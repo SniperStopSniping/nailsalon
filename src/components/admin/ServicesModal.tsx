@@ -57,7 +57,7 @@ import {
   validateServiceImageFile,
 } from '@/libs/serviceImageClient';
 import { getTemplateByKey, type ServiceTemplate } from '@/libs/serviceTemplateCatalog';
-import { formatDuration } from '@/utils/Helpers';
+import { cn, formatDuration } from '@/utils/Helpers';
 
 import { BackButton, ModalHeader } from './AppModal';
 import { ADD_ON_CATEGORY_LABELS } from './serviceLibrary/addOnCategories';
@@ -390,7 +390,7 @@ function ServiceRow({
           data-testid={`service-row-image-fallback-${service.id}`}
           className={`size-11 shrink-0 rounded-[12px] ${CATEGORY_PLACEHOLDER_CLASS} flex items-center justify-center shadow-sm`}
         >
-          <Scissors className="size-5 text-white" />
+          <Scissors className="size-5 text-[var(--owner-accent)]" strokeWidth={1.6} />
         </div>
       );
 
@@ -446,7 +446,7 @@ function ServiceRow({
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
       data-testid={`service-row-${service.id}`}
-      className={`flex min-h-[64px] w-full cursor-pointer items-start gap-3 px-3 py-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)] active:bg-[var(--owner-ground)] ${divider}`}
+      className={`flex min-h-[88px] w-full cursor-pointer items-start gap-3 p-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)] active:bg-[var(--owner-ground)] ${divider}`}
       onClick={onClick}
     >
       {thumbnail}
@@ -458,7 +458,7 @@ function ServiceRow({
       <div className="min-w-0 flex-1 overflow-hidden">
         {/* Wraps to two lines rather than truncating at half a word: on a
             390 px phone "Gel Manicure + Gel Pedicure" is unreadable clipped. */}
-        <div className="line-clamp-2 break-words text-[15px] font-semibold leading-5 text-[var(--owner-ink)]">
+        <div className="line-clamp-2 break-words text-[16px] font-semibold leading-6 text-[var(--owner-ink)]">
           {service.name}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] leading-4 text-[var(--owner-muted)]">
@@ -494,7 +494,7 @@ function ServiceRow({
       <div className="flex shrink-0 flex-col items-end pl-1">
         <div
           data-testid={`service-row-price-${service.id}`}
-          className="whitespace-nowrap text-[15px] font-semibold tabular-nums text-emerald-700"
+          className="whitespace-nowrap text-[16px] font-semibold tabular-nums text-[var(--owner-accent-strong)]"
         >
           {displayPrice}
         </div>
@@ -1724,17 +1724,14 @@ function ServiceDetail({
   toggleActiveError: string | null;
 }) {
   return (
-    // In flow AFTER the sticky chrome (never an inset-0 overlay): the sticky
-    // header/tabs/chips paint above overlays, which hid the detail's first
-    // ~chrome-height pixels (hero icon) behind them with no way to scroll
-    // them into view. In flow, the detail starts exactly at the chrome's
-    // bottom edge at every width and the sheet scroller owns all scrolling.
+    // Keep details in document flow so the sheet owns scrolling. The catalog
+    // chrome is hidden while this view supplies its own Services back action.
     <motion.div
       initial={{ x: '100%' }}
       animate={{ x: 0 }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       data-testid="service-detail-root"
-      className="flex flex-1 flex-col bg-[var(--owner-ground)]"
+      className="flex min-w-0 flex-1 flex-col bg-[var(--owner-ground)]"
     >
       <ModalHeader
         title={service.name}
@@ -1743,7 +1740,7 @@ function ServiceDetail({
           <button
             type="button"
             onClick={onEdit}
-            className="text-[17px] font-medium text-[var(--owner-accent)]"
+            className="min-h-11 px-2 text-[15px] font-semibold text-[var(--owner-accent)]"
           >
             Edit
           </button>
@@ -1752,18 +1749,18 @@ function ServiceDetail({
 
       <div className="p-4">
         {/* Hero Card */}
-        <AdminDetailCard className="mb-4 rounded-[22px]" contentClassName="p-6">
+        <AdminDetailCard className="mb-4" contentClassName="p-6">
           <div className="flex flex-col items-center">
             <div
               data-testid="service-detail-hero-icon"
-              className={`size-20 rounded-[20px] ${CATEGORY_PLACEHOLDER_CLASS} mb-4 flex items-center justify-center shadow-lg`}
+              className={`size-16 rounded-[20px] ${CATEGORY_PLACEHOLDER_CLASS} mb-4 flex items-center justify-center`}
             >
-              <Scissors className="size-10 text-white" />
+              <Scissors className="size-7 text-[var(--owner-accent)]" strokeWidth={1.6} />
             </div>
-            <h2 className="text-center text-[22px] font-semibold text-[var(--owner-ink)]">
+            <h2 className="owner-title text-center text-[30px] font-normal leading-tight text-[var(--owner-ink)]">
               {service.name}
             </h2>
-            <div className="mt-3 flex items-center gap-4">
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
               <span className="rounded-full bg-[var(--owner-ground)] px-3 py-1 text-[13px] text-[var(--owner-muted)]">
                 {BOOKING_CATEGORY_META[resolveVisibleBookingCategory(service)].label}
               </span>
@@ -1824,7 +1821,7 @@ function ServiceDetail({
                 inside the card at 390 px. */}
             <div
               data-testid="service-detail-price"
-              className="mt-1 text-[32px] font-bold leading-tight text-emerald-700"
+              className="owner-title mt-1 break-words text-[30px] font-normal leading-tight text-[var(--owner-accent-strong)] min-[390px]:text-[36px]"
             >
               {formatCurrency(service.price)}
             </div>
@@ -1844,7 +1841,7 @@ function ServiceDetail({
               <Clock className="size-4" />
               Duration
             </div>
-            <div className="mt-1 text-[32px] font-bold text-[var(--owner-ink)]">
+            <div className="owner-title mt-1 text-[30px] font-normal leading-tight text-[var(--owner-ink)] min-[390px]:text-[36px]">
               {formatDuration(service.durationMinutes)}
             </div>
           </AdminDetailCard>
@@ -2300,6 +2297,8 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const tabScrollOffsets = useRef<Partial<Record<typeof activeTab, number>>>({});
   const renderedTabRef = useRef(activeTab);
   const cancelTabScrollRestore = useRef<(() => void) | null>(null);
+  const catalogReturnScroll = useRef(0);
+  const renderedServiceId = useRef<string | null>(null);
   const [ownedTemplateKeys, setOwnedTemplateKeys] = useState<Set<string>>(new Set());
   const [bulkAddBusy, setBulkAddBusy] = useState(false);
   const [toggleActiveBusy, setToggleActiveBusy] = useState(false);
@@ -3107,12 +3106,28 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
     cancelTabScrollRestore.current = stop;
   }, [activeTab, getTabScroller]);
 
+  const selectedServiceId = selectedService?.id ?? null;
+  useLayoutEffect(() => {
+    if (renderedServiceId.current === selectedServiceId) {
+      return;
+    }
+    renderedServiceId.current = selectedServiceId;
+    // Details replace the catalog in the same sheet. A long catalog's offset
+    // would otherwise open the shorter detail halfway down. Cancel any tab
+    // restoration before moving to the detail, and restore the catalog on Back.
+    cancelTabScrollRestore.current?.();
+    const scroller = getTabScroller();
+    if (scroller) {
+      scroller.scrollTop = selectedServiceId ? 0 : catalogReturnScroll.current;
+    }
+  }, [getTabScroller, selectedServiceId]);
+
   useEffect(() => () => cancelTabScrollRestore.current?.(), []);
 
   return (
     <div ref={servicesRootRef} className="relative flex min-h-full w-full flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]">
       {/* Header */}
-      <div data-testid="services-sticky-chrome" className="sticky top-0 z-20 bg-[var(--owner-ground)] backdrop-blur-md">
+      <div data-testid="services-sticky-chrome" className={cn('sticky top-0 z-20 bg-[var(--owner-ground)] backdrop-blur-md', selectedService && 'hidden')}>
         <ModalHeader
           title="Services"
           subtitle={`${services.length} services · ${
@@ -3230,7 +3245,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                   onChange={event => setMenuQuery(event.target.value)}
                   placeholder="Search services…"
                   data-testid="services-menu-search"
-                  className="h-10 w-full rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] pl-9 pr-3 text-[15px] text-[var(--owner-ink)] outline-none transition placeholder:text-[var(--owner-muted)] focus:border-[var(--owner-accent)]"
+                  className="min-h-12 w-full rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] pl-9 pr-3 text-[16px] text-[var(--owner-ink)] outline-none transition placeholder:text-[var(--owner-muted)] focus:border-[var(--owner-accent)]"
                 />
               </div>
             </div>
@@ -3687,7 +3702,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                             )}
                       </Button>
                     </div>
-                    <ListSurface className="mx-4 rounded-[10px]">
+                    <ListSurface className="mx-4 rounded-owner-card border border-[var(--owner-line)] bg-[var(--owner-surface)] shadow-owner-card">
                       {filteredServices.map((service, index) => (
                         <ServiceRow
                           key={service.id}
@@ -3701,6 +3716,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                           onMoveUp={() => void handleReorder(service.id, 'up', filteredServiceIds)}
                           onMoveDown={() => void handleReorder(service.id, 'down', filteredServiceIds)}
                           onClick={() => {
+                            catalogReturnScroll.current = getTabScroller()?.scrollTop ?? 0;
                             setSelectedService(service);
                             setToggleActiveError(null);
                           }}
@@ -3762,7 +3778,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
         )}
       </div>
 
-      {/* Service Detail — in flow below the sticky chrome */}
+      {/* Service detail supplies one focused header and returns to the saved catalog. */}
       {selectedService && (
         <ServiceDetail
           service={selectedService}
@@ -3921,6 +3937,9 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           setShowAddDialog(false);
           setEditingService(null);
           setAddDialogPrefill(null);
+          if (!selectedService) {
+            catalogReturnScroll.current = activeTab === 'menu' ? getTabScroller()?.scrollTop ?? 0 : 0;
+          }
           setSelectedService(savedService);
           selectTab('menu');
           // The header count and the category chips read from `services`.
