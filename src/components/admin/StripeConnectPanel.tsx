@@ -151,9 +151,9 @@ export function StripeConnectPanel({ salonSlug }: { salonSlug: string | null }) 
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 shadow-sm" data-testid="payments-connect-panel">
+      <div className="owner-card p-5" data-testid="payments-connect-panel">
         <div className="flex items-start gap-3">
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800"><CreditCard size={22} /></span>
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--owner-blush)] text-[var(--owner-accent)]"><CreditCard aria-hidden="true" size={22} /></span>
           <span className="min-w-0">
             <span className="flex flex-wrap items-center gap-2">
               <strong>Stripe & Payouts</strong>
@@ -166,8 +166,8 @@ export function StripeConnectPanel({ salonSlug }: { salonSlug: string | null }) 
         {['restricted', 'action_needed_soon', 'onboarding_incomplete'].includes(connect.status) && <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-[var(--owner-muted)]">{(connect.requirements?.pastDue ?? []).concat(connect.requirements?.currentlyDue ?? []).slice(0, 5).map(item => <li key={item}>{item.replaceAll('_', ' ').replaceAll('.', ' → ')}</li>)}</ul>}
         {connect.status === 'mode_mismatch' && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">Payments are unavailable in this environment. Contact support.</p>}
         {connect.status === 'blocked_needs_support' && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">Stripe cannot finish verifying this account automatically. Contact support and we will take it from here.</p>}
-        {canSetup && <button type="button" data-testid="payments-setup-button" onClick={() => void startSetup()} disabled={busy} className="mt-3 min-h-11 w-full rounded-xl bg-stone-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{connect.status === 'not_connected' ? 'Set up payments' : connect.status === 'revoked' ? 'Reconnect' : 'Resume onboarding'}</button>}
-        {connect.lastSyncedAt === null && connect.hasBindingHistory && <p className="mt-2 text-xs text-[var(--owner-line-strong)]">Status not confirmed yet.</p>}
+        {canSetup && <button type="button" data-testid="payments-setup-button" onClick={() => void startSetup()} disabled={busy} className="owner-action owner-action--primary mt-5 min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-60">{connect.status === 'not_connected' ? 'Set up payments' : connect.status === 'revoked' ? 'Reconnect' : 'Resume onboarding'}</button>}
+        {connect.lastSyncedAt === null && connect.hasBindingHistory && <p className="mt-3 text-sm text-[var(--owner-muted)]">Status not confirmed yet.</p>}
       </div>
     </div>
   );
