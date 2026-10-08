@@ -142,7 +142,11 @@ for (const width of [320, 390, 430, 1280]) {
 
     await expect(setup).toBeVisible();
     expect(await setup.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(143, 49, 85)');
-    expect(await setup.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+    // Chromium can report a 48px target as 47.99993896484375 after the
+    // sheet transform. Keep the 48px requirement at CSS subpixel precision.
+    expect(await setup.evaluate(element => Number.parseFloat(getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(48);
+    await expect.poll(async () => setup.evaluate(element =>
+      Math.round(element.getBoundingClientRect().height * 1000) / 1000)).toBeGreaterThanOrEqual(48);
 
     const status = page.getByText('Status not confirmed yet.', { exact: true });
 
