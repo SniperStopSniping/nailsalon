@@ -18,6 +18,7 @@ export type ScrubbableSentrySpan = {
 export type ScrubbableSentryEvent = {
   request?: {
     url?: string;
+    query_string?: unknown;
     data?: unknown;
     cookies?: unknown;
     headers?: Record<string, unknown>;
@@ -92,6 +93,7 @@ export function scrubSentryEvent<T extends ScrubbableSentryEvent>(event: T): T {
   }
   if (protectedPublicRequest && event.request) {
     // Customer utterances and bearer conversation state are never telemetry.
+    delete event.request.query_string;
     delete event.request.data;
     delete event.request.cookies;
     delete event.request.headers;

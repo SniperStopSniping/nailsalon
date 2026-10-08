@@ -42,6 +42,23 @@ describe('public sentry runtime config', () => {
 
 describe('trace privacy', () => {
   it.each([
+    ['customer booking', '/api/public/customer-booking/submit', 'token=synthetic-private-query'],
+    ['customer booking', '/api/public/customer-booking/submit', [['token', 'synthetic-private-query']]],
+    ['customer booking', '/api/public/customer-booking/submit', { token: 'synthetic-private-query' }],
+    ['customer assistant', '/api/public/customer-assistant/message', 'token=synthetic-private-query'],
+    ['customer assistant', '/api/public/customer-assistant/message', [['token', 'synthetic-private-query']]],
+    ['customer assistant', '/api/public/customer-assistant/message', { token: 'synthetic-private-query' }],
+  ])('removes separately normalized query data for %s (%s): %j', (_label, route, query) => {
+    const event = scrubSentryEvent({
+      request: { url: `https://example.invalid${route}`, query_string: query, method: 'POST' },
+    });
+
+    expect(event.request.query_string).toBeUndefined();
+    expect(event.request.method).toBe('POST');
+    expect(JSON.stringify(event)).not.toContain('synthetic-private-query');
+  });
+
+  it.each([
     '/api/public/customer-booking/submit',
     '/api/public/customer-assistant/message',
     '/api/admin/owner-assistant/chat',
@@ -175,6 +192,7 @@ describe('owner-assistant event scrubbing', () => {
     const event = scrubSentryEvent({
       request: {
         url: 'https://app.test/api/salon/services',
+        query_string: [['category', 'gel']],
         data: { name: 'Gel manicure' },
         cookies: { n5_admin_session: 'admin_session_1' },
       },
@@ -182,6 +200,7 @@ describe('owner-assistant event scrubbing', () => {
 
     expect(event.request?.data).toEqual({ name: 'Gel manicure' });
     expect(event.request?.cookies).toEqual({ n5_admin_session: 'admin_session_1' });
+    expect(event.request?.query_string).toEqual([['category', 'gel']]);
   });
 
   it('tolerates an event with no request at all', () => {

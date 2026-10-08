@@ -85,6 +85,7 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
   assert.ok(!warnings.includes('DEP0169'), 'The installed monitoring dependency still calls deprecated URL parsing');
 
   sentry = nextRequire('@sentry/node');
+  const core = nodeRequire('@sentry/core');
   const envelopes = [];
   sentry.init({
     ...getPublicSentryRuntimeConfig({
@@ -105,13 +106,18 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
 
   const routes = ['/api/admin/owner-assistant/chat', '/api/public/customer-assistant/message', '/api/public/customer-booking/submit'];
   for (const route of routes) {
+    const query = route.startsWith('/api/public/') ? 'token=synthetic-private-query' : 'salon=synthetic';
     sentry.captureEvent({
       message: 'synthetic-diagnostic',
-      request: {
-        url: `https://example.invalid${route}?salon=synthetic`,
-        data: { message: 'synthetic-private-words' },
-        cookies: { session: 'synthetic-cookie' },
-        headers: { Authorization: 'Bearer synthetic-token', Cookie: 'synthetic-cookie', Accept: 'application/json' },
+      sdkProcessingMetadata: {
+        normalizedRequest: core.httpRequestToRequestData({
+          url: `${route}?${query}`,
+          method: 'POST',
+          socket: { encrypted: true },
+          body: { message: 'synthetic-private-words' },
+          cookies: { session: 'synthetic-cookie' },
+          headers: { host: 'example.invalid', Authorization: 'Bearer synthetic-token', Cookie: 'synthetic-cookie', Accept: 'application/json' },
+        }),
       },
     });
   }
@@ -126,14 +132,16 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
       assert.equal(event.request.data, undefined);
       assert.equal(event.request.cookies, undefined);
       const serialized = JSON.stringify(event);
-      for (const value of ['synthetic-private-words', 'synthetic-cookie', 'synthetic-token']) {
+      for (const value of ['synthetic-private-words', 'synthetic-cookie', 'synthetic-token', 'synthetic-private-query']) {
         assert.equal(serialized.includes(value), false);
       }
       if (route.startsWith('/api/public/')) {
         assert.equal(event.request.url.includes('?'), false);
         assert.equal(event.request.headers, undefined);
+        assert.equal(event.request.query_string, undefined);
       } else {
         assert.equal(event.request.headers.Accept, 'application/json');
+        assert.equal(event.request.query_string, 'salon=synthetic');
       }
     });
   }
@@ -141,7 +149,8 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
   for (const route of routes) {
     await t.test(`scrubs transaction requests and span attributes for ${route}`, async () => {
       const start = Date.now() / 1000;
-      const url = `https://example.invalid${route}?salon=synthetic`;
+      const query = route.startsWith('/api/public/') ? 'token=synthetic-private-query' : 'salon=synthetic';
+      const url = `https://example.invalid${route}?${query}`;
       sentry.captureEvent({
         type: 'transaction',
         transaction: route,
@@ -149,11 +158,12 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
         timestamp: start + 1,
         contexts: { trace: { trace_id: '11111111111111111111111111111111', span_id: '2222222222222222', op: 'http.server', data: { 'db.user': 'synthetic-private-db-user', 'http.url': url, 'http.status_code': 200 } } },
         spans: [{ trace_id: '11111111111111111111111111111111', span_id: '3333333333333333', parent_span_id: '2222222222222222', op: 'db', start_timestamp: start, timestamp: start + 0.5, data: { 'db.user': 'synthetic-private-db-user', 'db.system': 'postgresql', 'http.url': url } }],
-        request: {
-          url,
-          data: { message: 'synthetic-private-body' },
-          cookies: { session: 'synthetic-private-cookie' },
-          headers: { Authorization: 'Bearer synthetic-private-auth', Cookie: 'synthetic-private-cookie', Accept: 'application/json' },
+        sdkProcessingMetadata: {
+          normalizedRequest: {
+            ...core.winterCGRequestToRequestData(new Request(url, { method: 'POST', headers: { Authorization: 'Bearer synthetic-private-auth', Cookie: 'synthetic-private-cookie', Accept: 'application/json' } })),
+            data: { message: 'synthetic-private-body' },
+            cookies: { session: 'synthetic-private-cookie' },
+          },
         },
       });
       assert.equal(await sentry.flush(2000), true);
@@ -168,7 +178,12 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
       assert.equal(transaction.request.url, expectedUrl);
       assert.equal(transaction.contexts.trace.data['http.url'], expectedUrl);
       assert.equal(transaction.spans[0].data['http.url'], expectedUrl);
-      assert.equal(transaction.request.headers?.Accept, route.startsWith('/api/public/') ? undefined : 'application/json');
+      assert.equal(transaction.request.headers?.accept, route.startsWith('/api/public/') ? undefined : 'application/json');
+      if (route.startsWith('/api/public/')) {
+        assert.equal(transaction.request.query_string, undefined);
+      } else {
+        assert.equal(transaction.request.query_string, 'salon=synthetic');
+      }
     });
   }
   await setImmediate();
