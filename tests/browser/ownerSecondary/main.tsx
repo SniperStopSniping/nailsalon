@@ -8,6 +8,7 @@ import { AppModal } from '@/components/admin/AppModal';
 import { OwnerManagementModal } from '@/components/admin/OwnerManagementModal';
 import { PaymentsModal } from '@/components/admin/PaymentsModal';
 import { SettingsModal } from '@/components/admin/SettingsModal';
+import { UsageBillingModal } from '@/components/admin/UsageBillingModal';
 
 import { SalonProvider } from '../clientProfile/salon-provider';
 import { installReviewApi } from './review-api';
@@ -28,13 +29,17 @@ export function OwnerSecondaryReview() {
     <SalonProvider>
       <main className="owner-workspace-theme owner-theme-scope min-h-screen bg-[var(--owner-ground)] text-[var(--owner-ink)]">
         <p className="p-2 text-center text-xs text-[var(--owner-muted)]">Isolated settings review · synthetic data</p>
-        <AppModal isOpen onClose={close} topInset="tall">
-          {app === 'payments'
-            ? <PaymentsModal salonSlug="isla-browser" salonId="salon_1" onClose={close} />
-            : app === 'booking-rules' || app === 'plan-usage'
-              ? <OwnerManagementModal app={app} salonSlug="isla-browser" salonId="salon_1" isFreeSolo={false} teamAvailable={false} onClose={close} onOpenApp={open} />
-              : <SettingsModal salonSlug="isla-browser" salonId="salon_1" userName="Review owner" onClose={close} onOpenApp={open} />}
-        </AppModal>
+        {app === 'usage'
+          ? <UsageBillingModal salonSlug="isla-browser" onClose={close} />
+          : (
+              <AppModal isOpen onClose={close} topInset="tall">
+                {app === 'payments'
+                  ? <PaymentsModal salonSlug="isla-browser" salonId="salon_1" onClose={close} />
+                  : app === 'booking-rules' || app === 'plan-usage'
+                    ? <OwnerManagementModal app={app} salonSlug="isla-browser" salonId="salon_1" isFreeSolo={false} teamAvailable={false} onClose={close} onOpenApp={open} />
+                    : <SettingsModal salonSlug="isla-browser" salonId="salon_1" userName="Review owner" onClose={close} onOpenApp={open} />}
+              </AppModal>
+            )}
       </main>
     </SalonProvider>
   );

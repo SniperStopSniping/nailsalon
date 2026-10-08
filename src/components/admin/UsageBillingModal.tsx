@@ -432,28 +432,28 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
       onClose={onClose}
       alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
       maxWidthClassName="max-w-xl"
-      contentClassName="max-h-[90vh] overflow-hidden rounded-t-[20px] bg-white shadow-xl sm:rounded-[20px]"
+      contentClassName="max-h-[90vh] overflow-hidden rounded-t-[26px] border border-[var(--owner-line)] bg-[var(--owner-ground)] shadow-[var(--owner-shadow-card)] sm:rounded-[26px]"
     >
-      <div role="dialog" aria-modal="true" aria-labelledby="usage-billing-title">
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <h2 id="usage-billing-title" className="text-lg font-semibold text-gray-900">Usage & billing</h2>
+      <div role="dialog" aria-modal="true" aria-labelledby="usage-billing-title" className="flex max-h-[90vh] flex-col text-[var(--owner-ink)]">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--owner-line)] px-5 py-4">
+          <h2 id="usage-billing-title" className="owner-title text-[30px] text-[var(--owner-ink)]">Usage & billing</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close usage and billing"
-            className="flex size-11 items-center justify-center rounded-full bg-gray-100 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] transition-colors hover:bg-[var(--owner-blush)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--owner-focus)] motion-reduce:transition-none"
           >
-            <X className="size-4 text-gray-600" />
+            <X className="size-4 text-[var(--owner-muted)]" />
           </button>
         </div>
 
-        <div className="max-h-[calc(90vh-70px)] space-y-6 overflow-y-auto p-5">
+        <div className="min-h-0 space-y-4 overflow-y-auto p-4 sm:p-5">
           {loading && (
-            <p role="status" aria-live="polite" className="text-[14px] text-gray-500">
+            <p role="status" aria-live="polite" className="text-sm text-[var(--owner-muted)]">
               Loading usage…
             </p>
           )}
-          {error && <p className="text-[14px] text-red-600">{error}</p>}
+          {error && <p className="text-sm text-red-600">{error}</p>}
 
           {usage && (
             <>
@@ -466,8 +466,8 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                   aria-live="polite"
                   className={
                     usage.plan.entitlement.grantsEligible
-                      ? 'rounded-lg bg-blue-50 p-3 text-[14px] text-blue-800'
-                      : 'rounded-lg bg-amber-50 p-3 text-[14px] text-amber-800'
+                      ? 'rounded-lg bg-blue-50 p-3 text-sm text-blue-800'
+                      : 'rounded-lg bg-amber-50 p-3 text-sm text-amber-800'
                   }
                 >
                   {usage.plan.entitlement.label}
@@ -475,14 +475,14 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
               )}
 
               {/* §10.2: one primary number first. */}
-              <section aria-labelledby="credits-heading" className="space-y-2">
+              <section aria-labelledby="credits-heading" className="owner-card space-y-3 p-5">
                 <h3 id="credits-heading" className="sr-only">SMS credits</h3>
-                <p className="text-2xl font-semibold text-gray-900">
+                <p className="owner-title text-[30px] leading-tight text-[var(--owner-ink)]">
                   {usage.availableCredits}
                   {' '}
                   SMS credits remaining
                 </p>
-                <ul className="space-y-1 text-[14px] text-gray-600">
+                <ul className="space-y-1 text-sm text-[var(--owner-muted)]">
                   {usage.monthlyAllowance > 0 && (
                     <li>
                       {usage.monthlyAllowance - usage.monthlyCredits}
@@ -519,7 +519,7 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                   <li>Email confirmations and reminders are always included.</li>
                 </ul>
                 {usage.blockedMessages > 0 && (
-                  <p className="rounded-lg bg-amber-50 p-3 text-[14px] text-amber-800">
+                  <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
                     {usage.blockedMessages}
                     {' '}
                     text
@@ -529,7 +529,7 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                   </p>
                 )}
                 {usage.pendingCredits !== undefined && usage.pendingCredits > 0 && (
-                  <p className="rounded-lg bg-blue-50 p-3 text-[14px] text-blue-800">
+                  <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">
                     {usage.pendingCredits}
                     {' '}
                     credit
@@ -549,19 +549,19 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                 />
               )}
 
-              <section aria-labelledby="plan-heading" className="space-y-2">
-                <h3 id="plan-heading" className="text-[15px] font-medium text-gray-900">{usage.coreAccess ? 'Core app & optional usage' : 'Plan'}</h3>
+              <section aria-labelledby="plan-heading" className="owner-card space-y-3 p-5">
+                <h3 id="plan-heading" className="text-base font-semibold text-[var(--owner-ink)]">{usage.coreAccess ? 'Core app & optional usage' : 'Plan'}</h3>
                 {usage.coreAccess?.status === 'active' && (
-                  <div className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 text-sm text-[var(--owner-ink)]">
+                  <div className="rounded-2xl bg-[var(--owner-blush)] p-4 text-sm leading-relaxed text-[var(--owner-ink)]">
                     <p className="font-semibold">Founding Salon · Free for life</p>
                     <p className="mt-1">$0/month for the core Luster app. Unlimited emails included.</p>
                     <p className="mt-1 text-[var(--owner-muted)]">Additional texts, AI receptionist, calls and other usage services are optional paid add-ons.</p>
                   </div>
                 )}
                 {usage.plan === null
-                  ? <p className="text-[14px] text-gray-600">{usage.coreAccess ? 'No text subscription. Your included and purchased text credits remain available.' : 'No subscription — starter and purchased credits only.'}</p>
+                  ? <p className="text-sm text-[var(--owner-muted)]">{usage.coreAccess ? 'No text subscription. Your included and purchased text credits remain available.' : 'No subscription — starter and purchased credits only.'}</p>
                   : (
-                      <p className="text-[14px] text-gray-600">
+                      <p className="text-sm text-[var(--owner-muted)]">
                         {usage.coreAccess && 'Optional text subscription: '}
                         {usage.plan.displayName}
                         {' '}
@@ -577,17 +577,17 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                   type="button"
                   onClick={openPortal}
                   disabled={portalLoading}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
+                  className="owner-action disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
                 >
                   {portalLoading ? 'Opening…' : 'Manage billing'}
                 </button>
-                <p role="status" aria-live="polite" className="text-[13px] text-red-600">{portalError ?? ''}</p>
+                <p role="status" aria-live="polite" className="text-sm text-red-600">{portalError ?? ''}</p>
               </section>
 
               {data!.creditPurchasesAvailable === true && data!.topupOffers.length > 0
                 ? (
-                    <section aria-labelledby="buymore-heading" className="space-y-2">
-                      <h3 id="buymore-heading" className="text-[15px] font-medium text-gray-900">Buy more credits</h3>
+                    <section aria-labelledby="buymore-heading" className="owner-card space-y-3 p-5">
+                      <h3 id="buymore-heading" className="text-base font-semibold text-[var(--owner-ink)]">Buy more credits</h3>
                       <div className="flex flex-wrap gap-2">
                         {data!.topupOffers.map(offer => (
                           <button
@@ -595,48 +595,48 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                             type="button"
                             onClick={() => buyTopup(offer.key)}
                             disabled={buying !== null}
-                            className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
+                            className="owner-action disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
                           >
                             {buying === offer.key ? 'Opening…' : `${offer.credits} credits — $${(offer.priceCents / 100).toFixed(2)}`}
                           </button>
                         ))}
                       </div>
-                      <p role="status" aria-live="polite" className="text-[13px] text-red-600">{buyError ?? ''}</p>
-                      <p className="text-[13px] text-[#8E8E93]">Purchased credits never expire. Prices in CAD, plus applicable taxes.</p>
+                      <p role="status" aria-live="polite" className="text-sm text-red-600">{buyError ?? ''}</p>
+                      <p className="text-sm text-[var(--owner-muted)]">Purchased credits never expire. Prices in CAD, plus applicable taxes.</p>
                     </section>
                   )
                 : (
-                    <p className="text-[14px] text-gray-600">Credit purchases are not available yet.</p>
+                    <p className="text-sm text-[var(--owner-muted)]">Credit purchases are not available yet.</p>
                   )}
 
               {/* Top-ups (G17): purchase history read back from the
                   dark-gated /api/billing/topups route. */}
-              <section aria-labelledby="topups-heading" className="space-y-2">
-                <h3 id="topups-heading" className="text-[15px] font-medium text-gray-900">Top-ups</h3>
+              <section aria-labelledby="topups-heading" className="owner-card space-y-3 p-5">
+                <h3 id="topups-heading" className="text-base font-semibold text-[var(--owner-ink)]">Top-ups</h3>
                 {topupsLoading && (
-                  <p role="status" aria-live="polite" className="text-[14px] text-gray-500">Loading top-ups…</p>
+                  <p role="status" aria-live="polite" className="text-sm text-[var(--owner-muted)]">Loading top-ups…</p>
                 )}
                 {!topupsLoading && topupsAvailable === false && (
-                  <p className="text-[14px] text-gray-600">Top-up history is not available yet.</p>
+                  <p className="text-sm text-[var(--owner-muted)]">Top-up history is not available yet.</p>
                 )}
                 {!topupsLoading && topupsAvailable === true && (
                   <>
                     {(topups ?? []).length === 0
-                      ? <p className="text-[14px] text-gray-500">No top-ups yet.</p>
+                      ? <p className="text-sm text-[var(--owner-muted)]">No top-ups yet.</p>
                       : (
-                          <ul className="divide-y divide-gray-100">
+                          <ul className="divide-y divide-[var(--owner-line)]">
                             {(topups ?? []).map(item => (
-                              <li key={item.id} className="space-y-0.5 py-2 text-[14px]">
+                              <li key={item.id} className="space-y-0.5 py-2 text-sm">
                                 <div className="flex items-center justify-between">
-                                  <span className="text-gray-900">
+                                  <span className="text-[var(--owner-ink)]">
                                     {item.credits}
                                     {' '}
                                     credits — $
                                     {(item.priceCents / 100).toFixed(2)}
                                   </span>
-                                  <span className="text-gray-500">{TOPUP_STATUS_LABELS[item.status]}</span>
+                                  <span className="text-[var(--owner-muted)]">{TOPUP_STATUS_LABELS[item.status]}</span>
                                 </div>
-                                <div className="flex items-center justify-between text-gray-500">
+                                <div className="flex flex-wrap items-center justify-between gap-2 text-[var(--owner-muted)]">
                                   <span>{new Date(item.createdAt).toLocaleDateString()}</span>
                                   {item.holdState === 'held' && (
                                     <span className="text-amber-700">held — being reconciled</span>
@@ -646,13 +646,13 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                             ))}
                           </ul>
                         )}
-                    {topupsError && <p role="status" aria-live="polite" className="text-[13px] text-red-600">{topupsError}</p>}
+                    {topupsError && <p role="status" aria-live="polite" className="text-sm text-red-600">{topupsError}</p>}
                     {topupsCursor !== null && (
                       <button
                         type="button"
                         onClick={loadMoreTopups}
                         disabled={topupsLoadingMore}
-                        className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
+                        className="owner-action disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
                       >
                         {topupsLoadingMore ? 'Loading…' : 'Load more'}
                       </button>
@@ -661,15 +661,15 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                 )}
               </section>
 
-              <section aria-labelledby="history-heading" className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 id="history-heading" className="text-[15px] font-medium text-gray-900">Message history</h3>
+              <section aria-labelledby="history-heading" className="owner-card space-y-3 p-5">
+                <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+                  <h3 id="history-heading" className="text-base font-semibold text-[var(--owner-ink)]">Message history</h3>
                   <label className="sr-only" htmlFor="history-filter">Filter message history</label>
                   <select
                     id="history-filter"
                     value={historyFilter}
                     onChange={event => setHistoryFilter(event.target.value as HistoryCategory)}
-                    className="h-9 rounded-md border border-gray-300 bg-white px-2 text-[14px]"
+                    className="h-12 w-full min-w-0 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 text-base focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--owner-focus)] sm:w-auto"
                   >
                     <option value="all">All messages</option>
                     {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
@@ -678,31 +678,31 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                   </select>
                 </div>
                 {data!.history.length === 0 && (
-                  <p className="text-[14px] text-gray-500">No messages yet.</p>
+                  <p className="text-sm text-[var(--owner-muted)]">No messages yet.</p>
                 )}
                 {(Object.keys(CATEGORY_LABELS) as Array<Exclude<HistoryCategory, 'all'>>).map(category => (
                   (historyFilter === 'all' || historyFilter === category) && groupedHistory[category].length > 0
                     ? (
                         <div key={category} className="space-y-1">
-                          <h4 className="text-[13px] font-medium text-gray-500">{CATEGORY_LABELS[category]}</h4>
-                          <ul className="divide-y divide-gray-100">
+                          <h4 className="text-sm font-medium text-[var(--owner-muted)]">{CATEGORY_LABELS[category]}</h4>
+                          <ul className="divide-y divide-[var(--owner-line)]">
                             {groupedHistory[category].map(entry => (
-                              <li key={entry.id} className="space-y-1 py-2 text-[14px]">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-gray-900">
+                              <li key={entry.id} className="space-y-1 py-2 text-sm">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[var(--owner-ink)]">
                                     {EVENT_LABELS[entry.eventType] ?? 'Message'}
                                     {' · '}
                                     {entry.channel === 'sms' ? 'Text' : 'Email'}
                                   </span>
-                                  <span className="shrink-0 text-gray-500">{STATUS_LABELS[entry.status] ?? entry.status}</span>
+                                  <span className="shrink-0 text-[var(--owner-muted)]">{STATUS_LABELS[entry.status] ?? entry.status}</span>
                                 </div>
-                                <div className="flex items-center justify-between gap-2 text-gray-500">
+                                <div className="flex flex-wrap items-center justify-between gap-2 text-[var(--owner-muted)]">
                                   <span>{entry.recipient}</span>
                                   <span className="shrink-0">{new Date(entry.scheduledFor).toLocaleString()}</span>
                                 </div>
-                                <p className="text-[13px] text-gray-500">{creditLabel(entry)}</p>
+                                <p className="text-sm text-[var(--owner-muted)]">{creditLabel(entry)}</p>
                                 {entry.failureReason !== null && (
-                                  <p className="text-[13px] text-amber-700">{entry.failureReason}</p>
+                                  <p className="text-sm text-amber-700">{entry.failureReason}</p>
                                 )}
                               </li>
                             ))}
@@ -711,13 +711,13 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                       )
                     : null
                 ))}
-                {historyError && <p role="status" aria-live="polite" className="text-[13px] text-red-600">{historyError}</p>}
+                {historyError && <p role="status" aria-live="polite" className="text-sm text-red-600">{historyError}</p>}
                 {data!.nextCursor !== null && (
                   <button
                     type="button"
                     onClick={loadMoreHistory}
                     disabled={loadingMoreHistory}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
+                    className="owner-action disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
                   >
                     {loadingMoreHistory ? 'Loading…' : 'Load more'}
                   </button>

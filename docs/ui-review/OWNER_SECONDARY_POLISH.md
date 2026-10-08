@@ -11,6 +11,7 @@ remains the active delivery path; integrate its released main before this follow
 | S12 / F09 | The long Booking Rules & Policies Back label wrapped over three lines beside a second title at 390px. Editable controls used 15px text. | One full-width Back row for focused settings pages, followed by the serif page heading. Existing labelled 15px fields become 16px/48px controls with visible plum focus. |
 | S63 / F09 | Account fields used the older 10px corners and 15px text; small square actions and 12px footnotes differed from owner entry. | Shared cream cards and pill actions, readable fields and footnotes. Preserve sign-in email locking, save payload and dirty-exit guard. |
 | S64 / F09 | Native blue checkboxes and old field geometry appeared inside the blush owner UI. | Scoped plum checkbox/radio accents, 16px fields and shared actions. Provider configuration and all channel availability gates remain unchanged. |
+| S60 / F08 | Usage & billing had an old white sheet, small square actions and a 14px/36px history filter; the free-text card used a black CTA. | Matching cream cards and serif heading, 48px plum/secondary actions, readable history filter and wrapping rows. Preserve provider, allowance, balance, purchase and message-history contracts. |
 | S59 / F08, F09 | Payment setup used a black CTA and green decorative icon; Status not confirmed yet used a pale border token as text. | Owner plum action/blush icon, readable muted status, serif heading and bounded desktop width. Preserve amber/red/green readiness badges and the server-owned setup action. |
 
 Shared Settings section cards and save buttons carry the same treatment into
@@ -23,8 +24,8 @@ No provider, pricing, credit balance, customer branding or business data changes
 ## Evidence
 
 The new tests/browser/ownerSecondary fixture imports actual AppModal, Settings,
-Payments and owner management components with the real owner theme and fonts.
-Synthetic read responses stay in memory; writes return a simulated error and
+Payments, UsageBilling and owner management components with the real owner theme and fonts.
+Synthetic read responses stay in memory; writes return a simulated error (or the explicit identity-verification-required response) and
 external requests are rejected. It cannot contact payment/message providers.
 
 An initial review of the older Settings fixture lacked the outer owner theme;
@@ -32,7 +33,8 @@ that unthemed appearance was not treated as a production defect. The retained
 before/after screenshots use the correctly themed actual AppModal fixture.
 
 - 115 existing Settings/Stripe/owner-management unit checks passed.
-- 26 new Chromium/WebKit browser cases at 320/390/430/1280px passed.
+- 50 Chromium/WebKit browser cases at 320/390/430/1280px passed after adding Usage & billing coverage.
+- 32 existing UsageBilling/StarterSmsCredits unit checks passed in addition to the 115 settings checks.
 - 4 existing Settings/Plan browser regressions and 28 Booking Page editor cases
   passed, including hosted editor leave guards, custom Isla scope and enlarged text.
 - Production typecheck and source/fixture lint passed (two existing fast-refresh warnings).
@@ -47,6 +49,12 @@ before/after screenshots use the correctly themed actual AppModal fixture.
 Before/after screenshots are retained in the dated owner-settings-polish folder:
 S12-booking-rules-before/after-mobile, S63-account-before/after-mobile,
 S59-stripe-before/after-mobile and S59-stripe-after-desktop, plus S64 notifications.
+S60-usage-before/after-mobile, S60-allowance-verification-320,
+S60-portal-recovery-320 and S60-history-after-320 record the actual billing
+component. At 320px, the history filter and status rows fit their cards without
+internal horizontal overflow; the header Close remains reachable while scrolling.
+A hot-reload duplicate in the development fixture was cleared with a full reload
+before final captures. It was not treated as a production defect.
 The fixture's unavailable messaging and incomplete payment examples are synthetic
 states, not findings about live salon/provider readiness. Temporary viewport
 changes were cleared after review.

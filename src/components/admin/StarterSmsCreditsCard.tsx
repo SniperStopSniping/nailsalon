@@ -130,19 +130,19 @@ export function StarterSmsCreditsCard({
 
   if (statusState.kind === 'loading') {
     return (
-      <section aria-labelledby="starter-texts-heading" className="space-y-2 rounded-lg bg-gray-50 p-4 text-gray-900">
-        <h3 id="starter-texts-heading" className="text-[15px] font-medium">Free-text allowance</h3>
-        <p role="status" aria-live="polite" className="text-[14px] text-gray-700">Checking free-text allowance…</p>
+      <section aria-labelledby="starter-texts-heading" className="owner-card space-y-3 p-5 text-[var(--owner-ink)]">
+        <h3 id="starter-texts-heading" className="text-base font-semibold">Free-text allowance</h3>
+        <p role="status" aria-live="polite" className="text-sm leading-relaxed text-[var(--owner-muted)]">Checking free-text allowance…</p>
       </section>
     );
   }
 
   if (statusState.kind === 'error') {
     return (
-      <section aria-labelledby="starter-texts-heading" className="space-y-2 rounded-lg bg-pink-50 p-4 text-gray-900">
-        <h3 id="starter-texts-heading" className="text-[15px] font-medium">Free-text allowance</h3>
-        <p role="status" aria-live="polite" className="text-[14px] text-gray-700">We could not check your free-text allowance. Please try again.</p>
-        <button type="button" onClick={() => void loadStatus()} className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800">
+      <section aria-labelledby="starter-texts-heading" className="owner-card space-y-3 p-5 text-[var(--owner-ink)]">
+        <h3 id="starter-texts-heading" className="text-base font-semibold">Free-text allowance</h3>
+        <p role="status" aria-live="polite" className="text-sm leading-relaxed text-[var(--owner-muted)]">We could not check your free-text allowance. Please try again.</p>
+        <button type="button" onClick={() => void loadStatus()} className="owner-action w-full sm:w-auto">
           Retry status check
         </button>
       </section>
@@ -150,37 +150,37 @@ export function StarterSmsCreditsCard({
   }
 
   if (statusState.status === 'verified') {
-    return <p role="status" aria-live="polite" className="rounded-lg bg-green-50 p-3 text-[14px] text-green-800">{completedMessage ?? VERIFIED_MESSAGE}</p>;
+    return <p role="status" aria-live="polite" className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm leading-relaxed text-green-800">{completedMessage ?? VERIFIED_MESSAGE}</p>;
   }
 
   if (!statusState.canClaim) {
     return (
-      <section aria-labelledby="starter-texts-heading" className="space-y-2 rounded-lg bg-pink-50 p-4 text-gray-900">
-        <h3 id="starter-texts-heading" className="text-[15px] font-medium">Free-text allowance</h3>
-        <p className="text-[14px] text-gray-700">Only the salon owner can verify the free-text allowance. Sign in with the owner account.</p>
+      <section aria-labelledby="starter-texts-heading" className="owner-card space-y-3 p-5 text-[var(--owner-ink)]">
+        <h3 id="starter-texts-heading" className="text-base font-semibold">Free-text allowance</h3>
+        <p className="text-sm leading-relaxed text-[var(--owner-muted)]">Only the salon owner can verify the free-text allowance. Sign in with the owner account.</p>
       </section>
     );
   }
 
   return (
-    <section aria-labelledby="starter-texts-heading" className="space-y-2 rounded-lg bg-pink-50 p-4 text-gray-900">
-      <h3 id="starter-texts-heading" className="text-[15px] font-medium">
+    <section aria-labelledby="starter-texts-heading" className="owner-card space-y-3 p-5 text-[var(--owner-ink)]">
+      <h3 id="starter-texts-heading" className="text-base font-semibold">
         {hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify your free-text allowance' : '100 free SMS credits'}
       </h3>
-      <p className="text-[14px] text-gray-700">
+      <p className="text-sm leading-relaxed text-[var(--owner-muted)]">
         {hasKnownStarterCredits || statusState.status === 'verification_required'
           ? 'Link your verified owner email and phone number to your existing lifetime allowance. Your SMS credit balance stays the same.'
           : 'One lifetime allowance linked to your verified owner email and phone number. Creating another salon does not reset it. Long text messages may use more than one SMS credit.'}
       </p>
-      <button type="button" onClick={() => void claim()} disabled={claiming} className="rounded-lg bg-gray-900 px-3 py-2 text-[14px] font-medium text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none">
+      <button type="button" onClick={() => void claim()} disabled={claiming} className="owner-action owner-action--primary w-full disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none sm:w-auto">
         {claiming ? 'Verifying…' : hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify free-text allowance' : 'Claim 100 free texts'}
       </button>
       {needsVerification && (
-        <button type="button" onClick={openVerification} className="ml-2 rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800">
+        <button type="button" onClick={openVerification} className="owner-action w-full sm:w-auto">
           Verify email and phone
         </button>
       )}
-      {message && <p role="status" aria-live="polite" className="text-[13px] text-gray-700">{message}</p>}
+      {message && <p role="status" aria-live="polite" className="text-sm leading-relaxed text-[var(--owner-muted)]">{message}</p>}
     </section>
   );
 }

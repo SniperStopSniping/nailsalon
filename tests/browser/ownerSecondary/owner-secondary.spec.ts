@@ -18,6 +18,61 @@ async function expectReadableFields(page: import('@playwright/test').Page) {
 }
 
 for (const width of [320, 390, 430, 1280]) {
+  test(`usage balances, message filter and close stay usable at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 1280 ? 900 : 844 });
+    await page.goto('/?app=usage');
+
+    await expect(page.getByText('83 SMS credits remaining', { exact: true })).toBeVisible();
+    await expect(page.getByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Claim 100 free texts|Verify free-text allowance/ })).toHaveCount(0);
+    await expect(page.getByText('Credit purchases are not available yet.', { exact: true })).toBeVisible();
+    await expect(page.getByText('1 SMS credit charged', { exact: true })).toBeVisible();
+
+    await expectReadableFields(page);
+
+    const filter = page.getByRole('combobox', { name: 'Filter message history' });
+    await filter.scrollIntoViewIfNeeded();
+
+    await expect(filter).toBeInViewport();
+    expect(await page.getByRole('dialog').locator('section').evaluateAll(elements => elements.every(element => element.scrollWidth <= element.clientWidth))).toBe(true);
+
+    await filter.selectOption('cancellations');
+
+    await expect(page.getByText('1 SMS credit charged', { exact: true })).toHaveCount(0);
+
+    await filter.selectOption('confirmations');
+
+    await expect(page.getByText('1 SMS credit charged', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Close usage and billing' })).toBeInViewport();
+
+    await page.getByRole('button', { name: 'Close usage and billing' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Usage & billing', exact: true })).toHaveCount(0);
+    await expect(page).toHaveURL(/app=settings/);
+  });
+
+  test(`free-text verification actions fit without implying a grant at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 1280 ? 900 : 844 });
+    await page.goto('/?app=usage&allowance=verification-required');
+    const claim = page.getByRole('button', { name: 'Claim 100 free texts', exact: true });
+
+    await expect(claim).toBeVisible();
+    expect(await claim.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(143, 49, 85)');
+    expect(await claim.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+
+    await claim.click();
+
+    await expect(page.getByText('Verify your primary email and phone number to claim your free texts.', { exact: true })).toBeVisible();
+
+    const verify = page.getByRole('button', { name: 'Verify email and phone', exact: true });
+
+    await expect(verify).toBeVisible();
+    expect(await verify.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+    await expect(page.getByText('0 SMS credits remaining', { exact: true })).toBeVisible();
+    await expect(page.getByText('100 free SMS credits have been added.', { exact: true })).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
   test(`account draft, leave guard and failed save remain usable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 1280 ? 900 : 844 });
     await page.goto('/?app=settings&view=account');
@@ -106,6 +161,46 @@ for (const width of [320, 390, 430, 1280]) {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 }
+
+test('usage portal failure remains recoverable with the unchanged balance', async ({ page }) => {
+  await page.goto('/?app=usage');
+  const portal = page.getByRole('button', { name: 'Manage billing', exact: true });
+  await portal.click();
+
+  await expect(page.getByText('Could not open the billing portal. Please try again.', { exact: true })).toBeVisible();
+  await expect(portal).toBeEnabled();
+  expect(await portal.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+  await expect(page.getByText('83 SMS credits remaining', { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/app=usage/);
+});
+
+test('allowance lookup failure offers a reachable retry without a claim', async ({ page }) => {
+  await page.goto('/?app=usage&allowance=error');
+  const retry = page.getByRole('button', { name: 'Retry status check', exact: true });
+  await retry.click();
+
+  await expect(page.getByText('We could not check your free-text allowance. Please try again.', { exact: true })).toBeVisible();
+  expect(await retry.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+  await expect(page.getByRole('button', { name: /Claim 100 free texts|Verify free-text allowance/ })).toHaveCount(0);
+});
+
+test('allowance owner-only state keeps the claim action unavailable', async ({ page }) => {
+  await page.goto('/?app=usage&allowance=owner-only');
+
+  await expect(page.getByText('Only the salon owner can verify the free-text allowance. Sign in with the owner account.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Claim 100 free texts|Verify free-text allowance/ })).toHaveCount(0);
+});
+
+test('failed allowance claim does not change the balance or show success', async ({ page }) => {
+  await page.goto('/?app=usage&allowance=unclaimed');
+  const claim = page.getByRole('button', { name: 'Claim 100 free texts', exact: true });
+  await claim.click();
+
+  await expect(page.getByText('Free texts could not be claimed. Please try again.', { exact: true })).toBeVisible();
+  await expect(claim).toBeEnabled();
+  await expect(page.getByText('0 SMS credits remaining', { exact: true })).toBeVisible();
+  await expect(page.getByText('100 free SMS credits have been added.', { exact: true })).toHaveCount(0);
+});
 
 test('notification destinations and settings inputs remain readable', async ({ page }) => {
   await page.goto('/?app=settings');
