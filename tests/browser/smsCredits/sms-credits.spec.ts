@@ -33,6 +33,9 @@ test('top-up packages, last purchase, history and close', async ({ page }, info)
 
   await expect(page.getByText('Total credits purchased')).toBeVisible();
   await expect(page.getByText('Client follow-up', { exact: true })).toBeVisible();
+  await expect(page.getByRole('listitem').filter({ hasText: 'Client follow-up' })).toContainText(/−1\s*credit$/);
+  await expect(page.getByRole('listitem').filter({ hasText: 'Appointment reminder' })).toContainText(/−2\s*credits$/);
+  await expect(page.getByRole('listitem').filter({ hasText: 'Credit purchase' })).toContainText(/\+500\s*credits$/);
 
   await page.screenshot({ path: screenshotPath(info, `History-${info.project.name}.png`) });
   await page.getByRole('button', { name: 'Close text credits' }).click();

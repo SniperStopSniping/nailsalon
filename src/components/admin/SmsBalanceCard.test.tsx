@@ -1,20 +1,21 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { SmsCreditActivity } from '@/hooks/useSmsCredits';
 import { SMS_CREDITS_CHANGED_EVENT, smsCreditStatus } from '@/libs/smsCreditStatus';
 
 import { SmsBalanceCard } from './SmsBalanceCard';
 import { SmsCreditsModal } from './SmsCreditsModal';
 
 const fetchMock = vi.fn();
-function response(remaining = 18, options: { allocation?: number | null; salonId?: string; canPurchase?: boolean } = {}) {
+function response(remaining = 18, options: { allocation?: number | null; salonId?: string; canPurchase?: boolean; activity?: SmsCreditActivity[] } = {}) {
   return new Response(JSON.stringify({ data: {
     salonId: options.salonId ?? 'salon_fixture',
     canPurchase: options.canPurchase ?? true,
     creditPurchasesAvailable: true,
     balance: { availableCredits: remaining, allocationCredits: 'allocation' in options ? options.allocation : 100, pendingCredits: 0, status: smsCreditStatus(remaining), totalPurchased: 500, usedThisMonth: 82, timeZone: 'America/Toronto', lastPurchaseOfferKey: 'topup_500_2026_10' },
     topupOffers: [{ key: 'topup_100_2026_10', credits: 100, priceCents: 2000, currency: 'cad', available: true }, { key: 'topup_200_2026_10', credits: 200, priceCents: 3000, currency: 'cad', available: true }, { key: 'topup_500_2026_10', credits: 500, priceCents: 5000, currency: 'cad', available: true }],
-    activity: { items: [], nextCursor: null },
+    activity: { items: options.activity ?? [], nextCursor: null },
   } }));
 }
 
@@ -117,5 +118,24 @@ describe('owner SMS card and purchase UI', () => {
 
     expect(await screen.findByText(/Only the salon owner can purchase/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Buy 100 texts/ })).toBeDisabled();
+  });
+
+  it.each([
+    [1, '+1 credit'],
+    [-1, '−1 credit'],
+    [2, '+2 credits'],
+    [-2, '−2 credits'],
+    [10000, '+10,000 credits'],
+    [-10000, '−10,000 credits'],
+    [0, '−0 credits'],
+  ])('labels %s history credits without changing the amount or sign', async (credits, label) => {
+    fetchMock.mockImplementation(async () => response(18, { activity: [{ id: 'activity_fixture', type: 'sms_debit', bucket: 'purchased', credits: Number(credits), eventType: 'appointment_reminder', createdAt: '2026-10-08T14:00:00Z' }] }));
+    render(<SmsCreditsModal salonSlug="a" initialView="history" onClose={vi.fn()} />);
+
+    const item = await screen.findByRole('listitem');
+
+    expect(item).toHaveTextContent(new RegExp(`${String(label).replace('+', '\\+').replace(' ', '\\s*')}$`));
+    expect(item).toHaveTextContent('Appointment reminder');
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/salon/communications/usage?salonSlug=a&view=credits', expect.objectContaining({ cache: 'no-store' }));
   });
 });

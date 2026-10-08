@@ -196,7 +196,7 @@ export function SmsCreditsModal({ salonSlug, initialView, onClose }: { salonSlug
                                 <span className={`shrink-0 text-sm font-semibold tabular-nums ${item.credits > 0 ? 'text-[var(--owner-accent)]' : ''}`}>
                                   {item.credits > 0 ? '+' : '−'}
                                   {Math.abs(item.credits).toLocaleString()}
-                                  <span className="ml-1 text-xs font-normal">credits</span>
+                                  <span className="ml-1 text-xs font-normal">{Math.abs(item.credits) === 1 ? 'credit' : 'credits'}</span>
                                 </span>
                               </li>
                             ))}
