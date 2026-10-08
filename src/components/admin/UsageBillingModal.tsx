@@ -14,9 +14,12 @@
 import { X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { SmsCreditsModal } from '@/components/admin/SmsCreditsModal';
 import { StarterSmsCreditsCard } from '@/components/admin/StarterSmsCreditsCard';
 import { DialogShell } from '@/components/ui/dialog-shell';
+import { useSmsTopupCheckout } from '@/hooks/useSmsTopupCheckout';
 import type { FoundingLifetimeAccess } from '@/libs/billing/foundingLifetime';
+import { SMS_CREDITS_CHANGED_EVENT } from '@/libs/smsCreditStatus';
 
 type UsagePayload = {
   salonId: string;
@@ -89,6 +92,7 @@ type TopupsPayload = {
 
 type UsageBillingModalProps = {
   salonSlug: string;
+  initialView?: 'overview' | 'topup' | 'history';
   onClose: () => void;
 };
 
@@ -187,15 +191,20 @@ function creditLabel(entry: UsagePayload['history'][number]): string {
   return `${entry.creditsUsed} SMS credit${entry.creditsUsed === 1 ? '' : 's'} charged`;
 }
 
-export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps) {
+export function UsageBillingModal({ salonSlug, onClose, initialView = 'overview' }: UsageBillingModalProps) {
+  return initialView === 'overview'
+    ? <UsageBillingOverview key={salonSlug} salonSlug={salonSlug} onClose={onClose} />
+    : <SmsCreditsModal key={salonSlug} salonSlug={salonSlug} initialView={initialView} onClose={onClose} />;
+}
+
+function UsageBillingOverview({ salonSlug, onClose }: UsageBillingModalProps) {
   const currentSalonSlug = useRef(salonSlug);
   currentSalonSlug.current = salonSlug;
   const [data, setData] = useState<UsagePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
-  const [buying, setBuying] = useState<string | null>(null);
-  const [buyError, setBuyError] = useState<string | null>(null);
+  const { buying, buyError, buyTopup } = useSmsTopupCheckout(data?.salonId, () => setData(current => current ? { ...current, creditPurchasesAvailable: false, topupOffers: [] } : current));
   // OP-1 (owner authorization 2026-09-16): the Portal route can now refuse a
   // collaborator with `403 OWNER_REQUIRED`, and that route has no dark switch
   // (D9) — it is live for legacy-flow customers today. Without somewhere to
@@ -243,6 +252,14 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
       setData(body.data);
     }
   }, [salonSlug]);
+
+  useEffect(() => {
+    const refresh = () => {
+      void refreshUsage().catch(() => setError('Could not refresh usage. Please reopen to try again.'));
+    };
+    window.addEventListener(SMS_CREDITS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(SMS_CREDITS_CHANGED_EVENT, refresh);
+  }, [refreshUsage]);
 
   // Message history — a second page on demand (distinct from the top-ups
   // "Load more" below, which pages a different endpoint).
@@ -383,46 +400,6 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
       setPortalLoading(false);
     }
   }, [portalLoading, salonSlug, data]);
-
-  const buyTopup = useCallback(async (topupOfferKey: string) => {
-    if (buying !== null || data?.creditPurchasesAvailable !== true
-      || !data.topupOffers.some(offer => offer.key === topupOfferKey)) {
-      return;
-    }
-    try {
-      setBuying(topupOfferKey);
-      setBuyError(null);
-      const response = await fetch('/api/billing/checkout/topup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonId: data?.salonId, topupOfferKey }),
-      });
-      const body = await response.json();
-      if (response.ok && body.data?.url) {
-        window.location.assign(body.data.url);
-        return;
-      }
-      if (['TOPUPS_DISABLED', 'PRICE_UNCONFIGURED'].includes(body.error?.code)) {
-        setData(current => current?.salonId === data.salonId
-          ? { ...current, creditPurchasesAvailable: false, topupOffers: [] }
-          : current);
-      } else if (typeof body?.error?.message === 'string' && body.error.message !== ''
-        && ['OWNER_REQUIRED', 'CHECKOUT_IN_PROGRESS', 'CHECKOUT_PENDING_RECONCILIATION'].includes(body.error?.code)) {
-        // OP-1 / OP-2 (2026-09-16): these refusals are rules, not faults.
-        // "Please try again" would be a lie for all three — a collaborator
-        // will never succeed, and a caller with another checkout open or
-        // pending verification must finish or outwait it. Show what the route
-        // actually said.
-        setBuyError(body.error.message);
-      } else {
-        setBuyError('Could not start the purchase. Please try again.');
-      }
-    } catch {
-      setBuyError('Could not start the purchase. Please try again.');
-    } finally {
-      setBuying(null);
-    }
-  }, [buying, data]);
 
   const usage = data?.usage ?? null;
 

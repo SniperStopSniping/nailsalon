@@ -95,6 +95,9 @@ const {
   };
 });
 
+const deliverLowBalanceWarning = vi.hoisted(() => vi.fn());
+vi.mock('@/libs/lowBalanceWarnings', () => ({ deliverLowBalanceWarning }));
+
 vi.mock('@/libs/DB', () => ({
   db,
   usesRuntimePostgres: false,
@@ -288,6 +291,27 @@ describe('processIntegrationOutbox', () => {
       deliveryId: 'delivery_staff_1',
       claimed: true,
     });
+  });
+
+  it.each(['sent', 'cancelled', 'expired'] as const)('finishes a balance email as %s without an appointment or customer message', async (outcome) => {
+    deliverLowBalanceWarning.mockResolvedValueOnce(outcome);
+    selectResults.push([staffJob({ operation: 'sms_low_balance', appointmentId: null })]);
+    finishReadResults();
+    const result = await processIntegrationOutbox();
+
+    expect(result.scanned).toBe(1);
+    expect(deliverLowBalanceWarning).toHaveBeenCalledOnce();
+    expect(retryCustomerBookingConfirmationEmail).not.toHaveBeenCalled();
+    expect(updates).toContainEqual(expect.objectContaining({ status: outcome === 'sent' ? 'completed' : outcome === 'expired' ? 'failed' : 'cancelled' }));
+  });
+
+  it('retains a failed balance email for retry instead of silently losing it', async () => {
+    deliverLowBalanceWarning.mockRejectedValueOnce(new Error('RESEND_TIMEOUT'));
+    selectResults.push([staffJob({ operation: 'sms_low_balance', appointmentId: null })]);
+    finishReadResults();
+
+    expect(await processIntegrationOutbox()).toMatchObject({ scanned: 1, retried: 1 });
+    expect(updates).toContainEqual(expect.objectContaining({ status: 'retry', lastError: 'RESEND_TIMEOUT' }));
   });
 
   it('runs a durable internal client-stats refresh and completes the job', async () => {

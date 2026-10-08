@@ -275,7 +275,8 @@ export type CatalogueTopupOffer = {
   credits: number;
   priceCents: number;
   currency: 'cad';
-  audience: 'free_plan' | 'paid_plan';
+  audience: 'free_plan' | 'paid_plan' | 'all_plans';
+  active?: boolean;
 };
 
 export type CataloguePromotion = {
@@ -1468,6 +1469,9 @@ export function buildProvisionPlan(input: {
   }
 
   for (const offer of Object.values(catalogue.topups)) {
+    if (offer.active === false) {
+      continue;
+    }
     prices.push({
       key: offer.key,
       section: 'topups',
@@ -1629,15 +1633,16 @@ export function validateCarrier(
         failures.push(`carrier.${section}.${key} is not a known catalogue key (UNKNOWN_KEY).`);
       }
     }
-    for (const key of known[section]) {
+    const required = section === 'topups' ? new Set(Object.values(catalogue.topups).filter(offer => offer.active !== false).map(offer => offer.key)) : known[section];
+    for (const key of required) {
       if (!Object.prototype.hasOwnProperty.call(table, key)) {
         failures.push(`carrier.${section} is missing catalogue key '${key}'.`);
       }
     }
-    const expectedCount = known[section].size;
+    const expectedCount = required.size;
     const actualCount = Object.keys(table).length;
-    if (actualCount !== expectedCount) {
-      failures.push(`carrier.${section} has ${actualCount} keys, expected exactly ${expectedCount}.`);
+    if (actualCount < expectedCount || actualCount > known[section].size) {
+      failures.push(`carrier.${section} has ${actualCount} keys, expected at least ${expectedCount}.`);
     }
   }
 
@@ -3015,6 +3020,9 @@ export async function runVerify(
   // --- one-time top-ups -------------------------------------------------
   const topupProduct = topupProductId(input.env);
   for (const offer of Object.values(input.catalogue.topups)) {
+    if (offer.active === false) {
+      continue;
+    }
     const id = input.carrier.topups[offer.key];
     if (id === undefined) {
       failures.push(`${offer.key}: absent from carrier.topups`);

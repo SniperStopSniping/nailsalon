@@ -45,6 +45,9 @@ const completeCarrier = JSON.stringify({
     'elite_2026_08_annual',
   ].map((key, index) => [key, `price_test${String(index).padStart(8, '0')}`])),
   topups: Object.fromEntries([
+    'topup_100_2026_10',
+    'topup_200_2026_10',
+    'topup_500_2026_10',
     'topup_100_free_2026_08',
     'topup_250_free_2026_08',
     'topup_500_free_2026_08',

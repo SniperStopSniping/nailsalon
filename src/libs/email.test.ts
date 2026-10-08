@@ -59,6 +59,14 @@ describe('transactional email execution bounds', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('passes a stable provider idempotency key without changing the email payload', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ id: 'email_fixture' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await sendTransactionalEmailDetailed(EMAIL, { idempotencyKey: 'luster-sms-warning/job_1' });
+
+    expect(fetchMock).toHaveBeenCalledWith('https://api.resend.com/emails', expect.objectContaining({ headers: expect.objectContaining({ 'Idempotency-Key': 'luster-sms-warning/job_1' }) }));
+  });
+
   it('does not dispatch when the parent operation already lost ownership', async () => {
     const controller = new AbortController();
     controller.abort(new Error('lease lost'));

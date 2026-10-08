@@ -1629,6 +1629,7 @@ type BookingNotificationCapabilitiesState = {
 };
 
 type SalonEmailNotificationFormState = {
+  lowSmsBalance: boolean;
   newBooking: boolean;
   rescheduled: boolean;
   cancelled: boolean;
@@ -1642,6 +1643,7 @@ type SalonNotificationRecipientState = {
 };
 
 const DEFAULT_SALON_EMAIL_NOTIFICATION_FORM_STATE: SalonEmailNotificationFormState = {
+  lowSmsBalance: true,
   newBooking: true,
   rescheduled: true,
   cancelled: true,
@@ -1649,7 +1651,7 @@ const DEFAULT_SALON_EMAIL_NOTIFICATION_FORM_STATE: SalonEmailNotificationFormSta
 };
 
 const SALON_EMAIL_NOTIFICATION_EVENT_OPTIONS: Array<{
-  key: 'newBooking' | 'rescheduled' | 'cancelled';
+  key: 'newBooking' | 'rescheduled' | 'cancelled' | 'lowSmsBalance';
   label: string;
   description: string;
 }> = [
@@ -1662,6 +1664,11 @@ const SALON_EMAIL_NOTIFICATION_EVENT_OPTIONS: Array<{
     key: 'rescheduled',
     label: 'Reschedule emails',
     description: 'Email the salon when a client moves an appointment.',
+  },
+  {
+    key: 'lowSmsBalance',
+    label: 'Low text balance emails',
+    description: 'Email the salon at 25 and 10 credits, and when texts run out.',
   },
   {
     key: 'cancelled',
@@ -2528,6 +2535,7 @@ export function SettingsModal({
           newBooking: data.salonEmailNotifications?.newBooking ?? true,
           rescheduled: data.salonEmailNotifications?.rescheduled ?? true,
           cancelled: data.salonEmailNotifications?.cancelled ?? true,
+          lowSmsBalance: data.salonEmailNotifications?.lowSmsBalance ?? true,
           recipientEmail: data.salonEmailNotifications?.recipientEmail ?? '',
         });
         setSalonNotificationRecipient({
@@ -3196,6 +3204,7 @@ export function SettingsModal({
               newBooking: salonEmailNotificationsForm.newBooking,
               rescheduled: salonEmailNotificationsForm.rescheduled,
               cancelled: salonEmailNotificationsForm.cancelled,
+              lowSmsBalance: salonEmailNotificationsForm.lowSmsBalance,
               recipientEmail: trimmedRecipient,
             },
           }),
@@ -3208,6 +3217,7 @@ export function SettingsModal({
 
       const data = await response.json();
       setSalonEmailNotificationsForm({
+        lowSmsBalance: data.salonEmailNotifications?.lowSmsBalance ?? salonEmailNotificationsForm.lowSmsBalance,
         newBooking:
           data.salonEmailNotifications?.newBooking
           ?? salonEmailNotificationsForm.newBooking,

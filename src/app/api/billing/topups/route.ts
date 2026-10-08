@@ -131,6 +131,10 @@ export async function GET(request: NextRequest): Promise<Response> {
     return authResult.response;
   }
 
+  const purchaseId = request.nextUrl.searchParams.get('purchaseId');
+  if (purchaseId !== null && (!purchaseId || purchaseId.length > 200)) {
+    return errorJson(400, 'INVALID_PURCHASE', 'The purchase reference is not valid.');
+  }
   const limit = parseLimit(request.nextUrl.searchParams.get('limit'));
 
   const cursorParam = request.nextUrl.searchParams.get('cursor');
@@ -173,9 +177,11 @@ export async function GET(request: NextRequest): Promise<Response> {
       eq(billingCheckoutAttemptSchema.salonId, smsTopupPurchaseSchema.salonId),
       eq(billingCheckoutAttemptSchema.purpose, 'sms_topup'),
     ))
-    .where(cursorFilter === undefined
-      ? eq(smsTopupPurchaseSchema.salonId, salonId)
-      : and(eq(smsTopupPurchaseSchema.salonId, salonId), cursorFilter))
+    .where(and(
+      eq(smsTopupPurchaseSchema.salonId, salonId),
+      purchaseId ? eq(smsTopupPurchaseSchema.id, purchaseId) : undefined,
+      cursorFilter,
+    ))
     .orderBy(desc(smsTopupPurchaseSchema.createdAt), desc(smsTopupPurchaseSchema.id))
     .limit(limit + 1);
 

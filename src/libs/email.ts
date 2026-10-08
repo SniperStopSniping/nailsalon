@@ -12,6 +12,7 @@ type SendTransactionalEmailParams = {
 export type SendTransactionalEmailOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
+  idempotencyKey?: string;
 };
 
 export type TransactionalEmailResult = {
@@ -52,6 +53,7 @@ export async function sendTransactionalEmailDetailed(
       headers: {
         'Authorization': `Bearer ${Env.RESEND_API_KEY}`,
         'Content-Type': 'application/json',
+        ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
       },
       body: JSON.stringify({
         from: Env.RESEND_FROM_EMAIL,

@@ -32,14 +32,16 @@ describe('topupOffers', () => {
     }
   });
 
-  it('offers 100/250/500 to free salons and adds the 1000 pack only for paid salons', () => {
+  it('offers the same 100/200/500 packages to every salon', () => {
     const free = resolveTopupOffersForFamily('free');
     const paid = resolveTopupOffersForFamily('pro');
 
-    expect(free.map(offer => offer.credits).sort((a, b) => a - b)).toEqual([100, 250, 500]);
-    expect(paid.map(offer => offer.credits).sort((a, b) => a - b)).toEqual([100, 250, 500, 1000]);
-    expect(free.every(offer => offer.audience === 'free_plan')).toBe(true);
-    expect(paid.every(offer => offer.audience === 'paid_plan')).toBe(true);
+    expect(free.map(offer => offer.credits).sort((a, b) => a - b)).toEqual([100, 200, 500]);
+    expect(paid.map(offer => offer.credits).sort((a, b) => a - b)).toEqual([100, 200, 500]);
+    expect(free.every(offer => offer.audience === 'all_plans')).toBe(true);
+    expect(free.map(offer => offer.priceCents)).toEqual([2000, 3000, 5000]);
+    expect(TOPUP_OFFERS.topup_100_free_2026_08.active).toBe(false);
+    expect(paid.every(offer => offer.audience === 'all_plans')).toBe(true);
   });
 
   it('keeps record keys and offer keys in lockstep and prices in integer CAD cents', () => {
