@@ -56,7 +56,7 @@ responses. It rejects external requests; no API write reaches a server.
 - Existing Service, Client, Calendar Block and owner-token unit coverage.
 - Hosted CI includes this browser suite; normal lint/typecheck hooks remain.
 
-After the current-main integration: 112 focused unit checks, 36 owner-form
+After the current-main integration: 112 focused unit checks, 52 owner-form
 browser cases and 22 core-tab browser regressions all pass. Hosted checks and
 an exact-head Preview remain separate release gates for this follow-up.
 
@@ -72,3 +72,19 @@ payment, messaging, commercial entitlement or customer Isla design changes.
 Existing error/status colours retain their meaning. This scoped form pass does
 not claim that every secondary owner form, physical phone or external provider
 acceptance is complete. The broader goal's recorded acceptance blocks remain.
+
+## Hosted timing diagnosis
+
+CI37718009905 passed35 of36 form browser cases. Its one Linux WebKit failure
+was the combined edit/create/select test reaching the30-second overall deadline.
+The saved trace shows successful actions distributed across roughly29 seconds;
+the final Choose add-ons click began with about0.9 seconds remaining. Five
+unchanged local repeats passed. This is evidence of an overlong combined case,
+not proof of a broken add-on action.
+
+The three independent owner tasks now have separate tests, each retaining the
+original30-second limit and zero retries. No production change or visibility,
+readability, focus or draft assertion was removed. New explicit cancellation
+focus checks also cover add-on creation. Hosted gates must pass on the new head.
+
+All52 separated form cases pass locally in Chromium and WebKit after the correction.

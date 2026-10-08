@@ -40,7 +40,7 @@ async function readableFields(container: Locator) {
 }
 
 for (const width of [320, 390, 430, 1280]) {
-  test(`add-on editing creation and selection keep actions visible at ${width}px`, async ({ page }) => {
+  test(`add-on editing keeps actions visible and restores focus at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto('/?screen=services&addons=1&state=error');
     await page.getByRole('tab', { name: 'Add-ons', exact: true }).click();
@@ -60,7 +60,15 @@ for (const width of [320, 390, 430, 1280]) {
 
     await expect(edit).toBeFocused();
 
-    await page.getByRole('button', { name: 'New add-on', exact: true }).click();
+    await noOverflow(page);
+  });
+
+  test(`add-on creation keeps validation and cancellation visible at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/?screen=services&addons=1&state=error');
+    await page.getByRole('tab', { name: 'Add-ons', exact: true }).click();
+    const trigger = page.getByRole('button', { name: 'New add-on', exact: true });
+    await trigger.click();
     const create = page.getByRole('dialog', { name: 'New add-on', exact: true });
     await readableFields(create);
     await actionVisible(create.getByRole('button', { name: 'Create Add-on', exact: true }));
@@ -69,7 +77,15 @@ for (const width of [320, 390, 430, 1280]) {
     await expect(create.getByRole('alert')).toBeInViewport();
 
     await create.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await page.getByRole('tab', { name: 'My Menu', exact: true }).click();
+
+    await expect(trigger).toBeFocused();
+
+    await noOverflow(page);
+  });
+
+  test(`service add-on selection preserves the draft and return focus at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/?screen=services&addons=1&state=error');
     await page.getByRole('button', { name: 'New service', exact: true }).click();
     const service = page.getByRole('dialog', { name: 'Add Service', exact: true });
     await service.getByLabel('Name', { exact: true }).fill('Review service');
