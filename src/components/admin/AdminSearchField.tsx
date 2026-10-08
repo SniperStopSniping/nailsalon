@@ -19,14 +19,15 @@ export function AdminSearchField({
 }: AdminSearchFieldProps) {
   return (
     <div className={cn('relative', className)}>
-      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8E8E93]" />
+      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--owner-muted)]" />
       <input
         type="text"
         value={value}
         onChange={event => onChange(event.target.value)}
         placeholder={placeholder}
+        aria-label={placeholder}
         className={cn(
-          'w-full rounded-xl bg-[#E5E5EA] px-10 py-2.5 text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30',
+          'min-h-12 w-full rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] pl-10 pr-12 text-[16px] text-[var(--owner-ink)] placeholder:text-[var(--owner-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--owner-focus)]',
           inputClassName,
         )}
       />
@@ -35,9 +36,9 @@ export function AdminSearchField({
           type="button"
           onClick={() => onChange('')}
           aria-label="Clear search"
-          className="absolute right-3 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full bg-[#8E8E93]"
+          className="absolute right-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full text-[var(--owner-muted)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
         >
-          <X className="size-3 text-white" />
+          <X className="size-4" />
         </button>
       )}
     </div>

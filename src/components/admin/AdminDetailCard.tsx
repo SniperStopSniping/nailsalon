@@ -14,7 +14,7 @@ export function AdminDetailCard({
   contentClassName,
 }: AdminDetailCardProps) {
   return (
-    <div className={cn('rounded-[16px] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.03)]', className)}>
+    <div className={cn('min-w-0 rounded-owner-card border border-[var(--owner-line)] bg-[var(--owner-surface)] shadow-owner-card', className)}>
       <div className={cn('p-4', contentClassName)}>
         {children}
       </div>
