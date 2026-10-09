@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { parse } from 'yaml';
 
 import {
   assertDisposableDatabaseSession,
@@ -12,6 +16,8 @@ import {
   requireDisposableDatabaseTarget,
   resolveDisposableDatabaseServerExpectation,
 } from './disposableDatabaseTarget';
+
+vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
 
 type TargetOverrides = {
   applicationName?: string | null;
@@ -270,6 +276,127 @@ describe('disposable database target validation', () => {
     expect(message).not.toContain(sensitivePassword);
     expect(message).not.toContain(sensitiveQuery);
     expect(message).not.toContain(DISPOSABLE_DATABASE_USER);
+  });
+});
+
+describe('disposable PostgreSQL service-container attestation', () => {
+  const mirroredImage = 'public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea';
+  const containerId = 'a'.repeat(64);
+  const network = 'github_network_123';
+  const target = requireDisposableDatabaseTarget({
+    ...environment(),
+    LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: containerId,
+    LUSTER_DISPOSABLE_POSTGRES_NETWORK: network,
+  });
+  const portMapping = JSON.stringify({
+    '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '55432' }],
+  });
+  const inspect = vi.mocked(execFileSync);
+
+  beforeEach(() => {
+    inspect.mockReset();
+  });
+
+  it.each(['postgres:16-alpine', mirroredImage])('attests the approved image %s', (image) => {
+    inspect.mockReturnValueOnce(`${image}\n`)
+      .mockReturnValueOnce(portMapping)
+      .mockReturnValueOnce('172.18.0.2\n');
+
+    expect(resolveDisposableDatabaseServerExpectation(target)).toEqual({
+      addresses: ['172.18.0.2'],
+      port: 5432,
+    });
+    expect(inspect.mock.calls.map(call => call[1])).toEqual([
+      ['inspect', '--format', '{{.Config.Image}}', containerId],
+      ['inspect', '--format', '{{json .NetworkSettings.Ports}}', containerId],
+      ['inspect', '--format', `{{(index .NetworkSettings.Networks "${network}").IPAddress}}`, containerId],
+    ]);
+
+    for (const call of inspect.mock.calls) {
+      expect(call[0]).toBe('docker');
+      expect(call[2]).toEqual({ encoding: 'utf8', timeout: 10_000 });
+    }
+  });
+
+  it('attests every PostgreSQL image configured in the actual CI workflow', () => {
+    const workflow = parse(readFileSync(new URL('../../.github/workflows/CI.yml', import.meta.url), 'utf8')) as {
+      jobs: Record<string, { services?: { postgres?: { image: string } } }>;
+    };
+    const images = new Set(Object.values(workflow.jobs)
+      .flatMap(job => job.services?.postgres ? [job.services.postgres.image] : []));
+
+    expect(images.size).toBeGreaterThan(0);
+
+    for (const image of images) {
+      inspect.mockReturnValueOnce(image).mockReturnValueOnce(portMapping).mockReturnValueOnce('172.18.0.2');
+
+      expect(resolveDisposableDatabaseServerExpectation(target)).toEqual({
+        addresses: ['172.18.0.2'],
+        port: 5432,
+      });
+    }
+
+    expect(inspect).toHaveBeenCalledTimes(images.size * 3);
+  });
+
+  it.each([
+    'postgres:latest',
+    'postgres:17-alpine',
+    'public.ecr.aws/docker/library/postgres:16-alpine',
+    `public.ecr.aws/docker/library/postgres:16-alpine@sha256:${'0'.repeat(64)}`,
+    mirroredImage.replace('docker/library', 'unreviewed/library'),
+    mirroredImage.replace('public.ecr.aws/', 'public.ecr.aws.example.invalid/'),
+    mirroredImage.replace('postgres:16-alpine', 'redis:7-alpine'),
+  ])('rejects an unreviewed image before inspecting its network: %s', (image) => {
+    inspect.mockReturnValueOnce(image);
+
+    expect(() => resolveDisposableDatabaseServerExpectation(target))
+      .toThrow(DisposableDatabaseTargetError);
+    expect(inspect).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {},
+    { '5432/tcp': null },
+    { '5432/tcp': [] },
+    { '5432/tcp': [{ HostIp: '0.0.0.0', HostPort: '55432' }] },
+    { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '5432' }] },
+    { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '55432' }, { HostIp: '::', HostPort: '55432' }] },
+  ])('still rejects unsafe port bindings for the mirrored image: %j', (ports) => {
+    inspect.mockReturnValueOnce(mirroredImage).mockReturnValueOnce(JSON.stringify(ports));
+
+    expect(() => resolveDisposableDatabaseServerExpectation(target))
+      .toThrow(DisposableDatabaseTargetError);
+    expect(inspect).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['', '<no value>', 'database.example.invalid', '8.8.8.8'])('still rejects an invalid bridge address: %s', (address) => {
+    inspect.mockReturnValueOnce(mirroredImage).mockReturnValueOnce(portMapping).mockReturnValueOnce(address);
+
+    expect(() => resolveDisposableDatabaseServerExpectation(target))
+      .toThrow(DisposableDatabaseTargetError);
+    expect(inspect).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([0, 1, 2])('fails closed when Docker inspection fails at stage %s', (stage) => {
+    for (const value of [mirroredImage, portMapping].slice(0, stage)) {
+      inspect.mockReturnValueOnce(value);
+    }
+    inspect.mockImplementationOnce(() => {
+      throw new Error('Docker unavailable');
+    });
+
+    expect(() => resolveDisposableDatabaseServerExpectation(target))
+      .toThrow(DisposableDatabaseTargetError);
+    expect(inspect).toHaveBeenCalledTimes(stage + 1);
+  });
+
+  it('fails closed on malformed port metadata', () => {
+    inspect.mockReturnValueOnce(mirroredImage).mockReturnValueOnce('not JSON');
+
+    expect(() => resolveDisposableDatabaseServerExpectation(target))
+      .toThrow(DisposableDatabaseTargetError);
+    expect(inspect).toHaveBeenCalledTimes(2);
   });
 });
 
