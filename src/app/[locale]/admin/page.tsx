@@ -211,6 +211,7 @@ function resolveIntegrationsNotice(
 
 type AdminUser = {
   id: string;
+  email?: string | null;
   phone: string;
   name: string | null;
   isSuperAdmin: boolean;
@@ -1348,7 +1349,7 @@ function AdminDashboardContent() {
   ]);
 
   useEffect(() => {
-    if (!authLoading && adminUser && !showSalonSelector) {
+    if (!authLoading && adminUser && !showSalonSelector && activeDashboardSalonSlug) {
       fetchFraudSignals().catch((err) => {
         console.error('[AdminDashboard] fraud signals fetch failed', err);
       });
@@ -1360,7 +1361,7 @@ function AdminDashboardContent() {
       return () => clearInterval(interval);
     }
     return undefined;
-  }, [authLoading, adminUser, showSalonSelector, fetchFraudSignals]);
+  }, [authLoading, adminUser, showSalonSelector, activeDashboardSalonSlug, fetchFraudSignals]);
 
   // Apps hidden from the More grid: bottom-nav destinations always, plus
   // anything the salon's module entitlements do not allow.
@@ -1846,6 +1847,30 @@ function AdminDashboardContent() {
           </button>
         )}
       />
+    );
+  }
+
+  // A valid account can exist before its first salon is saved. There is no
+  // tenant to load here, so keep setup and sign-out reachable instead of
+  // waiting forever for the dashboard's salon-scoped requests to start.
+  if (!adminUser.impersonation?.isActive && adminUser.salons.length === 0) {
+    return (
+      <main className="owner-workspace-theme flex min-h-screen items-center justify-center bg-[var(--owner-ground)] p-5" data-theme-scope="owner">
+        <section className="w-full max-w-md rounded-owner-card border border-[var(--owner-line)] bg-[var(--owner-surface)] p-6 shadow-owner-card">
+          <h1 className="owner-title text-[26px] text-[var(--owner-ink)]">Let’s finish setting up your salon</h1>
+          <p className="mt-3 text-[15px] leading-6 text-[var(--owner-muted)]">You’re signed in, but no salon workspace is connected to this account yet.</p>
+          {adminUser.email && <p className="mt-3 break-words text-[14px] text-[var(--owner-muted)]">{adminUser.email}</p>}
+          <div className="mt-6 flex flex-col gap-3">
+            {onboardingV1IntegrationEnabled && (
+              <a className={cn(buttonVariants({ variant: 'ownerPrimary', size: 'pillSm' }), 'min-h-11 whitespace-normal px-5 py-3 text-center')} href={`/${locale}/onboarding-v1`}>
+                Continue building my site
+              </a>
+            )}
+            <button className={cn(buttonVariants({ variant: 'ownerSecondary', size: 'pillSm' }), 'min-h-11 px-5')} onClick={handleLogout} type="button">Sign out</button>
+            <a className="flex min-h-11 items-center justify-center text-[14px] text-[var(--owner-accent)] underline underline-offset-4" href="mailto:support@lustergel.app">Contact support</a>
+          </div>
+        </section>
+      </main>
     );
   }
 

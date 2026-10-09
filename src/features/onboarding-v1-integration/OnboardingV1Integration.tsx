@@ -980,7 +980,7 @@ function OnboardingIntegrationController({
       await clerk.signOut({ redirectUrl: `${getOnboardingIntegrationRoute(locale)}?account=1&auth=sign-in` });
     } catch {
       setChangingAccount(false);
-      setFlow(current => ({ ...current, phase: 'failure', errorCode: null, errorMessage: 'We couldn’t sign you out. Try again before choosing a business.' }));
+      setFlow(current => ({ ...current, phase: 'failure', errorCode: 'ACCOUNT_SIGN_OUT_FAILED', errorMessage: 'We couldn’t sign you out. Try again before choosing a business.' }));
     }
   }, [clerk, locale, setFlow]);
 
@@ -1123,6 +1123,38 @@ function OnboardingIntegrationController({
           )
         : <SavingScreen mediaCount={0} salonName="your website" step="core" />;
     case 'failure':
+      if (flow.errorCode === 'OWNER_ACCOUNT_CONFLICT' || flow.errorCode === 'ACCOUNT_SIGN_OUT_FAILED') {
+        return (
+          <OwnerSurface modifier="is-centred">
+            <section className="onboarding-integration-state-card" role="alert">
+              <p className="onboarding-integration-eyebrow">Your setup is still on this device</p>
+              <h1>Let’s reconnect your account</h1>
+              <p>{flow.errorMessage}</p>
+              <p>
+                Signed in as
+                {' '}
+                <strong className="break-words">{user?.primaryEmailAddress?.emailAddress}</strong>
+                .
+              </p>
+              <div className="onboarding-integration-action-stack">
+                <button
+                  className="onboarding-integration-primary"
+                  type="button"
+                  onClick={() => {
+                    void changeAccount();
+                  }}
+                >
+                  Sign out and switch account
+                </button>
+                <button className="onboarding-integration-secondary" type="button" onClick={returnToReview}>
+                  Return to my setup
+                </button>
+                <a className="onboarding-integration-text-action" href="mailto:support@lustergel.app">Contact support</a>
+              </div>
+            </section>
+          </OwnerSurface>
+        );
+      }
       if (flow.errorCode === 'SITE_SLUG_UNAVAILABLE' || flow.errorCode === 'SITE_SLUG_INVALID') {
         return (
           <OwnerSurface modifier="is-centred">
