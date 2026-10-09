@@ -1,3 +1,10 @@
+## [1.142.7](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.6...v1.142.7) (2026-10-09)
+
+
+### Bug Fixes
+
+* **media:** use native Cloudinary URL parsing on Node 24 ([212b6ec](https://github.com/SniperStopSniping/nailsalon/commit/212b6ecf214472352bc7bed612a88526b058174f))
+
 ## [1.142.6](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.5...v1.142.6) (2026-10-09)
 
 
