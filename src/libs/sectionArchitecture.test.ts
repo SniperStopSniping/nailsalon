@@ -35,6 +35,7 @@ const EXPECTED_NON_CONTENT_SURFACES = [
   'selectedServiceContinueBar',
   'appointmentSummaryCard',
   'bookingProgressHeader',
+  'bookingRecoveryNavigation',
   'confirmationRebookingPrompt',
   'serviceSelectionControls',
   'timeSelectionControls',
@@ -1429,6 +1430,12 @@ describe('public section architecture guard', () => {
       expect(PUBLIC_SURFACE_INVENTORY[surface].classification).not.toBe('content');
       expect(PUBLIC_SURFACE_INVENTORY[surface].reason.trim()).not.toBe('');
     }
+  });
+
+  it('keeps booking recovery navigation outside owner-editable content sections', () => {
+    expect(PUBLIC_SURFACE_INVENTORY.bookingRecoveryNavigation.classification).toBe('bookingFlowControl');
+    expect(SECTION_REGISTRY).not.toHaveProperty('bookingRecoveryNavigation');
+    expect(REGISTERED_SECTION_IDS).not.toContain('bookingRecoveryNavigation');
   });
 
   it('discovers and scans every anonymous booking renderer', () => {

@@ -1551,6 +1551,7 @@ export function BookServiceClient({
       >
         {!islaCustomPage && salonSlug && (
           <nav
+            data-public-surface="bookingRecoveryNavigation"
             aria-label={locale === 'fr' ? 'Liens de réservation' : 'Booking links'}
             data-testid="booking-recovery-navigation"
             className={approvedQuickBookComposition ? 'flex justify-end px-5 py-1 sm:px-8' : 'flex justify-end py-1'}

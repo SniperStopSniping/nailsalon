@@ -577,7 +577,7 @@ describe('BookServiceClient', () => {
     render(<BookServiceClient services={services} bookingFlow={['service', 'time', 'confirm']} locations={[]} />);
 
     expect(screen.getByRole('link', { name: 'Manage my booking' })).toHaveAttribute('href', '/en/salon-a/find-booking');
-    expect(screen.getByRole('navigation', { name: 'Booking links' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Booking links' })).toHaveAttribute('data-public-surface', 'bookingRecoveryNavigation');
   });
 
   it('localizes recovery access and keeps the resolved salon when route or query data differs', () => {
