@@ -1,6 +1,6 @@
 'use client';
 
-import { Facebook, Info, Instagram, Music2, ShieldCheck } from 'lucide-react';
+import { CalendarClock, Facebook, Info, Instagram, Music2, ShieldCheck } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
@@ -1549,6 +1549,22 @@ export function BookServiceClient({
         }
         style={{ paddingBottom: selectedService && !islaCustomPage ? 'calc(7rem + env(safe-area-inset-bottom, 0px))' : undefined }}
       >
+        {!islaCustomPage && salonSlug && (
+          <nav
+            aria-label={locale === 'fr' ? 'Liens de réservation' : 'Booking links'}
+            data-testid="booking-recovery-navigation"
+            className={approvedQuickBookComposition ? 'flex justify-end px-5 py-1 sm:px-8' : 'flex justify-end py-1'}
+          >
+            <a
+              href={appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug: salonSlug, locale })}
+              className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-lg py-2 text-sm font-medium underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              style={{ color: approvedQuickBookComposition ? 'var(--qbp-ink)' : themeVars.titleText }}
+            >
+              <CalendarClock aria-hidden="true" className="size-4 shrink-0" strokeWidth={1.5} />
+              <span className="min-w-0 break-words">{locale === 'fr' ? 'Retrouver ma réservation' : 'Manage my booking'}</span>
+            </a>
+          </nav>
+        )}
         {/*
           Stage 4 keeps one service-selection engine and gives the canonical
           renderer typed insertion slots at its existing Featured, policy,

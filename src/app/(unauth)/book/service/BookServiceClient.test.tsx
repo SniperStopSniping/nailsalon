@@ -44,6 +44,7 @@ const {
     routerBack: vi.fn(),
     routerPush: vi.fn(),
     searchParams: new URLSearchParams('salonSlug=salon-a'),
+    params: { locale: 'en', slug: undefined as string | undefined },
   },
   salonContextMock: {
     salonSlug: 'salon-a',
@@ -202,7 +203,7 @@ vi.mock('next/navigation', () => ({
     back: navigationMock.routerBack,
     push: navigationMock.routerPush,
   }),
-  useParams: () => ({ locale: 'en' }),
+  useParams: () => navigationMock.params,
   useSearchParams: () => navigationMock.searchParams,
 }));
 
@@ -554,6 +555,7 @@ describe('BookServiceClient', () => {
     sessionStorage.clear();
     resetBookingExperienceMock();
     navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a');
+    navigationMock.params = { locale: 'en', slug: undefined };
     clientSessionMock.isLoggedIn = false;
     clientSessionMock.isCheckingSession = false;
     bookingStateMock.values = {
@@ -569,6 +571,46 @@ describe('BookServiceClient', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('offers booking recovery from the standard page without relying on the free-salon footer', () => {
+    render(<BookServiceClient services={services} bookingFlow={['service', 'time', 'confirm']} locations={[]} />);
+
+    expect(screen.getByRole('link', { name: 'Manage my booking' })).toHaveAttribute('href', '/en/salon-a/find-booking');
+    expect(screen.getByRole('navigation', { name: 'Booking links' })).toBeInTheDocument();
+  });
+
+  it('localizes recovery access and keeps the resolved salon when route or query data differs', () => {
+    navigationMock.params = { locale: 'fr', slug: 'other-salon' };
+    navigationMock.searchParams = new URLSearchParams('salonSlug=another-salon');
+
+    render(<BookServiceClient services={services} bookingFlow={['service', 'time', 'confirm']} locations={[]} />);
+
+    expect(screen.getByRole('link', { name: 'Retrouver ma réservation' })).toHaveAttribute('href', '/fr/salon-a/find-booking');
+  });
+
+  it('preserves Isla\'s existing two recovery links without adding a third navigation row', () => {
+    salonContextMock.salonSlug = 'isla-nail-studio';
+
+    render(<BookServiceClient services={services} bookingFlow={['service', 'time', 'confirm']} locations={[]} />);
+
+    const links = screen.getAllByRole('link', { name: 'Manage my booking' });
+
+    expect(links).toHaveLength(2);
+
+    for (const link of links) {
+      expect(link).toHaveAttribute('href', '/en/isla-nail-studio/find-booking');
+    }
+
+    expect(screen.queryByTestId('booking-recovery-navigation')).not.toBeInTheDocument();
+  });
+
+  it('does not invent a booking-recovery destination without a resolved salon', () => {
+    salonContextMock.salonSlug = '';
+
+    render(<BookServiceClient services={services} bookingFlow={['service', 'time', 'confirm']} locations={[]} />);
+
+    expect(screen.queryByTestId('booking-recovery-navigation')).not.toBeInTheDocument();
   });
 
   it('starts a new selection after a completed booking without restoring its old receipt', () => {
