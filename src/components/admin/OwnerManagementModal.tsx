@@ -101,6 +101,15 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
       router.replace(href('home'), { scroll: false });
     }
   };
+  const closeUsage = () => {
+    // Balance shortcuts open the credit sheet directly from the workspace.
+    // Only return to the plan hub if the owner actually navigated through it.
+    if (pushedDepth.current === 0 && (view === 'topup' || view === 'history')) {
+      onClose();
+      return;
+    }
+    back();
+  };
 
   if (app === 'booking-rules') {
     if (view === 'rules' || view === 'policies') {
@@ -187,7 +196,7 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
             ...(!isFreeSolo ? [{ id: 'plans', title: 'Compare plans', description: 'Current Luster plans and available options', icon: CalendarClock, disabled: !salonSlug }] : []),
           ]}
         />
-        {(view === 'usage' || view === 'topup' || view === 'history') && salonSlug && <UsageBillingModal salonSlug={salonSlug} initialView={view === 'usage' ? 'overview' : view} onClose={back} />}
+        {(view === 'usage' || view === 'topup' || view === 'history') && salonSlug && <UsageBillingModal salonSlug={salonSlug} initialView={view === 'usage' ? 'overview' : view} onClose={closeUsage} />}
         {view === 'plans' && !isFreeSolo && salonSlug && <ChoosePlanPanel salonSlug={salonSlug} onClose={back} />}
       </>
     );

@@ -6,10 +6,16 @@ import { SalonProvider } from '@/providers/SalonProvider';
 
 import { AdminModalHost } from './AdminModalHost';
 
+const appModalSpy = vi.hoisted(() => vi.fn());
 vi.mock('./AppModal', () => ({
-  AppModal: ({ isOpen, children }: { isOpen: boolean; children: ReactNode }) => (
-    isOpen ? children : null
-  ),
+  AppModal: (props: { isOpen: boolean; children: ReactNode; returnFocusKey?: string | null }) => {
+    appModalSpy(props);
+    return props.isOpen ? props.children : null;
+  },
+}));
+
+vi.mock('./OwnerManagementModal', () => ({
+  OwnerManagementModal: ({ salonSlug }: { salonSlug: string }) => <p>{`management:${salonSlug}`}</p>,
 }));
 
 vi.mock('./AppointmentsModal', () => ({
@@ -74,10 +80,12 @@ vi.mock('./IntegrationsModal', () => ({
 }));
 
 describe('AdminModalHost', () => {
-  it('forwards the active salon with a Today appointment into Bookings', () => {
+  it.each(['bookings', 'plan-usage'] as const)('forwards salon context and limits credit focus to the correct %s surface', (app) => {
+    appModalSpy.mockClear();
     render(
       <AdminModalHost
-        activeModal="bookings"
+        activeModal={app}
+        creditShortcutReturnFocusKey="sms:isla-nail-studio:today:topup"
         activeSalonSlug="isla-nail-studio"
         isFreeSolo
         onCloseModal={vi.fn()}
@@ -115,7 +123,9 @@ describe('AdminModalHost', () => {
       />,
     );
 
-    expect(screen.getByText('appt_today:isla-nail-studio')).toBeInTheDocument();
+    expect(screen.getByText(app === 'bookings' ? 'appt_today:isla-nail-studio' : 'management:isla-nail-studio')).toBeInTheDocument();
+    expect(appModalSpy.mock.calls.find(([props]) => props.isOpen)?.[0].returnFocusKey)
+      .toBe(app === 'plan-usage' ? 'sms:isla-nail-studio:today:topup' : undefined);
   });
 
   it('forwards a dashboard retention alert into the exact client profile', () => {

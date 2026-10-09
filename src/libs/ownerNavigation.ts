@@ -8,6 +8,11 @@ export const OWNER_MANAGEMENT_VIEWS = {
 
 export type OwnerManagementApp = keyof typeof OWNER_MANAGEMENT_VIEWS;
 
+/** UI focus identity only; never used to authorize a salon or a credit action. */
+export function smsCreditShortcutFocusKey(salonSlug: string, workspace: 'today' | 'more', view: 'topup' | 'history'): string {
+  return `sms:${salonSlug}:${workspace}:${view}`;
+}
+
 export function isOwnerManagementApp(app: string | null): app is OwnerManagementApp {
   return app !== null && Object.hasOwn(OWNER_MANAGEMENT_VIEWS, app);
 }

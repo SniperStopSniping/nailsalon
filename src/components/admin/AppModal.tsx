@@ -40,6 +40,8 @@ type AppModalProps = {
   title?: string;
   /** Whether the modal itself can be dragged down to dismiss */
   allowDragToDismiss?: boolean;
+  /** Explicit opener for a user shortcut that outlives a workspace remount. */
+  returnFocusKey?: string | null;
   /**
    * How much backdrop stays visible above the sheet.
    *
@@ -67,6 +69,7 @@ export function AppModal({
   children,
   title,
   allowDragToDismiss = true,
+  returnFocusKey,
   topInset = 'comfortable',
 }: AppModalProps) {
   const controls = useAnimation();
@@ -87,6 +90,7 @@ export function AppModal({
     rootRef: panelRef,
     contentRef,
     initialFocusRef: contentRef,
+    returnFocusKey,
   });
 
   const handleDragEnd = useCallback(

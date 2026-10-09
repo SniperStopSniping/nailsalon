@@ -178,6 +178,51 @@ describe('OwnerManagementModal', () => {
     expect(usageBillingModalMock).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'isla' }));
   });
 
+  it.each(['topup', 'history'])('closes a direct %s shortcut to its workspace without inserting the plan hub', (view) => {
+    const onClose = vi.fn();
+    state.query = `salon=isla&app=plan-usage&view=${view}`;
+    renderModal({ app: 'plan-usage', onClose });
+
+    expect(usageBillingModalMock).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'isla', initialView: view }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Usage back' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(backMock).not.toHaveBeenCalled();
+    expect(replaceMock).not.toHaveBeenCalled();
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it('retains the hub when closing the existing directly linked usage overview', () => {
+    const onClose = vi.fn();
+    state.query = 'salon=isla&app=plan-usage&view=usage&client=client_9';
+    renderModal({ app: 'plan-usage', onClose });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Usage back' }));
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+    expect(queryOf(replaceMock.mock.calls[0]![0]).get('app')).toBe('plan-usage');
+    expect(queryOf(replaceMock.mock.calls[0]![0]).get('salon')).toBe('isla');
+    expect(queryOf(replaceMock.mock.calls[0]![0]).get('client')).toBe('client_9');
+    expect(queryOf(replaceMock.mock.calls[0]![0]).has('view')).toBe(false);
+  });
+
+  it('retains browser Back for a credit view reached from the plan hub', () => {
+    const onClose = vi.fn();
+    state.query = 'salon=isla&app=plan-usage';
+    const rendered = renderModal({ app: 'plan-usage', onClose });
+    fireEvent.click(screen.getByRole('button', { name: /messages & credits/i }));
+    state.query = queryOf(pushMock.mock.calls[0]![0]).toString();
+    rendered.rerender(<OwnerManagementModal app="plan-usage" salonSlug="isla" salonId="salon_1" isFreeSolo={false} teamAvailable={false} onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Usage back' }));
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(backMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
   it('hosts the existing plan and billing presentation as a URL-backed leaf', () => {
     state.query = 'client=client_9&returnTo=calendar';
     const rendered = renderModal({ app: 'plan-usage' });
