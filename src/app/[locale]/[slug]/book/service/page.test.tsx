@@ -37,6 +37,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
+vi.mock('next/headers', () => ({
+  cookies: async () => ({ get: () => undefined, getAll: () => [] }),
+}));
+
 const {
   getAdminSession,
   getAdminImpersonationForAdmin,

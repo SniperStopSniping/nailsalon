@@ -38,3 +38,20 @@ Refreshed without conflicts from protected main `5b0ff4605b815ffd572aed9d749b9bf
 The prior shared dependency link was preserved; this worktree now uses an isolated copy of the current installation with matching package and lockfile hashes. No new runtime, dependency, schema or authentication behavior was added during this refresh. Fresh hosted CI and the approved real-session/published-draft Preview matrix above remain release requirements under B11/B12.
 
 Fresh route generation, TypeScript, scoped/project lint, protected-surface checks, secret scanning, commit validation and whitespace checks passed. Local results retain the mocked SDK/request-boundary limitation described above.
+
+
+## Real Development-session acceptance — 9 October 2026
+
+On Preview commit `d699c3c88313d62ab2374583b64cabf723c871d6` (refreshed against main `00c2c8f7e65d750daf223ca1b2727c0ff37ea30a`), an ordinary synthetic Clerk Development owner can open its unpublished salon and see the private draft banner and service menu. The previous Preview returned 404 for the same signed-in owner. The draft response has private/no-store cache headers. Signed-out access and an authenticated unrelated test identity are denied. The unrelated identity did not finish application workspace provisioning; this is nonmember denial evidence, not a completed second-salon owner journey.
+
+The browser also exposed a second defect: navigating from service selection to time selection after lingering on the public page returned 404, with an expired-session diagnostic. Signing in again and repeating the transition within seven seconds succeeded. Public routes lacked the frontend Clerk provider that renews the short-lived token; dashboard and authentication routes already have one.
+
+The follow-up change mounts Clerk only when a recognized Clerk session cookie exists and no legacy admin session takes precedence. It covers the salon-slug layout and both shared booking layouts. These route branches do not nest, so the SDK mounts once per entry. Anonymous and legacy sessions retain their existing paths. The provider does not authorize access: unchanged server-side identity, membership, publication and impersonation checks still decide every request.
+
+The expanded local matrix passes 266 cases across 17 suites on both Node 20.20.2 and Node 24.19.0. Eleven new cases cover provider selection and shared/localized layout wiring; the composed tenant-layout cases verify one provider for a Clerk owner and none for legacy login. SDK behavior remains mocked in these tests. A fresh hosted browser test must leave the owner on the service page beyond the token lifetime, then verify navigation still succeeds; local tests alone do not establish renewal.
+
+Time selection on the unpublished fixture also shows an availability error because the availability API denies unpublished salons. No appointment was submitted and no publication guard was bypassed. This remains a separate preview limitation to diagnose, not evidence that published customer bookings fail.
+
+Pre-follow-up hosted CI run `37980641306` encountered a Next Google-font loader error in the Node 20 application build. Local and Vercel builds for that commit succeeded; the cause of the hosted font response has not been established. Required hosted checks and the full authenticated matrix remain release gates. No production deployment, customer messages or payment actions are implied by this evidence.
+
+The follow-up also passes production build, explicit route generation and TypeScript, scoped/project lint, 19 repository guards, protected-surface checks, commit validation and whitespace checks. The first new table-driven unit test had an incorrectly nested test fixture; its table shape was corrected, and the complete 266-case selection passed on both runtimes. No runtime behavior was changed to accommodate the fixture.

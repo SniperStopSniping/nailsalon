@@ -43,6 +43,12 @@ import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
 
+vi.mock('@clerk/nextjs', () => ({
+  ClerkProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="clerk-session-renewal">{children}</div>
+  ),
+}));
+
 const holder = vi.hoisted(() => ({ db: null as unknown }));
 
 vi.mock('@/libs/DB', () => ({
@@ -428,6 +434,7 @@ describe('public middleware composed with the real tenant layout and authorizati
     expect(notFound).not.toHaveBeenCalled();
     expect(screen.getByTestId('context-probe')).toHaveTextContent('"isPreviewing":true');
     expect(screen.getByTestId('context-probe')).toHaveTextContent('"actorType":"owner"');
+    expect(screen.getAllByTestId('clerk-session-renewal')).toHaveLength(1);
   });
 
   it.each(['', '/en', '/fr'])('selects the matching owner’s draft config through the %s locale prefix', async (prefix) => {
@@ -496,6 +503,7 @@ describe('public middleware composed with the real tenant layout and authorizati
 
     expect(clerkContext.middleware).not.toHaveBeenCalled();
     expect(clerkContext.auth).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('clerk-session-renewal')).not.toBeInTheDocument();
     expect(response.headers.get('cache-control')).toBe('private, no-store, max-age=0');
     expect(screen.getByTestId('context-probe')).toHaveTextContent('"layout":"editorial"');
     expect(screen.getByTestId('context-probe')).toHaveTextContent('"isPreviewing":true');
