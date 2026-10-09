@@ -6,6 +6,7 @@ import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import type { BusinessHours } from '@/libs/bookingPolicy';
 import { getSalonIntegrationHealth } from '@/libs/integrationHealth';
+import { isIslaBookingPage } from '@/libs/islaBookingPage';
 import { getPrimaryLocation, getSalonById, getTechniciansBySalonId } from '@/libs/queries';
 import { getDateKeyInTimeZone } from '@/libs/timeZone';
 import type { SalonSettings } from '@/types/salonPolicy';
@@ -117,6 +118,15 @@ export async function getSalonOverview(
       profilePhotoSaved: technicians.some(technician => Boolean(technician.avatarUrl)),
       hasBio: Boolean(content.draft.bio),
       heroImageSaved: Boolean(content.draft.heroImageUrl),
+      ...(isIslaBookingPage(salon.slug)
+        ? {
+            customDesign: {
+              kind: 'isla' as const,
+              fixedElements: ['logo', 'heroImage', 'introText', 'editorialGallery'] as const,
+              standardTemplateChangesAffectOpening: false as const,
+            },
+          }
+        : {}),
     },
   };
 }

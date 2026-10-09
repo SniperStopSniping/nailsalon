@@ -94,6 +94,12 @@ describe('the rules the availability diagnosis depends on', () => {
 });
 
 describe('the rules the setup readiness answer depends on', () => {
+  it('separates saved template fields from assets included in a custom design', () => {
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT).toContain('bookingPage.customDesign');
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT).toContain('A false heroImageSaved does not mean the custom page lacks a hero image');
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT).toContain('standard template controls do not replace fixed design elements');
+  });
+
   it('orders the answer by severity and forbids inventing a step', () => {
     expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
       .toContain('required items first, then the recommended ones');
