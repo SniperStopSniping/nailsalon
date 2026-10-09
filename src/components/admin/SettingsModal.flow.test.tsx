@@ -124,19 +124,46 @@ describe('SettingsModal booking-flow leaf', () => {
   it('does not retry a failed flow write when Back opens the leave confirmation', async () => {
     putMode = 'failure';
     render(<LeafHarness />);
-    fireEvent.click(await screen.findByTitle('Click to hide technician step'));
-    await screen.findByRole('alert');
+    const toggle = await screen.findByTitle('Click to hide technician step');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // Exercise the debounce explicitly instead of racing its 500ms delay
+    // against a real-time query timeout on a busy hosted runner.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await act(async () => {
+        fireEvent.click(toggle);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
 
-    expect(fetchMock.mock.calls.filter(([url, init]) => String(url).includes('/api/admin/settings/booking-flow') && (init as RequestInit | undefined)?.method === 'PUT')).toHaveLength(1);
+      expect(screen.getByRole('alert')).toHaveTextContent('Could not save booking flow');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+      const writes = fetchMock.mock.calls.filter(([url, init]) => String(url).includes('/api/admin/settings/booking-flow') && (init as RequestInit | undefined)?.method === 'PUT');
 
-    expect(await screen.findByRole('alertdialog', { name: 'Unsaved changes' })).toBeInTheDocument();
+      expect(writes).toHaveLength(1);
+      expect(JSON.parse(String((writes[0]?.[1] as RequestInit | undefined)?.body))).toEqual({
+        salonSlug: 'salon-a',
+        bookingFlow: ['service', 'time', 'confirm'],
+      });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
-    await new Promise(resolve => setTimeout(resolve, 600));
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
 
-    expect(fetchMock.mock.calls.filter(([url, init]) => String(url).includes('/api/admin/settings/booking-flow') && (init as RequestInit | undefined)?.method === 'PUT')).toHaveLength(1);
+      expect(screen.getByRole('alertdialog', { name: 'Unsaved changes' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+
+      expect(screen.queryByRole('alertdialog', { name: 'Unsaved changes' })).not.toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('Could not save booking flow');
+      expect(fetchMock.mock.calls.filter(([url, init]) => String(url).includes('/api/admin/settings/booking-flow') && (init as RequestInit | undefined)?.method === 'PUT')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each(['Back', 'Another section'])('does not offer discard via %s while a flow write is already in flight', async (action) => {
