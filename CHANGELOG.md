@@ -1,3 +1,31 @@
+## [1.142.7](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.6...v1.142.7) (2026-10-09)
+
+
+### Bug Fixes
+
+* **media:** use native Cloudinary URL parsing on Node 24 ([212b6ec](https://github.com/SniperStopSniping/nailsalon/commit/212b6ecf214472352bc7bed612a88526b058174f))
+
+## [1.142.6](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.5...v1.142.6) (2026-10-09)
+
+
+### Bug Fixes
+
+* **redis:** replace deprecated Node 24 URL parsing ([#392](https://github.com/SniperStopSniping/nailsalon/issues/392)) ([4d5e3e5](https://github.com/SniperStopSniping/nailsalon/commit/4d5e3e57d02031fe076449c6ca51aac54587790a))
+
+## [1.142.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.4...v1.142.5) (2026-10-09)
+
+
+### Bug Fixes
+
+* **monitoring:** support Node 24 and scrub private trace data ([#389](https://github.com/SniperStopSniping/nailsalon/issues/389)) ([4d7d5ae](https://github.com/SniperStopSniping/nailsalon/commit/4d7d5ae2e144708db7e3dee15d6a3f05434215d7))
+
+## [1.142.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.3...v1.142.4) (2026-10-08)
+
+
+### Bug Fixes
+
+* **calendar:** recover concurrent listing context safely ([#387](https://github.com/SniperStopSniping/nailsalon/issues/387)) ([3e05589](https://github.com/SniperStopSniping/nailsalon/commit/3e055896e924015bb736541ae1d2b3998de2fe74))
+
 ## [1.142.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.2...v1.142.3) (2026-10-08)
 
 
