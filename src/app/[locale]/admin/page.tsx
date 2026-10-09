@@ -1416,6 +1416,11 @@ function AdminDashboardContent() {
       if (view) {
         url.searchParams.set('view', view);
       }
+      if (appId === 'plan-usage' && (view === 'topup' || view === 'history') && workspaceTab === 'today') {
+        // Keep the direct Today shortcut on its originating workspace, also
+        // when its address is reloaded or revisited with browser Forward.
+        url.searchParams.set('tab', 'today');
+      }
       if (technicianId) {
         url.searchParams.set('technician', technicianId);
       }
@@ -1425,7 +1430,7 @@ function AdminDashboardContent() {
         router.push(`${url.pathname}${url.search}`);
       }
     },
-    [router, buildAdminUrl],
+    [router, buildAdminUrl, workspaceTab],
   );
 
   // Tracks the app opened from the URL (vs. modals opened by tab/state flows)
@@ -1494,7 +1499,10 @@ function AdminDashboardContent() {
         return;
       }
       setShowScheduleCalendar(false);
-      setWorkspaceTab('more');
+      const isTodayCreditShortcut = appParam === 'plan-usage'
+        && (searchParams.get('view') === 'topup' || searchParams.get('view') === 'history')
+        && searchParams.get('tab') === 'today';
+      setWorkspaceTab(isTodayCreditShortcut ? 'today' : 'more');
       setActiveModal(appParam);
     } else if (isUrlAppId(appParam)) {
       // A known app this salon is not entitled to. Explain it in the workspace
