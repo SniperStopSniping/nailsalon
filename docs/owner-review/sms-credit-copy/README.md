@@ -30,3 +30,11 @@ These show the real production component in the existing isolated browser fixtur
 Prepared change only at this documentation checkpoint. Relevant hosted checks, authenticated Preview acceptance, protected-main merge and matching production verification are separate release gates. Existing paid-SMS activation remains B08; this copy correction does not enable payments or change the founding free-credit offer.
 
 Original screenshots and logs: `/Users/me/Documents/Codex/2026-10-08/sms-credit-copy/`.
+
+## Current-main refresh — 9 October 2026
+
+Refreshed without conflicts from protected main `5b0ff4605b815ffd572aed9d749b9bf550964c92`. The same 56 selected tests pass on both Node 20.20.2 and Node 24.19.0; all 27 browser cases pass. The production build and 19 repository guards pass. Fresh mobile screenshots are retained under `refresh-2026-10-09/screenshots/` in the evidence directory above.
+
+The original shared dependency link was preserved before creating an isolated copy of the current installation, whose package and lockfile hashes match this branch. No dependency definition or payment configuration changed. Fresh hosted CI and authenticated Preview acceptance remain required; B12 and paid-SMS acceptance B08 are separate from these local fixture results.
+
+Route generation, TypeScript, scoped/project lint, protected-surface checks, secret scanning, commit validation and whitespace checks also passed on the refreshed source.
