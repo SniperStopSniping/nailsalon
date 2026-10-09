@@ -1,3 +1,10 @@
+## [1.142.6](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.5...v1.142.6) (2026-10-09)
+
+
+### Bug Fixes
+
+* **redis:** replace deprecated Node 24 URL parsing ([#392](https://github.com/SniperStopSniping/nailsalon/issues/392)) ([4d5e3e5](https://github.com/SniperStopSniping/nailsalon/commit/4d5e3e57d02031fe076449c6ca51aac54587790a))
+
 ## [1.142.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.4...v1.142.5) (2026-10-09)
 
 
