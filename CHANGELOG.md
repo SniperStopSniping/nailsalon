@@ -1,3 +1,13 @@
+## [1.142.8](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.7...v1.142.8) (2026-10-09)
+
+
+### Bug Fixes
+
+* preserve Today context for SMS credit shortcuts ([26a6403](https://github.com/SniperStopSniping/nailsalon/commit/26a6403fb5ee71dd175c402bd297dc1c070fa86e))
+* restore SMS focus after delayed balance loading ([49491ae](https://github.com/SniperStopSniping/nailsalon/commit/49491ae47809939d4a8078d109005d02183e4b02))
+* retain SMS shortcut focus across auth refresh ([abeeb28](https://github.com/SniperStopSniping/nailsalon/commit/abeeb283a95601c4cca7c21ccdb577de283c3d7d))
+* return SMS credit shortcuts to their workspace ([2cc5ac0](https://github.com/SniperStopSniping/nailsalon/commit/2cc5ac0b9d7a9fdc2fe03acc2b2b19c01b824de2))
+
 ## [1.142.7](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.6...v1.142.7) (2026-10-09)
 
 
