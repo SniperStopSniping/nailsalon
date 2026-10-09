@@ -13,6 +13,12 @@ const SERVICE_CONTAINER_ID_ENV = 'LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID';
 const SERVICE_CONTAINER_NETWORK_ENV = 'LUSTER_DISPOSABLE_POSTGRES_NETWORK';
 const POSTGRESQL_SERVER_PORT = 5432;
 const APPROVED_LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);
+// Keep the existing local Docker reference and the exact reviewed CI mirror
+// image. Do not accept arbitrary registry prefixes, tags, or manifest digests.
+const APPROVED_POSTGRESQL_SERVICE_IMAGES = new Set([
+  'postgres:16-alpine',
+  'public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',
+]);
 const HOSTED_PROVIDER_SUFFIXES = [
   'aivencloud.com',
   'aws.neon.tech',
@@ -352,7 +358,7 @@ function inspectServiceContainer(
       ['inspect', '--format', '{{.Config.Image}}', evidence.containerId],
       { encoding: 'utf8', timeout: 10_000 },
     ).trim();
-    if (image !== 'postgres:16-alpine') {
+    if (!APPROVED_POSTGRESQL_SERVICE_IMAGES.has(image)) {
       reject('CONTAINER_INSPECTION_FAILED');
     }
 

@@ -10,6 +10,21 @@ import { parse } from 'yaml';
 const workflow = parse(readFileSync(new URL('../.github/workflows/CI.yml', import.meta.url), 'utf8'));
 const { jobs } = workflow;
 
+test('CI services use the reviewed digest-pinned Docker Official Images from ECR Public', () => {
+  const approvedImages = {
+    postgres: 'public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',
+    redis: 'public.ecr.aws/docker/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499',
+  };
+  const services = Object.values(jobs).flatMap(job => Object.entries(job.services ?? {}));
+  assert.equal(services.filter(([name]) => name === 'postgres').length, 10);
+  assert.equal(services.filter(([name]) => name === 'redis').length, 1);
+  for (const [name, service] of services) {
+    assert.ok(Object.hasOwn(approvedImages, name), `Unreviewed CI service: ${name}`);
+    assert.equal(service.image, approvedImages[name]);
+    assert.equal(service.credentials, undefined);
+  }
+});
+
 test('required aggregates reject failed, skipped, cancelled and missing evidence', () => {
   for (const id of ['full-vitest', 'test']) {
     const job = jobs[id];
