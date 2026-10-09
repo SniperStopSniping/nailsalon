@@ -18,6 +18,7 @@ const FOCUSABLE_SELECTOR = [
 ].join(',');
 const FOCUS_HISTORY_LIMIT = 20;
 const POINTER_OPENER_MAX_AGE_MS = 2_000;
+const RETURN_FOCUS_WAIT_MS = 2_000;
 const RETURN_FOCUS_KEY_ATTRIBUTE = 'data-dialog-return-focus-key';
 
 type FocusSurface = {
@@ -239,7 +240,7 @@ function getLatestExternalFocus(root: HTMLElement, fallback: HTMLElement | null)
       return candidate;
     }
   }
-  return fallback?.isConnected ? fallback : null;
+  return fallback?.isConnected && fallback !== document.body ? fallback : null;
 }
 
 function findReplacementOpener(opener: HTMLElement | null, explicitKey?: string | null): HTMLElement | null {
@@ -257,7 +258,7 @@ function findReplacementOpener(opener: HTMLElement | null, explicitKey?: string 
   return candidates.length === 1 ? candidates[0]! : null;
 }
 
-function restoreFocusAfterClose(opener: HTMLElement | null, closingRoot: HTMLElement, returnFocusKey?: string | null): void {
+function restoreFocusAfterClose(opener: HTMLElement | null, closingRoot: HTMLElement, returnFocusKey?: string | null): boolean {
   const activeElement = document.activeElement;
   const explicitOpener = returnFocusKey ? findReplacementOpener(null, returnFocusKey) : null;
   const connectedOpener = explicitOpener ?? (opener && isVisibleAndEnabled(opener)
@@ -275,24 +276,69 @@ function restoreFocusAfterClose(opener: HTMLElement | null, closingRoot: HTMLEle
     && parentSurface.root.contains(activeElement)
   ) {
     focusWithoutScrolling(connectedOpener);
-    return;
+    return true;
   }
 
   const focusMovedElsewhere = activeElement instanceof HTMLElement
     && activeElement !== document.body
     && !closingRoot.contains(activeElement);
   if (focusMovedElsewhere) {
-    return;
+    return true;
   }
 
   if (connectedOpener) {
     focusWithoutScrolling(connectedOpener);
-    return;
+    return true;
   }
 
   if (parentSurface) {
     focusInsideSurface(parentSurface.root, parentSurface.content);
+    return true;
   }
+  return false;
+}
+
+/** A remounted balance card may finish loading just after its sheet closes. */
+function waitForReturnFocus(
+  returnFocusKey: string,
+  closingRoot: HTMLElement,
+  isCurrent: () => boolean,
+  onFinish: () => void,
+): () => void {
+  let finished = false;
+  let observer: MutationObserver;
+  let timeoutId: number;
+  const finish = () => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    observer.disconnect();
+    window.clearTimeout(timeoutId);
+    document.removeEventListener('focusin', finish, true);
+    document.removeEventListener('pointerdown', finish, true);
+    window.removeEventListener('keydown', finish, true);
+    onFinish();
+  };
+  observer = new MutationObserver(() => {
+    // A new dialog or any subsequent user interaction owns focus now.
+    if (!isCurrent() || getTopmostSurface()) {
+      finish();
+    } else if (restoreFocusAfterClose(null, closingRoot, returnFocusKey)) {
+      finish();
+    }
+  });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: [RETURN_FOCUS_KEY_ATTRIBUTE, 'disabled', 'aria-disabled', 'hidden', 'inert', 'aria-hidden', 'class', 'style'],
+  });
+  timeoutId = window.setTimeout(finish, RETURN_FOCUS_WAIT_MS);
+  document.addEventListener('focusin', finish, true);
+  document.addEventListener('pointerdown', finish, true);
+  window.addEventListener('keydown', finish, true);
+  return finish;
 }
 
 function afterRootDisconnect(
@@ -339,6 +385,7 @@ export function useModalFocusLifecycle({
       : null,
   );
   const lifecycleTokenRef = useRef<symbol | null>(null);
+  const pendingReturnFocusRef = useRef<(() => void) | null>(null);
   const onCloseRef = useRef(onClose);
   const closeOnEscapeRef = useRef(closeOnEscape);
 
@@ -349,6 +396,7 @@ export function useModalFocusLifecycle({
   useEffect(() => subscribeToFocusHistory(), []);
 
   useEffect(() => {
+    pendingReturnFocusRef.current?.();
     if (!isOpen) {
       return undefined;
     }
@@ -373,9 +421,23 @@ export function useModalFocusLifecycle({
           if (lifecycleTokenRef.current !== lifecycleToken) {
             return;
           }
-          restoreFocusAfterClose(opener, root, returnFocusKey);
-          lifecycleTokenRef.current = null;
-          openerRef.current = null;
+          const finish = () => {
+            if (lifecycleTokenRef.current === lifecycleToken) {
+              lifecycleTokenRef.current = null;
+              openerRef.current = null;
+              pendingReturnFocusRef.current = null;
+            }
+          };
+          if (restoreFocusAfterClose(opener, root, returnFocusKey) || !returnFocusKey) {
+            finish();
+          } else {
+            pendingReturnFocusRef.current = waitForReturnFocus(
+              returnFocusKey,
+              root,
+              () => lifecycleTokenRef.current === lifecycleToken,
+              finish,
+            );
+          }
         },
         () => {
           if (lifecycleTokenRef.current !== lifecycleToken) {
