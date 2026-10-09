@@ -1,3 +1,11 @@
+## [1.142.9](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.8...v1.142.9) (2026-10-09)
+
+
+### Bug Fixes
+
+* **auth:** initialize owner preview context on public salon routes ([a7ac41e](https://github.com/SniperStopSniping/nailsalon/commit/a7ac41ed67b49ae31960cf06a72d77312dbf68f2))
+* renew owner sessions while browsing public previews ([f71ef36](https://github.com/SniperStopSniping/nailsalon/commit/f71ef36087b8264e85b4d0b9e110714f22651776))
+
 ## [1.142.8](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.7...v1.142.8) (2026-10-09)
 
 
