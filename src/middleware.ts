@@ -6,6 +6,7 @@ import {
 } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 
+import { ADMIN_SESSION_COOKIE } from './libs/adminSessionCookie';
 import { apiPathNeedsClerkContext } from './libs/clerkApiContext';
 import { hasClerkSessionCookie } from './libs/clerkSessionCookie';
 import { getCanonicalAppOrigin } from './libs/publicUrl';
@@ -101,6 +102,25 @@ export default async function middleware(
     .filter(Boolean);
   const clerkOptions = authorizedParties.length > 0 ? { authorizedParties } : undefined;
 
+  // Public salon pages resolve owner drafts through getAdminSession(). Match
+  // that consumer's legacy-first selection, and only ask Clerk to verify a
+  // session when its cookie is present. Cookie presence never grants access:
+  // the existing server gate still verifies identity and salon membership.
+  const renderPublicSalon = async (renderRoute: (req: NextRequest) => NextResponse) => {
+    const hasLegacySession = Boolean(request.cookies.get(ADMIN_SESSION_COOKIE)?.value);
+    const hasClerkSession = hasClerkSessionCookie(request.cookies.getAll());
+    const response = hasClerkSession && !hasLegacySession
+      ? await clerkMiddleware(async (_auth, req) => renderRoute(req), clerkOptions)(request, event)
+      : renderRoute(request);
+    const finalized = finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
+    if (hasLegacySession || hasClerkSession) {
+      // These requests can render owner-only draft configuration, including
+      // through an ordinary public URL or a tenant-host rewrite.
+      finalized.headers.set('Cache-Control', 'private, no-store, max-age=0');
+    }
+    return finalized;
+  };
+
   // Wildcard tenant hosts share the same deployment. Public paths are rewritten
   // to the existing locale/slug route tree; APIs and owner/admin routes keep
   // their canonical paths.
@@ -126,7 +146,7 @@ export default async function middleware(
     if (!isOwnerPath && rawSegments[0] !== hostnameSalonSlug) {
       const rewriteUrl = request.nextUrl.clone();
       rewriteUrl.pathname = `/${locale}/${hostnameSalonSlug}${rawSegments.length ? `/${rawSegments.join('/')}` : ''}`;
-      return finalizeResponse(NextResponse.rewrite(rewriteUrl));
+      return renderPublicSalon(() => NextResponse.rewrite(rewriteUrl));
     }
   }
 
@@ -293,6 +313,17 @@ export default async function middleware(
       return intlMiddleware(req);
     }, clerkOptions)(request, event);
     return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
+  }
+
+  // next-intl also accepts default-locale URLs without /en. Classify those
+  // without changing the existing tenant resolution or reserved-route rules.
+  const firstSegment = p.split('/').filter(Boolean)[0] ?? '';
+  const localizedPublicPath = AllLocales.includes(firstSegment) ? p : `/${AppConfig.defaultLocale}${p}`;
+  const publicSegments = localizedPublicPath.split('/').filter(Boolean).slice(1);
+  const isSharedBookingStep = publicSegments[0] === 'book'
+    && ['service', 'tech', 'time', 'confirm'].includes(publicSegments[1] ?? '');
+  if (getSalonSlugFromPathname(localizedPublicPath, AllLocales) || isSharedBookingStep) {
+    return renderPublicSalon(intlMiddleware);
   }
 
   return finalizeResponse(intlMiddleware(request));

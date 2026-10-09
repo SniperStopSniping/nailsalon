@@ -14,6 +14,7 @@ import {
   getAdminImpersonationSession,
   setAdminImpersonationSession,
 } from '@/libs/adminImpersonation';
+import { ADMIN_SESSION_COOKIE } from '@/libs/adminSessionCookie';
 import { logAuditEvent } from '@/libs/auditLog';
 import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
 import { hasClerkSessionCookie } from '@/libs/clerkSessionCookie';
@@ -32,7 +33,7 @@ import { ACTIVE_SALON_COOKIE } from './tenantSlug';
 // CONSTANTS
 // =============================================================================
 
-export const ADMIN_SESSION_COOKIE = 'n5_admin_session';
+export { ADMIN_SESSION_COOKIE };
 export const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 365; // 1 year
 const shouldUseSecureCookies = process.env.NODE_ENV === 'production'
   && !(process.env.CI === 'true' && process.env.E2E_INSECURE_COOKIES === 'true');

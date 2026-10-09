@@ -14,8 +14,9 @@
  *
  * This file exercises the REAL `SlugTenantLayout` export end to end against
  * a real PGlite database (same pattern as ownerPreview.test.ts and
- * src/libs/bookingQuote.addOnGating.test.ts) — only the DB module, the
- * dev-role override, and the cookie jar are mocked. `resolveOwnerPreviewContext`
+ * src/libs/bookingQuote.addOnGating.test.ts) — only the DB connection,
+ * framework request context, Clerk SDK boundary and dev-role override are
+ * mocked. `resolveOwnerPreviewContext`
  * / `resolveDraftSalonAccess` and the layout's own conditionals are never
  * mocked, so deleting or inverting the `previewGate.allowed` check (or the
  * bookingPage-side selection below it) makes these tests fail.
@@ -34,12 +35,19 @@ import { PGlite } from '@electric-sql/pglite';
 import { render, screen } from '@testing-library/react';
 import { drizzle, type PgliteDatabase } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
+import { NextRequest, NextResponse } from 'next/server';
 import React from 'react';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
+
+vi.mock('@clerk/nextjs', () => ({
+  ClerkProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="clerk-session-renewal">{children}</div>
+  ),
+}));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
 
@@ -61,6 +69,27 @@ vi.mock('@/libs/devRole.server', () => ({
 }));
 
 const cookieJar = vi.hoisted(() => new Map<string, { value: string }>());
+const clerkContext = vi.hoisted(() => ({
+  ready: false,
+  userId: null as string | null,
+  middleware: vi.fn(),
+  auth: vi.fn(),
+  intl: vi.fn(),
+}));
+
+// Compose the actual middleware, layout and database-backed preview gate.
+// The SDK boundary models an already-verified identity; it cannot return one
+// without the middleware first establishing context. This is not a Clerk
+// token-verification or hosted Next.js request-lifecycle test.
+vi.mock('next-intl/middleware', () => ({ default: () => clerkContext.intl }));
+vi.mock('@clerk/nextjs/server', async importOriginal => ({
+  ...await importOriginal<typeof import('@clerk/nextjs/server')>(),
+  clerkMiddleware: clerkContext.middleware,
+  auth: clerkContext.auth,
+  currentUser: () => {
+    throw new Error('Unexpected external user lookup');
+  },
+}));
 
 vi.mock('next/headers', () => ({
   cookies: async () => ({
@@ -96,6 +125,7 @@ import {
 } from '@/libs/adminImpersonation';
 import { useSalon } from '@/providers/SalonProvider';
 
+import middleware from '../../../middleware';
 import SlugTenantLayout from './layout';
 /* eslint-enable import/first */
 
@@ -207,8 +237,8 @@ beforeAll(async () => {
   ]);
 
   await db.insert(schema.adminUserSchema).values([
-    { id: OWNER_ADMIN_ID, phoneE164: '+15551110001', name: 'Layout Owner', isSuperAdmin: false },
-    { id: OTHER_OWNER_ADMIN_ID, phoneE164: '+15551110002', name: 'Other Owner', isSuperAdmin: false },
+    { id: OWNER_ADMIN_ID, phoneE164: '+15551110001', name: 'Layout Owner', isSuperAdmin: false, clerkUserId: 'user_layout_owner' },
+    { id: OTHER_OWNER_ADMIN_ID, phoneE164: '+15551110002', name: 'Other Owner', isSuperAdmin: false, clerkUserId: 'user_layout_other' },
     { id: SUPER_ADMIN_ID, phoneE164: '+15551110003', name: 'Sam Super', isSuperAdmin: true },
   ]);
 
@@ -228,10 +258,30 @@ beforeAll(async () => {
 
 beforeEach(() => {
   clearCookies();
+  clerkContext.ready = false;
+  clerkContext.userId = null;
+  clerkContext.auth.mockReset();
+  clerkContext.middleware.mockReset();
+  clerkContext.intl.mockReset();
+  clerkContext.intl.mockImplementation(() => NextResponse.next());
+  clerkContext.middleware.mockImplementation((handler: (auth: unknown, req: NextRequest) => NextResponse | Promise<NextResponse>) => async (incoming: NextRequest) => {
+    clerkContext.ready = true;
+    return handler(clerkContext.auth, incoming);
+  });
+  clerkContext.auth.mockImplementation(async () => {
+    if (!clerkContext.ready) {
+      throw new Error('Clerk request context was not established');
+    }
+    return { userId: clerkContext.userId };
+  });
   notFound.mockReset();
   notFound.mockImplementation(() => {
     throw NOT_FOUND_SENTINEL;
   });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 afterAll(async () => {
@@ -353,5 +403,109 @@ describe('SlugTenantLayout — draft bookingPage config on an already-published 
 
     expect(probe.layout).toBe('editorial');
     expect(probe.ownerPreview).toEqual({ isPreviewing: true, actorType: 'owner' });
+  });
+});
+
+describe('public middleware composed with the real tenant layout and authorization gate', () => {
+  async function runMiddleware(path: string, origin = 'https://www.lustergel.app') {
+    const request = new NextRequest(new URL(path, origin));
+    for (const [name, cookie] of cookieJar) {
+      request.cookies.set(name, cookie.value);
+    }
+    return middleware(request, {} as never);
+  }
+
+  async function requestLayout(slug: string, path = `/en/${slug}`, origin?: string) {
+    const response = await runMiddleware(path, origin);
+
+    expect(clerkContext.middleware).toHaveBeenCalledOnce();
+    expect(response.headers.get('cache-control')).toBe('private, no-store, max-age=0');
+
+    await renderLayout(slug);
+    return response;
+  }
+
+  it.each(['__session', '__session_XxiNjKcO'])('lets the verified matching owner preview an unpublished salon using %s', async (cookieName) => {
+    setCookie(cookieName, 'opaque-owner-token');
+    clerkContext.userId = 'user_layout_owner';
+    await requestLayout(DRAFT_SALON_SLUG);
+
+    expect(clerkContext.auth).toHaveBeenCalledOnce();
+    expect(notFound).not.toHaveBeenCalled();
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"isPreviewing":true');
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"actorType":"owner"');
+    expect(screen.getAllByTestId('clerk-session-renewal')).toHaveLength(1);
+  });
+
+  it.each(['', '/en', '/fr'])('selects the matching owner’s draft config through the %s locale prefix', async (prefix) => {
+    setCookie('__session', 'opaque-owner-token');
+    clerkContext.userId = 'user_layout_owner';
+    await requestLayout(PUBLISHED_SALON_SLUG, `${prefix}/${PUBLISHED_SALON_SLUG}/book/service`);
+
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"layout":"editorial"');
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"isPreviewing":true');
+  });
+
+  it('does not turn a verified owner of another salon into a preview owner', async () => {
+    setCookie('__session', 'opaque-other-owner-token');
+    clerkContext.userId = 'user_layout_other';
+    await requestLayout(PUBLISHED_SALON_SLUG);
+
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"layout":"quick_book"');
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"isPreviewing":false');
+  });
+
+  it('still denies a different salon’s verified owner access to an unpublished salon', async () => {
+    setCookie('__session', 'opaque-other-owner-token');
+    clerkContext.userId = 'user_layout_other';
+
+    await expect(requestLayout(DRAFT_SALON_SLUG)).rejects.toThrow(NOT_FOUND_SENTINEL);
+
+    expect(notFound).toHaveBeenCalledOnce();
+  });
+
+  it.each(['expired-token', 'forged-token'])('uses live config when the SDK rejects %s rather than trusting cookie presence', async (token) => {
+    setCookie('__session', token);
+    await requestLayout(PUBLISHED_SALON_SLUG);
+
+    expect(clerkContext.auth).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"layout":"quick_book"');
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"isPreviewing":false');
+  });
+
+  it.each(['expired-token', 'forged-token'])('keeps an unpublished salon private when the SDK rejects %s', async (token) => {
+    setCookie('__session', token);
+
+    await expect(requestLayout(DRAFT_SALON_SLUG)).rejects.toThrow(NOT_FOUND_SENTINEL);
+
+    expect(clerkContext.auth).toHaveBeenCalledOnce();
+    expect(notFound).toHaveBeenCalledOnce();
+  });
+
+  it('preserves verified owner context across a tenant-subdomain rewrite', async () => {
+    vi.stubEnv('LUSTER_ROOT_DOMAIN', 'lustergel.app');
+    vi.stubEnv('TENANT_SUBDOMAIN_ALLOWLIST', PUBLISHED_SALON_SLUG);
+    setCookie('__session', 'opaque-owner-token');
+    clerkContext.userId = 'user_layout_owner';
+    const origin = `https://${PUBLISHED_SALON_SLUG}.lustergel.app`;
+    const response = await requestLayout(PUBLISHED_SALON_SLUG, '/fr/book/service?source=fixture', origin);
+
+    expect(response.headers.get('x-middleware-rewrite')).toBe(`${origin}/fr/${PUBLISHED_SALON_SLUG}/book/service?source=fixture`);
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"layout":"editorial"');
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"isPreviewing":true');
+  });
+
+  it('keeps a valid legacy owner session usable even with a stale Clerk cookie', async () => {
+    setCookie(ADMIN_SESSION_COOKIE, OWNER_SESSION_ID);
+    setCookie('__session', 'stale-token');
+    const response = await runMiddleware(`/${PUBLISHED_SALON_SLUG}`);
+    await renderLayout(PUBLISHED_SALON_SLUG);
+
+    expect(clerkContext.middleware).not.toHaveBeenCalled();
+    expect(clerkContext.auth).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('clerk-session-renewal')).not.toBeInTheDocument();
+    expect(response.headers.get('cache-control')).toBe('private, no-store, max-age=0');
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"layout":"editorial"');
+    expect(screen.getByTestId('context-probe')).toHaveTextContent('"isPreviewing":true');
   });
 });
