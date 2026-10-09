@@ -21,7 +21,7 @@ import { formatDuration } from '@/utils/Helpers';
 import { customerAssistantCopy, type WelcomeAction } from './copy';
 import { AcceptSelection } from './ScheduleCards';
 
-type CustomerAssistantLauncherProps = { salonSlug: string; salonId?: string; locale: CustomerAssistantLocale; campaignToken?: string | null };
+type CustomerAssistantLauncherProps = { salonSlug: string; salonId?: string; locale: CustomerAssistantLocale; campaignToken?: string | null; placement?: 'floating' | 'inline' };
 type CustomerAssistantPanelProps = CustomerAssistantLauncherProps & { onClose: () => void; visibleHeight?: number };
 type DisplayMessage = { id: number; role: 'assistant' | 'user'; message: string; kind?: 'quick_reply' };
 type PriceService = { id: string; name: string; description?: string | null; durationMinutes?: number; price: { baseDisplay: string; displayLabel?: string | null; range?: { display: string } | null } };
@@ -918,15 +918,25 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
   );
 }
 
-export function CustomerAssistantLauncher({ salonSlug, salonId, locale, campaignToken }: CustomerAssistantLauncherProps) {
+export function CustomerAssistantLauncher({ salonSlug, salonId, locale, campaignToken, placement = 'floating' }: CustomerAssistantLauncherProps) {
   const [isOpen, setIsOpen] = useState(false);
   const copy = customerAssistantCopy[locale];
   const viewport = useCustomerViewport();
   const viewportStyle = viewport.height > 0 ? { top: viewport.top, height: viewport.height } : undefined;
   return (
     <>
-      <div aria-hidden="true" data-testid="customer-assistant-launcher-clearance" style={{ height: 'calc(var(--service-sticky-footer-clearance, env(safe-area-inset-bottom, 0px)) + 6rem + 24px)' }} />
-      {!viewport.keyboardOpen && <button type="button" aria-label={locale === 'fr' ? 'M’aider à choisir et réserver' : 'Help me choose & book'} onClick={() => setIsOpen(true)} style={{ bottom: 'calc(var(--service-sticky-footer-clearance, env(safe-area-inset-bottom, 0px)) + 12px)' }} className="fixed right-4 z-40 min-h-11 max-w-[calc(100vw-2rem)] rounded-xl border border-neutral-900 bg-white px-4 py-2 text-sm font-semibold text-neutral-950 shadow-lg transition hover:bg-neutral-50">{copy.launcher}</button>}
+      {placement === 'floating' && <div aria-hidden="true" data-testid="customer-assistant-launcher-clearance" style={{ height: 'calc(var(--service-sticky-footer-clearance, env(safe-area-inset-bottom, 0px)) + 6rem + 24px)' }} />}
+      {(placement === 'inline' || !viewport.keyboardOpen) && (
+        <button
+          type="button"
+          aria-label={locale === 'fr' ? 'M’aider à choisir et réserver' : 'Help me choose & book'}
+          onClick={() => setIsOpen(true)}
+          style={placement === 'floating' ? { bottom: 'calc(var(--service-sticky-footer-clearance, env(safe-area-inset-bottom, 0px)) + 12px)' } : undefined}
+          className={`min-h-11 max-w-full rounded-xl border border-neutral-900 bg-white px-4 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${placement === 'floating' ? 'fixed right-4 z-40 max-w-[calc(100vw-2rem)] shadow-lg' : 'shadow-sm'}`}
+        >
+          {copy.launcher}
+        </button>
+      )}
       <DialogShell isOpen={isOpen} onClose={() => setIsOpen(false)} overlayClassName="z-[70]" maxWidthClassName="max-w-xl" alignClassName="items-end p-0 sm:items-center sm:p-4" contentClassName="max-h-[calc(100dvh-0.5rem)] touch-pan-y overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-3xl" overlayStyle={viewportStyle}>{isOpen && <CustomerAssistantPanel salonId={salonId} salonSlug={salonSlug} locale={locale} campaignToken={campaignToken} onClose={() => setIsOpen(false)} visibleHeight={viewport.height || undefined} />}</DialogShell>
     </>
   );

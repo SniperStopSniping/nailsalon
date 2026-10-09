@@ -15,6 +15,7 @@ const {
   getLocationById,
   getPrimaryLocation,
   getPublicPageContext,
+  isCustomerAssistantEnabledForSalon,
   resolveDraftSalonAccess,
   resolvePublicBookingTechnicianContext,
   redirectMock,
@@ -31,6 +32,7 @@ const {
   getLocationById: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getPublicPageContext: vi.fn(),
+  isCustomerAssistantEnabledForSalon: vi.fn(() => false),
   resolveDraftSalonAccess: vi.fn((): Promise<DraftSalonGateResult> => Promise.resolve({
     allowed: true,
     isPreviewingDraftSalon: false,
@@ -43,7 +45,7 @@ const {
   }),
 }));
 
-vi.mock('@/libs/customerAssistant/access.server', () => ({ isCustomerAssistantEnabledForSalon: () => false }));
+vi.mock('@/libs/customerAssistant/access.server', () => ({ isCustomerAssistantEnabledForSalon }));
 vi.mock('@/components/customerAssistant/CustomerAssistantLauncher', () => ({ CustomerAssistantLauncher: () => null }));
 
 vi.mock('next/navigation', () => ({
@@ -138,6 +140,7 @@ describe('BookTimePage', () => {
     vi.clearAllMocks();
     buildTenantRedirectPath.mockImplementation((path: string | null) => path);
     getClientSession.mockResolvedValue(null);
+    isCustomerAssistantEnabledForSalon.mockReturnValue(false);
   });
 
   it('redirects back to service selection when no services are selected', async () => {
@@ -505,6 +508,24 @@ describe('BookTimePage', () => {
 
     return bookTimeClientMock.mock.calls.at(-1)?.[0];
   };
+
+  it.each([
+    { enabled: true, preview: false, visible: true },
+    { enabled: false, preview: false, visible: false },
+    { enabled: true, preview: true, visible: false },
+  ])('places enabled public help inside Time while preserving preview gates: %j', async ({ enabled, preview, visible }) => {
+    isCustomerAssistantEnabledForSalon.mockReturnValue(enabled);
+    resolveDraftSalonAccess.mockResolvedValueOnce({ allowed: true, isPreviewingDraftSalon: preview, isPreviewingDraftConfig: false, actorType: preview ? 'owner' : null });
+    getPrimaryLocation.mockResolvedValue(null);
+    const props = await renderTimeStepWith({ businessHours: null });
+    const help = props?.bookingHelp as React.ReactElement<{ placement: string; salonSlug: string; salonId: string }> | null;
+
+    if (visible) {
+      expect(help?.props).toMatchObject({ placement: 'inline', salonSlug: 'salon-a', salonId: 'salon_1' });
+    } else {
+      expect(help).toBeNull();
+    }
+  });
 
   it('marks every weekday the location is closed', async () => {
     getPrimaryLocation.mockResolvedValue({

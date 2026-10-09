@@ -63,11 +63,19 @@ describe('CustomerAssistantLauncher', () => {
     vi.unstubAllGlobals();
   });
 
-  it('keeps the assistant optional and closes back to the existing flow', async () => {
+  it.each(['floating', 'inline'] as const)('keeps the %s assistant optional and closes back to the existing flow', async (placement) => {
     const fetchMock = vi.fn().mockResolvedValue(sessionResponse());
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
-    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+    render(<CustomerAssistantLauncher placement={placement} salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    expect(screen.queryByTestId('customer-assistant-launcher-clearance') !== null).toBe(placement === 'floating');
+
+    if (placement === 'floating') {
+      expect(screen.getByRole('button', { name: 'Help me choose & book' })).toHaveClass('fixed');
+    } else {
+      expect(screen.getByRole('button', { name: 'Help me choose & book' })).not.toHaveClass('fixed');
+    }
 
     await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
 
@@ -78,6 +86,8 @@ describe('CustomerAssistantLauncher', () => {
 
     await user.click(screen.getByRole('button', { name: 'Continue manually' }));
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'AI booking assistant' })).not.toBeInTheDocument());
+
+    expect(screen.getByRole('button', { name: 'Help me choose & book' })).toHaveFocus();
   });
 
   it('opens the normal service selector from the welcome action without a chat request', async () => {
