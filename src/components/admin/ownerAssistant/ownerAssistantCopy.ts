@@ -38,6 +38,8 @@ export const ownerAssistantCopy = {
   retry: 'Retry',
   /** Shown for 400/401/403/5xx and for network failures — never provider text. */
   networkError: 'Something went wrong. Please try again.',
+  /** A reload preserved the question but no answer; Retry remains explicit. */
+  restoredQuestion: 'Your last question wasn\'t answered. You can retry it.',
   /** Shown when the server refuses the conversation token (HTTP 409). */
   conversationReset: 'Let\'s start a fresh conversation.',
   newConversation: 'New conversation',
