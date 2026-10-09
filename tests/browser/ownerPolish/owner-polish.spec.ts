@@ -105,6 +105,9 @@ test('long dialog titles stay legible beside reachable Back and Save actions', a
   const title = dialog.getByText('Gel Manicure + Gel Pedicure', { exact: true });
 
   await expect(title).toBeVisible();
+  // Read every box after the spring entrance settles. A visible, translated
+  // dialog can produce fractional touch-target heights in WebKit.
+  await expect(dialog).toHaveCSS('transform', 'none');
 
   const bounds = await title.boundingBox();
   const back = await dialog.getByRole('button', { name: 'Services', exact: true }).boundingBox();
