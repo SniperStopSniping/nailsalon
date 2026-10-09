@@ -46,6 +46,15 @@ test('the required aggregate includes Node 24 monitoring evidence with zero skip
   assert.match(jobs.test.steps[0].run, /test "\$MONITORING_RESULT" = success/);
 });
 
+test('the required Node 24 job also exercises the bundled Redis URL parser', () => {
+  const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify Redis URL compatibility with zero skips');
+  assert.match(step.run, /set -euo pipefail/);
+  assert.match(step.run, /node --test --test-reporter=tap scripts\/redis-node24.node-test.mjs/);
+  assert.ok(step.run.includes('grep -Fqx \'# tests 18\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 18\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
+});
+
 test('dependency protection accepts reviewed pairs and rejects changed or mixed manifests', () => {
   const step = jobs['test-core'].steps.find(candidate => candidate.name === 'Deposits ladder protected surfaces');
   assert.ok(step.run.includes('if ! git diff --quiet "$base" -- package.json package-lock.json; then'));
@@ -55,6 +64,8 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
   const monitoringPairs = [
     ['2d308eb94fc47228b1f8cefb95e5109674a6c7b6', '16a00768b1248501e221a5af2350d2a49a27d3d4'],
     ['81033b57a45e03fa3fb84b35435d5c511c945dc6', '9c7d5702e010a55e897258fee728c517b20d0593'],
+    ['2658646d2addf8fe450503e0366a1b30d3a37d16', '2b018033b1df3bbc21bfd1858b764a6fe2d14e64'],
+    ['36b6eb8cc244742e3f00ca9e6371e83580bbd907', 'f30136fcafe073d34bb76a50cadeaf8d83c2a31b'],
   ];
   for (const pair of monitoringPairs) {
     assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
