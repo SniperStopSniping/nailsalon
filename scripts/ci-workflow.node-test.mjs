@@ -55,6 +55,15 @@ test('the required Node 24 job also exercises the bundled Redis URL parser', () 
   assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
 });
 
+test('the required Node 24 job also verifies Cloudinary request and error contracts', () => {
+  const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify Cloudinary image API compatibility with zero skips');
+  assert.match(step.run, /set -euo pipefail/);
+  assert.ok(step.run.includes('node --pending-deprecation --test --test-reporter=tap scripts/cloudinary-node24.node-test.mjs'));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 17\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 17\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
+});
+
 test('dependency protection accepts reviewed pairs and rejects changed or mixed manifests', () => {
   const step = jobs['test-core'].steps.find(candidate => candidate.name === 'Deposits ladder protected surfaces');
   assert.ok(step.run.includes('if ! git diff --quiet "$base" -- package.json package-lock.json; then'));
@@ -62,6 +71,7 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
   assert.ok(statement);
   const reviewed = [...statement.matchAll(/([a-f0-9]{40}):([a-f0-9]{40})\) ;;/g)].map(match => [match[1], match[2]]);
   const monitoringPairs = [
+    ['676faa4e87813eb9500b132e5b5034947fb607ea', '9d6a655a476d1beaea9c5f3ed3dee6a0b0012ca2'],
     ['2d308eb94fc47228b1f8cefb95e5109674a6c7b6', '16a00768b1248501e221a5af2350d2a49a27d3d4'],
     ['81033b57a45e03fa3fb84b35435d5c511c945dc6', '9c7d5702e010a55e897258fee728c517b20d0593'],
     ['2658646d2addf8fe450503e0366a1b30d3a37d16', '2b018033b1df3bbc21bfd1858b764a6fe2d14e64'],

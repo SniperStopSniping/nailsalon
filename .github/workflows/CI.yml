@@ -291,6 +291,9 @@ jobs:
               2658646d2addf8fe450503e0366a1b30d3a37d16:2b018033b1df3bbc21bfd1858b764a6fe2d14e64) ;;
               # Same reviewed Redis graph after main's 1.142.5 version bump.
               36b6eb8cc244742e3f00ca9e6371e83580bbd907:f30136fcafe073d34bb76a50cadeaf8d83c2a31b) ;;
+              # Cloudinary 2.9.0: native URL parsing and promises; removes only
+              # the SDK's unused Q dependency. Upload/cleanup rules unchanged.
+              676faa4e87813eb9500b132e5b5034947fb607ea:9d6a655a476d1beaea9c5f3ed3dee6a0b0012ca2) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -1360,6 +1363,15 @@ jobs:
           grep -Fqx '# tests 18' redis-node24.log
           grep -Fqx '# pass 18' redis-node24.log
           grep -Fqx '# skipped 0' redis-node24.log
+
+      - name: Verify Cloudinary image API compatibility with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --pending-deprecation --test --test-reporter=tap scripts/cloudinary-node24.node-test.mjs | tee cloudinary-node24.log
+          grep -Fqx '# tests 17' cloudinary-node24.log
+          grep -Fqx '# pass 17' cloudinary-node24.log
+          grep -Fqx '# skipped 0' cloudinary-node24.log
 
   test:
     # Preserve the live ruleset context; success requires the application job
