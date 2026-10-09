@@ -34,6 +34,8 @@ type ModalFocusLifecycleOptions = {
   contentRef: RefObject<HTMLElement | null>;
   initialFocusRef?: RefObject<HTMLElement | null>;
   closeOnEscape?: boolean;
+  /** User-selected opener identity retained across a parent auth remount. */
+  returnFocusKey?: string | null;
 };
 
 let focusTrackerSubscribers = 0;
@@ -240,8 +242,8 @@ function getLatestExternalFocus(root: HTMLElement, fallback: HTMLElement | null)
   return fallback?.isConnected ? fallback : null;
 }
 
-function findReplacementOpener(opener: HTMLElement | null): HTMLElement | null {
-  const returnFocusKey = opener?.getAttribute(RETURN_FOCUS_KEY_ATTRIBUTE);
+function findReplacementOpener(opener: HTMLElement | null, explicitKey?: string | null): HTMLElement | null {
+  const returnFocusKey = explicitKey ?? opener?.getAttribute(RETURN_FOCUS_KEY_ATTRIBUTE);
   if (!returnFocusKey) {
     return null;
   }
@@ -255,11 +257,12 @@ function findReplacementOpener(opener: HTMLElement | null): HTMLElement | null {
   return candidates.length === 1 ? candidates[0]! : null;
 }
 
-function restoreFocusAfterClose(opener: HTMLElement | null, closingRoot: HTMLElement): void {
+function restoreFocusAfterClose(opener: HTMLElement | null, closingRoot: HTMLElement, returnFocusKey?: string | null): void {
   const activeElement = document.activeElement;
-  const connectedOpener = opener && isVisibleAndEnabled(opener)
+  const explicitOpener = returnFocusKey ? findReplacementOpener(null, returnFocusKey) : null;
+  const connectedOpener = explicitOpener ?? (opener && isVisibleAndEnabled(opener)
     ? opener
-    : findReplacementOpener(opener);
+    : findReplacementOpener(opener));
   const parentSurface = getTopmostSurface();
 
   // A parent surface can remount and place its own initial focus during the
@@ -327,6 +330,7 @@ export function useModalFocusLifecycle({
   contentRef,
   initialFocusRef,
   closeOnEscape = true,
+  returnFocusKey,
 }: ModalFocusLifecycleOptions): void {
   const openerRef = useRef<HTMLElement | null>(null);
   const initialExternalFocusRef = useRef<HTMLElement | null>(
@@ -369,7 +373,7 @@ export function useModalFocusLifecycle({
           if (lifecycleTokenRef.current !== lifecycleToken) {
             return;
           }
-          restoreFocusAfterClose(opener, root);
+          restoreFocusAfterClose(opener, root, returnFocusKey);
           lifecycleTokenRef.current = null;
           openerRef.current = null;
         },
@@ -382,5 +386,5 @@ export function useModalFocusLifecycle({
         },
       );
     };
-  }, [contentRef, initialFocusRef, isOpen, rootRef]);
+  }, [contentRef, initialFocusRef, isOpen, returnFocusKey, rootRef]);
 }

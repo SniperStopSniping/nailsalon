@@ -46,6 +46,39 @@ vi.mock('framer-motion', async () => {
 });
 
 describe('AppModal', () => {
+  it.each(['Close', 'Escape'])('restores an explicit shortcut after an auth remount with %s', async (dismissal) => {
+    const user = userEvent.setup();
+    const returnFocusKey = 'sms:isla:today:topup';
+    const { rerender } = render(<button type="button">Original shortcut</button>);
+    await user.click(screen.getByRole('button', { name: 'Original shortcut' }));
+    // The salon-scoped auth check removes the entire workspace, including
+    // its modal focus subscribers, before admitting the requested sheet.
+    rerender(<p>Checking account</p>);
+
+    function RestoredWorkspace() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button type="button" data-dialog-return-focus-key={returnFocusKey}>Buy texts</button>
+          <AppModal isOpen={open} onClose={() => setOpen(false)} returnFocusKey={returnFocusKey}>
+            <DialogShell isOpen={open} onClose={() => setOpen(false)}>
+              <button type="button" onClick={() => setOpen(false)}>Close credits</button>
+            </DialogShell>
+          </AppModal>
+        </>
+      );
+    }
+
+    rerender(<RestoredWorkspace />);
+    await screen.findByRole('button', { name: 'Close credits' });
+    if (dismissal === 'Escape') {
+      await user.keyboard('{Escape}');
+    } else {
+      await user.click(screen.getByRole('button', { name: 'Close credits' }));
+    }
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Buy texts' })).toHaveFocus());
+  });
+
   it('gives every dashboard app a bounded native touch-scroll region', async () => {
     render(
       <AppModal isOpen onClose={vi.fn()} allowDragToDismiss={false}>

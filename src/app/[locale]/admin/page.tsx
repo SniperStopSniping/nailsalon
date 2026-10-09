@@ -40,7 +40,7 @@ import { UsageBillingModal } from '@/components/admin/UsageBillingModal';
 import { LuckyCharmLoader } from '@/components/loading/LuckyCharmLoader';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { formatMoney } from '@/libs/formatMoney';
-import { resolveOwnerNavigationAlias, resolveOwnerNavigationPathAlias } from '@/libs/ownerNavigation';
+import { resolveOwnerNavigationAlias, resolveOwnerNavigationPathAlias, smsCreditShortcutFocusKey } from '@/libs/ownerNavigation';
 import { SMS_CREDITS_CHANGED_EVENT } from '@/libs/smsCreditStatus';
 // =============================================================================
 // Main Page Component
@@ -417,6 +417,7 @@ function AdminDashboardContent() {
 
   // Modal state
   const [activeModal, setActiveModal] = useState<AppId | null>(null);
+  const creditShortcutReturnFocusKey = useRef<string | null>(null);
   const [initialAppointmentId, setInitialAppointmentId] = useState<
     string | null
   >(null);
@@ -1413,6 +1414,15 @@ function AdminDashboardContent() {
   const openAppViaUrl = useCallback(
     (appId: string, view?: string, technicianId?: string, replace = false) => {
       const url = new URL(buildAdminUrl(appId), window.location.origin);
+      const creditSalonSlug = url.searchParams.get('salon');
+      // The first salon-scoped navigation rechecks auth and remounts all
+      // modal surfaces. Retain only the explicit shortcut's UI identity.
+      creditShortcutReturnFocusKey.current = appId === 'plan-usage'
+      && (view === 'topup' || view === 'history')
+      && (workspaceTab === 'today' || workspaceTab === 'more')
+      && creditSalonSlug
+        ? smsCreditShortcutFocusKey(creditSalonSlug, workspaceTab, view)
+        : null;
       if (view) {
         url.searchParams.set('view', view);
       }
@@ -2165,6 +2175,7 @@ function AdminDashboardContent() {
         }}
         isFreeSolo={isFreeSolo}
         onCloseModal={handleCloseModal}
+        creditShortcutReturnFocusKey={creditShortcutReturnFocusKey.current}
         initialAppointmentId={initialAppointmentId}
         initialClientId={initialClientId}
         initialPromotionStage={initialPromotionStage}

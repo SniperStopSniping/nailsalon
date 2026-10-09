@@ -46,6 +46,7 @@ type AdminModalHostProps = {
   onOpenMarketingClient?: (clientId: string) => void;
   isFreeSolo: boolean;
   onCloseModal: () => void;
+  creditShortcutReturnFocusKey?: string | null;
   initialAppointmentId?: string | null;
   initialClientId?: string | null;
   initialPromotionStage?: PromotionSettingsStage | null;
@@ -96,6 +97,7 @@ export function AdminModalHost({
   onOpenMarketingClient,
   isFreeSolo,
   onCloseModal,
+  creditShortcutReturnFocusKey,
   initialAppointmentId,
   initialClientId,
   initialPromotionStage,
@@ -161,7 +163,7 @@ export function AdminModalHost({
       salonContent={outerSalon.salonContent}
     >
       {isOwnerManagementApp(activeModal) && (
-        <AppModal isOpen onClose={() => (managementClose.current ?? onCloseModal)()} allowDragToDismiss={false}>
+        <AppModal isOpen onClose={() => (managementClose.current ?? onCloseModal)()} allowDragToDismiss={false} returnFocusKey={activeModal === 'plan-usage' ? creditShortcutReturnFocusKey : null}>
           <OwnerManagementModal key={`${activeSalonId}:${activeModal}`} registerClose={registerManagementClose} app={activeModal} salonSlug={activeSalonSlug} salonId={activeSalonId} isFreeSolo={isFreeSolo} teamAvailable={teamAppAvailable} onClose={onCloseModal} onOpenApp={onOpenApp} />
         </AppModal>
       )}

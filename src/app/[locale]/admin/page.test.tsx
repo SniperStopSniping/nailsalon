@@ -1516,7 +1516,10 @@ describe('AdminDashboardPage', () => {
       const query = new URLSearchParams('salon=salon-b&app=plan-usage&view=topup&tab=today');
       searchParamGet.mockImplementation(key => query.get(key));
       view.rerender(<AdminDashboardPage />);
-      await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ activeModal: 'plan-usage' }));
+      await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+        activeModal: 'plan-usage',
+        creditShortcutReturnFocusKey: 'sms:salon-b:today:topup',
+      }));
 
       expect(screen.getByTestId('owner-today-workspace')).toBeInTheDocument();
       expect(screen.queryByTestId('owner-more-workspace')).not.toBeInTheDocument();
@@ -1552,6 +1555,7 @@ describe('AdminDashboardPage', () => {
       await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ activeModal: 'plan-usage' }));
 
       expect(screen.getByTestId(expectedWorkspace!)).toBeInTheDocument();
+      expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ creditShortcutReturnFocusKey: null });
     });
 
     it('opens the calendar from ?app=schedule and closes it when the segment goes away', async () => {
