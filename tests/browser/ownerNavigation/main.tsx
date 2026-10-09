@@ -23,11 +23,14 @@ export function OwnerNavigationFixture() {
     { id: 'salon_old', slug: 'old', name: 'Old Studio', role: 'owner', status: 'cancelled' },
     { id: 'salon_live', slug: 'live', name: 'Current Studio', role: 'owner', status: 'active' },
   ];
-  const openApp = (nextApp: string) => {
+  const openApp = (nextApp: string, view?: string) => {
     const next = new URLSearchParams(query.toString());
     next.set('salon', 'isla');
     next.set('app', nextApp);
     next.delete('view');
+    if (view) {
+      next.set('view', view);
+    }
     router.push(`/en/admin?${next.toString()}`, { scroll: false });
   };
   const close = () => {
@@ -92,7 +95,7 @@ export function OwnerNavigationFixture() {
   return (
     <main className="owner-workspace-theme mx-auto min-h-screen max-w-md bg-stone-50" data-testid="more-screen">
       <h1 className="px-4 pt-4 text-xl font-semibold">More</h1>
-      <AppGrid onAppTap={openApp} hiddenIds={['schedule', 'bookings', 'clients', 'services']} />
+      <AppGrid salonSlug={query.get('smsCredits') === '1' ? 'isla' : undefined} onOpenCredits={view => openApp('plan-usage', view)} onAppTap={openApp} hiddenIds={['schedule', 'bookings', 'clients', 'services']} />
     </main>
   );
 }

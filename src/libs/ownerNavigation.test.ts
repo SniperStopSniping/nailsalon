@@ -5,9 +5,19 @@ import {
   ownerManagementView,
   resolveOwnerNavigationAlias,
   resolveOwnerNavigationPathAlias,
+  smsCreditShortcutFocusKey,
 } from './ownerNavigation';
 
 describe('owner navigation aliases', () => {
+  it('keeps credit shortcut focus identities distinct by salon, workspace and action', () => {
+    const identities = ['isla', 'second-salon'].flatMap(salon => (['today', 'more'] as const)
+      .flatMap(workspace => (['topup', 'history'] as const)
+        .map(view => smsCreditShortcutFocusKey(salon, workspace, view))));
+
+    expect(new Set(identities).size).toBe(8);
+    expect(smsCreditShortcutFocusKey('isla', 'today', 'topup')).toBe('sms:isla:today:topup');
+  });
+
   it('opens Currency in Payments while preserving the current salon', () => {
     expect(resolveOwnerNavigationAlias(new URLSearchParams('salon=isla&app=settings&view=currency'))?.toString())
       .toBe('salon=isla&app=payments&view=currency');

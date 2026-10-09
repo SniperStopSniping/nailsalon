@@ -77,7 +77,7 @@ vi.mock('next/navigation', () => ({
     get: searchParamGet,
     toString: () => {
       const query = new URLSearchParams();
-      for (const key of ['salon', 'app', 'view', 'appointment', 'client']) {
+      for (const key of ['salon', 'app', 'view', 'appointment', 'client', 'tab']) {
         const value = searchParamGet(key);
         if (value) {
           query.set(key, value);
@@ -1502,6 +1502,61 @@ describe('AdminDashboardPage', () => {
         throw new Error(`Unhandled fetch: ${url}`);
       });
     }
+
+    it.each(['close', 'browser Back'] as const)('returns the Today text shortcut to Today after %s', async (dismissal) => {
+      mockOwnerSession();
+      const view = render(<AdminDashboardPage />);
+      await screen.findByTestId('owner-today-workspace');
+
+      const today = ownerTodayWorkspaceSpy.mock.calls.at(-1)?.[0] as { onBuyTexts: () => void };
+      act(() => today.onBuyTexts());
+
+      expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin?salon=salon-b&app=plan-usage&view=topup&tab=today');
+
+      const query = new URLSearchParams('salon=salon-b&app=plan-usage&view=topup&tab=today');
+      searchParamGet.mockImplementation(key => query.get(key));
+      view.rerender(<AdminDashboardPage />);
+      await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+        activeModal: 'plan-usage',
+        creditShortcutReturnFocusKey: 'sms:salon-b:today:topup',
+      }));
+
+      expect(screen.getByTestId('owner-today-workspace')).toBeInTheDocument();
+      expect(screen.queryByTestId('owner-more-workspace')).not.toBeInTheDocument();
+
+      if (dismissal === 'close') {
+        const host = adminModalHostSpy.mock.calls.at(-1)?.[0] as { onCloseModal: () => void };
+        act(() => host.onCloseModal());
+
+        expect(routerReplace).toHaveBeenLastCalledWith('/en/admin?salon=salon-b');
+      }
+      searchParamGet.mockImplementation(key => key === 'salon' ? 'salon-b' : null);
+      view.rerender(<AdminDashboardPage />);
+      await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ activeModal: null }));
+
+      expect(screen.getByTestId('owner-today-workspace')).toBeInTheDocument();
+    });
+
+    it.each([
+      ['topup', 'today', 'owner-today-workspace'],
+      ['history', 'today', 'owner-today-workspace'],
+      ['topup', null, 'owner-more-workspace'],
+      ['history', 'more', 'owner-more-workspace'],
+      ['usage', 'today', 'owner-more-workspace'],
+      ['topup', 'untrusted', 'owner-more-workspace'],
+    ])('restores the correct workspace for a %s link with tab=%s', async (creditView, tab, expectedWorkspace) => {
+      mockOwnerSession();
+      const query = new URLSearchParams({ salon: 'salon-b', app: 'plan-usage', view: creditView! });
+      if (tab) {
+        query.set('tab', tab);
+      }
+      searchParamGet.mockImplementation(key => query.get(key));
+      render(<AdminDashboardPage />);
+      await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ activeModal: 'plan-usage' }));
+
+      expect(screen.getByTestId(expectedWorkspace!)).toBeInTheDocument();
+      expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ creditShortcutReturnFocusKey: null });
+    });
 
     it('opens the calendar from ?app=schedule and closes it when the segment goes away', async () => {
       searchParamGet.mockImplementation((key: string) => {
