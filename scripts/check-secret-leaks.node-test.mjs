@@ -755,6 +755,56 @@ test('fixture allowlist is bound to exact path, key, and value', () => {
   });
 });
 
+test('video scan report allowlist is bound to exact path, key, and value', () => {
+  withRepository((repository) => {
+    const exactPath = 'production/luster-videos/manifests/verification.json';
+    const report = 'Passed: 3301 tracked files, 526 generated files, 3 reviewed commits';
+    const contents = (key, value) => `${JSON.stringify({ [key]: value }, null, 2)}\n`;
+    write(repository, exactPath, contents('secretScan', report));
+    expectPass(scan(repository));
+
+    write(repository, exactPath, contents('secretScan', `${report}A`));
+    expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', report);
+
+    write(repository, exactPath, contents('otherSecretScan', report));
+    expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', report);
+
+    rmSync(join(repository, exactPath));
+    const movedPath = 'production/luster-videos/manifests/moved-verification.json';
+    write(repository, movedPath, contents('secretScan', report));
+    expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', report);
+
+    rmSync(join(repository, movedPath));
+    write(repository, exactPath, contents('secretScan', SECRET_BODY));
+    expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', SECRET_BODY);
+
+    const adjacent = providerSecret(['whsec', ''].join('_'));
+    write(repository, exactPath, `${JSON.stringify({
+      secretScan: report,
+      adjacentValue: adjacent,
+    }, null, 2)}\n`);
+    expectFinding(scan(repository), 'STRIPE_WEBHOOK_SIGNING_SECRET', adjacent);
+  });
+});
+
+test('video scan report allowlist applies to reviewed history without hiding credentials', () => {
+  withRepository((repository) => {
+    const base = git(repository, ['rev-parse', 'HEAD']);
+    const path = 'production/luster-videos/manifests/verification.json';
+    const report = 'Passed: 3301 tracked files, 526 generated files, 3 reviewed commits';
+    write(repository, path, `${JSON.stringify({ secretScan: report }, null, 2)}\n`);
+    const reportHead = commit(repository, 'test: record scan report');
+    expectPass(scan(repository, ['--base', base, '--head', reportHead]));
+
+    write(repository, path, `${JSON.stringify({ secretScan: SECRET_BODY }, null, 2)}\n`);
+    commit(repository, 'test: replace report with synthetic credential');
+    write(repository, path, `${JSON.stringify({ secretScan: report }, null, 2)}\n`);
+    const head = commit(repository, 'test: restore scan report');
+    expectPass(scan(repository));
+    expectFinding(scan(repository, ['--base', base, '--head', head]), 'GENERIC_SECRET_ASSIGNMENT', SECRET_BODY);
+  });
+});
+
 test('documentation URL allowlist is bound to its exact path and value', () => {
   withRepository((repository) => {
     const contents = readFileSync(
