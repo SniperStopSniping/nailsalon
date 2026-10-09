@@ -1796,31 +1796,82 @@ describe('BookingPageOwnerSurface', () => {
   // behaviour. Now that `applyLocationDisplayMode`/`applyPhoneDisplayMode`
   // (`@/libs/salonContent`) actually redact the phone too, the owner-facing
   // copy is corrected to match: only the location NAME still shows.
-  it('warns that only the location name still shows under city_only (address/postal/phone are hidden), and clears the warning back to full_address', async () => {
+  it.each(['immediate', 'delayed'] as const)('keeps address privacy unpublished until its %s save returns and clears the warning after restoring the live choice', async (responseTiming) => {
+    const user = userEvent.setup();
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    const releaseWrites: Array<() => void> = [];
+    const privacyPatches: unknown[] = [];
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/admin/booking-page') && init?.method === 'PATCH') {
+        privacyPatches.push(JSON.parse(String(init.body)));
+        if (responseTiming === 'delayed') {
+          return new Promise<Response>((resolve) => {
+            releaseWrites.push(() => resolve(fallbackFetch(input, init)));
+          });
+        }
+      }
+      return fallbackFetch(input, init);
+    });
     searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=information');
     render(<BookingPageOwnerSurface />);
 
-    await screen.findByRole('radiogroup', { name: 'Address privacy' });
+    // Exercise the real accordion and complete pointer/focus/change sequence.
+    // A raw click on a hidden radio does not represent the owner's journey.
+    await user.click(await screen.findByText('Location', { exact: true }));
+    const cityOnly = screen.getByTestId('address-privacy-city_only');
+    const fullAddress = screen.getByTestId('address-privacy-full_address');
+    const draftStatus = screen.getByRole('status', { name: 'Page draft status' });
 
-    // full_address is the fixture default — no warning yet (also proves the
-    // assertion below isn't vacuously true for every render).
+    expect(cityOnly).toBeVisible();
+    expect(fullAddress).toBeChecked();
     expect(screen.queryByTestId('address-privacy-unpublished')).not.toBeInTheDocument();
 
-    const cityOnlyButton = screen.getByTestId('address-privacy-city_only');
-    fireEvent.click(cityOnlyButton);
+    await user.click(cityOnly);
+    await waitFor(() => expect(privacyPatches).toEqual([{ content: { locationDisplayMode: 'city_only' } }]));
 
+    expect(cityOnly).toBeChecked();
+
+    if (responseTiming === 'delayed') {
+      expect(draftStatus).toHaveTextContent('Saving draft…');
+      expect(content.draft.locationDisplayMode).toBe('full_address');
+      expect(screen.queryByTestId('address-privacy-unpublished')).not.toBeInTheDocument();
+
+      await act(async () => releaseWrites.shift()!());
+    }
     await waitFor(() => {
+      expect(draftStatus).toHaveTextContent('Draft saved');
       expect(screen.getByTestId('address-privacy-unpublished')).toHaveTextContent(
         'Your live site still uses “Always show my full address” until you publish.',
       );
     });
 
-    const fullAddressButton = screen.getByTestId('address-privacy-full_address');
-    fireEvent.click(fullAddressButton);
+    expect(content.draft.locationDisplayMode).toBe('city_only');
+    expect(content.live.locationDisplayMode).toBe('full_address');
 
+    await user.click(fullAddress);
+    await waitFor(() => expect(privacyPatches).toEqual([
+      { content: { locationDisplayMode: 'city_only' } },
+      { content: { locationDisplayMode: 'full_address' } },
+    ]));
+
+    expect(fullAddress).toBeChecked();
+
+    if (responseTiming === 'delayed') {
+      expect(draftStatus).toHaveTextContent('Saving draft…');
+      expect(screen.getByTestId('address-privacy-unpublished')).toBeInTheDocument();
+      expect(content.draft.locationDisplayMode).toBe('city_only');
+
+      await act(async () => releaseWrites.shift()!());
+    }
     await waitFor(() => {
+      expect(draftStatus).toHaveTextContent('Published · No page changes');
       expect(screen.queryByTestId('address-privacy-unpublished')).not.toBeInTheDocument();
     });
+
+    expect(fullAddress).toBeChecked();
+    expect(content.draft.locationDisplayMode).toBe('full_address');
+    expect(content.live.locationDisplayMode).toBe('full_address');
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
   });
 
   it('warns in the canonical Business Info Display panel that the live site still uses the published mode', async () => {
