@@ -289,6 +289,8 @@ jobs:
               # Remaining bundled Node 24 URL parser: ioredis 5.11.1 and only
               # its resolved dependency closure; application settings unchanged.
               2658646d2addf8fe450503e0366a1b30d3a37d16:2b018033b1df3bbc21bfd1858b764a6fe2d14e64) ;;
+              # Same reviewed Redis graph after main's 1.142.5 version bump.
+              36b6eb8cc244742e3f00ca9e6371e83580bbd907:f30136fcafe073d34bb76a50cadeaf8d83c2a31b) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"

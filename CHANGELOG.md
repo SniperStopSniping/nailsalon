@@ -1,3 +1,10 @@
+## [1.142.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.4...v1.142.5) (2026-10-09)
+
+
+### Bug Fixes
+
+* **monitoring:** support Node 24 and scrub private trace data ([#389](https://github.com/SniperStopSniping/nailsalon/issues/389)) ([4d7d5ae](https://github.com/SniperStopSniping/nailsalon/commit/4d7d5ae2e144708db7e3dee15d6a3f05434215d7))
+
 ## [1.142.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.3...v1.142.4) (2026-10-08)
 
 
