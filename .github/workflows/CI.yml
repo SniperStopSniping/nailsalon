@@ -286,6 +286,9 @@ jobs:
               2d308eb94fc47228b1f8cefb95e5109674a6c7b6:16a00768b1248501e221a5af2350d2a49a27d3d4) ;;
               # Same reviewed graph after main's 1.142.4 release-version bump.
               81033b57a45e03fa3fb84b35435d5c511c945dc6:9c7d5702e010a55e897258fee728c517b20d0593) ;;
+              # Remaining bundled Node 24 URL parser: ioredis 5.11.1 and only
+              # its resolved dependency closure; application settings unchanged.
+              2658646d2addf8fe450503e0366a1b30d3a37d16:2b018033b1df3bbc21bfd1858b764a6fe2d14e64) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -1347,6 +1350,14 @@ jobs:
           grep -Fqx '# tests 17' monitoring-node24.log
           grep -Fqx '# pass 17' monitoring-node24.log
           grep -Fqx '# skipped 0' monitoring-node24.log
+      - name: Verify Redis URL compatibility with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/redis-node24.node-test.mjs | tee redis-node24.log
+          grep -Fqx '# tests 18' redis-node24.log
+          grep -Fqx '# pass 18' redis-node24.log
+          grep -Fqx '# skipped 0' redis-node24.log
 
   test:
     # Preserve the live ruleset context; success requires the application job
