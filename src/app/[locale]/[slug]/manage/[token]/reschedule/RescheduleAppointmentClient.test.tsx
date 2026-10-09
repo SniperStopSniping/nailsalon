@@ -34,9 +34,10 @@ describe('RescheduleAppointmentClient financial presentation', () => {
     }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
   });
 
-  it('separates the frozen invoice estimate from before-tax editable service pricing', () => {
+  it('separates the frozen invoice estimate from before-tax editable service pricing', async () => {
     render(<RescheduleAppointmentClient {...baseProps} />);
 
+    expect(await screen.findByText('No times are open that day. Try another date.')).toBeInTheDocument();
     expect(screen.getByTestId('reschedule-current-invoice-estimate'))
       .toHaveTextContent('Current invoice estimate: $113.00 CAD');
     expect(screen.getByTestId('reschedule-price-summary'))
@@ -45,7 +46,7 @@ describe('RescheduleAppointmentClient financial presentation', () => {
       .not.toHaveTextContent(/^Total$/u);
   });
 
-  it('hides every amount when frozen invoice evidence is unresolved', () => {
+  it('hides every amount when frozen invoice evidence is unresolved', async () => {
     render(
       <RescheduleAppointmentClient
         {...baseProps}
@@ -55,6 +56,7 @@ describe('RescheduleAppointmentClient financial presentation', () => {
       />,
     );
 
+    expect(await screen.findByText('No times are open that day. Try another date.')).toBeInTheDocument();
     expect(screen.getByTestId('reschedule-financial-review'))
       .toHaveTextContent('Financial details are under review');
     expect(screen.queryByTestId('reschedule-price-summary')).not.toBeInTheDocument();

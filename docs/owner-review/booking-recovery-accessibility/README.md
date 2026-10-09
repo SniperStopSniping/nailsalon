@@ -31,3 +31,13 @@ The initial local build failed with ENOSPC. Only three regenerable compiler cach
 The initial dependency-lock comparison failed because of automatic root-version metadata; a normalized comparison confirmed identical dependency graphs before ignored dependency links were created. Initial lint reported 9 formatting errors and 1 conditional-test warning; these were corrected without weakening assertions or retries. A nonexistent extra token test filter selected nothing; the actual 4 token cases were subsequently run by their discovered filename. All counts above refer to selected, completed tests.
 
 No schema migration or provider configuration is required for this correction. Rollback is a normal revert of the scoped change.
+
+## Current-main refresh — 9 October 2026
+
+Refreshed without conflicts from protected main `5b0ff4605b815ffd572aed9d749b9bf550964c92`. The original failed hosted run remains retained; its unrelated SettingsModal follow-up is now included through main. Fresh matching CI and a published synthetic Preview recovery screen are still required before release.
+
+The same 87 selected tests pass on Node 20.20.2 and Node 24.19.0. The customer-assistant/recovery browser suite passes all 56 Chromium/WebKit cases. Two existing rescheduling financial-presentation tests previously finished before their mocked availability response settled on Node 24: both failed in two isolated runs there, while passing twice on Node 20. They now await the visible empty-slot result before checking the unchanged financial assertions. No application logic, timeouts, retries or console-failure checks changed. Original failure logs are preserved.
+
+The prior shared dependency link and all generated browser captures were preserved outside the checkout. This branch now uses an isolated copy of the current installation, with matching package and lockfile hashes. No dependency definition changed in this PR.
+
+Fresh production build, route generation, TypeScript, scoped/project lint, 19 repository guards, protected-surface checks, secret scanning, commit validation and whitespace checks passed. The original failed run is separate from these completed results. Hosted full-route, physical-phone and provider acceptance remain subject to the limits above.
