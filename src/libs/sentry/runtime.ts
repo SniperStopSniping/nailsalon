@@ -7,17 +7,24 @@ export type PublicSentryRuntimeEnv = {
 type PublicSentryRuntimeEnvSource = PublicSentryRuntimeEnv | Record<string, string | undefined>;
 
 /**
- * The subset of a Sentry event `beforeSend` needs to scrub. Deliberately a
- * structural subset with NO index signature, so Sentry's own `ErrorEvent`
- * satisfies it and the scrubber can be passed straight to `Sentry.init`.
+ * Structural subsets let the same privacy rules cover SDK error events,
+ * transactions and spans without coupling the app to private SDK types.
  */
+export type ScrubbableSentrySpan = {
+  op?: string;
+  data?: Record<string, unknown>;
+};
+
 export type ScrubbableSentryEvent = {
   request?: {
     url?: string;
+    query_string?: unknown;
     data?: unknown;
     cookies?: unknown;
     headers?: Record<string, unknown>;
   };
+  contexts?: { trace?: { data?: Record<string, unknown> } };
+  spans?: ScrubbableSentrySpan[];
 };
 
 export type SentryRuntimeConfig =
@@ -32,27 +39,65 @@ export type SentryRuntimeConfig =
     tracesSampleRate: number;
     debug: boolean;
     beforeSend: <T extends ScrubbableSentryEvent>(event: T) => T;
+    beforeSendTransaction: <T extends ScrubbableSentryEvent>(event: T) => T;
+    beforeSendSpan: <T extends ScrubbableSentrySpan>(span: T) => T;
   };
 
 /**
- * Owner-assistant requests carry the owner's own words in the body and the
- * session cookie in the headers. An error report from those routes would ship
- * both to a third party, so both are removed before the event leaves the
- * process. Everything else about the event — the stack, the route, the status
- * — is untouched, and every other route is untouched too.
+ * Assistant and customer-booking requests can contain private words and bearer
+ * state. Preserve the established request redaction for those routes in both
+ * errors and transactions; remove database usernames from trace attributes.
+ * Stacks, route names, status codes and span timing remain available.
  */
 export const OWNER_ASSISTANT_SCRUBBED_PATH = '/api/admin/owner-assistant/';
 export const CUSTOMER_ASSISTANT_SCRUBBED_PATH = '/api/public/customer-assistant/';
 export const CUSTOMER_BOOKING_SCRUBBED_PATH = '/api/public/customer-booking/';
 
+function isScrubbedCustomerUrl(url: unknown): url is string {
+  return typeof url === 'string'
+    && (url.includes(CUSTOMER_ASSISTANT_SCRUBBED_PATH) || url.includes(CUSTOMER_BOOKING_SCRUBBED_PATH));
+}
+
+function scrubSpanData(data: Record<string, unknown> | undefined, protectedPublicRequest = false): void {
+  if (!data) {
+    return;
+  }
+  // Database account names are not needed for request performance diagnostics.
+  delete data['db.user'];
+  let protectedUrl = protectedPublicRequest;
+  for (const key of ['http.url', 'url.full', 'http.target']) {
+    const url = data[key];
+    if (isScrubbedCustomerUrl(url)) {
+      data[key] = url.split('?')[0];
+      protectedUrl = true;
+    }
+  }
+  if (protectedUrl) {
+    delete data['url.query'];
+  }
+}
+
+export function scrubSentrySpan<T extends ScrubbableSentrySpan>(span: T): T {
+  scrubSpanData(span.data);
+  return span;
+}
+
 export function scrubSentryEvent<T extends ScrubbableSentryEvent>(event: T): T {
-  if (event.request?.url?.includes(CUSTOMER_ASSISTANT_SCRUBBED_PATH)
-    || event.request?.url?.includes(CUSTOMER_BOOKING_SCRUBBED_PATH)) {
+  const protectedPublicRequest = isScrubbedCustomerUrl(event.request?.url);
+  // The SDK uses separate hooks for errors, root transactions and child spans.
+  // Cover root and child attributes here too, including query-only attributes
+  // whose protected route is identified by the transaction request.
+  scrubSpanData(event.contexts?.trace?.data, protectedPublicRequest);
+  for (const span of event.spans ?? []) {
+    scrubSpanData(span.data, protectedPublicRequest);
+  }
+  if (protectedPublicRequest && event.request) {
     // Customer utterances and bearer conversation state are never telemetry.
+    delete event.request.query_string;
     delete event.request.data;
     delete event.request.cookies;
     delete event.request.headers;
-    event.request.url = event.request.url.split('?')[0];
+    event.request.url = event.request.url?.split('?')[0];
   }
   if (event.request?.url?.includes(OWNER_ASSISTANT_SCRUBBED_PATH)) {
     delete event.request.data;
@@ -93,5 +138,7 @@ export function getPublicSentryRuntimeConfig(env: PublicSentryRuntimeEnvSource =
     tracesSampleRate: 1,
     debug: false,
     beforeSend: scrubSentryEvent,
+    beforeSendTransaction: scrubSentryEvent,
+    beforeSendSpan: scrubSentrySpan,
   };
 }
