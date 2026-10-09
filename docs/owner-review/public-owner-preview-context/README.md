@@ -30,3 +30,11 @@ These tests compose the actual middleware with the real layout, database-backed 
 On the exact Preview commit, use an approved owner and an isolated salon fixture. Confirm its public root and booking routes show its draft; confirm signed-out and wrong-owner requests cannot see an unpublished salon or draft configuration; confirm session-bearing responses are private/no-store; confirm normal guest booking/recovery routing still renders. Check default-locale, localized and enabled tenant-host paths. Do not weaken authorization or publication guards to make a fixture accessible.
 
 This change has no visual redesign or schema migration. Source, CI, Preview and production acceptance must be recorded separately. No release is implied by these local test results.
+
+## Current-main refresh — 9 October 2026
+
+Refreshed without conflicts from protected main `5b0ff4605b815ffd572aed9d749b9bf550964c92`. All 255 focused cases across 16 suites pass on each of Node 20.20.2 and Node 24.19.0. The 21 composed layout cases and existing 43-case owner-preview matrix remain included. The production build and 19 repository guards also pass.
+
+The prior shared dependency link was preserved; this worktree now uses an isolated copy of the current installation with matching package and lockfile hashes. No new runtime, dependency, schema or authentication behavior was added during this refresh. Fresh hosted CI and the approved real-session/published-draft Preview matrix above remain release requirements under B11/B12.
+
+Fresh route generation, TypeScript, scoped/project lint, protected-surface checks, secret scanning, commit validation and whitespace checks passed. Local results retain the mocked SDK/request-boundary limitation described above.
