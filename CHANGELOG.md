@@ -1,3 +1,11 @@
+## [1.142.10](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.9...v1.142.10) (2026-10-09)
+
+
+### Bug Fixes
+
+* **ci:** attest the pinned PostgreSQL mirror image ([2134564](https://github.com/SniperStopSniping/nailsalon/commit/2134564ac386c1ef7e4cc3b17b7fa34d9bfc2058))
+* **ci:** pull verified service images from ECR Public ([77e1b48](https://github.com/SniperStopSniping/nailsalon/commit/77e1b48ebdbae9a5269632212152ae6114555fff))
+
 ## [1.142.9](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.8...v1.142.9) (2026-10-09)
 
 
