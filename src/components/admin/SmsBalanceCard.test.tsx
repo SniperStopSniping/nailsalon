@@ -24,6 +24,20 @@ beforeEach(() => {
 });
 
 describe('owner SMS card and purchase UI', () => {
+  it('identifies Today, More purchase and More history focus targets for the active salon', async () => {
+    fetchMock.mockImplementation(async () => response(0));
+    render(
+      <>
+        <SmsBalanceCard compact salonSlug="a" onBuy={vi.fn()} />
+        <SmsBalanceCard salonSlug="a" onBuy={vi.fn()} onHistory={vi.fn()} />
+      </>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Buy texts' })).toHaveAttribute('data-dialog-return-focus-key', 'sms:a:today:topup');
+    expect(screen.getByRole('button', { name: 'Buy More Texts' })).toHaveAttribute('data-dialog-return-focus-key', 'sms:a:more:topup');
+    expect(screen.getByRole('button', { name: 'View usage history' })).toHaveAttribute('data-dialog-return-focus-key', 'sms:a:more:history');
+  });
+
   it.each([[100, 'You’re all set.'], [25, 'Running low'], [10, 'Almost out'], [0, 'Out of texts']])('shows accurate status for %s credits', async (amount, status) => {
     fetchMock.mockImplementation(async () => response(Number(amount)));
     render(<SmsBalanceCard salonSlug="a" onBuy={vi.fn()} onHistory={vi.fn()} />);

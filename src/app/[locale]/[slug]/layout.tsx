@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 
+import { withPublicOwnerSession } from '@/components/auth/withPublicOwnerSession';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
@@ -61,7 +62,7 @@ export default async function SlugTenantLayout(
     ? bookingPageConfig.draft
     : bookingPageConfig.live;
 
-  return (
+  return withPublicOwnerSession(
     <ThemeProvider themeKey={salon?.themeKey ?? undefined}>
       <SalonProvider
         salonId={salon?.id}
@@ -93,6 +94,6 @@ export default async function SlugTenantLayout(
           </footer>
         )}
       </SalonProvider>
-    </ThemeProvider>
+    </ThemeProvider>,
   );
 }

@@ -3,6 +3,7 @@
 import { ArrowRight, MessageSquare, Plus } from 'lucide-react';
 
 import { useSmsCredits } from '@/hooks/useSmsCredits';
+import { smsCreditShortcutFocusKey } from '@/libs/ownerNavigation';
 import { SMS_CREDIT_STATUS_COPY } from '@/libs/smsCreditStatus';
 
 export function SmsBalanceCard({ salonSlug, onBuy, onHistory, compact = false }: { salonSlug: string; onBuy: () => void; onHistory?: () => void; compact?: boolean }) {
@@ -25,7 +26,7 @@ export function SmsBalanceCard({ salonSlug, onBuy, onHistory, compact = false }:
           </p>
           <p className="mt-1 text-sm text-[var(--owner-muted)]">{remaining === 0 ? 'Add credits to send SMS. Booking and email remain available.' : 'Top up to keep your next reminders going.'}</p>
         </div>
-        <button type="button" className="owner-action owner-action--primary shrink-0" onClick={onBuy}>
+        <button type="button" data-dialog-return-focus-key={smsCreditShortcutFocusKey(salonSlug, 'today', 'topup')} className="owner-action owner-action--primary shrink-0" onClick={onBuy}>
           Buy texts
           <ArrowRight size={16} aria-hidden="true" />
         </button>
@@ -63,12 +64,12 @@ export function SmsBalanceCard({ salonSlug, onBuy, onHistory, compact = false }:
           )}
         </>
       )}
-      <button type="button" onClick={onBuy} className={`owner-action mt-4 w-full ${balance?.status === 'healthy' ? '' : 'owner-action--primary'}`}>
+      <button type="button" data-dialog-return-focus-key={smsCreditShortcutFocusKey(salonSlug, 'more', 'topup')} onClick={onBuy} className={`owner-action mt-4 w-full ${balance?.status === 'healthy' ? '' : 'owner-action--primary'}`}>
         <Plus size={17} aria-hidden="true" />
         Buy More Texts
       </button>
       {onHistory && (
-        <button type="button" onClick={onHistory} className="mt-1 flex min-h-11 w-full items-center justify-center gap-2 text-sm font-semibold text-[var(--owner-accent)]">
+        <button type="button" data-dialog-return-focus-key={smsCreditShortcutFocusKey(salonSlug, 'more', 'history')} onClick={onHistory} className="mt-1 flex min-h-11 w-full items-center justify-center gap-2 text-sm font-semibold text-[var(--owner-accent)]">
           View usage history
           <ArrowRight size={15} aria-hidden="true" />
         </button>
