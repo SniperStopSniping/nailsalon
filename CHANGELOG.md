@@ -1,3 +1,10 @@
+## [1.142.12](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.11...v1.142.12) (2026-10-10)
+
+
+### Bug Fixes
+
+* **sms:** surface free credit verification and clarify checkout access ([#401](https://github.com/SniperStopSniping/nailsalon/issues/401)) ([a88626c](https://github.com/SniperStopSniping/nailsalon/commit/a88626c42a2ed62587423afa331027e8c3152d4e))
+
 ## [1.142.11](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.10...v1.142.11) (2026-10-10)
 
 
