@@ -98,7 +98,7 @@ import { ResumedOnboardingAssetRepository } from './resume-assets';
 import { hydrateInitialOnboardingResumeDraft } from './resume-client';
 import type { InitialOnboardingResumeDraft } from './resume-draft';
 import { createPersistableOnboardingDraft } from './snapshot';
-import { getSavedOnboardingSitePreviewUrl } from './urls';
+import { getOnboardingPublishReviewUrl, getSavedOnboardingSitePreviewUrl } from './urls';
 
 type IntegrationTarget = OnboardingDraftClaimRequest['target'];
 
@@ -1072,12 +1072,12 @@ function OnboardingIntegrationController({
       }
       // Keep the verified site and plan retry key until the dashboard actually
       // loads this handoff. A navigation interruption must not restart setup.
-      const dashboardUrl = new URL(`/${locale}/admin`, window.location.origin);
-      dashboardUrl.searchParams.set('onboarding', 'complete');
-      dashboardUrl.searchParams.set('salon', flow.savedSite.salonSlug);
-      dashboardUrl.searchParams.set('site', result.siteId);
-      dashboardUrl.searchParams.set('planIntent', result.intent);
-      window.location.assign(`${dashboardUrl.pathname}${dashboardUrl.search}`);
+      window.location.assign(getOnboardingPublishReviewUrl({
+        locale,
+        salonSlug: flow.savedSite.salonSlug,
+        siteId: result.siteId,
+        planIntent: result.intent,
+      }));
     } catch (error) {
       if (accountIdRef.current !== planAccountId) {
         return;
