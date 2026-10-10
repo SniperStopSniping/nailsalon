@@ -82,14 +82,19 @@ export async function GET(request: Request): Promise<Response> {
     }
     const status = await db.transaction(tx => getStarterAllowanceStatus(tx, salonId));
     let canClaim = false;
+    let verification: { email: boolean; phone: boolean } | undefined;
     if (status !== 'verified'
       && guard.admin.clerkUserId
       && guard.admin.salons.some(membership => membership.salonId === salonId && membership.role === 'owner')
       && !await getAdminImpersonationForAdmin(guard.admin)) {
       const user = await currentUser();
       canClaim = user?.id === guard.admin.clerkUserId;
+      if (canClaim) {
+        const identity = verifiedPrimaryIdentity(user);
+        verification = { email: Boolean(identity.verifiedEmail), phone: Boolean(identity.verifiedPhone) };
+      }
     }
-    return Response.json({ data: { status, canClaim } }, NO_STORE);
+    return Response.json({ data: { status, canClaim, ...(verification ? { verification } : {}) } }, NO_STORE);
   } catch {
     return responseError(500, 'STARTER_STATUS_ERROR', 'Free-text allowance status could not be loaded. Please try again.');
   }

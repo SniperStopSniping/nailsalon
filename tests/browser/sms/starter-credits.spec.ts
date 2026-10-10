@@ -62,12 +62,12 @@ test('a verified allowance stays verified after mobile reload and never posts an
 
   await page.goto('/?fixture=usage-billing');
 
-  await expect(page.getByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeVisible();
+  await expect(page.getByText('Free-text allowance already claimed. Verification does not add another 100 credits.')).toBeVisible();
   await expect(page.getByRole('button', { name: /Claim 100 free texts|Verify free-text allowance/ })).toHaveCount(0);
 
   await page.reload();
 
-  await expect(page.getByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeVisible();
+  await expect(page.getByText('Free-text allowance already claimed. Verification does not add another 100 credits.')).toBeVisible();
   expect(requests.filter(request => request.startsWith('POST'))).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

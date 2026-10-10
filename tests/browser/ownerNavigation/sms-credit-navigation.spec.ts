@@ -40,6 +40,8 @@ for (const entry of [
           await route.abort();
         } else if (url.pathname === '/api/admin/salon/communications/usage' && request.method() === 'GET' && url.searchParams.get('salonSlug') === 'isla') {
           await route.fulfill({ json: { data: credits } });
+        } else if (url.pathname === '/api/admin/salon/communications/starter-credits' && request.method() === 'GET' && url.searchParams.get('salonId') === 'salon_isla') {
+          await route.fulfill({ json: { data: { status: 'verified', canClaim: false } } });
         } else if (url.pathname.startsWith('/api/')) {
           unexpected.push(`${request.method()} ${url.pathname}`);
           await route.abort();

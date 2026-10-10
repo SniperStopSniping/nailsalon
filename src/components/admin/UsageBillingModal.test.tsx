@@ -246,6 +246,20 @@ describe('UsageBillingModal', () => {
     expect(await screen.findByRole('button', { name: 'Manage billing' })).toBeEnabled();
   });
 
+  it('explains first-purchase payment details without asking a free salon to subscribe', async () => {
+    render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
+    const button = await screen.findByRole('button', { name: 'Manage billing' });
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: {
+      code: 'NO_BILLING_ACCOUNT',
+      message: 'No billing account found. Please subscribe to a plan first.',
+    } }), { status: 400 }));
+    fireEvent.click(button);
+
+    expect(await screen.findByText('Add your payment details when you buy your first text package. No subscription is required.')).toBeInTheDocument();
+    expect(screen.queryByText(/Please subscribe/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Buy More Texts' })).toBeEnabled();
+  });
+
   // OP-1 / OP-2: neither refusal is fixed by retrying, so neither may be
   // reported as "Please try again."
   it.each([
