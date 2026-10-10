@@ -137,7 +137,7 @@ describe('simple website launch', () => {
   it('confirms the permanent link, publishes once, and exposes the live sharing actions', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { publicationStatus: 'published' } })));
     vi.stubGlobal('fetch', fetchMock);
-    render(<BookingPageHub {...props} published={false} hasDraftChanges />);
+    render(<BookingPageHub {...props} published={false} hasDraftChanges setupUrl="/en/onboarding-v1?resume=review&site=saved&revision=4" />);
 
     expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).closest('details')).not.toHaveAttribute('open');
 
@@ -155,6 +155,11 @@ describe('simple website launch', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/salon/publish?salonSlug=another-studio', { method: 'POST' });
     expect(screen.getByRole('link', { name: 'Open live site' })).toBeVisible();
     expect(screen.getByText('Live · All changes published')).toBeVisible();
+
+    fireEvent.click(screen.getByText('Edit website'));
+
+    expect(screen.queryByRole('link', { name: 'Review saved setup' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Review setup in the editors' })).toBeVisible();
   });
 
   it('keeps the draft recoverable when publishing fails', async () => {

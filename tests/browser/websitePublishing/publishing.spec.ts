@@ -39,6 +39,10 @@ test('confirmed first publish gives live sharing controls with one request', asy
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   await page.screenshot({ path: `/tmp/luster-publishing-success-${test.info().project.name}.png`, fullPage: true });
+  await page.getByText('Edit website', { exact: true }).click();
+
+  await expect(page.getByRole('link', { name: 'Review saved setup' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Review setup in the editors' })).toBeVisible();
 });
 
 test('keep draft does not publish and returns keyboard focus', async ({ page }) => {

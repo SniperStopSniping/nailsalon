@@ -204,7 +204,7 @@ function BookingPageHubContent({
         */}
             <section className="mt-6 rounded-2xl border border-[var(--owner-line)] p-4">
               <h2 className="font-semibold">Review setup step by step</h2>
-              {setupUrl
+              {setupUrl && !isPublished
                 ? (
                     <>
                       <p className="mt-1 text-sm text-[var(--owner-muted)]">Review your existing setup using the guided flow. Nothing is reset.</p>
