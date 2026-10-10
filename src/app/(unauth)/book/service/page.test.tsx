@@ -227,6 +227,7 @@ describe('BookServicePage first-visit offer visibility', () => {
     getPublicPageContext.mockResolvedValue({ appearance: null, salon: { id: 'salon_1', slug: 'isla-nail-studio', bookingFlow: ['service', 'time', 'confirm'] } });
     const element = await BookServicePage({ searchParams: Promise.resolve({ salonSlug: 'isla-nail-studio' }), params: Promise.resolve({ locale: 'en', slug: 'isla-nail-studio' }) });
     render(element);
+
     expect(publicSalonPageShellSpy).toHaveBeenLastCalledWith(expect.objectContaining({
       salonContentInput: expect.objectContaining({ content: expect.objectContaining({ entranceInstructions: 'Inside TB Nails' }) }),
     }));
