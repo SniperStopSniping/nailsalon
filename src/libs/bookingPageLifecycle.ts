@@ -94,10 +94,20 @@ async function synchronizeLifecycle(
   salonId: string,
   action: BookingPageLifecycleAction | 'first-publish',
 ) {
+  const publicationColumns = {
+    id: salonSchema.id,
+    slug: salonSchema.slug,
+    customDomain: salonSchema.customDomain,
+    settings: salonSchema.settings,
+    publicationStatus: salonSchema.publicationStatus,
+    publishedAt: salonSchema.publishedAt,
+    slugLockedAt: salonSchema.slugLockedAt,
+  };
+  // Read only the publication snapshot, keeping unrelated salon fields out of the lock query.
   // Completed launches are no-ops even when a later draft's media is unavailable.
   // The locked check below still handles two concurrent first-publish requests.
   if (action === 'first-publish') {
-    const [current] = await db.select().from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
+    const [current] = await db.select(publicationColumns).from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
     if (!current) {
       return null;
     }
@@ -116,7 +126,7 @@ async function synchronizeLifecycle(
   try {
     const synchronized = await db.transaction(async (tx) => {
       const [existing] = await tx
-        .select()
+        .select(publicationColumns)
         .from(salonSchema)
         .where(eq(salonSchema.id, salonId))
         .for('update')
