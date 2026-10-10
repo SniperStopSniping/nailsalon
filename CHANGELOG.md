@@ -1,3 +1,10 @@
+## [1.142.18](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.17...v1.142.18) (2026-10-10)
+
+
+### Bug Fixes
+
+* accurately disclose Google Calendar data use ([323d08d](https://github.com/SniperStopSniping/nailsalon/commit/323d08d93ea3041f36919465146aabd90f63a4bd))
+
 ## [1.142.17](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.16...v1.142.17) (2026-10-10)
 
 
