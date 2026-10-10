@@ -11,6 +11,7 @@ import { loadOnboardingState, ONBOARDING_STORAGE_KEY, saveOnboardingState } from
 import type { OnboardingAuthProviderAvailability } from './auth-providers';
 import { OnboardingIntegrationRequestError } from './client';
 import type { OnboardingClaimSuccess } from './contracts';
+import { loadDeviceSetups } from './device-setups';
 import {
   createOnboardingIntegrationFlow,
   loadOnboardingIntegrationFlow,
@@ -92,7 +93,9 @@ vi.mock('../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/useL
 }));
 
 vi.mock('./resume-assets', () => ({
-  ResumedOnboardingAssetRepository: class {},
+  ResumedOnboardingAssetRepository: class {
+    close() {}
+  },
 }));
 
 vi.mock('./client', async (importOriginal) => {
@@ -616,6 +619,57 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(mocks.savePlan).not.toHaveBeenCalled();
     expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it('escapes the no-salon account loop without reusing the claimed token or deleting the previous setup', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'plans', savedSite, savedSiteOwnerId: 'another-owner' });
+    mocks.status.mockRejectedValue(new OnboardingIntegrationRequestError('Sign in to the account that saved this website.', { code: 'BUSINESS_ACCESS_DENIED', status: 403 }));
+    const original = loadOnboardingState().state;
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    const user = userEvent.setup();
+
+    await screen.findByRole('heading', { name: 'Check the account for this website' });
+
+    expect(screen.getByText('owner@example.com')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Build a separate website' }));
+    await user.click(screen.getByRole('button', { name: 'Go back' }));
+
+    expect(loadDeviceSetups()).toHaveLength(0);
+    expect(loadOnboardingState().state.anonymousDraftId).toBe(original.anonymousDraftId);
+
+    await user.click(screen.getByRole('button', { name: 'Build a separate website' }));
+    await user.click(screen.getByRole('button', { name: 'Start a new website' }));
+
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Check the account for this website' })).not.toBeInTheDocument());
+
+    expect(loadOnboardingIntegrationFlow().savedSite).toBeNull();
+    expect(loadOnboardingState().state.anonymousDraftId).not.toBe(original.anonymousDraftId);
+    expect(loadOnboardingState().state.profile.businessName).toBe('');
+    expect(loadDeviceSetups()).toHaveLength(1);
+    expect(JSON.parse(loadDeviceSetups()[0]!.values[ONBOARDING_STORAGE_KEY]!).profile).toEqual(original.profile);
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(mocks.savePlan).not.toHaveBeenCalled();
+
+    view.unmount();
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(screen.queryByRole('heading', { name: 'Check the account for this website' })).not.toBeInTheDocument();
+    expect(mocks.status).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps retry for transient verification failures and does not mislabel them as another account', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'plans', savedSite });
+    mocks.status.mockRejectedValue(new OnboardingIntegrationRequestError('Temporarily unavailable.', { status: 503 }));
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Build a separate website' })).not.toBeInTheDocument();
   });
 
   it('resumes the same account-backed site on a new device before allowing edits', async () => {

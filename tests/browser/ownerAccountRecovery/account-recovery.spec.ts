@@ -66,3 +66,44 @@ test('failed sign-out keeps recovery actions available', async ({ page }) => {
 
   await expect(page.getByRole('heading', { name: 'Let’s reconnect your account' })).toBeHidden();
 });
+
+for (const width of [320, 390, 430]) {
+  test(`account mismatch exits the dashboard loop and keeps a restorable setup at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/en/admin?screen=dashboard&scenario=claimed');
+    await page.getByRole('link', { name: 'Continue building my site' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Check the account for this website' })).toBeVisible();
+    await expect(page.getByText('owner@example.test', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+
+    const before = await readDraftContent(page);
+
+    await expect(page.getByRole('button', { name: 'Use a different account' })).toHaveCSS('background-color', 'rgb(143, 49, 85)');
+
+    await page.screenshot({ path: testInfo.outputPath(`saved-account-recovery-${width}.png`), fullPage: true });
+    await page.getByRole('button', { name: 'Build a separate website' }).click();
+    await page.getByRole('button', { name: 'Go back', exact: true }).click();
+
+    expect(await readDraftContent(page)).toEqual(before);
+
+    await page.getByRole('button', { name: 'Build a separate website' }).click();
+    await page.getByRole('button', { name: 'Start a new website' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Check the account for this website' })).toHaveCount(0);
+    await expect(page.getByText('Previous setups on this device (1)')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+
+    await page.reload();
+
+    await expect(page.getByRole('heading', { name: 'Check the account for this website' })).toHaveCount(0);
+
+    await page.getByText('Previous setups on this device (1)').click();
+    await page.getByRole('button', { name: /^Open setup 1/u }).click();
+    await page.getByRole('button', { name: 'Open previous setup', exact: true }).click();
+
+    await expect(page.getByRole('heading', { name: 'Check the account for this website' })).toBeVisible();
+    expect(await readDraftContent(page)).toEqual(before);
+    await expect(page.getByRole('button', { name: 'Use a different account' })).toBeVisible();
+  });
+}
