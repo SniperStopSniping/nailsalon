@@ -196,6 +196,7 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify Portfolio controls and failure recovery in mobile browsers',
       'Verify owner settings and payment presentation in mobile browsers',
       'Verify Luster owner entry screens in mobile browsers',
+      'Verify simple website publishing in mobile and desktop browsers',
       'Verify owner account recovery in mobile browsers',
       'Verify direct founding offer in mobile browsers',
       'Verify owner Marketing destinations in mobile browsers',
