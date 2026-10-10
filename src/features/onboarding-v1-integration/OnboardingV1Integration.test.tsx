@@ -327,7 +327,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     await interaction.type(screen.getByLabelText('Verification code'), '424242');
     await interaction.click(screen.getByRole('button', { name: 'Verify and save my site' }));
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Your Luster site is saved' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Lock in Luster free for life' })).toBeVisible();
     expect(user.primaryEmailAddress.attemptVerification).toHaveBeenCalledWith({ code: '424242' });
     expect(mocks.claim).toHaveBeenCalledTimes(2);
     expect(mocks.claim.mock.calls[1]?.[0]).toEqual(firstClaim);
@@ -346,7 +346,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Your Luster site is saved' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Lock in Luster free for life' })).toBeVisible();
 
     const notice = screen.getByTestId('onboarding-preserved-edits');
 
@@ -354,13 +354,15 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(notice).toHaveTextContent('We kept the changes you already made in your dashboard: opening hours, service prices.');
   });
 
-  it('lets a saved owner go back to change something or start over from the saved screen', async () => {
+  it('keeps early save progress and start-over recovery separate from the final offer', async () => {
     const interaction = userEvent.setup();
     mocks.auth.isSignedIn = true;
     mocks.userState.user = verifiedClerkUser();
     mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
     mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
     mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+    const state = loadOnboardingState().state;
+    saveOnboardingState({ ...state, progress: { ...state.progress, currentScreen: 'save_progress' } });
     const assign = vi.fn();
     const originalLocation = window.location;
     Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, assign } });
@@ -368,7 +370,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     try {
       render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
-      expect(await screen.findByRole('heading', { level: 1, name: 'Your Luster site is saved' })).toBeVisible();
+      expect(await screen.findByRole('heading', { level: 1, name: 'Your progress is saved' })).toBeVisible();
       expect(screen.getByRole('button', { name: 'Go back and change something' })).toBeVisible();
 
       await interaction.click(screen.getByRole('button', { name: 'Start over' }));
@@ -591,7 +593,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     });
 
     expect(await screen.findByRole('heading', {
-      name: phase === 'saved' ? 'Your Luster site is saved' : 'Lock in Luster free for life',
+      name: 'Lock in Luster free for life',
     })).toBeVisible();
     expect(mocks.claim).not.toHaveBeenCalled();
   });
@@ -847,8 +849,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(mocks.claim).toHaveBeenCalledTimes(1);
   });
 
-  it('claims an authenticated draft, reveals the saved site, then offers one plan action', async () => {
-    const user = userEvent.setup();
+  it('opens the single lifetime offer directly after a completed save without another click', async () => {
     mocks.auth.isSignedIn = true;
     mocks.userState.user = verifiedClerkUser();
     mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
@@ -857,17 +858,14 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
-    expect(await screen.findByRole('heading', {
-      level: 1,
-      name: 'Your Luster site is saved',
-    })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Lock in Luster free for life' })).toBeVisible();
     expect(mocks.claim).toHaveBeenCalledTimes(1);
-    expect(screen.getByTitle('Saved preview of Isla Nail Studio')).toHaveAttribute(
-      'src',
-      '/en/admin/website/preview/11111111-1111-4111-8111-111111111111?embed=1',
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Choose how to start' }));
+    expect(mocks.savePlan).not.toHaveBeenCalled();
+    expect(loadOnboardingIntegrationFlow().phase).toBe('plans');
+    expect(screen.queryByRole('button', { name: 'Choose how to start' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Your Luster site is saved' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Preview my saved site' })).toHaveAttribute('href', '/en/admin/website/preview/11111111-1111-4111-8111-111111111111');
+    expect(screen.getByRole('button', { name: 'Edit my site' })).toBeVisible();
 
     expect(screen.getByRole('heading', {
       level: 1,
@@ -879,6 +877,23 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(screen.getByText(/Additional SMS, AI receptionist/)).toBeVisible();
     expect(screen.queryByRole('button', { name: /pay|checkout|purchase/iu }))
       .not.toBeInTheDocument();
+  });
+
+  it('keeps the saved website when the owner edits from the lifetime offer', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    const state = loadOnboardingState().state;
+    saveOnboardingState({ ...state, progress: { ...state.progress, currentScreen: 'final_preview' } });
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'plans', savedSite });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Edit my site' }));
+
+    expect(loadOnboardingIntegrationFlow()).toMatchObject({ phase: 'onboarding', savedSite });
+    expect(loadOnboardingState().state.progress.currentScreen).toBe('final_preview');
+    expect(loadOnboardingState().state.profile).toEqual(state.profile);
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(mocks.savePlan).not.toHaveBeenCalled();
   });
 
   it('retains the same saved site and plan retry key when dashboard navigation is interrupted', async () => {
@@ -957,7 +972,10 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
     await user.click(await screen.findByRole('button', { name: 'Continue with my site saved' }));
-    await user.click(await screen.findByRole('button', { name: 'Choose how to start' }));
+
+    expect(await screen.findByRole('heading', { name: 'Lock in Luster free for life' })).toBeVisible();
+    expect(screen.getByText(/photos listed earlier remain only on this device/u)).toBeVisible();
+
     view.unmount();
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
@@ -994,7 +1012,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(await screen.findByRole('heading', {
       level: 1,
-      name: 'Your Luster site is saved',
+      name: 'Lock in Luster free for life',
     })).toBeVisible();
     expect(mocks.claim).toHaveBeenCalledTimes(1);
     expect(mocks.claimMedia).toHaveBeenCalledTimes(2);
