@@ -27,6 +27,21 @@ describe('customer cancellation recovery', () => {
     vi.useRealTimers();
   });
 
+  it('separates the cutoff number and keeps late changes read-only', () => {
+    render(<ManageAppointmentActions {...props} canChange={false} salonPhone="+14165550100" />);
+
+    expect(screen.getByText('Online changes close 24 hours before your appointment.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Call salon' })).toHaveAttribute('href', 'tel:+14165550100');
+    expect(screen.queryByRole('button', { name: 'Cancel appointment' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Choose a new time' })).not.toBeInTheDocument();
+  });
+
+  it('does not reveal a hidden salon phone in the cutoff notice', () => {
+    render(<ManageAppointmentActions {...props} canChange={false} />);
+
+    expect(screen.queryByRole('link', { name: 'Call salon' })).not.toBeInTheDocument();
+  });
+
   it('does not send a cancellation when the customer dismisses confirmation', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

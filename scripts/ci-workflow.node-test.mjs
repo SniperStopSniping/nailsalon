@@ -211,6 +211,7 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify Next Visit settings and guest rebooking in mobile browsers',
       'Verify customer review and confirmation in desktop and mobile browsers',
       'Verify approved Quick Book customer compositions',
+      'Verify customer booking access and private management screens',
       'Verify appointment management and checkout in mobile browsers',
     ],
   };
