@@ -1237,6 +1237,10 @@ jobs:
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/customerAssistant/playwright.config.ts --output=test-results/customer-assistant-components
 
+      - name: Verify owner assistant reload recovery and account isolation
+        if: matrix.suite == 'onboarding-owner'
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerAssistant/playwright.config.ts --output=test-results/owner-assistant-components
+
       - name: Verify platform policy labels and navigation
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/platformPolicy/playwright.config.ts --output=test-results/platform-policy-components
