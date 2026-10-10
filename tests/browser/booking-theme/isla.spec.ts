@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-for (const width of [320, 390, 768, 1440]) {
+for (const width of [320, 390, 430, 768, 1440]) {
   test(`Isla custom presentation preserves booking selection at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/?step=service&isla');
@@ -10,9 +10,49 @@ for (const width of [320, 390, 768, 1440]) {
     await expect(page.getByRole('navigation', { name: 'Booking progress' })).not.toContainText('Artist');
     await expect(page.locator('.isla-service')).toHaveCount(3);
 
-    await page.getByRole('button', { name: '3 more manicure services' }).click();
+    const visit = page.getByRole('region', { name: 'Location and hours' });
+
+    await expect(visit).toContainText('880 Ellesmere Rd, Unit 2');
+    await expect(visit).toContainText('Inside TB Nails');
+    await expect(visit).toContainText('Mon–Fri10 am–7 pm');
+    await expect(visit).toContainText('Sat11 am–5 pm');
+    await expect(visit).toContainText('SunClosed');
+
+    const photoBounds = await page.locator('.isla-photograph').boundingBox();
+    const visitBounds = await visit.boundingBox();
+
+    expect(visitBounds!.y).toBeGreaterThan(photoBounds!.y + photoBounds!.height);
+
+    if (width <= 760) {
+      const bookingBounds = await page.locator('.isla-booking').boundingBox();
+
+      expect(bookingBounds!.y).toBeGreaterThanOrEqual(visitBounds!.y + visitBounds!.height);
+      expect(visitBounds!.height).toBeLessThan(width < 360 ? 230 : 180);
+    }
+
+    const moreServices = page.getByRole('button', { name: 'View 3 more manicure services', exact: true });
+
+    await moreServices.scrollIntoViewIfNeeded();
+
+    await expect(moreServices).toHaveCSS('color', 'rgb(49, 49, 45)');
+    await expect(moreServices).toHaveCSS('border-top-style', 'solid');
+    await expect(moreServices).toHaveCSS('font-weight', '600');
+
+    const buttonBounds = await moreServices.boundingBox();
+    const menuBounds = await page.locator('.isla-menu').boundingBox();
+
+    expect(buttonBounds!.height).toBeGreaterThanOrEqual(50);
+    expect(buttonBounds!.width).toBeCloseTo(menuBounds!.width, 0);
+
+    await moreServices.focus();
+
+    await expect(moreServices).toHaveCSS('outline-style', 'solid');
+
+    await page.screenshot({ path: test.info().outputPath(`more-services-${width}.png`) });
+    await moreServices.press('Enter');
 
     await expect(page.locator('.isla-service')).toHaveCount(6);
+    await expect(moreServices).toHaveCount(0);
 
     await page.getByTestId('service-card-isla-russian').click();
     await page.getByRole('button', { name: 'Add French finish', exact: true }).click();

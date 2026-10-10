@@ -2,8 +2,10 @@ import { and, eq } from 'drizzle-orm';
 import { CalendarDays, Clock, Download, ExternalLink, MapPin, Scissors, Sparkles, User } from 'lucide-react';
 
 import { NextVisitOfferRebook } from '@/components/appointments/NextVisitOfferRebook';
+import styles from '@/components/customer-booking/customer-booking.module.css';
+import { CustomerBookingShell } from '@/components/customer-booking/CustomerBookingShell';
 import { describeAppointmentAccessFailure, verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
-import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
@@ -54,13 +56,13 @@ const FAILURE_COPY: Record<ManageLinkFailure, { title: string; body: string }> =
 function ManageLinkError({ failure, findBookingHref }: { failure: ManageLinkFailure; findBookingHref: string }) {
   const copy = FAILURE_COPY[failure];
   return (
-    <main className="flex min-h-screen items-center justify-center bg-stone-50 px-4 py-14">
-      <div className="w-full max-w-md rounded-3xl bg-white p-8 text-center shadow-sm">
-        <h1 className="text-2xl font-semibold text-stone-900">{copy.title}</h1>
-        <p className="mt-3 text-sm leading-6 text-stone-600">{copy.body}</p>
-        <a href={findBookingHref} className="mt-6 inline-flex rounded-full bg-rose-800 px-5 py-3 text-sm font-semibold text-white">Find my booking</a>
+    <CustomerBookingShell eyebrow="Booking access">
+      <div className={styles.card}>
+        <h1 className={styles.title}>{copy.title}</h1>
+        <p className={styles.intro}>{copy.body}</p>
+        <a href={findBookingHref} className={`${styles.section} ${styles.button}`}>Find my booking</a>
       </div>
-    </main>
+    </CustomerBookingShell>
   );
 }
 
@@ -100,7 +102,6 @@ export async function ManageAppointmentView({
   const resolvedSlug = capability.salonSlug;
   const bookingConfig = resolveBookingConfigFromSettings(capability.salonSettings as SalonSettings | null);
   const timezone = bookingConfig.timezone;
-  const changePolicy = getClientChangePolicy(appointment.startTime, bookingConfig);
   const isActive = ['pending', 'confirmed'].includes(appointment.status);
   const isTerminal = ['cancelled', 'no_show'].includes(appointment.status);
   const isAwaitingDeposit = appointment.status === 'awaiting_payment';
@@ -260,285 +261,289 @@ export async function ManageAppointmentView({
   });
 
   return (
-    <main className="min-h-screen bg-stone-50 px-4 py-14">
-      <div className="mx-auto max-w-xl">
-        <p className="text-center text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Appointment management</p>
-        <div className="mt-5 rounded-[2rem] border border-stone-200 bg-white p-6 shadow-sm sm:p-7">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+    <CustomerBookingShell eyebrow="Appointment management">
+      <div className={styles.card}>
+        <div className={styles.salonRow}>
+          <p className={styles.salonName}>{capability.salonName}</p>
+          <span
+            data-testid="appointment-status"
+            className={styles.badge}
+            data-tone={isTerminal ? 'neutral' : isAwaitingDeposit || appointment.status === 'pending' ? 'pending' : 'confirmed'}
+          >
+            {statusLabel}
+          </span>
+        </div>
+        <h1 className={styles.title}>
+          {appointment.clientName ? `${appointment.clientName}'s appointment` : 'Your appointment'}
+        </h1>
+
+        {isAwaitingDeposit
+          ? (
+              <div className={`${styles.section} ${styles.notice}`}>
+                <p className="font-semibold">Awaiting deposit</p>
+                <p className="mt-1">
+                  This booking is held while we wait for the deposit. It is not confirmed yet, and it
+                  cannot be changed or cancelled from here until the payment is settled.
+                </p>
+                {depositCheckout
+                  ? (
+                      <a
+                        className={`mt-3 ${styles.button}`}
+                        href={depositCheckout.checkoutUrl}
+                      >
+                        Resume payment
+                      </a>
+                    )
+                  : null}
+              </div>
+            )
+          : null}
+
+        <div className={styles.details}>
+          <div className={styles.detail}>
+            <CalendarDays aria-hidden="true" />
             <div>
-              <p className="text-sm font-medium text-rose-700">{capability.salonName}</p>
-              <h1 className="mt-1 text-2xl font-semibold text-stone-900">
-                {appointment.clientName ? `${appointment.clientName}'s appointment` : 'Your appointment'}
-              </h1>
+              <p className={styles.detailLabel}>When</p>
+              <p className={styles.detailValue}>{formatDateInTimeZone(appointment.startTime.toISOString(), { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }, timezone)}</p>
             </div>
-            <span
-              data-testid="appointment-status"
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                appointment.status === 'cancelled'
-                  ? 'bg-stone-200 text-stone-700'
-                  : isAwaitingDeposit
-                    ? 'bg-fuchsia-50 text-fuchsia-800'
-                    : 'bg-emerald-50 text-emerald-800'
-              }`}
-            >
-              {statusLabel}
-            </span>
           </div>
-
-          {isAwaitingDeposit
-            ? (
-                <div className="mt-5 rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4">
-                  <p className="text-sm font-semibold text-fuchsia-900">Awaiting deposit</p>
-                  <p className="mt-1 text-sm leading-6 text-fuchsia-900/80">
-                    This booking is held while we wait for the deposit. It is not confirmed yet, and it
-                    cannot be changed or cancelled from here until the payment is settled.
-                  </p>
-                  {depositCheckout
-                    ? (
-                        <a
-                          className="mt-3 inline-flex rounded-full bg-stone-950 px-4 py-2 text-sm font-semibold text-white"
-                          href={depositCheckout.checkoutUrl}
-                        >
-                          Resume payment
-                        </a>
-                      )
-                    : null}
-                </div>
-              )
-            : null}
-
-          <div className="mt-6 space-y-4 text-sm text-stone-700">
-            <div className="flex gap-3">
-              <CalendarDays className="size-5 shrink-0 text-rose-700" />
-              <span>{formatDateInTimeZone(appointment.startTime.toISOString(), { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }, timezone)}</span>
-            </div>
-            <div className="flex gap-3">
-              <Clock className="size-5 shrink-0 text-rose-700" />
-              <span>
+          <div className={styles.detail}>
+            <Clock aria-hidden="true" />
+            <div>
+              <p className={styles.detailLabel}>
+                Salon time
+              </p>
+              <p className={styles.detailValue}>
                 {formatTimeInTimeZone(appointment.startTime.toISOString(), {}, timezone)}
                 {' – '}
                 {formatTimeInTimeZone(appointment.endTime.toISOString(), {}, timezone)}
                 {' · '}
                 {appointment.totalDurationMinutes}
                 {' minutes'}
-              </span>
+              </p>
             </div>
-            <div className="flex gap-3">
-              <Scissors className="size-5 shrink-0 text-rose-700" />
-              <div>
-                <p>{serviceName}</p>
-                {addOns.length > 0 && (
-                  <ul className="mt-1 space-y-0.5 text-stone-600">
-                    {addOns.map(addOn => (
-                      <li key={`${addOn.name}-${addOn.lineTotalCents}`}>
-                        {`+ ${addOn.name}${addOn.quantity > 1 ? ` ×${addOn.quantity}` : ''} · ${displayMoney(addOn.lineTotalCents)}`}
-                      </li>
-                    ))}
-                  </ul>
+          </div>
+          <div className={styles.detail}>
+            <Scissors aria-hidden="true" />
+            <div>
+              <p className={styles.detailLabel}>Your service</p>
+              <p className={styles.detailValue}>{serviceName}</p>
+              {addOns.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-stone-600">
+                  {addOns.map(addOn => (
+                    <li key={`${addOn.name}-${addOn.lineTotalCents}`}>
+                      {`+ ${addOn.name}${addOn.quantity > 1 ? ` ×${addOn.quantity}` : ''} · ${displayMoney(addOn.lineTotalCents)}`}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          <div className={styles.detail}>
+            <User aria-hidden="true" />
+            <div>
+              <p className={styles.detailLabel}>With</p>
+              <p className={styles.detailValue}>{technicianName}</p>
+            </div>
+          </div>
+          {visitDestination && (
+            <div className={`${styles.detail} ${styles.location}`} data-testid="manage-visit-location">
+              <MapPin aria-hidden="true" />
+              <div className="min-w-0">
+                <p className={styles.detailLabel}>Where to find us</p>
+                {visitLocationName && <p className="font-medium text-stone-900">{visitLocationName}</p>}
+                <p className="break-words">{visitDestination}</p>
+                {addressNotice && (
+                  <p className="mt-1 text-stone-600" data-testid="manage-address-notice">{addressNotice}</p>
+                )}
+                {visitInstructions.map(line => (
+                  <p className="mt-1 text-stone-600" key={line}>{line}</p>
+                ))}
+                {visitDirectionsUrl && (
+                  <a
+                    className={styles.textLink}
+                    href={visitDirectionsUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Get directions
+                    <ExternalLink className="size-4" aria-hidden="true" />
+                  </a>
                 )}
               </div>
             </div>
-            <div className="flex gap-3">
-              <User className="size-5 shrink-0 text-rose-700" />
-              <span>{technicianName}</span>
-            </div>
-            {visitDestination && (
-              <div className="flex gap-3" data-testid="manage-visit-location">
-                <MapPin className="size-5 shrink-0 text-rose-700" />
-                <div className="min-w-0">
-                  {visitLocationName && <p className="font-medium text-stone-900">{visitLocationName}</p>}
-                  <p className="break-words">{visitDestination}</p>
-                  {addressNotice && (
-                    <p className="mt-1 text-stone-600" data-testid="manage-address-notice">{addressNotice}</p>
-                  )}
-                  {visitInstructions.map(line => (
-                    <p className="mt-1 text-stone-600" key={line}>{line}</p>
-                  ))}
-                  {visitDirectionsUrl && (
-                    <a
-                      className="mt-1 inline-flex min-h-11 items-center gap-1 font-semibold text-rose-800"
-                      href={visitDirectionsUrl}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Get directions
-                      <ExternalLink className="size-4" />
-                    </a>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          )}
+        </div>
 
-          <div className="mt-6 rounded-2xl bg-stone-50 p-4 text-sm">
-            {discountAmountCents > 0 && (
-              <>
-                <div className="flex justify-between text-stone-600">
-                  <span>Subtotal</span>
-                  <span>{displayMoney(subtotalCents)}</span>
+        <div className={styles.summary}>
+          {discountAmountCents > 0 && (
+            <>
+              <div className="flex justify-between text-stone-600">
+                <span>Subtotal</span>
+                <span>{displayMoney(subtotalCents)}</span>
+              </div>
+              <div className="mt-1 flex justify-between text-emerald-700">
+                <span className="inline-flex items-center gap-1.5">
+                  <Sparkles className="size-4" />
+                  {appointment.discountLabel || 'Discount'}
+                </span>
+                <span>
+                  −
+                  {displayMoney(discountAmountCents)}
+                </span>
+              </div>
+            </>
+          )}
+          <div className={styles.summaryTotal}>
+            <span>
+              {['cancelled', 'no_show'].includes(appointment.status)
+                ? 'Booked services'
+                : appointment.status === 'completed' ? 'Final total' : 'Estimated total'}
+            </span>
+            <span>
+              {!financialDetailsUnavailable && financialSummary
+                ? displayMoney(
+                  isTerminal
+                    ? financialSummary.serviceInvoiceTotalCents
+                    : financialSummary.totalDueCents,
+                )
+                : financialSummaryEligible
+                  ? 'Unavailable'
+                  : displayMoney(appointment.totalPrice)}
+            </span>
+          </div>
+          {financialDetailsUnavailable
+            ? (
+                <div className={`mt-3 ${styles.notice}`}>
+                  Financial details are under review. Contact the salon for confirmed amounts.
                 </div>
-                <div className="mt-1 flex justify-between text-emerald-700">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Sparkles className="size-4" />
-                    {appointment.discountLabel || 'Discount'}
-                  </span>
-                  <span>
-                    −
-                    {displayMoney(discountAmountCents)}
-                  </span>
-                </div>
-              </>
-            )}
-            <div className="mt-2 flex justify-between text-base font-semibold text-stone-900">
-              <span>
-                {['cancelled', 'no_show'].includes(appointment.status)
-                  ? 'Booked services'
-                  : appointment.status === 'completed' ? 'Final total' : 'Estimated total'}
-              </span>
-              <span>
-                {!financialDetailsUnavailable && financialSummary
-                  ? displayMoney(
-                    isTerminal
-                      ? financialSummary.serviceInvoiceTotalCents
-                      : financialSummary.totalDueCents,
-                  )
-                  : financialSummaryEligible
-                    ? 'Unavailable'
-                    : displayMoney(appointment.totalPrice)}
-              </span>
-            </div>
-            {financialDetailsUnavailable
+              )
+            : financialSummary?.depositPresentationState === 'blocked'
               ? (
-                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    Financial details are under review. Contact the salon for confirmed amounts.
+                  <div className={`mt-3 ${styles.notice}`}>
+                    Deposit and remaining balance are under review. Contact the salon before sending payment.
                   </div>
                 )
-              : financialSummary?.depositPresentationState === 'blocked'
+              : financialSummary
                 ? (
-                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                      Deposit and remaining balance are under review. Contact the salon before sending payment.
-                    </div>
-                  )
-                : financialSummary
-                  ? (
-                      <div className="mt-3 space-y-1.5 border-t border-stone-200 pt-3 text-sm text-stone-700">
-                        {financialSummary.collectedDepositCents > 0 && (
-                          <div className="flex justify-between gap-3">
-                            <span>{isTerminal ? 'Deposit collected' : 'Deposit paid'}</span>
-                            <span data-testid="manage-deposit-paid">
-                              {displayMoney(financialSummary.collectedDepositCents)}
-                            </span>
-                          </div>
-                        )}
-                        {financialSummary.refundedDepositCents > 0 && (
-                          <div className="flex justify-between gap-3">
-                            <span>Deposit refunded</span>
-                            <span data-testid="manage-deposit-refunded">
-                              {displayMoney(financialSummary.refundedDepositCents)}
-                            </span>
-                          </div>
-                        )}
-                        {financialSummary.depositCreditAppliedCents > 0 && (
+                    <div className={styles.summaryBreakdown}>
+                      {financialSummary.collectedDepositCents > 0 && (
+                        <div className="flex justify-between gap-3">
+                          <span>{isTerminal ? 'Deposit collected' : 'Deposit paid'}</span>
+                          <span data-testid="manage-deposit-paid">
+                            {displayMoney(financialSummary.collectedDepositCents)}
+                          </span>
+                        </div>
+                      )}
+                      {financialSummary.refundedDepositCents > 0 && (
+                        <div className="flex justify-between gap-3">
+                          <span>Deposit refunded</span>
+                          <span data-testid="manage-deposit-refunded">
+                            {displayMoney(financialSummary.refundedDepositCents)}
+                          </span>
+                        </div>
+                      )}
+                      {financialSummary.depositCreditAppliedCents > 0 && (
+                        <div className="flex justify-between gap-3">
+                          <span>Deposit payment credit</span>
+                          <span data-testid="manage-deposit-credit">
+                            −
+                            {displayMoney(financialSummary.depositCreditAppliedCents)}
+                          </span>
+                        </div>
+                      )}
+                      {isAwaitingDeposit && (
+                        <>
                           <div className="flex justify-between gap-3">
                             <span>Deposit payment credit</span>
                             <span data-testid="manage-deposit-credit">
-                              −
-                              {displayMoney(financialSummary.depositCreditAppliedCents)}
+                              {displayMoney(0)}
                             </span>
                           </div>
-                        )}
-                        {isAwaitingDeposit && (
-                          <>
-                            <div className="flex justify-between gap-3">
-                              <span>Deposit payment credit</span>
-                              <span data-testid="manage-deposit-credit">
-                                {displayMoney(0)}
-                              </span>
-                            </div>
-                            <div className="flex justify-between gap-3 font-medium">
-                              <span>Deposit due now</span>
-                              <span data-testid="manage-deposit-due">
-                                {displayMoney(depositDueCents!)}
-                              </span>
-                            </div>
-                          </>
-                        )}
-                        {financialSummary.appointmentPaymentsCents > 0 && (
-                          <div className="flex justify-between gap-3">
-                            <span>Other payments</span>
-                            <span>{displayMoney(financialSummary.appointmentPaymentsCents)}</span>
+                          <div className="flex justify-between gap-3 font-medium">
+                            <span>Deposit due now</span>
+                            <span data-testid="manage-deposit-due">
+                              {displayMoney(depositDueCents!)}
+                            </span>
                           </div>
-                        )}
-                        {financialSummary.depositPresentationState === 'refund_candidate' && (
-                          <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
-                            Refund due for owner review. The deposit is not appointment credit.
+                        </>
+                      )}
+                      {financialSummary.appointmentPaymentsCents > 0 && (
+                        <div className="flex justify-between gap-3">
+                          <span>Other payments</span>
+                          <span>{displayMoney(financialSummary.appointmentPaymentsCents)}</span>
+                        </div>
+                      )}
+                      {financialSummary.depositPresentationState === 'refund_candidate' && (
+                        <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
+                          Refund due for owner review. The deposit is not appointment credit.
+                        </div>
+                      )}
+                      {financialSummary.depositPresentationState === 'refund_in_flight' && (
+                        <div className="rounded-lg bg-blue-50 px-3 py-2 text-blue-900">
+                          Deposit refund in progress.
+                        </div>
+                      )}
+                      {financialSummary.depositPresentationState === 'forfeited' && (
+                        <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
+                          Deposit retained after no-show.
+                        </div>
+                      )}
+                      {financialSummary.depositPresentationState === 'refund_review' && (
+                        <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
+                          Deposit handling is under review. Contact the salon for details.
+                        </div>
+                      )}
+                      {!isTerminal && (
+                        <>
+                          <div className="flex justify-between gap-3 font-medium">
+                            <span>Already paid</span>
+                            <span data-testid="manage-already-paid">
+                              {displayMoney(financialSummary.amountAlreadyPaidCents)}
+                            </span>
                           </div>
-                        )}
-                        {financialSummary.depositPresentationState === 'refund_in_flight' && (
-                          <div className="rounded-lg bg-blue-50 px-3 py-2 text-blue-900">
-                            Deposit refund in progress.
+                          <div className="flex justify-between gap-3 font-semibold text-stone-900">
+                            <span>Remaining balance</span>
+                            <span data-testid="manage-balance">
+                              {displayMoney(financialSummary.balanceCents)}
+                            </span>
                           </div>
-                        )}
-                        {financialSummary.depositPresentationState === 'forfeited' && (
-                          <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
-                            Deposit retained after no-show.
-                          </div>
-                        )}
-                        {financialSummary.depositPresentationState === 'refund_review' && (
-                          <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
-                            Deposit handling is under review. Contact the salon for details.
-                          </div>
-                        )}
-                        {!isTerminal && (
-                          <>
-                            <div className="flex justify-between gap-3 font-medium">
-                              <span>Already paid</span>
-                              <span data-testid="manage-already-paid">
-                                {displayMoney(financialSummary.amountAlreadyPaidCents)}
-                              </span>
-                            </div>
-                            <div className="flex justify-between gap-3 font-semibold text-stone-900">
-                              <span>Remaining balance</span>
-                              <span data-testid="manage-balance">
-                                {displayMoney(financialSummary.balanceCents)}
-                              </span>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )
-                  : null}
-          </div>
+                        </>
+                      )}
+                    </div>
+                  )
+                : null}
+        </div>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <a href={`https://calendar.google.com/calendar/render?${googleCalendarQuery.toString()}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-full border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-800">
-              <ExternalLink className="size-4" />
+        <section className={styles.section} aria-label="Calendar options">
+          <h2 className={styles.sectionTitle}>Keep the date</h2>
+          <div className={styles.actionGrid}>
+            <a href={`https://calendar.google.com/calendar/render?${googleCalendarQuery.toString()}`} target="_blank" rel="noreferrer" className={styles.secondaryButton}>
+              <ExternalLink className="size-4" aria-hidden="true" />
               Add to Google Calendar
             </a>
-            <a href={`/${locale}/${resolvedSlug}/manage/${encodeURIComponent(token)}/calendar.ics`} className="inline-flex items-center justify-center gap-2 rounded-full border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-800">
-              <Download className="size-4" />
+            <a href={`/${locale}/${resolvedSlug}/manage/${encodeURIComponent(token)}/calendar.ics`} className={styles.secondaryButton}>
+              <Download aria-hidden="true" />
               Add to Apple Calendar
             </a>
           </div>
+        </section>
 
-          <div className="mt-8">
-            {appointment.status === 'completed' && <NextVisitOfferRebook token={token} />}
-            <ManageAppointmentActions
-              appointmentStatus={appointment.status}
-              token={token}
-              rescheduleUrl={rescheduleUrl}
-              isActive={isActive}
-              canChange={changePolicy.canChange}
-              cutoffHours={bookingConfig.clientChangeCutoffHours}
-              salonPhone={resolvePublicSalonPhone(
-                sharedProfile,
-                capability.salonPhone,
-                confirmedDisplayMode,
-              )}
-            />
-          </div>
+        <div className={styles.section}>
+          {appointment.status === 'completed' && <NextVisitOfferRebook token={token} />}
+          <ManageAppointmentActions
+            appointmentStatus={appointment.status}
+            token={token}
+            rescheduleUrl={rescheduleUrl}
+            isActive={isActive}
+            salonPhone={resolvePublicSalonPhone(
+              sharedProfile,
+              capability.salonPhone,
+              confirmedDisplayMode,
+            )}
+          />
         </div>
       </div>
-    </main>
+    </CustomerBookingShell>
   );
 }

@@ -702,16 +702,34 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--isla-muted);
-  min-height: 44px;
-  margin-top: 7px;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid #a88b58;
+  border-radius: 10px;
+  background: #f2ebdd;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--isla-ink);
+  min-height: 50px;
+  margin-top: 16px;
+  cursor: pointer;
+}
+.isla-more-services:hover {
+  background: #eae0cc;
+}
+.isla-more-services:focus-visible {
+  outline: 2px solid var(--isla-ink);
+  outline-offset: 3px;
+}
+.isla-more-services span {
+  min-width: 0;
 }
 .isla-more-services svg {
-  width: 14px;
-  height: 14px;
-  stroke-width: 1.4;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  stroke-width: 1.8;
 }
 .isla-addon-note {
   margin: 22px 0 0;
@@ -1405,4 +1423,87 @@ body:has(.isla-page) [data-testid="public-salon-footer"] {
 }
 body:has(.isla-page):has([data-testid="public-salon-footer"]) .isla-powered {
   display: none;
+}
+
+/* A compact visit strip follows the original photo and studio note. */
+.isla-visit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 20px;
+  padding: 14px 0;
+  border-block: 1px solid #d9c8a7;
+  font-family: "Isla Sans", Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #55534b;
+}
+.isla-visit-location,
+.isla-visit-hours {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.isla-visit-location > div,
+.isla-visit-hours > div {
+  min-width: 0;
+}
+.isla-visit svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  margin-top: 2px;
+  color: #8f743f;
+}
+.isla-visit p,
+.isla-visit dl,
+.isla-visit dd {
+  margin: 0;
+}
+.isla-visit .isla-visit-address,
+.isla-visit h2 {
+  color: #31312d;
+  font-family: "Isla Sans", Arial, sans-serif !important;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.isla-visit .isla-visit-entrance {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #f0e6d1;
+  color: #31312d;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.isla-visit-hours {
+  padding-left: 12px;
+  border-left: 1px solid #e5dece;
+}
+.isla-visit dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 5px;
+}
+.isla-visit:has(> :only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.isla-visit-hours:only-child {
+  padding-left: 0;
+  border-left: 0;
+}
+@media (max-width: 359px) {
+  .isla-visit {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .isla-visit-hours {
+    padding-left: 0;
+    border-left: 0;
+  }
 }

@@ -1,8 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { ArrowRight, CheckCircle2, LockKeyhole, Mail, Phone } from 'lucide-react';
+import { useId, useState } from 'react';
+
+import styles from '@/components/customer-booking/customer-booking.module.css';
 
 export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; salonPhone?: string | null }) {
+  const hintId = useId();
+  const validationId = useId();
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
@@ -35,8 +40,11 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
 
   if (state === 'sent') {
     return (
-      <div className="mt-6 rounded-2xl bg-emerald-50 p-5 text-sm leading-6 text-emerald-900" data-testid="find-booking-sent">
-        <p className="font-semibold">Request received</p>
+      <div role="status" className={`${styles.section} ${styles.success}`} data-testid="find-booking-sent">
+        <p className={styles.statusHeading}>
+          <CheckCircle2 aria-hidden="true" />
+          Request received
+        </p>
         <p>
           If we find a matching appointment, we&apos;ll
           {' '}
@@ -59,26 +67,36 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
   }
 
   return (
-    <form className="mt-7 space-y-4" onSubmit={submit}>
-      <label className="block">
-        <span className="text-sm font-semibold text-stone-800">Booking email</span>
-        <input type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" className="mt-2 h-12 w-full rounded-xl border border-stone-300 px-4 text-base outline-none focus:border-rose-700 focus:ring-2 focus:ring-rose-100" />
-      </label>
-      <p className="text-sm text-stone-600">
+    <form className={styles.form} onSubmit={submit} aria-busy={state === 'sending'}>
+      <p className={styles.hint} id={hintId}>
         Use the email
         {' '}
         <strong>or</strong>
         {' '}
         mobile number from your booking. If you enter both, we&apos;ll email the link.
       </p>
-      <label className="block">
-        <span className="text-sm font-semibold text-stone-800">Mobile phone</span>
-        <input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={event => setPhone(event.target.value)} placeholder="(416) 555-1234" className="mt-2 h-12 w-full rounded-xl border border-stone-300 px-4 text-base outline-none focus:border-rose-700 focus:ring-2 focus:ring-rose-100" />
+      <label className={styles.label}>
+        <span>Booking email</span>
+        <span className={styles.inputWrap}>
+          <Mail aria-hidden="true" />
+          <input type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" className={styles.input} aria-describedby={validationMessage ? `${hintId} ${validationId}` : hintId} aria-invalid={!!validationMessage} />
+        </span>
       </label>
-      <button type="submit" disabled={state === 'sending'} className="h-auto min-h-12 w-full rounded-full bg-rose-800 px-4 py-3 font-semibold text-white disabled:opacity-60">{state === 'sending' ? 'Sending request…' : deliveryLabel}</button>
-      {validationMessage && <p className="text-sm text-amber-700" data-testid="find-booking-validation">{validationMessage}</p>}
+      <div className={styles.divider} aria-hidden="true">or</div>
+      <label className={styles.label}>
+        <span>Mobile phone</span>
+        <span className={styles.inputWrap}>
+          <Phone aria-hidden="true" />
+          <input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={event => setPhone(event.target.value)} placeholder="(416) 555-1234" className={styles.input} aria-describedby={validationMessage ? `${hintId} ${validationId}` : hintId} aria-invalid={!!validationMessage} />
+        </span>
+      </label>
+      <button type="submit" disabled={state === 'sending'} className={styles.button}>
+        <span>{state === 'sending' ? 'Sending request…' : deliveryLabel}</span>
+        <ArrowRight aria-hidden="true" />
+      </button>
+      {validationMessage && <p role="alert" id={validationId} className={styles.error} data-testid="find-booking-validation">{validationMessage}</p>}
       {state === 'error' && (
-        <p className="text-sm text-red-700" data-testid="find-booking-error">
+        <p role="alert" className={styles.error} data-testid="find-booking-error">
           We could not process the request right now. Your details are still filled in — please try again shortly
           {salonPhone
             ? (
@@ -93,7 +111,10 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
           .
         </p>
       )}
-      <p className="text-xs leading-5 text-stone-500">For privacy, this page never confirms whether a booking exists.</p>
+      <p className={styles.privacy}>
+        <LockKeyhole aria-hidden="true" />
+        <span>For privacy, this page never confirms whether a booking exists.</span>
+      </p>
     </form>
   );
 }

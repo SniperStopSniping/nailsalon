@@ -11,8 +11,6 @@ const props = {
   rescheduleUrl: '/en/synthetic/manage/synthetic-token/reschedule',
   appointmentStatus: 'confirmed',
   isActive: true,
-  canChange: true,
-  cutoffHours: 24,
 };
 
 describe('customer cancellation recovery', () => {
@@ -25,6 +23,28 @@ describe('customer cancellation recovery', () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it.each(['pending', 'confirmed'])('keeps both actions available for a %s appointment', (appointmentStatus) => {
+    render(<ManageAppointmentActions {...props} appointmentStatus={appointmentStatus} salonPhone="+14165550100" />);
+
+    expect(screen.getByRole('button', { name: 'Cancel appointment' })).toBeEnabled();
+    expect(screen.getByRole('link', { name: 'Choose a new time' })).toHaveAttribute('href', props.rescheduleUrl);
+    expect(screen.getByRole('link', { name: 'Call salon' })).toHaveAttribute('href', 'tel:+14165550100');
+    expect(screen.queryByText(/Online changes are closed/)).not.toBeInTheDocument();
+  });
+
+  it.each(['completed', 'cancelled', 'no_show', 'in_progress', 'awaiting_payment'])('does not reopen a %s appointment', (appointmentStatus) => {
+    render(<ManageAppointmentActions {...props} appointmentStatus={appointmentStatus} isActive={false} />);
+
+    expect(screen.queryByRole('button', { name: 'Cancel appointment' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Choose a new time' })).not.toBeInTheDocument();
+  });
+
+  it('does not reveal a hidden salon phone', () => {
+    render(<ManageAppointmentActions {...props} />);
+
+    expect(screen.queryByRole('link', { name: 'Call salon' })).not.toBeInTheDocument();
   });
 
   it('does not send a cancellation when the customer dismisses confirmation', () => {
