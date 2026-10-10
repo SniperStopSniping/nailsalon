@@ -324,7 +324,7 @@ export function OnboardingWorkspaceHandoff({
                       <div className="mt-3 rounded-2xl border border-[var(--owner-line)] bg-white/75 px-4 py-3 text-sm text-[var(--owner-ink)]" role="status">
                         <p className="font-semibold">Your core Luster app is free for life.</p>
                         <p className="mt-1 text-[var(--owner-muted)]">$0 monthly software fee. Unlimited emails included. Extra texts, AI receptionist and phone usage are paid separately.</p>
-                        <p className="mt-1 text-[var(--owner-muted)]">Your one-time 100-text allowance uses business verification. View your text balance and any verification steps in Plan &amp; Usage.</p>
+                        <p className="mt-1 text-[var(--owner-muted)]">100 free texts are included once you verify your owner email and phone. Open More → Text Message Balance to claim your welcome allowance. No payment needed.</p>
                       </div>
                     )
                   : handoff.handoff.planIntent === 'founding_interest'
