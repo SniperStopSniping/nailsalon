@@ -31,7 +31,7 @@ for (const width of [320, 390, 430, 1280]) {
     await page.goto('/?app=usage');
 
     await expect(page.getByText('83 SMS credits remaining', { exact: true })).toBeVisible();
-    await expect(page.getByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Free-text allowance already claimed. Verification does not add another 100 credits.', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /Claim 100 free texts|Verify free-text allowance/ })).toHaveCount(0);
     await expect(page.getByText('Credit purchases are not available yet.', { exact: true })).toBeVisible();
     await expect(page.getByText('1 SMS credit charged', { exact: true })).toBeVisible();
