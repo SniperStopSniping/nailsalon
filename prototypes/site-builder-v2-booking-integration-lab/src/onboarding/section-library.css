@@ -7,7 +7,21 @@
  * from the shared page plan via data attributes.
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=Newsreader:opsz,wght@6..72,400..760&display=swap');
+/* Reuse the existing local faces. A remote @import delayed the entire
+   onboarding stylesheet and fetched fonts already bundled with the app. */
+@font-face {
+  font-family: 'Inter';
+  src: url('./quick-book/fonts/inter-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Newsreader';
+  src: url('./quick-book/fonts/newsreader-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
 
 /* ---------------------------------------------------------------- */
 /* Composition: surfaces, rhythm, attachment                         */

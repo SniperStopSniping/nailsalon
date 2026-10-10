@@ -46,11 +46,11 @@
 .inputWrap svg { position: absolute; left: 15px; width: 19px; color: var(--owner-muted); pointer-events: none; stroke-width: 1.6; }
 .input {
   width: 100%; min-width: 0; min-height: 52px;
-  border: 1px solid var(--owner-line-strong); border-radius: 14px;
+  border: 1px solid var(--owner-control); border-radius: 14px;
   background: var(--owner-surface); color: var(--owner-ink);
   padding: 13px 14px 13px 44px; font: inherit; font-size: 16px; font-weight: 400;
 }
-.input::placeholder { color: var(--owner-muted); opacity: .85; }
+.input::placeholder { color: var(--owner-muted); opacity: 1; }
 .hint { font-size: 13px; color: var(--owner-muted); line-height: 1.6; }
 .divider { display: flex; align-items: center; gap: 12px; color: var(--owner-muted); font-size: 13px; }
 .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--owner-line); }

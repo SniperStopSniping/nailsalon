@@ -47,11 +47,11 @@ export const nailSalonNo5Theme: Theme = {
     // Premium Glass Theme - Additional semantic colors
     // (Using theme-appropriate values for this theme)
     espresso: '#5C4037', // Warm brown for primary text
-    taupe: '#8A7E78', // Secondary text
+    taupe: '#6F615B', // Secondary text
     cream: '#fff7ec', // Soft cream (same as surfaceAlt)
     peach: '#f5e6d3', // Soft peach (same as selectedBackground)
-    streakOrange: '#FF9500', // Streak flame color
-    successGreen: '#34C759', // Check/success state
+    streakOrange: '#995000', // Streak flame color
+    successGreen: '#237A43', // Check/success state
   },
 };
 
@@ -87,15 +87,15 @@ export const premiumGlassTheme: Theme = {
     selectedRing: '#D6A249', // Gold selection ring
 
     // Text
-    titleText: '#8A7E78', // Taupe secondary text
+    titleText: '#6F615B', // Taupe secondary text
 
     // Premium Glass Theme - Additional semantic colors
     espresso: '#3F2B24', // Primary text (espresso brown)
-    taupe: '#8A7E78', // Secondary text
+    taupe: '#6F615B', // Secondary text
     cream: '#FFF8E1', // Soft cream accents
     peach: '#FFE0B2', // Soft peach accents
-    streakOrange: '#FF9500', // Streak flame color
-    successGreen: '#34C759', // Check/success state
+    streakOrange: '#995000', // Streak flame color
+    successGreen: '#237A43', // Check/success state
   },
 };
 
@@ -136,11 +136,11 @@ export const luxuryRewardsTheme: Theme = {
 
     // Semantic colors - exact from original design
     espresso: '#3F2B24', // Primary text throughout
-    taupe: '#8A7E78', // Secondary text, labels, subtitles
+    taupe: '#6F615B', // Secondary text, labels, subtitles
     cream: '#FDF7F0', // Card text on dark backgrounds
     peach: '#8D6E63', // Decorative blur accent
-    streakOrange: '#FF9500', // Streak flame color
-    successGreen: '#34C759', // Check/success state
+    streakOrange: '#995000', // Streak flame color
+    successGreen: '#237A43', // Check/success state
   },
 };
 
@@ -156,7 +156,7 @@ export const luxuryRewardsTheme: Theme = {
  *
  * Color palette:
  * - Primary text: Espresso brown (#3F2B24)
- * - Secondary text: Taupe (#8A7E78)
+ * - Secondary text: Taupe (#6F615B)
  * - Accent: Rich gold (#D6A249)
  * - Background: Warm ivory (#FDF7F0)
  */
@@ -177,7 +177,7 @@ export const espressoTheme: EspressoTheme = {
 
     // Ink (Text)
     inkMain: '#3F2B24', // Espresso brown - primary text
-    inkMuted: '#8A7E78', // Taupe - secondary text, labels
+    inkMuted: '#6F615B', // Taupe - secondary text, labels
     inkInverse: '#FDF7F0', // Light text on dark backgrounds
 
     // Accent
@@ -191,9 +191,9 @@ export const espressoTheme: EspressoTheme = {
     borderAccent: '#D6A249', // Gold accent borders
 
     // Semantic
-    success: '#34C759', // Green - check marks, success states
-    warning: '#FF9500', // Orange - streak flames
-    error: '#EF4444', // Red - sign out button, error states
+    success: '#237A43', // Green - check marks, success states
+    warning: '#995000', // Orange - streak flames
+    error: '#B42343', // Red - sign out button, error states
   },
 
   // ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@ export const espressoTheme: EspressoTheme = {
     buttonPrimaryText: '#3F2B24', // Espresso text keeps the gold button readable
     buttonSecondaryBg: '#ffffff', // White secondary button background
     buttonSecondaryText: '#3F2B24', // Espresso text on secondary buttons
-    buttonGhostText: '#8A7E78', // Taupe text for ghost buttons
+    buttonGhostText: '#6F615B', // Taupe text for ghost buttons
     buttonRadius: '0.75rem', // Button corner radius (12px)
     buttonPaddingX: '1.5rem', // Horizontal padding (24px)
     buttonPaddingY: '0.75rem', // Vertical padding (12px)
@@ -266,7 +266,7 @@ export const espressoTheme: EspressoTheme = {
  *
  * Color palette:
  * - Primary text: Deep purple (#4A3B5C)
- * - Secondary text: Dusty lavender (#8B7B98)
+ * - Secondary text: Dusty lavender (#675571)
  * - Accent: Rich violet (#7B4EA3)
  * - Background: Soft lavender (#F8F5FC)
  */
@@ -287,7 +287,7 @@ export const lavenderTheme: EspressoTheme = {
 
     // Ink (Text)
     inkMain: '#4A3B5C', // Deep purple - primary text
-    inkMuted: '#8B7B98', // Dusty lavender - secondary text, labels
+    inkMuted: '#675571', // Dusty lavender - secondary text, labels
     inkInverse: '#F8F5FC', // Light text on dark backgrounds
 
     // Accent
@@ -301,9 +301,9 @@ export const lavenderTheme: EspressoTheme = {
     borderAccent: '#7B4EA3', // Violet accent borders
 
     // Semantic
-    success: '#34C759', // Green - check marks, success states
-    warning: '#FF9500', // Orange - streak flames
-    error: '#EF4444', // Red - sign out button, error states
+    success: '#237A43', // Green - check marks, success states
+    warning: '#995000', // Orange - streak flames
+    error: '#B42343', // Red - sign out button, error states
   },
 
   // ---------------------------------------------------------------------------
@@ -357,7 +357,7 @@ export const lavenderTheme: EspressoTheme = {
     buttonPrimaryText: '#ffffff', // White text on primary buttons
     buttonSecondaryBg: '#ffffff', // White secondary button background
     buttonSecondaryText: '#4A3B5C', // Deep purple text on secondary buttons
-    buttonGhostText: '#8B7B98', // Dusty lavender text for ghost buttons
+    buttonGhostText: '#675571', // Dusty lavender text for ghost buttons
     buttonRadius: '0.75rem', // Button corner radius (12px)
     buttonPaddingX: '1.5rem', // Horizontal padding (24px)
     buttonPaddingY: '0.75rem', // Vertical padding (12px)
@@ -376,7 +376,7 @@ export const lavenderTheme: EspressoTheme = {
  *
  * Color palette:
  * - Primary text: Warm espresso brown (#3F2B24)
- * - Secondary text: Soft taupe (#8A7E78)
+ * - Secondary text: Soft taupe (#6F615B)
  * - Accent: Gold (#D6A249)
  * - Background: Soft ivory (#FDF7F0)
  * - Highlights: Cream (#FFF8E1) and Peach (#FFE0B2)
@@ -398,7 +398,7 @@ export const pastelTheme: EspressoTheme = {
 
     // Ink (Text) - warm browns
     inkMain: '#3F2B24', // Espresso - primary text
-    inkMuted: '#8A7E78', // Taupe - secondary text, labels
+    inkMuted: '#6F615B', // Taupe - secondary text, labels
     inkInverse: '#FDF7F0', // Light text on dark backgrounds
 
     // Accent - gold
@@ -412,9 +412,9 @@ export const pastelTheme: EspressoTheme = {
     borderAccent: '#D6A249', // Gold accent borders
 
     // Semantic
-    success: '#34C759', // Green - check marks, success states
-    warning: '#FF9500', // Orange - streak flames
-    error: '#EF4444', // Red - sign out button, error states
+    success: '#237A43', // Green - check marks, success states
+    warning: '#995000', // Orange - streak flames
+    error: '#B42343', // Red - sign out button, error states
   },
 
   // ---------------------------------------------------------------------------
@@ -468,7 +468,7 @@ export const pastelTheme: EspressoTheme = {
     buttonPrimaryText: '#3F2B24', // Espresso text keeps the gold button readable
     buttonSecondaryBg: '#ffffff', // White secondary button background
     buttonSecondaryText: '#3F2B24', // Espresso text on secondary buttons
-    buttonGhostText: '#8A7E78', // Taupe text for ghost buttons
+    buttonGhostText: '#6F615B', // Taupe text for ghost buttons
     buttonRadius: '0.75rem', // Button corner radius (12px)
     buttonPaddingX: '1.5rem', // Horizontal padding (24px)
     buttonPaddingY: '0.75rem', // Vertical padding (12px)

@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { expectReadableText } from '../assert-readable';
+
 test.beforeEach(async ({ page }) => {
   // Assert settled geometry; the sheet's entrance otherwise starts 12px low.
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -35,6 +37,8 @@ test('compact conversation keeps mobile controls readable, reachable and functio
   await expect(page.getByText('Open Photos & Gallery to update your profile photos.')).toBeVisible();
   await expect(page.getByTestId('owner-assistant-thread')).not.toContainText('page_gallery');
   await expect(page.getByRole('button', { name: 'Photos & Gallery' })).toBeVisible();
+
+  await expectReadableText(page);
 
   const geometry = await page.evaluate(() => {
     const sheet = document.querySelector('[data-testid="owner-assistant-sheet"]')!;

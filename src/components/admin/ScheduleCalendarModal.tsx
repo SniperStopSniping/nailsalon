@@ -357,7 +357,7 @@ function DayCell({
           ? 'bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent-strong,#70213f)]'
           : isCurrentMonth
             ? 'bg-[var(--owner-surface,#fffdfb)] text-[var(--owner-ink,#30262a)] hover:bg-[var(--owner-blush,#f6e7ec)]'
-            : 'bg-[var(--owner-ground,#f8f2ed)] text-[var(--owner-muted,#706267)] opacity-70'
+            : 'bg-[var(--owner-ground,#f8f2ed)] text-[var(--owner-muted,#706267)]'
     }
         ${count > 0 && !isSelected && !closed ? 'ring-1 ring-[var(--owner-line-strong,#d8c1c8)]' : ''}
       `}

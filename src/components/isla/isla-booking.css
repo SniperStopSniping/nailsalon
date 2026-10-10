@@ -99,8 +99,10 @@
 .isla-mobile-header {
   --isla-paper: #faf7f0;
   --isla-ink: #242421;
-  --isla-muted: #77756c;
+  --isla-muted: #656257;
   --isla-gold: #ac9060;
+  --isla-gold-ink: #7a622f;
+  --isla-control: #8c7957;
   --isla-line: #e5dece;
   box-sizing: border-box;
   max-width: 480px;
@@ -173,7 +175,7 @@
 }
 .isla-manage:focus-visible,
 .isla-instagram:focus-visible {
-  outline: 2px solid var(--isla-gold);
+  outline: 2px solid var(--isla-gold-ink);
   outline-offset: 5px;
 }
 .isla-hero {
@@ -197,8 +199,8 @@
   display: flex;
   align-items: center;
   gap: 11px;
-  color: #9c8151;
-  font-size: 8.5px;
+  color: var(--isla-gold-ink);
+  font-size: 10px;
   font-weight: 600;
   line-height: 1.6;
   letter-spacing: 1.8px;
@@ -222,13 +224,13 @@
 }
 .isla-headline em {
   font-weight: 400;
-  color: #a18550;
+  color: var(--isla-gold-ink);
 }
 .isla-supporting-copy {
   position: relative;
   margin: 0;
   color: var(--isla-muted);
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 400;
   line-height: 1.75;
   letter-spacing: -0.1px;
@@ -240,7 +242,7 @@
   z-index: 1;
   width: 80px;
   margin: 0;
-  color: #a79a82;
+  color: var(--isla-gold-ink);
   font-family: "Isla Script", cursive;
   font-size: 18px;
   font-weight: 400;
@@ -293,9 +295,9 @@
 .isla-editorial-card > span {
   display: block;
   margin-bottom: 7px;
-  color: #a48b5b;
+  color: var(--isla-gold-ink);
   font-family: "Isla Sans", Arial, sans-serif;
-  font-size: 7.8px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1.4;
   letter-spacing: 1.65px;
@@ -326,8 +328,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #aaa69c;
-  font-size: 10px;
+  color: #656257;
+  font-size: 12px;
   font-weight: 400;
   white-space: nowrap;
 }
@@ -336,9 +338,9 @@
   place-items: center;
   width: 21px;
   height: 21px;
-  border: 1px solid #e2ddcf;
+  border: 1px solid var(--isla-control);
   border-radius: 50%;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1;
 }
 .isla-progress [aria-current="step"] {
@@ -373,7 +375,7 @@
     gap: 10px;
   }
   .isla-manage {
-    font-size: 9px;
+    font-size: 11px;
   }
   .isla-instagram {
     min-width: 24px;
@@ -392,7 +394,7 @@
     opacity: 0.17;
   }
   .isla-eyebrow {
-    font-size: 8px;
+    font-size: 10px;
     letter-spacing: 1.5px;
     gap: 9px;
   }
@@ -402,7 +404,8 @@
     margin-top: 14px;
   }
   .isla-supporting-copy {
-    font-size: 10px;
+    max-width: calc(100% - 76px);
+    font-size: 12px;
     line-height: 1.85;
     letter-spacing: -0.1px;
   }
@@ -421,7 +424,7 @@
     right: -5px;
   }
   .isla-editorial-card > span {
-    font-size: 6.9px;
+    font-size: 10px;
     letter-spacing: 1.45px;
   }
   .isla-editorial-card strong {
@@ -434,7 +437,7 @@
     gap: 8px;
   }
   .isla-progress li {
-    font-size: 9px;
+    font-size: 11px;
     gap: 5px;
   }
   .isla-progress .isla-progress-rule {
@@ -481,8 +484,10 @@
 .isla-page {
   --isla-paper: #faf7f0;
   --isla-ink: #31312d;
-  --isla-muted: #77756c;
+  --isla-muted: #656257;
   --isla-gold: #ac9060;
+  --isla-gold-ink: #7a622f;
+  --isla-control: #8c7957;
   --isla-line: #e5dece;
   --isla-serif: "Isla Cormorant", Georgia, serif;
   --isla-sans: "Isla Sans", Arial, sans-serif;
@@ -504,7 +509,7 @@
 }
 .isla-page button:focus-visible,
 .isla-page a:focus-visible {
-  outline: 2px solid #8f743f;
+  outline: 2px solid #7a622f;
   outline-offset: 4px;
 }
 .isla-shell {
@@ -550,7 +555,7 @@
   width: 44px;
   height: 44px;
   padding: 10px;
-  color: #8f743f;
+  color: #7a622f;
 }
 .isla-search-toggle svg {
   width: 19px;
@@ -600,7 +605,7 @@
   box-shadow: none !important;
 }
 .isla-page [data-testid="service-category-track"] button[aria-pressed="true"] {
-  color: #8f743f !important;
+  color: #7a622f !important;
   border-bottom: 2px solid var(--isla-gold) !important;
   font-weight: 600;
 }
@@ -652,7 +657,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.7;
   color: var(--isla-muted);
   margin: 7px 0 6px;
@@ -671,8 +676,8 @@
 }
 .isla-service-badge {
   display: block;
-  color: #8f743f;
-  font-size: 9px;
+  color: #7a622f;
+  font-size: 11px;
   letter-spacing: 1px;
   text-transform: uppercase;
   margin-bottom: 5px;
@@ -685,7 +690,7 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  color: #8f743f;
+  color: #7a622f;
 }
 .isla-pick svg {
   width: 12px;
@@ -694,7 +699,7 @@
 }
 .isla-service[data-selected="true"] .isla-pick {
   border-color: var(--isla-gold);
-  background: var(--isla-gold);
+  background: var(--isla-gold-ink);
   color: white;
 }
 .isla-more-services {
@@ -745,7 +750,7 @@
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-  color: #8f743f;
+  color: #7a622f;
   margin-top: 2px;
   stroke-width: 1.4;
 }
@@ -825,7 +830,7 @@
   letter-spacing: 2.4px;
   text-transform: uppercase;
   font-weight: 600;
-  color: #8f743f;
+  color: #7a622f;
   margin: 0;
 }
 .isla-gallery h2 {
@@ -847,7 +852,7 @@
   gap: 9px;
   align-items: center;
   font-size: 12px;
-  color: #8f743f !important;
+  color: #7a622f !important;
   padding-bottom: 5px;
   max-width: 100%;
 }
@@ -1041,7 +1046,7 @@
     padding: 14px 18px;
   }
   .isla-editorial-card > span {
-    font-size: 9px;
+    font-size: 11px;
   }
   .isla-editorial-card strong {
     font-size: 22px;
@@ -1060,7 +1065,7 @@
   .isla-studio-note svg {
     width: 28px;
     height: 28px;
-    color: #8f743f;
+    color: #7a622f;
     flex-shrink: 0;
     stroke-width: 1;
   }
@@ -1241,7 +1246,7 @@
     letter-spacing: -0.4px;
   }
   .isla-small-caps {
-    font-size: 8px;
+    font-size: 10px;
     letter-spacing: 1.8px;
   }
   .isla-instagram-link {
@@ -1265,7 +1270,7 @@
     padding-top: 14px;
   }
   .isla-gallery-grid figcaption {
-    font-size: 9px;
+    font-size: 11px;
     margin-top: 9px;
   }
   .isla-footer {
@@ -1317,7 +1322,7 @@
     padding: 11px 9px;
   }
   .isla-service-description {
-    font-size: 10px;
+    font-size: 12px;
   }
   .isla-service-meta {
     font-size: 11px;
@@ -1337,7 +1342,7 @@
     font-size: 29px;
   }
   .isla-footer {
-    font-size: 9px;
+    font-size: 11px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1382,14 +1387,14 @@
   --customer-site-heading-font: "Isla Cormorant", Georgia, serif !important;
   --customer-site-body-font: "Isla Sans", Arial, sans-serif !important;
   --customer-site-ink: #31312d !important;
-  --customer-site-muted: #77756c !important;
+  --customer-site-muted: #656257 !important;
   --booking-brand-primary: #31312d !important;
   --booking-brand-foreground: #fffdf8 !important;
   --booking-brand-state-border: #b89b65 !important;
   --booking-brand-selection-background: #f6f1e6 !important;
   --theme-primary: #b89b65;
-  --theme-primary-dark: #8f743f;
-  --theme-accent: #8f743f;
+  --theme-primary-dark: #7a622f;
+  --theme-accent: #7a622f;
   --theme-card-border: #e5dece;
   --theme-background: #faf7f0;
   --theme-surface-alt: #f2ede3;
@@ -1408,7 +1413,7 @@
   }
   .isla-progress li {
     gap: 4px;
-    font-size: 9px;
+    font-size: 11px;
   }
   .isla-progress .isla-progress-rule {
     max-width: 20px;
@@ -1418,7 +1423,7 @@
 body:has(.isla-page) [data-testid="public-salon-footer"] {
   background: #faf7f0;
   border-color: #e5dece;
-  color: #77756c;
+  color: #656257;
   font-family: "Isla Sans", Arial, sans-serif;
 }
 body:has(.isla-page):has([data-testid="public-salon-footer"]) .isla-powered {
@@ -1454,7 +1459,7 @@ body:has(.isla-page):has([data-testid="public-salon-footer"]) .isla-powered {
   height: 17px;
   flex: 0 0 17px;
   margin-top: 2px;
-  color: #8f743f;
+  color: #7a622f;
 }
 .isla-visit p,
 .isla-visit dl,

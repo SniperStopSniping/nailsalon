@@ -1,4 +1,8 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
+import axe from 'axe-core';
+
+type AxeRuntime = typeof axe;
 
 const STORAGE_KEY = 'luster:onboarding-v1-lab';
 const screens = [
@@ -49,6 +53,9 @@ for (const width of [320, 390, 430, 1280]) {
       await page.reload();
 
       await expect(page.locator(selector)).toBeVisible();
+
+      await expectReadableText(page);
+
       await expect(page.locator('.onboarding-shell__brand .onboarding-brand-mark')).toBeVisible();
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
       await expect(page.locator('.onboarding-shell__content h1').first()).toBeVisible();
@@ -62,4 +69,26 @@ for (const width of [320, 390, 430, 1280]) {
       }
     }
   });
+}
+
+// The standalone lab is ESM; its test helper stays inside this package.
+async function expectReadableText(page: Page) {
+  await page.addScriptTag({ content: axe.source });
+  await page.evaluate(() => document.fonts.ready);
+
+  // Entrance animations and colour transitions can be mid-frame when the
+  // content becomes visible. Retry the real audit, without disabling styles.
+  await expect(async () => {
+    const violations = await page.evaluate(async () => {
+      const audit = await (window as typeof window & { axe: AxeRuntime }).axe.run(document.body, {
+        runOnly: { type: 'rule', values: ['color-contrast'] },
+      });
+      return audit.violations.flatMap(violation => violation.nodes.map(node => ({
+        target: node.target,
+        summary: node.failureSummary,
+      })));
+    });
+
+    expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);
+  }).toPass({ timeout: 5000, intervals: [250, 500] });
 }

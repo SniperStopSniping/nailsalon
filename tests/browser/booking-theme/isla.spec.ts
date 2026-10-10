@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { expectReadableText } from '../assert-readable';
+
 for (const width of [320, 390, 430, 768, 1440]) {
   test(`Isla custom presentation preserves booking selection at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
@@ -187,4 +189,16 @@ test('cleared Isla profiles stay absent while booking and approved gallery remai
   await expect(page.getByRole('link', { name: 'Manage my booking' })).toHaveCount(2);
   await expect(page.locator('.isla-gallery-grid img')).toHaveCount(3);
   await expect(page.getByTestId('service-card-isla-russian')).toBeVisible();
+});
+
+test('Isla hero, service menu and selected extras have readable text', async ({ page }) => {
+  await page.goto('/?step=service&isla');
+
+  await expect(page.locator('.isla-service')).toHaveCount(3);
+
+  await expectReadableText(page);
+  await page.getByRole('button', { name: 'View 3 more manicure services', exact: true }).click();
+  await page.getByTestId('service-card-isla-russian').click();
+  await page.getByRole('button', { name: 'Add French finish', exact: true }).click();
+  await expectReadableText(page);
 });

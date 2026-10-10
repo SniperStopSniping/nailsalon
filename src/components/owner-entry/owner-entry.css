@@ -3,10 +3,11 @@
   --entry-ground: #fcf3f2;
   --entry-card: #fffcfa;
   --entry-ink: #3b192b;
-  --entry-muted: #75656b;
+  --entry-muted: #67545e;
   --entry-plum: #8f3155;
   --entry-plum-hover: #70213f;
   --entry-border: #ead7de;
+  --entry-control: #9d7a88;
   --entry-champagne: #b89575;
   position: relative;
   isolation: isolate;
@@ -388,7 +389,7 @@
 }
 .luster-auth-input {
   min-height: 50px;
-  border: 1px solid #dec6cf;
+  border: 1px solid var(--entry-control);
   border-radius: 14px;
   background: #fffdfa;
   box-shadow: none;
@@ -415,7 +416,7 @@
 }
 .luster-auth-social {
   min-height: 48px;
-  border: 1px solid #dec6cf;
+  border: 1px solid var(--entry-control);
   border-radius: 999px;
   box-shadow: none;
   background: transparent;
