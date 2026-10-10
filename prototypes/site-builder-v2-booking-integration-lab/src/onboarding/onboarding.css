@@ -6904,3 +6904,14 @@ body:has(.onboarding-app) {
   .onboarding-site-preview.qbp-page .onboarding-customer-booking { padding: 30px 36px; }
   .onboarding-site-preview.qbp-page .onboarding-quick-book-booking-heading h2 { font-size: 38px; }
 }
+
+/* Later setup screens load on demand without hiding the navigation shell. */
+.onboarding-deferred-content {
+  min-height: 160px;
+  display: grid;
+  place-content: center;
+  gap: 16px;
+  padding: 32px 20px;
+  color: #67545e;
+  text-align: center;
+}

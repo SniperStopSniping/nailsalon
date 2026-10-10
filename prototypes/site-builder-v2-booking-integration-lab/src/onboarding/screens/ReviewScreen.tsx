@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import type { SiteBuilderDocument } from '../../model/types';
+import { BUILDER_HANDOFF_TRIGGER_ID } from '../components/action-ids';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import { SCREEN_METADATA } from '../copy';
 import { SITE_PALETTE_BY_ID } from '../model/palettes';
@@ -30,8 +31,6 @@ const STATUS_ICONS = {
   ready: Check,
   recommended: Circle,
 } as const;
-
-export const BUILDER_HANDOFF_TRIGGER_ID = 'onboarding-open-builder';
 
 type FinalReviewScreenProps = {
   document: SiteBuilderDocument | null;

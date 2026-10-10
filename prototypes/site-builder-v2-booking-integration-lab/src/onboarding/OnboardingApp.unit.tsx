@@ -356,7 +356,7 @@ describe('OnboardingApp handoff boundaries', () => {
     const preservedBio = state.profile.about.shortBio;
     renderAt(state);
 
-    const bio = screen.getByRole('textbox', { name: 'Short introduction' });
+    const bio = await screen.findByRole('textbox', { name: 'Short introduction' });
 
     expect(bio).toHaveValue(preservedBio);
 
@@ -488,7 +488,7 @@ describe('OnboardingApp handoff boundaries', () => {
     state.recipe.starter = 'quick_book';
     renderAt(state);
     const baseEntry = currentBrowserHistoryEntry();
-    await user.click(screen.getByText('Cover photo', { selector: '[data-media-group="cover"] > summary span' }));
+    await user.click(await screen.findByText('Cover photo', { selector: '[data-media-group="cover"] > summary span' }));
     const card = screen.getByRole('button', { name: /^Photo Split/u });
     const back = vi.spyOn(window.history, 'back').mockImplementation(() => undefined);
 
@@ -840,7 +840,7 @@ describe('OnboardingApp handoff boundaries', () => {
     const onEnterBuilder = vi.fn();
     const { lab } = renderAt(state, onEnterBuilder);
 
-    expect(screen.getByRole('button', { name: 'Finish setup' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Finish setup' })).toBeVisible();
     expect(screen.queryByRole('dialog', { name: 'Your site is ready' })).not.toBeInTheDocument();
     expect(onEnterBuilder).not.toHaveBeenCalled();
 
@@ -902,7 +902,7 @@ describe('OnboardingApp handoff boundaries', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Save my site' }));
+    await user.click(await screen.findByRole('button', { name: 'Save my site' }));
 
     expect(onSaveSite).toHaveBeenCalledOnce();
 
@@ -944,7 +944,7 @@ describe('OnboardingApp handoff boundaries', () => {
       />,
     );
 
-    expect(screen.getByText(/Finish setup to save these final choices/i)).toBeVisible();
+    expect(await screen.findByText(/Finish setup to save these final choices/i)).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Save my site' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Finish setup' }));
@@ -957,7 +957,7 @@ describe('OnboardingApp handoff boundaries', () => {
     const state = stateAt('final_preview');
     renderAt(state);
     const baseEntry = currentBrowserHistoryEntry();
-    const builderTrigger = screen.getByRole('button', { name: 'Finish setup' });
+    const builderTrigger = await screen.findByRole('button', { name: 'Finish setup' });
 
     await user.click(builderTrigger);
     const planEntry = currentBrowserHistoryEntry();
@@ -1184,43 +1184,26 @@ describe('OnboardingApp handoff boundaries', () => {
     });
   });
 
-  it('records completion without covering the Final Review preview', () => {
-    vi.useFakeTimers();
-    try {
-      const state = stateAt('site_style');
-      state.recipe.styleConfirmed = false;
-      renderAtWithFeedback(state);
+  it('records completion without covering the Final Review preview', async () => {
+    const state = stateAt('site_style');
+    state.recipe.styleConfirmed = false;
+    renderAtWithFeedback(state);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Use this look' }));
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Use this look' }));
 
-      expect(screen.getByRole('heading', { name: /Your site is coming together/u })).toBeVisible();
-      // The design-stage toast survives the coinciding navigation, then hands
-      // off to the everything-ready milestone before the visuals go quiet.
-      expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
-        'Your website design is set',
-      );
+    expect(await screen.findByRole('heading', { name: /Your site is coming together/u })).toBeVisible();
+    expect(document.querySelector('.onboarding-feedback')).toHaveTextContent('Your website design is set');
 
-      act(() => vi.advanceTimersByTime(2_300));
+    await waitFor(() => expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
+      'Everything you need is ready',
+    ), { timeout: 3_000 });
+    await waitFor(() => expect(document.querySelector('.onboarding-feedback')).toBeNull(), { timeout: 3_000 });
+    const saved = parseOnboardingState(window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '');
 
-      expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
-        'Everything you need is ready',
-      );
-
-      act(() => vi.advanceTimersByTime(2_800));
-
-      expect(document.querySelector('.onboarding-feedback')).toBeNull();
-
-      const saved = parseOnboardingState(
-        window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
-      );
-
-      expect(saved.state.reviewOptions.feedbackMilestones).toEqual(
-        expect.arrayContaining(['stage_design', 'all_required_complete']),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+    expect(saved.state.reviewOptions.feedbackMilestones).toEqual(
+      expect.arrayContaining(['stage_design', 'all_required_complete']),
+    );
+  }, 10_000);
 
   it('flushes the exact Screen 6 draft before the account gate replaces onboarding', async () => {
     const state = stateAt('site_style');

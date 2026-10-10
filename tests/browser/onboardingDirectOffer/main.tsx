@@ -1,5 +1,20 @@
-import '@/styles/global.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/styles.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/final-hybrid.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/onboarding.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/daniela-basics-booking.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/gallery-policy-polish.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/daniela-about-style.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/section-library.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/palette.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/style-colours-save.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/screen-seven-booking.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/screen-eight-about.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/booking-layout-screen.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/feedback/feedback.css';
 import '@/features/onboarding-v1-integration/onboarding-integration.css';
+import '@/features/onboarding-v1-integration/account-gate/account-gate.css';
+import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/owner-chrome-polish.css';
+import '@/styles/global.css';
 
 import { NextIntlClientProvider } from 'next-intl';
 import { createRoot } from 'react-dom/client';
@@ -16,6 +31,7 @@ import { saveOnboardingState } from '../../../prototypes/site-builder-v2-booking
 
 // Real integration and offer components; isolated identity and status response.
 // No account, entitlement, credit or provider writes.
+const startup = new URLSearchParams(location.search).has('startup');
 const warnings = new URLSearchParams(location.search).has('warnings');
 const claim: OnboardingClaimSuccess = {
   claimId: 'fixture-claim',
@@ -33,16 +49,18 @@ const claim: OnboardingClaimSuccess = {
   siteId: '11111111-1111-4111-8111-111111111111',
   ...(warnings ? { preservedDashboardEdits: ['opening hours', 'service prices'] } : {}),
 };
-const state = createDefaultOnboardingState();
-state.profile.businessName = 'Isla Nail Studio';
-state.profile.ownerName = 'Test owner';
-state.profile.businessStructure = 'solo';
-state.progress.currentScreen = 'final_preview';
-state.recipe.starter = 'one_page';
-state.recipe.starterDocumentSiteId = 'local-site';
-saveOnboardingState(state);
-localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(initializeStarter('one_page', { siteId: 'local-site', siteName: state.profile.businessName })));
-saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'saved', mediaComplete: !warnings, savedSite: claim });
+if (!startup) {
+  const state = createDefaultOnboardingState();
+  state.profile.businessName = 'Isla Nail Studio';
+  state.profile.ownerName = 'Test owner';
+  state.profile.businessStructure = 'solo';
+  state.progress.currentScreen = 'final_preview';
+  state.recipe.starter = 'one_page';
+  state.recipe.starterDocumentSiteId = 'local-site';
+  saveOnboardingState(state);
+  localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(initializeStarter('one_page', { siteId: 'local-site', siteName: state.profile.businessName })));
+  saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'saved', mediaComplete: !warnings, savedSite: claim });
+}
 window.fetch = async (input) => {
   if (String(input) === '/api/onboarding/v1/status') {
     return Response.json({ data: { claim } });

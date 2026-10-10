@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, vi } from 'vitest';
 
 import { createDefaultOnboardingState } from '../model/defaults';
@@ -62,7 +62,7 @@ describe('SetupPreviewOverlay shared preview targeting', () => {
     ['about_design', 'about'],
     ['site_style', 'top'],
     ['final_preview', 'top'],
-  ] as const)('maps the %s source to the %s preview target', (source, target) => {
+  ] as const)('maps the %s source to the %s preview target', async (source, target) => {
     render(
       <SetupPreviewOverlay
         document={null}
@@ -74,15 +74,17 @@ describe('SetupPreviewOverlay shared preview targeting', () => {
       />,
     );
 
+    expect(screen.getByRole('dialog')).toBeVisible();
+
+    await waitFor(() => expect(document.querySelector('.onboarding-preview-stage'))
+      .toHaveAttribute('data-preview-initial-target', target));
     const stage = document.querySelector<HTMLElement>('.onboarding-preview-stage');
 
-    expect(screen.getByRole('dialog')).toBeVisible();
-    expect(stage).toHaveAttribute('data-preview-initial-target', target);
     expect(stage).toHaveAttribute('data-preview-device', 'phone');
     expect(stage?.style.getPropertyValue('--preview-target-width')).toBe('390px');
   });
 
-  it('accepts an explicit target override through the root wiring seam', () => {
+  it('accepts an explicit target override through the root wiring seam', async () => {
     render(
       <SetupPreviewOverlay
         document={null}
@@ -95,7 +97,7 @@ describe('SetupPreviewOverlay shared preview targeting', () => {
       />,
     );
 
-    expect(document.querySelector('.onboarding-preview-stage'))
-      .toHaveAttribute('data-preview-initial-target', 'top');
+    await waitFor(() => expect(document.querySelector('.onboarding-preview-stage'))
+      .toHaveAttribute('data-preview-initial-target', 'top'));
   });
 });
