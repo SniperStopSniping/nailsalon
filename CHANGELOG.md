@@ -1,3 +1,10 @@
+## [1.142.22](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.21...v1.142.22) (2026-10-10)
+
+
+### Performance Improvements
+
+* speed up onboarding startup ([#417](https://github.com/SniperStopSniping/nailsalon/issues/417)) ([58f2d05](https://github.com/SniperStopSniping/nailsalon/commit/58f2d05c8060cfa31956e64b4b483f6322487a66))
+
 ## [1.142.21](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.20...v1.142.21) (2026-10-10)
 
 
