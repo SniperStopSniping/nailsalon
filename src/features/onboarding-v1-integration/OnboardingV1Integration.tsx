@@ -9,6 +9,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import {
+  lazy,
   type ReactNode,
   useCallback,
   useEffect,
@@ -28,6 +29,7 @@ import {
   useCustomDesignAssetRepository,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/integration/CustomDesignAssetProvider';
 import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
+import { DeferredSetupContent } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/components/DeferredSetupContent';
 import { recordOnboardingEvent } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/events/journal';
 import { FeedbackProvider } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/feedback/FeedbackProvider';
 import { useFeedback } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/feedback/useFeedback';
@@ -46,7 +48,6 @@ import {
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/OnboardingApp';
 import { clearOnboardingState as clearLabOnboardingState, loadOnboardingState, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import { useLabDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/useLabDocument';
-import { PremiumAccountGate } from './account-gate/AccountGate';
 import {
   getOnboardingIntegrationRoute,
   hasAccountGateQuery,
@@ -99,6 +100,8 @@ import { hydrateInitialOnboardingResumeDraft } from './resume-client';
 import type { InitialOnboardingResumeDraft } from './resume-draft';
 import { createPersistableOnboardingDraft } from './snapshot';
 import { getOnboardingPublishReviewUrl, getSavedOnboardingSitePreviewUrl } from './urls';
+
+const PremiumAccountGate = lazy(() => import('./account-gate/AccountGate').then(module => ({ default: module.PremiumAccountGate })));
 
 type IntegrationTarget = OnboardingDraftClaimRequest['target'];
 
@@ -1140,18 +1143,20 @@ function OnboardingIntegrationController({
     case 'account':
       return currentPayload
         ? (
-            <PremiumAccountGate
-              authMode={authMode}
-              document={currentPayload.document}
-              errorMessage={flow.errorMessage}
-              locale={locale}
-              needsSessionEmailVerification={isSignedIn === true && userLoaded
-              && (!emailVerified || serverEmailVerificationRequired)}
-              onCancel={returnToReview}
-              onSessionEmailVerified={completeSessionEmailVerification}
-              providers={authProviders}
-              state={currentPayload.state}
-            />
+            <DeferredSetupContent label="Opening secure account options…">
+              <PremiumAccountGate
+                authMode={authMode}
+                document={currentPayload.document}
+                errorMessage={flow.errorMessage}
+                locale={locale}
+                needsSessionEmailVerification={isSignedIn === true && userLoaded
+                && (!emailVerified || serverEmailVerificationRequired)}
+                onCancel={returnToReview}
+                onSessionEmailVerified={completeSessionEmailVerification}
+                providers={authProviders}
+                state={currentPayload.state}
+              />
+            </DeferredSetupContent>
           )
         : <IntegrationFailure message="Return to Review so Luster can prepare your site." onReturn={returnToReview} onRetry={returnToReview} />;
     case 'conflict':

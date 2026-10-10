@@ -1,5 +1,6 @@
 import { Download, FlaskConical } from 'lucide-react';
 import {
+  lazy,
   type ReactNode,
   useCallback,
   useEffect,
@@ -19,6 +20,8 @@ import { exportSiteBuilderDocument, SITE_BUILDER_STORAGE_KEY } from '../model/va
 import { Dialog } from '../ui/Dialog';
 import { ConfirmationDialog } from '../ui/EditorDialogs';
 import type { LabDocumentController } from '../ui/useLabDocument';
+import { BUILDER_HANDOFF_TRIGGER_ID } from './components/action-ids';
+import { DeferredSetupContent } from './components/DeferredSetupContent';
 import { OnboardingBrandMark } from './components/OnboardingBrandMark';
 import { OnboardingShell } from './components/OnboardingShell';
 import { CORE_SCREEN_ORDER } from './copy';
@@ -61,7 +64,7 @@ import type {
 import { CanvaDialog, GalleryDialog } from './overlays/ExtrasDialogs';
 import { createLabPlanConfiguration, PlanOfferSheet } from './overlays/PlanOfferSheet';
 import { SetupPreviewOverlay } from './overlays/SetupPreviewOverlay';
-import { OnboardingSitePreview } from './preview/OnboardingSitePreview';
+import { LazyOnboardingSitePreview as OnboardingSitePreview } from './preview/LazyOnboardingSitePreview';
 import {
   getCompletedEssentialStages,
   getEssentialsLeft,
@@ -70,30 +73,28 @@ import {
   BrandBasicsScreen,
   type SiteSlugAvailabilityCheck,
 } from './screens/BasicsScreens';
-import { BookingLayoutScreen } from './screens/BookingLayoutScreen';
 import {
   BookingPreferencesScreen,
   StartingPointScreen,
   StartingPreviewScreen,
 } from './screens/BookingScreens';
-import {
-  AboutDesignScreen,
-  AboutScreen,
-  ExtrasScreen,
-  type OnboardingStateUpdater,
-  PoliciesScreen,
-  QuickBookLayoutScreen,
-  SiteStyleScreen,
-} from './screens/DesignScreens';
+import type { OnboardingStateUpdater } from './screens/DesignScreens';
 import { HoursScreen } from './screens/HoursScreen';
 import { LocationContactScreen } from './screens/LocationContactScreen';
-import {
-  BUILDER_HANDOFF_TRIGGER_ID,
-  FinalReviewScreen,
-} from './screens/ReviewScreen';
-import { SaveProgressScreen } from './screens/SaveProgressScreen';
 import { resolveOnboardingDesignSectionId, switchOnboardingStarter } from './state/switchStarter';
 import { useOnboardingState } from './state/useOnboardingState';
+
+// Only the current setup screen is needed. These later screens share the
+// full preview/layout renderer, which must not block the starting choices.
+const AboutDesignScreen = lazy(() => import('./screens/DesignScreens').then(module => ({ default: module.AboutDesignScreen })));
+const AboutScreen = lazy(() => import('./screens/DesignScreens').then(module => ({ default: module.AboutScreen })));
+const ExtrasScreen = lazy(() => import('./screens/DesignScreens').then(module => ({ default: module.ExtrasScreen })));
+const PoliciesScreen = lazy(() => import('./screens/DesignScreens').then(module => ({ default: module.PoliciesScreen })));
+const QuickBookLayoutScreen = lazy(() => import('./screens/DesignScreens').then(module => ({ default: module.QuickBookLayoutScreen })));
+const SiteStyleScreen = lazy(() => import('./screens/DesignScreens').then(module => ({ default: module.SiteStyleScreen })));
+const BookingLayoutScreen = lazy(() => import('./screens/BookingLayoutScreen').then(module => ({ default: module.BookingLayoutScreen })));
+const FinalReviewScreen = lazy(() => import('./screens/ReviewScreen').then(module => ({ default: module.FinalReviewScreen })));
+const SaveProgressScreen = lazy(() => import('./screens/SaveProgressScreen').then(module => ({ default: module.SaveProgressScreen })));
 
 type PreviewSource =
   | 'starting_preview'
@@ -699,11 +700,18 @@ export function OnboardingApp({
     if (onboarding.state.progress.sessionStatus !== 'active') {
       return undefined;
     }
-    const frame = window.requestAnimationFrame(() => {
-      const heading = surfaceRef.current?.querySelector<HTMLHeadingElement>('h1');
-      if (!heading) {
+    // A deferred screen may arrive after the first animation frame. Observe
+    // only until its heading exists, then restore focus once for this step.
+    const surface = surfaceRef.current;
+    let focused = false;
+    let observer: MutationObserver | undefined;
+    const focusHeading = () => {
+      const heading = surface?.querySelector<HTMLHeadingElement>('h1');
+      if (!heading || focused) {
         return;
       }
+      focused = true;
+      observer?.disconnect();
       if (document.scrollingElement) {
         document.scrollingElement.scrollTop = 0;
       }
@@ -711,8 +719,16 @@ export function OnboardingApp({
       document.body.scrollTop = 0;
       heading.tabIndex = -1;
       heading.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
+    };
+    observer = new MutationObserver(focusHeading);
+    if (surface) {
+      observer.observe(surface, { childList: true, subtree: true });
+    }
+    const frame = window.requestAnimationFrame(focusHeading);
+    return () => {
+      observer?.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
   }, [onboarding.state.progress.sessionStatus, screen]);
 
   useEffect(() => {
@@ -1783,7 +1799,7 @@ export function OnboardingApp({
                 }}
                 routeKey={screen}
               >
-                {content}
+                <DeferredSetupContent key={screen}>{content}</DeferredSetupContent>
               </OnboardingShell>
             )}
       </div>

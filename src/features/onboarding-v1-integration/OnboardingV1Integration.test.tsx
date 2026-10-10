@@ -201,6 +201,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.userState.user = null;
     mocks.clerk.session = null;
     mocks.clerk.signOut.mockReset().mockResolvedValue(undefined);
+    mocks.lab.acceptOnboardingPresentation.mockReset().mockReturnValue(null);
     mocks.claim.mockReset();
     mocks.claimMedia.mockReset();
     mocks.cleanupMedia.mockReset();
@@ -694,7 +695,9 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.claim.mockResolvedValue({ status: 'saved', value: { ...savedSite, revision: 2 } });
     mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 2 });
     mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
-    mocks.lab.acceptOnboardingPresentation.mockReturnValueOnce(draft.document as never);
+    // The deferred review can render after recipe synchronization; both the
+    // sync and save calls accept the same ready document.
+    mocks.lab.acceptOnboardingPresentation.mockReturnValue(draft.document as never);
 
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Finish setup' }));
 

@@ -4,11 +4,11 @@ import { useId, useRef, useState } from 'react';
 import type { SiteBuilderDocument } from '../../model/types';
 import { Dialog } from '../../ui/Dialog';
 import type { OnboardingLabState } from '../model/types';
-import {
-  type OnboardingPreviewDevice,
-  type OnboardingPreviewInitialTarget,
-  OnboardingSitePreview,
-  type QuickBookPreviewPhase,
+import { LazyOnboardingSitePreview as OnboardingSitePreview } from '../preview/LazyOnboardingSitePreview';
+import type {
+  OnboardingPreviewDevice,
+  OnboardingPreviewInitialTarget,
+  QuickBookPreviewPhase,
 } from '../preview/OnboardingSitePreview';
 
 type SetupPreviewOverlayProps = {
