@@ -950,7 +950,9 @@ function isApprovedCompactProfileAdoption(node: ts.Node): boolean {
 
 function isApprovedServerProfileProjection(node: ts.Node): boolean {
   const candidate = ts.isBinaryExpression(node.parent)
-    && node.parent.operatorToken.kind === ts.SyntaxKind.BarBarToken ? node.parent : node;
+    && node.parent.operatorToken.kind === ts.SyntaxKind.BarBarToken
+    ? node.parent
+    : node;
   const expression = ts.isConditionalExpression(candidate)
     ? candidate
     : ts.isConditionalExpression(candidate.parent) ? candidate.parent : null;
@@ -1347,8 +1349,8 @@ describe('public section architecture guard', () => {
     expect(inspectPublicRenderer(projection)).toEqual([]);
 
     const islaProjection = projection.replace(
-      "const retention = activeBookingPageSide.layout === 'quick_book'",
-      "const retention = activeBookingPageSide.layout === 'quick_book' || isIslaBookingPage(salon.slug)",
+      'const retention = activeBookingPageSide.layout === \'quick_book\'',
+      'const retention = activeBookingPageSide.layout === \'quick_book\' || isIslaBookingPage(salon.slug)',
     );
 
     expect(inspectPublicRenderer(islaProjection)).toEqual([]);
