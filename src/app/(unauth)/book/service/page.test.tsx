@@ -216,11 +216,20 @@ describe('BookServicePage first-visit offer visibility', () => {
     getTechniciansBySalonId.mockResolvedValue([]);
     getPublicBookableServiceIds.mockResolvedValue(null);
     getActiveLocationsBySalonId.mockResolvedValue([]);
-    getRetentionSettingsForSalon.mockResolvedValue({ googleReviewUrl: null });
+    getRetentionSettingsForSalon.mockResolvedValue({ googleReviewUrl: null, parkingInstructions: 'Inside TB Nails' });
   });
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('passes saved arrival instructions to Isla without depending on the generic layout', async () => {
+    getPublicPageContext.mockResolvedValue({ appearance: null, salon: { id: 'salon_1', slug: 'isla-nail-studio', bookingFlow: ['service', 'time', 'confirm'] } });
+    const element = await BookServicePage({ searchParams: Promise.resolve({ salonSlug: 'isla-nail-studio' }), params: Promise.resolve({ locale: 'en', slug: 'isla-nail-studio' }) });
+    render(element);
+    expect(publicSalonPageShellSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+      salonContentInput: expect.objectContaining({ content: expect.objectContaining({ entranceInstructions: 'Inside TB Nails' }) }),
+    }));
   });
 
   it('does not mount global recovery for stale legacy booking state on service selection', async () => {
@@ -785,6 +794,7 @@ describe('BookServicePage owner-preview wiring', () => {
       previewBannerVariant: 'draft-config',
       salonContentInput: expect.objectContaining({
         content: {
+          entranceInstructions: null,
           heroImageUrl: null,
           specialtyLine: 'Draft Quick Book specialty',
           bio: 'Draft Quick Book bio',
@@ -804,6 +814,7 @@ describe('BookServicePage owner-preview wiring', () => {
       previewBannerVariant: null,
       salonContentInput: expect.objectContaining({
         content: {
+          entranceInstructions: null,
           heroImageUrl: 'https://images.example.invalid/live-signature.jpg',
           specialtyLine: 'Live Signature specialty',
           bio: 'Live Signature bio',
@@ -1133,7 +1144,7 @@ describe('BookServicePage owner-preview wiring', () => {
     expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
       isPreviewingDraftConfig: true,
       salonContentInput: expect.objectContaining({
-        content: { heroImageUrl: null, specialtyLine: null, bio: null },
+        content: { heroImageUrl: null, specialtyLine: null, bio: null, entranceInstructions: null },
       }),
     }));
   });
@@ -1345,7 +1356,7 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
     // page, before it ever reaches `BookServiceClient`.
     expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
       salonContentInput: expect.objectContaining({
-        content: { heroImageUrl: null, specialtyLine: null, bio: null },
+        content: { heroImageUrl: null, specialtyLine: null, bio: null, entranceInstructions: null },
         locations: expect.arrayContaining([
           expect.objectContaining({ id: 'loc-private', address: PRIVATE_FULL_ADDRESS }),
         ]),

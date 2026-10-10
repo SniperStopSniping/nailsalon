@@ -281,6 +281,7 @@ export type ResolveSalonContentInput = {
    * resolves the active `bookingPage` side, and passes it here.
    */
   content?: {
+    entranceInstructions?: string | null;
     heroImageUrl?: string | null;
     specialtyLine?: string | null;
     bio?: string | null;
@@ -695,7 +696,7 @@ export function resolveSalonContent(input: ResolveSalonContentInput): SalonConte
       }),
       address: resolvedAddress ? applyLocationDisplayMode(resolvedAddress, locationDisplayMode) : null,
       hours: primaryLocation?.hours ?? input.salon.businessHours ?? null,
-      entranceInstructions: null,
+      entranceInstructions: locationDisplayMode === 'full_address' ? input.content?.entranceInstructions?.trim() || null : null,
     },
     policies: {
       policy: input.bookingExperience.policy,

@@ -99,6 +99,7 @@ type PublicSalonPageShellProps = {
      * fails open), so there is intentionally no way to pass one in here.
      */
     content?: {
+      entranceInstructions?: string | null;
       heroImageUrl?: string | null;
       specialtyLine?: string | null;
       bio?: string | null;
