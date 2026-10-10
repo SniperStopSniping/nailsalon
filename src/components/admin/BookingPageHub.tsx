@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BookingPageNavigation } from '@/components/admin/BookingPageNavigation';
 import OwnerAssistantLauncher from '@/components/admin/ownerAssistant/OwnerAssistantLauncher';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { completeOnboardingDashboardHandoff } from '@/features/onboarding-v1-integration/flow-storage';
 import { isIslaBookingPage } from '@/libs/islaBookingPage';
 import { publishSalon } from '@/libs/publishWebsiteClient';
 
@@ -30,6 +31,7 @@ type BookingPageHubProps = {
   publicUrl?: string;
   hasDraftChanges: boolean;
   setupUrl: string | null;
+  onboardingHandoff?: Parameters<typeof completeOnboardingDashboardHandoff>[0];
   canPublish?: boolean;
   isFreeSolo?: boolean;
 };
@@ -42,9 +44,17 @@ function BookingPageHubContent({
   publicUrl,
   hasDraftChanges,
   setupUrl,
+  onboardingHandoff,
   canPublish = true,
   isFreeSolo = false,
 }: BookingPageHubProps) {
+  useEffect(() => {
+    // This is now the first owner workspace after plan claim. Retire only
+    // the server-authorized matching flow so Build a site can start fresh.
+    if (onboardingHandoff) {
+      completeOnboardingDashboardHandoff(onboardingHandoff);
+    }
+  }, [onboardingHandoff]);
   const [launched, setLaunched] = useState(false);
   const [publishedDraftChanges, setPublishedDraftChanges] = useState<boolean | null>(null);
   const [confirming, setConfirming] = useState(false);
