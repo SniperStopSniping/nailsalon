@@ -555,7 +555,7 @@ describe('OwnerAssistantLauncher — composer', () => {
       'pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]',
     );
     expect(screen.getByTestId('owner-assistant-sheet')).toHaveClass(
-      'max-h-[calc(100dvh-1rem-env(safe-area-inset-bottom,0px))]',
+      'h-[min(48rem,calc(100dvh-0.75rem))]',
     );
   });
 

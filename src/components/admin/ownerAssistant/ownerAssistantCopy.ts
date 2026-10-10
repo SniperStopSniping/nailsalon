@@ -16,6 +16,7 @@ export const ownerAssistantCopy = {
 
   /** Sheet chrome. */
   title: 'Assistant',
+  brand: 'Luster',
   close: 'Close assistant',
   disclosure: OWNER_ASSISTANT_DISCLOSURE,
 
@@ -28,8 +29,8 @@ export const ownerAssistantCopy = {
   followUpsLabel: 'Ask next',
   linksLabel: 'Go to',
   suggestedQuestionsLabel: 'Try asking',
-  emptyStateTitle: 'Ask about your salon',
-  emptyStateBody: 'Questions about your services, hours, booking page or where a setting lives.',
+  emptyStateTitle: 'A little help for your salon',
+  emptyStateBody: 'Find answers about your services, hours and booking page, or get straight to the right setting.',
   /** Caption under an owner message whose turn ended unavailable or in an error. */
   notAnswered: 'Not answered',
 
@@ -50,6 +51,7 @@ export const ownerAssistantCopy = {
    * the browser, which is a product promise and must not be rewritten in JSX.
    */
   feedbackGroupLabel: 'Was this answer helpful?',
+  feedbackShortLabel: 'Helpful?',
   feedbackUp: 'Helpful',
   feedbackDown: 'Not helpful',
   /** Announced after a rating is accepted; also the visible confirmation. */
@@ -59,6 +61,7 @@ export const ownerAssistantCopy = {
   feedbackRetry: 'Retry',
 
   reportOpen: 'Report a problem',
+  reportShortLabel: 'Report',
   reportTitle: 'Report a problem',
   reportLabel: 'What went wrong?',
   reportPlaceholder: 'Tell us what was wrong with this answer…',

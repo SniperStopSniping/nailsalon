@@ -208,6 +208,30 @@ describe('direct answer', () => {
 });
 
 describe('tool rounds', () => {
+  it('uses destination labels in answers, follow-ups and signed conversation history', async () => {
+    const result = await run(createScriptedProvider(fakeAnswer({
+      ...ANSWER,
+      message: 'Open Profile & Portfolio (page_gallery).',
+      links: [{ key: 'page_gallery' }],
+      followUps: ['Where is page_gallery?'],
+    })));
+
+    expect(result.kind).toBe('answer');
+
+    if (result.kind !== 'answer') {
+      throw new Error('Expected answer');
+    }
+
+    expect(result.message).toBe('Open Profile & Portfolio.');
+    expect(result.followUps).toEqual(['Where is Profile & Portfolio?']);
+    expect(result.links[0]).toMatchObject({ key: 'page_gallery', label: 'Profile & Portfolio' });
+
+    const next = createScriptedProvider(fakeAnswer(ANSWER));
+    await run(next, { conversationToken: result.conversation, message: 'Thanks' });
+
+    expect(next.requests[0]?.input).toContainEqual({ role: 'assistant', content: 'Open Profile & Portfolio.' });
+  });
+
   it('carries fixed custom assets to the model while retaining honest saved-field values', async () => {
     const provider = createScriptedProvider(
       fakeToolCalls([{ callId: 'custom_page', name: 'get_salon_overview', argumentsJson: '{}' }]),

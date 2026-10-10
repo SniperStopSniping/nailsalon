@@ -22,10 +22,10 @@ import type { OwnerAssistantFeedbackState, OwnerAssistantRating } from './useOwn
 
 /** 44 px minimum on every target (`size-11` = 2.75rem), keyboard reachable. */
 const ICON_BUTTON_CLASS_NAME
-  = 'flex size-11 shrink-0 items-center justify-center rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)] transition-colors duration-200 hover:border-[var(--owner-accent)] hover:text-[var(--owner-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-60 motion-reduce:transition-none';
+  = 'flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--owner-muted)] transition-colors duration-200 hover:bg-[var(--owner-blush)] hover:text-[var(--owner-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-60 motion-reduce:transition-none';
 
 const SELECTED_CLASS_NAME
-  = 'border-[var(--owner-accent)] bg-[var(--owner-blush)] text-[var(--owner-accent)]';
+  = 'bg-[var(--owner-blush)] text-[var(--owner-accent)]';
 
 const TEXT_BUTTON_CLASS_NAME
   = 'inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-[var(--owner-muted)] transition-colors duration-200 hover:text-[var(--owner-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-60 motion-reduce:transition-none';
@@ -60,22 +60,24 @@ export function OwnerAssistantFeedbackControls({
 
   return (
     <div className="flex w-full flex-col gap-1.5" data-testid="owner-assistant-feedback">
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="pr-1 text-xs text-[var(--owner-muted)]" id={groupId}>
+      <div className="flex flex-wrap items-center gap-0.5">
+        <span className="sr-only" id={groupId}>
           {ownerAssistantCopy.feedbackGroupLabel}
         </span>
-        <div aria-labelledby={groupId} className="flex items-center gap-1" role="group">
+        <span aria-hidden="true" className="px-1 text-xs text-[var(--owner-muted)]">{ownerAssistantCopy.feedbackShortLabel}</span>
+        <div aria-labelledby={groupId} className="flex items-center" role="group">
           {ratingButton('up', ownerAssistantCopy.feedbackUp, ThumbsUp)}
           {ratingButton('down', ownerAssistantCopy.feedbackDown, ThumbsDown)}
         </div>
         <button
+          aria-label={ownerAssistantCopy.reportOpen}
           className={TEXT_BUTTON_CLASS_NAME}
           data-testid="owner-assistant-report-open"
           onClick={() => feedback.openReport(message.id)}
           type="button"
         >
           <Flag aria-hidden="true" size={14} />
-          {ownerAssistantCopy.reportOpen}
+          {ownerAssistantCopy.reportShortLabel}
         </button>
       </div>
 

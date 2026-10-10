@@ -46,6 +46,7 @@ export const OWNER_ASSISTANT_DEVELOPER_RULES_TEXT = [
   'Answer format:',
   '- Reply as plain text. No markdown, no markdown links, no URLs, no HTML.',
   '- To point somewhere, put the registry key from a find_destination result in links; the app renders the actual link.',
+  '- In message and followUps, use the destination label only. Never show internal registry keys or put them in parentheses after labels; keys belong only in links.',
   '- Keep answers short: a sentence or two, or a short list of plain lines.',
 ].join('\n');
 

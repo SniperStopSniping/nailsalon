@@ -10,13 +10,14 @@
  * turn. See docs/OWNER_ASSISTANT_CHAT.md §3 and §7.
  */
 import { useReducedMotion } from 'framer-motion';
-import { RotateCcw, Send, Sparkles, X } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, LoaderCircle, MessageSquarePlus, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { OWNER_ASSISTANT_LIMITS } from '@/libs/ownerAssistant/contracts';
+import { humanizeNavigationText } from '@/libs/ownerAssistant/navigationText';
 import { cn } from '@/utils/Helpers';
 
 import { ownerAssistantCopy } from './ownerAssistantCopy';
@@ -26,7 +27,7 @@ import type { OwnerAssistantBanner } from './useOwnerAssistant';
 import type { OwnerAssistantFeedbackState } from './useOwnerAssistantFeedback';
 
 const CHIP_CLASS_NAME
-  = 'inline-flex min-h-11 items-center rounded-full border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] px-4 py-2 text-left text-sm font-medium text-[var(--owner-ink)] transition-all duration-200 hover:border-[var(--owner-accent)] hover:text-[var(--owner-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] motion-reduce:transition-none';
+  = 'inline-flex min-h-11 max-w-full items-center gap-2 rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3.5 py-2.5 text-left text-sm font-medium leading-relaxed text-[var(--owner-accent)] transition-colors duration-200 hover:border-[var(--owner-accent)] hover:bg-[var(--owner-blush)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-60 motion-reduce:transition-none';
 
 export type OwnerAssistantSheetProps = {
   isOpen: boolean;
@@ -82,10 +83,10 @@ export function OwnerAssistantSheet({
   useEffect(() => {
     const anchor = threadEndRef.current;
     // jsdom does not implement scrollIntoView; the thread simply stays put.
-    if (anchor && typeof anchor.scrollIntoView === 'function') {
+    if (isOpen && anchor && typeof anchor.scrollIntoView === 'function') {
       anchor.scrollIntoView({ block: 'end', behavior: shouldReduceMotion ? 'auto' : 'smooth' });
     }
-  }, [messages, busy, shouldReduceMotion]);
+  }, [messages, busy, isOpen, shouldReduceMotion]);
 
   // The composer stays focusable for the whole turn (it goes read-only, never
   // disabled), but the Send button does get disabled and the browser drops focus
@@ -153,7 +154,7 @@ export function OwnerAssistantSheet({
     <DialogShell
       alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
       contentClassName={cn(
-        'flex max-h-[calc(100dvh-1rem-env(safe-area-inset-bottom,0px))] min-h-0 flex-col overflow-hidden rounded-t-2xl bg-[var(--owner-surface)] shadow-2xl transition-all duration-200 sm:max-h-[calc(100vh-2rem)] sm:rounded-2xl motion-reduce:transition-none',
+        'flex h-[min(48rem,calc(100dvh-0.75rem))] min-h-0 flex-col overflow-hidden rounded-t-[28px] border border-[var(--owner-line)] bg-[var(--owner-surface)] shadow-2xl transition-all duration-200 sm:h-[min(48rem,calc(100dvh-2rem))] sm:rounded-[28px] motion-reduce:transition-none',
         entered || shouldReduceMotion ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0',
       )}
       contentTestId="owner-assistant-sheet"
@@ -162,6 +163,7 @@ export function OwnerAssistantSheet({
       maxWidthClassName="max-w-lg"
       onClose={onClose}
       overlayTestId="owner-assistant-overlay"
+      overlayClassName="bg-[#3b192b]/30"
     >
       <div
         aria-labelledby={titleId}
@@ -169,16 +171,33 @@ export function OwnerAssistantSheet({
         className="flex min-h-0 flex-1 flex-col"
         role="dialog"
       >
-        <header className="flex items-start justify-between gap-3 border-b border-[var(--owner-line)] px-4 pb-3 pt-4 sm:px-5">
-          <div className="min-w-0">
-            <h2 className="owner-title text-lg font-semibold text-[var(--owner-ink)]" id={titleId}>
+        <header className="flex shrink-0 items-center gap-3 px-4 pb-3 pt-5 sm:px-5">
+          <div aria-hidden="true" className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-blush)] text-[var(--owner-accent)]">
+            <Sparkles size={22} strokeWidth={1.5} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--owner-accent)]">{ownerAssistantCopy.brand}</p>
+            <h2 className="owner-title text-[28px] leading-tight text-[var(--owner-ink)]" id={titleId}>
               {ownerAssistantCopy.title}
             </h2>
-            <p className="truncate text-sm text-[var(--owner-muted)]">{salonName}</p>
+            <p className="truncate text-xs text-[var(--owner-muted)]" title={salonName}>{salonName}</p>
           </div>
           <button
+            aria-label={ownerAssistantCopy.newConversation}
+            title={ownerAssistantCopy.newConversation}
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--owner-accent)] transition-colors hover:bg-[var(--owner-blush)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-40 motion-reduce:transition-none"
+            disabled={busy}
+            onClick={() => {
+              setDraft('');
+              onReset();
+            }}
+            type="button"
+          >
+            <MessageSquarePlus aria-hidden="true" size={20} strokeWidth={1.75} />
+          </button>
+          <button
             aria-label={ownerAssistantCopy.close}
-            className="-mr-2 -mt-1 flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--owner-muted)] transition-colors duration-200 hover:text-[var(--owner-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] motion-reduce:transition-none"
+            className="-ml-2 flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--owner-muted)] transition-colors duration-200 hover:bg-[var(--owner-blush)] hover:text-[var(--owner-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] motion-reduce:transition-none"
             onClick={onClose}
             type="button"
           >
@@ -187,11 +206,12 @@ export function OwnerAssistantSheet({
         </header>
 
         <p
-          className="border-b border-[var(--owner-line)] px-4 py-2 text-xs text-[var(--owner-muted)] sm:px-5"
+          className="flex shrink-0 items-start gap-2 border-b border-[var(--owner-line)] px-4 pb-3 text-xs leading-relaxed text-[var(--owner-muted)] sm:px-5"
           data-testid="owner-assistant-disclosure"
           id={disclosureId}
         >
-          {ownerAssistantCopy.disclosure}
+          <ShieldCheck aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--owner-accent)]" size={14} />
+          <span>{ownerAssistantCopy.disclosure}</span>
         </p>
 
         {/*
@@ -201,30 +221,30 @@ export function OwnerAssistantSheet({
         <div
           aria-label={ownerAssistantCopy.threadLabel}
           aria-live="polite"
-          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:px-5"
+          className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain bg-[var(--owner-ground)] px-4 py-5 sm:px-5"
           data-testid="owner-assistant-thread"
           role="group"
         >
           {messages.length === 0 && (
-            <div className="flex flex-col gap-3" data-testid="owner-assistant-empty-state">
-              <div className="flex items-center gap-2 text-[var(--owner-accent)]">
-                <Sparkles aria-hidden="true" size={18} />
-                <p className="text-sm font-semibold">{ownerAssistantCopy.emptyStateTitle}</p>
+            <div className="flex flex-col gap-4 py-2" data-testid="owner-assistant-empty-state">
+              <div className="space-y-2">
+                <h3 className="owner-title max-w-60 text-[30px] leading-[1.12] text-[var(--owner-ink)]">{ownerAssistantCopy.emptyStateTitle}</h3>
+                <p className="max-w-sm text-sm leading-relaxed text-[var(--owner-muted)]">{ownerAssistantCopy.emptyStateBody}</p>
               </div>
-              <p className="text-sm text-[var(--owner-muted)]">{ownerAssistantCopy.emptyStateBody}</p>
-              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+              <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-[var(--owner-muted)]">
                 {ownerAssistantCopy.suggestedQuestionsLabel}
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-2">
                 {suggestedQuestions.map(question => (
                   <button
-                    className={CHIP_CLASS_NAME}
+                    className={cn(CHIP_CLASS_NAME, 'justify-between')}
                     disabled={busy}
                     key={question}
                     onClick={() => followChip(question)}
                     type="button"
                   >
-                    {question}
+                    <span>{question}</span>
+                    <ArrowUpRight aria-hidden="true" className="shrink-0" size={16} />
                   </button>
                 ))}
               </div>
@@ -233,7 +253,7 @@ export function OwnerAssistantSheet({
 
           {messages.map(message => (
             <div
-              className={cn('flex flex-col gap-2', message.role === 'owner' ? 'items-end' : 'items-start')}
+              className={cn('flex shrink-0 flex-col gap-2', message.role === 'owner' ? 'items-end' : 'items-start')}
               data-role={message.role}
               data-testid="owner-assistant-message"
               key={message.id}
@@ -245,18 +265,18 @@ export function OwnerAssistantSheet({
               </p>
               <p
                 className={cn(
-                  'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm',
+                  'max-w-[94%] whitespace-pre-wrap break-words rounded-[22px] px-4 py-3.5 text-[15px] leading-relaxed',
                   message.role === 'owner'
-                    ? 'bg-[var(--owner-accent)] text-white'
-                    : 'border border-[var(--owner-line)] bg-[var(--owner-ground)] text-[var(--owner-ink)]',
+                    ? 'rounded-br-md bg-[var(--owner-accent)] text-white'
+                    : 'rounded-bl-md border border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-ink)] shadow-[0_2px_8px_rgb(96_41_58_/_0.03)]',
                 )}
               >
-                {message.text}
+                {message.role === 'assistant' ? humanizeNavigationText(message.text, message.links ?? []) : message.text}
               </p>
 
               {message.role === 'owner' && message.unanswered === true && (
                 <p
-                  className="text-xs text-[var(--owner-muted)]"
+                  className="px-1 text-xs leading-relaxed text-[var(--owner-muted)]"
                   data-testid="owner-assistant-unanswered"
                 >
                   {ownerAssistantCopy.notAnswered}
@@ -282,6 +302,7 @@ export function OwnerAssistantSheet({
                       type="button"
                     >
                       {link.label}
+                      <ArrowUpRight aria-hidden="true" className="shrink-0" size={14} />
                     </button>
                   ))}
                 </div>
@@ -316,10 +337,11 @@ export function OwnerAssistantSheet({
 
           {busy && (
             <p
-              className="text-sm text-[var(--owner-muted)]"
+              className="flex items-center gap-2 text-sm text-[var(--owner-muted)]"
               data-testid="owner-assistant-busy"
               role="status"
             >
+              <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" size={16} />
               {ownerAssistantCopy.busy}
             </p>
           )}
@@ -362,23 +384,23 @@ export function OwnerAssistantSheet({
         </div>
 
         <div
-          className="border-t border-[var(--owner-line)] px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-3 sm:px-5"
+          className="shrink-0 border-t border-[var(--owner-line)] bg-[var(--owner-surface)] px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-3 sm:px-5"
           data-testid="owner-assistant-composer-bar"
         >
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 rounded-[24px] border border-[var(--owner-line-strong)] bg-[var(--owner-ground)] p-2 transition-shadow focus-within:ring-2 focus-within:ring-[var(--owner-focus)] motion-reduce:transition-none">
             <label className="sr-only" htmlFor="owner-assistant-composer">
               {ownerAssistantCopy.composerLabel}
             </label>
             <textarea
               aria-describedby={disclosureId}
               aria-disabled={busy}
-              className="min-h-11 w-full flex-1 resize-none rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-ground)] px-3 py-2.5 text-sm text-[var(--owner-ink)] outline-none transition-colors duration-200 placeholder:text-[var(--owner-muted)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] aria-disabled:opacity-60 motion-reduce:transition-none"
+              className="min-h-11 min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-base leading-6 text-[var(--owner-ink)] outline-none placeholder:text-[var(--owner-muted)] aria-disabled:opacity-60"
               enterKeyHint="send"
               id="owner-assistant-composer"
               maxLength={OWNER_ASSISTANT_LIMITS.messageMaxChars}
               onChange={event => setDraft(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
                   submit(draft);
                 }
@@ -397,12 +419,12 @@ export function OwnerAssistantSheet({
               type="button"
               variant="ownerPrimary"
             >
-              <Send aria-hidden="true" size={18} />
+              <ArrowUp aria-hidden="true" size={20} />
             </Button>
           </div>
 
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <p className="text-xs text-[var(--owner-muted)]">{ownerAssistantCopy.composerHint}</p>
+          <div className="mt-2 flex items-center justify-end gap-3 px-1 sm:justify-between">
+            <p className="hidden text-xs text-[var(--owner-muted)] sm:block">{ownerAssistantCopy.composerHint}</p>
             <p
               className="text-xs tabular-nums text-[var(--owner-muted)]"
               data-testid="owner-assistant-counter"
@@ -412,19 +434,6 @@ export function OwnerAssistantSheet({
             </p>
           </div>
 
-          <div className="mt-2">
-            <button
-              className="inline-flex min-h-11 items-center rounded-full px-3 text-sm font-medium text-[var(--owner-accent)] transition-colors duration-200 hover:text-[var(--owner-accent-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-60 motion-reduce:transition-none"
-              disabled={busy}
-              onClick={() => {
-                setDraft('');
-                onReset();
-              }}
-              type="button"
-            >
-              {ownerAssistantCopy.newConversation}
-            </button>
-          </div>
         </div>
       </div>
     </DialogShell>
