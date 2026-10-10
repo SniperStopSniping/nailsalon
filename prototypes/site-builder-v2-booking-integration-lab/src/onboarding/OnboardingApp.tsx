@@ -15,6 +15,7 @@ import {
 import { formatCustomDesignUploadSummary } from '../custom-design/integration/upload-summary';
 import type { SiteBuilderDocument } from '../model/types';
 import { reconcileV1StarterDocument } from '../model/v1-starter-recipes';
+import { exportSiteBuilderDocument, SITE_BUILDER_STORAGE_KEY } from '../model/validation';
 import { Dialog } from '../ui/Dialog';
 import { ConfirmationDialog } from '../ui/EditorDialogs';
 import type { LabDocumentController } from '../ui/useLabDocument';
@@ -145,6 +146,7 @@ type OnboardingAppProps = {
     hasSavedSite?: boolean;
     onSaveSite: (payload: OnboardingSavePayload) => void;
     onStartOver?: () => void;
+    renderSetupRecovery?: (saveBeforeSwitch: () => boolean) => ReactNode;
   };
   onEnterBuilder?: () => void;
   onEnterDashboard?: () => void;
@@ -1738,6 +1740,22 @@ export function OnboardingApp({
   return (
     <div className={`onboarding-app${reducedMotionClass}${smallPhoneClass}`} data-onboarding-screen={screen}>
       <div className="onboarding-app__surface" ref={surfaceRef}>
+        {integration?.renderSetupRecovery?.(() => {
+          if (isOnboardingResetBlocked(lab.transactionPending, profileMediaOperationsRef.current)) {
+            return false;
+          }
+          if (!onboarding.saveNow().success) {
+            return false;
+          }
+          try {
+            if (lab.document) {
+              window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, exportSiteBuilderDocument(lab.document));
+            }
+            return true;
+          } catch {
+            return false;
+          }
+        })}
         {error || onboarding.storageIssue || lab.loadIssues.length > 0
           ? (
               <div className="onboarding-error-banner" role="alert">

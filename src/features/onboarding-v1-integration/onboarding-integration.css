@@ -789,3 +789,30 @@
     transform: scale(1.4);
   }
 }
+
+.onboarding-kept-setups {
+  --owner-surface: var(--onboarding-surface, #fffbf9);
+  --owner-line: var(--onboarding-line, #e8d5dc);
+  --owner-ink: var(--onboarding-ink, #39242d);
+  box-sizing: border-box;
+  margin: 12px auto;
+  max-width: 680px;
+  padding: 0 20px;
+  color: #744357;
+  font-size: 14px;
+}
+
+.onboarding-kept-setups summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding: 12px 0;
+}
+
+.onboarding-kept-setups p {
+  line-height: 1.6;
+}
+
+.onboarding-kept-setups button {
+  margin: 8px 0;
+  width: 100%;
+}
