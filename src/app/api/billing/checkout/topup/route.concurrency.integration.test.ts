@@ -190,8 +190,8 @@ suite('top-up checkout — real-lock concurrency', () => {
       };
     });
     const fixture = await pool.connect();
-    await fixture.query('SET application_name = \'topup-initial-reservation-fixture\'');
     await fixture.query('BEGIN');
+    await fixture.query('SET LOCAL application_name = \'topup-initial-reservation-fixture\'');
     await fixture.query('SELECT id FROM salon WHERE id = \'topup-s1\' FOR NO KEY UPDATE');
     try {
       const racers = Array.from({ length: 8 }, () => postCheckout('topup-s1'));
@@ -209,6 +209,11 @@ suite('top-up checkout — real-lock concurrency', () => {
 
       await fixture.query('COMMIT');
       const responses = await Promise.all(racers);
+      // The fixture connection returns to this pool and can later run expiry.
+      // Its label must be restored so the lock observer still finds that work.
+      const restoredSession = await fixture.query('SHOW application_name');
+
+      expect(restoredSession.rows[0].application_name).toBe(pool.options.application_name);
 
       expect(responses.filter(response => response.status === 200)).toHaveLength(1);
       expect(responses.filter(response => response.status === 409)).toHaveLength(7);
