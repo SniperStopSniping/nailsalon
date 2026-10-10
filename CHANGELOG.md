@@ -1,3 +1,20 @@
+## [1.142.16](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.15...v1.142.16) (2026-10-10)
+
+
+### Bug Fixes
+
+* **assistant:** explain Isla custom booking design ([6d40e89](https://github.com/SniperStopSniping/nailsalon/commit/6d40e898d850b43885830f1463a72fa20bc2c976))
+* **assistant:** integrate add-on price qualifiers ([5391f15](https://github.com/SniperStopSniping/nailsalon/commit/5391f15e8b04a5415936fb1f313e5a72e87bd2a1))
+* **assistant:** integrate custom Isla design context ([86bca46](https://github.com/SniperStopSniping/nailsalon/commit/86bca46f05b3ed11a3cad889e02b36891152a9a6))
+* **assistant:** integrate explicit retry after reload ([f1329e9](https://github.com/SniperStopSniping/nailsalon/commit/f1329e98e92225d36f9bd89d11ec871eb56d5c18))
+* **assistant:** preserve add-on price labels and units ([2b6bd3b](https://github.com/SniperStopSniping/nailsalon/commit/2b6bd3b70cef4f8d38a35659d2f6c0dbf0d949da))
+* **booking:** clarify unavailable times and stabilize success journey ([f1d157e](https://github.com/SniperStopSniping/nailsalon/commit/f1d157e6b90646c42b0947e8b2ebd8ccaf6261e3))
+* **booking:** integrate mobile time controls on current main ([87bb44b](https://github.com/SniperStopSniping/nailsalon/commit/87bb44bf0b37bf5e59b5693502e56217f3d9cdbc))
+* **booking:** keep time controls clear and hydration stable ([5c24de6](https://github.com/SniperStopSniping/nailsalon/commit/5c24de6487ba11afce3d749176ec602530a97db8))
+* **owner-assistant:** restore retry after reload ([a4c9992](https://github.com/SniperStopSniping/nailsalon/commit/a4c99924e8fe5a3e2d10af8141e4f1d5cf408b22))
+* **sms:** integrate accurate singular credit wording ([70482ea](https://github.com/SniperStopSniping/nailsalon/commit/70482eab005a019c095ddcf3ce508421951d9c3e))
+* **sms:** use singular credit labels in usage history ([8443e79](https://github.com/SniperStopSniping/nailsalon/commit/8443e79141e49edab11373ee6ecae7eca3e5329c))
+
 ## [1.142.15](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.14...v1.142.15) (2026-10-10)
 
 
