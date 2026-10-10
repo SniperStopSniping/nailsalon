@@ -238,6 +238,8 @@ describe('OnboardingWorkspaceHandoff', () => {
     expect(await screen.findByText('Your core Luster app is free for life.')).toBeInTheDocument();
     expect(screen.queryByText(/Founding offer reserved/)).not.toBeInTheDocument();
     expect(screen.getByText(/Extra texts, AI receptionist and phone usage are paid separately/)).toBeInTheDocument();
+    expect(screen.getByText(/Open More → Text Message Balance to claim your welcome allowance/)).toBeInTheDocument();
+    expect(screen.queryByText(/verification steps in Plan & Usage/)).not.toBeInTheDocument();
   });
 
   it('shows paid interest only from the persisted handoff intent', async () => {
