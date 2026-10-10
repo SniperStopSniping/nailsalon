@@ -1,3 +1,10 @@
+## [1.142.17](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.16...v1.142.17) (2026-10-10)
+
+
+### Bug Fixes
+
+* **ui:** refine owner assistant conversation and mobile composer ([41fe957](https://github.com/SniperStopSniping/nailsalon/commit/41fe95704809d1c559418b72a07ecdf5ac8a3d50))
+
 ## [1.142.16](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.15...v1.142.16) (2026-10-10)
 
 
