@@ -77,9 +77,9 @@ export function CustomerAssistantBrowserFixture() {
         </main>
       )}
       {(atTime || atConfirm) && !data && <p role="status">{failure ?? 'Loading normal booking…'}</p>}
-      {data?.stage === 'time' && <BookTimeClient {...data.props} />}
+      {data?.stage === 'time' && <BookTimeClient {...data.props} bookingHelp={<CustomerAssistantLauncher placement="inline" salonId="synthetic-browser-isla-salon" salonSlug="isla-nail-studio" locale="en" />} />}
       {data?.stage === 'confirm' && <BookConfirmClient {...data.props} />}
-      {(atTime || atConfirm) && <CustomerAssistantLauncher salonId="synthetic-browser-isla-salon" salonSlug="isla-nail-studio" locale="en" />}
+      {atConfirm && <CustomerAssistantLauncher salonId="synthetic-browser-isla-salon" salonSlug="isla-nail-studio" locale="en" />}
     </PublicSalonPageShell>
   );
 }

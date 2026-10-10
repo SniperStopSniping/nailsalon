@@ -378,10 +378,10 @@ export default async function BookTimePage(
           minimumNoticeMinutes={bookingConfig.minimumNoticeMinutes}
           salonTimeZone={bookingConfig.timezone}
           closedWeekdays={closedWeekdays}
+          bookingHelp={!ownerPreviewState.isPreviewing && isCustomerAssistantEnabledForSalon(salon.slug)
+            ? <CustomerAssistantLauncher placement="inline" salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} campaignToken={searchParams.campaign ?? null} />
+            : null}
         />
-        {!ownerPreviewState.isPreviewing && isCustomerAssistantEnabledForSalon(salon.slug) && (
-          <CustomerAssistantLauncher salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} campaignToken={searchParams.campaign ?? null} />
-        )}
       </Suspense>
     </PublicSalonPageShell>
   );

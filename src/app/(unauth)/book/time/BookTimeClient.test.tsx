@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -100,6 +102,32 @@ describe('BookTimeClient', () => {
   });
 
   describe('compact date presentation', () => {
+    it('hydrates the same calendar text when server and browser Intl range spacing differs', async () => {
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({ slots: [] }), { status: 200 }));
+      searchParamsState.value += '&date=2026-03-14';
+      const formatRange = vi.spyOn(Intl.DateTimeFormat.prototype, 'formatRange').mockReturnValue('Mar 14\u2009–\u200920');
+      const element = <BookTimeClient services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]} totalPrice={65} totalDuration={60} technician={null} bookingFlow={['service', 'time', 'confirm']} />;
+      const container = document.createElement('div');
+      container.innerHTML = renderToString(element);
+      document.body.append(container);
+      // Captured production SSR uses U+2009, while the browser uses U+0020.
+      formatRange.mockReturnValue('Mar 14 – 20');
+      const recover = vi.fn();
+      let root: ReturnType<typeof hydrateRoot> | undefined;
+      try {
+        await act(async () => {
+          root = hydrateRoot(container, element, { onRecoverableError: recover });
+        });
+
+        expect(recover).not.toHaveBeenCalled();
+        expect(container).toHaveTextContent('Mar 14 – 20');
+      } finally {
+        await act(async () => root?.unmount());
+        container.remove();
+        formatRange.mockRestore();
+      }
+    });
+
     const renderCalendar = () => {
       fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
         slots: [{ time: '13:45', startTime: '2026-03-14T13:45:00-04:00' }],

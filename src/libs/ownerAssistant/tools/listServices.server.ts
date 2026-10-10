@@ -17,8 +17,9 @@ import type { ListServicesResult } from '../contracts';
  *   - otherwise ⇒ only assigned-and-enabled services.
  * An inactive service is never bookable regardless.
  *
- * Add-ons come from the same query `GET /api/salon/add-ons` serves, so the
- * assistant and the Add-ons tab cannot disagree.
+ * Add-ons come from the same query `GET /api/salon/add-ons` serves. Carry the
+ * display wording and unit alongside the numeric amount: zero cents can mean
+ * "Price to be confirmed", and a starting price is not a fixed quote.
  */
 export async function listServices(
   salonId: string,
@@ -65,9 +66,11 @@ export async function listServices(
       id: addOn.id,
       name: addOn.name,
       priceCents: addOn.priceCents,
+      priceDisplayText: addOn.priceDisplayText,
       durationMinutes: addOn.durationMinutes,
       category: addOn.category,
       pricingType: addOn.pricingType,
+      unitLabel: addOn.unitLabel,
       isActive: addOn.isActive === true,
     })),
   };

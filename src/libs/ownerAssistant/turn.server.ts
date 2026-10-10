@@ -164,7 +164,7 @@ function buildLinks(
     if (seen.has(candidate.key) || !isRegistryKey(candidate.key)) {
       continue;
     }
-    const entry = getRegistryEntry(candidate.key);
+    const entry = getRegistryEntry(candidate.key, args.salonSlug);
     const href = entry ? buildRegistryHref(entry, args) : null;
     if (!entry || !href) {
       continue;
@@ -445,6 +445,7 @@ export async function runOwnerAssistantTurn(
         name: functionCall.name,
         argumentsJson: functionCall.argumentsJson,
         salonId: args.salon.id,
+        salonSlug: args.salon.slug,
         enabledTools,
         now,
       });

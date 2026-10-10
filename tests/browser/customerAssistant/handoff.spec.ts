@@ -127,7 +127,7 @@ for (const viewport of [{ width: 390, zoom: 100 }, { width: 320, zoom: 200 }]) {
   });
 }
 
-test('the 320px/200% floating launcher reserves room for the normal Time action', async ({ page }, testInfo) => {
+test('the 320px/200% inline Time launcher leaves recovery controls unobscured', async ({ page }, testInfo) => {
   const { handoffs, unexpected } = await installSyntheticHandoffRoutes(page);
   await page.setViewportSize({ width: 320, height: 844 });
   await page.goto('/');
@@ -149,17 +149,30 @@ test('the 320px/200% floating launcher reserves room for the normal Time action'
   await expect(lastNormalAction).toBeVisible();
   await expect(launcher).toBeVisible();
 
-  const [launcherBox, actionBox, viewportHeight] = await Promise.all([
+  const [launcherBox, actionBox] = await Promise.all([
     launcher.boundingBox(),
     lastNormalAction.boundingBox(),
-    page.evaluate(() => window.innerHeight),
   ]);
 
   expect(launcherBox).not.toBeNull();
   expect(actionBox).not.toBeNull();
-  expect(launcherBox!.y).toBeGreaterThanOrEqual(0);
-  expect(launcherBox!.y + launcherBox!.height).toBeLessThanOrEqual(viewportHeight - 100);
   expect(launcherBox!.y >= actionBox!.y + actionBox!.height || actionBox!.y >= launcherBox!.y + launcherBox!.height).toBe(true);
+  expect(await lastNormalAction.evaluate((button) => {
+    const rect = button.getBoundingClientRect();
+    return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+  })).toBe(true);
+
+  await launcher.scrollIntoViewIfNeeded();
+
+  await expect(launcher).toBeInViewport();
+
+  await launcher.tap();
+
+  await expect(page.getByRole('heading', { name: 'AI booking assistant' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Continue manually' }).tap();
+
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(unexpected).toEqual([]);
 
   await page.screenshot({ path: path.join(artifactDirectory, `${testInfo.project.name}-handoff-geometry-320px-200zoom.png`), fullPage: false });

@@ -1237,6 +1237,10 @@ jobs:
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/customerAssistant/playwright.config.ts --output=test-results/customer-assistant-components
 
+      - name: Verify owner assistant reload recovery and account isolation
+        if: matrix.suite == 'onboarding-owner'
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerAssistant/playwright.config.ts --output=test-results/owner-assistant-components
+
       - name: Verify platform policy labels and navigation
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/platformPolicy/playwright.config.ts --output=test-results/platform-policy-components
@@ -1890,6 +1894,17 @@ jobs:
           export CUSTOMER_BOOKING_BROWSER_DATABASE_URL="$CONCURRENCY_TEST_DATABASE_URL"
           npx vitest run src/libs/customerAssistant/backendJourney.integration.test.ts | tee customer-booking-browser.log
           grep -Fqx 'CUSTOMER_BACKEND_BROWSER_TESTS_EXECUTED=4 CUSTOMER_BACKEND_BROWSER_TESTS_SKIPPED=0' customer-booking-browser.log
+
+      - name: Preserve synthetic customer journey failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-booking-backend-failure
+          path: |
+            customer-booking-browser.log
+            artifacts/customer-assistant/receptionist-backend-*.png
+          if-no-files-found: ignore
+          retention-days: 3
 
   communications-dispatch-postgres:
     needs: secret-scan

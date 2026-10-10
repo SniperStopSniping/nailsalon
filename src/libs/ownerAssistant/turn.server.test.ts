@@ -95,6 +95,10 @@ beforeAll(async () => {
     { id: 'svc_turn_1', salonId: SALON.id, name: 'Gel manicure', price: 6500, durationMinutes: 60, category: 'manicure', isActive: true },
     { id: 'svc_turn_2', salonId: SALON.id, name: INJECTED_NAME, price: 1000, durationMinutes: 10, category: 'manicure', isActive: true },
   ]);
+  await db.insert(schema.addOnSchema).values([
+    { id: 'addon_turn_quote', salonId: SALON.id, name: 'Assessment', slug: 'assessment', category: 'removal', priceCents: 0, priceDisplayText: 'Price to be confirmed', durationMinutes: 20, pricingType: 'fixed' },
+    { id: 'addon_turn_unit', salonId: SALON.id, name: 'Repair', slug: 'repair', category: 'repair', priceCents: 500, priceDisplayText: '$5 per nail', durationMinutes: 10, pricingType: 'per_unit', unitLabel: 'nail' },
+  ]);
 });
 
 beforeEach(() => {
@@ -204,6 +208,41 @@ describe('direct answer', () => {
 });
 
 describe('tool rounds', () => {
+  it('carries fixed custom assets to the model while retaining honest saved-field values', async () => {
+    const provider = createScriptedProvider(
+      fakeToolCalls([{ callId: 'custom_page', name: 'get_salon_overview', argumentsJson: '{}' }]),
+      fakeAnswer({ ...ANSWER, message: 'Your custom design includes its own hero image.' }),
+    );
+    const result = await run(provider, { message: 'Is my hero image missing?' });
+    const frame = provider.requests[0]?.input[2] as { content: string };
+    const output = provider.requests[1]?.input.find(item => 'type' in item && item.type === 'function_call_output') as { output: string };
+
+    expect(frame.content).toContain('Booking-page custom design (from the salon overview)');
+    expect(frame.content).toContain('heroImage');
+    expect(JSON.parse(output.output).bookingPage).toMatchObject({
+      logoSaved: false,
+      heroImageSaved: false,
+      customDesign: { kind: 'isla', standardTemplateChangesAffectOpening: false },
+    });
+    expect(result.kind === 'answer' && result.checked).toEqual([
+      { tool: 'get_salon_overview', label: OWNER_ASSISTANT_TOOL_LABELS.get_salon_overview },
+    ]);
+  });
+
+  it('uses the owner salon context for both destination guidance and the final link label', async () => {
+    const provider = createScriptedProvider(
+      fakeToolCalls([{ callId: 'logo_destination', name: 'find_destination', argumentsJson: '{"query":"logo"}' }]),
+      fakeAnswer({ ...ANSWER, links: [{ key: 'page_gallery' }] }),
+    );
+    const result = await run(provider, { message: 'Where do I upload my logo?' });
+    const output = provider.requests[1]?.input.find(item => 'type' in item && item.type === 'function_call_output') as { output: string };
+
+    expect(JSON.parse(output.output).matches[0]).toMatchObject({ key: 'page_gallery', label: 'Profile & Portfolio' });
+    expect(result.kind === 'answer' && result.links).toEqual([
+      { key: 'page_gallery', label: 'Profile & Portfolio', href: '/en/admin/booking-page?salon=isla-nail-studio&panel=gallery' },
+    ]);
+  });
+
   it('executes one tool round and reports what it checked', async () => {
     const provider = createScriptedProvider(
       fakeToolCalls([{ callId: 'call_1', name: 'list_services', argumentsJson: '{"includeInactive":false}' }]),
@@ -232,6 +271,24 @@ describe('tool rounds', () => {
     expect(echoed).toMatchObject({ type: 'function_call', call_id: 'call_1', name: 'list_services' });
     expect(output).toMatchObject({ type: 'function_call_output', call_id: 'call_1' });
     expect(JSON.parse((output as { output: string }).output)).toMatchObject({ currency: 'CAD' });
+  });
+
+  it('delivers truthful add-on price context through the real tool loop', async () => {
+    const provider = createScriptedProvider(
+      fakeToolCalls([{ callId: 'call_prices', name: 'list_services', argumentsJson: '{"includeInactive":false}' }]),
+      fakeAnswer(ANSWER),
+    );
+    await run(provider, { message: 'What do my add-ons cost?' });
+    const output = (provider.requests[1]?.input ?? [])
+      .find(item => 'type' in item && item.type === 'function_call_output') as { output: string };
+    const result = JSON.parse(output.output);
+
+    expect(result.currency).toBe('CAD');
+    expect(result.addOns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'addon_turn_quote', priceCents: 0, priceDisplayText: 'Price to be confirmed', unitLabel: null }),
+      expect.objectContaining({ id: 'addon_turn_unit', priceCents: 500, priceDisplayText: '$5 per nail', pricingType: 'per_unit', unitLabel: 'nail' }),
+    ]));
+    // Scripted-provider coverage proves the facts supplied, not real-model wording.
   });
 
   it('passes an injection-shaped service name through verbatim, as data', async () => {
