@@ -81,7 +81,7 @@ export function Fixture() {
             )
           : (
               <>
-                <OwnerWorkspaceHeader title="More" subtitle="Managing Isla Nail Studio" actions={<button type="button" className="owner-action size-11 !p-0" aria-label="Profile">D</button>} />
+                <OwnerWorkspaceHeader title={query.get('screen') === 'today' ? 'Today' : 'More'} subtitle="Managing Isla Nail Studio" actions={<button type="button" className="owner-action size-11 !p-0" aria-label="Profile">D</button>} />
                 {completed && <p role="status" className="px-5 text-sm">Fixture purchase confirmed. 500 credits added.</p>}
                 {query.get('screen') === 'today'
                   ? (
