@@ -58,8 +58,15 @@ describe('Isla saved social links', () => {
     render(<IslaBookingPage {...props} socialLinks={socials}><p>Canonical services</p></IslaBookingPage>);
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Your nextbeautiful set.');
-    expect(screen.getByRole('img', { name: 'Isla Nail Studio' })).toHaveAttribute('src', '/isla/isla-logo-original.jpg');
-    expect(screen.getByRole('img', { name: /Both hands showing/ })).toHaveAttribute('src', '/isla/gel-x.jpg');
+
+    const logo = screen.getByRole('img', { name: 'Isla Nail Studio' });
+    const hero = screen.getByRole('img', { name: /Both hands showing/ });
+
+    expect(new URL(logo.getAttribute('src')!, 'https://example.test').searchParams.get('url')).toBe('/isla/isla-logo-original.jpg');
+    expect(new URL(hero.getAttribute('src')!, 'https://example.test').searchParams.get('url')).toBe('/isla/gel-x.jpg');
+    expect(hero).toHaveAttribute('srcset');
+    expect(hero).toHaveAttribute('sizes', expect.stringContaining('100vw'));
+    expect(hero).not.toHaveAttribute('loading', 'lazy');
     expect(screen.getByText('Canonical services')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Choose a time' })).toBeVisible();
   });

@@ -14,7 +14,8 @@
   --onboarding-ground: #fcf3f2;
   --onboarding-ink: #3b192b;
   --onboarding-line: #ead7de;
-  --onboarding-muted: #75656b;
+  --onboarding-control: #9d7a88;
+  --onboarding-muted: #67545e;
   --onboarding-shadow: 0 18px 48px rgba(59, 25, 43, 0.09);
   --onboarding-success: #267253;
   --onboarding-surface: #fffcfa;
@@ -60,7 +61,8 @@
   --onboarding-ground: #fcf3f2;
   --onboarding-ink: #3b192b;
   --onboarding-line: #ead7de;
-  --onboarding-muted: #75656b;
+  --onboarding-control: #9d7a88;
+  --onboarding-muted: #67545e;
   --onboarding-shadow: 0 18px 48px rgba(59, 25, 43, 0.09);
   --onboarding-success: #267253;
   --onboarding-surface: #fffcfa;
@@ -846,7 +848,7 @@ body:has(.onboarding-app) {
   min-width: 0;
   min-height: 48px;
   padding: 11px 12px;
-  border: 1px solid #cfc3c1;
+  border: 1px solid var(--onboarding-control);
   border-radius: 12px;
   color: var(--onboarding-ink);
   background: var(--onboarding-surface);
@@ -863,7 +865,7 @@ body:has(.onboarding-app) {
 .onboarding-field textarea:hover,
 .onboarding-select-field select:hover,
 .onboarding-hours-day input[type="time"]:hover {
-  border-color: #bcaeac;
+  border-color: var(--onboarding-muted);
 }
 
 .onboarding-field input:focus,

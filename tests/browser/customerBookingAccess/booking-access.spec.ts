@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { expectReadableText } from '../assert-readable';
+
 for (const width of [320, 390, 430, 1280]) {
   test(`both booking screens are readable at ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 844 });
@@ -8,6 +10,8 @@ for (const width of [320, 390, 430, 1280]) {
 
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
       await expect(page.getByRole('img', { name: 'Luster' })).toBeVisible();
+
+      await expectReadableText(page);
 
       const geometry = await page.evaluate(() => ({ width: document.documentElement.clientWidth, content: document.documentElement.scrollWidth }));
 

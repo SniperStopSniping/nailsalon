@@ -3,6 +3,7 @@
 import './isla-booking.css';
 
 import { ArrowRight, Check, ChevronDown, Clock, Facebook, Instagram, MapPin, Music2, Plus, Search, Sparkles, X } from 'lucide-react';
+import Image from 'next/image';
 import { Fragment, type ReactNode, useState } from 'react';
 
 import { DialogShell } from '@/components/ui/dialog-shell';
@@ -116,7 +117,7 @@ export function IslaBookingPage({ place, children, continueBar, flow, manageHref
   return (
     <div className="isla-shell">
       <header className="isla-navigation">
-        <img className="isla-logo" src={`${ASSETS}/isla-logo-original.jpg`} alt="Isla Nail Studio" width="145" height="96" />
+        <Image className="isla-logo" src={`${ASSETS}/isla-logo-original.jpg`} alt="Isla Nail Studio" width={145} height={96} sizes="145px" />
         <nav className="isla-navigation-links" aria-label="Studio links">
           <a className="isla-manage" href={manageHref}>Manage my booking</a>
           {socialLinks.instagram && <a className="isla-instagram" href={socialLinks.instagram} target="_blank" rel="noopener noreferrer" aria-label="Isla Nail Studio on Instagram"><Instagram aria-hidden="true" /></a>}
@@ -145,7 +146,16 @@ export function IslaBookingPage({ place, children, continueBar, flow, manageHref
             <i aria-hidden="true" />
           </p>
           <figure className="isla-photograph">
-            <div className="isla-photograph-frame"><img src={`${ASSETS}/gel-x.jpg`} alt="Both hands showing Isla’s pink manicure with white French tips" width="800" height="600" fetchPriority="high" /></div>
+            <div className="isla-photograph-frame">
+              <Image
+                src={`${ASSETS}/gel-x.jpg`}
+                alt="Both hands showing Isla’s pink manicure with white French tips"
+                width={1200}
+                height={725}
+                sizes="(max-width: 760px) calc(100vw - 58px), (max-width: 1120px) 40vw, 430px"
+                priority
+              />
+            </div>
             <figcaption className="isla-editorial-card">
               <span>THE ISLA TOUCH</span>
               <strong>
@@ -228,7 +238,7 @@ export function IslaBookingPage({ place, children, continueBar, flow, manageHref
             ['builder-gel.jpg', 'Every little detail.', 'Isla builder-gel nail service photograph'],
           ].map(([src, caption, alt]) => (
             <figure key={src}>
-              <img src={`${ASSETS}/${src}`} alt={alt} loading="lazy" width="600" height="600" />
+              <Image src={`${ASSETS}/${src}`} alt={alt!} loading="lazy" width={600} height={600} sizes="(max-width: 760px) 30vw, 320px" />
               <figcaption>{caption}</figcaption>
             </figure>
           ))}

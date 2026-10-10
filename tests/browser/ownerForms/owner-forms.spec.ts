@@ -1,6 +1,8 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 
+import { expectReadableText } from '../assert-readable';
+
 test.beforeEach(async ({ page }) => {
   await page.route('**/*', (route) => {
     if (new URL(route.request().url()).origin !== 'http://127.0.0.1:3154') {
@@ -112,6 +114,7 @@ for (const width of [320, 390, 430, 1280]) {
     await expect(dialog).toBeVisible();
 
     await readableFields(dialog);
+    await expectReadableText(page);
     await actionVisible(dialog.getByRole('button', { name: 'Save Service', exact: true }));
 
     expect(await dialog.getByRole('button', { name: 'Save Service', exact: true }).evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(143, 49, 85)');

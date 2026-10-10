@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { expectReadableText } from '../assert-readable';
+
 const evidence = process.env.SMS_CREDITS_SCREENSHOT_DIR;
 const screenshotPath = (info: import('@playwright/test').TestInfo, name: string) => evidence ? `${evidence}/${name}` : info.outputPath(name);
 
@@ -16,6 +18,7 @@ for (const [credits, status] of [[100, 'You’re all set.'], [18, 'Running low']
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     expect(await page.getByRole('heading', { name: 'Booking', exact: true }).boundingBox()).not.toBeNull();
 
+    await expectReadableText(page);
     await page.screenshot({ path: screenshotPath(info, `More-${credits}-${info.project.name}.png`), fullPage: true });
   });
 }
@@ -28,6 +31,7 @@ test('top-up packages, last purchase, history and close', async ({ page }, info)
   await expect(page.getByText('Your last purchase')).toBeVisible();
   expect(await page.getByRole('dialog').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 
+  await expectReadableText(page);
   await page.screenshot({ path: screenshotPath(info, `Top-up-${info.project.name}.png`) });
   await page.getByRole('button', { name: /View usage history/ }).last().click();
 
@@ -37,6 +41,7 @@ test('top-up packages, last purchase, history and close', async ({ page }, info)
   await expect(page.getByRole('listitem').filter({ hasText: 'Appointment reminder' })).toContainText(/−2\s*credits$/);
   await expect(page.getByRole('listitem').filter({ hasText: 'Credit purchase' })).toContainText(/\+500\s*credits$/);
 
+  await expectReadableText(page);
   await page.screenshot({ path: screenshotPath(info, `History-${info.project.name}.png`) });
   await page.getByRole('button', { name: 'Close text credits' }).click();
 
@@ -61,6 +66,7 @@ test('Today offers a new owner the free allowance before a paid top-up', async (
   await expect(page.getByRole('button', { name: 'Buy texts', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
+  await expectReadableText(page);
   await page.screenshot({ path: screenshotPath(info, `Today-free-claim-${info.project.name}.png`), fullPage: true });
 });
 

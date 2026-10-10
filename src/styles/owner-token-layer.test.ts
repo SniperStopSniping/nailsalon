@@ -41,9 +41,10 @@ describe('owner token layer', () => {
     expect(ownerScope).toContain('--owner-ground: #fcf3f2;');
     expect(ownerScope).toContain('--owner-surface: #fffcfa;');
     expect(ownerScope).toContain('--owner-ink: #3b192b;');
-    expect(ownerScope).toContain('--owner-muted: #75656b;');
+    expect(ownerScope).toContain('--owner-muted: #67545e;');
     expect(ownerScope).toContain('--owner-line: #ead7de;');
     expect(ownerScope).toContain('--owner-line-strong: #d8c1c8;');
+    expect(ownerScope).toContain('--owner-control: #9d7a88;');
     expect(ownerScope).toContain('--owner-focus: #8f3155;');
   });
 

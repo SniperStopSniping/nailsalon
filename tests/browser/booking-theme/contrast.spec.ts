@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { CUSTOMER_SITE_PALETTE_PRESETS } from '../../../src/libs/customerSitePresentation';
+import { expectReadableText } from '../assert-readable';
 
 function contrast(foreground: string, background: string) {
   const luminance = (color: string) => {
@@ -20,6 +21,8 @@ for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
 
     await expect(page.locator('[data-booking-readability]')).toHaveAttribute('data-booking-readability', 'standard');
     await expect(page.getByTestId('time-slot-13:45')).toBeVisible();
+
+    await expectReadableText(page);
 
     const pairs = await page.evaluate(() => {
       const sample = (text: string, ground = text) => ({
