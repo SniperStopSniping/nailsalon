@@ -719,6 +719,44 @@ describe('customer manage-link cancellation', () => {
     expect(providerCalls).toBe(1);
   });
 
+  it.each([
+    ['pending', 60_000],
+    ['confirmed', 60_000],
+    ['pending', 0],
+    ['confirmed', 0],
+    ['pending', -60_000],
+    ['confirmed', -60_000],
+  ] as const)('allows %s cancellation with %i ms until start despite a legacy cutoff', async (status, offset) => {
+    await db.update(schema.salonSchema).set({ settings: { booking: { clientChangeCutoffHours: 168 } } }).where(eq(schema.salonSchema.id, SALON_ID));
+    try {
+      const startTime = new Date(Date.now() + offset);
+      const { appointmentId, token } = await seedAppointmentWithToken({ status, startTime, endTime: new Date(startTime.getTime() + 60 * 60_000) });
+      const response = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
+
+      expect(response.status).toBe(200);
+
+      const [appointment] = await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, appointmentId));
+
+      expect(appointment!.status).toBe('cancelled');
+      expect(appointment!.totalPrice).toBe(4500);
+      expect(await salonDeliveriesFor(appointmentId)).toHaveLength(1);
+    } finally {
+      await db.update(schema.salonSchema).set({ settings: { booking: { clientChangeCutoffHours: 0 } } }).where(eq(schema.salonSchema.id, SALON_ID));
+    }
+  });
+
+  it.each(['completed', 'no_show', 'in_progress', 'awaiting_payment'] as const)('does not cancel %s appointments', async (status) => {
+    const { appointmentId, token } = await seedAppointmentWithToken({ status });
+    const response = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
+
+    expect(response.status).toBe(409);
+
+    const [appointment] = await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(appointment!.status).toBe(status);
+    expect(await salonDeliveriesFor(appointmentId)).toHaveLength(0);
+  });
+
   it('cancels the appointment and queues exactly one salon alert', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 

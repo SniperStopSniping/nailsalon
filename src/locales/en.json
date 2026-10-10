@@ -319,7 +319,7 @@
     "manage_appointment": "Manage appointment",
     "add_to_calendar": "Add to calendar",
     "book_another_appointment": "Book another appointment",
-    "cancellation_cutoff": "Change or cancel up to {hours} hours before your appointment.",
+    "manage_anytime": "You can cancel or choose a new time online anytime. Please let us know as soon as your plans change.",
     "next_visit_title": "Why not book your next visit now?",
     "next_visit_interval": "We recommend visiting every {weeks} weeks.",
     "next_visit_interval_one": "We recommend visiting every week.",

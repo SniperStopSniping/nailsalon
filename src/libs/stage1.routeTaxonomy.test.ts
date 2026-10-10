@@ -180,7 +180,7 @@ describe('S7 — token surfaces expose the minimum contact surface', () => {
 
     expect(code).not.toContain('salonEmail');
     expect(code).not.toContain('mailto:');
-    expect(code).toMatch(/cutoffHours, salonPhone \}/);
+    expect(code).toMatch(/isActive, salonPhone \}/);
   });
 
   it('the manage view redacts the phone through the SAME landed rule the public surfaces use', () => {

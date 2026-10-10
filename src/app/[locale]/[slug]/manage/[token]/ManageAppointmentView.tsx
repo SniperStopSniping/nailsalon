@@ -5,7 +5,7 @@ import { NextVisitOfferRebook } from '@/components/appointments/NextVisitOfferRe
 import styles from '@/components/customer-booking/customer-booking.module.css';
 import { CustomerBookingShell } from '@/components/customer-booking/CustomerBookingShell';
 import { describeAppointmentAccessFailure, verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
-import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
@@ -102,7 +102,6 @@ export async function ManageAppointmentView({
   const resolvedSlug = capability.salonSlug;
   const bookingConfig = resolveBookingConfigFromSettings(capability.salonSettings as SalonSettings | null);
   const timezone = bookingConfig.timezone;
-  const changePolicy = getClientChangePolicy(appointment.startTime, bookingConfig);
   const isActive = ['pending', 'confirmed'].includes(appointment.status);
   const isTerminal = ['cancelled', 'no_show'].includes(appointment.status);
   const isAwaitingDeposit = appointment.status === 'awaiting_payment';
@@ -537,8 +536,6 @@ export async function ManageAppointmentView({
             token={token}
             rescheduleUrl={rescheduleUrl}
             isActive={isActive}
-            canChange={changePolicy.canChange}
-            cutoffHours={bookingConfig.clientChangeCutoffHours}
             salonPhone={resolvePublicSalonPhone(
               sharedProfile,
               capability.salonPhone,
