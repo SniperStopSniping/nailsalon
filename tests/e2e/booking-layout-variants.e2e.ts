@@ -3210,8 +3210,6 @@ test('unpublished non-free-solo owner previews stay private until confirmed webs
       await expect(fullPreview.getByTestId('owner-preview-banner')).toHaveAttribute('data-preview-variant', 'draft-salon');
       await expect(fullPreview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
 
-      const sourceBeforeSalonPublish = await iframe.getAttribute('src');
-
       const [salonPublish] = await Promise.all([
         builder.waitForResponse(result => new URL(result.url()).pathname === '/api/admin/salon/publish'
           && result.request().method() === 'POST'),
@@ -3233,10 +3231,14 @@ test('unpublished non-free-solo owner previews stay private until confirmed webs
       await builder.getByRole('link', { name: /^Layout & Menu/ }).click();
 
       await expect(builder.getByTestId('salon-publish-banner')).toHaveCount(0);
-      await expect(iframe, 'Successful salon publication must invalidate the existing iframe revision.')
-        .not.toHaveAttribute('src', sourceBeforeSalonPublish!);
 
       await expectOwnerPreview('Salon-published refreshed iframe');
+
+      // Launch navigates through the sharing hub, so reopening the editor
+      // mounts a new iframe and resets its local revision counter. Verify the
+      // actual document adopted the published state, not that counter's URL.
+      await expect(preview.getByTestId('owner-preview-banner'))
+        .toHaveAttribute('data-preview-variant', 'draft-config');
 
       const publication = await readPublicationState();
 
