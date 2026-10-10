@@ -258,9 +258,12 @@ export type ListServicesResult = {
     id: string;
     name: string;
     priceCents: number;
+    /** Owner's displayed price wording, including starting or unconfirmed prices. */
+    priceDisplayText: string | null;
     durationMinutes: number;
     category: string;
     pricingType: string;
+    unitLabel: string | null;
     isActive: boolean;
   }>;
 };

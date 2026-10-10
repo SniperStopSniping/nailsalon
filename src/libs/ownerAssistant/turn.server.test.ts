@@ -95,6 +95,10 @@ beforeAll(async () => {
     { id: 'svc_turn_1', salonId: SALON.id, name: 'Gel manicure', price: 6500, durationMinutes: 60, category: 'manicure', isActive: true },
     { id: 'svc_turn_2', salonId: SALON.id, name: INJECTED_NAME, price: 1000, durationMinutes: 10, category: 'manicure', isActive: true },
   ]);
+  await db.insert(schema.addOnSchema).values([
+    { id: 'addon_turn_quote', salonId: SALON.id, name: 'Assessment', slug: 'assessment', category: 'removal', priceCents: 0, priceDisplayText: 'Price to be confirmed', durationMinutes: 20, pricingType: 'fixed' },
+    { id: 'addon_turn_unit', salonId: SALON.id, name: 'Repair', slug: 'repair', category: 'repair', priceCents: 500, priceDisplayText: '$5 per nail', durationMinutes: 10, pricingType: 'per_unit', unitLabel: 'nail' },
+  ]);
 });
 
 beforeEach(() => {
@@ -267,6 +271,24 @@ describe('tool rounds', () => {
     expect(echoed).toMatchObject({ type: 'function_call', call_id: 'call_1', name: 'list_services' });
     expect(output).toMatchObject({ type: 'function_call_output', call_id: 'call_1' });
     expect(JSON.parse((output as { output: string }).output)).toMatchObject({ currency: 'CAD' });
+  });
+
+  it('delivers truthful add-on price context through the real tool loop', async () => {
+    const provider = createScriptedProvider(
+      fakeToolCalls([{ callId: 'call_prices', name: 'list_services', argumentsJson: '{"includeInactive":false}' }]),
+      fakeAnswer(ANSWER),
+    );
+    await run(provider, { message: 'What do my add-ons cost?' });
+    const output = (provider.requests[1]?.input ?? [])
+      .find(item => 'type' in item && item.type === 'function_call_output') as { output: string };
+    const result = JSON.parse(output.output);
+
+    expect(result.currency).toBe('CAD');
+    expect(result.addOns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'addon_turn_quote', priceCents: 0, priceDisplayText: 'Price to be confirmed', unitLabel: null }),
+      expect.objectContaining({ id: 'addon_turn_unit', priceCents: 500, priceDisplayText: '$5 per nail', pricingType: 'per_unit', unitLabel: 'nail' }),
+    ]));
+    // Scripted-provider coverage proves the facts supplied, not real-model wording.
   });
 
   it('passes an injection-shaped service name through verbatim, as data', async () => {
