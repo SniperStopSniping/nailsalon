@@ -188,6 +188,7 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify no-show correction in desktop and mobile browsers',
       'Verify review automation settings in mobile browsers',
       'Verify dark customer assistant proposal shell in mobile browsers',
+      'Verify owner assistant reload recovery and account isolation',
       'Verify platform policy labels and navigation',
       'Verify owner destinations and Hours in mobile browsers',
       'Verify owner dashboard polish and shared dialogs in mobile browsers',
@@ -235,6 +236,8 @@ test('all browser evidence runs exactly once across required independent groups'
   assert.equal(upload.if, 'always()');
   assert.equal(upload.with.name, 'component-test-results-${{ matrix.suite }}');
   assert.equal(upload.with.path, 'test-results/');
+  const ownerRecovery = evidence.find(step => step.name === 'Verify owner assistant reload recovery and account isolation');
+  assert.equal(ownerRecovery.run, 'node node_modules/playwright/cli.js test --config tests/browser/ownerAssistant/playwright.config.ts --output=test-results/owner-assistant-components');
   assert.ok(jobs.test.needs.includes('test-components'));
   assert.equal(jobs.test.steps[0].env.COMPONENTS_RESULT, '${{ needs.test-components.result }}');
 });
