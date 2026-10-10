@@ -3075,6 +3075,7 @@ export function BookServiceClient({
           if (islaCustomPage) {
             return (
               <IslaBookingPage
+                place={quickBookContent.place}
                 flow={effectiveBookingFlow}
                 manageHref={appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug: salonSlug, locale })}
                 socialLinks={quickBookContent.social}

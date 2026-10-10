@@ -734,3 +734,17 @@ describe('EMPTY_SALON_CONTENT', () => {
     expect(EMPTY_SALON_CONTENT.proof.reviews).toEqual([]);
   });
 });
+
+describe('entrance instruction privacy', () => {
+  it.each(['full_address', 'city_only', 'after_booking'] as const)('projects instructions for %s', (locationDisplayMode) => {
+    const content = resolveSalonContent({
+      salon: { name: 'Private Studio', address: PRIVATE_FULL_ADDRESS },
+      technicians: [],
+      services: [],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+      content: { locationDisplayMode, entranceInstructions: 'Private side entrance, unit 77' },
+    });
+
+    expect(content.place.entranceInstructions).toBe(locationDisplayMode === 'full_address' ? 'Private side entrance, unit 77' : null);
+  });
+});

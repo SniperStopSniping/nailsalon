@@ -2,13 +2,16 @@
 
 import './isla-booking.css';
 
-import { ArrowRight, Check, ChevronDown, Facebook, Instagram, Music2, Plus, Search, Sparkles, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, Clock, Facebook, Instagram, MapPin, Music2, Plus, Search, Sparkles, X } from 'lucide-react';
 import { Fragment, type ReactNode, useState } from 'react';
 
 import { DialogShell } from '@/components/ui/dialog-shell';
 import type { BookingStep } from '@/libs/bookingFlow';
 import { formatInstagramHandle } from '@/libs/instagramHandle';
+import type { SalonContentPlace } from '@/libs/salonContent';
 import type { BookingExperience } from '@/types/salonPolicy';
+
+import { formatIslaHours } from './islaHours';
 
 const ASSETS = '/isla';
 
@@ -91,7 +94,8 @@ export function IslaServiceCard({ id, name, description, image, duration, price,
   );
 }
 
-export function IslaBookingPage({ children, continueBar, flow, manageHref, policy, socialLinks, moreCount, categoryLabel, onShowMore, onSearch }: {
+export function IslaBookingPage({ place, children, continueBar, flow, manageHref, policy, socialLinks, moreCount, categoryLabel, onShowMore, onSearch }: {
+  place?: SalonContentPlace;
   children: ReactNode;
   continueBar: ReactNode;
   flow: BookingStep[];
@@ -162,6 +166,7 @@ export function IslaBookingPage({ children, continueBar, flow, manageHref, polic
               </p>
             </div>
           </div>
+          <IslaVisitDetails place={place} />
         </section>
         <section className="isla-booking" aria-labelledby="isla-services-title">
           <IslaProgress flow={flow} />
@@ -246,5 +251,44 @@ export function IslaBookingPage({ children, continueBar, flow, manageHref, polic
         </section>
       </DialogShell>
     </div>
+  );
+}
+
+function IslaVisitDetails({ place }: { place?: SalonContentPlace }) {
+  const primary = place?.locations.find(location => location.isPrimary) ?? place?.locations[0];
+  const address = place?.address?.address ?? primary?.address;
+  const entrance = address ? place?.entranceInstructions : null;
+  const hours = formatIslaHours(place?.hours ?? primary?.hours ?? null);
+  if (!address && hours.length === 0) {
+    return null;
+  }
+  return (
+    <section className="isla-visit" aria-label="Location and hours">
+      {address && (
+        <div className="isla-visit-location">
+          <MapPin aria-hidden="true" />
+          <div>
+            <p className="isla-visit-address">{address}</p>
+            {entrance && <p className="isla-visit-entrance">{entrance}</p>}
+          </div>
+        </div>
+      )}
+      {hours.length > 0 && (
+        <div className="isla-visit-hours">
+          <Clock aria-hidden="true" />
+          <div>
+            <h2>Hours</h2>
+            <dl>
+              {hours.map(row => (
+                <div key={row.days}>
+                  <dt>{row.days}</dt>
+                  <dd>{row.time}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

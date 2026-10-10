@@ -101,6 +101,20 @@ const policyFixture = hasPolicyFixture
 const salon = {
   id: 'synthetic-salon',
   slug: isla ? 'isla-nail-studio' : 'theme-fixture',
+  ...(isla
+    ? {
+        address: '880 Ellesmere Rd, Unit 2',
+        businessHours: {
+          monday: { open: '10:00', close: '19:00' },
+          tuesday: { open: '10:00', close: '19:00' },
+          wednesday: { open: '10:00', close: '19:00' },
+          thursday: { open: '10:00', close: '19:00' },
+          friday: { open: '10:00', close: '19:00' },
+          saturday: { open: '11:00', close: '17:00' },
+          sunday: null,
+        },
+      }
+    : {}),
   name: 'Isla Nail Studio',
   themeKey,
   status: 'active',
@@ -137,6 +151,7 @@ const bookingPage = {
 
 createRoot(document.getElementById('root')!).render(
   <PublicSalonPageShell
+    salonContentInput={isla ? { content: { entranceInstructions: 'Inside TB Nails' } } : undefined}
     appearance={{ mode: query.has('custom-appearance') ? 'custom' : 'theme', themeKey: query.get('page-theme') ?? themeKey }}
     salon={salon}
     bookingPage={{ ...bookingPage, siteStylePreset: legacyTheme ? undefined : bookingPage.siteStylePreset, sitePalettePreset: legacyTheme ? undefined : palette, sectionOrder: [...bookingPage.sectionOrder], hiddenSections: [], quickBookLayout: requestedLayout && (isApprovedQuickBookLayout(requestedLayout) || isMediaQuickBookLayout(requestedLayout)) ? requestedLayout : 'clean_card' }}

@@ -10,6 +10,26 @@ for (const width of [320, 390, 768, 1440]) {
     await expect(page.getByRole('navigation', { name: 'Booking progress' })).not.toContainText('Artist');
     await expect(page.locator('.isla-service')).toHaveCount(3);
 
+    const visit = page.getByRole('region', { name: 'Location and hours' });
+
+    await expect(visit).toContainText('880 Ellesmere Rd, Unit 2');
+    await expect(visit).toContainText('Inside TB Nails');
+    await expect(visit).toContainText('Mon–Fri10 am–7 pm');
+    await expect(visit).toContainText('Sat11 am–5 pm');
+    await expect(visit).toContainText('SunClosed');
+
+    const photoBounds = await page.locator('.isla-photograph').boundingBox();
+    const visitBounds = await visit.boundingBox();
+
+    expect(visitBounds!.y).toBeGreaterThan(photoBounds!.y + photoBounds!.height);
+
+    if (width <= 760) {
+      const bookingBounds = await page.locator('.isla-booking').boundingBox();
+
+      expect(bookingBounds!.y).toBeGreaterThanOrEqual(visitBounds!.y + visitBounds!.height);
+      expect(visitBounds!.height).toBeLessThan(width < 360 ? 230 : 180);
+    }
+
     await page.getByRole('button', { name: '3 more manicure services' }).click();
 
     await expect(page.locator('.isla-service')).toHaveCount(6);

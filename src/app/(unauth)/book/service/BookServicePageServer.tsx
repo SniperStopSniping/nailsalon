@@ -20,6 +20,7 @@ import { resolvePublicCatalogSnapshot } from '@/libs/catalogResolver.server';
 import { getClientSession } from '@/libs/clientAuth';
 import { isCustomerAssistantEnabledForSalon } from '@/libs/customerAssistant/access.server';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
+import { isIslaBookingPage } from '@/libs/islaBookingPage';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { listPublicPortfolioPhotosByIds } from '@/libs/portfolioMedia.server';
 import { projectPublicBookingCatalog } from '@/libs/publicBookingCatalog';
@@ -280,7 +281,7 @@ export async function renderBookServicePage({
   // - If multi-location salon has 0 active locations (admin misconfig), booking proceeds with null
   const [activeLocations, retentionSettings] = await Promise.all([
     getActiveLocationsBySalonId(salon.id),
-    activeBookingPageSide.layout === 'quick_book'
+    activeBookingPageSide.layout === 'quick_book' || isIslaBookingPage(salon.slug)
       ? getRetentionSettingsForSalon(salon.id)
       : Promise.resolve(null),
   ]);
@@ -474,6 +475,7 @@ export async function renderBookServicePage({
         locations: activeLocations,
         lusterFeaturingEnabled: merchandising.featureLusterManicure,
         content: {
+          entranceInstructions: isIslaBookingPage(salon.slug) ? retentionSettings?.parkingInstructions ?? null : null,
           heroImageUrl: activeBookingPageContentSide.heroImageUrl,
           specialtyLine: activeBookingPageContentSide.specialtyLine,
           bio: activeBookingPageContentSide.bio,
