@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { expectReadableText } from '../assert-readable';
+
 // Transformed sheets can report 44px as 43.99998474121094 in Chromium.
 // Check the CSS minimum too, and round only floating-point noise below .001px.
 async function expectTouchTarget(target: import('@playwright/test').Locator, minimum: number) {
@@ -156,8 +158,10 @@ for (const width of [320, 390, 430, 1280]) {
 
     const status = page.getByText('Status not confirmed yet.', { exact: true });
 
-    expect(await status.evaluate(element => getComputedStyle(element).color)).toBe('rgb(117, 101, 107)');
+    expect(await status.evaluate(element => getComputedStyle(element).color)).toBe('rgb(103, 84, 94)');
     await expect(page.getByText('Continue setup', { exact: true })).toBeVisible();
+
+    await expectReadableText(page);
 
     await setup.click();
 
