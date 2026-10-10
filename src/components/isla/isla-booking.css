@@ -108,7 +108,7 @@
   padding: 0 24px;
   color: var(--isla-ink);
   background: var(--isla-paper);
-  font-family: var(--isla-sans);
+  font-family: "Isla Sans", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 .isla-mobile-header * {
