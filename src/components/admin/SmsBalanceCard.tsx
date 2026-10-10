@@ -18,7 +18,7 @@ export function SmsBalanceCard({ salonSlug, onBuy, onHistory, compact = false }:
   const copy = balance ? SMS_CREDIT_STATUS_COPY[balance.status] : null;
   const percent = balance?.allocationCredits ? Math.max(0, Math.min(100, balance.availableCredits / balance.allocationCredits * 100)) : null;
   if (compact && balance) {
-    return (
+    const purchaseWarning = (
       <section className="owner-card flex flex-wrap items-center justify-between gap-3 border-[var(--owner-accent)] p-4" aria-label="Low text balance">
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-[var(--owner-accent)]">
@@ -34,6 +34,9 @@ export function SmsBalanceCard({ salonSlug, onBuy, onHistory, compact = false }:
         </button>
       </section>
     );
+    return remaining === 0 && data
+      ? <StarterSmsCreditsCard key={data.salonId} salonId={data.salonId} onClaimed={refresh} dashboardFallback={purchaseWarning} />
+      : purchaseWarning;
   }
   return (
     <section className="owner-card overflow-hidden p-5" aria-labelledby="sms-balance-heading" data-testid="sms-balance-card">

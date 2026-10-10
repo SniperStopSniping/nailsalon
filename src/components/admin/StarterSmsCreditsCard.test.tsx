@@ -213,4 +213,18 @@ describe('StarterSmsCreditsCard', () => {
     expect(await screen.findByText('100 free SMS credits have been added.')).toBeInTheDocument();
     expect(onClaimed).toHaveBeenCalledOnce();
   });
+
+  it('keeps the Today claim honest when free-credit activation is unavailable', async () => {
+    const onClaimed = vi.fn();
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'POST'
+      ? new Response(JSON.stringify({ data: { granted: false, status: 'identity_setup_required' } }))
+      : statusResponse('unclaimed', true));
+    render(<StarterSmsCreditsCard salonId="salon_a" onClaimed={onClaimed} dashboardFallback={<button type="button">Buy texts</button>} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim 100 free texts' }));
+
+    expect(await screen.findByText('Free texts are temporarily unavailable. Please try again later or contact support.')).toBeInTheDocument();
+    expect(screen.queryByText('100 free SMS credits have been added.')).not.toBeInTheDocument();
+    expect(onClaimed).not.toHaveBeenCalled();
+  });
 });
