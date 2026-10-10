@@ -118,6 +118,6 @@ describe('owner editor cohesion', () => {
 
     expect(main).toHaveClass('owner-workspace-theme');
     expect(main).toHaveAttribute('data-theme-scope', 'owner');
-    expect(screen.getByRole('heading', { level: 1, name: 'Booking Page' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Your website' })).toBeInTheDocument();
   });
 });

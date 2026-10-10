@@ -58,4 +58,22 @@ describe('Booking Page hub authorization', () => {
     expect(page.props).toMatchObject({ salonName: 'My Salon', salonSlug: 'my-salon', published: true, hasDraftChanges: false, setupUrl: null });
     expect(mocks.handoff).not.toHaveBeenCalled();
   });
+
+  it('only retires the local onboarding flow for a server-confirmed owner and matching saved site', async () => {
+    mocks.session.mockResolvedValue({ id: 'owner', clerkUserId: 'clerk-owner', salons: [{ salonId: 'salon-1', role: 'owner' }] });
+    mocks.guard.mockResolvedValue({ ok: true });
+    mocks.handoff.mockResolvedValue({ site: { id: 'saved-site', revision: 4, setupAvailable: false }, handoff: { planIntent: 'founding_interest' } });
+    const page = await WebsiteHubPage({ ...input, searchParams: Promise.resolve({ salon: 'my-salon', onboarding: 'complete', site: 'saved-site' }) });
+
+    expect(page.props.onboardingHandoff).toEqual({ ownerId: 'clerk-owner', salonSlug: 'my-salon', siteId: 'saved-site', revision: 4, planIntent: 'founding_interest' });
+
+    const mismatch = await WebsiteHubPage({ ...input, searchParams: Promise.resolve({ salon: 'my-salon', onboarding: 'complete', site: 'different-site' }) });
+
+    expect(mismatch.props.onboardingHandoff).toBeUndefined();
+
+    mocks.session.mockResolvedValue({ id: 'collaborator', clerkUserId: 'clerk-other', salons: [{ salonId: 'salon-1', role: 'admin' }] });
+    const collaborator = await WebsiteHubPage({ ...input, searchParams: Promise.resolve({ salon: 'my-salon', onboarding: 'complete', site: 'saved-site' }) });
+
+    expect(collaborator.props.onboardingHandoff).toBeUndefined();
+  });
 });

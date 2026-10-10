@@ -17,7 +17,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     const noHorizontalOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
     await page.goto(hubUrl);
 
-    await expect(page.getByRole('heading', { name: 'Booking Page', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Your website', exact: true })).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Booking Page editors' }).getByRole('link')).toHaveCount(expectedEditorCount);
     await expect(page.getByRole('link', { name: /^Business Information/ })).toHaveAttribute('href', `${editorUrl}&panel=business`);
     await expect(page.getByRole('link', { name: /^Booking Messages & Social Links/ })).toHaveAttribute('href', `${editorUrl}&panel=experience`);
@@ -88,7 +88,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await page.getByRole('button', { name: 'Booking Page', exact: true }).click();
 
-    await expect(page.getByRole('heading', { name: 'Booking Page', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Your website', exact: true })).toBeVisible();
 
     await page.getByRole('link', { name: /What Clients See/ }).click();
 

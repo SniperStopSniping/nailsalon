@@ -1,39 +1,19 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  requireAdminOwner,
-  getSalonBySlug,
-  getSalonById,
-  logAuditEvent,
-  buildSalonTenantPublicUrl,
-  db,
-  updateSet,
-  updateWhere,
-  updateReturning,
-} = vi.hoisted(() => {
-  const updateReturning = vi.fn(async () => [] as unknown[]);
-  const updateWhere = vi.fn(() => ({ returning: updateReturning }));
-  const updateSet = vi.fn(() => ({ where: updateWhere }));
-  const update = vi.fn(() => ({ set: updateSet }));
-  return {
-    requireAdminOwner: vi.fn(),
-    getSalonBySlug: vi.fn(),
-    getSalonById: vi.fn(),
-    logAuditEvent: vi.fn(),
-    buildSalonTenantPublicUrl: vi.fn((path: string) => `https://salon-a.luster.com${path === '/' ? '' : path}`),
-    db: { update },
-    updateSet,
-    updateWhere,
-    updateReturning,
-  };
-});
-
+const { requireAdminOwner, getSalonBySlug, logAuditEvent, publishWebsite } = vi.hoisted(() => ({
+  requireAdminOwner: vi.fn(),
+  getSalonBySlug: vi.fn(),
+  logAuditEvent: vi.fn(),
+  publishWebsite: vi.fn(),
+}));
+vi.mock('server-only', () => ({}));
+vi.mock('@/libs/DB', () => ({ db: {} }));
 vi.mock('@/libs/adminAuth', () => ({ requireAdminOwner }));
 vi.mock('@/libs/auditLog', () => ({ logAuditEvent }));
-vi.mock('@/libs/queries', () => ({ getSalonBySlug, getSalonById }));
-vi.mock('@/libs/publicUrl', () => ({ buildSalonTenantPublicUrl }));
-vi.mock('@/libs/DB', () => ({ db }));
+vi.mock('@/libs/queries', () => ({ getSalonBySlug }));
+vi.mock('@/libs/bookingPageLifecycle', () => ({ publishWebsite }));
+vi.mock('@/libs/publicUrl', () => ({ buildSalonTenantPublicUrl: (path: string) => `https://salon-a.luster.com${path === '/' ? '' : path}` }));
 
 import { POST } from './route';
 
@@ -61,9 +41,8 @@ describe('POST /api/admin/salon/publish', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getSalonBySlug.mockResolvedValue(DRAFT_SALON);
-    getSalonById.mockResolvedValue(DRAFT_SALON);
     requireAdminOwner.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
-    updateReturning.mockResolvedValue([PUBLISHED_ROW]);
+    publishWebsite.mockResolvedValue({ salon: PUBLISHED_ROW, applied: true });
   });
 
   describe('validation / auth', () => {
@@ -71,7 +50,7 @@ describe('POST /api/admin/salon/publish', () => {
       const response = await POST(request('https://x.test/api/admin/salon/publish'));
 
       expect(response.status).toBe(400);
-      expect(db.update).not.toHaveBeenCalled();
+      expect(publishWebsite).not.toHaveBeenCalled();
     });
 
     it('404s when the salon does not exist', async () => {
@@ -89,7 +68,7 @@ describe('POST /api/admin/salon/publish', () => {
       const response = await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
 
       expect(response.status).toBe(401);
-      expect(db.update).not.toHaveBeenCalled();
+      expect(publishWebsite).not.toHaveBeenCalled();
     });
 
     it('propagates a 403 when the requesting admin is not a member of this salon (cross-tenant)', async () => {
@@ -99,7 +78,7 @@ describe('POST /api/admin/salon/publish', () => {
       const response = await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
 
       expect(response.status).toBe(403);
-      expect(db.update).not.toHaveBeenCalled();
+      expect(publishWebsite).not.toHaveBeenCalled();
     });
 
     it('resolves the salon before checking admin auth, and authorizes against the salon id, not the slug', async () => {
@@ -129,22 +108,27 @@ describe('POST /api/admin/salon/publish', () => {
           message: 'Only the salon owner can publish this website.',
         },
       });
-      expect(db.update).not.toHaveBeenCalled();
+      expect(publishWebsite).not.toHaveBeenCalled();
       expect(logAuditEvent).not.toHaveBeenCalled();
     });
   });
 
+  it('keeps failed publication recoverable without returning a false success or audit', async () => {
+    publishWebsite.mockRejectedValue(new Error('storage unavailable'));
+    const response = await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: 'PUBLISH_FAILED' } });
+    expect(logAuditEvent).not.toHaveBeenCalled();
+  });
+
   describe('publishing a draft', () => {
-    it('flips draft to published, stamping publishedAt and slugLockedAt in the same UPDATE', async () => {
+    it('uses the shared atomic publication lifecycle and returns original timestamps', async () => {
       const response = await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
       const body = await response.json();
 
       expect(response.status).toBe(200);
-      expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
-        publicationStatus: 'published',
-        publishedAt: expect.any(Date),
-        slugLockedAt: expect.any(Date),
-      }));
+      expect(publishWebsite).toHaveBeenCalledWith('salon_1');
       expect(body.data).toMatchObject({
         salonId: 'salon_1',
         slug: 'salon-a',
@@ -154,10 +138,10 @@ describe('POST /api/admin/salon/publish', () => {
       expect(body.data.slugLockedAt).toBe('2026-08-18T12:00:00.000Z');
     });
 
-    it('only updates a row that is not already published (conditional WHERE)', async () => {
+    it('delegates publication exactly once', async () => {
       await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
 
-      expect(updateWhere).toHaveBeenCalledTimes(1);
+      expect(publishWebsite).toHaveBeenCalledTimes(1);
     });
 
     it('audit-logs the publish as a tenant-scoped settings_updated event', async () => {
@@ -184,11 +168,9 @@ describe('POST /api/admin/salon/publish', () => {
 
   describe('publishing an already-published salon (idempotent no-op)', () => {
     beforeEach(() => {
-      // The conditional UPDATE finds no row to touch (publicationStatus is
-      // already 'published'), so the route falls back to re-reading state.
-      updateReturning.mockResolvedValue([]);
+      // The locked lifecycle returns the already-published snapshot unchanged.
+      publishWebsite.mockResolvedValue({ salon: PUBLISHED_ROW, applied: false });
       getSalonBySlug.mockResolvedValue(PUBLISHED_ROW);
-      getSalonById.mockResolvedValue(PUBLISHED_ROW);
     });
 
     it('does not re-stamp publishedAt/slugLockedAt and does not audit-log again', async () => {

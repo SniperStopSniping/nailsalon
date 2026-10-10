@@ -2224,19 +2224,12 @@ describe('BookingPageOwnerSurface', () => {
     });
   });
 
-  // AG-hub-publish-06 — the booking-page publish only moves the draft onto the
-  // published side of the same salon. On a salon that is still a private
-  // draft, "your live booking page" contradicts the banner above it.
-  it('reports a booking-page publish on a still-draft salon without claiming a live page', async () => {
+  it('offers one first-publish action for a private draft', async () => {
     salonPublicationStatus = 'draft';
     render(<BookingPageOwnerSurface />);
 
-    fireEvent.click(await screen.findByTestId('booking-page-publish'));
-
-    const message = await screen.findByText(/Saved to your draft site — publish your salon to make it public\./);
-
-    expect(message).toBeInTheDocument();
-    expect(screen.queryByText(/Your live booking page now matches your draft/)).not.toBeInTheDocument();
+    expect(await screen.findByTestId('salon-publish-button')).toHaveTextContent('Publish website');
+    expect(screen.queryByTestId('booking-page-publish')).not.toBeInTheDocument();
   });
 
   // Phase A follow-up: the wizard's success screen is not the owner's only
@@ -2265,7 +2258,7 @@ describe('BookingPageOwnerSurface', () => {
       // (asserted elsewhere in this file); the salon-level action must
       // never carry that same bare label — an owner could confuse them.
       expect(salonPublishButton).not.toHaveTextContent(/^Publish$/);
-      expect(screen.getByText(/permanently locks your link/i)).toBeInTheDocument();
+      expect(screen.queryByTestId('booking-page-publish')).not.toBeInTheDocument();
     });
 
     it('asks for confirmation naming the exact address that gets locked, and stays in draft when dismissed', async () => {
@@ -2276,7 +2269,7 @@ describe('BookingPageOwnerSurface', () => {
 
       const dialog = await screen.findByTestId('confirm-dialog');
 
-      expect(within(dialog).getByText(/Your link becomes permanent and your site goes live/)).toBeInTheDocument();
+      expect(within(dialog).getByText(/Your saved website will be public at this permanent address/)).toBeInTheDocument();
       expect(within(dialog).getByTestId('salon-publish-confirm-url')).toHaveTextContent('/salon-a');
 
       fireEvent.click(within(dialog).getByTestId('confirm-dialog-cancel'));
@@ -2346,72 +2339,34 @@ describe('BookingPageOwnerSurface', () => {
       expect(previousPreview).toHaveAttribute('src', previousSrc);
     });
 
-    it('does not regress published salon metadata when an older booking-page response arrives last', async () => {
+    it('waits for a pending draft save before first publication and prevents duplicate requests', async () => {
       salonPublicationStatus = 'draft';
+      searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text');
       const fallbackFetch = fetchMock.getMockImplementation()!;
-      let releaseBookingPagePublish: (() => void) | undefined;
-      let releaseSalonPublish: (() => Promise<void>) | undefined;
-
+      let releaseFieldSave: (() => void) | undefined;
       fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url.includes('/api/admin/salon/publish') && init?.method === 'POST') {
+        if (init?.method === 'PATCH') {
           return new Promise<Response>((resolve) => {
-            releaseSalonPublish = async () => resolve(await fallbackFetch(input, init));
-          });
-        }
-        if (url.includes('/api/admin/booking-page') && init?.method === 'POST') {
-          const staleResponse = new Response(JSON.stringify({
-            config,
-            content,
-            salon: { publicationStatus: 'draft' },
-          }), { status: 200 });
-          return new Promise<Response>((resolve) => {
-            releaseBookingPagePublish = () => resolve(staleResponse);
+            releaseFieldSave = () => resolve(new Response(JSON.stringify({ config, content, salon: { publicationStatus: 'draft' } })));
           });
         }
         return fallbackFetch(input, init);
       });
-
       render(<BookingPageOwnerSurface />);
-
-      await screen.findByTestId('salon-publish-banner');
-      fireEvent.click(screen.getByTestId('booking-page-publish'));
-      await waitFor(() => expect(releaseBookingPagePublish).toBeTypeOf('function'));
-
-      const salonPublishButton = screen.getByTestId('salon-publish-button');
-
-      expect(salonPublishButton).toBeEnabled();
-
-      fireEvent.click(salonPublishButton);
+      const bio = await screen.findByTestId('content-bio');
+      fireEvent.change(bio, { target: { value: 'First published biography' } });
+      fireEvent.blur(bio);
+      await waitFor(() => expect(releaseFieldSave).toBeTypeOf('function'));
+      fireEvent.click(screen.getByTestId('salon-publish-button'));
       fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
 
-      await waitFor(() => expect(releaseSalonPublish).toBeTypeOf('function'));
-      // Flush the newer salon response and its publication-status effect before
-      // resolving the deliberately older booking-page snapshot.
-      await act(async () => {
-        await releaseSalonPublish?.();
-      });
+      expect(screen.getByTestId('salon-publish-button')).toBeDisabled();
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/admin/salon/publish'))).toHaveLength(0);
 
-      expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();
-      expect(screen.getByTestId('booking-page-publish')).toBeDisabled();
+      await act(async () => releaseFieldSave?.());
+      await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/en/admin/website?salon=salon-a'));
 
-      await act(async () => {
-        releaseBookingPagePublish?.();
-      });
-      await waitFor(() => expect(screen.getByTestId('booking-page-publish')).toBeEnabled());
-      await screen.findByText(
-        /Published\. Your live booking page now matches your draft\./,
-        {},
-        { timeout: 10_000 },
-      );
-
-      expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();
-      expect(fetchMock.mock.calls.filter(([url, init]) => (
-        String(url).includes('/api/admin/salon/publish') && init?.method === 'POST'
-      ))).toHaveLength(1);
-      expect(fetchMock.mock.calls.filter(([url, init]) => (
-        String(url).includes('/api/admin/booking-page') && init?.method === 'POST'
-      ))).toHaveLength(1);
-    }, 15_000);
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/admin/salon/publish'))).toHaveLength(1);
+    });
   });
 });

@@ -1,11 +1,13 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BookingPageHub } from './BookingPageHub';
 
 vi.mock('./ownerAssistant/OwnerAssistantLauncher', () => ({
   default: ({ salonSlug }: { salonSlug: string }) => <div data-testid="hub-owner-assistant" data-salon-slug={salonSlug} />,
 }));
+
+afterEach(() => vi.unstubAllGlobals());
 
 const props = { locale: 'en', salonName: 'Another Nail Studio', salonSlug: 'another-studio', published: true, hasDraftChanges: false, setupUrl: null };
 
@@ -49,6 +51,9 @@ describe('Booking Page hub', () => {
     expect(screen.getByText('Not published yet')).toBeVisible();
     expect(screen.queryByRole('link', { name: 'Open live site' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Copy link' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Edit website'));
+
     expect(screen.getByRole('link', { name: 'Review saved setup' })).toHaveAttribute('href', expect.stringContaining('site=existing&revision=4'));
   });
 
@@ -68,7 +73,7 @@ describe('Booking Page hub', () => {
   it('keeps the publish CTA for the owner', () => {
     render(<BookingPageHub {...props} canPublish published={false} />);
 
-    expect(screen.getByRole('link', { name: 'Publish website' })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=publish');
+    expect(screen.getByRole('button', { name: 'Publish website' })).toBeVisible();
     expect(screen.queryByText('Publishing is owner only')).not.toBeInTheDocument();
   });
 
@@ -108,6 +113,9 @@ describe('Booking Page hub', () => {
     render(<BookingPageHub {...props} published={false} setupUrl={null} />);
 
     expect(screen.queryByTestId('hub-setup-published-note')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Edit website'));
+
     expect(screen.getByRole('link', { name: 'Review current setup' })).toBeVisible();
   });
 
@@ -123,4 +131,80 @@ describe('Booking Page hub', () => {
       window.location.hash = '';
     }
   });
+});
+
+describe('simple website launch', () => {
+  it('confirms the permanent link, publishes once, and exposes the live sharing actions', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { publicationStatus: 'published' } })));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<BookingPageHub {...props} published={false} hasDraftChanges setupUrl="/en/onboarding-v1?resume=review&site=saved&revision=4" />);
+
+    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).closest('details')).not.toHaveAttribute('open');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publish website' }));
+    const dialog = screen.getByRole('alertdialog');
+
+    expect(dialog).toHaveTextContent('/en/another-studio');
+    expect(dialog).toHaveTextContent('This address becomes permanent');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Publish website' }));
+    await screen.findByRole('button', { name: 'Copy link' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/salon/publish?salonSlug=another-studio', { method: 'POST' });
+    expect(screen.getByRole('link', { name: 'Open live site' })).toBeVisible();
+    expect(screen.getByText('Live · All changes published')).toBeVisible();
+
+    fireEvent.click(screen.getByText('Edit website'));
+
+    expect(screen.queryByRole('link', { name: 'Review saved setup' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Review setup in the editors' })).toBeVisible();
+  });
+
+  it('keeps the draft recoverable when publishing fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 503 })));
+    render(<BookingPageHub {...props} published={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Publish website' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Publish website' }));
+    await screen.findByRole('alert');
+
+    expect(screen.queryByRole('button', { name: 'Copy link' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish website' })).toBeEnabled();
+  });
+
+  it('does not publish when the owner keeps their draft', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(<BookingPageHub {...props} published={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Publish website' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep draft' }));
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not leak completed publication across a salon switch', async () => {
+    let finish: (value: Response) => void = () => {};
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => {
+      finish = resolve;
+    })));
+    const { rerender } = render(<BookingPageHub {...props} published={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Publish website' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Publish website' }));
+    rerender(<BookingPageHub {...props} salonSlug="other" published={false} />);
+    finish(new Response(JSON.stringify({ data: { publicationStatus: 'published' } })));
+    await waitFor(() => expect(screen.getByText('Not published yet')).toBeVisible());
+
+    expect(screen.queryByRole('button', { name: 'Copy link' })).not.toBeInTheDocument();
+  });
+});
+
+it('shows remaining draft changes when another session already published', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { publicationStatus: 'published', hasDraftChanges: true } }))));
+  render(<BookingPageHub {...props} published={false} hasDraftChanges={false} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Publish website' }));
+  fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Publish website' }));
+
+  expect(await screen.findByText('Live · Draft changes not published')).toBeVisible();
 });

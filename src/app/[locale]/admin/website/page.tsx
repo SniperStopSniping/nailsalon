@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function WebsiteHubPage({ params, searchParams }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ salon?: string | string[] }>;
+  searchParams: Promise<{ salon?: string | string[]; onboarding?: string; site?: string }>;
 }) {
   const [{ locale: requestedLocale }, query] = await Promise.all([params, searchParams]);
   const locale = requestedLocale === 'fr' ? 'fr' : 'en';
@@ -36,7 +36,8 @@ export default async function WebsiteHubPage({ params, searchParams }: {
   const config = resolveBookingPageConfig(salon.settings);
   const content = resolveBookingPageContent(salon.settings);
   const canEditSetup = admin.salons.some(item => item.salonId === salon.id && item.role === 'owner');
-  const handoff = isOnboardingV1IntegrationEnabled() && canEditSetup && salon.publicationStatus === 'draft'
+  const isOnboardingArrival = query.onboarding === 'complete' && typeof query.site === 'string';
+  const handoff = isOnboardingV1IntegrationEnabled() && canEditSetup && (salon.publicationStatus === 'draft' || isOnboardingArrival)
     ? await getOnboardingSiteHandoff({
       canEditSetup,
       locale,
@@ -50,6 +51,15 @@ export default async function WebsiteHubPage({ params, searchParams }: {
       hasDraftChanges={hasUnpublishedBookingPageChanges(config, content)}
       isFreeSolo={salon.freeSoloEnabled === true}
       locale={locale}
+      onboardingHandoff={isOnboardingArrival && handoff && handoff.site.id === query.site && admin.clerkUserId
+        ? {
+            ownerId: admin.clerkUserId,
+            planIntent: handoff.handoff.planIntent,
+            revision: handoff.site.revision,
+            salonSlug: salon.slug,
+            siteId: handoff.site.id,
+          }
+        : undefined}
       published={salon.publicationStatus === 'published'}
       publicUrl={buildSalonTenantPublicUrl('/', { slug: salon.slug, customDomain: salon.customDomain }, locale)}
       salonName={salon.name}

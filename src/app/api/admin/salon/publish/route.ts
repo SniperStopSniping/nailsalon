@@ -1,37 +1,10 @@
-/**
- * Admin Salon Publish API (Phase A — onboarding creation/publication split).
- *
- * POST /api/admin/salon/publish?salonSlug=xxx
- *
- * Luster onboarding (`/api/onboarding/luster`) creates every new salon as a
- * private, owner-only draft — `publicationStatus: 'draft'`, `publishedAt:
- * null`, `slugLockedAt: null` — instead of publishing it in the same atomic
- * request. This endpoint is the ONE place that flips a salon from draft to
- * published: a distinct, owner-initiated action, not a side effect of setup.
- *
- * Auth follows the same tenant-scoped pattern as every other admin salon
- * route (see `@/app/api/admin/salon/settings/route.ts`,
- * `@/app/api/admin/booking-page/route.ts`): resolve the salon by slug, then
- * a guard on `salon.id` — here `requireAdminOwner`, because publication locks
- * the slug permanently and is the owner's call alone (a collaborator gets
- * `403 OWNER_REQUIRED`). `requireAdmin` beneath it already accepts the Clerk session
- * onboarding signs owners in with — `getAdminSession()` falls back to Clerk
- * auth (`@/libs/adminAuth.ts`) when no legacy admin-session cookie is
- * present — so no new auth mechanism is introduced here.
- *
- * Idempotent: the UPDATE only touches a row that is not already published,
- * so publishing an already-published salon is a safe no-op that returns the
- * existing publish timestamps unchanged — a double-click or a retried
- * request can never re-stamp `publishedAt`/`slugLockedAt`.
- */
-import { and, eq, ne } from 'drizzle-orm';
-
 import { requireAdminOwner } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
-import { db } from '@/libs/DB';
+import { hasUnpublishedBookingPageChanges, resolveBookingPageConfig } from '@/libs/bookingPageConfig';
+import { resolveBookingPageContent } from '@/libs/bookingPageContent';
+import { publishWebsite } from '@/libs/bookingPageLifecycle';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
-import { getSalonById, getSalonBySlug } from '@/libs/queries';
-import { salonSchema } from '@/models/Schema';
+import { getSalonBySlug } from '@/libs/queries';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,10 +15,12 @@ type PublishableSalon = {
   publicationStatus: string;
   publishedAt: Date | null;
   slugLockedAt: Date | null;
+  settings?: unknown;
 };
 
 function buildResponseData(salon: PublishableSalon) {
   return {
+    hasDraftChanges: hasUnpublishedBookingPageChanges(resolveBookingPageConfig(salon.settings), resolveBookingPageContent(salon.settings)),
     salonId: salon.id,
     slug: salon.slug,
     publicationStatus: salon.publicationStatus,
@@ -86,28 +61,22 @@ export async function POST(request: Request) {
     return guard.response;
   }
 
-  const now = new Date();
-
-  // Conditional WHERE (not just a plain UPDATE by id) makes this both the
-  // idempotency check AND the concurrency guard in one round trip: two
-  // concurrent publish requests can only ever have one of them actually
-  // stamp publishedAt/slugLockedAt.
-  const [updated] = await db
-    .update(salonSchema)
-    .set({
-      publicationStatus: 'published',
-      publishedAt: now,
-      slugLockedAt: now,
-    })
-    .where(and(eq(salonSchema.id, salon.id), ne(salonSchema.publicationStatus, 'published')))
-    .returning();
-
-  if (!updated) {
-    // Already published — idempotent no-op. Re-read by id rather than
-    // trusting the salon fetched above, so a request that raced a concurrent
-    // publish still reports the real, current timestamps.
-    const current = (await getSalonById(salon.id)) ?? salon;
-    return Response.json({ data: buildResponseData(current) });
+  // One locked transaction publishes the saved draft and makes it public.
+  // Repeated requests leave subsequent unpublished edits and timestamps alone.
+  let result;
+  try {
+    result = await publishWebsite(salon.id);
+  } catch {
+    return Response.json(
+      { error: { code: 'PUBLISH_FAILED', message: 'Your website could not be published. Your saved setup is safe. Please try again.' } },
+      { status: 503 },
+    );
+  }
+  if (!result) {
+    return Response.json({ error: { code: 'SALON_NOT_FOUND', message: 'Salon not found' } }, { status: 404 });
+  }
+  if (!result.applied) {
+    return Response.json({ data: buildResponseData(result.salon) });
   }
 
   void logAuditEvent({
@@ -120,5 +89,5 @@ export async function POST(request: Request) {
     metadata: { via: 'onboarding_publish', publicationStatus: 'published' },
   });
 
-  return Response.json({ data: buildResponseData(updated) });
+  return Response.json({ data: buildResponseData(result.salon) });
 }

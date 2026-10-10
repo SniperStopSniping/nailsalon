@@ -3040,7 +3040,7 @@ test('scriptless embedded and dialog previews remain visible across mobile and z
   }
 });
 
-test('unpublished non-free-solo owner previews survive separate layout and salon publication @owner-preview-webkit', async ({
+test('unpublished non-free-solo owner previews stay private until confirmed website publication @owner-preview-webkit', async ({
   baseURL,
   browser,
 }, testInfo) => {
@@ -3079,8 +3079,8 @@ test('unpublished non-free-solo owner previews survive separate layout and salon
       new URL('/assets/images/nextjs-starter-banner.png', baseURL).toString(),
     );
     const bookingPage = fixtureSettings.bookingPage as { draft: Record<string, unknown>; live: Record<string, unknown> };
-    // Match onboarding's unpublished non-free-solo state, with an actual
-    // independent catalog edit for the layout-only Publish action to save.
+    // Match onboarding's unpublished non-free-solo state. The existing
+    // layout-only API must not expose the salon; first launch has one UI action.
     bookingPage.draft = { ...bookingPage.draft, serviceMenuLayout: 'category_menu' };
     bookingPage.live = { ...bookingPage.live, serviceMenuLayout: 'visual_grid' };
     const changed = await client.query(
@@ -3185,14 +3185,14 @@ test('unpublished non-free-solo owner previews survive separate layout and salon
       expect(beforeLayoutPublish.config.draft.serviceMenuLayout).toBe('category_menu');
       expect(beforeLayoutPublish.config.live.serviceMenuLayout).toBe('visual_grid');
 
-      const [layoutPublish] = await Promise.all([
-        builder.waitForResponse(result => new URL(result.url()).pathname === '/api/admin/booking-page'
-          && result.request().method() === 'POST'),
-        builder.getByTestId('booking-page-publish').click(),
-      ]);
+      await expect(builder.getByTestId('booking-page-publish')).toHaveCount(0);
+
+      const layoutPublish = await ownerContext.request.post(
+        `/api/admin/booking-page?salonSlug=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}`,
+        { data: { action: 'publish' } },
+      );
 
       expect(layoutPublish.status()).toBe(200);
-      expect(layoutPublish.request().postDataJSON()).toEqual({ action: 'publish' });
       await expect.poll(async () => (await fetchBuilderApiState(builder)).config.live)
         .toEqual(beforeLayoutPublish.config.draft);
       expect(await readPublicationState()).toEqual({
@@ -3210,26 +3210,35 @@ test('unpublished non-free-solo owner previews survive separate layout and salon
       await expect(fullPreview.getByTestId('owner-preview-banner')).toHaveAttribute('data-preview-variant', 'draft-salon');
       await expect(fullPreview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
 
-      const sourceBeforeSalonPublish = await iframe.getAttribute('src');
-
       const [salonPublish] = await Promise.all([
         builder.waitForResponse(result => new URL(result.url()).pathname === '/api/admin/salon/publish'
           && result.request().method() === 'POST'),
-        // Salon publish now confirms in the product dialog (irreversible: it
-        // locks the link) instead of window.confirm — CP2 repair.
+        // First publication confirms the permanent link and returns to the
+        // website hub, where the owner can immediately share the live site.
         builder.getByTestId('salon-publish-button').click().then(() => builder
-          .getByRole('alertdialog', { name: 'Publish your salon?' })
-          .getByRole('button', { name: 'Publish my salon' })
+          .getByRole('alertdialog', { name: 'Publish your website?' })
+          .getByRole('button', { name: 'Publish website', exact: true })
           .click()),
       ]);
 
       expect(salonPublish.status()).toBe(200);
       expect(new URL(salonPublish.url()).searchParams.get('salonSlug')).toBe(SYNTHETIC_SALON_SLUG);
+      await expect(builder).toHaveURL(new RegExp(`/admin/website\\?salon=${SYNTHETIC_SALON_SLUG}$`));
+      await expect(builder.getByRole('heading', { name: 'Your website', exact: true })).toBeVisible();
+      await expect(builder.getByRole('button', { name: 'Copy link', exact: true })).toBeVisible();
+      await expect(builder.getByRole('link', { name: 'Open live site', exact: true })).toBeVisible();
+
+      await builder.getByRole('link', { name: /^Layout & Menu/ }).click();
+
       await expect(builder.getByTestId('salon-publish-banner')).toHaveCount(0);
-      await expect(iframe, 'Successful salon publication must invalidate the existing iframe revision.')
-        .not.toHaveAttribute('src', sourceBeforeSalonPublish!);
 
       await expectOwnerPreview('Salon-published refreshed iframe');
+
+      // Launch navigates through the sharing hub, so reopening the editor
+      // mounts a new iframe and resets its local revision counter. Verify the
+      // actual document adopted the published state, not that counter's URL.
+      await expect(preview.getByTestId('owner-preview-banner'))
+        .toHaveAttribute('data-preview-variant', 'draft-config');
 
       const publication = await readPublicationState();
 

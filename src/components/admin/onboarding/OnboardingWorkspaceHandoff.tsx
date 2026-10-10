@@ -123,7 +123,7 @@ export function OnboardingWorkspaceHandoff({
   const [canChangeSetup, setCanChangeSetup] = useState(false);
   const [dismissStatus, setDismissStatus] = useState<'idle' | 'saving' | 'error'>('idle');
   const welcomeHeadingRef = useRef<HTMLHeadingElement>(null);
-  const bookingPageUrl = `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`;
+  const bookingPageUrl = `/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`;
 
   const loadHandoff = useCallback(async (signal?: AbortSignal) => {
     if (!salonSlug) {
@@ -341,18 +341,18 @@ export function OnboardingWorkspaceHandoff({
                     : null}
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                   <a
-                    className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--owner-accent)] px-5 text-sm font-semibold text-white transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
+                    className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--owner-accent)] px-5 text-sm font-semibold text-white transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
+                    href={bookingPageUrl}
+                  >
+                    <CalendarCheck aria-hidden="true" size={18} />
+                    {handoff.setup.shareLink === 'complete' ? 'Manage website' : 'Publish website'}
+                  </a>
+                  <a
+                    className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--owner-line-strong)] bg-white px-5 text-sm font-semibold text-[var(--owner-ink)] transition-colors hover:bg-[var(--owner-ground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
                     href={handoff.site.previewUrl}
                   >
                     <MonitorSmartphone aria-hidden="true" size={18} />
                     Preview website
-                  </a>
-                  <a
-                    className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--owner-line-strong)] bg-white px-5 text-sm font-semibold text-[var(--owner-ink)] transition-colors hover:bg-[var(--owner-ground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
-                    href={bookingPageUrl}
-                  >
-                    <CalendarCheck aria-hidden="true" size={18} />
-                    Manage &amp; publish Booking Page
                   </a>
                   {canChangeSetup
                     ? (
@@ -408,7 +408,7 @@ export function OnboardingWorkspaceHandoff({
             href={bookingPageUrl}
           >
             <CalendarCheck aria-hidden="true" className="text-[var(--owner-accent)]" size={20} />
-            <span className="flex-1">Manage &amp; publish Booking Page</span>
+            <span className="flex-1">{handoff.setup.shareLink === 'complete' ? 'Manage website' : 'Publish website'}</span>
             <ExternalLink aria-hidden="true" className="text-[var(--owner-muted)]" size={16} />
           </a>
 

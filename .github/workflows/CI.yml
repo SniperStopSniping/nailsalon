@@ -1269,6 +1269,10 @@ jobs:
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerEntry/playwright.config.ts --output=test-results/owner-entry
 
+      - name: Verify simple website publishing in mobile and desktop browsers
+        if: matrix.suite == 'onboarding-owner'
+        run: node node_modules/playwright/cli.js test --config tests/browser/websitePublishing/playwright.config.ts --output=test-results/website-publishing
+
       - name: Verify owner account recovery in mobile browsers
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerAccountRecovery/playwright.config.ts --output=test-results/owner-account-recovery
