@@ -6,6 +6,7 @@ import { drizzle, type PgliteDatabase } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import * as canonicalMedia from '@/features/onboarding-v1-integration/canonical-profile-media-lifecycle.server';
 import * as schema from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
@@ -36,6 +37,7 @@ import {
   updateBookingPageContentDraft,
 } from './bookingPageContent';
 import {
+  publishWebsite,
   synchronizeBookingPageLifecycle,
   updateBookingPageDraftState,
 } from './bookingPageLifecycle';
@@ -455,8 +457,8 @@ describe('booking-page lifecycle synchronization (PGlite)', () => {
       holder.db = database;
     }
 
-    const transientConfig = resolveBookingPageConfig(transactionalResult);
-    const transientContent = resolveBookingPageContent(transactionalResult);
+    const transientConfig = resolveBookingPageConfig((transactionalResult as { salon: { settings: unknown } }).salon.settings);
+    const transientContent = resolveBookingPageContent((transactionalResult as { salon: { settings: unknown } }).salon.settings);
 
     expect(transientConfig.live).toEqual(transientConfig.draft);
     expect(transientConfig.livePresetBase).toEqual(transientConfig.draftPresetBase);
@@ -611,4 +613,105 @@ describe('booking-page lifecycle synchronization (PGlite)', () => {
     await expect(synchronizeBookingPageLifecycle('missing_lifecycle_salon', 'publish'))
       .resolves.toBeNull();
   });
+});
+
+describe('first website publication', () => {
+  it('publishes content, design and visibility together, preserving unrelated settings', async () => {
+    const id = 'first_launch';
+    await insertSalon(id, lifecycleSettings());
+    await database.update(schema.salonSchema).set({ publicationStatus: 'draft', publishedAt: null, slugLockedAt: null }).where(eq(schema.salonSchema.id, id));
+    const result = await publishWebsite(id);
+
+    expect(result?.applied).toBe(true);
+    expect(result?.salon.publicationStatus).toBe('published');
+    expect(result?.salon.publishedAt).toBeInstanceOf(Date);
+    expect(result?.salon.slugLockedAt).toEqual(result?.salon.publishedAt);
+
+    const config = resolveBookingPageConfig(result?.salon.settings);
+    const content = resolveBookingPageContent(result?.salon.settings);
+
+    expect(config.live).toEqual(config.draft);
+    expect(config.livePresetBase).toEqual(config.draftPresetBase);
+    expect(content.live).toEqual(content.draft);
+    expect(result?.salon.settings).toMatchObject({ unrelated: { retained: true } });
+
+    await updateBookingPageContentDraft(id, { bio: 'A later, unpublished edit' });
+    const retry = await publishWebsite(id);
+
+    expect(retry?.applied).toBe(false);
+    expect(retry?.salon.publishedAt).toEqual(result?.salon.publishedAt);
+    expect(resolveBookingPageContent(retry?.salon.settings).live.bio).toBe('Draft biography');
+    expect(resolveBookingPageContent(retry?.salon.settings).draft.bio).toBe('A later, unpublished edit');
+  });
+
+  it('rolls back visibility and the complete draft on transaction failure', async () => {
+    const id = 'first_launch_rollback';
+    await insertSalon(id, lifecycleSettings());
+    await database.update(schema.salonSchema).set({ publicationStatus: 'draft', publishedAt: null, slugLockedAt: null }).where(eq(schema.salonSchema.id, id));
+    const before = await readSettings(id);
+    holder.db = new Proxy(database, {
+      get(target, property) {
+        if (property === 'transaction') {
+          return (callback: Parameters<typeof database.transaction>[0]) => target.transaction(async (tx) => {
+            await callback(tx);
+            throw new Error('FIRST_PUBLISH_ROLLBACK');
+          });
+        }
+        const member = Reflect.get(target, property, target);
+        return typeof member === 'function' ? member.bind(target) : member;
+      },
+    });
+    try {
+      await expect(publishWebsite(id)).rejects.toThrow('FIRST_PUBLISH_ROLLBACK');
+    } finally {
+      holder.db = database;
+    }
+    const [after] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, id));
+
+    expect(after?.publicationStatus).toBe('draft');
+    expect(after?.publishedAt).toBeNull();
+    expect(after?.slugLockedAt).toBeNull();
+    expect(after?.settings).toEqual(before);
+  });
+
+  it('handles missing salons without publishing anything', async () => {
+    expect(await publishWebsite('missing_first_launch')).toBeNull();
+  });
+});
+
+it('keeps a concurrent first-publish winner’s media when the second launch becomes a no-op', async () => {
+  const id = 'first_launch_race';
+  await insertSalon(id, lifecycleSettings());
+  await database.update(schema.salonSchema).set({ publicationStatus: 'draft', publishedAt: null, slugLockedAt: null }).where(eq(schema.salonSchema.id, id));
+  const prepared = { salonId: id, siteId: 'race-site', revisionId: 'race-revision', publishing: true, roles: [] };
+  const prepare = vi.spyOn(canonicalMedia, 'prepareCanonicalProfileMediaForPublish').mockResolvedValue(prepared);
+  const apply = vi.spyOn(canonicalMedia, 'applyPreparedCanonicalProfileMediaPromotion').mockResolvedValue();
+  const complete = vi.spyOn(canonicalMedia, 'completeCanonicalProfileMediaPromotion').mockResolvedValue();
+  const discard = vi.spyOn(canonicalMedia, 'discardPreparedCanonicalProfileMediaPromotion').mockResolvedValue();
+  const gate = createFirstTransactionGate(database);
+  holder.db = gate.database;
+  const delayed = publishWebsite(id);
+  try {
+    await gate.transactionWaiting;
+    const winner = await publishWebsite(id);
+
+    expect(winner?.applied).toBe(true);
+
+    gate.release();
+    const loser = await delayed;
+
+    expect(loser?.applied).toBe(false);
+    expect(loser?.salon.publishedAt).toEqual(winner?.salon.publishedAt);
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(discard).not.toHaveBeenCalled();
+  } finally {
+    gate.release();
+    holder.db = database;
+    await delayed.catch(() => undefined);
+    prepare.mockRestore();
+    apply.mockRestore();
+    complete.mockRestore();
+    discard.mockRestore();
+  }
 });

@@ -53,6 +53,7 @@ import type {
 } from '@/libs/bookingPageContent';
 import { summarizeBookingPageDraft } from '@/libs/bookingPageDraftSummary';
 import { isIslaBookingPage } from '@/libs/islaBookingPage';
+import { publishSalon } from '@/libs/publishWebsiteClient';
 import { getQuickBookLayout } from '@/libs/quickBookSiteLayout';
 import { SECTION_PRESENTATION_SECTION_IDS } from '@/libs/sectionPresentation';
 import { getI18nPath } from '@/utils/Helpers';
@@ -289,28 +290,6 @@ async function postBookingPageAction(
   return response.json();
 }
 
-/**
- * Phase A (draft/publish split). A DIFFERENT endpoint and a DIFFERENT
- * resource than `postBookingPageAction` above: this flips the salon row
- * itself from `publicationStatus: 'draft'` to `'published'` — making the
- * booking page publicly reachable for the first time and permanently
- * locking the slug. `postBookingPageAction('publish')` only ever moves the
- * booking-page config/content draft onto the already-public live salon; it
- * never touches `publicationStatus`. Reusing that action's name or endpoint
- * for this would silently conflate the two — see `SalonPublishBanner`'s
- * copy, which is deliberately worded to keep them apart for the owner too.
- */
-async function publishSalon(salonSlug: string): Promise<{ publicationStatus: string }> {
-  const response = await fetch(`/api/admin/salon/publish?salonSlug=${encodeURIComponent(salonSlug)}`, {
-    method: 'POST',
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || `Failed to publish salon (${response.status})`);
-  }
-  return payload.data;
-}
-
 // =============================================================================
 // Small UI primitives
 // =============================================================================
@@ -325,50 +304,34 @@ function SectionCard({ title, description, children }: { title: string; descript
   );
 }
 
-/**
- * Phase A (draft/publish split) — the persistent, owner-reachable way to
- * take a salon from draft to published. Rendered ONLY while
- * `publicationStatus !== 'published'`; once the salon publishes it
- * disappears entirely (this is deliberately not a place to un-publish —
- * that is a separate, not-yet-built product decision).
- *
- * Copy is written to be unmistakably distinct from the plain "Publish"
- * button further down this page, which only pushes booking-page config
- * changes from draft to live on an ALREADY-public salon. This banner is the
- * one and only control that makes the salon itself publicly reachable and
- * permanently locks the slug — it never gets confused with the config
- * publish/revert pair below because it never uses the bare word "Publish"
- * alone: every label here says "salon" or "booking page public" explicitly.
- */
 function SalonPublishBanner({
   status,
   onPublish,
+  disabled,
 }: {
   status: 'idle' | 'publishing' | 'error';
   onPublish: () => void;
+  disabled: boolean;
 }) {
   return (
     <div
       data-testid="salon-publish-banner"
-      className="mt-6 rounded-3xl border border-amber-300 bg-amber-50 p-5 text-amber-950"
+      className="mt-6 rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 text-[var(--owner-ink)]"
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">Private draft</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--owner-accent)]">Private draft</p>
       <h2 className="mt-1 text-lg font-semibold">Your booking page isn't public yet</h2>
-      <p className="mt-2 text-sm text-amber-900">
-        Only you can see this booking page right now. Publishing your salon makes it publicly
-        reachable for the first time and permanently locks your link — this is different from the
-        plain "Publish" button further down, which only pushes booking-page layout/content changes
-        once your salon is already public.
+      <p className="mt-2 text-sm leading-6 text-[var(--owner-muted)]">
+        Publish your saved website when you’re ready. You can keep editing after it goes live.
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="button"
           data-testid="salon-publish-button"
-          disabled={status === 'publishing'}
+          disabled={disabled || status === 'publishing'}
           onClick={onPublish}
-          className="rounded-full bg-amber-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-800 disabled:opacity-50"
+          className="min-h-11 rounded-full bg-[var(--owner-accent)] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--owner-accent-strong)] disabled:opacity-50"
         >
-          {status === 'publishing' ? 'Publishing your salon…' : 'Publish my salon (locks my link)'}
+          {status === 'publishing' ? 'Publishing…' : 'Publish website'}
         </button>
         {status === 'error' && (
           <span role="alert" className="text-sm text-red-800">Publishing failed. Please try again.</span>
@@ -1141,34 +1104,42 @@ function BookingPageOwnerSurfaceContent() {
     }
   };
 
-  /**
-   * Phase A (draft/publish split). Deliberately independent of
-   * `handlePublish`/`handleRevert` above — different endpoint, different
-   * resource (`salon.publicationStatus`, not `bookingPage` config), and its
-   * own status/error state so a booking-page config save in flight never
-   * disables this button (and vice versa).
-   */
   const handlePublishSalon = () => {
-    if (!salonSlug) {
+    if (!salonSlug || presentationWritePendingRef.current) {
       return;
     }
     setPendingConfirmation('publish-salon');
   };
 
   const confirmPublishSalon = async () => {
-    if (!salonSlug) {
-      setPendingConfirmation(null);
+    if (!salonSlug || presentationWritePendingRef.current) {
       return;
     }
     setPendingConfirmation(null);
+    presentationWritePendingRef.current = true;
+    setPresentationPending(true);
     setSalonPublishStatus('publishing');
+    setActionMessage(null);
     try {
+      // First launch includes the saved draft: drain edits before taking the
+      // server's atomic publication snapshot, just as normal Publish does.
+      if (!await settleOrdinaryWrites()) {
+        setActionMessage('Some changes could not be saved. Retry them before publishing.');
+        setSalonPublishStatus('error');
+        return;
+      }
       const data = await publishSalon(salonSlug);
+      salonPublicationStatusRef.current = data.publicationStatus;
       setSalonPublicationStatus(data.publicationStatus);
       refreshPreview();
+      // The hub provides the live link and sharing actions after publication.
+      router.push(`/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`);
       setSalonPublishStatus('idle');
     } catch {
       setSalonPublishStatus('error');
+    } finally {
+      presentationWritePendingRef.current = false;
+      setPresentationPending(false);
     }
   };
 
@@ -1326,7 +1297,7 @@ function BookingPageOwnerSurfaceContent() {
 
         {/* The irreversible salon-level publish is offered outside the guided review or on its final step only — never from step 1 of a "review" that promises nothing is reset. */}
         {salonPublicationStatus !== null && salonPublicationStatus !== 'published' && (reviewIndex < 0 || panel === 'publish') && (
-          <SalonPublishBanner status={salonPublishStatus} onPublish={handlePublishSalon} />
+          <SalonPublishBanner status={salonPublishStatus} onPublish={handlePublishSalon} disabled={presentationPending || actionStatus !== 'idle'} />
         )}
 
         {panel !== 'business' && (
@@ -1804,21 +1775,13 @@ function BookingPageOwnerSurfaceContent() {
               </p>
             </div>
           )}
-          {/*
-            Phase A (draft/publish split) copy note: this row's "Publish"
-            only pushes the booking-page layout/content draft onto what is
-            already live — it never touches publicationStatus and never
-            makes an unpublished salon public. The caption below exists
-            specifically to keep it from being misread as the salon-level
-            action in SalonPublishBanner above.
-          */}
           {(reviewIndex < 0 || panel === 'publish') && (
             <p className="mb-3 text-xs text-[var(--owner-muted)]">
               {salonPublicationStatus === 'published'
                 ? customIsla
                   ? 'Publishes your saved booking-step styles, business setup and address privacy. Isla’s custom opening design stays the same.'
                   : 'Publishes the saved page layout and content to your live booking page.'
-                : 'Prepares your saved page layout and content. Publish your salon above to make the website public.'}
+                : 'Preview your saved website, then use Publish website above to go live.'}
             </p>
           )}
           {(reviewIndex < 0 || panel === 'publish') && (
@@ -1860,7 +1823,7 @@ function BookingPageOwnerSurfaceContent() {
               )}
             </section>
           )}
-          {(reviewIndex < 0 || panel === 'publish') && (
+          {salonPublicationStatus === 'published' && (reviewIndex < 0 || panel === 'publish') && (
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -1896,17 +1859,16 @@ function BookingPageOwnerSurfaceContent() {
       */}
       <ConfirmDialog
         isOpen={pendingConfirmation === 'publish-salon'}
-        title="Publish your salon?"
-        tone="danger"
-        confirmLabel="Publish my salon"
+        title="Publish your website?"
+        confirmLabel="Publish website"
         cancelLabel="Not yet"
         onClose={() => setPendingConfirmation(null)}
         onConfirm={() => void confirmPublishSalon()}
         description={(
           <>
-            <p>Your link becomes permanent and your site goes live. Anyone with the address can book.</p>
+            <p>Your saved website will be public at this permanent address:</p>
             <p className="mt-2 break-all font-medium text-neutral-900" data-testid="salon-publish-confirm-url">{publicSalonUrlLabel}</p>
-            <p className="mt-2">This address can't be changed afterwards.</p>
+            <p className="mt-2">You can keep changing your website’s content and design.</p>
           </>
         )}
       />

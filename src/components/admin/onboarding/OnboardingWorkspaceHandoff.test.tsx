@@ -102,13 +102,13 @@ describe('OnboardingWorkspaceHandoff', () => {
     );
 
     const bookingPageLinks = screen.getAllByRole('link', {
-      name: /Manage & publish Booking Page/i,
+      name: /Publish website/i,
     });
 
     expect(bookingPageLinks).toHaveLength(1);
 
     bookingPageLinks.forEach((link) => {
-      expect(link).toHaveAttribute('href', '/en/admin/booking-page?salon=isla');
+      expect(link).toHaveAttribute('href', '/en/admin/website?salon=isla');
     });
 
     expect(screen.queryByText('Website created')).not.toBeInTheDocument();
@@ -185,13 +185,13 @@ describe('OnboardingWorkspaceHandoff', () => {
     expect(screen.getByRole('link', { name: /Change website setup/i })).toHaveAttribute('href', handoff.site.setupUrl);
 
     const bookingPageLinks = screen.getAllByRole('link', {
-      name: /Manage & publish Booking Page/i,
+      name: /Publish website/i,
     });
 
     expect(bookingPageLinks).toHaveLength(2);
 
     bookingPageLinks.forEach((link) => {
-      expect(link).toHaveAttribute('href', '/en/admin/booking-page?salon=isla');
+      expect(link).toHaveAttribute('href', '/en/admin/website?salon=isla');
     });
 
     expect(screen.getByRole('link', { name: /Booking page ready/i })).toHaveAttribute('href', handoff.site.setupUrl);

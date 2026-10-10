@@ -90,22 +90,33 @@ export async function updateBookingPageDraftState(
  * promises that both pairs move together; two independent commits could leave
  * a partially published page if the second write failed.
  */
-export async function synchronizeBookingPageLifecycle(
+async function synchronizeLifecycle(
   salonId: string,
-  action: BookingPageLifecycleAction,
-): Promise<unknown | null> {
+  action: BookingPageLifecycleAction | 'first-publish',
+) {
+  // Completed launches are no-ops even when a later draft's media is unavailable.
+  // The locked check below still handles two concurrent first-publish requests.
+  if (action === 'first-publish') {
+    const [current] = await db.select().from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
+    if (!current) {
+      return null;
+    }
+    if (current.publicationStatus === 'published') {
+      return { salon: current, applied: false };
+    }
+  }
   // Identity media remains private while a published business is editing an
   // onboarding draft. Prepare immutable, revision-addressed projections now,
   // then publish their canonical references in the same locked transaction as
   // the booking-page draft. A newer onboarding revision makes the apply step
   // fail closed, so an older slow upload can never replace a newer image.
-  const preparedMedia = action === 'publish'
+  const preparedMedia = action !== 'revert'
     ? await prepareCanonicalProfileMediaForPublish(salonId)
     : null;
   try {
     const synchronized = await db.transaction(async (tx) => {
       const [existing] = await tx
-        .select({ settings: salonSchema.settings })
+        .select()
         .from(salonSchema)
         .where(eq(salonSchema.id, salonId))
         .for('update')
@@ -115,20 +126,25 @@ export async function synchronizeBookingPageLifecycle(
         return null;
       }
 
+      // A retry must never publish edits made after the first successful launch.
+      if (action === 'first-publish' && existing.publicationStatus === 'published') {
+        return { salon: existing, applied: false };
+      }
+
       const config = resolveBookingPageConfig(existing.settings);
       const content = resolveBookingPageContent(existing.settings);
-      const configSource = action === 'publish' ? config.draft : config.live;
-      const contentSource = action === 'publish' ? content.draft : content.live;
-      const presetSource = action === 'publish'
+      const configSource = action !== 'revert' ? config.draft : config.live;
+      const contentSource = action !== 'revert' ? content.draft : content.live;
+      const presetSource = action !== 'revert'
         ? config.draftPresetBase
         : config.livePresetBase;
-      const configTargetPath = action === 'publish'
+      const configTargetPath = action !== 'revert'
         ? sql.raw(`'{bookingPage,live}'`)
         : sql.raw(`'{bookingPage,draft}'`);
-      const presetTargetPath = action === 'publish'
+      const presetTargetPath = action !== 'revert'
         ? sql.raw(`'{bookingPage,livePresetBase}'`)
         : sql.raw(`'{bookingPage,draftPresetBase}'`);
-      const contentTargetPath = action === 'publish'
+      const contentTargetPath = action !== 'revert'
         ? sql.raw(`'{bookingPageContent,live}'`)
         : sql.raw(`'{bookingPageContent,draft}'`);
 
@@ -169,22 +185,34 @@ export async function synchronizeBookingPageLifecycle(
       settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,version}', '1'::jsonb)`;
       settingsExpression = sql`jsonb_set(${settingsExpression}, ${contentTargetPath}, ${JSON.stringify(contentSource)}::jsonb)`;
 
+      const publishedAt = new Date();
       const [updated] = await tx
         .update(salonSchema)
-        .set({ settings: settingsExpression })
+        .set({
+          settings: settingsExpression,
+          ...(action === 'first-publish'
+            ? {
+                publicationStatus: 'published',
+                publishedAt,
+                slugLockedAt: publishedAt,
+              }
+            : {}),
+        })
         .where(eq(salonSchema.id, salonId))
         .returning();
 
       if (updated && preparedMedia) {
         await applyPreparedCanonicalProfileMediaPromotion(tx, preparedMedia);
       }
-      return updated?.settings ?? null;
+      return updated ? { salon: updated, applied: true } : null;
     });
-    if (preparedMedia && synchronized) {
+    if (preparedMedia && synchronized?.applied) {
       await completeCanonicalProfileMediaPromotion(preparedMedia);
-    } else if (preparedMedia) {
+    } else if (preparedMedia && !synchronized) {
       await discardPreparedCanonicalProfileMediaPromotion(preparedMedia);
     }
+    // A concurrent first-publish loser must not delete its prepared images:
+    // projections use revision-addressed keys that the winner may now use.
     return synchronized;
   } catch (error) {
     if (preparedMedia) {
@@ -192,4 +220,18 @@ export async function synchronizeBookingPageLifecycle(
     }
     throw error;
   }
+}
+
+/** Existing draft publish/revert contract, also used for updates to live sites. */
+export async function synchronizeBookingPageLifecycle(
+  salonId: string,
+  action: BookingPageLifecycleAction,
+): Promise<unknown | null> {
+  const result = await synchronizeLifecycle(salonId, action);
+  return result?.salon.settings ?? null;
+}
+
+/** First launch publishes saved content, design and media with visibility atomically. */
+export async function publishWebsite(salonId: string) {
+  return synchronizeLifecycle(salonId, 'first-publish');
 }
