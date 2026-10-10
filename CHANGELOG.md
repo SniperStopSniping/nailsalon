@@ -1,3 +1,10 @@
+## [1.142.11](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.10...v1.142.11) (2026-10-10)
+
+
+### Bug Fixes
+
+* **onboarding:** recover owner account and empty workspace ([b1d98ad](https://github.com/SniperStopSniping/nailsalon/commit/b1d98addd8b797495e879c5f0149453922ef58eb))
+
 ## [1.142.10](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.9...v1.142.10) (2026-10-09)
 
 
