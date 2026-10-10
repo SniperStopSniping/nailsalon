@@ -86,6 +86,7 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
   assert.ok(statement);
   const reviewed = [...statement.matchAll(/([a-f0-9]{40}):([a-f0-9]{40})\) ;;/g)].map(match => [match[1], match[2]]);
   const monitoringPairs = [
+    ['5f3f0c31d902dd4ff5494d02d536de4cf04784ad', 'ac14f583f5e9bde0910231da97b64d28e24b252b'],
     ['676faa4e87813eb9500b132e5b5034947fb607ea', '9d6a655a476d1beaea9c5f3ed3dee6a0b0012ca2'],
     ['2d308eb94fc47228b1f8cefb95e5109674a6c7b6', '16a00768b1248501e221a5af2350d2a49a27d3d4'],
     ['81033b57a45e03fa3fb84b35435d5c511c945dc6', '9c7d5702e010a55e897258fee728c517b20d0593'],

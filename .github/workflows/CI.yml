@@ -296,6 +296,9 @@ jobs:
               # Cloudinary 2.9.0: native URL parsing and promises; removes only
               # the SDK's unused Q dependency. Upload/cleanup rules unchanged.
               676faa4e87813eb9500b132e5b5034947fb607ea:9d6a655a476d1beaea9c5f3ed3dee6a0b0012ca2) ;;
+              # Readability regression checks: explicitly pin the already-resolved
+              # development-only axe-core 4.10.1; resolved package graph unchanged.
+              5f3f0c31d902dd4ff5494d02d536de4cf04784ad:ac14f583f5e9bde0910231da97b64d28e24b252b) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
