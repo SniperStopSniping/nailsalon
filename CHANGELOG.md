@@ -1,3 +1,10 @@
+## [1.142.20](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.19...v1.142.20) (2026-10-10)
+
+
+### Bug Fixes
+
+* improve app readability and booking page loading ([#415](https://github.com/SniperStopSniping/nailsalon/issues/415)) ([e039d40](https://github.com/SniperStopSniping/nailsalon/commit/e039d40a66a9bee775d3ffe4039486d425392335))
+
 ## [1.142.19](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.18...v1.142.19) (2026-10-10)
 
 
