@@ -22,6 +22,7 @@ import { FoundingSalonOffer } from '@/components/owner-entry/FoundingSalonOffer'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { isFoundingLifetimeOfferOpen } from '@/libs/billing/foundingLifetime';
 
+import { IndexedDbAssetRepository } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/assets';
 import {
   CustomDesignAssetProvider,
   useCustomDesignAssetRepository,
@@ -73,6 +74,8 @@ import {
   type ExistingCustomDesignMediaByLogicalId,
   resolveOnboardingCustomDesignSettings,
 } from './custom-design-media';
+import { protectDeviceSetupAssets } from './device-setups';
+import { DeviceSetupRecovery } from './DeviceSetupRecovery';
 import {
   canResumeVerifiedOnboardingSetup,
   clearOnboardingIntegrationBrowserState,
@@ -190,7 +193,7 @@ const recordIntegrationEvent = (
 const usePersistentFlow = () => {
   const [flow, setFlowState] = useState<OnboardingIntegrationFlow>(() => {
     const loaded = loadOnboardingIntegrationFlow();
-    return loaded.phase === 'saved' && loaded.celebrationSeen
+    return loaded.phase === 'saved'
       && loadOnboardingState().state.progress.currentScreen !== 'save_progress'
       ? { ...loaded, phase: 'plans' }
       : loaded;
@@ -217,6 +220,13 @@ export function OnboardingV1Integration({
   locale: string;
 }) {
   const [mounted, setMounted] = useState(false);
+  const [setupGeneration, setSetupGeneration] = useState(0);
+  const [resuming, setResuming] = useState(true);
+  const switchSetup = useCallback(() => {
+    window.history.replaceState({}, '', getOnboardingIntegrationRoute(locale));
+    setResuming(false);
+    setSetupGeneration(value => value + 1);
+  }, [locale]);
   const [resumeError, setResumeError] = useState<string | null>(null);
   useEffect(() => {
     const result = initialResumeDraft
@@ -238,9 +248,11 @@ export function OnboardingV1Integration({
   return mounted
     ? (
         <OnboardingV1Runtime
+          key={setupGeneration}
           authProviders={authProviders}
-          initialResumeDraft={initialResumeDraft}
+          initialResumeDraft={resuming ? initialResumeDraft : undefined}
           locale={locale}
+          onSwitchSetup={switchSetup}
         />
       )
     : (
@@ -255,15 +267,37 @@ function OnboardingV1Runtime({
   authProviders,
   initialResumeDraft,
   locale,
+  onSwitchSetup,
 }: {
   authProviders: OnboardingAuthProviderAvailability;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   locale: string;
+  onSwitchSetup: () => void;
 }) {
   const lab = useLabDocument();
-  const resumeRepository = useMemo(() => initialResumeDraft
-    ? new ResumedOnboardingAssetRepository(initialResumeDraft.media)
-    : undefined, [initialResumeDraft]);
+  const assetResources = useMemo(() => {
+    try {
+      const repository = protectDeviceSetupAssets(initialResumeDraft
+        ? new ResumedOnboardingAssetRepository(initialResumeDraft.media)
+        : new IndexedDbAssetRepository());
+      let disposal: ReturnType<typeof setTimeout> | undefined;
+      return {
+        repository,
+        cancelDisposal: () => clearTimeout(disposal),
+        dispose: () => {
+          disposal = setTimeout(() => repository.close(), 0);
+        },
+      };
+    } catch {
+      // The provider renders its existing storage-unavailable state when this
+      // browser cannot open IndexedDB; text-only setup must still be usable.
+      return undefined;
+    }
+  }, [initialResumeDraft]);
+  useEffect(() => {
+    assetResources?.cancelDisposal();
+    return () => assetResources?.dispose();
+  }, [assetResources]);
   const existingCustomMediaByLogicalId = useMemo(() => new Map(
     initialResumeDraft?.media.flatMap(item => item.role === 'custom_design'
       ? [[item.localItemId, item.assetId] as const]
@@ -280,7 +314,7 @@ function OnboardingV1Runtime({
   return (
     <CustomDesignAssetProvider
       getReachableAssetIds={getReachableAssetIds}
-      repository={resumeRepository}
+      repository={assetResources?.repository}
     >
       <FeedbackProvider testMode={false}>
         <OnboardingIntegrationController
@@ -289,6 +323,7 @@ function OnboardingV1Runtime({
           initialResumeDraft={initialResumeDraft}
           lab={lab}
           locale={locale}
+          onSwitchSetup={onSwitchSetup}
         />
       </FeedbackProvider>
     </CustomDesignAssetProvider>
@@ -301,12 +336,14 @@ function OnboardingIntegrationController({
   initialResumeDraft,
   lab,
   locale,
+  onSwitchSetup,
 }: {
   authProviders: OnboardingAuthProviderAvailability;
   existingCustomMediaByLogicalId: ExistingCustomDesignMediaByLogicalId;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   lab: ReturnType<typeof useLabDocument>;
   locale: string;
+  onSwitchSetup: () => void;
 }) {
   const { isLoaded, isSignedIn } = useAuth();
   const clerk = useClerk();
@@ -347,7 +384,7 @@ function OnboardingIntegrationController({
       knownAvailableSlug: savedSiteVerified ? flow.savedSite?.salonSlug : undefined,
     })
   ), [flow.savedSite?.salonSlug, savedSiteVerified]);
-  const [verificationFailure, setVerificationFailure] = useState<{ ownerId: string; siteId: string; message: string } | null>(null);
+  const [verificationFailure, setVerificationFailure] = useState<{ ownerId: string; siteId: string; message: string; accountMismatch: boolean } | null>(null);
   const verificationSiteId = flow.savedSite?.siteId ?? initialResumeDraft?.siteId;
   const currentVerificationFailure = accountId && verificationFailure?.ownerId === accountId
     && verificationFailure.siteId === verificationSiteId
@@ -431,6 +468,8 @@ function OnboardingIntegrationController({
         setVerificationFailure({
           ownerId: expectedOwnerId,
           siteId: savedSiteId,
+          accountMismatch: error instanceof OnboardingIntegrationRequestError
+            && ['BUSINESS_ACCESS_DENIED', 'DRAFT_ALREADY_CLAIMED'].includes(error.code ?? ''),
           message: error instanceof Error ? error.message : 'Sign in to the account that saved this website.',
         });
       }
@@ -520,7 +559,7 @@ function OnboardingIntegrationController({
       errorMessage: null,
       mediaComplete: true,
       mediaFailures: [],
-      phase: 'saved',
+      phase: currentPayload.state.progress.currentScreen === 'save_progress' ? 'saved' : 'plans',
       savedSite: { ...savedSite, revision: mediaResult.verifiedRevision },
       savedSiteOwnerId: mediaAccountId,
     }));
@@ -980,7 +1019,7 @@ function OnboardingIntegrationController({
       await clerk.signOut({ redirectUrl: `${getOnboardingIntegrationRoute(locale)}?account=1&auth=sign-in` });
     } catch {
       setChangingAccount(false);
-      setFlow(current => ({ ...current, phase: 'failure', errorCode: null, errorMessage: 'We couldn’t sign you out. Try again before choosing a business.' }));
+      setFlow(current => ({ ...current, phase: 'failure', errorCode: 'ACCOUNT_SIGN_OUT_FAILED', errorMessage: 'We couldn’t sign you out. Try again before choosing a business.' }));
     }
   }, [clerk, locale, setFlow]);
 
@@ -1068,11 +1107,17 @@ function OnboardingIntegrationController({
             <section className="onboarding-integration-state-card" role="alert">
               <h1>Check the account for this website</h1>
               <p>{currentVerificationFailure.message}</p>
+              <p>
+                Signed in as
+                {' '}
+                <strong className="break-words">{user?.primaryEmailAddress?.emailAddress}</strong>
+                .
+              </p>
               <p>Your saved website and the setup on this device are unchanged.</p>
               <div className="onboarding-integration-action-stack">
-                <button className="onboarding-integration-primary" type="button" onClick={() => setVerificationFailure(null)}>Try again</button>
+                {!currentVerificationFailure.accountMismatch && <button className="onboarding-integration-primary" type="button" onClick={() => setVerificationFailure(null)}>Try again</button>}
                 <button
-                  className="onboarding-integration-secondary"
+                  className={currentVerificationFailure.accountMismatch ? 'onboarding-integration-primary' : 'onboarding-integration-secondary'}
                   type="button"
                   onClick={() => {
                     void changeAccount();
@@ -1080,6 +1125,7 @@ function OnboardingIntegrationController({
                 >
                   Use a different account
                 </button>
+                {currentVerificationFailure.accountMismatch && <DeviceSetupRecovery email={user?.primaryEmailAddress?.emailAddress} onSwitch={onSwitchSetup} />}
                 <a className="onboarding-integration-text-action" href={`/${locale}/admin`}>Open my dashboard</a>
               </div>
             </section>
@@ -1123,6 +1169,67 @@ function OnboardingIntegrationController({
           )
         : <SavingScreen mediaCount={0} salonName="your website" step="core" />;
     case 'failure':
+      if (flow.errorCode === 'DRAFT_ALREADY_CLAIMED' || flow.errorCode === 'BUSINESS_ACCESS_DENIED') {
+        return (
+          <OwnerSurface modifier="is-centred">
+            <section className="onboarding-integration-state-card" role="alert">
+              <h1>This setup is connected to another account</h1>
+              <p>
+                Signed in as
+                {' '}
+                <strong className="break-words">{user?.primaryEmailAddress?.emailAddress}</strong>
+                .
+              </p>
+              <p>Sign in with the account that saved it, or keep this setup on this device and start a separate website.</p>
+              <div className="onboarding-integration-action-stack">
+                <button
+                  className="onboarding-integration-primary"
+                  type="button"
+                  onClick={() => {
+                    void changeAccount();
+                  }}
+                >
+                  Use a different account
+                </button>
+                <DeviceSetupRecovery email={user?.primaryEmailAddress?.emailAddress} onSwitch={onSwitchSetup} />
+                <a className="onboarding-integration-text-action" href={`/${locale}/admin`}>Open my dashboard</a>
+              </div>
+            </section>
+          </OwnerSurface>
+        );
+      }
+      if (flow.errorCode === 'OWNER_ACCOUNT_CONFLICT' || flow.errorCode === 'ACCOUNT_SIGN_OUT_FAILED') {
+        return (
+          <OwnerSurface modifier="is-centred">
+            <section className="onboarding-integration-state-card" role="alert">
+              <p className="onboarding-integration-eyebrow">Your setup is still on this device</p>
+              <h1>Let’s reconnect your account</h1>
+              <p>{flow.errorMessage}</p>
+              <p>
+                Signed in as
+                {' '}
+                <strong className="break-words">{user?.primaryEmailAddress?.emailAddress}</strong>
+                .
+              </p>
+              <div className="onboarding-integration-action-stack">
+                <button
+                  className="onboarding-integration-primary"
+                  type="button"
+                  onClick={() => {
+                    void changeAccount();
+                  }}
+                >
+                  Sign out and switch account
+                </button>
+                <button className="onboarding-integration-secondary" type="button" onClick={returnToReview}>
+                  Return to my setup
+                </button>
+                <a className="onboarding-integration-text-action" href="mailto:support@lustergel.app">Contact support</a>
+              </div>
+            </section>
+          </OwnerSurface>
+        );
+      }
       if (flow.errorCode === 'SITE_SLUG_UNAVAILABLE' || flow.errorCode === 'SITE_SLUG_INVALID') {
         return (
           <OwnerSurface modifier="is-centred">
@@ -1169,7 +1276,7 @@ function OnboardingIntegrationController({
                 ...current,
                 celebrationSeen: false,
                 mediaComplete: false,
-                phase: 'saved',
+                phase: currentPayload?.state.progress.currentScreen === 'save_progress' ? 'saved' : 'plans',
               }))}
               onRetry={() => {
                 void retryMedia();
@@ -1181,6 +1288,10 @@ function OnboardingIntegrationController({
       return flow.savedSite
         ? (
             <PlanSelection
+              locale={locale}
+              mediaComplete={flow.mediaComplete}
+              onReturn={returnToReview}
+              savedSite={flow.savedSite}
               closed={planOfferClosed}
               onContinue={() => window.location.assign(`/${locale}/admin?salon=${encodeURIComponent(flow.savedSite!.salonSlug)}`)}
               confirmation={planConfirmation}
@@ -1192,13 +1303,10 @@ function OnboardingIntegrationController({
     case 'saved':
       return flow.savedSite && currentPayload
         ? (
-            <SavedCelebration
-              earlySave={currentPayload.state.progress.currentScreen === 'save_progress'}
+            <SavedProgressConfirmation
               locale={locale}
               mediaComplete={flow.mediaComplete}
-              onContinue={currentPayload.state.progress.currentScreen === 'save_progress'
-                ? continueAfterEarlySave
-                : () => setFlow(current => ({ ...current, phase: 'plans' }))}
+              onContinue={continueAfterEarlySave}
               onReturn={returnToReview}
               savedSite={flow.savedSite}
               state={currentPayload.state}
@@ -1226,6 +1334,7 @@ function OnboardingIntegrationController({
           forceReview={forceReview}
           integration={{
             checkSiteSlugAvailability,
+            renderSetupRecovery: saveBeforeSwitch => <DeviceSetupRecovery previous beforeSwitch={saveBeforeSwitch} onSwitch={onSwitchSetup} />,
             hasSavedSite: savedSiteVerified,
             onSaveSite: startSave,
             onStartOver: () => {
@@ -1459,8 +1568,7 @@ function ConflictScreen({
   );
 }
 
-function SavedCelebration({
-  earlySave,
+function SavedProgressConfirmation({
   locale,
   mediaComplete,
   onContinue,
@@ -1468,7 +1576,6 @@ function SavedCelebration({
   savedSite,
   state,
 }: {
-  earlySave: boolean;
   locale: string;
   mediaComplete: boolean;
   onContinue: () => void;
@@ -1493,11 +1600,11 @@ function SavedCelebration({
     headingRef.current?.focus({ preventScroll: true });
     feedback.send({
       kind: 'milestone',
-      message: earlySave ? 'Your progress is saved.' : 'Your Luster site is saved.',
+      message: 'Your progress is saved.',
       onceKey: `account-site-saved:${savedSite.siteId}:${savedSite.revision}`,
       replaceVisual: true,
     });
-  }, [earlySave, feedback, savedSite.revision, savedSite.siteId]);
+  }, [feedback, savedSite.revision, savedSite.siteId]);
   return (
     <OwnerSurface modifier="is-saved">
       <section className="onboarding-saved-card" aria-labelledby="onboarding-saved-title">
@@ -1509,11 +1616,9 @@ function SavedCelebration({
             <i />
           </div>
           <p className="onboarding-integration-eyebrow">Saved to your account</p>
-          <h1 id="onboarding-saved-title" ref={headingRef} tabIndex={-1}>{earlySave ? 'Your progress is saved' : 'Your Luster site is saved'}</h1>
+          <h1 id="onboarding-saved-title" ref={headingRef} tabIndex={-1}>Your progress is saved</h1>
           <p>
-            {earlySave
-              ? 'Your site is now saved to your Luster account.'
-              : `${salonName} is now connected to your account. Your website, booking settings and services will be waiting whenever you return.`}
+            Your site is now saved to your Luster account.
           </p>
           {!mediaComplete
             ? (
@@ -1531,7 +1636,7 @@ function SavedCelebration({
             : null}
           <div className="onboarding-integration-action-stack">
             <button className="onboarding-integration-primary" type="button" onClick={onContinue}>
-              {earlySave ? 'Continue setting up' : 'Choose how to start'}
+              Continue setting up
             </button>
             <a
               className="onboarding-integration-secondary"
@@ -1590,12 +1695,20 @@ function SavedCelebration({
 }
 
 function PlanSelection({
+  locale,
+  mediaComplete,
+  onReturn,
+  savedSite,
   closed,
   onContinue,
   confirmation,
   onChoose,
   pending,
 }: {
+  locale: string;
+  mediaComplete: boolean;
+  onReturn: () => void;
+  savedSite: OnboardingClaimSuccess;
   closed: boolean;
   onContinue: () => void;
   confirmation: string | null;
@@ -1609,6 +1722,21 @@ function PlanSelection({
       message={confirmation}
       onClaim={() => onChoose('founding_interest')}
       pending={pending}
-    />
+    >
+      <div className="luster-offer-saved-details">
+        {!mediaComplete && (
+          <p role="status">Your website details are saved. The photos listed earlier remain only on this device until you retry them.</p>
+        )}
+        {!!savedSite.preservedDashboardEdits?.length && (
+          <p role="status" data-testid="onboarding-preserved-edits">
+            {`We kept the changes you already made in your dashboard: ${savedSite.preservedDashboardEdits.join(', ')}. This setup did not overwrite them.`}
+          </p>
+        )}
+        <div>
+          <a className="luster-entry-text-action" href={getSavedOnboardingSitePreviewUrl({ locale, siteId: savedSite.siteId })}>Preview my saved site</a>
+          <button className="luster-entry-text-action" type="button" onClick={onReturn}>Edit my site</button>
+        </div>
+      </div>
+    </FoundingSalonOffer>
   );
 }

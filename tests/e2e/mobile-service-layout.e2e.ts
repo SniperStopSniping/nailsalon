@@ -1112,7 +1112,8 @@ test.describe('compact booking agreement and receipt', () => {
       await expect(page.getByRole('button', { name: 'Back to booking' })).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
       await expect(manage.locator('..')).toHaveCSS('opacity', '1');
-      await expect(page.getByText('Change or cancel up to 24 hours before your appointment.')).toBeVisible();
+      await expect(page.getByText('You can cancel or choose a new time online anytime. Please let us know as soon as your plans change.')).toBeVisible();
+      await expect(page.getByText('Change or cancel up to 24 hours before your appointment.')).toHaveCount(0);
       await expect(page.getByTestId('booking-confirmed-summary')).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Appointment summary' })).toHaveCount(0);
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);

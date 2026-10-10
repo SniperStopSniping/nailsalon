@@ -4196,40 +4196,15 @@ export function SettingsModal({
                             </select>
                           </label>
 
-                          <label className="flex flex-col gap-1">
+                          <div className="flex flex-col gap-1">
                             <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                              Client change cutoff
+                              Customer changes
                             </span>
-                            <div className="relative">
-                              <input
-                                type="number"
-                                min={0}
-                                max={168}
-                                step={1}
-                                value={bookingConfigForm.clientChangeCutoffHours}
-                                onChange={event =>
-                                  updateBookingConfigForm(prev => ({
-                                    ...prev,
-                                    clientChangeCutoffHours: Math.max(
-                                      0,
-                                      Math.min(
-                                        168,
-                                        Number.parseInt(event.target.value || '0', 10)
-                                        || 0,
-                                      ),
-                                    ),
-                                  }))}
-                                className="h-12 w-full rounded-2xl border border-[var(--owner-line)] px-3 pr-16 text-base text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
-                              />
-                              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
-                                hours
-                              </span>
-                            </div>
-                            <span className="text-xs text-[var(--owner-muted)]">
-                              Clients contact you inside this window. Use 0 to allow
-                              changes anytime.
-                            </span>
-                          </label>
+                            <p className="text-sm text-[var(--owner-ink)]">
+                              Clients can cancel or reschedule pending and confirmed appointments at any time.
+                              New times must meet your availability and booking rules.
+                            </p>
+                          </div>
 
                           <label className="flex flex-col gap-1">
                             <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">

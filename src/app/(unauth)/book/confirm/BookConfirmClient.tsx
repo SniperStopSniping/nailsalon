@@ -175,7 +175,6 @@ type BookConfirmClientProps = {
   rewardsEnabled?: boolean;
   /** Per-salon default for the public booking reminder control. */
   smsBookingDefault?: SmsBookingDefault;
-  clientChangeCutoffHours?: number;
   /** Salon phone for the "Call the salon" escape hatch on the duplicate-booking screen */
   salonPhone?: string | null;
   /** The system's deposit statement, or null when it is publishing none. */
@@ -1715,7 +1714,6 @@ const SuccessContent = ({
   manageUrl,
   findBookingUrl,
   canonicalStartTime,
-  clientChangeCutoffHours,
   totalPriceDisplay,
   confirmationMessage,
   policy,
@@ -1744,7 +1742,6 @@ const SuccessContent = ({
   manageUrl: string | null;
   findBookingUrl: string;
   canonicalStartTime: string | null;
-  clientChangeCutoffHours: number;
   confirmationMessage: string | null;
   policy: ConfirmationPolicy;
   onManage?: () => void;
@@ -2053,11 +2050,9 @@ const SuccessContent = ({
               </p>
             )}
           </>
-          {!isPending && (
-            <p className="font-body mt-0.5 text-sm leading-6 text-[var(--n5-ink-muted)]">
-              {t('cancellation_cutoff', { hours: clientChangeCutoffHours })}
-            </p>
-          )}
+          <p className="font-body mt-0.5 text-sm leading-6 text-[var(--n5-ink-muted)]">
+            {t('manage_anytime')}
+          </p>
         </motion.div>
       </main>
 
@@ -2099,7 +2094,6 @@ export function BookConfirmClient({
   location,
   rewardsEnabled = true,
   smsBookingDefault = 'default_on',
-  clientChangeCutoffHours = 24,
   salonPhone = null,
   depositDisclosure = null,
   depositNoticeSuppressed = false,
@@ -3289,7 +3283,6 @@ export function BookConfirmClient({
           manageUrl={null}
           findBookingUrl={appendSalonSlug('/find-booking', salonSlug, { routeSalonSlug, locale })}
           canonicalStartTime={durableStatus.appointment?.startTime ?? null}
-          clientChangeCutoffHours={clientChangeCutoffHours}
           totalPriceDisplay={formatMoney(review.financial.totalDueCents, review.financial.currency)}
           confirmationMessage={null}
           policy={review.bookingPolicy.required ? { enabled: true, title: review.bookingPolicy.title, text: review.bookingPolicy.text, showBeforeConfirmation: true, showAfterConfirmation: true } : { ...displayedPolicy, enabled: false }}
@@ -3440,7 +3433,6 @@ export function BookConfirmClient({
           locale,
         })}
         canonicalStartTime={recovered?.canonicalStartTime ?? canonicalStartTime}
-        clientChangeCutoffHours={clientChangeCutoffHours}
         totalPriceDisplay={recovered ? formatMoney(recovered.totalCents, recovered.currency) : totalPriceDisplay}
         confirmationMessage={recovered ? null : bookingExperience.confirmationMessage}
         policy={recovered ? { ...displayedPolicy, enabled: false } : displayedPolicy}

@@ -1,7 +1,10 @@
 'use client';
 
+import { Phone } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+
+import styles from '@/components/customer-booking/customer-booking.module.css';
 
 /**
  * S7 (Stage 1) — contact projection.
@@ -15,12 +18,11 @@ import { useState } from 'react';
  *
  * `salonPhone` is retained but is now redacted UPSTREAM through the shared
  * public-salon-phone resolver — the same global booking-only and location-mode
- * gates used by public booking and find-booking surfaces. When the salon has
- * hidden its phone the surrounding copy still tells the client to contact the
- * salon, matching the contact-less variants the repo already ships elsewhere
- * in this same view.
+ * gates used by public booking and find-booking surfaces. The optional call
+ * action is omitted when the salon has hidden its phone; cancellation and
+ * rescheduling remain available directly through the appointment link.
  */
-export function ManageAppointmentActions({ token, rescheduleUrl, appointmentStatus, isActive, canChange, cutoffHours, salonPhone }: { token: string; rescheduleUrl: string; appointmentStatus?: string; isActive: boolean; canChange: boolean; cutoffHours: number; salonPhone?: string | null }) {
+export function ManageAppointmentActions({ token, rescheduleUrl, appointmentStatus, isActive, salonPhone }: { token: string; rescheduleUrl: string; appointmentStatus?: string; isActive: boolean; salonPhone?: string | null }) {
   const router = useRouter();
   const [status, setStatus] = useState<'idle' | 'working' | 'cancelled' | 'error'>(appointmentStatus ? appointmentStatus === 'cancelled' ? 'cancelled' : 'idle' : isActive ? 'idle' : 'cancelled');
   async function cancel() {
@@ -50,36 +52,26 @@ export function ManageAppointmentActions({ token, rescheduleUrl, appointmentStat
     }
   }
   if (status === 'cancelled') {
-    return <div className="rounded-2xl bg-stone-100 p-4 text-center text-sm font-medium text-stone-700">This appointment is cancelled.</div>;
+    return <div role="status" className={styles.notice}>This appointment is cancelled.</div>;
   }
   if (!isActive && appointmentStatus) {
     const label = appointmentStatus === 'completed' ? 'This appointment is completed.' : appointmentStatus === 'in_progress' ? 'Your appointment is in progress.' : appointmentStatus === 'no_show' ? 'This appointment was marked as a no-show.' : 'This appointment is awaiting payment.';
-    return <p className="rounded-2xl bg-stone-100 p-4 text-sm text-stone-700">{label}</p>;
-  }
-  if (!canChange) {
-    return (
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-        <p className="font-semibold">
-          Online changes close
-          {cutoffHours}
-          {' '}
-          hours before your appointment.
-        </p>
-        <p className="mt-1">Please contact the salon for help with a late change.</p>
-        <div className="mt-3 flex flex-wrap gap-3 font-semibold">
-          {salonPhone && <a href={`tel:${salonPhone}`}>Call salon</a>}
-        </div>
-      </div>
-    );
+    return <p className={styles.notice}>{label}</p>;
   }
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <a href={rescheduleUrl} className="rounded-full bg-stone-900 px-5 py-3 text-center text-sm font-semibold text-white">Choose a new time</a>
-      <button type="button" disabled={status === 'working'} onClick={cancel} className="rounded-full border border-red-200 px-5 py-3 text-sm font-semibold text-red-700 disabled:opacity-50">{status === 'working' ? 'Cancelling…' : 'Cancel appointment'}</button>
+    <div className={styles.actionGrid}>
+      <a href={rescheduleUrl} className={styles.button}>Choose a new time</a>
+      <button type="button" disabled={status === 'working'} onClick={cancel} className={styles.secondaryButton}>{status === 'working' ? 'Cancelling…' : 'Cancel appointment'}</button>
+      {salonPhone && (
+        <a className={styles.textLink} href={`tel:${salonPhone}`}>
+          <Phone aria-hidden="true" />
+          Call salon
+        </a>
+      )}
       {status === 'error' && (
-        <div role="alert" className="text-sm text-red-700 sm:col-span-2">
+        <div role="alert" className={styles.error}>
           <p>We couldn’t confirm the cancellation. Refresh to check your appointment, then try again if needed.</p>
-          <button type="button" onClick={() => window.location.reload()} className="mt-2 min-h-11 font-semibold underline underline-offset-4">Refresh appointment</button>
+          <button type="button" onClick={() => window.location.reload()} className={styles.textLink}>Refresh appointment</button>
         </div>
       )}
     </div>

@@ -2,6 +2,12 @@
 
 Reviewed 8 October 2026 from current protected main ab3aee24 in its own clean task worktree.
 
+## Current-main integration — 10 October 2026
+
+This task now includes protected main `3bd6b1eb6208f1e09886726ae86e456e8dfd15ab`. The newer premium recovery-screen design is preserved, including its icons, input styling, privacy copy, busy state and accessible guidance. The remaining prepared behavior focuses Booking email on empty submission and clears an obsolete empty-contact warning when either contact is entered. Server failures stay visible until explicit retry. Historical screenshots below predate the visual redesign and document the original accessibility investigation; they are not the current visual specification.
+
+Fresh focused checks passed 362 tests on each of Node 20 and Node 24. The combined standard-entry and customer-recovery browser suites passed 77 Chromium/WebKit cases. Current-head build, hosted gates and Preview/release evidence are tracked in the pull request.
+
 ## Change
 
 The existing form connects its alternative-contact guidance to both inputs. Empty submission now exposes an alert, marks the shared requirement invalid and focuses Booking email. Either nonempty contact clears only the obsolete empty-contact warning; whitespace does not. Failed-request alerts remain while editing, until explicit retry. The existing neutral accepted message has a status role. IDs remain unique for multiple form instances.

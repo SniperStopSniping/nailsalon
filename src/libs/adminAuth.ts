@@ -111,7 +111,13 @@ async function loadAdminWithSalons(admin: AdminUser): Promise<AdminWithSalons> {
   };
 }
 
-async function resolveClerkAdmin(userId: string): Promise<AdminUser | null> {
+/**
+ * Resolve the current verified Clerk identity, including the guarded recovery
+ * of a stored identity that Clerk confirms no longer exists. Onboarding and
+ * dashboard entry share this boundary so owners need not visit the dashboard
+ * to repair an old link before saving their first site.
+ */
+export async function resolveClerkAdmin(userId: string): Promise<AdminUser | null> {
   const [linkedAdmin] = await db
     .select()
     .from(adminUserSchema)

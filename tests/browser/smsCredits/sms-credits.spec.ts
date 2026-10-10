@@ -49,6 +49,25 @@ test('Today at ten or fewer links directly to purchase', async ({ page }, info) 
   await page.screenshot({ path: screenshotPath(info, `Today-top-up-${info.project.name}.png`) });
 });
 
+test('Today offers a new owner the free allowance before a paid top-up', async ({ page }, info) => {
+  await page.goto('/?screen=today&credits=0&starter=verify');
+
+  await expect(page.getByRole('button', { name: 'Claim 100 free texts' })).toBeVisible();
+  await expect(page.getByText('2. Verify phone')).toBeVisible();
+  await expect(page.getByText('0 texts remaining', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Buy texts', exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.screenshot({ path: screenshotPath(info, `Today-free-claim-${info.project.name}.png`), fullPage: true });
+});
+
+test('Today zero balance retains purchasing after the allowance is claimed', async ({ page }) => {
+  await page.goto('/?screen=today&credits=0');
+
+  await expect(page.getByRole('button', { name: 'Buy texts', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Claim 100 free texts' })).toHaveCount(0);
+});
+
 test('failed balance and recovery never display fabricated credits', async ({ page }) => {
   await page.goto('/?state=error');
 
@@ -68,4 +87,46 @@ test('isolated purchase return updates visible balance', async ({ page }) => {
 
   await expect(page.getByText('518', { exact: true })).toBeVisible();
   await expect(page.getByText('You’re all set.', { exact: true })).toBeVisible();
+});
+
+test('free texts are directly above Buy More Texts, and a claim refreshes the balance', async ({ page }, info) => {
+  await page.goto('/?credits=0&starter=ready');
+  const card = page.getByTestId('sms-balance-card');
+  const claim = card.getByRole('button', { name: 'Claim 100 free texts' });
+
+  await expect(claim).toBeVisible();
+  expect((await claim.boundingBox())!.y).toBeLessThan((await card.getByRole('button', { name: 'Buy More Texts', exact: true }).boundingBox())!.y);
+
+  await page.screenshot({ path: screenshotPath(info, `Free-claim-${info.project.name}.png`) });
+  await claim.click();
+
+  await expect(card.getByText('100', { exact: true })).toBeVisible();
+  await expect(card.getByText('100 free SMS credits have been added.')).toBeVisible();
+
+  await page.reload();
+  // Each fixture reload initializes its synthetic balance; persisted no-repeat
+  // behavior is covered separately with the verified fixture and API tests.
+});
+
+test('unverified contact has a direct verification action on More', async ({ page }, info) => {
+  await page.goto('/?credits=0&starter=verify');
+
+  await expect(page.getByRole('button', { name: 'Verify email and phone' })).toBeVisible();
+  await expect(page.getByText('✓ Email verified')).toBeVisible();
+  await expect(page.getByText('2. Verify phone')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.screenshot({ path: screenshotPath(info, `Free-verification-${info.project.name}.png`) });
+});
+
+test('checkout unavailability is explained before disabled packages', async ({ page }, info) => {
+  await page.goto('/?credits=0&purchases=off&view=topup');
+  const message = page.getByText('Text purchases are currently unavailable. Your existing credits and free core app are unchanged.');
+  const buy = page.getByRole('button', { name: 'Buy 100 texts' });
+
+  await expect(message).toBeVisible();
+  await expect(buy).toBeDisabled();
+  expect((await message.boundingBox())!.y).toBeLessThan((await buy.boundingBox())!.y);
+
+  await page.screenshot({ path: screenshotPath(info, `Checkout-unavailable-${info.project.name}.png`) });
 });

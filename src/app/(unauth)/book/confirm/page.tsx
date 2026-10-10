@@ -539,7 +539,6 @@ export default async function BookConfirmPage(
           location={locationSummary}
           rewardsEnabled={rewardsEnabled}
           smsBookingDefault={smsBookingDefault}
-          clientChangeCutoffHours={bookingConfig.clientChangeCutoffHours}
           // Post-launch privacy fix: this is the "call the salon" escape
           // hatch on the duplicate-booking screen (`ExistingAppointmentOptions`
           // renders it as a `tel:` link) — a second, independent public phone

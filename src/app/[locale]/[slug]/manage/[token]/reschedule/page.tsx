@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
-import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { formatMoney } from '@/libs/formatMoney';
 import { SMART_FIT_DISCOUNT_TYPE } from '@/libs/smartFit';
@@ -82,17 +82,6 @@ export default async function RescheduleAppointmentPage(
 
   const bookingConfig = resolveBookingConfigFromSettings(capability.salonSettings as SalonSettings | null);
   const timeZone = bookingConfig.timezone;
-  if (!getClientChangePolicy(appointment.startTime, bookingConfig).canChange) {
-    return (
-      <ErrorCard
-        title="Online changes are closed"
-        body={`Changes close ${bookingConfig.clientChangeCutoffHours} hours before the appointment. Please contact the salon for a late change.`}
-        href={manageHref}
-        cta="Back to my appointment"
-      />
-    );
-  }
-
   const [services, addOns, technician] = await Promise.all([
     db.select({ name: appointmentServicesSchema.nameSnapshot })
       .from(appointmentServicesSchema)

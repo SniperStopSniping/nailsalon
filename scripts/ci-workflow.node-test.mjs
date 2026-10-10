@@ -195,6 +195,8 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify Portfolio controls and failure recovery in mobile browsers',
       'Verify owner settings and payment presentation in mobile browsers',
       'Verify Luster owner entry screens in mobile browsers',
+      'Verify owner account recovery in mobile browsers',
+      'Verify direct founding offer in mobile browsers',
       'Verify owner Marketing destinations in mobile browsers',
       'Verify Booking Page business information in mobile browsers',
       'Verify Booking Page experience and flow in mobile browsers',
@@ -209,11 +211,12 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify Next Visit settings and guest rebooking in mobile browsers',
       'Verify customer review and confirmation in desktop and mobile browsers',
       'Verify approved Quick Book customer compositions',
+      'Verify customer booking access and private management screens',
       'Verify appointment management and checkout in mobile browsers',
     ],
   };
   const evidence = job.steps.filter(step => step.name?.startsWith('Verify ') || step.name === 'Run storybook tests');
-  assert.equal(evidence.length, 26);
+  assert.equal(evidence.length, Object.values(expected).flat().length);
   assert.equal(new Set(evidence.map(step => step.name)).size, evidence.length);
   for (const [suite, names] of Object.entries(expected)) {
     const selected = evidence.filter(step => step.if === `matrix.suite == '${suite}'`);

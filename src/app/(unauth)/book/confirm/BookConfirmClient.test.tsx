@@ -919,7 +919,7 @@ describe('BookConfirmClient', () => {
       },
     }), { status: 201 }));
 
-    renderBasicConfirm({ clientChangeCutoffHours: 48 });
+    renderBasicConfirm();
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     const statusHeading = await screen.findByRole('heading', { name: 'Appointment confirmed' });
@@ -931,7 +931,7 @@ describe('BookConfirmClient', () => {
     expect(screen.getByTestId('booking-success-celebration')).toHaveAttribute('aria-hidden', 'true');
     expect(screen.queryByText('Your time is reserved.')).not.toBeInTheDocument();
     expect(screen.queryByText('Appointment summary')).not.toBeInTheDocument();
-    expect(screen.getByText('Change or cancel up to 48 hours before your appointment.')).toBeInTheDocument();
+    expect(screen.getByText('You can cancel or choose a new time online anytime. Please let us know as soon as your plans change.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /manage appointment/i })).toBeInTheDocument();
   });
 
@@ -1378,9 +1378,7 @@ describe('BookConfirmClient', () => {
       },
     }), { status: 201 }));
 
-    const { container } = renderBasicConfirm({
-      clientChangeCutoffHours: 48,
-    });
+    const { container } = renderBasicConfirm();
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     expect(await screen.findByRole('heading', { name: 'Request received' })).toBeInTheDocument();
@@ -1395,7 +1393,7 @@ describe('BookConfirmClient', () => {
     expect(screen.queryByText(/Your appointment is confirmed/)).not.toBeInTheDocument();
     expect(screen.queryByText(/This policy applies after confirmation/)).not.toBeInTheDocument();
     expect(screen.queryByText(/We’ll text you before your visit|We'll text you before your visit/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/You can change or cancel up to 48 hours before/)).not.toBeInTheDocument();
+    expect(screen.getByText(/You can cancel or choose a new time online anytime/)).toBeInTheDocument();
     expect(container.querySelector('.lucide-sparkles')).not.toBeInTheDocument();
   });
 

@@ -6,6 +6,7 @@ import { StarterSmsCreditsCard } from './StarterSmsCreditsCard';
 const mocks = vi.hoisted(() => ({ openUserProfile: vi.fn() }));
 
 vi.mock('@clerk/nextjs', () => ({
+  useUser: () => ({ user: null }),
   useClerk: () => ({ openUserProfile: mocks.openUserProfile }),
 }));
 
@@ -101,12 +102,12 @@ describe('StarterSmsCreditsCard', () => {
     fetchMock.mockImplementation(() => statusResponse('verified', false));
     const { unmount } = render(<StarterSmsCreditsCard salonId="salon_a" hasKnownStarterCredits onClaimed={vi.fn()} />);
 
-    expect(await screen.findByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeInTheDocument();
+    expect(await screen.findByText('Free-text allowance already claimed. Verification does not add another 100 credits.')).toBeInTheDocument();
 
     unmount();
     render(<StarterSmsCreditsCard salonId="salon_a" hasKnownStarterCredits onClaimed={vi.fn()} />);
 
-    expect(await screen.findByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeInTheDocument();
+    expect(await screen.findByText('Free-text allowance already claimed. Verification does not add another 100 credits.')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
   });
@@ -123,10 +124,10 @@ describe('StarterSmsCreditsCard', () => {
 
     rerender(<StarterSmsCreditsCard salonId="salon_b" hasKnownStarterCredits={false} onClaimed={vi.fn()} />);
 
-    expect(await screen.findByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeInTheDocument();
+    expect(await screen.findByText('Free-text allowance already claimed. Verification does not add another 100 credits.')).toBeInTheDocument();
 
     resolveFirst!(statusResponse('unclaimed', true));
-    await waitFor(() => expect(screen.getByText('Your free-text allowance has been verified. Your existing SMS credits are unchanged.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Free-text allowance already claimed. Verification does not add another 100 credits.')).toBeInTheDocument());
   });
 
   it('does not let a delayed claim for an old salon update the new salon', async () => {
@@ -157,5 +158,73 @@ describe('StarterSmsCreditsCard', () => {
 
     expect(onClaimed).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Verify free-text allowance' })).toBeEnabled();
+  });
+
+  it('offers verification immediately without submitting a claim, then rechecks on return', async () => {
+    let ready = false;
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ data: {
+      status: 'unclaimed',
+      canClaim: true,
+      verification: { email: true, phone: ready },
+    } })));
+    render(<StarterSmsCreditsCard salonId="salon_a" onClaimed={vi.fn()} inline />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify email and phone' }));
+    await waitFor(() => expect(mocks.openUserProfile).toHaveBeenCalledOnce());
+
+    expect(await screen.findByText('✓ Email verified')).toBeInTheDocument();
+    expect(screen.getByText('2. Verify phone')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
+
+    ready = true;
+    fireEvent.click(screen.getByRole('button', { name: 'I’ve verified — check again' }));
+
+    expect(await screen.findByRole('button', { name: 'Claim 100 free texts' })).toBeEnabled();
+    expect(screen.getByText('✓ Phone verified')).toBeInTheDocument();
+  });
+
+  it('keeps an already claimed allowance compact on More, including after all credits are used', async () => {
+    fetchMock.mockResolvedValue(statusResponse('verified', false));
+    render(<StarterSmsCreditsCard salonId="salon_a" onClaimed={vi.fn()} inline />);
+    await waitFor(() => expect(screen.queryByText('Checking free-text allowance…')).not.toBeInTheDocument());
+
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a claim in flight across rapid clicks and focus refreshes', async () => {
+    let settle!: (response: Response) => void;
+    const onClaimed = vi.fn();
+    fetchMock.mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'POST'
+      ? new Promise<Response>((resolve) => {
+        settle = resolve;
+      })
+      : Promise.resolve(statusResponse('unclaimed', true)));
+    render(<StarterSmsCreditsCard salonId="salon_a" onClaimed={onClaimed} inline />);
+    const claim = await screen.findByRole('button', { name: 'Claim 100 free texts' });
+    fireEvent.click(claim);
+    fireEvent.click(claim);
+    fireEvent(window, new Event('focus'));
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+
+    settle(new Response(JSON.stringify({ data: { granted: true, status: 'granted' } })));
+
+    expect(await screen.findByText('100 free SMS credits have been added.')).toBeInTheDocument();
+    expect(onClaimed).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the Today claim honest when free-credit activation is unavailable', async () => {
+    const onClaimed = vi.fn();
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'POST'
+      ? new Response(JSON.stringify({ data: { granted: false, status: 'identity_setup_required' } }))
+      : statusResponse('unclaimed', true));
+    render(<StarterSmsCreditsCard salonId="salon_a" onClaimed={onClaimed} dashboardFallback={<button type="button">Buy texts</button>} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim 100 free texts' }));
+
+    expect(await screen.findByText('Free texts are temporarily unavailable. Please try again later or contact support.')).toBeInTheDocument();
+    expect(screen.queryByText('100 free SMS credits have been added.')).not.toBeInTheDocument();
+    expect(onClaimed).not.toHaveBeenCalled();
   });
 });

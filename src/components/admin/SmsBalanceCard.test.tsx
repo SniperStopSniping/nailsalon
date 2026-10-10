@@ -6,6 +6,9 @@ import { SMS_CREDITS_CHANGED_EVENT, smsCreditStatus } from '@/libs/smsCreditStat
 import { SmsBalanceCard } from './SmsBalanceCard';
 import { SmsCreditsModal } from './SmsCreditsModal';
 
+const clerkMocks = vi.hoisted(() => ({ openUserProfile: vi.fn() }));
+vi.mock('@clerk/nextjs', () => ({ useClerk: () => ({ openUserProfile: clerkMocks.openUserProfile }), useUser: () => ({ user: null }) }));
+
 const fetchMock = vi.fn();
 function response(remaining = 18, options: { allocation?: number | null; salonId?: string; canPurchase?: boolean } = {}) {
   return new Response(JSON.stringify({ data: {
@@ -20,12 +23,15 @@ function response(remaining = 18, options: { allocation?: number | null; salonId
 
 beforeEach(() => {
   fetchMock.mockReset();
+  clerkMocks.openUserProfile.mockReset();
   vi.stubGlobal('fetch', fetchMock);
 });
 
 describe('owner SMS card and purchase UI', () => {
   it('identifies Today, More purchase and More history focus targets for the active salon', async () => {
-    fetchMock.mockImplementation(async () => response(0));
+    fetchMock.mockImplementation(async (url: string) => url.includes('/starter-credits')
+      ? new Response(JSON.stringify({ data: { status: 'verified', canClaim: false } }))
+      : response(0));
     render(
       <>
         <SmsBalanceCard compact salonSlug="a" onBuy={vi.fn()} />
@@ -101,6 +107,66 @@ describe('owner SMS card and purchase UI', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Buy texts/ }));
 
     expect(buy).toHaveBeenCalledOnce();
+  });
+
+  it('leads a new zero-balance owner to claim free texts and verify contacts, without opening checkout', async () => {
+    fetchMock.mockImplementation(async (url: string) => url.includes('/starter-credits')
+      ? new Response(JSON.stringify({ data: { status: 'unclaimed', canClaim: true, verification: { email: true, phone: false } } }))
+      : response(0));
+    const buy = vi.fn();
+    render(<SmsBalanceCard compact salonSlug="new-salon" onBuy={buy} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim 100 free texts' }));
+
+    expect(clerkMocks.openUserProfile).toHaveBeenCalledOnce();
+    expect(screen.queryByText('0 texts remaining')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Buy texts' })).not.toBeInTheDocument();
+    expect(buy).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
+  });
+
+  it('claims from Today after verification and refreshes the real balance', async () => {
+    let remaining = 0;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.includes('/starter-credits')) {
+        if (init?.method === 'POST') {
+          remaining = 100;
+          return new Response(JSON.stringify({ data: { status: 'granted', granted: true } }));
+        }
+        return new Response(JSON.stringify({ data: { status: 'unclaimed', canClaim: true, verification: { email: true, phone: true } } }));
+      }
+      return response(remaining);
+    });
+    render(<SmsBalanceCard compact salonSlug="new-salon" onBuy={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim 100 free texts' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Verifying…' })).not.toBeInTheDocument());
+
+    expect(remaining).toBe(100);
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/salon/communications/starter-credits', expect.objectContaining({ body: JSON.stringify({ salonId: 'salon_fixture' }), method: 'POST' }));
+    expect(screen.queryByRole('button', { name: 'Buy texts' })).not.toBeInTheDocument();
+  });
+
+  it.each(['verified', 'unclaimed'])('keeps the purchase path when %s cannot be claimed by this viewer', async (status) => {
+    fetchMock.mockImplementation(async (url: string) => url.includes('/starter-credits')
+      ? new Response(JSON.stringify({ data: { status, canClaim: false } }))
+      : response(0));
+    const buy = vi.fn();
+    render(<SmsBalanceCard compact salonSlug="existing-salon" onBuy={buy} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Buy texts' }));
+
+    expect(screen.queryByRole('button', { name: 'Claim 100 free texts' })).not.toBeInTheDocument();
+    expect(buy).toHaveBeenCalledOnce();
+  });
+
+  it('does not infer claim eligibility from a zero balance when its status request fails', async () => {
+    fetchMock.mockImplementation(async (url: string) => url.includes('/starter-credits') ? new Response('', { status: 503 }) : response(0));
+    render(<SmsBalanceCard compact salonSlug="new-salon" onBuy={vi.fn()} />);
+
+    expect(await screen.findByRole('button', { name: 'Retry status check' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Claim 100 free texts' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Buy texts' })).not.toBeInTheDocument();
   });
 
   it('uses current packages, marks last purchase, and posts only salon and offer keys', async () => {

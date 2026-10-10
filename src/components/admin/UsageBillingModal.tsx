@@ -211,6 +211,8 @@ function UsageBillingOverview({ salonSlug, onClose }: UsageBillingModalProps) {
   // put the refusal, the button would flip back to its idle label and say
   // nothing at all, which reads as a broken button rather than a rule.
   const [portalError, setPortalError] = useState<string | null>(null);
+  const [needsFirstPurchase, setNeedsFirstPurchase] = useState(false);
+  const [showTopups, setShowTopups] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<HistoryCategory>('all');
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -388,6 +390,11 @@ function UsageBillingOverview({ salonSlug, onClose }: UsageBillingModalProps) {
         window.location.assign(body.url);
         return;
       }
+      if (body?.error?.code === 'NO_BILLING_ACCOUNT') {
+        setNeedsFirstPurchase(true);
+        setPortalError('Add your payment details when you buy your first text package. No subscription is required.');
+        return;
+      }
       // A refusal the caller can act on (OWNER_REQUIRED above all) carries a
       // message written for the owner; show it verbatim rather than inventing
       // a retry prompt for something retrying cannot fix.
@@ -402,6 +409,10 @@ function UsageBillingOverview({ salonSlug, onClose }: UsageBillingModalProps) {
   }, [portalLoading, salonSlug, data]);
 
   const usage = data?.usage ?? null;
+
+  if (showTopups) {
+    return <SmsCreditsModal salonSlug={salonSlug} initialView="topup" onClose={() => setShowTopups(false)} />;
+  }
 
   return (
     <DialogShell
@@ -558,7 +569,8 @@ function UsageBillingOverview({ salonSlug, onClose }: UsageBillingModalProps) {
                 >
                   {portalLoading ? 'Opening…' : 'Manage billing'}
                 </button>
-                <p role="status" aria-live="polite" className="text-sm text-red-600">{portalError ?? ''}</p>
+                <p role="status" aria-live="polite" className="text-sm text-[var(--owner-muted)]">{portalError ?? ''}</p>
+                {needsFirstPurchase && <button type="button" className="owner-action owner-action--primary w-full" onClick={() => setShowTopups(true)}>Buy More Texts</button>}
               </section>
 
               {data!.creditPurchasesAvailable === true && data!.topupOffers.length > 0

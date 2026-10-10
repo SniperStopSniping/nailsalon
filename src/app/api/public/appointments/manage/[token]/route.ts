@@ -6,7 +6,7 @@ import {
   runAppointmentManageMutation,
 } from '@/libs/appointmentManage';
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
-import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { loadBookingPolicy } from '@/libs/bookingPolicy';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
@@ -289,9 +289,6 @@ export async function POST(request: Request, context: { params: Promise<{ token:
   }
 
   const bookingConfig = resolveBookingConfigFromSettings(managed.capability.salonSettings);
-  if (!getClientChangePolicy(appointment.startTime, bookingConfig).canChange) {
-    return Response.json({ error: { code: 'CHANGE_WINDOW_CLOSED', message: `Online changes close ${bookingConfig.clientChangeCutoffHours} hours before the appointment. Please contact the salon.` } }, { status: 409 });
-  }
 
   // Submitting the current time is not a reschedule. Return truthfully and
   // touch nothing: no write, no calendar sync, no notification.
@@ -301,6 +298,10 @@ export async function POST(request: Request, context: { params: Promise<{ token:
 
   if (startTime.getTime() <= Date.now()) {
     return Response.json({ error: { code: 'START_TIME_IN_PAST', message: 'Choose a time in the future.' } }, { status: 400 });
+  }
+
+  if (startTime.getTime() < Date.now() + bookingConfig.minimumNoticeMinutes * 60_000) {
+    return Response.json({ error: { code: 'TOO_SOON', message: 'That time is too soon for this salon’s booking notice. Please choose a later available time.' } }, { status: 400 });
   }
 
   // Only times on the salon's published slot grid are accepted — the grid the
@@ -609,10 +610,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ token
   if (!managed) {
     return Response.json({ error: { code: 'MANAGE_LINK_INVALID', message: 'This appointment link is invalid or expired.' } }, { status: 404 });
   }
-  const bookingConfig = resolveBookingConfigFromSettings(managed.capability.salonSettings);
-  if (!getClientChangePolicy(managed.capability.appointment.startTime, bookingConfig).canChange) {
-    return Response.json({ error: { code: 'CHANGE_WINDOW_CLOSED', message: `Online changes close ${bookingConfig.clientChangeCutoffHours} hours before the appointment. Please contact the salon.` } }, { status: 409 });
-  }
+  // A valid customer capability can cancel any pending/confirmed appointment,
+  // including last-minute changes. The locked status check below is authoritative.
 
   const cancelled = await db.transaction(async (tx) => {
     const [locked] = await tx.select().from(appointmentSchema).where(and(

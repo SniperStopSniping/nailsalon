@@ -1265,6 +1265,14 @@ jobs:
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerEntry/playwright.config.ts --output=test-results/owner-entry
 
+      - name: Verify owner account recovery in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerAccountRecovery/playwright.config.ts --output=test-results/owner-account-recovery
+
+      - name: Verify direct founding offer in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
+        run: node node_modules/playwright/cli.js test --config tests/browser/onboardingDirectOffer/playwright.config.ts --output=test-results/onboarding-direct-offer
+
       - name: Verify owner Marketing destinations in mobile browsers
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerMarketing/playwright.config.ts --output=test-results/owner-marketing-components
@@ -1294,6 +1302,10 @@ jobs:
         # Fixture-only browser contexts have no shared writes. Two workers keep
         # the expanded 24-design matrix bounded without reducing its coverage.
         run: node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts quick-book.spec.ts media-layouts.spec.ts isla.spec.ts --workers=2 --output=test-results/quick-book-compositions
+
+      - name: Verify customer booking access and private management screens
+        if: matrix.suite == 'customer-booking'
+        run: node node_modules/playwright/cli.js test --config tests/browser/customerBookingAccess/playwright.config.ts --output=test-results/customer-booking-access
 
       - name: Verify appointment management and checkout in mobile browsers
         if: matrix.suite == 'customer-booking'

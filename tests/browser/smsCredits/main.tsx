@@ -15,12 +15,25 @@ const query = new URLSearchParams(window.location.search);
 let remaining = Number(query.get('credits') ?? 18);
 let totalPurchased = 500;
 let paid = false;
+let starterClaimed = !query.has('starter');
+const purchasesAvailable = query.get('purchases') !== 'off';
 let failed = query.get('state') === 'error';
 const realFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
   const url = String(input);
   if (!url.startsWith('/api/')) {
     return realFetch(input, init);
+  }
+  if (url.includes('/starter-credits')) {
+    if (init?.method === 'POST') {
+      const granted = !starterClaimed;
+      if (granted) {
+        remaining += 100;
+      }
+      starterClaimed = true;
+      return new Response(JSON.stringify({ data: { granted, status: granted ? 'granted' : 'already_claimed' } }));
+    }
+    return new Response(JSON.stringify({ data: { status: starterClaimed ? 'verified' : 'unclaimed', canClaim: !starterClaimed, verification: { email: true, phone: query.get('starter') !== 'verify' } } }));
   }
   if (url.includes('/checkout/')) {
     const key = JSON.parse(String(init?.body)).topupOfferKey;
@@ -32,9 +45,9 @@ window.fetch = async (input, init) => {
   return new Response(JSON.stringify({ data: {
     salonId: 'salon_synthetic',
     canPurchase: true,
-    creditPurchasesAvailable: true,
+    creditPurchasesAvailable: purchasesAvailable,
     balance: { availableCredits: remaining, allocationCredits: remaining <= 100 && !paid ? 100 : null, pendingCredits: 0, status: smsCreditStatus(remaining), totalPurchased, usedThisMonth: 82, timeZone: 'America/Toronto', lastPurchaseOfferKey: 'topup_500_2026_10' },
-    topupOffers: [{ key: 'topup_100_2026_10', credits: 100, priceCents: 2000 }, { key: 'topup_200_2026_10', credits: 200, priceCents: 3000 }, { key: 'topup_500_2026_10', credits: 500, priceCents: 5000 }].map(offer => ({ ...offer, currency: 'cad', available: true })),
+    topupOffers: [{ key: 'topup_100_2026_10', credits: 100, priceCents: 2000 }, { key: 'topup_200_2026_10', credits: 200, priceCents: 3000 }, { key: 'topup_500_2026_10', credits: 500, priceCents: 5000 }].map(offer => ({ ...offer, currency: 'cad', available: purchasesAvailable })),
     activity: { items: [{ id: 'send', type: 'debit', bucket: 'purchased', credits: -2, eventType: 'appointment_reminder', createdAt: '2026-10-08T14:00:00Z' }, { id: 'follow', type: 'debit', bucket: 'purchased', credits: -1, eventType: 'rebooking_reminder', createdAt: '2026-10-08T12:00:00Z' }, { id: 'purchase', type: 'grant', bucket: 'purchased', credits: 500, eventType: null, createdAt: '2026-10-07T14:00:00Z' }], nextCursor: null },
   } }));
 };
@@ -68,7 +81,7 @@ export function Fixture() {
             )
           : (
               <>
-                <OwnerWorkspaceHeader title="More" subtitle="Managing Isla Nail Studio" actions={<button type="button" className="owner-action size-11 !p-0" aria-label="Profile">D</button>} />
+                <OwnerWorkspaceHeader title={query.get('screen') === 'today' ? 'Today' : 'More'} subtitle="Managing Isla Nail Studio" actions={<button type="button" className="owner-action size-11 !p-0" aria-label="Profile">D</button>} />
                 {completed && <p role="status" className="px-5 text-sm">Fixture purchase confirmed. 500 credits added.</p>}
                 {query.get('screen') === 'today'
                   ? (

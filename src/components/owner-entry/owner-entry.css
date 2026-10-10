@@ -751,6 +751,20 @@
   color: var(--entry-muted);
   font-size: 12px;
 }
+
+.luster-offer-saved-details {
+  color: var(--entry-muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin-top: 20px;
+}
+
+.luster-offer-saved-details > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 20px;
+}
 @media (min-width: 600px) {
   .luster-offer-reassurance li {
     flex-direction: row;

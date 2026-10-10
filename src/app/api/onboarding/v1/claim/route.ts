@@ -3,6 +3,7 @@ import { onboardingDraftClaimRequestSchema } from '@/features/onboarding-v1-inte
 import { onboardingApiError } from '@/features/onboarding-v1-integration/http.server';
 import { requireAuthenticatedOnboardingIdentity } from '@/features/onboarding-v1-integration/identity.server';
 import { claimOnboardingDraft } from '@/features/onboarding-v1-integration/persistence.server';
+import { resolveClerkAdmin } from '@/libs/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +14,10 @@ export async function POST(request: Request): Promise<Response> {
     const input = onboardingDraftClaimRequestSchema.parse(
       await request.json().catch(() => null),
     );
+    // The identity comes only from the verified server session. Reuse the
+    // dashboard's guarded stale-link recovery before persistence checks it;
+    // existing live identities and provider failures still fail closed.
+    await resolveClerkAdmin(identity.clerkUserId);
     const result = await claimOnboardingDraft(identity, input);
     if (result.kind === 'conflict') {
       return Response.json({
