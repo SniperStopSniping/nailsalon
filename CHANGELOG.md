@@ -1,3 +1,10 @@
+## [1.142.19](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.18...v1.142.19) (2026-10-10)
+
+
+### Bug Fixes
+
+* simplify first website publication and sharing ([#414](https://github.com/SniperStopSniping/nailsalon/issues/414)) ([7617d81](https://github.com/SniperStopSniping/nailsalon/commit/7617d81f36b4185e7c963cb23aa54dda13624884))
+
 ## [1.142.18](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.17...v1.142.18) (2026-10-10)
 
 
