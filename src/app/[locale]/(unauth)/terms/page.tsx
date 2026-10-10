@@ -11,7 +11,7 @@ export default function TermsPage() {
   return (
     <LusterLegalPage
       title="Terms of Service"
-      updated="July 15, 2026"
+      updated="October 10, 2026"
       intro="These terms apply when a salon owner or customer uses Luster booking pages, owner workspaces, appointment tools, or optional integrations."
       sections={[
         {
@@ -29,7 +29,7 @@ export default function TermsPage() {
         {
           title: 'Google Calendar and messaging',
           paragraphs: [
-            'Google Calendar is optional. A connected owner authorizes Luster to read availability and synchronize Luster-linked appointment events. Owners can disconnect the integration at any time.',
+            'Google Calendar is optional. A connected owner chooses which calendars Luster may use to check availability and display events, and which calendar receives Luster appointments. Luster can synchronize Luster-linked appointments and show selected events for owner review or conversion. Owners can disconnect the integration at any time; event information already synchronized into the salon workspace is not automatically removed on disconnect.',
             'Twilio messaging is optional and salon-funded. Messaging failures must never be treated as proof that a booking failed; the Luster appointment record remains the source of truth.',
           ],
         },
