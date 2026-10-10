@@ -442,7 +442,24 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     await page.screenshot({ path: path.resolve(process.cwd(), `artifacts/customer-assistant/receptionist-backend-${l1 ? 'l1' : 'legacy'}-${engine}-details.png`), fullPage: true });
     await page.getByRole('button', { name: /Confirm appointment/i }).click();
 
-    await browserExpect.poll(() => serverResults.find(row => row.path.endsWith('/confirm'))?.bookingState, { timeout: 60_000 }).toBe('confirmed');
+    try {
+      await browserExpect.poll(() => serverResults.find(row => row.path.endsWith('/confirm'))?.bookingState, { timeout: 60_000 }).toBe('confirmed');
+    } catch (error) {
+      // This fixture contains synthetic contacts only. Keep capabilities and
+      // request bodies out of CI logs while distinguishing a rejected prepare
+      // from a missing confirm request or a browser-side validation failure.
+      console.error('CUSTOMER_BACKEND_CONFIRM_FAILURE', JSON.stringify({
+        engine,
+        l1,
+        responses: serverResults.map(({ path, status, kind, reason, bookingState }) => ({ path, status, kind, reason, bookingState })),
+        browserErrors,
+        unexpected,
+        // eslint-disable-next-line unicorn/prefer-dom-node-text-content -- Capture rendered UI, not hidden scripts and styles.
+        visibleText: (await page.locator('body').innerText()).slice(0, 12_000),
+      }));
+      await page.screenshot({ path: path.resolve(process.cwd(), `artifacts/customer-assistant/receptionist-backend-${l1 ? 'l1' : 'legacy'}-${engine}-failed.png`), fullPage: true });
+      throw error;
+    }
 
     await browserExpect(page.getByRole('heading', { name: 'Appointment confirmed', exact: true })).toBeVisible();
     await page.reload();
