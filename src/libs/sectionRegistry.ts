@@ -43,6 +43,7 @@ export const PUBLIC_SURFACE_INVENTORY = {
   appointmentSummaryCard: { classification: 'bookingFlowControl', reason: 'Appointment summary on technician and time steps, governed by selected booking state.' },
   confirmationRebookingPrompt: { classification: 'bookingFlowControl', reason: 'Optional salon-configured next-booking action shown only after a confirmed receipt.' },
   bookingProgressHeader: { classification: 'bookingFlowControl', reason: 'Progress/back controls governed by booking flow.' },
+  bookingRecoveryNavigation: { classification: 'bookingFlowControl', reason: 'Secure booking recovery navigation independent of owner-configurable page content.' },
   serviceSelectionControls: { classification: 'bookingFlowControl', reason: 'Search, category and selection controls inside the protected service engine.' },
   timeSelectionControls: { classification: 'bookingFlowControl', reason: 'Canonical availability choices and empty-state recovery governed by time-selection state.' },
   smartFitAvailabilitySection: { classification: 'bookingFlowControl', reason: 'Availability recommendation governed by time-selection state.' },

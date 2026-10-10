@@ -40,7 +40,61 @@ describe('FindBookingForm', () => {
     fillAndSubmit({});
 
     expect(await screen.findByTestId('find-booking-validation')).toHaveTextContent('Enter the email or phone number you booked with.');
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter the email or phone number');
+    expect(screen.getByLabelText('Booking email')).toHaveFocus();
+
+    for (const label of ['Booking email', 'Mobile phone']) {
+      expect(screen.getByLabelText(label)).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByLabelText(label)).toHaveAccessibleDescription(/Enter the email or phone number you booked with/);
+    }
+
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('associates the alternative-contact and email-precedence guidance with both fields', () => {
+    render(<FindBookingForm salonSlug="test-salon" />);
+
+    for (const label of ['Booking email', 'Mobile phone']) {
+      expect(screen.getByLabelText(label)).toHaveAccessibleDescription(/If you enter both, we'll email the link/);
+      expect(screen.getByLabelText(label)).not.toHaveAttribute('aria-invalid', 'true');
+    }
+  });
+
+  it.each(['Booking email', 'Mobile phone'])('clears only obsolete empty-contact guidance when %s is entered', async (label) => {
+    render(<FindBookingForm salonSlug="test-salon" />);
+    fillAndSubmit({});
+    await screen.findByTestId('find-booking-validation');
+    fireEvent.change(screen.getByLabelText(label), { target: { value: '   ' } });
+
+    expect(screen.getByTestId('find-booking-validation')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(label), { target: { value: label === 'Booking email' ? 'user@example.test' : '4165550101' } });
+
+    expect(screen.queryByTestId('find-booking-validation')).not.toBeInTheDocument();
+
+    for (const field of ['Booking email', 'Mobile phone']) {
+      expect(screen.getByLabelText(field)).not.toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByLabelText(field)).toHaveAccessibleDescription(/If you enter both, we'll email the link/);
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('uses unique guidance identifiers when multiple recovery forms render', () => {
+    const { container } = render(
+      <>
+        <FindBookingForm salonSlug="first-salon" />
+        <FindBookingForm salonSlug="second-salon" />
+      </>,
+    );
+    const ids = [...container.querySelectorAll('[id]')].map(element => element.id);
+
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    for (const field of screen.getAllByLabelText('Booking email')) {
+      expect(field).toHaveAccessibleDescription(/If you enter both, we'll email the link/);
+    }
   });
 
   it('submits email-only requests', async () => {
@@ -77,6 +131,7 @@ describe('FindBookingForm', () => {
     const sent = await screen.findByTestId('find-booking-sent');
 
     expect(sent).toHaveTextContent('Request received');
+    expect(sent).toHaveAttribute('role', 'status');
     expect(sent).toHaveTextContent('If we find a matching appointment');
     expect(sent).toHaveTextContent('email the secure link');
     expect(screen.getByRole('link', { name: /call the salon/i })).toHaveAttribute('href', 'tel:4165550000');
@@ -117,5 +172,23 @@ describe('FindBookingForm', () => {
     fillAndSubmit({ phone: '4165551234' });
 
     expect(await screen.findByTestId('find-booking-error')).toBeInTheDocument();
+  });
+
+  it('announces server failure and preserves it while editing until deliberate retry', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+    render(<FindBookingForm salonSlug="test-salon" />);
+    fillAndSubmit({ phone: '4165550101' });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('We could not process the request');
+
+    fireEvent.change(screen.getByLabelText('Mobile phone'), { target: { value: '4165550102' } });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('We could not process the request');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Text my booking link' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('If we find a matching appointment');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

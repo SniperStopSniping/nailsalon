@@ -1,13 +1,14 @@
 'use client';
 
 import { ArrowRight, CheckCircle2, LockKeyhole, Mail, Phone } from 'lucide-react';
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 
 import styles from '@/components/customer-booking/customer-booking.module.css';
 
 export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; salonPhone?: string | null }) {
   const hintId = useId();
   const validationId = useId();
+  const emailInput = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
@@ -21,6 +22,7 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
     const trimmedPhone = phone.trim();
     if (!trimmedEmail && !trimmedPhone) {
       setValidationMessage('Enter the email or phone number you booked with.');
+      emailInput.current?.focus();
       return;
     }
     setValidationMessage(null);
@@ -79,7 +81,22 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
         <span>Booking email</span>
         <span className={styles.inputWrap}>
           <Mail aria-hidden="true" />
-          <input type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" className={styles.input} aria-describedby={validationMessage ? `${hintId} ${validationId}` : hintId} aria-invalid={!!validationMessage} />
+          <input
+            ref={emailInput}
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => {
+              setEmail(event.target.value);
+              if (event.target.value.trim()) {
+                setValidationMessage(null);
+              }
+            }}
+            placeholder="you@example.com"
+            className={styles.input}
+            aria-describedby={validationMessage ? `${hintId} ${validationId}` : hintId}
+            aria-invalid={!!validationMessage}
+          />
         </span>
       </label>
       <div className={styles.divider} aria-hidden="true">or</div>
@@ -87,7 +104,22 @@ export function FindBookingForm({ salonSlug, salonPhone }: { salonSlug: string; 
         <span>Mobile phone</span>
         <span className={styles.inputWrap}>
           <Phone aria-hidden="true" />
-          <input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={event => setPhone(event.target.value)} placeholder="(416) 555-1234" className={styles.input} aria-describedby={validationMessage ? `${hintId} ${validationId}` : hintId} aria-invalid={!!validationMessage} />
+          <input
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={phone}
+            onChange={(event) => {
+              setPhone(event.target.value);
+              if (event.target.value.trim()) {
+                setValidationMessage(null);
+              }
+            }}
+            placeholder="(416) 555-1234"
+            className={styles.input}
+            aria-describedby={validationMessage ? `${hintId} ${validationId}` : hintId}
+            aria-invalid={!!validationMessage}
+          />
         </span>
       </label>
       <button type="submit" disabled={state === 'sending'} className={styles.button}>

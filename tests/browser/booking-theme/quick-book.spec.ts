@@ -3,6 +3,36 @@ import path from 'node:path';
 
 import { expect, test } from '@playwright/test';
 
+for (const layout of ['standard', 'compact_dropdown', 'cover_hero']) {
+  for (const width of [320, 390]) {
+    test(`${layout} exposes keyboard-accessible booking recovery at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(`/?step=service${layout === 'standard' ? '' : `&quick-book-layout=${layout}`}`);
+      const navigation = page.getByTestId('booking-recovery-navigation');
+      const recovery = navigation.getByRole('link', { name: 'Manage my booking' });
+
+      await expect(recovery).toBeVisible();
+      await expect(recovery).toHaveAttribute('href', '/en/theme-fixture/find-booking');
+      await expect(page.getByRole('link', { name: 'Manage my booking' })).toHaveCount(1);
+      expect((await recovery.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+      await recovery.focus();
+      await page.keyboard.press('Enter');
+
+      await expect(page).toHaveURL(/\/en\/theme-fixture\/find-booking$/u);
+    });
+  }
+}
+
+test('Isla retains its two existing recovery links without standard-layout navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?step=service&isla');
+
+  await expect(page.getByRole('link', { name: 'Manage my booking' })).toHaveCount(2);
+  await expect(page.getByTestId('booking-recovery-navigation')).toHaveCount(0);
+});
+
 const layouts = ['compact_dropdown', 'side_portrait', 'hero_banner'] as const;
 for (const layout of layouts) {
   // Each viewport keeps its own time budget while retaining all four logo shapes.
