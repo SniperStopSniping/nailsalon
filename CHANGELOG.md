@@ -1,3 +1,10 @@
+## [1.142.13](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.12...v1.142.13) (2026-10-10)
+
+
+### Bug Fixes
+
+* **sms:** offer welcome credits before Today top-ups ([#403](https://github.com/SniperStopSniping/nailsalon/issues/403)) ([8c2960e](https://github.com/SniperStopSniping/nailsalon/commit/8c2960eae4fccb2dc7eb5bcc8d844aa5015a0a56))
+
 ## [1.142.12](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.11...v1.142.12) (2026-10-10)
 
 
