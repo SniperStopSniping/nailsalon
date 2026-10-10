@@ -1,6 +1,7 @@
 'use client';
 
 import { useClerk, useUser } from '@clerk/nextjs';
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 type ClaimStatus = 'granted' | 'already_claimed' | 'verification_required' | 'identity_setup_required';
@@ -16,6 +17,8 @@ type StarterSmsCreditsCardProps = {
   /** A positive balance identifies a historical starter grant to reconcile. */
   hasKnownStarterCredits?: boolean;
   inline?: boolean;
+  /** Today uses this for claimed allowances or viewers who cannot claim. */
+  dashboardFallback?: ReactNode;
   onClaimed: () => Promise<void> | void;
 };
 
@@ -27,12 +30,14 @@ export function StarterSmsCreditsCard({
   salonId,
   hasKnownStarterCredits = false,
   inline = false,
+  dashboardFallback,
   onClaimed,
 }: StarterSmsCreditsCardProps) {
   const clerk = useClerk();
   const { user } = useUser();
   const headingId = useId();
   const claimInFlight = useRef(false);
+  const dashboard = dashboardFallback !== undefined;
   const [verificationOpened, setVerificationOpened] = useState(false);
   const contactVersion = `${user?.primaryEmailAddress?.id}:${user?.primaryEmailAddress?.verification?.status}:${user?.primaryPhoneNumber?.id}:${user?.primaryPhoneNumber?.verification?.status}`;
   const sectionClassName = inline
@@ -196,6 +201,9 @@ export function StarterSmsCreditsCard({
   }
 
   if (statusState.status === 'verified') {
+    if (dashboard && !completedMessage) {
+      return <>{dashboardFallback}</>;
+    }
     if (inline && !completedMessage) {
       return null;
     }
@@ -203,6 +211,9 @@ export function StarterSmsCreditsCard({
   }
 
   if (!statusState.canClaim) {
+    if (dashboard) {
+      return <>{dashboardFallback}</>;
+    }
     return (
       <section aria-labelledby={headingId} className={sectionClassName}>
         <h3 id={headingId} className="text-base font-semibold">Free-text allowance</h3>
@@ -216,12 +227,12 @@ export function StarterSmsCreditsCard({
   return (
     <section aria-labelledby={headingId} className={sectionClassName}>
       <h3 id={headingId} className="text-base font-semibold">
-        {hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify your free-text allowance' : '100 free SMS credits'}
+        {hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify your free-text allowance' : dashboard ? '100 free texts included' : '100 free SMS credits'}
       </h3>
       <p className="text-sm leading-relaxed text-[var(--owner-muted)]">
         {hasKnownStarterCredits || statusState.status === 'verification_required'
           ? 'Link your verified owner email and phone number to your existing lifetime allowance. Your SMS credit balance stays the same.'
-          : 'One welcome allowance per verified owner. No payment needed.'}
+          : dashboard ? 'Verify your email and phone to claim your welcome texts. No payment needed.' : 'One welcome allowance per verified owner. No payment needed.'}
       </p>
       {verification && (
         <ul aria-label="Free text verification" className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-[var(--owner-accent)]">
@@ -229,9 +240,9 @@ export function StarterSmsCreditsCard({
           <li>{verification.phone ? '✓ Phone verified' : '2. Verify phone'}</li>
         </ul>
       )}
-      {requiresVerification && !inline && <p className="text-sm leading-relaxed text-[var(--owner-muted)]">Verify your primary email and phone in your account, then return here to finish.</p>}
+      {requiresVerification && !inline && !dashboard && <p className="text-sm leading-relaxed text-[var(--owner-muted)]">Verify your primary email and phone in your account, then return here to finish.</p>}
       <button type="button" onClick={requiresVerification ? openVerification : () => void claim()} disabled={claiming} className="owner-action owner-action--primary w-full disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none">
-        {claiming ? 'Verifying…' : requiresVerification ? 'Verify email and phone' : hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify free-text allowance' : 'Claim 100 free texts'}
+        {claiming ? 'Verifying…' : dashboard && statusState.status === 'unclaimed' && !hasKnownStarterCredits ? 'Claim 100 free texts' : requiresVerification ? 'Verify email and phone' : hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify free-text allowance' : 'Claim 100 free texts'}
       </button>
       {verificationOpened && requiresVerification && (
         <button type="button" onClick={() => void loadStatus()} className="min-h-11 w-full text-sm font-semibold text-[var(--owner-accent)]">

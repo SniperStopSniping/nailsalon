@@ -49,6 +49,25 @@ test('Today at ten or fewer links directly to purchase', async ({ page }, info) 
   await page.screenshot({ path: screenshotPath(info, `Today-top-up-${info.project.name}.png`) });
 });
 
+test('Today offers a new owner the free allowance before a paid top-up', async ({ page }, info) => {
+  await page.goto('/?screen=today&credits=0&starter=verify');
+
+  await expect(page.getByRole('button', { name: 'Claim 100 free texts' })).toBeVisible();
+  await expect(page.getByText('2. Verify phone')).toBeVisible();
+  await expect(page.getByText('0 texts remaining', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Buy texts', exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.screenshot({ path: screenshotPath(info, `Today-free-claim-${info.project.name}.png`), fullPage: true });
+});
+
+test('Today zero balance retains purchasing after the allowance is claimed', async ({ page }) => {
+  await page.goto('/?screen=today&credits=0');
+
+  await expect(page.getByRole('button', { name: 'Buy texts', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Claim 100 free texts' })).toHaveCount(0);
+});
+
 test('failed balance and recovery never display fabricated credits', async ({ page }) => {
   await page.goto('/?state=error');
 
