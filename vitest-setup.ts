@@ -3,13 +3,16 @@ import '@testing-library/jest-dom/vitest';
 import { vi } from 'vitest';
 import failOnConsole from 'vitest-fail-on-console';
 
-vi.mock('next/font/google', () => new Proxy({}, {
-  get: () => () => ({
+vi.mock('next/font/google', () => {
+  // Keep real named exports: an all-property Proxy invents a `then` function,
+  // so Vite awaits a module that never resolves before tests can even start.
+  const font = () => ({
     className: 'font-mock',
     style: {},
     variable: 'font-mock-variable',
-  }),
-}));
+  });
+  return { Archivo: font, Inter: font, Newsreader: font, Nunito: font, Outfit: font, Playfair_Display: font };
+});
 
 failOnConsole({
   shouldFailOnDebug: true,
