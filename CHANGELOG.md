@@ -1,3 +1,17 @@
+## [1.142.14](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.13...v1.142.14) (2026-10-10)
+
+
+### Bug Fixes
+
+* allow customers to cancel and reschedule active appointments anytime ([f94f24c](https://github.com/SniperStopSniping/nailsalon/commit/f94f24c5b1b97cc162745cce7f7a3b1ac06c1a4a))
+* **isla:** preserve existing mobile header typography ([af1f172](https://github.com/SniperStopSniping/nailsalon/commit/af1f1729f238f36ab75bc96096caf581a7f882bd))
+* **isla:** show compact location and hours before booking ([4801fff](https://github.com/SniperStopSniping/nailsalon/commit/4801fff19f0c522f6d3f797813c2f489194d7a73))
+* make Isla more services action clearly visible ([15c9d54](https://github.com/SniperStopSniping/nailsalon/commit/15c9d54ebc6d45cde83fb705f29b62293375e0ca))
+* **onboarding:** escape saved-site account recovery loops ([28d9c14](https://github.com/SniperStopSniping/nailsalon/commit/28d9c14b558ead6e8401870b4805ee3d0e15a359))
+* **onboarding:** open lifetime offer directly after saving ([cde065d](https://github.com/SniperStopSniping/nailsalon/commit/cde065d1ce65d83195591b254401a79734f21410))
+* **onboarding:** reuse shared owner tokens for kept setups ([633a010](https://github.com/SniperStopSniping/nailsalon/commit/633a010a936d8580bf7d9f3063830702b76da192))
+* polish customer booking access and appointment screens ([6ebb436](https://github.com/SniperStopSniping/nailsalon/commit/6ebb43668253237da2e5465c5a30734cd8bf4195))
+
 ## [1.142.13](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.12...v1.142.13) (2026-10-10)
 
 
