@@ -1,32 +1,43 @@
 'use client';
 
-import { useClerk } from '@clerk/nextjs';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useClerk, useUser } from '@clerk/nextjs';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 type ClaimStatus = 'granted' | 'already_claimed' | 'verification_required' | 'identity_setup_required';
 type StarterCreditsStatus = 'verified' | 'verification_required' | 'unclaimed';
+type Verification = { email: boolean; phone: boolean };
 type StatusState =
   | { kind: 'loading' }
-  | { kind: 'ready'; status: StarterCreditsStatus; canClaim: boolean }
+  | { kind: 'ready'; status: StarterCreditsStatus; canClaim: boolean; verification?: Verification }
   | { kind: 'error' };
 
 type StarterSmsCreditsCardProps = {
   salonId: string;
   /** A positive balance identifies a historical starter grant to reconcile. */
-  hasKnownStarterCredits: boolean;
+  hasKnownStarterCredits?: boolean;
+  inline?: boolean;
   onClaimed: () => Promise<void> | void;
 };
 
 const STATUS_ENDPOINT = '/api/admin/salon/communications/starter-credits';
-const VERIFIED_MESSAGE = 'Your free-text allowance has been verified. Your existing SMS credits are unchanged.';
+const VERIFIED_MESSAGE = 'Free-text allowance already claimed. Verification does not add another 100 credits.';
 
 /** The server is the source of truth when the billing panel opens. */
 export function StarterSmsCreditsCard({
   salonId,
-  hasKnownStarterCredits,
+  hasKnownStarterCredits = false,
+  inline = false,
   onClaimed,
 }: StarterSmsCreditsCardProps) {
   const clerk = useClerk();
+  const { user } = useUser();
+  const headingId = useId();
+  const claimInFlight = useRef(false);
+  const [verificationOpened, setVerificationOpened] = useState(false);
+  const contactVersion = `${user?.primaryEmailAddress?.id}:${user?.primaryEmailAddress?.verification?.status}:${user?.primaryPhoneNumber?.id}:${user?.primaryPhoneNumber?.verification?.status}`;
+  const sectionClassName = inline
+    ? 'mt-4 space-y-3 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-blush)] p-4 text-[var(--owner-ink)]'
+    : 'owner-card space-y-3 p-5 text-[var(--owner-ink)]';
   const currentSalonId = useRef(salonId);
   currentSalonId.current = salonId;
   const requestVersion = useRef(0);
@@ -37,6 +48,9 @@ export function StarterSmsCreditsCard({
   const [needsVerification, setNeedsVerification] = useState(false);
 
   const loadStatus = useCallback(async () => {
+    if (claimInFlight.current) {
+      return;
+    }
     const version = ++requestVersion.current;
     setStatusState({ kind: 'loading' });
     setClaiming(false);
@@ -53,7 +67,9 @@ export function StarterSmsCreditsCard({
         throw new Error('status fetch failed');
       }
       if (requestVersion.current === version) {
-        setStatusState({ kind: 'ready', status, canClaim });
+        const value = body?.data?.verification;
+        const verification = typeof value?.email === 'boolean' && typeof value?.phone === 'boolean' ? value as Verification : undefined;
+        setStatusState({ kind: 'ready', status, canClaim, verification });
       }
     } catch {
       if (requestVersion.current === version) {
@@ -63,21 +79,50 @@ export function StarterSmsCreditsCard({
   }, [salonId]);
 
   useEffect(() => {
+    claimInFlight.current = false;
+    setVerificationOpened(false);
     void loadStatus();
     return () => {
       requestVersion.current += 1;
     };
   }, [loadStatus]);
 
+  // Clerk updates the contact resources after verification in its profile modal.
+  // Re-read the server proof; the browser never decides credit eligibility.
+  useEffect(() => {
+    if (verificationOpened) {
+      void loadStatus();
+    }
+  }, [contactVersion, verificationOpened, loadStatus]);
+
+  useEffect(() => {
+    if (!verificationOpened) {
+      return;
+    }
+    const recheck = () => {
+      if (document.visibilityState === 'visible') {
+        void loadStatus();
+      }
+    };
+    window.addEventListener('focus', recheck);
+    document.addEventListener('visibilitychange', recheck);
+    return () => {
+      window.removeEventListener('focus', recheck);
+      document.removeEventListener('visibilitychange', recheck);
+    };
+  }, [verificationOpened, loadStatus]);
+
   const openVerification = useCallback(() => {
+    setVerificationOpened(true);
     clerk.openUserProfile();
   }, [clerk]);
 
   const claim = useCallback(async () => {
-    if (claiming || statusState.kind !== 'ready' || !statusState.canClaim) {
+    if (claimInFlight.current || claiming || statusState.kind !== 'ready' || !statusState.canClaim) {
       return;
     }
     const version = ++requestVersion.current;
+    claimInFlight.current = true;
     try {
       setClaiming(true);
       setMessage(null);
@@ -102,7 +147,7 @@ export function StarterSmsCreditsCard({
         if (requestVersion.current !== version || currentSalonId.current !== salonId) {
           return;
         }
-        setCompletedMessage(status === 'granted' && !hasKnownStarterCredits && statusState.status === 'unclaimed'
+        setCompletedMessage(status === 'granted' && body?.data?.granted === true
           ? '100 free SMS credits have been added.'
           : VERIFIED_MESSAGE);
         setStatusState({ kind: 'ready', status: 'verified', canClaim: false });
@@ -123,15 +168,16 @@ export function StarterSmsCreditsCard({
         : 'Free texts could not be claimed. Please try again.');
     } finally {
       if (requestVersion.current === version && currentSalonId.current === salonId) {
+        claimInFlight.current = false;
         setClaiming(false);
       }
     }
-  }, [claiming, hasKnownStarterCredits, onClaimed, salonId, statusState]);
+  }, [claiming, onClaimed, salonId, statusState]);
 
   if (statusState.kind === 'loading') {
     return (
-      <section aria-labelledby="starter-texts-heading" className="owner-card space-y-3 p-5 text-[var(--owner-ink)]">
-        <h3 id="starter-texts-heading" className="text-base font-semibold">Free-text allowance</h3>
+      <section aria-labelledby={headingId} className={sectionClassName}>
+        <h3 id={headingId} className="text-base font-semibold">Free-text allowance</h3>
         <p role="status" aria-live="polite" className="text-sm leading-relaxed text-[var(--owner-muted)]">Checking free-text allowance…</p>
       </section>
     );
@@ -139,8 +185,8 @@ export function StarterSmsCreditsCard({
 
   if (statusState.kind === 'error') {
     return (
-      <section aria-labelledby="starter-texts-heading" className="owner-card space-y-3 p-5 text-[var(--owner-ink)]">
-        <h3 id="starter-texts-heading" className="text-base font-semibold">Free-text allowance</h3>
+      <section aria-labelledby={headingId} className={sectionClassName}>
+        <h3 id={headingId} className="text-base font-semibold">Free-text allowance</h3>
         <p role="status" aria-live="polite" className="text-sm leading-relaxed text-[var(--owner-muted)]">We could not check your free-text allowance. Please try again.</p>
         <button type="button" onClick={() => void loadStatus()} className="owner-action w-full sm:w-auto">
           Retry status check
@@ -150,34 +196,46 @@ export function StarterSmsCreditsCard({
   }
 
   if (statusState.status === 'verified') {
-    return <p role="status" aria-live="polite" className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm leading-relaxed text-green-800">{completedMessage ?? VERIFIED_MESSAGE}</p>;
+    if (inline && !completedMessage) {
+      return null;
+    }
+    return <p role="status" aria-live="polite" className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-blush)] p-4 text-sm leading-relaxed text-[var(--owner-accent)]">{completedMessage ?? VERIFIED_MESSAGE}</p>;
   }
 
   if (!statusState.canClaim) {
     return (
-      <section aria-labelledby="starter-texts-heading" className="owner-card space-y-3 p-5 text-[var(--owner-ink)]">
-        <h3 id="starter-texts-heading" className="text-base font-semibold">Free-text allowance</h3>
+      <section aria-labelledby={headingId} className={sectionClassName}>
+        <h3 id={headingId} className="text-base font-semibold">Free-text allowance</h3>
         <p className="text-sm leading-relaxed text-[var(--owner-muted)]">Only the salon owner can verify the free-text allowance. Sign in with the owner account.</p>
       </section>
     );
   }
 
+  const verification = statusState.verification;
+  const requiresVerification = needsVerification || Boolean(verification && (!verification.email || !verification.phone));
   return (
-    <section aria-labelledby="starter-texts-heading" className="owner-card space-y-3 p-5 text-[var(--owner-ink)]">
-      <h3 id="starter-texts-heading" className="text-base font-semibold">
+    <section aria-labelledby={headingId} className={sectionClassName}>
+      <h3 id={headingId} className="text-base font-semibold">
         {hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify your free-text allowance' : '100 free SMS credits'}
       </h3>
       <p className="text-sm leading-relaxed text-[var(--owner-muted)]">
         {hasKnownStarterCredits || statusState.status === 'verification_required'
           ? 'Link your verified owner email and phone number to your existing lifetime allowance. Your SMS credit balance stays the same.'
-          : 'One lifetime allowance linked to your verified owner email and phone number. Creating another salon does not reset it. Long text messages may use more than one SMS credit.'}
+          : 'One welcome allowance per verified owner. No payment needed.'}
       </p>
-      <button type="button" onClick={() => void claim()} disabled={claiming} className="owner-action owner-action--primary w-full disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none sm:w-auto">
-        {claiming ? 'Verifying…' : hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify free-text allowance' : 'Claim 100 free texts'}
+      {verification && (
+        <ul aria-label="Free text verification" className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-[var(--owner-accent)]">
+          <li>{verification.email ? '✓ Email verified' : '1. Verify email'}</li>
+          <li>{verification.phone ? '✓ Phone verified' : '2. Verify phone'}</li>
+        </ul>
+      )}
+      {requiresVerification && !inline && <p className="text-sm leading-relaxed text-[var(--owner-muted)]">Verify your primary email and phone in your account, then return here to finish.</p>}
+      <button type="button" onClick={requiresVerification ? openVerification : () => void claim()} disabled={claiming} className="owner-action owner-action--primary w-full disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none">
+        {claiming ? 'Verifying…' : requiresVerification ? 'Verify email and phone' : hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify free-text allowance' : 'Claim 100 free texts'}
       </button>
-      {needsVerification && (
-        <button type="button" onClick={openVerification} className="owner-action w-full sm:w-auto">
-          Verify email and phone
+      {verificationOpened && requiresVerification && (
+        <button type="button" onClick={() => void loadStatus()} className="min-h-11 w-full text-sm font-semibold text-[var(--owner-accent)]">
+          I’ve verified — check again
         </button>
       )}
       {message && <p role="status" aria-live="polite" className="text-sm leading-relaxed text-[var(--owner-muted)]">{message}</p>}

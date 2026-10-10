@@ -6,6 +6,8 @@ import { SMS_CREDITS_CHANGED_EVENT, smsCreditStatus } from '@/libs/smsCreditStat
 import { SmsBalanceCard } from './SmsBalanceCard';
 import { SmsCreditsModal } from './SmsCreditsModal';
 
+vi.mock('@clerk/nextjs', () => ({ useClerk: () => ({ openUserProfile: vi.fn() }), useUser: () => ({ user: null }) }));
+
 const fetchMock = vi.fn();
 function response(remaining = 18, options: { allocation?: number | null; salonId?: string; canPurchase?: boolean } = {}) {
   return new Response(JSON.stringify({ data: {

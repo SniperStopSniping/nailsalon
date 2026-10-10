@@ -180,7 +180,7 @@ describe('GET /api/admin/salon/communications/starter-credits', () => {
     mocks.getAdminImpersonationForAdmin.mockResolvedValue(null);
     mocks.checkEndpointRateLimit.mockReturnValue({ allowed: true });
     mocks.getClientIp.mockReturnValue('127.0.0.1');
-    mocks.currentUser.mockResolvedValue({ id: 'user_owner' });
+    mocks.currentUser.mockResolvedValue({ id: 'user_owner', emailAddresses: [], phoneNumbers: [] });
     mocks.getStarterAllowanceStatus.mockResolvedValue('verification_required');
     mocks.select.mockReturnValue({ from: () => ({ where: () => ({ limit: async () => [{ deletedAt: null }] }) }) });
     mocks.transaction.mockImplementation(async (callback: (tx: typeof transactionTx) => unknown) => callback(transactionTx));
@@ -200,7 +200,15 @@ describe('GET /api/admin/salon/communications/starter-credits', () => {
   it('allows verification only for a matching authenticated Clerk owner', async () => {
     const response = await GET(getRequest());
 
-    expect(await response.json()).toEqual({ data: { status: 'verification_required', canClaim: true } });
+    expect(await response.json()).toEqual({ data: { status: 'verification_required', canClaim: true, verification: { email: false, phone: false } } });
+    expect(mocks.claimVerifiedStarterCredits).not.toHaveBeenCalled();
+  });
+
+  it('returns only verification booleans for the matching owner, never contact details', async () => {
+    mocks.currentUser.mockResolvedValue({ id: 'user_owner', primaryEmailAddressId: 'primary', primaryPhoneNumberId: 'phone', emailAddresses: [{ id: 'primary', emailAddress: 'private@example.test', verification: { status: 'verified' } }], phoneNumbers: [{ id: 'phone', phoneNumber: '+14165550123', verification: { status: 'unverified' } }] });
+    const response = await GET(getRequest());
+
+    expect(await response.json()).toEqual({ data: { status: 'verification_required', canClaim: true, verification: { email: true, phone: false } } });
     expect(mocks.claimVerifiedStarterCredits).not.toHaveBeenCalled();
   });
 

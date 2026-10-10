@@ -106,6 +106,10 @@ export function SmsCreditsModal({ salonSlug, initialView, onClose }: { salonSlug
                     <p className="mt-3 text-sm leading-relaxed text-[var(--owner-muted)]">Keep your appointment reminders, client follow-ups, and campaigns running smoothly.</p>
                     <p className="mt-2 text-sm font-semibold">One-time purchase. No subscription required.</p>
                   </div>
+                  {!data.canPurchase && <p role="status" className="text-sm text-[var(--owner-muted)]">Only the salon owner can purchase credits. Ask your owner to top up this salon.</p>}
+                  {!data.creditPurchasesAvailable && <p role="status" className="text-sm text-[var(--owner-muted)]">Text purchases are currently unavailable. Your existing credits and free core app are unchanged.</p>}
+                  {buyError && <p role="alert" className="text-sm text-[var(--owner-accent)]">{buyError}</p>}
+                  <p className="text-sm leading-relaxed text-[var(--owner-muted)]">Credit / debit card · Apple Pay when available</p>
                   <div className="space-y-3">
                     {data.topupOffers.map(offer => (
                       <button key={offer.key} type="button" aria-label={buying === offer.key ? 'Opening secure checkout' : `Buy ${offer.credits} texts`} disabled={buying !== null || !offer.available || !data.canPurchase} onClick={() => void buyTopup(offer.key)} className={`owner-card block w-full p-4 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-60 ${offer.credits === 500 ? '!border-[var(--owner-accent)]' : 'hover:bg-[var(--owner-blush)]'}`}>
@@ -147,9 +151,6 @@ export function SmsCreditsModal({ salonSlug, initialView, onClose }: { salonSlug
                       </button>
                     ))}
                   </div>
-                  {!data.canPurchase && <p role="status" className="text-sm text-[var(--owner-muted)]">Only the salon owner can purchase credits. Ask your owner to top up this salon.</p>}
-                  {!data.creditPurchasesAvailable && <p role="status" className="text-sm text-[var(--owner-muted)]">Text purchases are currently unavailable. Your existing credits and free core app are unchanged.</p>}
-                  {buyError && <p role="alert" className="text-sm text-[var(--owner-accent)]">{buyError}</p>}
                   <div className="flex gap-2 text-xs leading-relaxed text-[var(--owner-muted)]">
                     <ShieldCheck size={17} className="shrink-0" aria-hidden="true" />
                     <p>Secure payment through Stripe. Credits are added after payment is verified. Longer messages and some characters can use more than one text credit.</p>
