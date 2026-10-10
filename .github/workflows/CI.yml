@@ -1269,7 +1269,7 @@ jobs:
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerAccountRecovery/playwright.config.ts --output=test-results/owner-account-recovery
 
-      - name: Direct founding offer browser checks
+      - name: Verify direct founding offer in mobile browsers
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/onboardingDirectOffer/playwright.config.ts --output=test-results/onboarding-direct-offer
 
