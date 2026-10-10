@@ -42,7 +42,7 @@ export function DeviceSetupRecovery({ beforeSwitch, email, onSwitch, previous = 
     }
   };
   return (
-    <div className={previous ? 'onboarding-kept-setups' : undefined}>
+    <div className={previous ? 'onboarding-kept-setups owner-theme-scope' : undefined}>
       {previous
         ? (
             <details>

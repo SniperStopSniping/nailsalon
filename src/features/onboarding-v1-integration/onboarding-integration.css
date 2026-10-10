@@ -791,14 +791,11 @@
 }
 
 .onboarding-kept-setups {
-  --owner-surface: var(--onboarding-surface, #fffbf9);
-  --owner-line: var(--onboarding-line, #e8d5dc);
-  --owner-ink: var(--onboarding-ink, #39242d);
   box-sizing: border-box;
   margin: 12px auto;
   max-width: 680px;
   padding: 0 20px;
-  color: #744357;
+  color: var(--owner-muted);
   font-size: 14px;
 }
 
