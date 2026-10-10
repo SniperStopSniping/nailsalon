@@ -190,7 +190,7 @@ const recordIntegrationEvent = (
 const usePersistentFlow = () => {
   const [flow, setFlowState] = useState<OnboardingIntegrationFlow>(() => {
     const loaded = loadOnboardingIntegrationFlow();
-    return loaded.phase === 'saved' && loaded.celebrationSeen
+    return loaded.phase === 'saved'
       && loadOnboardingState().state.progress.currentScreen !== 'save_progress'
       ? { ...loaded, phase: 'plans' }
       : loaded;
@@ -520,7 +520,7 @@ function OnboardingIntegrationController({
       errorMessage: null,
       mediaComplete: true,
       mediaFailures: [],
-      phase: 'saved',
+      phase: currentPayload.state.progress.currentScreen === 'save_progress' ? 'saved' : 'plans',
       savedSite: { ...savedSite, revision: mediaResult.verifiedRevision },
       savedSiteOwnerId: mediaAccountId,
     }));
@@ -1201,7 +1201,7 @@ function OnboardingIntegrationController({
                 ...current,
                 celebrationSeen: false,
                 mediaComplete: false,
-                phase: 'saved',
+                phase: currentPayload?.state.progress.currentScreen === 'save_progress' ? 'saved' : 'plans',
               }))}
               onRetry={() => {
                 void retryMedia();
@@ -1213,6 +1213,10 @@ function OnboardingIntegrationController({
       return flow.savedSite
         ? (
             <PlanSelection
+              locale={locale}
+              mediaComplete={flow.mediaComplete}
+              onReturn={returnToReview}
+              savedSite={flow.savedSite}
               closed={planOfferClosed}
               onContinue={() => window.location.assign(`/${locale}/admin?salon=${encodeURIComponent(flow.savedSite!.salonSlug)}`)}
               confirmation={planConfirmation}
@@ -1224,13 +1228,10 @@ function OnboardingIntegrationController({
     case 'saved':
       return flow.savedSite && currentPayload
         ? (
-            <SavedCelebration
-              earlySave={currentPayload.state.progress.currentScreen === 'save_progress'}
+            <SavedProgressConfirmation
               locale={locale}
               mediaComplete={flow.mediaComplete}
-              onContinue={currentPayload.state.progress.currentScreen === 'save_progress'
-                ? continueAfterEarlySave
-                : () => setFlow(current => ({ ...current, phase: 'plans' }))}
+              onContinue={continueAfterEarlySave}
               onReturn={returnToReview}
               savedSite={flow.savedSite}
               state={currentPayload.state}
@@ -1491,8 +1492,7 @@ function ConflictScreen({
   );
 }
 
-function SavedCelebration({
-  earlySave,
+function SavedProgressConfirmation({
   locale,
   mediaComplete,
   onContinue,
@@ -1500,7 +1500,6 @@ function SavedCelebration({
   savedSite,
   state,
 }: {
-  earlySave: boolean;
   locale: string;
   mediaComplete: boolean;
   onContinue: () => void;
@@ -1525,11 +1524,11 @@ function SavedCelebration({
     headingRef.current?.focus({ preventScroll: true });
     feedback.send({
       kind: 'milestone',
-      message: earlySave ? 'Your progress is saved.' : 'Your Luster site is saved.',
+      message: 'Your progress is saved.',
       onceKey: `account-site-saved:${savedSite.siteId}:${savedSite.revision}`,
       replaceVisual: true,
     });
-  }, [earlySave, feedback, savedSite.revision, savedSite.siteId]);
+  }, [feedback, savedSite.revision, savedSite.siteId]);
   return (
     <OwnerSurface modifier="is-saved">
       <section className="onboarding-saved-card" aria-labelledby="onboarding-saved-title">
@@ -1541,11 +1540,9 @@ function SavedCelebration({
             <i />
           </div>
           <p className="onboarding-integration-eyebrow">Saved to your account</p>
-          <h1 id="onboarding-saved-title" ref={headingRef} tabIndex={-1}>{earlySave ? 'Your progress is saved' : 'Your Luster site is saved'}</h1>
+          <h1 id="onboarding-saved-title" ref={headingRef} tabIndex={-1}>Your progress is saved</h1>
           <p>
-            {earlySave
-              ? 'Your site is now saved to your Luster account.'
-              : `${salonName} is now connected to your account. Your website, booking settings and services will be waiting whenever you return.`}
+            Your site is now saved to your Luster account.
           </p>
           {!mediaComplete
             ? (
@@ -1563,7 +1560,7 @@ function SavedCelebration({
             : null}
           <div className="onboarding-integration-action-stack">
             <button className="onboarding-integration-primary" type="button" onClick={onContinue}>
-              {earlySave ? 'Continue setting up' : 'Choose how to start'}
+              Continue setting up
             </button>
             <a
               className="onboarding-integration-secondary"
@@ -1622,12 +1619,20 @@ function SavedCelebration({
 }
 
 function PlanSelection({
+  locale,
+  mediaComplete,
+  onReturn,
+  savedSite,
   closed,
   onContinue,
   confirmation,
   onChoose,
   pending,
 }: {
+  locale: string;
+  mediaComplete: boolean;
+  onReturn: () => void;
+  savedSite: OnboardingClaimSuccess;
   closed: boolean;
   onContinue: () => void;
   confirmation: string | null;
@@ -1641,6 +1646,21 @@ function PlanSelection({
       message={confirmation}
       onClaim={() => onChoose('founding_interest')}
       pending={pending}
-    />
+    >
+      <div className="luster-offer-saved-details">
+        {!mediaComplete && (
+          <p role="status">Your website details are saved. The photos listed earlier remain only on this device until you retry them.</p>
+        )}
+        {!!savedSite.preservedDashboardEdits?.length && (
+          <p role="status" data-testid="onboarding-preserved-edits">
+            {`We kept the changes you already made in your dashboard: ${savedSite.preservedDashboardEdits.join(', ')}. This setup did not overwrite them.`}
+          </p>
+        )}
+        <div>
+          <a className="luster-entry-text-action" href={getSavedOnboardingSitePreviewUrl({ locale, siteId: savedSite.siteId })}>Preview my saved site</a>
+          <button className="luster-entry-text-action" type="button" onClick={onReturn}>Edit my site</button>
+        </div>
+      </div>
+    </FoundingSalonOffer>
   );
 }

@@ -1269,6 +1269,10 @@ jobs:
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerAccountRecovery/playwright.config.ts --output=test-results/owner-account-recovery
 
+      - name: Direct founding offer browser checks
+        if: matrix.suite == 'onboarding-owner'
+        run: node node_modules/playwright/cli.js test --config tests/browser/onboardingDirectOffer/playwright.config.ts --output=test-results/onboarding-direct-offer
+
       - name: Verify owner Marketing destinations in mobile browsers
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerMarketing/playwright.config.ts --output=test-results/owner-marketing-components

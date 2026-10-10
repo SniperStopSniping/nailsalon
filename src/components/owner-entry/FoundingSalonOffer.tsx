@@ -1,4 +1,5 @@
 import { ArrowRight, Check, Clock3, Crown, Heart, MessageCircle, ShieldCheck, Sparkles, UsersRound } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 import { LusterEntryShell, LusterWordmark } from './LusterEntryShell';
 
@@ -13,12 +14,14 @@ const CORE_FEATURES = [
 
 /** Presentation only. The caller owns eligibility, claim persistence and navigation. */
 export function FoundingSalonOffer({
+  children,
   onClaim,
   pending = false,
   message,
   closed = false,
   onContinue,
 }: {
+  children?: ReactNode;
   onClaim: () => void;
   pending?: boolean;
   message?: string | null;
@@ -48,6 +51,7 @@ export function FoundingSalonOffer({
               <ArrowRight aria-hidden="true" />
             </button>
           </footer>
+          {children}
         </main>
       </LusterEntryShell>
     );
@@ -152,6 +156,7 @@ export function FoundingSalonOffer({
           </button>
           <p>Founding offer available until January 1, 2027.</p>
         </footer>
+        {children}
       </main>
     </LusterEntryShell>
   );
