@@ -949,10 +949,12 @@ function isApprovedCompactProfileAdoption(node: ts.Node): boolean {
 }
 
 function isApprovedServerProfileProjection(node: ts.Node): boolean {
-  const expression = ts.isConditionalExpression(node)
-    ? node
-    : ts.isConditionalExpression(node.parent) ? node.parent : null;
-  if (!expression || expression.condition.getText().replaceAll(/\s/g, '') !== 'activeBookingPageSide.layout===\'quick_book\''
+  const candidate = ts.isBinaryExpression(node.parent)
+    && node.parent.operatorToken.kind === ts.SyntaxKind.BarBarToken ? node.parent : node;
+  const expression = ts.isConditionalExpression(candidate)
+    ? candidate
+    : ts.isConditionalExpression(candidate.parent) ? candidate.parent : null;
+  if (!expression
     || !expression.getSourceFile().statements.some(statement => ts.isImportDeclaration(statement)
       && ts.isStringLiteral(statement.moduleSpecifier) && statement.moduleSpecifier.text === 'server-only')) {
     return false;
@@ -961,9 +963,15 @@ function isApprovedServerProfileProjection(node: ts.Node): boolean {
   if (!ts.isCallExpression(projected) || !ts.isIdentifier(projected.expression)) {
     return false;
   }
-  return (projected.getText().replaceAll(/\s/g, '') === 'getRetentionSettingsForSalon(salon.id)'
+  const condition = expression.condition.getText().replaceAll(/\s/g, '');
+  const quickBookCondition = 'activeBookingPageSide.layout===\'quick_book\'';
+
+  return ((condition === quickBookCondition
+    || condition === `${quickBookCondition}||isIslaBookingPage(salon.slug)`)
+    && projected.getText().replaceAll(/\s/g, '') === 'getRetentionSettingsForSalon(salon.id)'
     && expression.whenFalse.getText().replaceAll(/\s/g, '') === 'Promise.resolve(null)')
-    || (projected.expression.text === 'resolvePublicQuickBookProfile'
+    || (condition === quickBookCondition
+      && projected.expression.text === 'resolvePublicQuickBookProfile'
       && projected.arguments.length === 1
       && ts.isObjectLiteralExpression(projected.arguments[0]!)
       && expression.whenFalse.kind === ts.SyntaxKind.Identifier
@@ -1338,10 +1346,19 @@ describe('public section architecture guard', () => {
 
     expect(inspectPublicRenderer(projection)).toEqual([]);
 
+    const islaProjection = projection.replace(
+      "const retention = activeBookingPageSide.layout === 'quick_book'",
+      "const retention = activeBookingPageSide.layout === 'quick_book' || isIslaBookingPage(salon.slug)",
+    );
+
+    expect(inspectPublicRenderer(islaProjection)).toEqual([]);
+
     for (const mutated of [
       projection.replace('import \'server-only\';', ''),
       projection.replace('resolvePublicQuickBookProfile', 'renderQuickBookProfile'),
       projection.replace('getRetentionSettingsForSalon(salon.id)', 'renderEditorialPage()'),
+      islaProjection.replace('getRetentionSettingsForSalon(salon.id)', 'renderEditorialPage()'),
+      islaProjection.replace('isIslaBookingPage(salon.slug)', 'anotherLayout(salon.slug)'),
     ]) {
       expect(inspectPublicRenderer(mutated)).toContainEqual(expect.objectContaining({ kind: 'independent-layout-fork' }));
     }
