@@ -9,6 +9,7 @@ import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v
 import { goToScreen } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/routing';
 import { loadOnboardingState, ONBOARDING_STORAGE_KEY, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import type { OnboardingAuthProviderAvailability } from './auth-providers';
+import { OnboardingIntegrationRequestError } from './client';
 import type { OnboardingClaimSuccess } from './contracts';
 import {
   createOnboardingIntegrationFlow,
@@ -430,6 +431,61 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(screen.queryByRole('heading', { level: 1, name: 'Check your email' })).not.toBeInTheDocument();
     expect(user.primaryEmailAddress.prepareVerification).not.toHaveBeenCalled();
     expect(mocks.claim).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['new', 'restored'] as const)('offers a draft-preserving account switch for a %s owner identity conflict', async (source) => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const message = 'Sign in with the Luster account already connected to this email.';
+    mocks.claim.mockRejectedValue(new OnboardingIntegrationRequestError(message, {
+      code: 'OWNER_ACCOUNT_CONFLICT',
+      status: 409,
+    }));
+    if (source === 'restored') {
+      saveOnboardingIntegrationFlow({
+        ...createOnboardingIntegrationFlow(),
+        phase: 'failure',
+        errorCode: 'OWNER_ACCOUNT_CONFLICT',
+        errorMessage: message,
+      });
+    }
+    const draft = loadOnboardingState().state;
+    const document = window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY);
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    const switchAccount = await screen.findByRole('button', { name: 'Sign out and switch account' });
+
+    expect(screen.getByText('owner@example.com')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Return to my setup' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Contact support' })).toHaveAttribute('href', 'mailto:support@lustergel.app');
+
+    await userEvent.setup().click(switchAccount);
+
+    expect(mocks.clerk.signOut).toHaveBeenCalledWith({ redirectUrl: '/en/onboarding-v1?account=1&auth=sign-in' });
+    expect(loadOnboardingState().state.profile).toEqual(draft.profile);
+    expect(loadOnboardingState().state.recipe).toEqual(draft.recipe);
+    expect(loadOnboardingState().state.anonymousDraftId).toBe(draft.anonymousDraftId);
+    expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY)).toBe(document);
+    expect(mocks.claim).toHaveBeenCalledTimes(source === 'new' ? 1 : 0);
+  });
+
+  it('keeps account switching available after sign-out fails without repeating the rejected claim', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    saveOnboardingIntegrationFlow({
+      ...createOnboardingIntegrationFlow(),
+      phase: 'failure',
+      errorCode: 'OWNER_ACCOUNT_CONFLICT',
+      errorMessage: 'Choose the account connected to this email.',
+    });
+    mocks.clerk.signOut.mockRejectedValueOnce(new Error('Offline'));
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Sign out and switch account' }));
+
+    expect(await screen.findByRole('button', { name: 'Sign out and switch account' })).toBeEnabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('We couldn’t sign you out');
+    expect(mocks.claim).not.toHaveBeenCalled();
   });
 
   it.each(['loading', 'signed-out'])('never requests or displays existing salons while %s', async (state) => {

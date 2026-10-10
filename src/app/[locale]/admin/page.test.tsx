@@ -266,6 +266,46 @@ beforeEach(() => {
 });
 
 describe('AdminDashboardPage', () => {
+  it('replaces the endless skeleton with setup and sign-out actions for an owner without salons', async () => {
+    searchParamGet.mockReturnValue(null);
+    Object.assign(clerkAuth, { isSignedIn: true, sessionId: 'session_new_owner' });
+    clerkGetToken.mockResolvedValue('current-session-token');
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/admin/auth/me') {
+        return new Response(JSON.stringify({ user: {
+          id: 'admin_new',
+          name: 'New Owner',
+          email: 'owner@example.com',
+          isSuperAdmin: false,
+          salons: [],
+          availableSalons: [],
+          hiddenSalons: [],
+        } }));
+      }
+      if (url === '/api/admin/auth/logout') {
+        return new Response(JSON.stringify({ ok: true }));
+      }
+      throw new Error(`Unexpected fetch for an owner without a salon: ${url}`);
+    });
+    window.localStorage.setItem('onboarding-draft-preservation-test', 'saved-site-draft');
+    render(<AdminDashboardPage />);
+
+    expect(await screen.findByRole('heading', { name: 'Let’s finish setting up your salon' })).toBeVisible();
+    expect(screen.getByText('owner@example.com')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Continue building my site' })).toHaveAttribute('href', '/en/onboarding-v1');
+    expect(screen.queryByText('Loading dashboard')).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    await waitFor(() => expect(clerkSignOut).toHaveBeenCalledWith({ redirectUrl: '/owner' }));
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/logout', { method: 'POST' });
+    expect(window.localStorage.getItem('onboarding-draft-preservation-test')).toBe('saved-site-draft');
+
+    window.localStorage.removeItem('onboarding-draft-preservation-test');
+  });
+
   it.each([
     ['booking', 'booking-rules', 'rules'],
     ['booking-policy', 'booking-rules', 'policies'],
