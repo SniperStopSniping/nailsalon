@@ -80,13 +80,20 @@ export function OwnerAssistantSheet({
     setEntered(isOpen);
   }, [isOpen]);
 
-  useEffect(() => {
-    const anchor = threadEndRef.current;
+  // A deferred sheet first mounts before DialogShell creates its portal. The
+  // callback also scrolls when the anchor arrives, so restored history opens
+  // at the newest message even when the initial effect had no DOM to scroll.
+  const scrollThreadToEnd = useCallback((anchor: HTMLDivElement | null) => {
+    threadEndRef.current = anchor;
     // jsdom does not implement scrollIntoView; the thread simply stays put.
     if (isOpen && anchor && typeof anchor.scrollIntoView === 'function') {
       anchor.scrollIntoView({ block: 'end', behavior: shouldReduceMotion ? 'auto' : 'smooth' });
     }
-  }, [messages, busy, isOpen, shouldReduceMotion]);
+  }, [isOpen, shouldReduceMotion]);
+
+  useEffect(() => {
+    scrollThreadToEnd(threadEndRef.current);
+  }, [messages, busy, scrollThreadToEnd]);
 
   // The composer stays focusable for the whole turn (it goes read-only, never
   // disabled), but the Send button does get disabled and the browser drops focus
@@ -380,7 +387,7 @@ export function OwnerAssistantSheet({
             </div>
           )}
 
-          <div ref={threadEndRef} />
+          <div ref={scrollThreadToEnd} />
         </div>
 
         <div

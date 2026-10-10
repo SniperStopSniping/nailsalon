@@ -191,6 +191,13 @@ describe('AppModal', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Buy texts' })).toHaveFocus());
   });
 
+  it('labels the sheet without duplicating the heading owned by its content', async () => {
+    render(<AppModal isOpen onClose={vi.fn()} ariaLabel="Clients"><h2>Client directory</h2></AppModal>);
+
+    expect(await screen.findByRole('dialog', { name: 'Clients' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading')).toHaveLength(1);
+  });
+
   it('gives every dashboard app a bounded native touch-scroll region', async () => {
     render(
       <AppModal isOpen onClose={vi.fn()} allowDragToDismiss={false}>

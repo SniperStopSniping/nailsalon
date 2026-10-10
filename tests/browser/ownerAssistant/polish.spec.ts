@@ -158,3 +158,31 @@ test('composer and close control remain reachable in a shortened viewport', asyn
 
   await expect(page.getByTestId('owner-assistant-message').last()).toContainText('Hours & Availability');
 });
+
+test('closed assistant defers its sheet and preserves an unsent draft when reopened', async ({ page }) => {
+  const sheets: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/OwnerAssistantSheet.tsx')) {
+      sheets.push(request.url());
+    }
+  });
+  await page.goto('/');
+
+  await expect(page.getByTestId('owner-assistant-launcher')).toBeVisible();
+
+  expect(sheets).toEqual([]);
+
+  await page.getByTestId('owner-assistant-launcher').click();
+  const composer = page.getByLabel('Message the assistant');
+  await composer.fill('Keep this unsent question');
+
+  expect(sheets).toHaveLength(1);
+
+  await page.getByRole('button', { name: 'Close assistant' }).click();
+
+  await expect(page.getByTestId('owner-assistant-launcher')).toBeFocused();
+
+  await page.getByTestId('owner-assistant-launcher').click();
+
+  await expect(composer).toHaveValue('Keep this unsent question');
+});

@@ -38,6 +38,8 @@ type AppModalProps = {
   children: ReactNode;
   /** Modal title (optional, shown in header) */
   title?: string;
+  /** Accessible name when content owns its visible heading. */
+  ariaLabel?: string;
   /** Whether the modal itself can be dragged down to dismiss */
   allowDragToDismiss?: boolean;
   /** Explicit opener for a user shortcut that outlives a workspace remount. */
@@ -68,6 +70,7 @@ export function AppModal({
   onClose,
   children,
   title,
+  ariaLabel,
   allowDragToDismiss = true,
   returnFocusKey,
   topInset = 'comfortable',
@@ -138,7 +141,7 @@ export function AppModal({
             ref={panelRef}
             role="dialog"
             aria-modal="true"
-            aria-label={title}
+            aria-label={title ?? ariaLabel}
             data-modal-focus-root="true"
             data-testid="app-modal-panel"
             className="owner-theme-scope fixed inset-x-0 bottom-0 z-50 flex min-h-0 flex-col overflow-hidden rounded-t-owner-sheet bg-[var(--owner-surface)] text-[var(--owner-ink)] shadow-[0_-8px_40px_rgba(59,25,43,0.12)]"

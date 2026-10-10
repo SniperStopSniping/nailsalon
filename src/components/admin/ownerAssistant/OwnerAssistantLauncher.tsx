@@ -10,14 +10,16 @@
  * (docs/OWNER_ASSISTANT_CHAT.md §3.1, §7).
  */
 import { MessageCircle } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, useCallback, useEffect, useRef, useState } from 'react';
 
 import { cn } from '@/utils/Helpers';
 
+import { DeferredAdminDialog } from '../DeferredAdminContent';
 import { ownerAssistantCopy } from './ownerAssistantCopy';
-import { OwnerAssistantSheet } from './OwnerAssistantSheet';
 import { useOwnerAssistant } from './useOwnerAssistant';
 import { useOwnerAssistantFeedback } from './useOwnerAssistantFeedback';
+
+const OwnerAssistantSheet = lazy(() => import('./OwnerAssistantSheet').then(module => ({ default: module.OwnerAssistantSheet })));
 
 /**
  * Where the pill sits above the bottom edge.
@@ -104,22 +106,24 @@ export default function OwnerAssistantLauncher({
         <span>{ownerAssistantCopy.launcher}</span>
       </button>
 
-      <OwnerAssistantSheet
-        banner={assistant.banner}
-        busy={assistant.busy}
-        draftToRestore={assistant.draftToRestore}
-        feedback={feedback}
-        isOpen={open}
-        messages={assistant.messages}
-        notice={assistant.notice}
-        onClose={closeSheet}
-        onDraftRestored={assistant.clearDraftToRestore}
-        onReset={assistant.reset}
-        onRetry={assistant.retry}
-        onSend={assistant.send}
-        salonName={context.salonName}
-        suggestedQuestions={assistant.suggestedQuestions}
-      />
+      <DeferredAdminDialog isOpen={open} label="Assistant" onClose={closeSheet}>
+        <OwnerAssistantSheet
+          banner={assistant.banner}
+          busy={assistant.busy}
+          draftToRestore={assistant.draftToRestore}
+          feedback={feedback}
+          isOpen={open}
+          messages={assistant.messages}
+          notice={assistant.notice}
+          onClose={closeSheet}
+          onDraftRestored={assistant.clearDraftToRestore}
+          onReset={assistant.reset}
+          onRetry={assistant.retry}
+          onSend={assistant.send}
+          salonName={context.salonName}
+          suggestedQuestions={assistant.suggestedQuestions}
+        />
+      </DeferredAdminDialog>
     </>
   );
 }

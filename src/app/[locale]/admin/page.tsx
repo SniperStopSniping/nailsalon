@@ -23,7 +23,7 @@ import { AppGrid, type AppId, APPS } from '@/components/admin/AppGrid';
 import { AdminDashboardNoticeStack } from '@/components/admin/dashboard/AdminDashboardNoticeStack';
 import { AdminDashboardSkeleton } from '@/components/admin/dashboard/AdminDashboardSkeleton';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
-import { NewAppointmentModal } from '@/components/admin/NewAppointmentModal';
+import { DeferredNewAppointmentModal as NewAppointmentModal, DeferredUsageBillingModal as UsageBillingModal } from '@/components/admin/DeferredOwnerDialogs';
 import { OnboardingWorkspaceHandoff } from '@/components/admin/onboarding/OnboardingWorkspaceHandoff';
 import {
   WorkspaceQuickTour,
@@ -36,7 +36,6 @@ import {
   OwnerWorkspaceNav,
   type OwnerWorkspaceTab,
 } from '@/components/admin/OwnerWorkspaceNav';
-import { UsageBillingModal } from '@/components/admin/UsageBillingModal';
 import { LuckyCharmLoader } from '@/components/loading/LuckyCharmLoader';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { formatMoney } from '@/libs/formatMoney';
