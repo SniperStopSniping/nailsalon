@@ -91,7 +91,9 @@ test('invalid and financial error states remain recoverable', async ({ page }) =
 
   await page.goto('/?screen=manage&closed=1');
 
-  await expect(page.getByText('Online changes close 24 hours before your appointment.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Cancel appointment' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Choose a new time' })).toBeVisible();
+  await expect(page.getByText('Online changes are closed')).toHaveCount(0);
   await expect(page.getByTestId('manage-balance')).toHaveText('$35.00 CAD');
   await expect(page.getByRole('link', { name: 'Add to Apple Calendar' })).toHaveAttribute('href', /\/calendar\.ics$/);
 

@@ -11,8 +11,6 @@ const props = {
   rescheduleUrl: '/en/synthetic/manage/synthetic-token/reschedule',
   appointmentStatus: 'confirmed',
   isActive: true,
-  canChange: true,
-  cutoffHours: 24,
 };
 
 describe('customer cancellation recovery', () => {
@@ -27,17 +25,24 @@ describe('customer cancellation recovery', () => {
     vi.useRealTimers();
   });
 
-  it('separates the cutoff number and keeps late changes read-only', () => {
-    render(<ManageAppointmentActions {...props} canChange={false} salonPhone="+14165550100" />);
+  it.each(['pending', 'confirmed'])('keeps both actions available for a %s appointment', (appointmentStatus) => {
+    render(<ManageAppointmentActions {...props} appointmentStatus={appointmentStatus} salonPhone="+14165550100" />);
 
-    expect(screen.getByText('Online changes close 24 hours before your appointment.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel appointment' })).toBeEnabled();
+    expect(screen.getByRole('link', { name: 'Choose a new time' })).toHaveAttribute('href', props.rescheduleUrl);
     expect(screen.getByRole('link', { name: 'Call salon' })).toHaveAttribute('href', 'tel:+14165550100');
+    expect(screen.queryByText(/Online changes are closed/)).not.toBeInTheDocument();
+  });
+
+  it.each(['completed', 'cancelled', 'no_show', 'in_progress', 'awaiting_payment'])('does not reopen a %s appointment', (appointmentStatus) => {
+    render(<ManageAppointmentActions {...props} appointmentStatus={appointmentStatus} isActive={false} />);
+
     expect(screen.queryByRole('button', { name: 'Cancel appointment' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Choose a new time' })).not.toBeInTheDocument();
   });
 
-  it('does not reveal a hidden salon phone in the cutoff notice', () => {
-    render(<ManageAppointmentActions {...props} canChange={false} />);
+  it('does not reveal a hidden salon phone', () => {
+    render(<ManageAppointmentActions {...props} />);
 
     expect(screen.queryByRole('link', { name: 'Call salon' })).not.toBeInTheDocument();
   });

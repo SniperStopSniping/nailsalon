@@ -319,7 +319,7 @@
     "manage_appointment": "Gérer le rendez-vous",
     "add_to_calendar": "Ajouter au calendrier",
     "book_another_appointment": "Réserver un autre rendez-vous",
-    "cancellation_cutoff": "Modifiez ou annulez jusqu’à {hours} heures avant votre rendez-vous.",
+    "manage_anytime": "Vous pouvez annuler ou choisir un autre créneau en ligne à tout moment. Prévenez-nous dès que vos projets changent.",
     "next_visit_title": "Pourquoi ne pas réserver votre prochaine visite maintenant ?",
     "next_visit_interval": "Nous recommandons une visite toutes les {weeks} semaines.",
     "next_visit_interval_one": "Nous recommandons une visite chaque semaine.",

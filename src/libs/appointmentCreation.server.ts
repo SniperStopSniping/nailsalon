@@ -33,7 +33,6 @@ import {
 } from '@/libs/bookingCommitEffects';
 import {
   getBookingConfigForSalon,
-  getClientChangePolicy,
   resolveBookingConfigFromSettings,
   resolveIntroPriceLabel,
 } from '@/libs/bookingConfig';
@@ -2304,12 +2303,6 @@ async function createAppointmentFromRequestCore(
             },
           } satisfies ErrorResponse,
           { status: 400 },
-        );
-      }
-      if (actorRole === 'guest' && !getClientChangePolicy(originalAppointment.startTime, bookingConfig).canChange) {
-        return Response.json(
-          { error: { code: 'CHANGE_WINDOW_CLOSED', message: `Online changes close ${bookingConfig.clientChangeCutoffHours} hours before the appointment. Please contact the salon.` } } satisfies ErrorResponse,
-          { status: 409 },
         );
       }
     }

@@ -243,6 +243,33 @@ describe('customer manage-link reschedule', () => {
     expect((await appointmentRows())[0]!.startTime.toISOString()).toBe(CURRENT_START.toISOString());
   });
 
+  it.each([-30_000, 0, 60_000])('allows last-minute rescheduling at %i ms from the original start', async (offset) => {
+    vi.setSystemTime(new Date(CURRENT_START.getTime() + offset));
+    await db.update(schema.salonSchema).set({ settings: { booking: { clientChangeCutoffHours: 168, slotIntervalMinutes: 15 } } }).where(eq(schema.salonSchema.id, SALON_ID));
+    const { appointmentId, token } = await seedAppointmentWithToken();
+    const destination = new Date(NEW_START.getTime() + 15 * 60_000);
+    const response = await POST(rescheduleRequest(destination.toISOString()), { params: Promise.resolve({ token }) });
+
+    expect(response.status).toBe(200);
+
+    const rows = await appointmentRows();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(appointmentId);
+    expect(rows[0]!.startTime.toISOString()).toBe(destination.toISOString());
+    expect(rows[0]!.totalPrice).toBe(4500);
+  });
+
+  it('still enforces booking notice for the destination time', async () => {
+    vi.setSystemTime(new Date(CURRENT_START.getTime() - 30_000));
+    const { token } = await seedAppointmentWithToken();
+    const response = await POST(rescheduleRequest('2026-09-01T18:15:00.000Z'), { params: Promise.resolve({ token }) });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'TOO_SOON' } });
+    expect((await appointmentRows())[0]!.startTime.toISOString()).toBe(CURRENT_START.toISOString());
+  });
+
   it('moves the existing appointment without creating a second row', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
