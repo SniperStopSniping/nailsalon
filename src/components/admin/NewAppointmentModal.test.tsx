@@ -331,7 +331,9 @@ describe('NewAppointmentModal Google conversion session', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
 
     expect(await screen.findByTestId('new-appointment-error')).toHaveTextContent('We couldn’t confirm whether the appointment was saved.');
-    expect(screen.getByTestId('new-appointment-error')).toHaveFocus();
+
+    // Wait for the post-render effect without weakening the focus assertion.
+    await waitFor(() => expect(screen.getByTestId('new-appointment-error')).toHaveFocus());
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
