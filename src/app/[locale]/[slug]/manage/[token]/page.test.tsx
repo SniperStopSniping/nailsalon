@@ -28,6 +28,10 @@ const {
   };
 });
 
+vi.mock('next/font/google', () => ({
+  Inter: () => ({ variable: 'font-sans' }),
+  Newsreader: () => ({ variable: 'font-serif' }),
+}));
 vi.mock('server-only', () => ({}));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock('@/components/appointments/NextVisitOfferRebook', () => ({ NextVisitOfferRebook: () => <div data-testid="next-visit-offer" /> }));
