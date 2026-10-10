@@ -38,6 +38,7 @@ import {
 } from './enablement.server';
 import { type ExecutionNow, monotonicNowMs } from './executionClock';
 import { type LedgerModelCall, type LedgerToolCall, recordOwnerAssistantTurn } from './ledger.server';
+import { humanizeNavigationText } from './navigationText';
 import {
   buildJsonModeInstruction,
   buildSalonFrame,
@@ -473,6 +474,7 @@ export async function runOwnerAssistantTurn(
   // 9/10 — links filtered through the registry; checked from successful tools.
   const links = buildLinks(answer, { locale, salonSlug: args.salon.slug });
   const checked = buildChecked(toolCalls);
+  const message = humanizeNavigationText(answer.message, links);
 
   // 11 — ledger.
   await ledger('answer', salonFrame);
@@ -484,7 +486,7 @@ export async function runOwnerAssistantTurn(
         { role: 'user', content: args.message },
         {
           role: 'assistant',
-          content: answer.message,
+          content: message,
           ...(checked.length > 0 ? { checked: checked.map(item => item.tool) } : {}),
         },
       ]),
@@ -495,10 +497,10 @@ export async function runOwnerAssistantTurn(
 
   return {
     kind: 'answer',
-    message: answer.message,
+    message,
     checked,
     links,
-    followUps: answer.followUps,
+    followUps: answer.followUps.map(text => humanizeNavigationText(text, links)),
     needsClarification: answer.needsClarification,
     conversation: signConversation(nextConversation),
     usage: { modelCalls: modelCalls.length, toolCalls: executedToolCalls },
