@@ -1,3 +1,12 @@
+## [1.142.15](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.14...v1.142.15) (2026-10-10)
+
+
+### Bug Fixes
+
+* **booking:** classify recovery navigation as a flow control ([60e41f3](https://github.com/SniperStopSniping/nailsalon/commit/60e41f3de776e05067c926b6afe1d13552fc3be9))
+* **booking:** expose recovery from standard booking layouts ([81b4805](https://github.com/SniperStopSniping/nailsalon/commit/81b4805d7df4c6e0507158aa653677297404ee82))
+* **booking:** make recovery form errors accessible ([d11a17b](https://github.com/SniperStopSniping/nailsalon/commit/d11a17bf5d38d5683ce1edad2338ce615af6600a))
+
 ## [1.142.14](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.13...v1.142.14) (2026-10-10)
 
 
