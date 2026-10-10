@@ -702,16 +702,34 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--isla-muted);
-  min-height: 44px;
-  margin-top: 7px;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid #a88b58;
+  border-radius: 10px;
+  background: #f2ebdd;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--isla-ink);
+  min-height: 50px;
+  margin-top: 16px;
+  cursor: pointer;
+}
+.isla-more-services:hover {
+  background: #eae0cc;
+}
+.isla-more-services:focus-visible {
+  outline: 2px solid var(--isla-ink);
+  outline-offset: 3px;
+}
+.isla-more-services span {
+  min-width: 0;
 }
 .isla-more-services svg {
-  width: 14px;
-  height: 14px;
-  stroke-width: 1.4;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  stroke-width: 1.8;
 }
 .isla-addon-note {
   margin: 22px 0 0;

@@ -178,13 +178,17 @@ export function IslaBookingPage({ place, children, continueBar, flow, manageHref
           <div className="isla-menu">{children}</div>
           {moreCount > 0 && (
             <button type="button" className="isla-more-services" onClick={onShowMore}>
-              {moreCount}
-              {' '}
-              more
-              {' '}
-              {categoryLabel.toLowerCase()}
-              {' '}
-              {moreCount === 1 ? 'service' : 'services'}
+              <span>
+                View
+                {' '}
+                {moreCount}
+                {' '}
+                more
+                {' '}
+                {categoryLabel.toLowerCase()}
+                {' '}
+                {moreCount === 1 ? 'service' : 'services'}
+              </span>
               <ChevronDown aria-hidden="true" />
             </button>
           )}
