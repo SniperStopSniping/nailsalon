@@ -872,7 +872,7 @@ const DepositHoldNotice = ({
 };
 
 /**
- * Slot-taken state: another client got the time first. The selections are
+ * Unavailable-time state: the slot may be taken or outside booking notice. The selections are
  * still in the URL and the contact details are kept in sessionStorage, so
  * going back lands on the time step with everything preserved.
  */
@@ -886,8 +886,8 @@ const SlotTakenState = ({
       <StateCard
         tone="error"
         icon={<AlertCircle className="mx-auto size-10 text-[var(--n5-error)]" />}
-        title="That time was just booked"
-        description="Someone else reserved this time while you were confirming. Your service selection is saved — pick another time to finish booking."
+        title="That time is no longer available"
+        description="Your service selection is saved. Choose another time to finish booking."
         contentClassName="py-7"
       />
       <button

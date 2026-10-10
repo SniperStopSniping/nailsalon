@@ -1128,6 +1128,27 @@ describe('BookConfirmClient', () => {
       normalBookingMock.confirm.mockResolvedValue(confirmedHandoff);
     });
 
+    it.each(['prepare', 'confirm'])('keeps unavailable-time recovery accurate after a %s rejection', async (stage) => {
+      if (stage === 'prepare') {
+        normalBookingMock.confirm.mockRejectedValueOnce(new normalBookingMock.NormalBookingRecoveryError('slot_unavailable'));
+      } else {
+        normalBookingMock.confirm.mockResolvedValueOnce({ ...confirmedHandoff, status: 'not_created', lastFailure: 'slot_unavailable' });
+      }
+      renderBasicConfirm({ salonId: 'salon-id', baseServiceId: 'srv_1', selectedAddOns: [] });
+      await waitFor(() => expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled());
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      expect(await screen.findByText('That time is no longer available')).toBeInTheDocument();
+      expect(screen.getByText('Your service selection is saved. Choose another time to finish booking.')).toBeInTheDocument();
+      expect(screen.queryByText(/someone else reserved/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Choose another time' }));
+
+      expect(routerBack).toHaveBeenCalledTimes(1);
+      expect(clearBookingState).not.toHaveBeenCalled();
+    });
+
     it('uses the existing contact and default-on reminder form through the durable assistant coordinator exactly once', async () => {
       let finishRecovery!: (value: null) => void;
       normalBookingMock.recover.mockReturnValue(new Promise<null>((resolve) => {

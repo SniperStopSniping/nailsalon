@@ -360,7 +360,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     page.on('pageerror', error => browserErrors.push(error.message));
     let loseConfirmResponse = true;
     const unexpected: string[] = [];
-    const serverResults: Array<{ path: string; status: number; kind?: string; reason?: string; message?: string; bookingState?: string; proposal?: unknown; review?: unknown }> = [];
+    const serverResults: Array<{ path: string; date: string | null; status: number; kind?: string; reason?: string; message?: string; bookingState?: string; proposal?: unknown; review?: unknown }> = [];
     await page.route('**/*', async (route) => {
       const request = route.request();
       const url = new URL(request.url());
@@ -381,7 +381,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       }
       const responseText = await response.text();
       const data = JSON.parse(responseText || '{}');
-      serverResults.push({ path: url.pathname, status: response.status, kind: data.result?.kind ?? data.kind, reason: data.result?.reason ?? data.reason, message: data.result?.message, bookingState: data.status, proposal: data.result?.proposal, review: data.result?.review });
+      serverResults.push({ path: url.pathname, date: url.searchParams.get('date'), status: response.status, kind: data.result?.kind ?? data.kind, reason: data.result?.reason ?? data.reason, message: data.result?.message, bookingState: data.status, proposal: data.result?.proposal, review: data.result?.review });
       if (url.pathname.endsWith('/confirm') && loseConfirmResponse) {
         // Simulate a lost response AFTER the real creation transaction commits.
         loseConfirmResponse = false;
@@ -411,6 +411,16 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
 
     await page.getByRole('button', { name: 'Choose these services' }).click();
     await browserExpect.poll(() => serverResults.find(row => row.path.endsWith('/handoff'))).toMatchObject({ status: 200, kind: 'handoff' });
+    // This success journey must not race the first same-day slot's two-hour
+    // notice cutoff. Choose a real future date through the calendar; all
+    // availability, pricing and persistence checks still use actual handlers.
+    const futureDay = page.locator('[data-testid^="calendar-day-"]').first();
+    const initialDayId = await futureDay.getAttribute('data-testid');
+    await page.getByRole('button', { name: 'Next week', exact: true }).click();
+    await browserExpect(futureDay).not.toHaveAttribute('data-testid', initialDayId!);
+    const futureDate = (await futureDay.getAttribute('data-testid'))!.replace('calendar-day-', '');
+    await futureDay.click();
+    await browserExpect.poll(() => serverResults.find(row => row.path === '/api/appointments/availability' && row.date === futureDate)?.status).toBe(200);
     await browserExpect(page.locator('[data-testid^="time-slot-"]').first()).toBeVisible({ timeout: 60_000 });
     await browserExpect.poll(() => page.locator('[data-testid^="time-slot-"]').first().evaluate((element) => {
       for (let current: Element | null = element; current; current = current.parentElement) {
@@ -448,7 +458,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       // This fixture contains synthetic contacts only. Keep capabilities and
       // request bodies out of CI logs while distinguishing a rejected prepare
       // from a missing confirm request or a browser-side validation failure.
-      console.error('CUSTOMER_BACKEND_CONFIRM_FAILURE', JSON.stringify({
+      process.stderr.write(`CUSTOMER_BACKEND_CONFIRM_FAILURE ${JSON.stringify({
         engine,
         l1,
         responses: serverResults.map(({ path, status, kind, reason, bookingState }) => ({ path, status, kind, reason, bookingState })),
@@ -456,7 +466,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
         unexpected,
         // eslint-disable-next-line unicorn/prefer-dom-node-text-content -- Capture rendered UI, not hidden scripts and styles.
         visibleText: (await page.locator('body').innerText()).slice(0, 12_000),
-      }));
+      })}\n`);
       await page.screenshot({ path: path.resolve(process.cwd(), `artifacts/customer-assistant/receptionist-backend-${l1 ? 'l1' : 'legacy'}-${engine}-failed.png`), fullPage: true });
       throw error;
     }
@@ -479,6 +489,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     }
 
     expect(appointment).toMatchObject({ status: 'confirmed', completedAt: null });
+    expect(appointment.startTime.getTime()).toBeGreaterThan(Date.now() + 24 * 60 * 60 * 1000);
 
     const consents = await database.select().from(schema.communicationConsentSchema)
       .where(eq(schema.communicationConsentSchema.salonId, SALON));
