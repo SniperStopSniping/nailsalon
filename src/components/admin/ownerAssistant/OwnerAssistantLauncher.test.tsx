@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -574,6 +574,175 @@ describe('OwnerAssistantLauncher — composer', () => {
 });
 
 describe('OwnerAssistantLauncher — persistence', () => {
+  it('restores an explicit retry after a failed follow-up and reload without resending or duplicating it', async () => {
+    queueContext(() => jsonResponse(contextBody()), () => jsonResponse(contextBody()));
+    queueChat(
+      () => jsonResponse(answer()),
+      () => Promise.reject(new Error('offline')),
+      () => jsonResponse(answer({ message: 'Open Booking Rules & Policies.', conversation: 'token-2' })),
+    );
+    const first = render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+    await ask('What services do I offer?');
+    await thread().findByText('You offer Gel manicure and Pedicure.');
+    await ask('Where do I change my booking rules?');
+    await screen.findByRole('button', { name: ownerAssistantCopy.retry });
+    first.unmount();
+
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+
+    expect(scenario.chatRequests).toHaveLength(2);
+    expect(screen.getByTestId('owner-assistant-unanswered')).toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole('button', { name: ownerAssistantCopy.retry }));
+
+    expect(await thread().findByText('Open Booking Rules & Policies.')).toBeInTheDocument();
+    expect(scenario.chatRequests).toHaveLength(3);
+    expect(scenario.chatRequests[2]).toMatchObject({
+      salonSlug: SALON_SLUG,
+      message: 'Where do I change my booking rules?',
+      conversation: 'token-1',
+    });
+    expect(thread().getAllByText('Where do I change my booking rules?')).toHaveLength(1);
+    expect(screen.queryByTestId('owner-assistant-unanswered')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: ownerAssistantCopy.retry })).not.toBeInTheDocument();
+  });
+
+  it('offers an explicit retry for an interrupted first turn after remount and ignores its late answer', async () => {
+    queueContext(() => jsonResponse(contextBody()), () => jsonResponse(contextBody()));
+    const pending = deferredChat(answer({ message: 'Old interrupted answer.' }));
+    queueChat(pending.queue, () => jsonResponse(answer({ message: 'Recovered answer.' })));
+    const first = render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+    await ask('Where do I change my hours?');
+    const request = fetchMock.mock.calls.find(([url]) => String(url).includes('/owner-assistant/chat'));
+    const signal = (request?.[1] as RequestInit).signal;
+    first.unmount();
+
+    expect(signal?.aborted).toBe(true);
+
+    try {
+      render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+      await openSheet();
+
+      expect(scenario.chatRequests).toHaveLength(1);
+      expect(screen.getByTestId('owner-assistant-unanswered')).toBeInTheDocument();
+
+      await userEvent.setup().click(screen.getByRole('button', { name: ownerAssistantCopy.retry }));
+
+      expect(await thread().findByText('Recovered answer.')).toBeInTheDocument();
+      expect(scenario.chatRequests).toHaveLength(2);
+      expect(scenario.chatRequests[1]?.conversation).toBeUndefined();
+      expect(thread().getAllByText('Where do I change my hours?')).toHaveLength(1);
+    } finally {
+      await act(async () => {
+        pending.release();
+      });
+    }
+
+    expect(thread().queryByText('Old interrupted answer.')).not.toBeInTheDocument();
+  });
+
+  it.each(['another-owner', undefined])('does not recover a pending question owned by %s', async (ownerRef) => {
+    window.sessionStorage.setItem(ownerAssistantStorageKey(SALON_SLUG), JSON.stringify({
+      ownerRef,
+      conversation: 'private-token',
+      messages: [{ id: 'pending', role: 'owner', text: 'Private owner question.', unanswered: true }],
+    }));
+    queueContext(() => jsonResponse(contextBody()));
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+
+    expect(thread().queryByText('Private owner question.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: ownerAssistantCopy.retry })).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem(ownerAssistantStorageKey(SALON_SLUG))).toBeNull();
+    expect(scenario.chatRequests).toHaveLength(0);
+  });
+
+  it('retains the current server unavailable reason when recovering a pending question', async () => {
+    window.sessionStorage.setItem(ownerAssistantStorageKey(SALON_SLUG), JSON.stringify({
+      ownerRef: 'owner-ref-1',
+      conversation: null,
+      messages: [{ id: 'pending', role: 'owner', text: 'Is my booking page live?', unanswered: true }],
+    }));
+    queueContext(() => jsonResponse(contextBody(SALON_SLUG, 'Isla Nail Studio', {
+      available: false,
+      reason: 'redis_unavailable',
+    })));
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+
+    expect(screen.getByTestId('owner-assistant-banner')).toHaveTextContent(CHAT_UNAVAILABLE_MESSAGES.redis_unavailable);
+    expect(screen.getByRole('button', { name: ownerAssistantCopy.retry })).toBeEnabled();
+    expect(scenario.chatRequests).toHaveLength(0);
+  });
+
+  it('does not recover an older failed question after a newer question was answered', async () => {
+    window.sessionStorage.setItem(ownerAssistantStorageKey(SALON_SLUG), JSON.stringify({
+      ownerRef: 'owner-ref-1',
+      conversation: 'token-1',
+      messages: [
+        { id: 'old', role: 'owner', text: 'Old failed question.', unanswered: true },
+        { id: 'new', role: 'owner', text: 'New question.' },
+        { id: 'answer', role: 'assistant', text: 'New answer.' },
+      ],
+    }));
+    queueContext(() => jsonResponse(contextBody()));
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+
+    expect(thread().getByText('New answer.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: ownerAssistantCopy.retry })).not.toBeInTheDocument();
+    expect(scenario.chatRequests).toHaveLength(0);
+  });
+
+  it('clears a restored retry when the owner starts a new conversation', async () => {
+    window.sessionStorage.setItem(ownerAssistantStorageKey(SALON_SLUG), JSON.stringify({
+      ownerRef: 'owner-ref-1',
+      conversation: 'old-token',
+      messages: [{ id: 'pending', role: 'owner', text: 'Old question.', unanswered: true }],
+    }));
+    queueContext(() => jsonResponse(contextBody()));
+    queueChat(() => jsonResponse(answer()));
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+
+    expect(screen.getByRole('button', { name: ownerAssistantCopy.retry })).toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole('button', { name: ownerAssistantCopy.newConversation }));
+
+    expect(screen.queryByRole('button', { name: ownerAssistantCopy.retry })).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem(ownerAssistantStorageKey(SALON_SLUG))).toBeNull();
+
+    await ask('What services do I offer?');
+    await thread().findByText('You offer Gel manicure and Pedicure.');
+
+    expect(scenario.chatRequests).toHaveLength(1);
+    expect(scenario.chatRequests[0]?.conversation).toBeUndefined();
+  });
+
+  it('clears the restored retry target on a salon switch', async () => {
+    window.sessionStorage.setItem(ownerAssistantStorageKey(SALON_SLUG), JSON.stringify({
+      ownerRef: 'owner-ref-1',
+      conversation: 'isla-token',
+      messages: [{ id: 'pending', role: 'owner', text: 'Isla question.', unanswered: true }],
+    }));
+    queueContext(() => jsonResponse(contextBody()), () => jsonResponse(contextBody(OTHER_SLUG, 'Nail Salon No5')));
+    const view = render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+
+    expect(screen.getByRole('button', { name: ownerAssistantCopy.retry })).toBeInTheDocument();
+
+    view.rerender(<OwnerAssistantLauncher locale="en" salonSlug={OTHER_SLUG} />);
+    await waitFor(() => expect(screen.queryByTestId('owner-assistant-sheet')).not.toBeInTheDocument());
+    await openSheet();
+
+    expect(thread().queryByText('Isla question.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: ownerAssistantCopy.retry })).not.toBeInTheDocument();
+    expect(scenario.chatRequests).toHaveLength(0);
+  });
+
   it('drops a stored thread that belongs to a different owner of the same salon', async () => {
     window.sessionStorage.setItem(
       ownerAssistantStorageKey(SALON_SLUG),

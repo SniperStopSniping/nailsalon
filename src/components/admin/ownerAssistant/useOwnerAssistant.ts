@@ -243,6 +243,24 @@ export function useOwnerAssistant({
           clearOwnerAssistantThread(salonSlug);
           storedOwnerRefRef.current = undefined;
           setThread({ slug: salonSlug, conversation: null, messages: [] });
+        } else {
+          const lastMessage = stored?.messages[stored.messages.length - 1];
+          // A trailing owner question has no answer, including a turn interrupted
+          // by reload before it could record an error. Restore its explicit
+          // recovery only after owner admission; never re-send during hydration.
+          if (lastMessage?.role === 'owner') {
+            lastOwnerMessageRef.current = lastMessage.text;
+            setThread(previous => previous.slug === salonSlug
+              ? { ...previous, messages: withLastOwnerUnanswered(previous.messages, true) }
+              : previous);
+            setBanner({
+              tone: payload.model.available ? 'error' : 'unavailable',
+              message: payload.model.available
+                ? ownerAssistantCopy.restoredQuestion
+                : CHAT_UNAVAILABLE_MESSAGES[payload.model.reason],
+              retryable: true,
+            });
+          }
         }
         setContext(payload);
       } catch {
