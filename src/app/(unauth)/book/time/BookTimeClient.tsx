@@ -1,6 +1,7 @@
 'use client';
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
@@ -67,6 +68,7 @@ type BookTimeClientProps = {
   bookingFlow: BookingStep[];
   minimumNoticeMinutes?: number;
   salonTimeZone?: string;
+  bookingHelp?: ReactNode;
   /**
    * Weekdays (0 = Sunday … 6 = Saturday) the salon is closed, resolved from
    * the same opening-hours ceiling the availability API enforces. Empty when
@@ -312,6 +314,7 @@ export function BookTimeClient({
   minimumNoticeMinutes,
   salonTimeZone = DEFAULT_SALON_TIMEZONE,
   closedWeekdays = EMPTY_CLOSED_WEEKDAYS,
+  bookingHelp,
 }: BookTimeClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -816,7 +819,9 @@ export function BookTimeClient({
   const calendarLocale = params.locale === 'fr' ? 'fr-CA' : 'en-US';
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
-  const weekLabel = new Intl.DateTimeFormat(calendarLocale, { month: 'short', day: 'numeric' }).formatRange(weekStart, weekEnd);
+  // Node and browser ICU versions use different range-separator spacing.
+  // Keep the same text during hydration instead of rebuilding the calendar.
+  const weekLabel = new Intl.DateTimeFormat(calendarLocale, { month: 'short', day: 'numeric' }).formatRange(weekStart, weekEnd).replaceAll('\u2009', ' ');
   const moveWeek = (direction: number) => {
     const next = new Date(weekStart);
     next.setDate(next.getDate() + direction * 7);
@@ -1092,6 +1097,8 @@ export function BookTimeClient({
           {getTimeZoneLabel(salonTimeZone)}
           ).
         </p>
+
+        {bookingHelp && <div className="mb-4 flex justify-center">{bookingHelp}</div>}
 
         {/* Calendar Card */}
         <div
