@@ -11,6 +11,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -175,6 +176,32 @@ beforeEach(() => {
 });
 
 describe('get_salon_overview', () => {
+  it('distinguishes Isla fixed design assets from empty saved template fields', async () => {
+    const [original] = await db.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, SALON));
+    await db.update(schema.salonSchema).set({ logoUrl: null, settings: {} }).where(eq(schema.salonSchema.id, SALON));
+    try {
+      const result = await getSalonOverview(SALON);
+
+      expect(result.bookingPage.logoSaved).toBe(false);
+      expect(result.bookingPage.heroImageSaved).toBe(false);
+      expect(result.bookingPage.customDesign).toEqual({
+        kind: 'isla',
+        fixedElements: ['logo', 'heroImage', 'introText', 'editorialGallery'],
+        standardTemplateChangesAffectOpening: false,
+      });
+
+      expectNoPii(result, 'custom booking-page overview');
+    } finally {
+      await db.update(schema.salonSchema).set({ logoUrl: original!.logoUrl, settings: original!.settings }).where(eq(schema.salonSchema.id, SALON));
+    }
+  });
+
+  it('does not attribute the custom Isla design to another salon', async () => {
+    const result = await getSalonOverview(EMPTY_SALON);
+
+    expect(result.bookingPage).not.toHaveProperty('customDesign');
+  });
+
   it('projects the salon setup the owner can see for themselves', async () => {
     const result = await getSalonOverview(SALON, { now: new Date('2026-09-16T02:30:00.000Z') });
 
@@ -344,6 +371,18 @@ describe('find_destination', () => {
 });
 
 describe('executeOwnerAssistantTool never throws', () => {
+  it('does not let model arguments replace the route-resolved salon design context', async () => {
+    const result = await executeOwnerAssistantTool({
+      name: 'find_destination',
+      argumentsJson: '{"query":"logo","salonSlug":"another-salon"}',
+      salonId: SALON,
+      salonSlug: 'isla-nail-studio',
+      enabledTools: ENABLED,
+    });
+
+    expect(result).toEqual({ ok: false, error: { code: 'invalid_arguments' } });
+  });
+
   it('runs an enabled tool', async () => {
     const outcome = await executeOwnerAssistantTool({
       name: 'find_destination',

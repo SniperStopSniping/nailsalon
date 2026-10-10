@@ -223,10 +223,17 @@ export type SalonOverviewResult = {
     paymentsConnected: boolean;
   };
   bookingPage: {
+    /** Saved shared-profile / standard-template fields, not custom rendered assets. */
     logoSaved: boolean;
     profilePhotoSaved: boolean;
     hasBio: boolean;
     heroImageSaved: boolean;
+    /** Only present when the public renderer uses the commissioned Isla design. */
+    customDesign?: {
+      kind: 'isla';
+      fixedElements: readonly ['logo', 'heroImage', 'introText', 'editorialGallery'];
+      standardTemplateChangesAffectOpening: false;
+    };
   };
 };
 

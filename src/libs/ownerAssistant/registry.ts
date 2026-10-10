@@ -18,6 +18,9 @@
  * state today and the link lands on the parent screen.
  */
 
+import { getBookingPageEditor } from '@/components/admin/bookingPageEditorSections';
+import { isIslaBookingPage } from '@/libs/islaBookingPage';
+
 export type RegistryAddressable = 'exact' | 'exact_on_open' | 'parent';
 
 export type RegistryTarget =
@@ -95,8 +98,17 @@ export type RegistryKey = string;
 
 const byKey = new Map(OWNER_ASSISTANT_REGISTRY.map(item => [item.key, item]));
 
-export function getRegistryEntry(key: string): RegistryEntry | null {
-  return byKey.get(key) ?? null;
+function withSalonContext(item: RegistryEntry, salonSlug?: string): RegistryEntry {
+  if (item.target.type !== 'bookingPage' || !isIslaBookingPage(salonSlug)) {
+    return item;
+  }
+  const editor = getBookingPageEditor(item.target.panel, true);
+  return { ...item, label: editor.title, description: editor.description };
+}
+
+export function getRegistryEntry(key: string, salonSlug?: string): RegistryEntry | null {
+  const item = byKey.get(key);
+  return item ? withSalonContext(item, salonSlug) : null;
 }
 
 export function isRegistryKey(key: string): boolean {
@@ -151,13 +163,14 @@ export function normalizeAssistantText(text: string): string {
  * every query token present in a synonym 3, token in label 2, token in
  * description/key 1. Returns the best `limit` entries with a positive score.
  */
-export function searchRegistry(query: string, limit = 5): RegistryEntry[] {
+export function searchRegistry(query: string, limit = 5, salonSlug?: string): RegistryEntry[] {
   const q = normalizeAssistantText(query);
   if (!q) {
     return [];
   }
   const tokens = q.split(' ').filter(token => token.length > 1);
-  const scored = OWNER_ASSISTANT_REGISTRY.map((item) => {
+  const scored = OWNER_ASSISTANT_REGISTRY.map((original) => {
+    const item = withSalonContext(original, salonSlug);
     let score = 0;
     const synonyms = item.synonyms.map(normalizeAssistantText);
     if (synonyms.includes(q)) {

@@ -44,6 +44,8 @@ export async function executeOwnerAssistantTool(args: {
   name: string;
   argumentsJson: string;
   salonId: string;
+  /** The route-resolved salon slug, never a model-supplied tool argument. */
+  salonSlug?: string;
   enabledTools: readonly OwnerAssistantToolName[];
   now?: Date;
 }): Promise<OwnerAssistantToolOutcome> {
@@ -77,7 +79,7 @@ export async function executeOwnerAssistantTool(args: {
           result: await listServices(args.salonId, parsed.data as { includeInactive: boolean }),
         };
       case 'find_destination':
-        return { ok: true, result: findDestination(parsed.data as { query: string }) };
+        return { ok: true, result: findDestination(parsed.data as { query: string }, args.salonSlug) };
       case 'diagnose_day_availability':
         return {
           ok: true,

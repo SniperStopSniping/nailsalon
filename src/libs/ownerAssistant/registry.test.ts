@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { BOOKING_PAGE_EDITORS, BOOKING_PAGE_GROUPS, isBookingPagePanel } from '@/components/admin/bookingPageEditorSections';
+import { BOOKING_PAGE_EDITORS, BOOKING_PAGE_GROUPS, getBookingPageEditor, isBookingPagePanel } from '@/components/admin/bookingPageEditorSections';
 
 import {
   buildRegistryHref,
@@ -257,6 +257,33 @@ describe('searchRegistry answers the questions this slice must handle', () => {
 });
 
 describe('owner IA stable destination keys', () => {
+  it.each([
+    ['page_gallery', 'gallery'],
+    ['page_text', 'text'],
+    ['page_layouts', 'layouts'],
+    ['page_appearance', 'appearance'],
+    ['page_information', 'information'],
+  ] as const)('matches the custom editor label for %s without changing its route', (key, panel) => {
+    const custom = getRegistryEntry(key, 'isla-nail-studio');
+    const ordinary = getRegistryEntry(key, 'another-salon');
+    const editor = getBookingPageEditor(panel, true);
+
+    expect(custom?.label).toBe(editor.title);
+    expect(custom?.description).toBe(editor.description);
+    expect(custom?.target).toEqual(ordinary?.target);
+    expect(buildRegistryHref(custom!, { locale: 'en', salonSlug: 'isla-nail-studio' }))
+      .toBe(`/en/admin/booking-page?salon=isla-nail-studio&panel=${panel}`);
+    expect(getRegistryEntry(key)?.label).toBe(ordinary?.label);
+  });
+
+  it('returns custom labels to the model and preserves ordinary search results', () => {
+    expect(searchRegistry('upload my logo', 5, 'isla-nail-studio')[0])
+      .toMatchObject({ key: 'page_gallery', label: 'Profile & Portfolio' });
+    expect(searchRegistry('upload my logo', 5, 'another-salon')[0])
+      .toMatchObject({ key: 'page_gallery', label: 'Photos & Gallery' });
+    expect(getRegistryEntry('page_gallery', 'isla-nail-studio-other')?.label).toBe('Photos & Gallery');
+  });
+
   it.each([
     ['business_hours', 'hours', null],
     ['working_hours', 'hours', 'working-hours'],

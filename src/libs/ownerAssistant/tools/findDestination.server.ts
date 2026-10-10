@@ -9,9 +9,9 @@ import { searchRegistry } from '../registry';
  * Returns registry KEYS only. The model never sees or composes an href: code
  * turns a key into a URL later, and any key the model invents is dropped.
  */
-export function findDestination(args: { query: string }): FindDestinationResult {
+export function findDestination(args: { query: string }, salonSlug?: string): FindDestinationResult {
   return {
-    matches: searchRegistry(args.query, 5).map(entry => ({
+    matches: searchRegistry(args.query, 5, salonSlug).map(entry => ({
       key: entry.key,
       label: entry.label,
       description: entry.description,
