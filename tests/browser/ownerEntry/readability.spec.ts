@@ -11,3 +11,28 @@ for (const screen of ['offer', 'salons', 'sign-in-recovery']) {
     await expectReadableText(page);
   });
 }
+
+test('sign-in input edges survive later provider styles without masking errors', async ({ page }) => {
+  await page.goto('/?screen=sign-in-recovery');
+  await page.evaluate(() => {
+    const providerStyles = document.createElement('style');
+    providerStyles.textContent = '.provider-field { border-color: rgb(227, 225, 225); } .provider-field[aria-invalid="true"] { border-color: rgb(180, 35, 67); }';
+    document.head.append(providerStyles);
+    const input = document.createElement('input');
+    input.className = 'luster-auth-input provider-field';
+    input.setAttribute('aria-label', 'Provider input contrast fixture');
+    input.setAttribute('aria-invalid', 'false');
+    document.querySelector('.luster-entry')!.append(input);
+  });
+  const field = page.getByRole('textbox', { name: 'Provider input contrast fixture' });
+
+  await expect(field).toHaveCSS('border-color', 'rgb(157, 122, 136)');
+
+  await field.focus();
+
+  await expect(field).toHaveCSS('border-color', 'rgb(157, 122, 136)');
+
+  await field.evaluate(input => input.setAttribute('aria-invalid', 'true'));
+
+  await expect(field).toHaveCSS('border-color', 'rgb(180, 35, 67)');
+});

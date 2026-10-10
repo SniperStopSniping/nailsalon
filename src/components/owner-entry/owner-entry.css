@@ -396,6 +396,11 @@
   font-size: 16px;
   color: var(--entry-ink);
 }
+/* Clerk loads its own field styles after this stylesheet. Keep valid field
+   edges readable while leaving Clerk's invalid/error treatment intact. */
+.luster-entry .luster-auth-input:not([aria-invalid='true']) {
+  border-color: var(--entry-control);
+}
 .luster-auth-label {
   font-size: 14px;
   font-weight: 500;
