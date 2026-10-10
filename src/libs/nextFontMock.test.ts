@@ -6,6 +6,6 @@ describe('Next font test module', () => {
 
     expect(Reflect.get(fonts, 'then')).toBeUndefined();
     expect(fonts.Inter({ subsets: ['latin'] }).className).toBe('font-mock');
-    expect(fonts.Newsreader({ subsets: ['latin'] }).variable).toBe('font-mock-variable');
+    expect(fonts.Newsreader({ subsets: ['latin'], variable: '--font-test' }).variable).toBe('font-mock-variable');
   }, 1000);
 });
