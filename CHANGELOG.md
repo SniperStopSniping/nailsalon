@@ -1,3 +1,10 @@
+## [1.142.21](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.20...v1.142.21) (2026-10-10)
+
+
+### Bug Fixes
+
+* keep sign-in field edges visible after provider styles load ([#416](https://github.com/SniperStopSniping/nailsalon/issues/416)) ([45d8355](https://github.com/SniperStopSniping/nailsalon/commit/45d835568e0e35629020ae4d10de67ca1f0186c3))
+
 ## [1.142.20](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.19...v1.142.20) (2026-10-10)
 
 
