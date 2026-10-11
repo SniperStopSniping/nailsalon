@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { selectWeeklyCalendarView } from '../../e2e/support/appointment-ops';
+
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.route('**/*', async (route) => {
@@ -162,4 +164,34 @@ test('New appointment and Walk-in open from Today after deferred loading', async
 
   await expect(page.getByRole('heading', { name: 'Quick Walk-in' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('weekly calendar selection waits for deferred controls', async ({ page }) => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/ScheduleCalendarModal.tsx*', async (route) => {
+    await pending;
+    await route.continue();
+  });
+  let selection: Promise<void> | undefined;
+  try {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'schedule', exact: true }).click();
+
+    await expect(page.getByRole('status')).toHaveText('Opening…');
+
+    selection = selectWeeklyCalendarView(page);
+
+    await expect(page.getByRole('button', { name: 'Weekly', exact: true })).toHaveCount(0);
+
+    release();
+    await selection;
+
+    await expect(page.getByRole('button', { name: 'Next week', exact: true })).toBeVisible();
+  } finally {
+    release();
+    await selection?.catch(() => {});
+  }
 });
