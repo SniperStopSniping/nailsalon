@@ -133,22 +133,22 @@ export function SmartFitResultsCard({
   return (
     <section
       aria-labelledby="smart-fit-results-heading"
-      className="overflow-hidden rounded-[22px] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+      className="owner-card overflow-hidden text-[var(--owner-ink)]"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--owner-line)] p-4 sm:px-5">
         <h2
           id="smart-fit-results-heading"
-          className="text-[15px] font-semibold text-[#1C1C1E]"
+          className="owner-section-title"
         >
           Smart Fit results
         </h2>
         {state.status === 'ready' && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             <span
-              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+              className={`rounded-full px-3 py-1 text-xs font-semibold ${
                 state.data.config.enabled
-                  ? 'bg-green-100 text-green-700'
-                  : 'bg-gray-100 text-gray-500'
+                  ? 'bg-emerald-50 text-emerald-800'
+                  : 'bg-[var(--owner-blush)] text-[var(--owner-muted)]'
               }`}
             >
               {state.data.config.enabled ? 'Smart Fit is on' : 'Smart Fit is off'}
@@ -157,9 +157,9 @@ export function SmartFitResultsCard({
               <button
                 type="button"
                 onClick={onOpenSettings}
-                className="flex items-center gap-1 rounded-lg bg-[var(--owner-blush,#f6e7ec)] px-2 py-1 text-[12px] font-semibold text-[var(--owner-accent-strong,#70213f)] transition-colors hover:bg-[var(--owner-line,#dfd1d4)]"
+                className="owner-action motion-reduce:transition-none"
               >
-                <Settings2 className="size-3.5" aria-hidden="true" />
+                <Settings2 className="size-4" aria-hidden="true" />
                 Settings
               </button>
             )}
@@ -167,10 +167,10 @@ export function SmartFitResultsCard({
         )}
       </div>
 
-      <div ref={bodyRef} tabIndex={-1} className="px-5 py-4 outline-none">
+      <div ref={bodyRef} tabIndex={-1} className="px-4 py-5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)] sm:px-5">
         {state.status === 'loading' && (
           <div role="status" className="flex items-center justify-center py-8">
-            <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent motion-reduce:animate-none" />
+            <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent motion-reduce:animate-none" />
             <span className="sr-only">Loading Smart Fit results…</span>
           </div>
         )}
@@ -178,15 +178,15 @@ export function SmartFitResultsCard({
         {state.status === 'error' && (
           <div
             role="alert"
-            className="rounded-lg border border-red-200 bg-red-50 p-3"
+            className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface-soft)] p-4"
           >
-            <p className="text-[13px] font-medium text-red-700">
+            <p className="text-sm font-medium text-[var(--owner-ink)]">
               Could not load Smart Fit results.
             </p>
             <button
               type="button"
               onClick={handleRetry}
-              className="mt-2 rounded-lg bg-red-100 px-3 py-1.5 text-[13px] font-semibold text-red-700 transition-colors hover:bg-red-200"
+              className="owner-action mt-3 motion-reduce:transition-none"
             >
               Try again
             </button>
@@ -211,14 +211,14 @@ function MetricTile({
   helper: string;
 }) {
   return (
-    <div className="rounded-xl bg-[#F2F2F7] p-3">
-      <div className="text-[12px] font-semibold uppercase tracking-wide text-[#8E8E93]">
+    <div className="min-w-0 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface-soft)] p-4">
+      <div className="text-sm font-semibold text-[var(--owner-muted)]">
         {label}
       </div>
-      <div className="mt-0.5 text-[22px] font-semibold tabular-nums tracking-tight text-[#1C1C1E]">
+      <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-[var(--owner-ink)] [overflow-wrap:anywhere]">
         {value}
       </div>
-      <p className="mt-1 text-[11px] leading-snug text-[#8E8E93]">{helper}</p>
+      <p className="mt-2 text-sm leading-relaxed text-[var(--owner-muted)]">{helper}</p>
     </div>
   );
 }
@@ -236,24 +236,24 @@ function BreakdownList({
 }) {
   return (
     <div>
-      <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93]">
+      <h3 className="text-sm font-semibold text-[var(--owner-ink)]">
         {title}
       </h3>
       {rows.length === 0
         ? (
-            <p className="mt-2 text-[13px] text-[#8E8E93]">{emptyCopy}</p>
+            <p className="mt-2 text-sm text-[var(--owner-muted)]">{emptyCopy}</p>
           )
         : (
-            <ul className="mt-2 divide-y divide-gray-100">
+            <ul className="mt-2 divide-y divide-[var(--owner-line)]">
               {rows.map((row, index) => (
                 // Index keys: rows are replaced whole per fetch, and display
                 // names may legitimately collide (e.g. two staff named Amy).
                 // eslint-disable-next-line react/no-array-index-key
                 <li key={index} className="py-2">
-                  <div className="break-words text-[14px] font-medium text-[#1C1C1E]">
+                  <div className="break-words text-sm font-medium text-[var(--owner-ink)]">
                     {row.name}
                   </div>
-                  <div className="mt-0.5 text-[12px] tabular-nums text-[#8E8E93]">
+                  <div className="mt-0.5 text-sm tabular-nums text-[var(--owner-muted)]">
                     {row.appointments}
                     {' '}
                     {row.appointments === 1 ? 'appointment' : 'appointments'}
@@ -281,31 +281,37 @@ function TrendBars({
   currency: string;
 }) {
   const max = Math.max(...series.map(bucket => bucket.appointments), 1);
-  // Monthly has up to 31 buckets — thin the visible labels so they stay legible.
-  const labelStride = period === 'monthly' ? 5 : 1;
+  // Labels sit below the narrow bars at their own width. Keep all values in
+  // the accessible list while thinning month/year labels on small screens.
+  const labelStride = period === 'monthly' ? 5 : series.length > 8 ? 2 : 1;
 
   return (
     <div>
-      <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93]">
+      <h3 className="text-sm font-semibold text-[var(--owner-ink)]">
         Smart Fit appointments over time
       </h3>
       <ul
-        className="mt-2 flex h-24 items-end gap-px"
+        className="mb-7 mt-3 flex h-24 items-end gap-1"
         aria-label="Smart Fit appointments per period"
       >
         {series.map((bucket, index) => (
-          <li key={bucket.key} className="flex h-full min-w-0 flex-1 flex-col justify-end">
+          <li key={bucket.key} className="relative flex h-full min-w-0 flex-1 flex-col justify-end">
             <span className="sr-only">
               {`${bucket.label}: ${bucket.appointments} Smart Fit ${bucket.appointments === 1 ? 'appointment' : 'appointments'}, ${formatMoney(bucket.discountCents, currency)} discount, ${formatMoney(bucket.revenueCents, currency)} booked revenue`}
             </span>
             <div
               aria-hidden="true"
-              className={`w-full rounded-t-sm ${bucket.appointments > 0 ? 'bg-rose-800' : 'bg-[#E5E5EA]'}`}
+              className={`w-full rounded-t-sm ${bucket.appointments > 0 ? 'bg-[var(--owner-accent)]' : 'bg-[var(--owner-line-strong)]'}`}
               style={{ height: bucket.appointments > 0 ? `${Math.max(8, (bucket.appointments / max) * 100)}%` : '3px' }}
             />
-            <div aria-hidden="true" className="mt-1 h-4 overflow-hidden text-center text-[10px] leading-4 text-[#8E8E93]">
-              {index % labelStride === 0 ? bucket.label : ''}
-            </div>
+            {index % labelStride === 0 && (
+              <span
+                aria-hidden="true"
+                className={`absolute top-full mt-1 whitespace-nowrap text-xs leading-5 text-[var(--owner-muted)] ${index === 0 ? 'left-0' : index === series.length - 1 ? 'right-0' : 'left-1/2 -translate-x-1/2'}`}
+              >
+                {bucket.label}
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -319,7 +325,7 @@ function ExcludedNote({ metrics }: { metrics: SmartFitReportResponse['metrics'] 
     return null;
   }
   return (
-    <p className="text-[12px] text-[#8E8E93]">
+    <p className="text-sm text-[var(--owner-muted)]">
       {excludedCount}
       {' '}
       {excludedCount === 1 ? 'booking' : 'bookings'}
@@ -344,16 +350,14 @@ function SmartFitResultsBody({ data }: { data: SmartFitReportResponse }) {
   return (
     <div className="space-y-5">
       {!data.config.enabled && (
-        <p className="rounded-lg bg-[#F2F2F7] p-3 text-[13px] text-[#3C3C43]">
-          Smart Fit is currently off, so no new offers are shown. The results
-          below are historical and are not changed by turning Smart Fit on or
-          off.
+        <p className="rounded-2xl bg-[var(--owner-blush)] p-4 text-sm leading-relaxed text-[var(--owner-muted)]">
+          Smart Fit is currently off. Past results are not changed by turning Smart Fit on or off.
         </p>
       )}
 
       {!hasResults && (
         <>
-          <p className="text-[13px] text-[#8E8E93]">{EMPTY_COPY}</p>
+          <p className="text-sm text-[var(--owner-muted)]">{EMPTY_COPY}</p>
           <ExcludedNote metrics={metrics} />
         </>
       )}
@@ -363,32 +367,32 @@ function SmartFitResultsBody({ data }: { data: SmartFitReportResponse }) {
           {(metrics.unknownCurrencyCount > 0
             || metrics.excludedForeignCurrencyCount > 0
             || metrics.invalidFinancialCount > 0) && (
-            <p className="rounded-lg bg-amber-50 p-3 text-[13px] text-amber-900">
+            <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-900">
               Some appointment amounts are unavailable because their frozen currency or tax record needs review.
               {' '}
               Appointment counts remain visible, but those amounts are excluded from money totals.
             </p>
           )}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <MetricTile
               label="Smart Fit appointments"
               value={String(metrics.appointments)}
-              helper="Appointments booked with a Smart Fit discount saved at booking time. Cancelled and no-show bookings are not counted."
+              helper="Discount saved at booking. Cancelled and no-show bookings are excluded."
             />
             <MetricTile
               label="Discount given"
               value={formatMoney(metrics.discountGivenCents, currency)}
-              helper="Sum of the Smart Fit discounts saved on those appointments."
+              helper="Total Smart Fit discounts saved on these appointments."
             />
             <MetricTile
               label="Booked revenue"
               value={formatMoney(metrics.bookedRevenueCents, currency)}
-              helper="Totals of those appointments: the checkout amount once completed, otherwise the booked total. Not a claim that Smart Fit caused the booking."
+              helper="Checkout totals when completed; booked totals otherwise. Not a claim that Smart Fit caused the booking."
             />
             <MetricTile
               label="Average discount"
               value={formatMoney(metrics.averageDiscountCents, currency)}
-              helper="Discount given divided by Smart Fit appointments."
+              helper="Discount given ÷ Smart Fit appointments."
             />
           </div>
 
@@ -411,24 +415,24 @@ function SmartFitResultsBody({ data }: { data: SmartFitReportResponse }) {
           />
 
           <div>
-            <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93]">
+            <h3 className="text-sm font-semibold text-[var(--owner-ink)]">
               Recent Smart Fit appointments
             </h3>
-            <ul className="mt-2 divide-y divide-gray-100">
+            <ul className="mt-2 divide-y divide-[var(--owner-line)]">
               {data.recent.map((appointment, index) => (
                 // Index keys: the bounded list is replaced whole on each fetch,
                 // and rows carry no ids by design (none exposed by the API).
                 // eslint-disable-next-line react/no-array-index-key
                 <li key={index} className="py-2">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                    <span className="text-[14px] font-medium text-[#1C1C1E]">
+                    <span className="text-sm font-medium text-[var(--owner-ink)]">
                       {formatRecentTime(appointment.startTime, data.timezone)}
                     </span>
-                    <span className="text-[12px] text-[#8E8E93]">
+                    <span className="text-sm text-[var(--owner-muted)]">
                       {STATUS_LABELS[appointment.status] ?? appointment.status}
                     </span>
                   </div>
-                  <div className="mt-0.5 break-words text-[13px] text-[#3C3C43]">
+                  <div className="mt-0.5 break-words text-sm text-[var(--owner-ink)]">
                     {appointment.clientName ?? 'Client'}
                     {' · '}
                     {appointment.serviceName}
@@ -440,7 +444,7 @@ function SmartFitResultsBody({ data }: { data: SmartFitReportResponse }) {
                       equal booked-subtotal minus the Smart Fit discount. */}
                   {appointment.financialState === 'resolved'
                     ? (
-                        <div className="mt-0.5 text-[12px] tabular-nums text-[#8E8E93]">
+                        <div className="mt-0.5 text-sm tabular-nums text-[var(--owner-muted)]">
                           {'Booked '}
                           {formatMoney(appointment.subtotalCents ?? 0, currency)}
                           {' · Smart Fit −'}
@@ -450,7 +454,7 @@ function SmartFitResultsBody({ data }: { data: SmartFitReportResponse }) {
                         </div>
                       )
                     : (
-                        <p className="mt-0.5 text-[12px] text-amber-700">
+                        <p className="mt-0.5 text-sm text-amber-700">
                           Financial amounts unavailable — under review
                         </p>
                       )}

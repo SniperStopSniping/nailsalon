@@ -106,6 +106,7 @@ test('free texts are directly above Buy More Texts, and a claim refreshes the ba
   await expect(claim).toBeVisible();
   expect((await claim.boundingBox())!.y).toBeLessThan((await card.getByRole('button', { name: 'Buy More Texts', exact: true }).boundingBox())!.y);
 
+  await expectReadableText(page);
   await page.screenshot({ path: screenshotPath(info, `Free-claim-${info.project.name}.png`) });
   await claim.click();
 
@@ -125,6 +126,7 @@ test('unverified contact has a direct verification action on More', async ({ pag
   await expect(page.getByText('2. Verify phone')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
+  await expectReadableText(page);
   await page.screenshot({ path: screenshotPath(info, `Free-verification-${info.project.name}.png`) });
 });
 
