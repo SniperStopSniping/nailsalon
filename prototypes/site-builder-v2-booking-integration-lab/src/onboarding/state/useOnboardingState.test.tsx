@@ -286,7 +286,7 @@ describe('useOnboardingState', () => {
     expect(hook.result.current.state.profile.ownerName).toBe('Daniela');
   });
 
-  it('blocks Builder handoff until all five essentials are complete', () => {
+  it('blocks Builder handoff until all five essentials are complete', async () => {
     const storage = createMemoryStorage();
     const hook = renderHook(() => useOnboardingState({ storage }));
     act(() => {
@@ -300,8 +300,8 @@ describe('useOnboardingState', () => {
     expect(allowed).toBe(false);
     expect(hook.result.current.state.progress.currentScreen).toBe('starter');
 
-    act(() => {
-      hook.result.current.applyFixture('all_essentials_complete');
+    await act(async () => {
+      await hook.result.current.applyFixture('all_essentials_complete');
     });
     act(() => {
       allowed = hook.result.current.requestBuilderHandoff();

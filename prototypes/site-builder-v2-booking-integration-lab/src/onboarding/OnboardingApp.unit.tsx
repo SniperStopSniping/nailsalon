@@ -254,7 +254,7 @@ describe('OnboardingApp handoff boundaries', () => {
     state.progress.contactSetupConfirmed = false;
     const { unmount } = renderAt(state);
 
-    const contact = screen.getByRole('button', { name: /^Contact/u });
+    const contact = await screen.findByRole('button', { name: /^Contact/u });
 
     expect(contact).not.toHaveTextContent('Complete');
 
@@ -711,7 +711,7 @@ describe('OnboardingApp handoff boundaries', () => {
     renderAt(state);
     await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
     await user.click(screen.getByRole('menuitem', { name: 'Lab review options' }));
-    await user.click(within(screen.getByRole('dialog', { name: 'Lab review options' }))
+    await user.click(within(await screen.findByRole('dialog', { name: 'Lab review options' }))
       .getByRole('button', { name: 'Blank new owner' }));
 
     expect(await screen.findByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
@@ -823,7 +823,7 @@ describe('OnboardingApp handoff boundaries', () => {
     renderAt(state);
     await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
     await user.click(screen.getByRole('menuitem', { name: 'Lab review options' }));
-    await user.click(within(screen.getByRole('dialog', { name: 'Lab review options' }))
+    await user.click(within(await screen.findByRole('dialog', { name: 'Lab review options' }))
       .getByRole('button', { name: 'Blank new owner' }));
 
     expect(await screen.findByRole('heading', { name: 'Choose your starting point' })).toBeVisible();

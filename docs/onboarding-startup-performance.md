@@ -38,3 +38,22 @@ animation frame, and tests both shared and standalone fonts at 320/390/430px in
 Chromium and WebKit. Existing startup, reload and lifetime-offer cases remain.
 Font request counts and timing must also be verified on a built deployment;
 the isolated browser fixture does not represent production bundle performance.
+
+## Secondary setup modules
+
+Location/contact and hours now use the existing deferred-screen boundary. A
+retained draft opens its saved screen on demand; a failed download offers reload
+recovery while the setup state remains mounted. Starting choices and business
+basics stay eager.
+
+Browser-local review options and their fixture catalog load only when review
+options are opened. The review state hook also imports its fixture helper on
+demand; callers await that helper. Fixture creation, asset-cleanup guards and
+ownership-ledger recovery retain their previous order. Production does not enable
+review options.
+
+The startup browser test observes actual requests for these modules and the
+fixture catalog. Added Chromium/WebKit coverage resumes both later screens,
+reloads their saved state, navigates Back, and aborts one hours-module download to
+verify the recovery action preserves the draft. Hosted bundle/resource checks
+remain required before claiming a production speed benefit.

@@ -6,7 +6,7 @@ import {
 } from 'react';
 
 import { exportOnboardingEventJournal, recordOnboardingEvent } from '../events/journal';
-import { applyLabReviewFixture, type LabReviewFixtureId } from '../fixtures';
+import type { LabReviewFixtureId } from '../fixtures';
 import { createDefaultOnboardingState } from '../model/defaults';
 import {
   getNextScreen,
@@ -432,7 +432,8 @@ export function useOnboardingState(
     });
   }, [updateState]);
 
-  const applyFixture = useCallback((id: LabReviewFixtureId) => {
+  const applyFixture = useCallback(async (id: LabReviewFixtureId) => {
+    const { applyLabReviewFixture } = await import('../fixtures');
     updateState(() => applyLabReviewFixture(id));
   }, [updateState]);
 
