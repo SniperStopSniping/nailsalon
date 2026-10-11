@@ -40,13 +40,13 @@ if (new URLSearchParams(location.search).has('productFonts')) {
 }
 const warnings = new URLSearchParams(location.search).has('warnings');
 const resume = new URLSearchParams(location.search).get('resume');
-if (startup && (resume === 'hours' || resume === 'location_contact') && !localStorage.getItem(ONBOARDING_STORAGE_KEY)) {
+if (startup && (resume === 'hours' || resume === 'location_contact' || resume === 'site_style') && !localStorage.getItem(ONBOARDING_STORAGE_KEY)) {
   const { createDanielaFixtureState } = await import('../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/fixtures');
   const state = createDanielaFixtureState();
   state.progress.currentScreen = resume;
   state.progress.lastActiveScreen = resume;
-  state.progress.screenHistory = ['starter', resume];
-  state.progress.visitedScreens = ['starter', resume];
+  state.progress.screenHistory = resume === 'site_style' ? ['starter', 'hours', resume] : ['starter', resume];
+  state.progress.visitedScreens = [...state.progress.screenHistory];
   state.progress.sessionStatus = 'active';
   state.recipe.starterDocumentSiteId = 'local-resumed-site';
   saveOnboardingState(state);
