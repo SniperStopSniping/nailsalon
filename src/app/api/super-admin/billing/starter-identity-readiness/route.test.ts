@@ -27,3 +27,12 @@ it('returns an uncached count-only report', async () => {
   expect(response.headers.get('cache-control')).toContain('no-store');
   expect(await response.json()).toEqual({ data: report });
 });
+
+it('keeps a database failure private and never returns invented counts', async () => {
+  mocks.transaction.mockRejectedValue(new Error('private connection detail'));
+  const response = await GET();
+
+  expect(response.status).toBe(503);
+  expect(response.headers.get('cache-control')).toContain('no-store');
+  expect(await response.json()).toEqual({ error: { code: 'READINESS_UNAVAILABLE', message: 'Identity readiness could not be checked.' } });
+});

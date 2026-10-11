@@ -214,7 +214,7 @@ export default async function SystemStatusPage({
   const isSuper = await isSuperAdmin();
 
   if (!isSuper) {
-    redirect(`/${locale}/admin-login`);
+    redirect(`/${locale}/super-admin-login`);
   }
 
   // Fetch all data in parallel

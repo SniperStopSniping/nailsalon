@@ -7,6 +7,7 @@ import { LusterClientSms } from '@/components/admin/LusterClientSms';
 import { SettingsModal } from '@/components/admin/SettingsModal';
 import { UsageBillingModal } from '@/components/admin/UsageBillingModal';
 import { AddSmsCreditsControl } from '@/components/super-admin/AddSmsCreditsControl';
+import { StarterIdentityReadinessPanel } from '@/components/super-admin/StarterIdentityReadinessPanel';
 
 export function SmsBrowserFixture() {
   const [open, setOpen] = useState(true);
@@ -56,11 +57,18 @@ function UsageBillingBrowserFixture() {
 
 const fixture = new URLSearchParams(window.location.search).get('fixture');
 createRoot(document.getElementById('root')!).render(
-  fixture === 'settings'
-    ? <SettingsBrowserFixture />
-    : fixture === 'super-admin-credits'
-      ? <SuperAdminCreditsBrowserFixture />
-      : fixture === 'usage-billing'
-        ? <UsageBillingBrowserFixture />
-        : <SmsBrowserFixture />,
+  fixture === 'starter-readiness'
+    ? (
+        <main className="mx-auto min-h-screen max-w-4xl bg-stone-50 p-6">
+          <h1 className="mb-8 text-2xl font-bold">System Status</h1>
+          <StarterIdentityReadinessPanel />
+        </main>
+      )
+    : fixture === 'settings'
+      ? <SettingsBrowserFixture />
+      : fixture === 'super-admin-credits'
+        ? <SuperAdminCreditsBrowserFixture />
+        : fixture === 'usage-billing'
+          ? <UsageBillingBrowserFixture />
+          : <SmsBrowserFixture />,
 );
