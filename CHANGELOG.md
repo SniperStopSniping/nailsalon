@@ -1,3 +1,10 @@
+## [1.142.29](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.28...v1.142.29) (2026-10-11)
+
+
+### Performance Improvements
+
+* defer secondary onboarding modules ([0c6ff6e](https://github.com/SniperStopSniping/nailsalon/commit/0c6ff6e50509211a4d7cae4530bcc75c48389139))
+
 ## [1.142.28](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.27...v1.142.28) (2026-10-11)
 
 
