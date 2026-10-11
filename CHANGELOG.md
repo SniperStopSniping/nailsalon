@@ -1,3 +1,11 @@
+## [1.142.28](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.27...v1.142.28) (2026-10-11)
+
+
+### Bug Fixes
+
+* avoid shared preview font shadowing ([62c1a87](https://github.com/SniperStopSniping/nailsalon/commit/62c1a87368fab1b1f174ff2d247929183a1685f8))
+* reuse onboarding fonts and improve preview contrast ([e17d5b2](https://github.com/SniperStopSniping/nailsalon/commit/e17d5b2e5c75e150960ee0149922835b83136424))
+
 ## [1.142.27](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.26...v1.142.27) (2026-10-11)
 
 
