@@ -1,6 +1,7 @@
 'use client';
 
 import { CalendarClock, Facebook, Info, Instagram, Music2, ShieldCheck } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
@@ -12,7 +13,6 @@ import {
 } from '@/components/booking/SectionOrderRenderer';
 import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
-import { isApprovedQuickBookLayout } from '@/components/customer-site/QuickBookPresentation';
 import { IslaBookingPage, IslaCategoryIcon, IslaServiceCard } from '@/components/isla/IslaBookingPage';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -44,6 +44,7 @@ import {
   resolveQuickBookPublicSectionOrder,
   usesCompactQuickBookProfile,
 } from '@/libs/quickBookProfilePresentation';
+import { isApprovedQuickBookLayout } from '@/libs/quickBookSiteLayout';
 import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
 import { deriveSalonProfileHeroAlt, resolveSectionPresentation } from '@/libs/sectionPresentation';
 import {
@@ -62,7 +63,10 @@ import { formatDuration } from '@/utils/Helpers';
 import { isMediaQuickBookLayout } from '../../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/media-layouts';
 import { QuickBookLocationMap } from './QuickBookLocationMap';
 import type { QuickBookProfileView } from './quickBookProfile';
-import { QuickBookProfileHeader } from './QuickBookProfileHeader';
+
+// Keep server rendering for these headers, but load their renderer and CSS
+// only when the chosen salon layout uses them. Isla supplies its own header.
+const QuickBookProfileHeader = dynamic(() => import('./QuickBookProfileHeader').then(module => module.QuickBookProfileHeader));
 
 type ServiceCategory =
   | 'manicure'

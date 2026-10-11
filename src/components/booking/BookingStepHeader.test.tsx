@@ -5,11 +5,19 @@ import { type BookingStep, getFirstStep } from '@/libs/bookingFlow';
 
 import { BookingStepHeader } from './BookingStepHeader';
 
+const { playfairDisplay } = vi.hoisted(() => ({
+  playfairDisplay: vi.fn(() => ({ className: 'font-playfair-display' })),
+}));
+
 vi.mock('next/font/google', () => ({
-  Playfair_Display: () => ({ className: 'font-playfair-display' }),
+  Playfair_Display: playfairDisplay,
 }));
 
 describe('BookingStepHeader', () => {
+  it('loads the editorial font only when its typography is used', () => {
+    expect(playfairDisplay).toHaveBeenCalledWith(expect.objectContaining({ preload: false, display: 'swap' }));
+  });
+
   it('renders the compact mobile header treatment while preserving the step labels', () => {
     render(
       <BookingStepHeader

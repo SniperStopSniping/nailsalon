@@ -7,9 +7,9 @@ import { BookConfirmClient } from '@/app/(unauth)/book/confirm/BookConfirmClient
 import { BookServiceClient } from '@/app/(unauth)/book/service/BookServiceClient';
 import { BookTechClient } from '@/app/(unauth)/book/tech/BookTechClient';
 import { BookTimeClient } from '@/app/(unauth)/book/time/BookTimeClient';
-import { isApprovedQuickBookLayout } from '@/components/customer-site/QuickBookPresentation';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { resolveCustomerSitePalettePreset } from '@/libs/customerSitePresentation';
+import { isApprovedQuickBookLayout } from '@/libs/quickBookSiteLayout';
 
 import { isMediaQuickBookLayout } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/media-layouts';
 import { createQuickBookFixture } from './quick-book-fixture';

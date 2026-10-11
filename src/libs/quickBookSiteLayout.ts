@@ -8,12 +8,14 @@
  * every existing caller uses.
  */
 import {
+  APPROVED_QUICK_BOOK_LAYOUTS,
   describeQuickBookImageRoles,
   describeQuickBookLayoutCapabilities,
   describeQuickBookNameAdvisory,
   getQuickBookLayout,
   getQuickBookLayoutsByFamily,
   getSelectableQuickBookLayoutsByFamily,
+  isApprovedQuickBookLayout,
   isLegacyQuickBookLayoutId,
   isQuickBookLayoutId,
   isRecommendedQuickBookLayout,
@@ -32,12 +34,14 @@ import {
 } from '../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/layouts';
 
 export {
+  APPROVED_QUICK_BOOK_LAYOUTS,
   describeQuickBookImageRoles,
   describeQuickBookLayoutCapabilities,
   describeQuickBookNameAdvisory,
   getQuickBookLayout,
   getQuickBookLayoutsByFamily,
   getSelectableQuickBookLayoutsByFamily,
+  isApprovedQuickBookLayout,
   isLegacyQuickBookLayoutId,
   isQuickBookLayoutId,
   isRecommendedQuickBookLayout,

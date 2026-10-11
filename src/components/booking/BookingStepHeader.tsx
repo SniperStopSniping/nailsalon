@@ -23,6 +23,9 @@ const playfairDisplay = Playfair_Display({
   subsets: ['latin'],
   weight: ['400', '500'],
   display: 'swap',
+  // Only editorial salon names use this face; other booking steps keep their
+  // selected salon typography without downloading an unused display font.
+  preload: false,
 });
 
 export function BookingStepHeader({

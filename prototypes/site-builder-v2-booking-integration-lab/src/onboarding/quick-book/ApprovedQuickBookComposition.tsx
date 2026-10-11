@@ -1,16 +1,11 @@
 import { ArrowRight } from 'lucide-react';
 
 import { BalancedFacts, selectPrimaryFacts } from './BalancedFacts';
-import { getQuickBookLayout } from './layouts';
+import { type ApprovedQuickBookLayout, getQuickBookLayout } from './layouts';
 import type { QuickBookPresentationProps } from './QuickBookPrimitives';
 import { QuickBookCover, QuickBookLogo, QuickBookPortrait, QuickBookSecondaryDetails } from './QuickBookPrimitives';
 
-export const APPROVED_QUICK_BOOK_LAYOUTS = ['compact_dropdown', 'side_portrait', 'hero_banner'] as const;
-export type ApprovedQuickBookLayout = typeof APPROVED_QUICK_BOOK_LAYOUTS[number];
-
-export function isApprovedQuickBookLayout(id: string | null | undefined): id is ApprovedQuickBookLayout {
-  return typeof id === 'string' && (APPROVED_QUICK_BOOK_LAYOUTS as readonly string[]).includes(id);
-}
+export { APPROVED_QUICK_BOOK_LAYOUTS, type ApprovedQuickBookLayout, isApprovedQuickBookLayout } from './layouts';
 
 function BrandIdentity({ profile, headingId, headingProps }: Pick<QuickBookPresentationProps, 'profile' | 'headingId' | 'headingProps'>) {
   const logo = profile.identity.logoUrl ? <QuickBookLogo name={profile.identity.salonName} src={profile.identity.logoUrl} /> : null;
