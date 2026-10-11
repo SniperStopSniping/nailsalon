@@ -1,26 +1,13 @@
 'use client';
 
-/**
- * AnalyticsWidgets Component
- *
- * Page 1 of the swipeable admin dashboard.
- * Features:
- * - iOS-style segmented time filter
- * - Revenue card with sparkline chart
- * - Utilization rings (Apple Fitness style)
- * - Service mix progress bars
- * - Staff leaderboard
- * - Quick actions widget
- * - Staggered entrance animations
- */
+/** Owner reports: the existing metrics and actions in the shared owner theme. */
 
-import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowDownRight, ArrowUpRight, Calendar, ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { ArrowDownRight, ArrowLeft, ArrowUpRight, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import { formatMoney } from '@/libs/formatMoney';
 
-import { NestedRings, RingLegend } from './charts/ActivityRing';
 import { ChartLabels, RevenueChart } from './charts/RevenueChart';
 import { ServiceBars } from './charts/ServiceBars';
 import { QuickActionsWidget } from './QuickActionsWidget';
@@ -68,6 +55,8 @@ type AppointmentGlance = {
 };
 
 export type AnalyticsWidgetsProps = {
+  /** Return to the workspace that opened this report. */
+  onBack?: () => void;
   /** Today's appointment counts — shown in the "Today" glance strip */
   appointments?: AppointmentGlance;
   /** Total revenue amount */
@@ -224,17 +213,18 @@ function TimeFilter({
   const options: TimePeriod[] = ['Daily', 'Weekly', 'Monthly', 'Yearly'];
 
   return (
-    <div className="mb-6 flex rounded-lg bg-[#767680]/10 p-0.5">
+    <div role="group" aria-label="Report period" className="mb-5 grid grid-cols-4 gap-1 rounded-2xl bg-[var(--owner-blush)] p-1">
       {options.map(tab => (
         <button
           key={tab}
           type="button"
           onClick={() => onChange(tab)}
+          aria-pressed={active === tab}
           className={`
-            flex-1 rounded-[6px] py-1.5 text-[13px] font-medium transition-all
+            min-h-11 min-w-0 rounded-xl px-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]
             ${active === tab
-          ? 'bg-white text-black shadow-sm'
-          : 'bg-transparent text-gray-500 shadow-none'
+          ? 'bg-[var(--owner-accent)] text-white shadow-sm'
+          : 'text-[var(--owner-ink)] hover:bg-[var(--owner-surface)]'
         }
           `}
         >
@@ -252,6 +242,7 @@ const EMPTY_SERVICES: Array<{ label: string; percent: number; color: string }> =
 const EMPTY_SERIES: number[] = [];
 
 export function AnalyticsWidgets({
+  onBack,
   appointments,
   revenue = 0,
   tips = 0,
@@ -277,6 +268,9 @@ export function AnalyticsWidgets({
   // Use internal state if no external control
   const [internalPeriod, setInternalPeriod] = useState<TimePeriod>('Weekly');
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const datePickerId = useId();
+  const dateButtonRef = useRef<HTMLButtonElement>(null);
+  const reduceMotion = useReducedMotion();
   const activePeriod = externalTimePeriod ?? internalPeriod;
 
   // Animated values for revenue display
@@ -323,6 +317,7 @@ export function AnalyticsWidgets({
       onAnchorChange(newDate);
     }
     setShowDatePicker(false);
+    dateButtonRef.current?.focus();
   };
 
   // Appointment glance title follows the selected period so it never mislabels
@@ -342,49 +337,38 @@ export function AnalyticsWidgets({
   })();
 
   return (
-    <div className="min-h-full w-full bg-[#F2F2F7] pb-10 font-sans text-black">
+    <div className="owner-theme-scope min-h-full w-full bg-[var(--owner-ground)] pb-10 text-[var(--owner-ink)]">
+      <header className="sticky top-0 z-10 border-b border-[var(--owner-line)] bg-[var(--owner-surface)] px-5 py-3">
+        <div className="mx-auto flex max-w-2xl items-center gap-3">
+          {onBack && (
+            <button type="button" onClick={onBack} className="owner-action shrink-0 gap-1 px-3">
+              <ArrowLeft aria-hidden="true" className="size-4" />
+              Back
+            </button>
+          )}
+          <h1 className="owner-title text-3xl">Reports</h1>
+        </div>
+      </header>
       <motion.div
         variants={STAGGER_CONTAINER}
-        initial="hidden"
+        initial={false}
         animate="visible"
-        className="mx-auto max-w-md space-y-6 px-5 pt-6"
+        className="mx-auto max-w-2xl space-y-5 px-4 pt-5 sm:px-5"
       >
         {/* Header & Date with Navigation */}
         <motion.div variants={SPRING_ITEM}>
-          <div className="flex items-center justify-between">
-            <h1 className="text-[34px] font-bold tracking-tight text-[#1C1C1E]">
-              Performance
-            </h1>
-            {/* Navigation Controls */}
-            <div className="flex items-center gap-1.5">
-              {onToday && (
-                <button
-                  type="button"
-                  onClick={onToday}
-                  className="rounded-lg bg-[#007AFF]/10 px-2.5 py-1.5 text-[12px] font-semibold text-[#007AFF] transition-colors hover:bg-[#007AFF]/20 active:bg-[#007AFF]/30"
-                >
-                  Today
-                </button>
-              )}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-[var(--owner-muted)]">Your salon at a glance</h2>
+            <div className="flex items-center gap-2">
+              {onToday && <button type="button" onClick={onToday} className="owner-action px-4">Today</button>}
               {onPrev && (
-                <button
-                  type="button"
-                  onClick={onPrev}
-                  className="flex size-8 items-center justify-center rounded-lg bg-black/5 transition-colors hover:bg-black/10 active:bg-black/20"
-                  aria-label="Previous period"
-                >
-                  <ChevronLeft className="size-5 text-[#3C3C43]" />
+                <button type="button" onClick={onPrev} className="owner-action size-11 p-0" aria-label="Previous period">
+                  <ChevronLeft aria-hidden="true" className="size-5" />
                 </button>
               )}
               {onNext && (
-                <button
-                  type="button"
-                  onClick={onNext}
-                  disabled={!canGoNext}
-                  className="flex size-8 items-center justify-center rounded-lg bg-black/5 transition-colors hover:bg-black/10 active:bg-black/20 disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="Next period"
-                >
-                  <ChevronRight className="size-5 text-[#3C3C43]" />
+                <button type="button" onClick={onNext} disabled={!canGoNext} className="owner-action size-11 p-0 disabled:cursor-not-allowed disabled:opacity-50" aria-label="Next period">
+                  <ChevronRight aria-hidden="true" className="size-5" />
                 </button>
               )}
             </div>
@@ -394,34 +378,50 @@ export function AnalyticsWidgets({
             <button
               type="button"
               onClick={() => setShowDatePicker(!showDatePicker)}
-              className="flex items-center gap-1.5 rounded-lg bg-[#007AFF]/5 px-3 py-1.5 text-[15px] font-medium text-[#007AFF] transition-colors hover:bg-[#007AFF]/10 active:bg-[#007AFF]/15"
+              ref={dateButtonRef}
+              disabled={!onAnchorChange}
+              aria-expanded={showDatePicker}
+              aria-controls={showDatePicker ? datePickerId : undefined}
+              className="owner-action w-full justify-between gap-2 px-4 text-left text-sm"
             >
-              <Calendar className="size-4" />
+              <Calendar aria-hidden="true" className="size-4 shrink-0" />
               {computedDateRange}
-              <ChevronRight className={`size-4 transition-transform ${showDatePicker ? 'rotate-90' : ''}`} />
+              <ChevronRight aria-hidden="true" className={`size-4 shrink-0 transition-transform ${showDatePicker ? 'rotate-90' : ''}`} />
             </button>
             {/* Date Picker Dropdown */}
             <AnimatePresence>
               {showDatePicker && onAnchorChange && (
                 <motion.div
-                  initial={{ opacity: 0, y: -8 }}
+                  initial={reduceMotion ? false : { opacity: 0, y: -8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute left-0 top-full z-50 mt-2 rounded-xl bg-white p-4 shadow-[0_8px_32px_rgba(0,0,0,0.12)]"
+                  transition={{ duration: reduceMotion ? 0 : 0.15 }}
+                  id={datePickerId}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.stopPropagation();
+                      setShowDatePicker(false);
+                      dateButtonRef.current?.focus();
+                    }
+                  }}
+                  className="owner-card mt-3 p-4"
                 >
-                  <p className="mb-2 text-[13px] font-medium text-[#8E8E93]">Jump to date</p>
+                  <label htmlFor={`${datePickerId}-input`} className="mb-2 block text-sm font-semibold text-[var(--owner-ink)]">Jump to date</label>
                   <input
                     type="date"
+                    id={`${datePickerId}-input`}
                     value={anchorDate || ''}
                     onChange={handleDatePickerChange}
                     max={new Date().toISOString().slice(0, 10)}
-                    className="w-full rounded-lg border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] outline-none focus:border-[#007AFF] focus:ring-2 focus:ring-[#007AFF]/20"
+                    className="owner-form-field"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowDatePicker(false)}
-                    className="mt-3 w-full rounded-lg bg-[#F2F2F7] py-2 text-[13px] font-medium text-[#8E8E93] transition-colors hover:bg-[#E5E5EA]"
+                    onClick={() => {
+                      setShowDatePicker(false);
+                      dateButtonRef.current?.focus();
+                    }}
+                    className="owner-action mt-3 w-full"
                   >
                     Cancel
                   </button>
@@ -431,74 +431,70 @@ export function AnalyticsWidgets({
           </div>
         </motion.div>
 
+        <TimeFilter active={activePeriod} onChange={handlePeriodChange} />
+
         {/* Today at a glance */}
         {appointments && (
           <motion.div variants={SPRING_ITEM}>
             <button
               type="button"
               onClick={() => onQuickAction?.('view-bookings')}
-              className="w-full rounded-[22px] bg-white p-4 text-left shadow-[0_4px_20px_rgba(0,0,0,0.03)] transition-transform active:scale-[0.99]"
+              className="owner-card w-full p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
             >
               <div className="mb-3 flex items-center justify-between">
-                <span className="text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93]">
+                <span className="text-sm font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                   {glanceTitle}
                 </span>
-                <ChevronRight className="size-4 text-[#C7C7CC]" />
+                <ChevronRight className="size-4 text-[var(--owner-accent)]" />
               </div>
-              <div className="grid grid-cols-3 divide-x divide-[#F2F2F7]">
-                <div className="pr-3">
-                  <div className="text-[26px] font-semibold tabular-nums tracking-tight text-[#1C1C1E]">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="min-w-0">
+                  <div className="text-[26px] font-semibold tabular-nums tracking-tight text-[var(--owner-ink)]">
                     {appointments.upcoming}
                   </div>
-                  <div className="text-[12px] font-medium text-[#8E8E93]">Upcoming</div>
+                  <div className="text-sm font-medium text-[var(--owner-muted)]">Upcoming</div>
                 </div>
-                <div className="px-3">
-                  <div className="text-[26px] font-semibold tabular-nums tracking-tight text-[#34C759]">
+                <div className="min-w-0">
+                  <div className="text-[26px] font-semibold tabular-nums tracking-tight text-[#246547]">
                     {appointments.completed}
                   </div>
-                  <div className="text-[12px] font-medium text-[#8E8E93]">Completed</div>
+                  <div className="text-sm font-medium text-[var(--owner-muted)]">Completed</div>
                 </div>
-                <div className="pl-3">
-                  <div className={`text-[26px] font-semibold tabular-nums tracking-tight ${appointments.noShows > 0 ? 'text-[#FF3B30]' : 'text-[#1C1C1E]'}`}>
+                <div className="min-w-0">
+                  <div className={`text-[26px] font-semibold tabular-nums tracking-tight ${appointments.noShows > 0 ? 'text-[#a02040]' : 'text-[var(--owner-ink)]'}`}>
                     {appointments.noShows}
                   </div>
-                  <div className="text-[12px] font-medium text-[#8E8E93]">No-shows</div>
+                  <div className="text-sm font-medium text-[var(--owner-muted)]">No-shows</div>
                 </div>
               </div>
             </button>
           </motion.div>
         )}
 
-        {/* Quick Actions */}
-        <motion.div variants={SPRING_ITEM}>
-          <QuickActionsWidget onAction={onQuickAction} />
-        </motion.div>
-
         {/* Revenue Card */}
         <motion.div
           variants={SPRING_ITEM}
-          className="rounded-[22px] bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+          className="owner-card min-w-0 p-5"
         >
-          <TimeFilter active={activePeriod} onChange={handlePeriodChange} />
-          <div className="flex items-start justify-between">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-[13px] font-semibold uppercase tracking-wide text-[#8E8E93]">
+              <div className="text-sm font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                 Completed appointment revenue
               </div>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={displayRevenue}
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={reduceMotion ? false : { opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                  className="mt-1 text-[34px] font-semibold tracking-tight text-[#1C1C1E]"
+                  transition={{ duration: reduceMotion ? 0 : 0.2 }}
+                  className="owner-title mt-2 break-words text-4xl tabular-nums"
                 >
                   {formatMoney(displayRevenue, currency)}
                 </motion.div>
               </AnimatePresence>
               {tips > 0 && (
-                <div className="mt-1 text-[13px] font-medium text-[#8E8E93]">
+                <div className="mt-1 text-sm font-medium text-[var(--owner-muted)]">
                   {formatMoney(tips, currency)}
                   {' '}
                   in tips
@@ -510,19 +506,20 @@ export function AnalyticsWidgets({
                 ? (
                     <motion.div
                       key={`${displayTrend}-${isTrendPositive}`}
-                      initial={{ opacity: 0, scale: 0.8 }}
+                      initial={reduceMotion ? false : { opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.8 }}
-                      transition={{ duration: 0.2 }}
-                      className={`${isTrendPositive ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'} flex items-center rounded-full px-2 py-1 text-[12px] font-bold`}
+                      transition={{ duration: reduceMotion ? 0 : 0.2 }}
+                      className={`${isTrendPositive ? 'bg-[#e8f3ed] text-[#246547]' : 'bg-[#fbe9ed] text-[#a02040]'} flex items-center rounded-full px-2 py-1 text-sm font-bold`}
                     >
                       {isTrendPositive
                         ? (
-                            <ArrowUpRight className="mr-1 size-3" />
+                            <ArrowUpRight aria-hidden="true" className="mr-1 size-3" />
                           )
                         : (
-                            <ArrowDownRight className="mr-1 size-3" />
+                            <ArrowDownRight aria-hidden="true" className="mr-1 size-3" />
                           )}
+                      <span className="sr-only">{isTrendPositive ? 'Increase of ' : 'Decrease of '}</span>
                       {Math.abs(displayTrend)}
                       %
                     </motion.div>
@@ -530,103 +527,70 @@ export function AnalyticsWidgets({
                 : (
                     <motion.div
                       key="trend-unavailable"
-                      initial={{ opacity: 0, scale: 0.8 }}
+                      initial={reduceMotion ? false : { opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.8 }}
-                      transition={{ duration: 0.2 }}
-                      className="rounded-full bg-stone-100 px-2 py-1 text-[12px] font-semibold text-stone-500"
+                      transition={{ duration: reduceMotion ? 0 : 0.2 }}
+                      className="rounded-full bg-[var(--owner-blush)] px-2 py-1 text-sm font-semibold text-[var(--owner-muted)]"
                     >
                       No prior data
                     </motion.div>
                   )}
             </AnimatePresence>
           </div>
-          <RevenueChart data={revenueSeries} />
+          <RevenueChart data={revenueSeries} strokeColor="var(--owner-accent)" gradientStart="var(--owner-accent)" gradientEnd="var(--owner-surface)" />
           <ChartLabels labels={chartLabels} />
         </motion.div>
 
-        {/* Utilization & Service Mix Grid */}
-        <motion.div variants={SPRING_ITEM} className="grid grid-cols-2 gap-4">
-          {/* Utilization Rings */}
-          <div className="flex aspect-square flex-col items-center justify-between rounded-[22px] bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-            <div className="w-full text-left text-[13px] font-semibold uppercase text-[#8E8E93]">
-              Utilization
-            </div>
+        <motion.div variants={SPRING_ITEM} className="grid gap-5 sm:grid-cols-2">
+          <section className="owner-card min-w-0 p-5" aria-label="Utilization">
+            <h2 className="owner-title mb-4 text-2xl">Utilization</h2>
             {utilization.length > 0
-              ? (
-                  <>
-                    <NestedRings
-                      rings={utilization.map(u => ({ percent: u.percent, color: u.color }))}
-                      baseSize={100}
-                      stroke={8}
-                      gap={4}
-                    />
-                    <RingLegend
-                      items={utilization.map(u => ({ color: u.color, label: u.name }))}
-                    />
-                  </>
-                )
-              : (
-                  <div className="flex flex-1 items-center justify-center text-center">
-                    <p className="text-[13px] text-[#8E8E93]">No utilization data yet</p>
-                  </div>
-                )}
-          </div>
-
-          {/* Service Mix */}
-          <div className="flex aspect-square flex-col rounded-[22px] bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-            <div className="mb-4 text-[13px] font-semibold uppercase text-[#8E8E93]">
-              Top Services
-            </div>
-            <div className="flex-1">
-              {services.length > 0
-                ? (
-                    <ServiceBars items={services} />
-                  )
-                : (
-                    <div className="flex h-full items-center justify-center text-center">
-                      <p className="text-[13px] text-[#8E8E93]">No services data available</p>
-                    </div>
-                  )}
-            </div>
-          </div>
+              ? <ServiceBars items={utilization.map(u => ({ label: u.name, percent: u.percent, color: u.color }))} />
+              : <p className="text-sm text-[var(--owner-muted)]">No utilization data yet</p>}
+          </section>
+          <section className="owner-card min-w-0 p-5" aria-label="Top services">
+            <h2 className="owner-title mb-4 text-2xl">Top services</h2>
+            {services.length > 0
+              ? <ServiceBars items={services} />
+              : <p className="text-sm text-[var(--owner-muted)]">No services data available</p>}
+          </section>
         </motion.div>
 
         {/* Staff Leaderboard */}
         <motion.div
           variants={SPRING_ITEM}
-          className="overflow-hidden rounded-[22px] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+          className="owner-card overflow-hidden"
         >
-          <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-            <span className="text-[15px] font-semibold">Top Performers</span>
-            <MoreHorizontal className="size-5 text-gray-400" />
+          <div className="flex items-center justify-between border-b border-[var(--owner-line)] px-5 py-4">
+            <h2 className="owner-title text-2xl">Top performers</h2>
           </div>
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-[var(--owner-line)]">
             {staffData.length > 0
               ? (
                   staffData.map((staff, index) => (
                     <div
                       key={staff.id}
-                      className="flex cursor-pointer items-center justify-between px-5 py-3 transition-colors active:bg-gray-50"
+                      className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
                     >
-                      <div className="flex items-center gap-3">
-                        <span className="w-3 text-[13px] font-bold text-gray-400">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="w-3 shrink-0 text-sm font-bold text-[var(--owner-muted)]">
                           {index + 1}
                         </span>
                         <div
-                          className={`flex size-10 items-center justify-center rounded-full text-[13px] font-bold ${staff.avatarColor}`}
+                          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--owner-blush)] text-sm font-semibold text-[var(--owner-accent)]"
                         >
                           {staff.name.substring(0, 2)}
                         </div>
-                        <div>
-                          <div className="text-[15px] font-semibold text-[#1C1C1E]">
+                        <div className="min-w-0">
+                          <div className="break-words text-base font-semibold text-[var(--owner-ink)]">
                             {staff.name}
                           </div>
-                          <div className="text-[12px] text-[#8E8E93]">{staff.role}</div>
+                          <div className="text-sm text-[var(--owner-muted)]">{staff.role}</div>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-mono text-[15px] font-medium text-[#1C1C1E]">
+                        <div className="text-base font-semibold tabular-nums text-[var(--owner-ink)]">
                           {staff.revenue}
                         </div>
                       </div>
@@ -635,18 +599,15 @@ export function AnalyticsWidgets({
                 )
               : (
                   <div className="px-5 py-8 text-center">
-                    <p className="text-[13px] text-[#8E8E93]">No staff data available</p>
+                    <p className="text-sm text-[var(--owner-muted)]">No staff data available</p>
                   </div>
                 )}
           </div>
-          <div className="border-t border-gray-100 p-3 text-center">
-            <button
-              type="button"
-              className="text-[13px] font-semibold text-[#007AFF]"
-            >
-              View All Staff
-            </button>
-          </div>
+        </motion.div>
+
+        {/* Quick Actions */}
+        <motion.div variants={SPRING_ITEM}>
+          <QuickActionsWidget onAction={onQuickAction} />
         </motion.div>
 
         {/* Smart Fit results (P7.5) — follows the same period/anchor range */}
