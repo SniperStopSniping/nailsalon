@@ -6,6 +6,7 @@ import { enUS } from '@clerk/localizations';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
+import { SuperAdminPasswordLoginForm } from '@/app/[locale]/(unauth)/super-admin-login/SuperAdminPasswordLoginForm';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
 import { OwnerSignInStatus } from '@/components/auth/OwnerSignInStatus';
 import { FoundingSalonOffer } from '@/components/owner-entry/FoundingSalonOffer';
@@ -22,6 +23,12 @@ function EntryReview() {
   const [removed, setRemoved] = useState<string[]>([]);
   const [claimed, setClaimed] = useState(false);
   const [destination, setDestination] = useState('');
+  if (/^\/(?:en|fr)\/super-admin$/.test(location.pathname)) {
+    return <p role="status">Isolated administrator destination. No live session was created.</p>;
+  }
+  if (query.get('screen') === 'super-admin') {
+    return <SuperAdminPasswordLoginForm passwordLoginEnabled={!query.has('disabled')} legacyModeSelected={query.has('legacy')} />;
+  }
   if (destination) {
     return <p role="status">{destination}</p>;
   }

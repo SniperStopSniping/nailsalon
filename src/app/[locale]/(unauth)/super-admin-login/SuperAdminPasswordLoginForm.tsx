@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 type Props = {
   passwordLoginEnabled: boolean;
@@ -15,13 +15,20 @@ export function SuperAdminPasswordLoginForm({
   const router = useRouter();
   const params = useParams();
   const locale = (params?.locale as string) || 'en';
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const submitting = useRef(false);
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (submitting.current || !event.currentTarget.reportValidity()) {
+      return;
+    }
+    // Autofill can update native input values without emitting React change events.
+    const values = new FormData(event.currentTarget);
+    const phone = values.get('phone');
+    const password = values.get('password');
+    submitting.current = true;
     setError('');
     setLoading(true);
 
@@ -40,6 +47,7 @@ export function SuperAdminPasswordLoginForm({
     } catch {
       setError('Invalid credentials');
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   };
@@ -57,16 +65,15 @@ export function SuperAdminPasswordLoginForm({
       <div className="flex-1 px-6">
         {passwordLoginEnabled
           ? (
-              <form onSubmit={handleSubmit} className="mx-auto max-w-sm">
+              <form method="post" onSubmit={handleSubmit} aria-busy={loading} className="mx-auto max-w-sm">
                 <label className="mb-2 block text-sm font-medium text-slate-300" htmlFor="super-admin-phone">
                   Phone number
                 </label>
                 <input
                   id="super-admin-phone"
+                  name="phone"
                   type="tel"
                   autoComplete="username"
-                  value={phone}
-                  onChange={event => setPhone(event.target.value)}
                   className="mb-4 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-lg text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
                   placeholder="+1 416 555 0123"
                   required
@@ -77,10 +84,9 @@ export function SuperAdminPasswordLoginForm({
                 </label>
                 <input
                   id="super-admin-password"
+                  name="password"
                   type="password"
                   autoComplete="current-password"
-                  value={password}
-                  onChange={event => setPassword(event.target.value)}
                   className="mb-4 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-lg text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
                   required
                 />
@@ -93,7 +99,7 @@ export function SuperAdminPasswordLoginForm({
 
                 <button
                   type="submit"
-                  disabled={loading || !phone || !password}
+                  disabled={loading}
                   className="w-full rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 py-3.5 font-semibold text-white shadow-md transition-all hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {loading ? 'Signing in…' : 'Sign In'}

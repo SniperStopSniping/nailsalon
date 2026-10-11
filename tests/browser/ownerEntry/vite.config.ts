@@ -12,6 +12,6 @@ export default defineConfig({
   envDir: root,
   cacheDir: path.join(os.tmpdir(), 'luster-owner-entry-vite-cache'),
   plugins: [react()],
-  resolve: { alias: { '@clerk/nextjs': path.join(root, 'clerk.ts'), 'next/link': path.join(root, 'link.tsx'), '@': path.join(repository, 'src') } },
+  resolve: { alias: { '@clerk/nextjs': path.join(root, 'clerk.ts'), 'next/link': path.join(root, 'link.tsx'), 'next/navigation': path.join(root, 'navigation.ts'), '@': path.join(repository, 'src') } },
   server: { host: '127.0.0.1', port: 3144, strictPort: true, fs: { allow: [repository] } },
 });
