@@ -46,11 +46,13 @@ class LoadBoundary extends Component<{ children: ReactNode; fallback: ReactNode 
 }
 
 /** Keep the existing sheet and its focus/Back lifecycle mounted during download. */
-export function DeferredAppModal({ children, label, ...props }: ComponentProps<typeof AppModal> & { label: string }) {
+export function DeferredAppModal({ children, label, loading = false, ...props }: ComponentProps<typeof AppModal> & { label: string; loading?: boolean }) {
   return (
     <AppModal ariaLabel={label} {...props}>
       <LoadBoundary fallback={<LoadingContent label={label} onClose={props.onClose} failed />}>
-        <Suspense fallback={<LoadingContent label={label} onClose={props.onClose} />}>{children}</Suspense>
+        <Suspense fallback={<LoadingContent label={label} onClose={props.onClose} />}>
+          {loading ? <LoadingContent label={label} onClose={props.onClose} /> : children}
+        </Suspense>
       </LoadBoundary>
     </AppModal>
   );

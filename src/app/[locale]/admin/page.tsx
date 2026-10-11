@@ -1023,6 +1023,7 @@ function AdminDashboardContent() {
 
       const requestId = crypto.randomUUID();
       latestFetchIdRef.current = requestId;
+      setLoading(true);
 
       try {
         if (latestFetchIdRef.current === requestId) {
@@ -1873,10 +1874,10 @@ function AdminDashboardContent() {
     );
   }
 
-  // 4) Authenticated but dashboard data still loading - show skeleton
-  if (loading) {
-    return <AdminDashboardSkeleton />;
-  }
+  // Authentication and salon selection are complete. Today owns its loading
+  // states and can fetch alongside optional module settings. Keeping the whole
+  // workspace behind analytics loading serializes those requests and unmounts
+  // open tools whenever reports refresh. Reports keep their own loading sheet.
 
   const userName = adminUser.name || 'Admin';
   const userInitial = userName.charAt(0).toUpperCase();
@@ -2187,6 +2188,7 @@ function AdminDashboardContent() {
         activeSalonId={activeDashboardSalon?.id ?? null}
         onOpenApp={handleAppTap}
         analyticsAppAvailable={!hiddenAppIds.includes('analytics')}
+        analyticsLoading={loading && analyticsData === null}
         rewardsAvailable={!hiddenAppIds.includes('rewards')}
         reviewsAvailable={!hiddenAppIds.includes('reviews')}
         activeSalonName={activeDashboardSalon?.name ?? null}

@@ -266,6 +266,100 @@ beforeEach(() => {
 });
 
 describe('AdminDashboardPage', () => {
+  it('keeps reports gated, then loads report data without unmounting the workspace', async () => {
+    let app: string | null = 'analytics';
+    searchParamGet.mockImplementation(key => key === 'salon' ? 'salon-b' : key === 'app' ? app : null);
+    let finishModules!: (response: Response) => void;
+    let finishAnalytics!: (response: Response) => void;
+    const modules = new Promise<Response>((resolve) => {
+      finishModules = resolve;
+    });
+    const analytics = new Promise<Response>((resolve) => {
+      finishAnalytics = resolve;
+    });
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/auth/me')) {
+        return new Response(JSON.stringify({ user: { id: 'admin_1', name: 'Owner', isSuperAdmin: false, salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }] } }));
+      }
+      if (url.startsWith('/api/admin/settings/modules')) {
+        return modules;
+      }
+      if (url.startsWith('/api/admin/analytics?')) {
+        return analytics;
+      }
+      if (url === '/api/admin/auth/set-active-salon') {
+        return new Response(JSON.stringify({ ok: true }));
+      }
+      if (url.startsWith('/api/admin/appointments')) {
+        return new Response(JSON.stringify({ data: { appointments: [], schedule: { technicians: [] } } }));
+      }
+      if (url === '/api/admin/fraud-signals') {
+        return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }));
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    const view = render(<AdminDashboardPage />);
+
+    await screen.findByTestId('owner-today-workspace');
+
+    expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ activeModal: null, analyticsAppAvailable: false });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/admin/analytics?'))).toBe(false);
+
+    await act(async () => finishModules(new Response(JSON.stringify({ data: { moduleReasons: { analyticsDashboard: 'ENABLED' } } }))));
+    await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ activeModal: 'analytics', analyticsLoading: true }));
+
+    expect(screen.getByTestId('owner-more-workspace')).toBeVisible();
+
+    app = null;
+    view.rerender(<AdminDashboardPage />);
+    await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ activeModal: null }));
+
+    expect(screen.getByTestId('owner-more-workspace')).toBeVisible();
+
+    await act(async () => finishAnalytics(new Response(JSON.stringify({ data: { revenue: { total: 0 }, staff: [], services: [] } }))));
+
+    expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ activeModal: null, analyticsLoading: false });
+  });
+
+  it.each(['today', 'more'])('opens %s while optional module settings are still pending', async (tab) => {
+    searchParamGet.mockImplementation(key => key === 'salon' ? 'salon-b' : key === 'tab' ? tab : null);
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/auth/me')) {
+        return new Response(JSON.stringify({ user: {
+          id: 'admin_1',
+          name: 'Owner',
+          isSuperAdmin: false,
+          salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }],
+        } }));
+      }
+      if (url.startsWith('/api/admin/settings/modules')) {
+        return new Promise<Response>(() => {});
+      }
+      if (url === '/api/admin/auth/set-active-salon') {
+        return new Response(JSON.stringify({ ok: true }));
+      }
+      if (url.startsWith('/api/admin/appointments')) {
+        return new Response(JSON.stringify({ data: { appointments: [], schedule: { technicians: [] } } }));
+      }
+      if (url === '/api/admin/fraud-signals') {
+        return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }));
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(<AdminDashboardPage />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/admin/settings/modules?salonSlug=salon-b'));
+
+    expect(await screen.findByTestId(tab === 'today' ? 'owner-today-workspace' : 'owner-more-workspace')).toBeVisible();
+    expect(screen.queryByText('Loading dashboard')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Calendar' })).toBeVisible();
+    expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ analyticsAppAvailable: false });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/admin/analytics?'))).toBe(false);
+  });
+
   it('replaces the endless skeleton with setup and sign-out actions for an owner without salons', async () => {
     searchParamGet.mockReturnValue(null);
     Object.assign(clerkAuth, { isSignedIn: true, sessionId: 'session_new_owner' });

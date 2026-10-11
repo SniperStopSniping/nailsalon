@@ -81,6 +81,7 @@ type AdminModalHostProps = {
   rewardsAvailable?: boolean;
   reviewsAvailable?: boolean;
   analyticsProps: AnalyticsWidgetProps;
+  analyticsLoading?: boolean;
   fraudSignals: FraudSignal[];
   fraudSignalsTotalCount: number;
   fraudSignalsLoading: boolean;
@@ -127,6 +128,7 @@ export function AdminModalHost({
   rewardsAvailable = false,
   reviewsAvailable = false,
   analyticsProps,
+  analyticsLoading = false,
   fraudSignals,
   fraudSignalsTotalCount,
   fraudSignalsLoading,
@@ -201,6 +203,7 @@ export function AdminModalHost({
 
       <AppModal
         label="Reports"
+        loading={analyticsLoading}
         isOpen={activeModal === 'analytics'}
         onClose={onCloseModal}
       >

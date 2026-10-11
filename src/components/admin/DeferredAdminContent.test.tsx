@@ -23,6 +23,25 @@ function delayedScreen() {
 }
 
 describe('deferred owner tools', () => {
+  it('keeps data loading inside its sheet with a working Back action', async () => {
+    const onClose = vi.fn();
+    const { rerender } = render(<DeferredAppModal isOpen label="Reports" loading onClose={onClose}><p>Verified report data</p></DeferredAppModal>);
+    const shell = screen.getByRole('dialog', { name: 'Reports' });
+
+    expect(screen.getByRole('status')).toHaveTextContent('Opening');
+    expect(screen.queryByText('Verified report data')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+
+    rerender(<DeferredAppModal isOpen label="Reports" loading={false} onClose={onClose}><p>Verified report data</p></DeferredAppModal>);
+
+    expect(screen.getByText('Verified report data')).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'Reports' })).toBe(shell);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('does not request closed dialogs, and Back remains available while a dialog loads', async () => {
     const { Screen, load, resolve } = delayedScreen();
     const onClose = vi.fn();
