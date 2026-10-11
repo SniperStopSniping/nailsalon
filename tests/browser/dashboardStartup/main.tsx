@@ -1,4 +1,5 @@
 import '@/styles/global.css';
+import '../ownerCoreTabs/review.css';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
@@ -14,7 +15,17 @@ import { SalonProvider } from '@/providers/SalonProvider';
 
 import { installReviewApi } from '../ownerCoreTabs/review-api';
 
+const networkFetch = window.fetch.bind(window);
 installReviewApi();
+const reviewFetch = window.fetch.bind(window);
+window.fetch = (input, init) => {
+  const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, window.location.href);
+  // Opt-in report cases use Playwright's local response controls for loading,
+  // errors and retries; all other fixture APIs retain their existing behavior.
+  return new URLSearchParams(window.location.search).has('smartfit') && ['/api/admin/analytics/smart-fit', '/api/admin/retention/settings'].includes(url.pathname)
+    ? networkFetch(input, init)
+    : reviewFetch(input, init);
+};
 
 export function DashboardStartupFixture() {
   const query = useSearchParams();
@@ -27,12 +38,17 @@ export function DashboardStartupFixture() {
   const [appointmentOpen, setAppointmentOpen] = useState(false);
   const [walkInOpen, setWalkInOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const navigate = (next: string | null) => {
+  const navigate = (next: string | null, view?: string) => {
     const params = new URLSearchParams(query);
     if (next) {
       params.set('app', next);
     } else {
       params.delete('app');
+    }
+    if (view) {
+      params.set('view', view);
+    } else {
+      params.delete('view');
     }
     router.push(`/?${params.toString()}`);
   };
@@ -56,6 +72,7 @@ export function DashboardStartupFixture() {
           isFreeSolo
           onCloseModal={() => navigate(null)}
           onOpenApp={navigate}
+          onNavigate={navigate}
           showNotifications={notificationsOpen}
           setShowNotifications={setNotificationsOpen}
           showFraudSignals={false}

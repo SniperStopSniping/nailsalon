@@ -113,7 +113,8 @@ describe('SmartFitResultsCard', () => {
     expect(screen.getByText('Average discount')).toBeInTheDocument();
     expect(screen.getByText('$6.00')).toBeInTheDocument();
     // Definitions are visible helper copy, not hidden tooltips.
-    expect(screen.getByText(/booked with a Smart Fit discount saved at booking time/i)).toBeInTheDocument();
+    expect(screen.getByText(/Discount saved at booking. Cancelled and no-show bookings are excluded/i)).toBeInTheDocument();
+    expect(screen.getByText(/Checkout totals when completed; booked totals otherwise/i)).toBeInTheDocument();
     expect(screen.getByText(/Not a claim that Smart Fit caused the booking/i)).toBeInTheDocument();
   });
 
