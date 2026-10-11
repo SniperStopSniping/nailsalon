@@ -1,3 +1,10 @@
+## [1.142.25](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.24...v1.142.25) (2026-10-11)
+
+
+### Bug Fixes
+
+* surface free-text claim readiness in system status ([#421](https://github.com/SniperStopSniping/nailsalon/issues/421)) ([319283a](https://github.com/SniperStopSniping/nailsalon/commit/319283a6134db913e2181df8b2219752e2c912d3))
+
 ## [1.142.24](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.23...v1.142.24) (2026-10-11)
 
 
