@@ -7,21 +7,8 @@
  * from the shared page plan via data attributes.
  */
 
-/* Reuse the existing local faces. A remote @import delayed the entire
-   onboarding stylesheet and fetched fonts already bundled with the app. */
-@font-face {
-  font-family: 'Inter';
-  src: url('./quick-book/fonts/inter-latin.woff2') format('woff2');
-  font-weight: 100 900;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Newsreader';
-  src: url('./quick-book/fonts/newsreader-latin.woff2') format('woff2');
-  font-weight: 100 900;
-  font-display: swap;
-}
+/* Production supplies Inter and Newsreader in its root layout. The standalone
+   entry imports standalone-fonts.css; do not shadow the production faces here. */
 
 /* ---------------------------------------------------------------- */
 /* Composition: surfaces, rhythm, attachment                         */

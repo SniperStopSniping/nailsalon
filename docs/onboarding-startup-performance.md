@@ -21,3 +21,20 @@ Same dependency graph and build settings, before from the deployed contrast rele
 - Initial route/layout JavaScript files: 27 to 24.
 
 These are bundle measurements, not field performance or a guarantee of a Lighthouse score. Hosted Preview, CI and live Lighthouse measurements are recorded separately in the release evidence before claiming production success.
+
+## Shared startup fonts and preview readability
+
+Onboarding product chrome reuses the root layout's self-hosted Inter and
+Newsreader variables. The standalone review keeps its local font fallbacks.
+This avoids requesting a second Inter file under the onboarding asset URL;
+customer previews still control their own typography.
+The shared section-library stylesheet must not redeclare `Inter` or `Newsreader`
+with alternate asset URLs: those declarations shadow the root provider's faces.
+The standalone entry and review fixtures import `standalone-fonts.css` instead.
+
+Starter-preview service metadata uses the existing darker muted colour. Browser
+coverage checks all miniature price labels, including scenes outside the current
+animation frame, and tests both shared and standalone fonts at 320/390/430px in
+Chromium and WebKit. Existing startup, reload and lifetime-offer cases remain.
+Font request counts and timing must also be verified on a built deployment;
+the isolated browser fixture does not represent production bundle performance.

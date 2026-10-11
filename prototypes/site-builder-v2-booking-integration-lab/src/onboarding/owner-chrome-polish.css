@@ -15,8 +15,10 @@
 
 .onboarding-app,
 .onboarding-paused-state {
-  --onboarding-display-font: 'Luster Onboarding Display', Georgia, serif;
-  font-family: 'Luster Onboarding Sans', sans-serif;
+  /* Production already hosts these faces in the root layout. Reuse them so
+     onboarding does not download a second copy; keep standalone lab fonts. */
+  --onboarding-display-font: var(--font-luster-editorial, 'Luster Onboarding Display'), Georgia, serif;
+  font-family: var(--font-luster-sans, 'Luster Onboarding Sans'), sans-serif;
 }
 
 .onboarding-app .onboarding-starter-entry {

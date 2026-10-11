@@ -1,0 +1,15 @@
+/* Standalone review has no Next.js root font provider. Production already
+   declares these exact faces; importing them there would shadow its font URLs. */
+@font-face {
+  font-family: 'Inter';
+  src: url('./quick-book/fonts/inter-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Newsreader';
+  src: url('./quick-book/fonts/newsreader-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
