@@ -1310,7 +1310,7 @@ jobs:
 
       - name: Verify customer review and confirmation in desktop and mobile browsers
         if: matrix.suite == 'customer-booking'
-        run: node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts confirmation-polish.spec.ts --output=test-results/booking-confirmation
+        run: node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts confirmation-polish.spec.ts time-scroll.spec.ts --output=test-results/booking-confirmation
 
       - name: Verify approved Quick Book customer compositions
         if: matrix.suite == 'customer-booking'

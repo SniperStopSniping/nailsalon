@@ -442,40 +442,6 @@ export function BookTimeClient({
     };
   }, []);
 
-  // Custom smooth scroll with adjustable duration
-  const smoothScrollTo = useCallback((targetY: number, duration: number): Promise<void> => {
-    return new Promise((resolve) => {
-      const startY = window.scrollY;
-      const difference = targetY - startY;
-      let startTime: number | null = null;
-      let frameCount = 0;
-      const maxFrames = 120;
-
-      const easeInOutCubic = (t: number): number => {
-        return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
-      };
-
-      const step = (currentTime: number) => {
-        startTime ??= currentTime;
-        frameCount += 1;
-
-        const elapsed = Math.max(0, currentTime - startTime);
-        const progress = frameCount >= maxFrames ? 1 : Math.min(elapsed / duration, 1);
-        const easeProgress = easeInOutCubic(progress);
-
-        window.scrollTo(0, startY + difference * easeProgress);
-
-        if (progress < 1) {
-          requestAnimationFrame(step);
-        } else {
-          resolve();
-        }
-      };
-
-      requestAnimationFrame(step);
-    });
-  }, []);
-
   const buildAvailabilityUrl = useCallback((date: Date) => {
     const dateStr = getDateKey(date);
     const techParam = effectiveTechId && effectiveTechId !== 'any' ? `&technicianId=${effectiveTechId}` : '';
@@ -753,47 +719,85 @@ export function BookTimeClient({
       return;
     }
 
-    // Hard timeout - if scroll doesn't happen within 3s, give up quietly
-    const SCROLL_TIMEOUT_MS = 3000;
-    let hasTimedOut = false;
-    const hardTimeoutId = setTimeout(() => {
-      hasTimedOut = true;
-      pendingScrollRef.current = false;
-    }, SCROLL_TIMEOUT_MS);
+    let cancelled = false;
+    let animationFrame: number | null = null;
+    let scrollTimeout: ReturnType<typeof setTimeout>;
+    let hardTimeout: ReturnType<typeof setTimeout>;
 
-    // Small delay to ensure DOM has updated after loadingSlots changed
-    const scrollTimeoutId = setTimeout(async () => {
-      // Bail if unmounted, superseded, or timed out
-      if (!isMountedRef.current || scrollRequestIdRef.current !== thisRequestId || hasTimedOut) {
-        return;
+    const finish = () => {
+      cancelled = true;
+      clearTimeout(scrollTimeout);
+      clearTimeout(hardTimeout);
+      if (animationFrame !== null) {
+        cancelAnimationFrame(animationFrame);
       }
-
-      // Clear pending flag
-      pendingScrollRef.current = false;
-      clearTimeout(hardTimeoutId);
-
-      // Find the first available section ref (Smart Fit section preferred,
-      // then morning, then afternoon)
-      const targetRef = smartFitSlotsRef.current ?? morningSlotsRef.current ?? afternoonSlotsRef.current ?? eveningSlotsRef.current;
-      if (!targetRef) {
-        // No slots rendered - don't scroll
-        return;
-      }
-
-      // Scroll to TOP of the section (with 20px padding from top)
-      const rect = targetRef.getBoundingClientRect();
-      const targetY = window.scrollY + rect.top - 20;
-
-      // Single smooth scroll to the time slots section (800ms)
-      await smoothScrollTo(Math.max(0, targetY), 800);
-    }, 50); // Small delay for DOM update
-
-    // Cleanup: if effect re-runs or component unmounts, cancel pending scroll
-    return () => {
-      clearTimeout(scrollTimeoutId);
-      clearTimeout(hardTimeoutId);
+      window.removeEventListener('pointerdown', interrupt, true);
+      window.removeEventListener('touchstart', interrupt, true);
+      window.removeEventListener('wheel', interrupt, true);
+      window.removeEventListener('keydown', interrupt, true);
     };
-  }, [loadingSlots, selectedDate, smoothScrollTo]);
+    function interrupt() {
+      pendingScrollRef.current = false;
+      finish();
+    }
+
+    // A tap, key or manual scroll takes precedence, including during the
+    // short delay before animation. Never keep moving a button under a finger.
+    const listenerOptions = { capture: true, passive: true };
+    window.addEventListener('pointerdown', interrupt, listenerOptions);
+    window.addEventListener('touchstart', interrupt, listenerOptions);
+    window.addEventListener('wheel', interrupt, listenerOptions);
+    window.addEventListener('keydown', interrupt, listenerOptions);
+    hardTimeout = setTimeout(interrupt, 3000);
+
+    scrollTimeout = setTimeout(() => {
+      if (!isMountedRef.current || scrollRequestIdRef.current !== thisRequestId || cancelled) {
+        finish();
+        return;
+      }
+      pendingScrollRef.current = false;
+
+      const target = smartFitSlotsRef.current ?? morningSlotsRef.current ?? afternoonSlotsRef.current ?? eveningSlotsRef.current;
+      if (!target) {
+        finish();
+        return;
+      }
+
+      const startY = window.scrollY;
+      const targetY = Math.max(0, startY + target.getBoundingClientRect().top - 20);
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        window.scrollTo({ top: targetY, behavior: 'instant' });
+        finish();
+        return;
+      }
+
+      const difference = targetY - startY;
+      let startTime: number | null = null;
+      let frameCount = 0;
+      const step = (currentTime: number) => {
+        if (cancelled || !isMountedRef.current || scrollRequestIdRef.current !== thisRequestId) {
+          finish();
+          return;
+        }
+        startTime ??= currentTime;
+        frameCount += 1;
+        const elapsed = Math.max(0, currentTime - startTime);
+        const progress = frameCount >= 120 ? 1 : Math.min(elapsed / 800, 1);
+        const eased = progress < 0.5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
+        window.scrollTo({ top: startY + difference * eased, behavior: 'instant' });
+        if (progress < 1) {
+          animationFrame = requestAnimationFrame(step);
+        } else {
+          finish();
+        }
+      };
+      animationFrame = requestAnimationFrame(step);
+    }, 50);
+
+    // Cancel active frames as well as pending timers on a new date/load or
+    // unmount; a previous screen must never scroll the next booking step.
+    return finish;
+  }, [loadingSlots, selectedDate]);
 
   // After a stale Smart Fit response returned the client to this step, move
   // focus to the refreshed time list once it has rendered.
