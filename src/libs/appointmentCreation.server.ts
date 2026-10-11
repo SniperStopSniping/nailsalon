@@ -1702,6 +1702,7 @@ async function createAppointmentFromRequestCore(
     let preliminaryCanonicalIdentity: CanonicalSalonClientIdentity | null = null;
     try {
       preliminaryCanonicalIdentity = await resolveCanonicalSalonClientIdentity({
+        matchMode: 'booking',
         salonId: salon.id,
         phone: normalizedPhone,
         email: normalizedClientEmail,
@@ -2246,6 +2247,7 @@ async function createAppointmentFromRequestCore(
           });
         } else {
           const resolvedOriginalIdentity = await resolveCanonicalSalonClientIdentity({
+            matchMode: 'booking',
             salonId: salon.id,
             phone: normalizedOriginalPhone,
             email: originalAppointment.clientEmail,
@@ -3670,6 +3672,7 @@ async function createAppointmentFromRequestCore(
           = await resolveCanonicalSalonClientIdentityWithHandle(
             tx as LifecycleSqlHandle,
             {
+              matchMode: 'booking',
               salonId: salon.id,
               phone: normalizedPhone,
               email: normalizedClientEmail,
@@ -3705,6 +3708,7 @@ async function createAppointmentFromRequestCore(
       const appearedIdentity = await resolveCanonicalSalonClientIdentityWithHandle(
         tx as LifecycleSqlHandle,
         {
+          matchMode: 'booking',
           salonId: salon.id,
           phone: normalizedPhone,
           email: normalizedClientEmail,
@@ -4077,6 +4081,7 @@ async function createAppointmentFromRequestCore(
             throw error;
           }
           const refreshedIdentity = await resolveCanonicalSalonClientIdentity({
+            matchMode: 'booking',
             salonId: salon.id,
             phone: normalizedPhone,
             email: normalizedClientEmail,

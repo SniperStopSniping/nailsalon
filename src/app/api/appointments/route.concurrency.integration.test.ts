@@ -1619,7 +1619,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     );
   }
 
-  it('serializes phone-versus-email inputs before creating one new profile', async () => {
+  it('serializes shared-email creation while keeping distinct phones in separate profiles', async () => {
     const { POST } = await import('./route');
     const held = await holdAdvisoryIdentityKey(JSON.stringify([
       SALON_ID,
@@ -1655,10 +1655,12 @@ suite('POST /api/appointments — genuine concurrency', () => {
       db.select().from(schema.integrationOutboxSchema),
     ]);
 
-    expect(clients).toHaveLength(1);
+    expect(clients).toHaveLength(2);
     expect(appointments).toHaveLength(2);
-    expect(appointments.every(appointment => appointment.salonClientId === clients[0]?.id))
+    expect(appointments.every(appointment => appointment.salonClientId
+      === clients.find(client => client.phone === appointment.clientPhone)?.id))
       .toBe(true);
+    expect(new Set(appointments.map(appointment => appointment.salonClientId)).size).toBe(2);
     expect(services).toHaveLength(2);
     expect(tokens).toHaveLength(2);
     expect(deliveries).toHaveLength(4);
@@ -2480,7 +2482,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     expect(outbox).toHaveLength(2);
   });
 
-  it('serializes terminal, source, phone-alias, and email-alias bookings', async () => {
+  it('serializes established phone lineages without attaching an email-only match', async () => {
     await seedMergedLineage();
     const { POST } = await import('./route');
     const held = await holdTerminalClient('client_terminal');
@@ -2510,7 +2512,9 @@ suite('POST /api/appointments — genuine concurrency', () => {
         startTime: '2099-09-06T18:00:00.000Z',
       })),
     ];
-    await releaseHeldBarrier(held, 4, requests);
+    // Only the three established phones belong to the held terminal. An
+    // unrelated phone sharing its email alias creates a separate profile.
+    await releaseHeldBarrier(held, 3, requests);
 
     const responses = await Promise.all(requests);
 
@@ -2526,11 +2530,17 @@ suite('POST /api/appointments — genuine concurrency', () => {
       db.select().from(schema.integrationOutboxSchema),
     ]);
 
-    expect(clients).toHaveLength(2);
+    expect(clients).toHaveLength(3);
     expect(aliases).toHaveLength(2);
     expect(appointments).toHaveLength(4);
-    expect(appointments.every(appointment => appointment.salonClientId === 'client_terminal'))
-      .toBe(true);
+    expect(appointments.filter(appointment => appointment.salonClientId === 'client_terminal'))
+      .toHaveLength(3);
+
+    const separateClient = clients.find(client => client.phone === '4165553999');
+
+    expect(separateClient).toMatchObject({ email: 'alias@example.invalid', mergedIntoClientId: null });
+    expect(appointments.filter(appointment => appointment.salonClientId === separateClient?.id))
+      .toEqual([expect.objectContaining({ clientPhone: '4165553999' })]);
     expect(services).toHaveLength(4);
     expect(tokens).toHaveLength(4);
     expect(deliveries).toHaveLength(8);
@@ -2663,7 +2673,9 @@ suite('POST /api/appointments — genuine concurrency', () => {
       ]);
     const held = await holdTerminalClient('client_terminal');
     const bookingPromise = bookingPOST(bookingRequest({
-      clientPhone: '4165553998',
+      // A booking joins this lineage through its saved phone alias. Sharing
+      // only an email must no longer make an unrelated phone join the race.
+      clientPhone: '4165553002',
       clientEmail: 'alias@example.invalid',
       technicianId: SECOND_TECH_ID,
       startTime: '2099-10-06T18:00:00.000Z',
@@ -3708,6 +3720,174 @@ suite('POST /api/appointments — genuine concurrency', () => {
         status: 'processing',
         attempts: 1,
       })]);
+  });
+
+  describe('shared-contact booking identity', () => {
+    const householdEmail = 'household@example.invalid';
+    const people = [
+      { name: 'Household One', phone: '4165557101', technicianId: TECH_ID },
+      { name: 'Household Two', phone: '4165557102', technicianId: SECOND_TECH_ID },
+    ];
+
+    async function expectSeparateHouseholdBookings() {
+      const clients = await db.select().from(schema.salonClientSchema)
+        .where(eq(schema.salonClientSchema.salonId, SALON_ID));
+      const appointments = await activeAppointments();
+      const intents = await db.select().from(schema.communicationIntentSchema);
+      const capabilities = await db.select().from(schema.appointmentAccessTokenSchema);
+
+      expect(clients).toHaveLength(2);
+      expect(appointments).toHaveLength(2);
+      expect(capabilities).toHaveLength(2);
+      expect(new Set(appointments.map(row => row.salonClientId)).size).toBe(2);
+
+      for (const person of people) {
+        const client = clients.find(row => row.phone === person.phone);
+
+        expect(client).toMatchObject({ email: householdEmail, mergedIntoClientId: null, clientId: null });
+
+        const appointment = appointments.find(row => row.clientPhone === person.phone);
+
+        expect(appointment).toMatchObject({
+          salonClientId: client!.id,
+          clientName: person.name,
+          clientEmail: householdEmail,
+          technicianId: person.technicianId,
+        });
+
+        const clientSms = intents.filter(row => row.appointmentId === appointment!.id
+          && row.channel === 'sms' && row.audience === 'client');
+
+        expect(clientSms.map(row => row.eventType).sort()).toEqual([
+          'appointment_reminder',
+          'booking_confirmation',
+        ]);
+        expect(clientSms.every(row => row.recipient === person.phone)).toBe(true);
+        expect(capabilities.filter(row => row.appointmentId === appointment!.id)).toHaveLength(1);
+      }
+      const emailPayloads = sendTransactionalEmailDetailed.mock.calls.map(([payload]) => payload);
+      const customerEmails = emailPayloads.filter(payload => payload.to === householdEmail);
+
+      expect(customerEmails).toHaveLength(2);
+      expect(emailPayloads.filter(payload => payload.to === 'owner@example.invalid')).toHaveLength(2);
+      expect(emailPayloads).toHaveLength(4);
+
+      for (const person of people) {
+        expect(customerEmails.filter(payload => payload.text.includes(person.name))).toHaveLength(1);
+      }
+    }
+
+    function householdRequest(person: typeof people[number]) {
+      return bookingRequest({
+        clientName: person.name,
+        clientPhone: person.phone,
+        clientEmail: householdEmail,
+        technicianId: person.technicianId,
+      });
+    }
+
+    it('keeps a second household member separate from the first saved client', async () => {
+      const { POST } = await import('./route');
+      for (const person of people) {
+        const response = await POST(householdRequest(person));
+
+        expect(response.status, JSON.stringify(await response.json())).toBe(201);
+      }
+      await expectSeparateHouseholdBookings();
+    });
+
+    it('keeps two concurrent new household bookings and their SMS recipients separate', async () => {
+      const { POST } = await import('./route');
+      const responses = await Promise.all(people.map(person => POST(householdRequest(person))));
+
+      expect(responses.map(response => response.status), JSON.stringify(await Promise.all(responses.map(response => response.json()))))
+        .toEqual([201, 201]);
+
+      await expectSeparateHouseholdBookings();
+    });
+
+    it('resolves returning household members without merging or overwriting their records', async () => {
+      await db.insert(schema.salonClientSchema).values(people.map((person, index) => ({
+        id: `household_${index}`,
+        salonId: SALON_ID,
+        phone: person.phone,
+        fullName: person.name,
+        email: householdEmail,
+      })));
+      const before = await db.select().from(schema.salonClientSchema).orderBy(schema.salonClientSchema.id);
+      const { POST } = await import('./route');
+      const responses = await Promise.all(people.map(person => POST(householdRequest(person))));
+
+      expect(responses.map(response => response.status)).toEqual([201, 201]);
+
+      await expectSeparateHouseholdBookings();
+      const after = await db.select().from(schema.salonClientSchema).orderBy(schema.salonClientSchema.id);
+
+      expect(after.map(row => ({ id: row.id, phone: row.phone, email: row.email, fullName: row.fullName })))
+        .toEqual(before.map(row => ({ id: row.id, phone: row.phone, email: row.email, fullName: row.fullName })));
+    });
+
+    it('rejects conflicting known contacts without exposing records or creating side effects', async () => {
+      await db.insert(schema.salonClientSchema).values(people.map((person, index) => ({
+        id: `household_${index}`,
+        salonId: SALON_ID,
+        phone: person.phone,
+        fullName: person.name,
+        email: `person-${index}@example.invalid`,
+      })));
+      const { POST } = await import('./route');
+      const response = await POST(bookingRequest({
+        clientPhone: people[0]!.phone,
+        clientEmail: 'person-1@example.invalid',
+      }));
+      const body = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(body.error.code).toBe('CONTACT_IDENTITY_CONFLICT');
+      expect(JSON.stringify(body)).not.toMatch(/Household|household_|416555710/);
+      expect(await activeAppointments()).toHaveLength(0);
+      expect(await db.select().from(schema.communicationIntentSchema)).toHaveLength(0);
+      expect(await db.select().from(schema.appointmentAccessTokenSchema)).toHaveLength(0);
+      expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    });
+
+    it('creates a salon-local profile even when another salon has the same contacts', async () => {
+      await db.insert(schema.salonSchema).values({
+        id: 'shared_contact_other_salon',
+        name: 'Other Salon',
+        slug: 'shared-contact-other-salon',
+      });
+      await db.insert(schema.salonClientSchema).values({
+        id: 'other_salon_client',
+        salonId: 'shared_contact_other_salon',
+        phone: people[0]!.phone,
+        email: householdEmail,
+        fullName: 'Private Other Client',
+      });
+      const { POST } = await import('./route');
+      const response = await POST(householdRequest(people[0]!));
+      const body = await response.json();
+
+      expect(response.status).toBe(201);
+      expect(JSON.stringify(body)).not.toMatch(/other_salon_client|Private Other Client/);
+
+      const [appointment] = await activeAppointments();
+      const localClients = await db.select().from(schema.salonClientSchema)
+        .where(eq(schema.salonClientSchema.salonId, SALON_ID));
+
+      expect(localClients).toHaveLength(1);
+      expect(appointment?.salonClientId).toBe(localClients[0]?.id);
+      expect(appointment?.salonClientId).not.toBe('other_salon_client');
+
+      const otherClients = await db.select().from(schema.salonClientSchema)
+        .where(eq(schema.salonClientSchema.id, 'other_salon_client'));
+
+      expect(otherClients).toEqual([expect.objectContaining({
+        phone: people[0]!.phone,
+        email: householdEmail,
+        fullName: 'Private Other Client',
+      })]);
+    });
   });
 
   it('lets exactly one of two simultaneous identical bookings win', async () => {

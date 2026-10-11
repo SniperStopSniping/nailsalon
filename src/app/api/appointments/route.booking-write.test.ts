@@ -890,6 +890,7 @@ describe('POST /api/appointments booking policy', () => {
     expect(resolveCanonicalSalonClientIdentityWithHandle).toHaveBeenCalledWith(
       db,
       expect.objectContaining({
+        matchMode: 'booking',
         salonId: 'salon_1',
         phone: '1111111111',
       }),
@@ -1938,7 +1939,7 @@ describe('POST /api/appointments booking policy', () => {
       expect.objectContaining({ phone: '1111111111', salonId: 'salon_1' }),
     );
     expect(resolveCanonicalSalonClientIdentity).toHaveBeenCalledWith(
-      expect.objectContaining({ salonId: 'salon_1', phone: '1111111111' }),
+      expect.objectContaining({ matchMode: 'booking', salonId: 'salon_1', phone: '1111111111' }),
     );
     expect(resolveCanonicalSalonClientIdentity).not.toHaveBeenCalledWith(
       expect.objectContaining({ phone: '9999999999' }),
