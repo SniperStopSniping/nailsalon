@@ -1,3 +1,10 @@
+## [1.142.33](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.32...v1.142.33) (2026-10-11)
+
+
+### Bug Fixes
+
+* **booking:** stop automatic scrolling when choosing a time ([74d84e5](https://github.com/SniperStopSniping/nailsalon/commit/74d84e5ec1256462ed0cdfd221ef00fa28631302))
+
 ## [1.142.32](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.31...v1.142.32) (2026-10-11)
 
 
