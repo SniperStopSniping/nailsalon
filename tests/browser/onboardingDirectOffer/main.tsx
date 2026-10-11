@@ -35,6 +35,8 @@ import { saveOnboardingState } from '../../../prototypes/site-builder-v2-booking
 const startup = new URLSearchParams(location.search).has('startup');
 if (new URLSearchParams(location.search).has('productFonts')) {
   document.documentElement.dataset.productFonts = 'true';
+} else {
+  await import('../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/standalone-fonts.css');
 }
 const warnings = new URLSearchParams(location.search).has('warnings');
 const claim: OnboardingClaimSuccess = {

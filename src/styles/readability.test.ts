@@ -66,10 +66,15 @@ describe('readable shared colour roles', () => {
 
   it('loads onboarding fonts locally without a render-blocking external import', () => {
     const library = css('prototypes/site-builder-v2-booking-integration-lab/src/onboarding/section-library.css');
+    const standalone = css('prototypes/site-builder-v2-booking-integration-lab/src/onboarding/standalone-fonts.css');
+    const entry = css('prototypes/site-builder-v2-booking-integration-lab/src/main.tsx');
 
     expect(library).not.toContain('fonts.googleapis.com');
-    expect(library).toContain('url(\'./quick-book/fonts/inter-latin.woff2\')');
-    expect(library).toContain('url(\'./quick-book/fonts/newsreader-latin.woff2\')');
-    expect(library).toContain('font-display: swap;');
+    expect(library).not.toContain('@font-face');
+    expect(standalone).not.toContain('fonts.googleapis.com');
+    expect(standalone).toContain('url(\'./quick-book/fonts/inter-latin.woff2\')');
+    expect(standalone).toContain('url(\'./quick-book/fonts/newsreader-latin.woff2\')');
+    expect(standalone).toContain('font-display: swap;');
+    expect(entry).toContain('import \'./onboarding/standalone-fonts.css\'');
   });
 });

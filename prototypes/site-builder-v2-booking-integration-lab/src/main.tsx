@@ -1,4 +1,5 @@
 import './styles.css';
+import './onboarding/standalone-fonts.css';
 import './ui/final-hybrid.css';
 import './onboarding/onboarding.css';
 import './onboarding/daniela-basics-booking.css';

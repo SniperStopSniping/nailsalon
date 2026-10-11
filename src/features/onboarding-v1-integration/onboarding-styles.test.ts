@@ -25,4 +25,14 @@ describe('onboarding integration styles', () => {
     expect(layoutSource).toContain('onboarding/owner-chrome-polish.css');
     expect(labSource).toContain('onboarding/owner-chrome-polish.css');
   });
+
+  it('keeps standalone font declarations out of production routes', () => {
+    for (const path of [
+      'src/app/[locale]/onboarding-v1/layout.tsx',
+      'src/app/[locale]/admin/website/preview/[siteId]/layout.tsx',
+      'src/app/[locale]/admin/site-builder/section-gallery/layout.tsx',
+    ]) {
+      expect(readFileSync(join(process.cwd(), path), 'utf8')).not.toContain('standalone-fonts.css');
+    }
+  });
 });

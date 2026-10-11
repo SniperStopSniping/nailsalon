@@ -25,6 +25,7 @@ if (params.get('scenario') === 'claimed') {
 if (!dashboard) {
   await Promise.all([
     import('../../../prototypes/site-builder-v2-booking-integration-lab/src/styles.css'),
+    import('../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/standalone-fonts.css'),
     import('../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/final-hybrid.css'),
     import('../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/onboarding.css'),
     import('../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/daniela-basics-booking.css'),

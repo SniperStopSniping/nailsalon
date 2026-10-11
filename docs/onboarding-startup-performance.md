@@ -28,6 +28,9 @@ Onboarding product chrome reuses the root layout's self-hosted Inter and
 Newsreader variables. The standalone review keeps its local font fallbacks.
 This avoids requesting a second Inter file under the onboarding asset URL;
 customer previews still control their own typography.
+The shared section-library stylesheet must not redeclare `Inter` or `Newsreader`
+with alternate asset URLs: those declarations shadow the root provider's faces.
+The standalone entry and review fixtures import `standalone-fonts.css` instead.
 
 Starter-preview service metadata uses the existing darker muted colour. Browser
 coverage checks all miniature price labels, including scenes outside the current
