@@ -1,3 +1,10 @@
+## [1.142.30](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.29...v1.142.30) (2026-10-11)
+
+
+### Bug Fixes
+
+* make onboarding progress readable on phones ([043fa64](https://github.com/SniperStopSniping/nailsalon/commit/043fa647044ae85ee1e502eef7ab613605376f12))
+
 ## [1.142.29](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.28...v1.142.29) (2026-10-11)
 
 
