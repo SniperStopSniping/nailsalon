@@ -4,14 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { FoundingSalonOffer } from './FoundingSalonOffer';
 
 describe('FoundingSalonOffer', () => {
-  it('retains a dashboard recovery exit without advertising an expired free-core plan', () => {
+  it('provides a dashboard exit after the acquisition deadline without promising a new grant', () => {
     const onClaim = vi.fn();
     const onContinue = vi.fn();
     render(<FoundingSalonOffer onClaim={onClaim} closed onContinue={onContinue} />);
 
     expect(screen.queryByRole('button', { name: 'Claim my free lifetime plan' })).not.toBeInTheDocument();
-    expect(screen.getByText('Your core Luster app is free')).toBeInTheDocument();
-    expect(screen.queryByText(/ended|January 1|\$49\.99/)).not.toBeInTheDocument();
+    expect(screen.getByText('The founding offer has ended')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Go to my dashboard' }));
 
@@ -24,12 +23,13 @@ describe('FoundingSalonOffer', () => {
     render(<FoundingSalonOffer onClaim={onClaim} />);
 
     expect(screen.getAllByRole('button')).toHaveLength(1);
-    expect(screen.getByRole('heading', { name: 'Your free core plan' })).toBeInTheDocument();
+    expect(screen.getByText('$49.99/month').tagName).toBe('S');
+    expect(screen.getByText('Possible future price:')).toBeVisible();
+    expect(screen.getByText('Ends Jan 1, 2027')).toBeInTheDocument();
     expect(screen.getByText('100 free texts included')).toBeInTheDocument();
     expect(screen.getByText('Unlimited emails')).toBeInTheDocument();
-    expect(screen.getByText('Optional one-time SMS top-ups. Purchased texts never expire. No subscription required.')).toBeInTheDocument();
-    expect(screen.getByText(/Eligible salons receive a one-time allowance per verified business/)).toBeInTheDocument();
-    expect(screen.queryByText(/\$49\.99|January 1|AI receptionist|phone calls|founding period/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Additional texts are available as optional one-time purchases. Purchased texts never expire. No subscription required.')).toBeInTheDocument();
+    expect(screen.queryByText(/AI receptionist|phone calls/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     expect(screen.queryByText(/compare plans|price coming soon|upgrade later/i)).not.toBeInTheDocument();
 

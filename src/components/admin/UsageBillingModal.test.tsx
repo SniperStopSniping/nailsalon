@@ -150,7 +150,7 @@ describe('UsageBillingModal', () => {
 
     expect(await screen.findByText('Founding Salon · Free for life')).toBeInTheDocument();
     expect(screen.getByText(/Optional text subscription:/)).toBeInTheDocument();
-    expect(screen.getByText(/Purchased texts never expire. No monthly software subscription/)).toBeInTheDocument();
+    expect(screen.getByText(/Additional texts are optional one-time purchases. Purchased texts never expire/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /100 credits — \$5\.99/ })).toBeInTheDocument();
   });
 

@@ -4315,13 +4315,13 @@ export const foundingLifetimeClaimSchema = pgTable(
     claimedByAdminId: text('claimed_by_admin_id').references(() => adminUserSchema.id, { onDelete: 'set null' }),
     offerKey: text('offer_key').notNull(),
     termsVersion: integer('terms_version').notNull(),
-    terms: jsonb('terms').$type<import('@/libs/billing/foundingLifetime').FoundingLifetimeTerms>().notNull(),
+    terms: jsonb('terms').$type<typeof import('@/libs/billing/foundingLifetime').FOUNDING_LIFETIME_TERMS>().notNull(),
     claimedAt: timestamp('claimed_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
   },
   table => ({
     salonUnique: uniqueIndex('founding_lifetime_claim_salon_uniq').on(table.salonId),
-    offerValid: check('founding_lifetime_claim_offer_valid', sql`${table.offerKey} = 'founding_lifetime_2026' AND ${table.termsVersion} IN (1, 2)`),
-    coreTermsValid: check('founding_lifetime_claim_core_terms_valid', sql`(${table.terms}->>'coreSoftwareAccess' = 'lifetime' AND ${table.terms}->>'coreSoftwareMonthlyPriceCents' = '0' AND ${table.terms}->>'emails' = 'unlimited' AND ${table.terms}->>'starterTextCredits' = '100' AND ${table.terms}->>'starterTextCreditsFrequency' = 'once_per_verified_business' AND ${table.terms}->>'additionalTexts' = 'paid_separately' AND ((${table.termsVersion} = 1 AND ${table.terms}->>'aiReceptionist' = 'paid_separately' AND ${table.terms}->>'phoneUsage' = 'paid_separately' AND ${table.terms}->>'otherUsageServices' = 'paid_separately') OR (${table.termsVersion} = 2 AND ${table.terms}->'purchasedTextCreditsExpire' = 'false'::jsonb AND ${table.terms}->'claimDeadline' = 'null'::jsonb))) IS TRUE`),
+    offerValid: check('founding_lifetime_claim_offer_valid', sql`${table.offerKey} = 'founding_lifetime_2026' AND ${table.termsVersion} = 1`),
+    coreTermsValid: check('founding_lifetime_claim_core_terms_valid', sql`(${table.terms}->>'coreSoftwareAccess' = 'lifetime' AND ${table.terms}->>'coreSoftwareMonthlyPriceCents' = '0' AND ${table.terms}->>'emails' = 'unlimited' AND ${table.terms}->>'starterTextCredits' = '100' AND ${table.terms}->>'starterTextCreditsFrequency' = 'once_per_verified_business' AND ${table.terms}->>'additionalTexts' = 'paid_separately' AND ${table.terms}->>'aiReceptionist' = 'paid_separately' AND ${table.terms}->>'phoneUsage' = 'paid_separately' AND ${table.terms}->>'otherUsageServices' = 'paid_separately') IS TRUE`),
   }),
 );
 

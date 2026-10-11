@@ -2167,47 +2167,13 @@ describe.sequential('account-backed onboarding persistence', () => {
     const claims = await database.select().from(schema.foundingLifetimeClaimSchema).where(eq(schema.foundingLifetimeClaimSchema.salonId, saved.data.salonId));
 
     expect(claims).toHaveLength(1);
-    expect(claims[0]?.terms).toMatchObject({ coreSoftwareMonthlyPriceCents: 0, coreSoftwareAccess: 'lifetime', starterTextCredits: 100, emails: 'unlimited', additionalTexts: 'paid_separately', purchasedTextCreditsExpire: false, claimDeadline: null });
-    expect(claims[0]?.termsVersion).toBe(2);
+    expect(claims[0]?.terms).toMatchObject({ coreSoftwareMonthlyPriceCents: 0, coreSoftwareAccess: 'lifetime', starterTextCredits: 100, emails: 'unlimited', additionalTexts: 'paid_separately', aiReceptionist: 'paid_separately', phoneUsage: 'paid_separately' });
 
     const credits = await starterLots(saved.data.salonId);
 
     expect(credits).toHaveLength(1);
     expect(credits[0]?.amount).toBe(100);
     expect(await database.select().from(schema.billingSubscriptionSchema).where(eq(schema.billingSubscriptionSchema.salonId, saved.data.salonId))).toHaveLength(0);
-  });
-
-  it('preserves a historical v1 claim and its existing text allowance on return', async () => {
-    const owner = { ...identity('lifetime_historical'), phoneE164: '+14165550083' };
-    const saved = await claimOnboardingDraft(owner, request('lifetime_historical'), handle());
-    if (saved.kind !== 'success') {
-      throw new Error('Expected saved site.');
-    }
-    const input = { siteId: saved.data.siteId, intent: 'founding_interest' as const, idempotencyKey: opaque('lifetime_historical_plan') };
-    const original = await saveOnboardingPlanIntent(owner, input, handle(), new Date('2026-10-07T12:00:00Z'));
-    const [historical] = await database.update(schema.foundingLifetimeClaimSchema).set({
-      termsVersion: 1,
-      terms: {
-        coreSoftwareMonthlyPriceCents: 0,
-        coreSoftwareAccess: 'lifetime',
-        emails: 'unlimited',
-        starterTextCredits: 100,
-        starterTextCreditsFrequency: 'once_per_verified_business',
-        additionalTexts: 'paid_separately',
-        aiReceptionist: 'paid_separately',
-        phoneUsage: 'paid_separately',
-        otherUsageServices: 'paid_separately',
-        claimDeadline: '2027-01-02T05:00:00.000Z',
-        deadlineTimeZone: 'America/Toronto',
-      },
-    }).where(eq(schema.foundingLifetimeClaimSchema.salonId, saved.data.salonId)).returning();
-    const originalCredits = await starterLots(saved.data.salonId);
-    const returned = await saveOnboardingPlanIntent(owner, { ...input, idempotencyKey: opaque('lifetime_historical_return') }, handle(), new Date('2030-01-01T00:00:00Z'));
-
-    expect(returned.coreAccess).toEqual(original.coreAccess);
-    expect(await database.select().from(schema.foundingLifetimeClaimSchema).where(eq(schema.foundingLifetimeClaimSchema.salonId, saved.data.salonId))).toEqual([historical]);
-    expect(await starterLots(saved.data.salonId)).toEqual(originalCredits);
-    expect(originalCredits).toHaveLength(1);
   });
 
   it('keeps core access active while text verification is pending and grants texts only once after verification', async () => {
@@ -2244,7 +2210,7 @@ describe.sequential('account-backed onboarding persistence', () => {
     expect(await starterLots(second.data.salonId)).toHaveLength(0);
   });
 
-  it('saves free core access after the former deadline and retains the saved site', async () => {
+  it('refuses new claims at the deadline atomically while retaining the saved site', async () => {
     const owner = identity('lifetime_closed');
     const saved = await claimOnboardingDraft(owner, request('lifetime_closed'), handle());
     if (saved.kind !== 'success') {
@@ -2252,17 +2218,16 @@ describe.sequential('account-backed onboarding persistence', () => {
     }
     const input = { siteId: saved.data.siteId, intent: 'founding_interest' as const, idempotencyKey: opaque('lifetime_closed_plan') };
 
-    const accepted = await saveOnboardingPlanIntent(owner, input, handle(), new Date('2027-01-02T05:00:00Z'));
-    const replay = await saveOnboardingPlanIntent(owner, input, handle(), new Date('2030-01-01T00:00:00Z'));
-
-    expect(accepted.coreAccess?.status).toBe('active');
-    expect(replay.coreAccess).toEqual(accepted.coreAccess);
-    expect(await database.select().from(schema.foundingLifetimeClaimSchema).where(eq(schema.foundingLifetimeClaimSchema.salonId, saved.data.salonId))).toHaveLength(1);
-    expect(await starterLots(saved.data.salonId)).toHaveLength(0);
+    await expect(saveOnboardingPlanIntent(owner, input, handle(), new Date('2027-01-02T05:00:00Z'))).rejects.toMatchObject({ code: 'FOUNDING_OFFER_CLOSED', status: 409 });
+    expect(await database.select().from(schema.foundingLifetimeClaimSchema).where(eq(schema.foundingLifetimeClaimSchema.salonId, saved.data.salonId))).toHaveLength(0);
 
     const [site] = await database.select().from(schema.onboardingSiteSchema).where(eq(schema.onboardingSiteSchema.id, saved.data.siteId));
 
-    expect(site?.planIntent).toBe('founding_interest');
+    expect(site?.planIntent).toBeNull();
+
+    const accepted = await saveOnboardingPlanIntent(owner, input, handle(), new Date('2027-01-02T04:59:59.999Z'));
+
+    expect(accepted.coreAccess?.status).toBe('active');
   });
 
   it('does not change an optional paid text subscription when granting lifetime software', async () => {

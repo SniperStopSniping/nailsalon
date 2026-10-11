@@ -45,7 +45,7 @@ export async function grantFoundingLifetimeAccess(
   input: { salonId: string; siteId: string; ownerAdminId: string; now?: Date },
 ): Promise<{ ok: true; access: FoundingLifetimeAccess } | { ok: false; reason: 'FOUNDING_OFFER_CLOSED' }> {
   const existing = await getFoundingLifetimeAccess(input.salonId, tx);
-  // Preserve the original record and rights on retries, including v1 claims.
+  // Lifetime rights and response-loss retries survive the acquisition window.
   if (existing) {
     return { ok: true, access: existing };
   }

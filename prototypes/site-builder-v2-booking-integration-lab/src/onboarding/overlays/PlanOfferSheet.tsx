@@ -36,14 +36,14 @@ export const createLabPlanConfiguration = (
   options: foundingMode === 'hidden'
     ? []
     : [{
-        badge: 'No subscription',
-        description: 'Accept bookings and manage your salon with no monthly software fee.',
+        badge: 'Ends Jan 1, 2027',
+        description: 'Join during our founding period and never pay a monthly software fee for the core app.',
         enabled: true,
         features: ['Online booking', 'Website builder', 'Service menu', 'Client management', 'Reviews & rebooking', 'Premium layouts & customization', '100 free texts included', 'Unlimited emails'],
         id: 'founding',
         planIntent: 'founding',
         priceLabel: '$0/month for life',
-        title: 'Your free core plan',
+        title: 'Founding salon offer',
       }],
   showPlanComparison: false,
 });
@@ -95,7 +95,7 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
           : (
               <LusterEntryShell variant="offer">
                 <header className="luster-entry-header">
-                  <h2>Your core Luster app is free</h2>
+                  <h2>The founding offer is unavailable</h2>
                   <p>Your saved salon is still ready for you.</p>
                 </header>
                 <button className="luster-entry-button luster-entry-button--primary" type="button" disabled={choosing} onClick={choose}>

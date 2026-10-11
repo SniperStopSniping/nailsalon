@@ -22,7 +22,7 @@ for (const width of [320, 375, 390, 430, 1280]) {
       if (screen === 'offer') {
         await expect(page.getByRole('button', { name: 'Claim my free lifetime plan' })).toBeInViewport();
 
-        await page.getByText('Optional one-time SMS top-ups. Purchased texts never expire. No subscription required.').scrollIntoViewIfNeeded();
+        await page.getByText('Additional SMS, AI receptionist, phone calls, and other usage-based services are billed separately.').scrollIntoViewIfNeeded();
 
         await expect(page.getByText('100 free texts included')).toBeVisible();
       }
