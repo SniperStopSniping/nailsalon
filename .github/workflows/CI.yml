@@ -299,6 +299,9 @@ jobs:
               # Readability regression checks: explicitly pin the already-resolved
               # development-only axe-core 4.10.1; resolved package graph unchanged.
               5f3f0c31d902dd4ff5494d02d536de4cf04784ad:ac14f583f5e9bde0910231da97b64d28e24b252b) ;;
+              # Sharp 0.35.5: patched production SVG/native image decoders
+              # (GHSA-wq5f-xc86-pv6w); Next deduplicated, Storybook dev-only.
+              ea2893563cf943de48bbd6ba91881946fe4c9f98:da93db3e2a143e0b8694b3231265f4e8b8885d5a) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
