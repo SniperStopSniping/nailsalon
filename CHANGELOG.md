@@ -1,3 +1,11 @@
+## [1.142.23](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.22...v1.142.23) (2026-10-11)
+
+
+### Performance Improvements
+
+* load dashboard tools on demand ([#418](https://github.com/SniperStopSniping/nailsalon/issues/418)) ([e714479](https://github.com/SniperStopSniping/nailsalon/commit/e714479b2feb7a75bca9932d3a4b41f2e45ff642))
+* load owner workspace alongside optional settings ([#419](https://github.com/SniperStopSniping/nailsalon/issues/419)) ([cecfa46](https://github.com/SniperStopSniping/nailsalon/commit/cecfa4632287367f59a510953e09e4416b578bb7))
+
 ## [1.142.22](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.21...v1.142.22) (2026-10-10)
 
 
