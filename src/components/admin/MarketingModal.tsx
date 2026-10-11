@@ -472,9 +472,9 @@ function PromotionEditor({
 // shared resolver as the Integrations app; Results show only measurable facts.
 // =============================================================================
 
-type MarketingView = 'home' | 'compose' | 'followups' | 'messages' | 'phone-receptionist' | 'offers' | 'next-visit' | 'rebooking-prompt' | 'rebooking-reminders' | 'smart-fit' | 'campaigns' | 'results' | 'reviews';
+type MarketingView = 'home' | 'compose' | 'followups' | 'messages' | 'offers' | 'next-visit' | 'rebooking-prompt' | 'rebooking-reminders' | 'smart-fit' | 'campaigns' | 'results' | 'reviews';
 
-const MARKETING_VIEWS: MarketingView[] = ['home', 'compose', 'followups', 'messages', 'phone-receptionist', 'offers', 'next-visit', 'rebooking-prompt', 'rebooking-reminders', 'smart-fit', 'campaigns', 'results', 'reviews'];
+const MARKETING_VIEWS: MarketingView[] = ['home', 'compose', 'followups', 'messages', 'offers', 'next-visit', 'rebooking-prompt', 'rebooking-reminders', 'smart-fit', 'campaigns', 'results', 'reviews'];
 
 function isMarketingView(value: string | null): value is MarketingView {
   return value !== null && (MARKETING_VIEWS as string[]).includes(value);
@@ -485,7 +485,6 @@ const VIEW_TITLES: Record<MarketingView, string> = {
   'compose': 'Write a message',
   'followups': 'Client follow-ups',
   'messages': 'Appointment Messages & Reminders',
-  'phone-receptionist': 'Phone receptionist',
   'offers': 'Offers',
   'next-visit': 'Next Visit Offer',
   'rebooking-prompt': 'Rebooking Prompt',
@@ -1060,19 +1059,6 @@ export function MarketingModal({
     );
   }
 
-  if (view === 'phone-receptionist') {
-    return (
-      <SettingsModal
-        key={`${salonSlug}:${view}`}
-        initialView="phone-receptionist"
-        leafOnly
-        leafBackLabel="Marketing & Messages"
-        onClose={() => backTo('home')}
-        salonSlug={salonSlug}
-      />
-    );
-  }
-
   return (
     <div className="relative flex min-h-full w-full flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]">
       <div className="sticky top-0 z-20 bg-[var(--owner-ground)] backdrop-blur-md">
@@ -1177,13 +1163,6 @@ export function MarketingModal({
                           detail: 'Invite clients to reserve their next visit on the booking confirmation page.',
                           status: 'Manage',
                           onClick: () => openView('rebooking-prompt'),
-                        })}
-                        {homeRow({
-                          testId: 'marketing-home-phone-receptionist',
-                          title: 'Phone receptionist',
-                          detail: 'Answer inbound calls, manage booking permission and test the voice agent.',
-                          status: 'Manage',
-                          onClick: () => openView('phone-receptionist'),
                         })}
                         {homeRow({
                           testId: 'marketing-home-offers',

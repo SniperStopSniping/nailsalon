@@ -78,6 +78,7 @@ test('mobile Marketing consolidates appointment messages and keeps URL history c
 
   await expect(page.getByTestId('marketing-home')).toBeVisible();
   await expect(page.getByTestId('marketing-home-appointment-messages')).toBeVisible();
+  await expect(page.getByTestId('marketing-home-phone-receptionist')).toHaveCount(0);
   await expect(page.getByTestId('marketing-home-texting-settings')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
@@ -113,6 +114,24 @@ test('mobile Marketing consolidates appointment messages and keeps URL history c
   await page.goBack();
 
   await expect(page).not.toHaveURL(/view=messages/);
+  expect(unexpected).toEqual([]);
+});
+
+test('an old phone receptionist bookmark opens supported marketing tools without a voice settings request', async ({ page }) => {
+  const { mutations, unexpected } = await mockLocalApis(page);
+  const voiceRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/voice-receptionist')) {
+      voiceRequests.push(request.url());
+    }
+  });
+  await page.goto('/?salon=isla&app=marketing&view=phone-receptionist');
+
+  await expect(page.getByTestId('marketing-home')).toBeVisible();
+  await expect(page.getByTestId('marketing-home-appointment-messages')).toBeVisible();
+  await expect(page.getByTestId('marketing-home-phone-receptionist')).toHaveCount(0);
+  expect(voiceRequests).toEqual([]);
+  expect(mutations).toEqual([]);
   expect(unexpected).toEqual([]);
 });
 
