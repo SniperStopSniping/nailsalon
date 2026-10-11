@@ -2163,6 +2163,9 @@ describe.sequential('account-backed onboarding persistence', () => {
     expect(first.coreAccess).toEqual(replay.coreAccess);
     expect(first.coreAccess).toEqual(newKey.coreAccess);
     expect(first.starterCreditsStatus).toBe('already_claimed');
+    expect(first.confirmationMessage).toBe('Your core Luster app is now free for life. Additional texts are optional one-time purchases and never expire. Nothing was charged today.');
+    expect(replay.confirmationMessage).toBe(first.confirmationMessage);
+    expect(newKey.confirmationMessage).toBe(first.confirmationMessage);
 
     const claims = await database.select().from(schema.foundingLifetimeClaimSchema).where(eq(schema.foundingLifetimeClaimSchema.salonId, saved.data.salonId));
 
