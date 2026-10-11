@@ -1,3 +1,10 @@
+## [1.142.34](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.33...v1.142.34) (2026-10-11)
+
+
+### Bug Fixes
+
+* preserve founding offer and remove voice upsells ([#430](https://github.com/SniperStopSniping/nailsalon/issues/430)) ([9990107](https://github.com/SniperStopSniping/nailsalon/commit/9990107967ad1642fdfd6daa23a40f701bf71ae5))
+
 ## [1.142.33](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.32...v1.142.33) (2026-10-11)
 
 
