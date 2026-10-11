@@ -1,3 +1,10 @@
+## [1.142.32](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.31...v1.142.32) (2026-10-11)
+
+
+### Bug Fixes
+
+* initialize browser error reporting with public settings ([47a6df7](https://github.com/SniperStopSniping/nailsalon/commit/47a6df7f04f22d0a15281f8cf8cdbd003d47a720))
+
 ## [1.142.31](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.30...v1.142.31) (2026-10-11)
 
 
