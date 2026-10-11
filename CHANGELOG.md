@@ -1,3 +1,10 @@
+## [1.142.35](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.34...v1.142.35) (2026-10-11)
+
+
+### Bug Fixes
+
+* keep shared-email booking clients separate ([0b83a2b](https://github.com/SniperStopSniping/nailsalon/commit/0b83a2b48e112284c109133736db64d3a7361630))
+
 ## [1.142.34](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.33...v1.142.34) (2026-10-11)
 
 
