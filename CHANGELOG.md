@@ -1,3 +1,10 @@
+## [1.142.26](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.25...v1.142.26) (2026-10-11)
+
+
+### Bug Fixes
+
+* support platform-admin password autofill ([81e2ce4](https://github.com/SniperStopSniping/nailsalon/commit/81e2ce494c5bb57b740c9a91db8c84b57c7e564e))
+
 ## [1.142.25](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.24...v1.142.25) (2026-10-11)
 
 
