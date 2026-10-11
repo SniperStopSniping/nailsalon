@@ -80,7 +80,7 @@ vi.mock('./IntegrationsModal', () => ({
 }));
 
 describe('AdminModalHost', () => {
-  it.each(['bookings', 'plan-usage'] as const)('forwards salon context and limits credit focus to the correct %s surface', (app) => {
+  it.each(['bookings', 'plan-usage'] as const)('forwards salon context and limits credit focus to the correct %s surface', async (app) => {
     appModalSpy.mockClear();
     render(
       <AdminModalHost
@@ -123,12 +123,12 @@ describe('AdminModalHost', () => {
       />,
     );
 
-    expect(screen.getByText(app === 'bookings' ? 'appt_today:isla-nail-studio' : 'management:isla-nail-studio')).toBeInTheDocument();
+    expect(await screen.findByText(app === 'bookings' ? 'appt_today:isla-nail-studio' : 'management:isla-nail-studio')).toBeInTheDocument();
     expect(appModalSpy.mock.calls.find(([props]) => props.isOpen)?.[0].returnFocusKey)
       .toBe(app === 'plan-usage' ? 'sms:isla-nail-studio:today:topup' : undefined);
   });
 
-  it('forwards a dashboard retention alert into the exact client profile', () => {
+  it('forwards a dashboard retention alert into the exact client profile', async () => {
     const onOpenPromotionSettings = vi.fn();
     render(
       <AdminModalHost
@@ -171,7 +171,7 @@ describe('AdminModalHost', () => {
       />,
     );
 
-    expect(screen.getByText('client:client_bob')).toBeInTheDocument();
+    expect(await screen.findByText('client:client_bob')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Open promotion settings' }));
 
@@ -181,7 +181,7 @@ describe('AdminModalHost', () => {
     );
   });
 
-  it('routes the integrations app to the IntegrationsModal with its deep-linked view', () => {
+  it('routes the integrations app to the IntegrationsModal with its deep-linked view', async () => {
     render(
       <AdminModalHost
         activeModal="integrations"
@@ -224,7 +224,7 @@ describe('AdminModalHost', () => {
     );
 
     expect(
-      screen.getByText(
+      await screen.findByText(
         'integrations:isla-nail-studio:google:Google Calendar connected. Choose which calendars Luster should use.',
       ),
     ).toBeInTheDocument();
@@ -232,7 +232,7 @@ describe('AdminModalHost', () => {
 
   // OP-011: the root layout's SalonProvider is filled from a cookie the owner
   // workspace never sets, so modals reading `useSalon()` saw an empty salon.
-  it('re-provides the workspace\'s active salon to modals that read the salon context', () => {
+  it('re-provides the workspace\'s active salon to modals that read the salon context', async () => {
     render(
       <SalonProvider salonSlug="cookie-salon" salonName="Cookie Salon">
         <AdminModalHost
@@ -276,10 +276,10 @@ describe('AdminModalHost', () => {
       </SalonProvider>,
     );
 
-    expect(screen.getByTestId('context-salon-slug')).toHaveTextContent('nail-salon-no5');
+    expect(await screen.findByTestId('context-salon-slug')).toHaveTextContent('nail-salon-no5');
   });
 
-  it('inherits the outer salon context when the workspace has not resolved a salon yet', () => {
+  it('inherits the outer salon context when the workspace has not resolved a salon yet', async () => {
     render(
       <SalonProvider salonSlug="cookie-salon" salonName="Cookie Salon">
         <AdminModalHost
@@ -321,6 +321,6 @@ describe('AdminModalHost', () => {
       </SalonProvider>,
     );
 
-    expect(screen.getByTestId('context-salon-slug')).toHaveTextContent('cookie-salon');
+    expect(await screen.findByTestId('context-salon-slug')).toHaveTextContent('cookie-salon');
   });
 });

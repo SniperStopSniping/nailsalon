@@ -161,12 +161,22 @@ export async function openAdminBookings(page: Page) {
     await expect(calendarNav).toHaveAttribute('aria-current', 'page');
   }
 
+  await selectWeeklyCalendarView(page);
+}
+
+export async function selectWeeklyCalendarView(page: Page) {
   const weeklyView = page.getByRole('button', { name: 'Weekly', exact: true });
+  const nextWeek = page.getByRole('button', { name: /next week/i });
+
+  // Calendar tools download on first open. Wait for their actual controls
+  // before choosing a view; an immediate visibility probe can skip Weekly.
+  await expect(weeklyView.or(nextWeek).first()).toBeVisible();
+
   if (await weeklyView.isVisible().catch(() => false)) {
     await weeklyView.click();
   }
 
-  await expect(page.getByRole('button', { name: /next week/i })).toBeVisible();
+  await expect(nextWeek).toBeVisible();
 }
 
 async function getVisibleCalendarRange(page: Page) {

@@ -1463,12 +1463,10 @@ describe('AdminDashboardPage', () => {
       onQuickAction?: (actionId: string) => void;
     };
 
-    expect(newAppointmentModalSpy.mock.calls.at(-1)?.[0]).toMatchObject({
-      isOpen: false,
-      salonSlug: 'salon-b',
-    });
+    expect(newAppointmentModalSpy).not.toHaveBeenCalled();
 
     act(() => workspaceProps.onQuickAction?.('new-appointment'));
+    await waitFor(() => expect(newAppointmentModalSpy).toHaveBeenCalled());
 
     const openProps = newAppointmentModalSpy.mock.calls.at(-1)?.[0] as {
       isOpen: boolean;

@@ -1,30 +1,31 @@
-import { useCallback, useRef } from 'react';
+import { lazy, useCallback, useRef } from 'react';
 
-import {
-  AnalyticsWidgets,
-  type AnalyticsWidgetsProps,
-} from '@/components/admin/AnalyticsWidgets';
+import type { AnalyticsWidgetsProps } from '@/components/admin/AnalyticsWidgets';
 import type { AppId } from '@/components/admin/AppGrid';
-import { AppModal } from '@/components/admin/AppModal';
-import { AppointmentsModal } from '@/components/admin/AppointmentsModal';
-import { ClientsModal } from '@/components/admin/ClientsModal';
-import { type FraudSignal, FraudSignalsModal } from '@/components/admin/FraudSignalsModal';
-import { IntegrationsModal, type IntegrationsView } from '@/components/admin/IntegrationsModal';
-import { MarketingModal } from '@/components/admin/MarketingModal';
-import { NoShowRecordsModal } from '@/components/admin/NoShowRecordsModal';
-import { NotificationsModal } from '@/components/admin/NotificationsModal';
-import { OwnerManagementModal } from '@/components/admin/OwnerManagementModal';
-import { PaymentsModal } from '@/components/admin/PaymentsModal';
-import { PortfolioModal } from '@/components/admin/PortfolioModal';
-import { RewardsReviewsModal } from '@/components/admin/RewardsReviewsModal';
-import { ScheduleCalendarModal } from '@/components/admin/ScheduleCalendarModal';
-import { ServicesModal } from '@/components/admin/ServicesModal';
-import { SettingsModal } from '@/components/admin/SettingsModal';
-import { TeamModal } from '@/components/admin/TeamModal';
-import { WalkInModal } from '@/components/admin/WalkInModal';
+import { DeferredAppModal as AppModal } from '@/components/admin/DeferredAdminContent';
+import { DeferredWalkInModal as WalkInModal } from '@/components/admin/DeferredOwnerDialogs';
+import type { FraudSignal } from '@/components/admin/FraudSignalsModal';
+import type { IntegrationsView } from '@/components/admin/IntegrationsModal';
 import { isOwnerManagementApp } from '@/libs/ownerNavigation';
 import { SalonProvider, useSalon } from '@/providers/SalonProvider';
 import type { RetentionStage } from '@/types/retention';
+
+const AnalyticsWidgets = lazy(() => import('./AnalyticsWidgets').then(module => ({ default: module.AnalyticsWidgets })));
+const AppointmentsModal = lazy(() => import('./AppointmentsModal').then(module => ({ default: module.AppointmentsModal })));
+const ClientsModal = lazy(() => import('./ClientsModal').then(module => ({ default: module.ClientsModal })));
+const FraudSignalsModal = lazy(() => import('./FraudSignalsModal').then(module => ({ default: module.FraudSignalsModal })));
+const IntegrationsModal = lazy(() => import('./IntegrationsModal').then(module => ({ default: module.IntegrationsModal })));
+const MarketingModal = lazy(() => import('./MarketingModal').then(module => ({ default: module.MarketingModal })));
+const NoShowRecordsModal = lazy(() => import('./NoShowRecordsModal').then(module => ({ default: module.NoShowRecordsModal })));
+const NotificationsModal = lazy(() => import('./NotificationsModal').then(module => ({ default: module.NotificationsModal })));
+const OwnerManagementModal = lazy(() => import('./OwnerManagementModal').then(module => ({ default: module.OwnerManagementModal })));
+const PaymentsModal = lazy(() => import('./PaymentsModal').then(module => ({ default: module.PaymentsModal })));
+const PortfolioModal = lazy(() => import('./PortfolioModal').then(module => ({ default: module.PortfolioModal })));
+const RewardsReviewsModal = lazy(() => import('./RewardsReviewsModal').then(module => ({ default: module.RewardsReviewsModal })));
+const ScheduleCalendarModal = lazy(() => import('./ScheduleCalendarModal').then(module => ({ default: module.ScheduleCalendarModal })));
+const ServicesModal = lazy(() => import('./ServicesModal').then(module => ({ default: module.ServicesModal })));
+const SettingsModal = lazy(() => import('./SettingsModal').then(module => ({ default: module.SettingsModal })));
+const TeamModal = lazy(() => import('./TeamModal').then(module => ({ default: module.TeamModal })));
 
 type PromotionSettingsStage = Extract<
   RetentionStage,
@@ -163,11 +164,12 @@ export function AdminModalHost({
       salonContent={outerSalon.salonContent}
     >
       {isOwnerManagementApp(activeModal) && (
-        <AppModal isOpen onClose={() => (managementClose.current ?? onCloseModal)()} allowDragToDismiss={false} returnFocusKey={activeModal === 'plan-usage' ? creditShortcutReturnFocusKey : null}>
+        <AppModal key={`${activeSalonId}:${activeModal}`} label={{ 'hours': 'Hours & availability', 'booking-rules': 'Booking rules', 'plan-usage': 'Plan & usage', 'help': 'Help' }[activeModal]} isOpen onClose={() => (managementClose.current ?? onCloseModal)()} allowDragToDismiss={false} returnFocusKey={activeModal === 'plan-usage' ? creditShortcutReturnFocusKey : null}>
           <OwnerManagementModal key={`${activeSalonId}:${activeModal}`} registerClose={registerManagementClose} app={activeModal} salonSlug={activeSalonSlug} salonId={activeSalonId} isFreeSolo={isFreeSolo} teamAvailable={teamAppAvailable} onClose={onCloseModal} onOpenApp={onOpenApp} />
         </AppModal>
       )}
       <AppModal
+        label="Appointments"
         isOpen={activeModal === 'bookings'}
         onClose={onCloseModal}
         allowDragToDismiss={false}
@@ -180,6 +182,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Settings"
         isOpen={activeModal === 'settings'}
         onClose={onCloseModal}
       >
@@ -197,6 +200,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Reports"
         isOpen={activeModal === 'analytics'}
         onClose={onCloseModal}
       >
@@ -208,6 +212,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Clients"
         isOpen={activeModal === 'clients'}
         onClose={onCloseModal}
       >
@@ -220,6 +225,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Team"
         isOpen={activeModal === 'team' || activeModal === 'staff' || activeModal === 'staff-ops'}
         onClose={onCloseModal}
       >
@@ -241,6 +247,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Services"
         isOpen={activeModal === 'services'}
         onClose={onCloseModal}
         // The menu is the owner's densest list. It keeps an always-visible
@@ -256,6 +263,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Marketing"
         isOpen={activeModal === 'marketing'}
         onClose={onClosePromotionSettings ?? onCloseModal}
       >
@@ -272,6 +280,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Integrations"
         isOpen={activeModal === 'integrations'}
         onClose={onCloseModal}
         allowDragToDismiss={false}
@@ -288,6 +297,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Portfolio"
         isOpen={activeModal === 'portfolio'}
         onClose={onCloseModal}
       >
@@ -295,6 +305,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Rewards & reviews"
         isOpen={activeModal === 'rewards-reviews' || activeModal === 'rewards' || activeModal === 'reviews'}
         onClose={onCloseModal}
       >
@@ -307,6 +318,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Payments"
         isOpen={activeModal === 'payments'}
         onClose={onCloseModal}
       >
@@ -319,6 +331,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="No-show records"
         isOpen={activeModal === 'no-show-records'}
         onClose={onCloseModal}
         allowDragToDismiss={false}
@@ -327,6 +340,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Activity"
         isOpen={showNotifications}
         onClose={() => setShowNotifications(false)}
       >
@@ -334,6 +348,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Booking alerts"
         isOpen={showFraudSignals}
         onClose={() => setShowFraudSignals(false)}
       >
@@ -349,6 +364,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
+        label="Calendar"
         isOpen={showScheduleCalendar}
         onClose={onCloseModal}
         allowDragToDismiss={false}
