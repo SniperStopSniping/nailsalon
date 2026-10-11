@@ -1,3 +1,10 @@
+## [1.142.36](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.35...v1.142.36) (2026-10-11)
+
+
+### Bug Fixes
+
+* keep manually added household clients separate ([1239b62](https://github.com/SniperStopSniping/nailsalon/commit/1239b621ca9a2d6a5880bc9c645bcd562778f950))
+
 ## [1.142.35](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.34...v1.142.35) (2026-10-11)
 
 
