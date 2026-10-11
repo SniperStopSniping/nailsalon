@@ -159,3 +159,66 @@ test('actual L1 public booking keeps automatic preparation quantity and exactly 
 
   expect(cancelled.ok(), await cancelled.text()).toBeTruthy();
 });
+
+test('household customers sharing an email retain separate profiles and management links', async ({ page }, testInfo) => {
+  const email = `household-${randomUUID()}@example.invalid`;
+  const people = [
+    { name: 'Synthetic Household One', phone: '4165550171' },
+    { name: 'Synthetic Household Two', phone: '4165550172' },
+  ];
+  const tokens: string[] = [];
+  for (const [index, person] of people.entries()) {
+    await page.goto(`/book/service?salonSlug=${SLUG}`);
+    await page.getByTestId(`service-card-${SERVICE}`).click();
+    await page.getByTestId('service-continue-button').click();
+    await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
+    if (new URL(page.url()).pathname.endsWith('/book/tech')) {
+      await page.getByRole('button', { name: /Synthetic L1 Tech/ }).click();
+    }
+
+    await expect(page).toHaveURL(/\/book\/time/);
+
+    const selectionUrl = new URL(page.url());
+    await selectBookableSlotFromApi(page, {
+      technicianId: selectionUrl.searchParams.get('techId') === 'any' ? null : selectionUrl.searchParams.get('techId'),
+      startDayOffset: 7 + index,
+      baseServiceId: SERVICE,
+      selectedAddOns: selectionUrl.searchParams.get('selectedAddOns'),
+      locationId: selectionUrl.searchParams.get('locationId'),
+    });
+    await page.getByLabel('Customer name', { exact: true }).fill(person.name);
+    await page.getByLabel('Customer email', { exact: true }).fill(email);
+    await page.getByLabel('Customer phone', { exact: true }).fill(person.phone);
+    const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/appointments') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: /confirm appointment/i }).click();
+    const response = await responsePromise;
+    const body = await response.json();
+
+    expect(response.status(), JSON.stringify(body)).toBe(201);
+    await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
+
+    tokens.push(new URL(body.data.manageUrl, page.url()).pathname.split('/').filter(Boolean).at(-1)!);
+    await page.screenshot({ path: path.join(process.cwd(), `artifacts/l1-public-booking/${testInfo.project.name}-household-${index + 1}.png`), fullPage: true, animations: 'disabled' });
+  }
+  const clients = await database.query('SELECT id, phone FROM salon_client WHERE salon_id = $1 AND email = $2 ORDER BY phone', [SALON, email]);
+  const appointments = await database.query('SELECT id, salon_client_id, client_phone, status FROM appointment WHERE salon_id = $1 AND client_email = $2 ORDER BY client_phone', [SALON, email]);
+
+  expect(clients.rows).toHaveLength(2);
+  expect(appointments.rows).toHaveLength(2);
+  expect(new Set(tokens).size).toBe(2);
+
+  for (const [index, person] of people.entries()) {
+    expect(clients.rows[index].phone).toBe(person.phone);
+    expect(appointments.rows[index]).toMatchObject({ salon_client_id: clients.rows[index].id, client_phone: person.phone, status: 'confirmed' });
+  }
+  const cancelled = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(tokens[0]!)}`, { data: { action: 'cancel', reason: 'client_request' } });
+
+  expect(cancelled.ok(), await cancelled.text()).toBeTruthy();
+
+  const afterCancel = await database.query('SELECT client_phone, status FROM appointment WHERE salon_id = $1 AND client_email = $2 ORDER BY client_phone', [SALON, email]);
+
+  expect(afterCancel.rows).toEqual([
+    { client_phone: people[0]!.phone, status: 'cancelled' },
+    { client_phone: people[1]!.phone, status: 'confirmed' },
+  ]);
+});

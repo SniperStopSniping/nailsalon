@@ -68,6 +68,15 @@ export type CanonicalSalonClientIdentity = SalonClientLineageIdentity & {
   matchedBy: NormalizedClientIdentity[];
 };
 
+type CanonicalSalonClientIdentityInput = {
+  salonId: string;
+  phone?: string | null;
+  email?: string | null;
+  allowArchived?: boolean;
+  // Server-selected matching policy. This never authorizes access to a client.
+  matchMode?: 'booking';
+};
+
 export type CanonicalSalonClientIdentityOutcome =
   | {
     status: 'resolved_terminal';
@@ -728,12 +737,7 @@ export async function getSalonClientLineageIdentityWithHandle(
 
 export async function resolveCanonicalSalonClientIdentityOutcomeWithHandle(
   handle: LifecycleSqlHandle,
-  input: {
-    salonId: string;
-    phone?: string | null;
-    email?: string | null;
-    allowArchived?: boolean;
-  },
+  input: CanonicalSalonClientIdentityInput,
 ): Promise<CanonicalSalonClientIdentityOutcome> {
   const salonId = requireInput(input.salonId, 'salonId');
   const identities = normalizeClientIdentityInput(input);
@@ -746,6 +750,39 @@ export async function resolveCanonicalSalonClientIdentityOutcomeWithHandle(
 
   const phone = identities.find(identity => identity.kind === 'phone')?.value;
   const email = identities.find(identity => identity.kind === 'email')?.value;
+  if (input.matchMode === 'booking') {
+    // A household can share an email, but each booking must retain its own
+    // phone identity. Reuse strict resolution for phone aliases, merged
+    // lineages and archived/ambiguous contacts; never attach by email alone.
+    if (!phone) {
+      return { status: 'invalid_or_ambiguous_identity', reason: 'INVALID_CLIENT_STATE' };
+    }
+    const phoneOutcome = await resolveCanonicalSalonClientIdentityOutcomeWithHandle(handle, {
+      salonId,
+      phone,
+      allowArchived: input.allowArchived,
+    });
+    if (phoneOutcome.status !== 'resolved_terminal' || !email) {
+      return phoneOutcome;
+    }
+    if (phoneOutcome.identity.emails.includes(email)) {
+      return {
+        status: 'resolved_terminal',
+        identity: { ...phoneOutcome.identity, matchedBy: identities },
+      };
+    }
+    // A new email does not edit an existing client's saved contact. An email
+    // identifying another client (or changing lineage) remains a conflict.
+    const emailOutcome = await resolveCanonicalSalonClientIdentityOutcomeWithHandle(handle, {
+      salonId,
+      email,
+      allowArchived: input.allowArchived,
+    });
+    if (emailOutcome.status === 'zero_identity_candidates') {
+      return phoneOutcome;
+    }
+    return { status: 'invalid_or_ambiguous_identity', reason: 'INVALID_CLIENT_STATE' };
+  }
   const candidateResult = await handle.execute(sql`
     select distinct candidate.id
     from (
@@ -836,12 +873,7 @@ export async function resolveCanonicalSalonClientIdentityOutcomeWithHandle(
 
 export async function resolveCanonicalSalonClientIdentityWithHandle(
   handle: LifecycleSqlHandle,
-  input: {
-    salonId: string;
-    phone?: string | null;
-    email?: string | null;
-    allowArchived?: boolean;
-  },
+  input: CanonicalSalonClientIdentityInput,
 ): Promise<CanonicalSalonClientIdentity | null> {
   if (normalizeClientIdentityInput(input).length === 0) {
     return null;
@@ -862,24 +894,14 @@ export async function resolveCanonicalSalonClientIdentityWithHandle(
   return outcome.identity;
 }
 
-export function resolveCanonicalSalonClientIdentity(input: {
-  salonId: string;
-  phone?: string | null;
-  email?: string | null;
-  allowArchived?: boolean;
-}): Promise<CanonicalSalonClientIdentity | null> {
+export function resolveCanonicalSalonClientIdentity(input: CanonicalSalonClientIdentityInput): Promise<CanonicalSalonClientIdentity | null> {
   return resolveCanonicalSalonClientIdentityWithHandle(
     db as LifecycleSqlHandle,
     input,
   );
 }
 
-export function resolveCanonicalSalonClientIdentityOutcome(input: {
-  salonId: string;
-  phone?: string | null;
-  email?: string | null;
-  allowArchived?: boolean;
-}): Promise<CanonicalSalonClientIdentityOutcome> {
+export function resolveCanonicalSalonClientIdentityOutcome(input: CanonicalSalonClientIdentityInput): Promise<CanonicalSalonClientIdentityOutcome> {
   return resolveCanonicalSalonClientIdentityOutcomeWithHandle(
     db as LifecycleSqlHandle,
     input,
