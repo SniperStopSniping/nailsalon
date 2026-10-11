@@ -28,7 +28,7 @@ import en from '@/locales/en.json';
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import { SITE_BUILDER_STORAGE_KEY } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
-import { saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
+import { ONBOARDING_STORAGE_KEY, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 
 // Real integration and offer components; isolated identity and status response.
 // No account, entitlement, credit or provider writes.
@@ -39,6 +39,19 @@ if (new URLSearchParams(location.search).has('productFonts')) {
   await import('../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/standalone-fonts.css');
 }
 const warnings = new URLSearchParams(location.search).has('warnings');
+const resume = new URLSearchParams(location.search).get('resume');
+if (startup && (resume === 'hours' || resume === 'location_contact') && !localStorage.getItem(ONBOARDING_STORAGE_KEY)) {
+  const { createDanielaFixtureState } = await import('../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/fixtures');
+  const state = createDanielaFixtureState();
+  state.progress.currentScreen = resume;
+  state.progress.lastActiveScreen = resume;
+  state.progress.screenHistory = ['starter', resume];
+  state.progress.visitedScreens = ['starter', resume];
+  state.progress.sessionStatus = 'active';
+  state.recipe.starterDocumentSiteId = 'local-resumed-site';
+  saveOnboardingState(state);
+  localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(initializeStarter('quick_book', { siteId: 'local-resumed-site', siteName: state.profile.businessName })));
+}
 const claim: OnboardingClaimSuccess = {
   claimId: 'fixture-claim',
   created: true,

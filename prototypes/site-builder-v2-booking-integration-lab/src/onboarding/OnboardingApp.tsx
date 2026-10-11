@@ -1,4 +1,3 @@
-import { Download, FlaskConical } from 'lucide-react';
 import {
   lazy,
   type ReactNode,
@@ -17,7 +16,6 @@ import { formatCustomDesignUploadSummary } from '../custom-design/integration/up
 import type { SiteBuilderDocument } from '../model/types';
 import { reconcileV1StarterDocument } from '../model/v1-starter-recipes';
 import { exportSiteBuilderDocument, SITE_BUILDER_STORAGE_KEY } from '../model/validation';
-import { Dialog } from '../ui/Dialog';
 import { ConfirmationDialog } from '../ui/EditorDialogs';
 import type { LabDocumentController } from '../ui/useLabDocument';
 import { BUILDER_HANDOFF_TRIGGER_ID } from './components/action-ids';
@@ -31,11 +29,6 @@ import {
   useCanvaIntegration,
 } from './extras/useCanvaIntegration';
 import { useFeedback } from './feedback/useFeedback';
-import {
-  applyLabReviewFixture,
-  LAB_REVIEW_FIXTURES,
-  type LabReviewFixtureId,
-} from './fixtures';
 import {
   onboardingMediaPort,
   resolveOnboardingImageUrl,
@@ -79,13 +72,14 @@ import {
   StartingPreviewScreen,
 } from './screens/BookingScreens';
 import type { OnboardingStateUpdater } from './screens/DesignScreens';
-import { HoursScreen } from './screens/HoursScreen';
-import { LocationContactScreen } from './screens/LocationContactScreen';
 import { resolveOnboardingDesignSectionId, switchOnboardingStarter } from './state/switchStarter';
 import { useOnboardingState } from './state/useOnboardingState';
 
 // Only the current setup screen is needed. These later screens share the
 // full preview/layout renderer, which must not block the starting choices.
+const HoursScreen = lazy(() => import('./screens/HoursScreen').then(module => ({ default: module.HoursScreen })));
+const LocationContactScreen = lazy(() => import('./screens/LocationContactScreen').then(module => ({ default: module.LocationContactScreen })));
+const LabReviewOptions = lazy(() => import('./overlays/LabReviewOptions').then(module => ({ default: module.LabReviewOptions })));
 const AboutDesignScreen = lazy(() => import('./screens/DesignScreens').then(module => ({ default: module.AboutDesignScreen })));
 const AboutScreen = lazy(() => import('./screens/DesignScreens').then(module => ({ default: module.AboutScreen })));
 const ExtrasScreen = lazy(() => import('./screens/DesignScreens').then(module => ({ default: module.ExtrasScreen })));
@@ -355,62 +349,6 @@ const downloadEventJournal = (json: string) => {
   anchor.click();
   URL.revokeObjectURL(url);
 };
-
-function LabReviewOptions({
-  appliedFixtureId,
-  eventCount,
-  onApply,
-  onClose,
-  onExport,
-  open,
-}: {
-  appliedFixtureId: string | null;
-  eventCount: number;
-  onApply: (id: LabReviewFixtureId) => void;
-  onClose: () => void;
-  onExport: () => void;
-  open: boolean;
-}) {
-  return (
-    <Dialog
-      description="These fixtures affect only this browser-local onboarding Lab."
-      onClose={onClose}
-      open={open}
-      title="Lab review options"
-      variant="sheet"
-    >
-      <div className="onboarding-lab-options">
-        <div className="onboarding-lab-options__intro">
-          <FlaskConical aria-hidden="true" size={22} />
-          <p>Load a deterministic review state. A fixture with a starter rebuilds the exact existing universal starter document.</p>
-        </div>
-        <div className="onboarding-fixture-grid">
-          {LAB_REVIEW_FIXTURES.map(fixture => (
-            <button
-              aria-pressed={appliedFixtureId === fixture.id}
-              className="onboarding-fixture-card"
-              key={fixture.id}
-              type="button"
-              onClick={() => onApply(fixture.id)}
-            >
-              {fixture.label}
-            </button>
-          ))}
-        </div>
-        <footer className="onboarding-overlay-actions">
-          <button type="button" onClick={onExport}>
-            <Download aria-hidden="true" size={16} />
-            {' '}
-            Export event log (
-            {eventCount}
-            )
-          </button>
-          <button className="is-primary" type="button" onClick={onClose}>Done</button>
-        </footer>
-      </div>
-    </Dialog>
-  );
-}
 
 function PausedState({ onResume }: { onResume: () => void }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -1247,7 +1185,7 @@ export function OnboardingApp({
     return result;
   };
 
-  const applyFixture = async (id: LabReviewFixtureId) => {
+  const applyFixture = async (createState: () => OnboardingLabState) => {
     try {
       if (profileMediaOperationsRef.current > 0) {
         setError('Finish the current image upload before loading a Lab fixture.');
@@ -1261,7 +1199,7 @@ export function OnboardingApp({
       const cleanupErrors = await coordinator?.deleteAssetsIfUnreferenced(
         onboardingAssetIds,
       ) ?? [];
-      let state = applyLabReviewFixture(id);
+      let state = createState();
       if (cleanupErrors.length > 0) {
         state = {
           ...state,
@@ -1839,18 +1777,20 @@ export function OnboardingApp({
         onClose={dismissPlan}
         open={planOpen}
       />
-      {auditMode
+      {auditMode && labOptionsOpen
         ? (
-            <LabReviewOptions
-              appliedFixtureId={onboarding.state.reviewOptions.appliedFixtureId}
-              eventCount={onboarding.state.eventJournal.length}
-              onApply={(id) => {
-                void applyFixture(id);
-              }}
-              onClose={() => setLabOptionsOpen(false)}
-              onExport={() => downloadEventJournal(onboarding.eventLogJson())}
-              open={labOptionsOpen}
-            />
+            <DeferredSetupContent label="Opening review options…">
+              <LabReviewOptions
+                appliedFixtureId={onboarding.state.reviewOptions.appliedFixtureId}
+                eventCount={onboarding.state.eventJournal.length}
+                onApply={(createState) => {
+                  void applyFixture(createState);
+                }}
+                onClose={() => setLabOptionsOpen(false)}
+                onExport={() => downloadEventJournal(onboarding.eventLogJson())}
+                open={labOptionsOpen}
+              />
+            </DeferredSetupContent>
           )
         : null}
       <ConfirmationDialog
