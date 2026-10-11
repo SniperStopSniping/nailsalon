@@ -302,6 +302,8 @@ jobs:
               # Sharp 0.35.5: patched production SVG/native image decoders
               # (GHSA-wq5f-xc86-pv6w); Next deduplicated, Storybook dev-only.
               ea2893563cf943de48bbd6ba91881946fe4c9f98:da93db3e2a143e0b8694b3231265f4e8b8885d5a) ;;
+              # Same reviewed Sharp graph after main's 1.142.36 version bump.
+              f5212c5c05d6cf9a89a3e63c2643f03bbf223d75:3500380b6019dbab17b1c137064ee1c1e3963eda) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
