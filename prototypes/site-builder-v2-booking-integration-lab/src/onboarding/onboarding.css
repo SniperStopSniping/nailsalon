@@ -609,13 +609,13 @@ body.onboarding-modal-open {
   position: relative;
   min-width: 0;
   gap: 4px;
-  color: #958b8c;
-  font-size: clamp(0.53rem, 2vw, 0.66rem);
+  color: var(--onboarding-muted);
+  font-size: 0.8125rem;
   font-weight: 730;
-  letter-spacing: 0.025em;
-  line-height: 1.15;
+  letter-spacing: 0;
+  line-height: 1.25;
   text-align: center;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .onboarding-stage-progress__item::before {
@@ -672,11 +672,20 @@ body.onboarding-modal-open {
 .onboarding-essentials-counter {
   margin: 0 0 1px;
   color: var(--onboarding-accent-dark);
-  font-size: 0.67rem;
+  font-size: 0.75rem;
   font-weight: 820;
   line-height: 1.2;
   text-align: right;
   white-space: nowrap;
+}
+
+/* Give all five labels the phone's full width rather than shrinking the text
+   to make room for the remaining-steps message. */
+@media (max-width: 699px) {
+  .onboarding-shell__progress {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
 }
 
 .onboarding-shell__content {
@@ -5656,10 +5665,9 @@ body:has(.onboarding-app) {
   display: none;
 }
 
-.onboarding-app.is-small-phone-fixture .onboarding-essentials-counter {
-  max-width: 72px;
-  font-size: 0.62rem;
-  white-space: normal;
+.onboarding-app.is-small-phone-fixture .onboarding-shell__progress {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
 }
 
 .onboarding-app.is-small-phone-fixture .onboarding-screen {
@@ -5798,16 +5806,6 @@ body:has(.onboarding-app) {
     display: none;
   }
 
-  .onboarding-shell__progress {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 7px;
-  }
-
-  .onboarding-essentials-counter {
-    max-width: 84px;
-    white-space: normal;
-  }
-
   .onboarding-preset-grid,
   .onboarding-style-grid {
     gap: 7px;
@@ -5874,15 +5872,6 @@ body:has(.onboarding-app) {
     padding-left: 8px;
   }
 
-  .onboarding-stage-progress__item {
-    letter-spacing: 0;
-  }
-
-  .onboarding-essentials-counter {
-    max-width: 72px;
-    font-size: 0.62rem;
-  }
-
   .onboarding-screen {
     padding-right: 10px;
     padding-left: 10px;
@@ -5927,7 +5916,6 @@ body:has(.onboarding-app) {
 
   .onboarding-stage-progress__item {
     gap: 2px;
-    font-size: 0.51rem;
   }
 
   .onboarding-screen {
@@ -6025,7 +6013,6 @@ body:has(.onboarding-app) {
 
   .onboarding-stage-progress__item {
     gap: 1px;
-    font-size: 0.52rem;
   }
 
   .onboarding-stage-progress__marker {
