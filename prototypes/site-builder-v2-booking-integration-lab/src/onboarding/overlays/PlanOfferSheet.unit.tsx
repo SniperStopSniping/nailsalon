@@ -29,7 +29,8 @@ describe('PlanOfferSheet', () => {
     expect(within(dialog).queryByText('Compare options')).not.toBeInTheDocument();
     expect(within(dialog).getByText('100 free texts included')).toBeVisible();
     expect(within(dialog).getByText('Unlimited emails')).toBeVisible();
-    expect(within(dialog).getByText(/Additional SMS, AI receptionist/)).toBeVisible();
+    expect(within(dialog).getByText(/Purchased texts never expire/)).toBeVisible();
+    expect(within(dialog).queryByText(/Ends Jan|AI receptionist|49\.99/)).not.toBeInTheDocument();
 
     await waitFor(() => expect(within(dialog).getByRole('heading', { name: 'Your site is ready' })).toHaveFocus());
     const action = within(dialog).getByRole('button', { name: 'Claim my free lifetime plan' });

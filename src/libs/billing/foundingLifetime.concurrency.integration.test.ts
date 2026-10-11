@@ -194,16 +194,29 @@ suite('founding lifetime — real PostgreSQL ownership and replay', () => {
     expect(await database.select().from(schema.billingSubscriptionSchema).where(eq(schema.billingSubscriptionSchema.salonId, f.salonId))).toHaveLength(0);
   });
 
-  it('refuses an expired new claim without writing intent, pricing rights or credits', async () => {
+  it('grants new free-core access after the former deadline without a subscription or duplicate texts', async () => {
     executed += 1;
     const f = await fixture();
 
-    await expect(claim(f, 'expired-new', new Date('2027-01-02T05:00:00Z'))).rejects.toMatchObject({ code: 'FOUNDING_OFFER_CLOSED' });
-    expect(await claims(f.salonId)).toHaveLength(0);
-    expect(await database.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, f.salonId))).toHaveLength(0);
+    const result = await claim(f, 'new-free-core', new Date('2027-01-02T05:00:00Z'));
+    const replay = await claim(f, 'new-free-core', new Date('2030-01-01T00:00:00Z'));
+
+    expect(result.coreAccess).toMatchObject({ status: 'active', expiresAt: null, monthlySoftwarePriceCents: 0 });
+    expect(replay.coreAccess).toEqual(result.coreAccess);
+
+    const records = await claims(f.salonId);
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ termsVersion: 2, terms: { claimDeadline: null, purchasedTextCreditsExpire: false } });
+
+    const credits = await database.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, f.salonId));
+
+    expect(credits).toHaveLength(1);
+    expect(credits[0]).toMatchObject({ amount: 100, bucket: 'starter' });
+    expect(await database.select().from(schema.billingSubscriptionSchema).where(eq(schema.billingSubscriptionSchema.salonId, f.salonId))).toHaveLength(0);
 
     const [site] = await database.select().from(schema.onboardingSiteSchema).where(eq(schema.onboardingSiteSchema.id, f.siteId));
 
-    expect(site?.planIntent).toBeNull();
+    expect(site?.planIntent).toBe('founding_interest');
   });
 });

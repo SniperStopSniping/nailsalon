@@ -2412,7 +2412,7 @@ export async function saveOnboardingPlanIntent(
       if (!claim.ok) {
         throw new OnboardingPersistenceError(
           claim.reason,
-          'The founding offer ended January 1, 2027. Your saved site is ready to open from your dashboard.',
+          'Your free core access could not be saved. Your saved site is ready to open from your dashboard.',
           409,
         );
       }
@@ -2462,7 +2462,7 @@ export async function saveOnboardingPlanIntent(
     const confirmationMessage = savedIntent === 'free'
       ? 'Your free start is ready.'
       : savedIntent === 'founding_interest'
-        ? 'Your core Luster app is now free for life. Additional texts, AI receptionist and phone usage are paid separately. Nothing was charged today.'
+        ? 'Your core Luster app is now free for life. Extra texts are optional one-time purchases and never expire. Nothing was charged today.'
         : 'Monthly interest saved. We’ll let you know when final details are ready. Nothing was charged today.';
     return {
       confirmationMessage,

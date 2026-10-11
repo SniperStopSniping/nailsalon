@@ -1,4 +1,4 @@
-import { ArrowRight, Check, Clock3, Crown, Heart, MessageCircle, ShieldCheck, Sparkles, UsersRound } from 'lucide-react';
+import { ArrowRight, Check, Crown, Heart, MessageCircle, ShieldCheck, Sparkles, UsersRound } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { LusterEntryShell, LusterWordmark } from './LusterEntryShell';
@@ -42,8 +42,8 @@ export function FoundingSalonOffer({
             </h1>
           </header>
           <section className="luster-entry-card luster-offer-card">
-            <h2>The founding offer has ended</h2>
-            <p>New claims closed on January 1, 2027. Your saved site is ready to open, and any lifetime access you already claimed stays active.</p>
+            <h2>Your core Luster app is free</h2>
+            <p>Your saved site is ready to open. There is no monthly software subscription, and any lifetime access you already claimed stays active.</p>
           </section>
           <footer className="luster-offer-claim">
             <button className="luster-entry-button luster-entry-button--primary" type="button" disabled={!onContinue} onClick={onContinue}>
@@ -66,27 +66,23 @@ export function FoundingSalonOffer({
             Your site is ready
           </p>
           <h1>
-            Lock in Luster
+            Your Luster app
             <br />
             <em>free for life</em>
           </h1>
-          <p>Join by January 1, 2027 and keep the core Luster app free for life. Perfect for nail techs and salons ready to grow.</p>
+          <p>Your website, booking and salon tools, with no monthly software subscription. Built for nail techs and salons ready to grow.</p>
         </header>
         <section className="luster-entry-card luster-offer-card" aria-labelledby="founding-offer-title">
           <div className="luster-offer-card-top">
             <h2 id="founding-offer-title">
               <Crown aria-hidden="true" />
-              Founding salon offer
+              Your free core plan
             </h2>
             <span className="luster-offer-deadline">
-              <Clock3 aria-hidden="true" />
-              Ends Jan 1, 2027
+              <ShieldCheck aria-hidden="true" />
+              No subscription
             </span>
           </div>
-          <p className="luster-offer-comparison">
-            <span className="sr-only">Future monthly price:</span>
-            <s>$49.99/month</s>
-          </p>
           <p className="luster-entry-price">
             <span>$0</span>
             <span>
@@ -94,7 +90,7 @@ export function FoundingSalonOffer({
               <em>for life</em>
             </span>
           </p>
-          <p className="luster-offer-description">Join during our founding period and never pay a monthly software fee for the core app.</p>
+          <p className="luster-offer-description">Accept bookings and manage your salon with no monthly software fee.</p>
           <ul className="luster-offer-features">
             {CORE_FEATURES.map(feature => (
               <li key={feature}>
@@ -113,13 +109,13 @@ export function FoundingSalonOffer({
               <strong>Unlimited emails</strong>
             </li>
           </ul>
-          <p className="luster-offer-description">Texts are a one-time allowance per verified business. Add more whenever you need them.</p>
+          <p className="luster-offer-description">Eligible salons receive a one-time allowance per verified business. Verify your email and phone to claim your texts.</p>
         </section>
         <aside className="luster-entry-card luster-offer-usage" aria-labelledby="usage-heading">
           <span className="luster-offer-usage-icon"><MessageCircle aria-hidden="true" /></span>
           <div>
-            <h2 id="usage-heading">Usage-based features are separate</h2>
-            <p>Additional SMS, AI receptionist, phone calls, and other usage-based services are billed separately.</p>
+            <h2 id="usage-heading">Extra texts, when you need them</h2>
+            <p>Optional one-time SMS top-ups. Purchased texts never expire. No subscription required.</p>
           </div>
         </aside>
         <ul className="luster-offer-reassurance" aria-label="Offer details">
@@ -154,7 +150,7 @@ export function FoundingSalonOffer({
             <span>{pending ? 'Saving your claim…' : 'Claim my free lifetime plan'}</span>
             <ArrowRight aria-hidden="true" />
           </button>
-          <p>Founding offer available until January 1, 2027.</p>
+          <p>No card needed. Your core app stays free.</p>
         </footer>
         {children}
       </main>

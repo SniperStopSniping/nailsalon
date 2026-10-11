@@ -328,7 +328,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     await interaction.type(screen.getByLabelText('Verification code'), '424242');
     await interaction.click(screen.getByRole('button', { name: 'Verify and save my site' }));
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Lock in Luster free for life' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your Luster app free for life' })).toBeVisible();
     expect(user.primaryEmailAddress.attemptVerification).toHaveBeenCalledWith({ code: '424242' });
     expect(mocks.claim).toHaveBeenCalledTimes(2);
     expect(mocks.claim.mock.calls[1]?.[0]).toEqual(firstClaim);
@@ -347,7 +347,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Lock in Luster free for life' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your Luster app free for life' })).toBeVisible();
 
     const notice = screen.getByTestId('onboarding-preserved-edits');
 
@@ -594,7 +594,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     });
 
     expect(await screen.findByRole('heading', {
-      name: 'Lock in Luster free for life',
+      name: 'Your Luster app free for life',
     })).toBeVisible();
     expect(mocks.claim).not.toHaveBeenCalled();
   });
@@ -861,7 +861,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
-    expect(await screen.findByRole('heading', { name: 'Lock in Luster free for life' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Your Luster app free for life' })).toBeVisible();
     expect(mocks.claim).toHaveBeenCalledTimes(1);
     expect(mocks.savePlan).not.toHaveBeenCalled();
     expect(loadOnboardingIntegrationFlow().phase).toBe('plans');
@@ -872,12 +872,12 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(screen.getByRole('heading', {
       level: 1,
-      name: 'Lock in Luster free for life',
+      name: 'Your Luster app free for life',
     })).toBeVisible();
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Claim my free lifetime plan' })).toHaveLength(1);
     expect(screen.getByText('100 free texts included')).toBeVisible();
-    expect(screen.getByText(/Additional SMS, AI receptionist/)).toBeVisible();
+    expect(screen.getByText(/Optional one-time SMS top-ups/)).toBeVisible();
     expect(screen.queryByRole('button', { name: /pay|checkout|purchase/iu }))
       .not.toBeInTheDocument();
   });
@@ -976,13 +976,13 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
     await user.click(await screen.findByRole('button', { name: 'Continue with my site saved' }));
 
-    expect(await screen.findByRole('heading', { name: 'Lock in Luster free for life' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Your Luster app free for life' })).toBeVisible();
     expect(screen.getByText(/photos listed earlier remain only on this device/u)).toBeVisible();
 
     view.unmount();
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
-    expect(await screen.findByRole('heading', { name: 'Lock in Luster free for life' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Your Luster app free for life' })).toBeVisible();
     expect(mocks.claim).toHaveBeenCalledTimes(1);
     expect(mocks.claimMedia).toHaveBeenCalledTimes(1);
     expect(loadOnboardingIntegrationFlow()).toMatchObject({
@@ -1015,7 +1015,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(await screen.findByRole('heading', {
       level: 1,
-      name: 'Lock in Luster free for life',
+      name: 'Your Luster app free for life',
     })).toBeVisible();
     expect(mocks.claim).toHaveBeenCalledTimes(1);
     expect(mocks.claimMedia).toHaveBeenCalledTimes(2);
