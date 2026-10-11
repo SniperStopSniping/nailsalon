@@ -759,7 +759,7 @@ describe('BookServiceClient', () => {
     expect(viewport?.getAttribute('style')).not.toContain('--customer-site-card-radius');
   });
 
-  it('renders the salon profile only for Quick Book and preserves the existing Editorial renderer', () => {
+  it('renders the salon profile only for Quick Book and preserves the existing Editorial renderer', async () => {
     const profile = {
       identity: {
         salonName: 'Isla Nail Studio',
@@ -784,7 +784,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    expect(screen.getByTestId('quick-book-profile')).toBeInTheDocument();
+    expect(await screen.findByTestId('quick-book-profile')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: 'Isla Nail Studio' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Book an appointment' })).toBeInTheDocument();
 
@@ -996,7 +996,7 @@ describe('BookServiceClient', () => {
     );
   });
 
-  it('uses the compact profile as the only Quick Book owner of profile policy and social content', () => {
+  it('uses the compact profile as the only Quick Book owner of profile policy and social content', async () => {
     salonContextMock.bookingExperience = {
       primaryColor: null,
       bookingMessage: null,
@@ -1045,7 +1045,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    expect(screen.getByTestId('quick-book-profile')).toBeInTheDocument();
+    expect(await screen.findByTestId('quick-book-profile')).toBeInTheDocument();
     expect(screen.queryByTestId('booking-policy')).not.toBeInTheDocument();
     expect(screen.queryByTestId('booking-social-links')).not.toBeInTheDocument();
     expect(screen.queryByTestId('booking-quick-facts')).not.toBeInTheDocument();
@@ -1054,7 +1054,7 @@ describe('BookServiceClient', () => {
     expect(screen.queryByText('24 hours notice')).not.toBeInTheDocument();
   });
 
-  it('places one public-safe map below the unchanged Quick Book service menu and compacts when hidden', () => {
+  it('places one public-safe map below the unchanged Quick Book service menu and compacts when hidden', async () => {
     const profile = {
       identity: { salonName: 'Salon A', logoUrl: null, technicianName: null, technicianPhotoUrl: null },
       location: {
@@ -1084,7 +1084,7 @@ describe('BookServiceClient', () => {
     expect(service).toBeEnabled();
     expect(service.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(container.querySelectorAll('iframe')).toHaveLength(1);
-    expect(screen.getAllByText('Toronto, ON')).toHaveLength(1);
+    expect(await screen.findAllByText('Toronto, ON')).toHaveLength(1);
     expect(screen.queryByTestId('editorial-visit')).not.toBeInTheDocument();
     expect(screen.queryByTestId('location-cards')).not.toBeInTheDocument();
     expect(screen.getByTitle('Map of Toronto, ON')).toHaveAttribute('src', 'https://www.google.com/maps?q=Toronto%2C%20ON&output=embed');
@@ -1652,7 +1652,7 @@ describe('BookServiceClient', () => {
     });
   });
 
-  it('renders the new-client promo in the branded header slot instead of the old generic offer card', () => {
+  it('renders the new-client promo in the branded header slot instead of the old generic offer card', async () => {
     render(
       <BookServiceClient
         services={[services[0]!]}
@@ -1662,7 +1662,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    expect(screen.getByTestId('quick-book-profile')).toBeInTheDocument();
+    expect(await screen.findByTestId('quick-book-profile')).toBeInTheDocument();
     expect(screen.getByTestId('booking-step-header-announcement')).toHaveTextContent('25% off for new clients — until April 30');
     expect(screen.queryByText('First-visit offer')).not.toBeInTheDocument();
     expect(screen.queryByText('New clients may be eligible for 25% off their first appointment')).not.toBeInTheDocument();
