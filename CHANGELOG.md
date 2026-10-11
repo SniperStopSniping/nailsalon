@@ -1,3 +1,10 @@
+## [1.142.31](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.30...v1.142.31) (2026-10-11)
+
+
+### Performance Improvements
+
+* load only the booking assets Isla needs ([dda0142](https://github.com/SniperStopSniping/nailsalon/commit/dda014246d92a54c649f28bd04b03314ad788d72))
+
 ## [1.142.30](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.29...v1.142.30) (2026-10-11)
 
 
