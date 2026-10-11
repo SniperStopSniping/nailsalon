@@ -101,6 +101,116 @@ describe('BookTimeClient', () => {
     vi.useRealTimers();
   });
 
+  describe('automatic scroll lifecycle', () => {
+    let frames: Map<number, FrameRequestCallback>;
+    let frameId: number;
+
+    beforeEach(() => {
+      vi.useRealTimers();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      vi.setSystemTime(new Date('2026-03-14T11:00:00Z'));
+      frames = new Map();
+      frameId = 0;
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+        frames.set(++frameId, callback);
+        return frameId;
+      });
+      vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+      fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+        slots: [{ time: '13:45' }],
+        bookedSlots: [],
+      }), { status: 200 })));
+    });
+
+    const renderTime = async () => {
+      let view: ReturnType<typeof render>;
+      await act(async () => {
+        view = render(<BookTimeClient services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]} totalPrice={65} totalDuration={60} technician={null} bookingFlow={['service', 'time', 'confirm']} />);
+      });
+      return view!;
+    };
+    const chooseDate = async (date = '2026-03-16') => {
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(`calendar-day-${date}`));
+      });
+    };
+    const advanceFrame = (timestamp: number) => {
+      const queued = [...frames.values()];
+      frames.clear();
+      act(() => queued.forEach(callback => callback(timestamp)));
+    };
+    const beginScroll = async () => {
+      await chooseDate();
+      await act(async () => vi.advanceTimersByTimeAsync(60));
+      advanceFrame(0);
+      advanceFrame(100);
+
+      expect(window.scrollTo).toHaveBeenCalledTimes(2);
+      expect(frames.size).toBe(1);
+    };
+
+    it.each(['pointerdown', 'touchstart', 'wheel', 'keydown'])('stops frames on %s and still lets a client choose a time', async (event) => {
+      await renderTime();
+      await beginScroll();
+      fireEvent(window, new Event(event));
+      advanceFrame(200);
+
+      expect(window.scrollTo).toHaveBeenCalledTimes(2);
+      expect(frames.size).toBe(0);
+
+      fireEvent.click(screen.getByTestId('time-slot-13:45'));
+
+      expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('/book/confirm?'));
+      expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('date=2026-03-16'));
+    });
+
+    it('cancels the pending delay when a client interacts before animation starts', async () => {
+      await renderTime();
+      await chooseDate();
+      fireEvent.pointerDown(window);
+      await act(async () => vi.advanceTimersByTimeAsync(1000));
+      advanceFrame(0);
+
+      expect(window.scrollTo).not.toHaveBeenCalled();
+      expect(frames.size).toBe(0);
+    });
+
+    it('cancels old frames when another date loads', async () => {
+      await renderTime();
+      await beginScroll();
+      await chooseDate('2026-03-17');
+      advanceFrame(200);
+
+      expect(window.scrollTo).toHaveBeenCalledTimes(2);
+      expect(frames.size).toBe(0);
+      expect(screen.getByTestId('calendar-day-2026-03-17')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('cancels active frames and timers on unmount', async () => {
+      const view = await renderTime();
+      await beginScroll();
+      view.unmount();
+      advanceFrame(200);
+      await act(async () => vi.advanceTimersByTimeAsync(4000));
+
+      expect(window.scrollTo).toHaveBeenCalledTimes(2);
+      expect(frames.size).toBe(0);
+    });
+
+    it('finishes an uninterrupted animation and releases its frame', async () => {
+      await renderTime();
+      await beginScroll();
+      advanceFrame(800);
+
+      expect(window.scrollTo).toHaveBeenCalledTimes(3);
+      expect(frames.size).toBe(0);
+
+      advanceFrame(1000);
+
+      expect(window.scrollTo).toHaveBeenCalledTimes(3);
+    });
+  });
+
   describe('compact date presentation', () => {
     it('hydrates the same calendar text when server and browser Intl range spacing differs', async () => {
       fetchMock.mockResolvedValue(new Response(JSON.stringify({ slots: [] }), { status: 200 }));
