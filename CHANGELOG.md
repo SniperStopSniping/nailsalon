@@ -1,3 +1,10 @@
+## [1.142.24](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.23...v1.142.24) (2026-10-11)
+
+
+### Bug Fixes
+
+* make owner reports readable and easy to close ([#420](https://github.com/SniperStopSniping/nailsalon/issues/420)) ([c06a0eb](https://github.com/SniperStopSniping/nailsalon/commit/c06a0eb6791c646c8fe54ff8589abd3e6ade6b8d))
+
 ## [1.142.23](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.22...v1.142.23) (2026-10-11)
 
 
