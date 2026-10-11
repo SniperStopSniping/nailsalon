@@ -1897,7 +1897,7 @@ jobs:
         run: |
           set -euo pipefail
           npx vitest run --no-file-parallelism src/libs/googleCalendar.workerContention.integration.test.ts | tee calendar-contention-postgres.log
-          grep -Fqx 'CALENDAR_CONTENTION_POSTGRES_TESTS_EXECUTED=12 CALENDAR_CONTENTION_POSTGRES_TESTS_SKIPPED=0' calendar-contention-postgres.log
+          grep -Fqx 'CALENDAR_CONTENTION_POSTGRES_TESTS_EXECUTED=13 CALENDAR_CONTENTION_POSTGRES_TESTS_SKIPPED=0' calendar-contention-postgres.log
 
       - name: Verify customer journey through real handlers and PostgreSQL in both mobile engines
         shell: bash

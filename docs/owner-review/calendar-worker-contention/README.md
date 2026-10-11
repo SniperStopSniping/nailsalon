@@ -32,3 +32,12 @@ Local port 55432 belongs to a pre-existing test server. That server was not rese
 ## Release and remaining acceptance
 
 The local production build, explicit typecheck and scoped lint passed. Hosted CI, exact Preview and production status remain separate. Required PostgreSQL CI must pass before merge. A controlled real Google round trip and concurrent production observations remain B03. The bounded retry cannot guarantee completion under unlimited contention; subsequent collisions remain visible and later eligible scans can retry through the existing worker path.
+
+
+## October 11 CI timing correction
+
+PR433's native PostgreSQL run exposed a timing assumption in the success fixture: seeing the first Calendar read proved the initial token write committed, but did not stop the inbound worker from refreshing again and advancing its checkpoint. The losing worker could therefore experience two real revision collisions while the test asserted the one-collision success contract. Five unchanged native runs passed; controlled 60ms/80ms provider-response delays reproduced the hosted failure with one failed reconciliation counter. This is not evidence of a native-image regression.
+
+The success fixture now holds the winner's first Calendar response until the losing worker has reacquired its context and dispatched its own read. Both worker orderings still run three rounds against real stored revisions. A separate thirteenth case forces a second collision, asserts the visible failure counter and absence of stale provider reads, then verifies that the next eligible scan succeeds. Exact expected error output is asserted and spies are restored. No production retry limit, credential fence, provider behavior or connection authorization is changed.
+
+The corrected suite passed five consecutive isolated PostgreSQL runs (65 cases, zero skips), plus all13cases with the same response-delay perturbation that reproduced the original failure. Hosted CI now requires13cases with zero skips. This is local database/controlled-provider evidence, not actual Google acceptance.
