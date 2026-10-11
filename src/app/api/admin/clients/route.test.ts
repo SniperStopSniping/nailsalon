@@ -302,6 +302,16 @@ describe('POST /api/admin/clients', () => {
       expect.anything(),
       { salonId: 'salon_1', phone: '4165550207', email: null },
     );
+    expect(resolveCanonicalSalonClientIdentityWithHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        salonId: 'salon_1',
+        phone: '4165550207',
+        email: null,
+        allowArchived: true,
+        matchMode: 'booking',
+      },
+    );
     // The write is accountable: client row + audit row.
     expect(transactionInsert).toHaveBeenCalledTimes(2);
   });
