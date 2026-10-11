@@ -258,6 +258,12 @@ export function SuperAdminDashboard({ testToolsEnabled = false }: { testToolsEna
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Link
+                href={`/${locale}/super-admin/system`}
+                className="inline-flex min-h-11 items-center rounded-lg border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/15"
+              >
+                System Status
+              </Link>
+              <Link
                 href={`/${locale}/super-admin/no-shows`}
                 className="rounded-lg border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/15"
               >

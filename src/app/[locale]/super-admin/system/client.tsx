@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import React, { useState } from 'react';
 
+import { StarterIdentityReadinessPanel } from '@/components/super-admin/StarterIdentityReadinessPanel';
+
 import type { SystemStatusData } from './page';
 
 // =============================================================================
@@ -85,6 +87,8 @@ export function SystemStatusClient({ data, locale }: Props) {
           Policy Settings →
         </Link>
       </div>
+
+      <StarterIdentityReadinessPanel />
 
       {/* Environment Status */}
       <section className="mb-8">

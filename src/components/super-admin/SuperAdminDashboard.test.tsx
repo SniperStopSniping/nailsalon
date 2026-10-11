@@ -49,6 +49,7 @@ describe('SuperAdminDashboard', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/super-admin/organizations?page=1&pageSize=20');
     expect(await screen.findByText('No salons found')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'System Status' })).toHaveAttribute('href', '/en/super-admin/system');
   });
 
   it('shows the API error message instead of masking it behind a generic salons failure', async () => {
