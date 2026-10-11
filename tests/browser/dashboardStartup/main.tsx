@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { AdminModalHost } from '@/components/admin/AdminModalHost';
+import type { TimePeriod } from '@/components/admin/AnalyticsWidgets';
 import type { AppId } from '@/components/admin/AppGrid';
 import { DeferredNewAppointmentModal } from '@/components/admin/DeferredOwnerDialogs';
 import en from '@/locales/en.json';
@@ -20,6 +21,9 @@ export function DashboardStartupFixture() {
   const router = useRouter();
   const app = query.get('app') as AppId | null;
   const salon = query.get('salon') ?? 'isla-browser';
+  const [reportPeriod, setReportPeriod] = useState<TimePeriod>('Weekly');
+  const [reportAnchor, setReportAnchor] = useState('2026-10-05');
+  const populatedReports = query.get('reports') === 'populated';
   const [appointmentOpen, setAppointmentOpen] = useState(false);
   const [walkInOpen, setWalkInOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -38,7 +42,7 @@ export function DashboardStartupFixture() {
         <h1 className="owner-title text-3xl">Today</h1>
         <p>Isolated startup review. Synthetic data; no account or provider writes.</p>
         <nav aria-label="Tools" className="mt-6 flex flex-wrap gap-3">
-          {(['schedule', 'clients', 'services', 'settings', 'payments'] as const).map(id => <button className="min-h-11 rounded-full border border-[var(--owner-line)] px-4" key={id} onClick={() => navigate(id)} type="button">{id}</button>)}
+          {(['schedule', 'clients', 'services', 'settings', 'payments', 'analytics'] as const).map(id => <button className="min-h-11 rounded-full border border-[var(--owner-line)] px-4" key={id} onClick={() => navigate(id)} type="button">{id}</button>)}
           <button onClick={() => setAppointmentOpen(true)} type="button">New appointment</button>
           <button onClick={() => setWalkInOpen(true)} type="button">Walk-in</button>
           <button onClick={() => setNotificationsOpen(true)} type="button">Activity</button>
@@ -62,7 +66,32 @@ export function DashboardStartupFixture() {
           setShowWalkIn={setWalkInOpen}
           userName="Synthetic owner"
           userInitial="S"
-          analyticsProps={{ revenue: 0, revenueTrend: 0, staffData: [], utilization: [], services: [], timePeriod: 'Daily', onTimePeriodChange: () => {}, anchorDate: '2026-10-10', onPrev: () => {}, onNext: () => {}, onToday: () => {}, onAnchorChange: () => {} }}
+          analyticsAppAvailable
+          analyticsProps={{
+            appointments: populatedReports ? { total: 999, completed: 780, upcoming: 217, noShows: 2 } : undefined,
+            revenue: populatedReports ? 123456789 : 0,
+            revenueTrend: populatedReports ? -13 : 0,
+            revenueTrendAvailable: populatedReports,
+            revenueSeries: populatedReports ? [10, 30, 15, 42, 24, 15, 60] : [],
+            staffData: populatedReports ? [{ id: 1, name: 'Alexandra Marie — Senior Nail Artist', role: 'Technician', revenue: '$1,234,567.89', avatarColor: 'bg-blue-100' }] : [],
+            utilization: populatedReports ? [{ name: 'Alexandra Marie — Senior Nail Artist', percent: 72, color: '#8f3155' }, { name: 'Daniela', percent: 48, color: '#67545e' }] : [],
+            services: populatedReports ? [{ label: 'Russian Manicure with French Tips & Hand-painted Nail Art', percent: 65, color: '#8f3155' }, { label: 'Gel Pedicure', percent: 35, color: '#67545e' }] : [],
+            timePeriod: reportPeriod,
+            onTimePeriodChange: setReportPeriod,
+            anchorDate: reportAnchor,
+            onPrev: () => setReportAnchor('2026-09-28'),
+            onNext: () => setReportAnchor('2026-10-05'),
+            onToday: () => setReportAnchor('2026-10-10'),
+            onAnchorChange: setReportAnchor,
+            onQuickAction: (action) => {
+              if (action === 'new-appointment') {
+                setAppointmentOpen(true);
+              }
+              if (action === 'walk-in') {
+                setWalkInOpen(true);
+              }
+            },
+          }}
           fraudSignals={[]}
           fraudSignalsTotalCount={0}
           fraudSignalsLoading={false}

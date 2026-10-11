@@ -10,7 +10,7 @@
  * - Percentage labels
  */
 
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
 type ServiceItem = {
   label: string;
@@ -31,29 +31,30 @@ export function ServiceBars({
   baseDelay = 0.5,
   staggerDelay = 0.1,
 }: ServiceBarsProps) {
+  const reduceMotion = useReducedMotion();
   return (
     <div className="space-y-3">
       {items.map((item, index) => (
         <div key={index}>
           {/* Label Row */}
-          <div className="mb-1 flex justify-between text-[12px] font-medium">
-            <span className="text-[#1C1C1E]">{item.label}</span>
-            <span className="text-[#8E8E93]">
+          <div className="mb-2 flex items-baseline justify-between gap-3 text-sm font-medium">
+            <span className="min-w-0 break-words text-[var(--owner-ink)]">{item.label}</span>
+            <span className="shrink-0 tabular-nums text-[var(--owner-muted)]">
               {item.percent}
               %
             </span>
           </div>
 
           {/* Progress Bar */}
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--owner-blush)]">
             <motion.div
               className="h-full rounded-full"
               style={{ backgroundColor: item.color }}
-              initial={{ width: 0 }}
+              initial={reduceMotion ? false : { width: 0 }}
               animate={{ width: `${item.percent}%` }}
               transition={{
-                duration: 0.8,
-                delay: baseDelay + index * staggerDelay,
+                duration: reduceMotion ? 0 : 0.5,
+                delay: reduceMotion ? 0 : baseDelay + index * staggerDelay,
                 ease: 'easeOut',
               }}
             />
