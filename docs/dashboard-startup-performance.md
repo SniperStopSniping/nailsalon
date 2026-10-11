@@ -13,7 +13,7 @@ Owner tools now download when opened. Today, salon resolution, permissions, SMS 
 ## Regression coverage
 
 - 1,089 dashboard tests in 100 files passed; 101 focused cases passed again after the final assistant scroll change.
-- 10 Chromium/WebKit startup cases cover absent closed-tool requests, delayed and failed modules, Back/forward/reload, focus restoration, changing salons during a download, New Appointment and Walk-in.
+- 12 Chromium/WebKit startup cases cover absent closed-tool requests, delayed and failed modules, Back/forward/reload, focus restoration, changing salons during a download, New Appointment, Walk-in and selecting Weekly only after its deferred calendar controls appear.
 - 32 assistant browser cases cover 320px, 390px, WebKit and desktop: closed-sheet requests, saved drafts, long-history scrolling, failed request recovery and owner isolation.
 - The new startup suite runs in the existing hosted onboarding-owner browser job and aggregate gate.
 
