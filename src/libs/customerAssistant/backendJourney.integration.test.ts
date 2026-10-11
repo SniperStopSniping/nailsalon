@@ -414,12 +414,18 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     // This success journey must not race the first same-day slot's two-hour
     // notice cutoff. Choose a real future date through the calendar; all
     // availability, pricing and persistence checks still use actual handlers.
-    const futureDay = page.locator('[data-testid^="calendar-day-"]').first();
+    // Let today's availability and any automatic next-day selection settle
+    // before browsing. Otherwise that selection can reset the displayed week
+    // while the locator is being resolved on a fast browser.
+    await browserExpect(page.locator('[data-testid^="time-slot-"]').first()).toBeVisible({ timeout: 60_000 });
+    const futureDay = page.locator('[data-testid^="calendar-day-"]').last();
     const initialDayId = await futureDay.getAttribute('data-testid');
     await page.getByRole('button', { name: 'Next week', exact: true }).click();
     await browserExpect(futureDay).not.toHaveAttribute('data-testid', initialDayId!);
     const futureDate = (await futureDay.getAttribute('data-testid'))!.replace('calendar-day-', '');
-    await futureDay.click();
+    // Pin the exact date, rather than a moving first/last-day locator.
+    await page.getByTestId(`calendar-day-${futureDate}`).click();
+    await browserExpect(page.getByTestId(`calendar-day-${futureDate}`)).toHaveAttribute('aria-pressed', 'true');
     await browserExpect.poll(() => serverResults.find(row => row.path === '/api/appointments/availability' && row.date === futureDate)?.status).toBe(200);
     await browserExpect(page.locator('[data-testid^="time-slot-"]').first()).toBeVisible({ timeout: 60_000 });
     await browserExpect.poll(() => page.locator('[data-testid^="time-slot-"]').first().evaluate((element) => {
@@ -489,6 +495,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     }
 
     expect(appointment).toMatchObject({ status: 'confirmed', completedAt: null });
+    expect(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' }).format(appointment.startTime)).toBe(futureDate);
     expect(appointment.startTime.getTime()).toBeGreaterThan(Date.now() + 24 * 60 * 60 * 1000);
 
     const consents = await database.select().from(schema.communicationConsentSchema)
