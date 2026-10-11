@@ -1,3 +1,10 @@
+## [1.142.27](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.26...v1.142.27) (2026-10-11)
+
+
+### Bug Fixes
+
+* improve Smart Fit report readability ([55fd7dc](https://github.com/SniperStopSniping/nailsalon/commit/55fd7dc2b46e0589f497c6aa3a92d61c661d3543))
+
 ## [1.142.26](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.25...v1.142.26) (2026-10-11)
 
 
