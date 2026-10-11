@@ -3,9 +3,16 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from '@sentry/nextjs';
+
 import { getPublicSentryRuntimeConfig } from './src/libs/sentry/runtime';
 
-const config = getPublicSentryRuntimeConfig();
+// Next.js only inlines direct public env references into browser bundles.
+// Passing process.env itself would read the browser's empty process shim.
+const config = getPublicSentryRuntimeConfig({
+  NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  NEXT_PUBLIC_SENTRY_RELEASE: process.env.NEXT_PUBLIC_SENTRY_RELEASE,
+  NEXT_PUBLIC_SENTRY_ENVIRONMENT: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT,
+});
 
 if (config.enabled) {
   Sentry.init({
