@@ -84,7 +84,7 @@ export function FoundingSalonOffer({
             </span>
           </div>
           <p className="luster-offer-comparison">
-            <span className="sr-only">Future monthly price:</span>
+            <span>Possible future price: </span>
             <s>$49.99/month</s>
           </p>
           <p className="luster-entry-price">
@@ -119,7 +119,7 @@ export function FoundingSalonOffer({
           <span className="luster-offer-usage-icon"><MessageCircle aria-hidden="true" /></span>
           <div>
             <h2 id="usage-heading">Usage-based features are separate</h2>
-            <p>Additional SMS, AI receptionist, phone calls, and other usage-based services are billed separately.</p>
+            <p>Additional texts are available as optional one-time purchases. Purchased texts never expire. No subscription required.</p>
           </div>
         </aside>
         <ul className="luster-offer-reassurance" aria-label="Offer details">

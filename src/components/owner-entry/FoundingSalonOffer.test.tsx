@@ -24,9 +24,12 @@ describe('FoundingSalonOffer', () => {
 
     expect(screen.getAllByRole('button')).toHaveLength(1);
     expect(screen.getByText('$49.99/month').tagName).toBe('S');
+    expect(screen.getByText('Possible future price:')).toBeVisible();
+    expect(screen.getByText('Ends Jan 1, 2027')).toBeInTheDocument();
     expect(screen.getByText('100 free texts included')).toBeInTheDocument();
     expect(screen.getByText('Unlimited emails')).toBeInTheDocument();
-    expect(screen.getByText('Additional SMS, AI receptionist, phone calls, and other usage-based services are billed separately.')).toBeInTheDocument();
+    expect(screen.getByText('Additional texts are available as optional one-time purchases. Purchased texts never expire. No subscription required.')).toBeInTheDocument();
+    expect(screen.queryByText(/AI receptionist|phone calls/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     expect(screen.queryByText(/compare plans|price coming soon|upgrade later/i)).not.toBeInTheDocument();
 

@@ -543,7 +543,7 @@ function UsageBillingOverview({ salonSlug, onClose }: UsageBillingModalProps) {
                   <div className="rounded-2xl bg-[var(--owner-blush)] p-4 text-sm leading-relaxed text-[var(--owner-ink)]">
                     <p className="font-semibold">Founding Salon · Free for life</p>
                     <p className="mt-1">$0/month for the core Luster app. Unlimited emails included.</p>
-                    <p className="mt-1 text-[var(--owner-muted)]">Additional texts, AI receptionist, calls and other usage services are optional paid add-ons.</p>
+                    <p className="mt-1 text-[var(--owner-muted)]">Additional texts are optional one-time purchases. Purchased texts never expire. No subscription required.</p>
                   </div>
                 )}
                 {usage.plan === null

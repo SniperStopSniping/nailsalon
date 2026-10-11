@@ -380,6 +380,15 @@ describe('SettingsModal index', () => {
     expect(screen.queryByText(/authorize twilio/i)).not.toBeInTheDocument();
   });
 
+  it.each(['messages', 'phone-receptionist'])('keeps %s focused on supported messaging without loading voice settings', async (initialView) => {
+    render(<SettingsModal initialView={initialView} leafOnly onClose={vi.fn()} salonSlug="salon-a" />);
+
+    expect(await screen.findByText('Client Messages')).toBeInTheDocument();
+    expect(screen.getByText('Appointment Reminders')).toBeInTheDocument();
+    expect(screen.queryByText(/phone receptionist/i)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('voice-receptionist'))).toBe(false);
+  });
+
   it('keeps Advanced focused on Optional Features and legacy themes', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 

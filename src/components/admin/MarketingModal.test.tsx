@@ -374,20 +374,33 @@ describe('MarketingModal', () => {
     }));
   });
 
-  it('opens the phone receptionist from Marketing & Messages without enabling calls', async () => {
+  it('keeps SMS reminders available without advertising the removed voice feature', async () => {
     installSuccessfulFetch();
     await renderMarketing();
 
-    fireEvent.click(screen.getByTestId('marketing-home-phone-receptionist'));
+    expect(screen.queryByTestId('marketing-home-phone-receptionist')).not.toBeInTheDocument();
+    expect(screen.queryByText(/phone receptionist/i)).not.toBeInTheDocument();
 
-    expect(await screen.findByTestId('phone-receptionist-settings-modal')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('marketing-home-appointment-messages'));
+
+    expect(await screen.findByTestId('communications-settings-modal')).toBeInTheDocument();
     expect(settingsModalMock).toHaveBeenCalledWith(expect.objectContaining({
-      initialView: 'phone-receptionist',
+      initialView: 'communications',
       leafOnly: true,
       leafBackLabel: 'Marketing & Messages',
       salonSlug: 'salon-a',
     }));
     expect(fetchMock.mock.calls.some(([, init]) => init?.method && init.method !== 'GET')).toBe(false);
+  });
+
+  it('opens the marketing home for an old phone receptionist bookmark without loading voice settings', async () => {
+    installSuccessfulFetch();
+    state.query = 'salon=salon-a&app=marketing&view=phone-receptionist';
+    await renderMarketing();
+
+    expect(screen.getByTestId('marketing-home-appointment-messages')).toBeInTheDocument();
+    expect(screen.queryByTestId('phone-receptionist-settings-modal')).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('voice-receptionist'))).toBe(false);
   });
 
   it('keeps Smart Fit under Offers and reuses its existing Settings editor', async () => {

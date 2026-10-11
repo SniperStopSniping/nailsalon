@@ -28,6 +28,16 @@ async function expectReadableFields(page: import('@playwright/test').Page) {
 }
 
 for (const width of [320, 390, 430, 1280]) {
+  test(`retired phone receptionist links recover to supported messages at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/?app=settings&view=phone-receptionist');
+
+    await expect(page.getByRole('button', { name: /^Client Messages/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Appointment Reminders/ })).toBeVisible();
+    await expect(page.getByText('Phone receptionist', { exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+
   test(`usage balances, message filter and close stay usable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 1280 ? 900 : 844 });
     await page.goto('/?app=usage');

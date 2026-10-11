@@ -877,7 +877,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Claim my free lifetime plan' })).toHaveLength(1);
     expect(screen.getByText('100 free texts included')).toBeVisible();
-    expect(screen.getByText(/Additional SMS, AI receptionist/)).toBeVisible();
+    expect(screen.getByText(/Additional texts are available as optional one-time purchases/)).toBeVisible();
     expect(screen.queryByRole('button', { name: /pay|checkout|purchase/iu }))
       .not.toBeInTheDocument();
   });
