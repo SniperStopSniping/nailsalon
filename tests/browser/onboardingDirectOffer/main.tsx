@@ -15,6 +15,7 @@ import '@/features/onboarding-v1-integration/onboarding-integration.css';
 import '@/features/onboarding-v1-integration/account-gate/account-gate.css';
 import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/owner-chrome-polish.css';
 import '@/styles/global.css';
+import './product-fonts.css';
 
 import { NextIntlClientProvider } from 'next-intl';
 import { createRoot } from 'react-dom/client';
@@ -32,6 +33,9 @@ import { saveOnboardingState } from '../../../prototypes/site-builder-v2-booking
 // Real integration and offer components; isolated identity and status response.
 // No account, entitlement, credit or provider writes.
 const startup = new URLSearchParams(location.search).has('startup');
+if (new URLSearchParams(location.search).has('productFonts')) {
+  document.documentElement.dataset.productFonts = 'true';
+}
 const warnings = new URLSearchParams(location.search).has('warnings');
 const claim: OnboardingClaimSuccess = {
   claimId: 'fixture-claim',
