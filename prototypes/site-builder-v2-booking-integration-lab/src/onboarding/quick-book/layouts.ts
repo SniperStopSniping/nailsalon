@@ -21,6 +21,15 @@ import { isMediaQuickBookLayout, type MediaLayoutId, QUICK_BOOK_MEDIA_LAYOUTS } 
  */
 export const QUICK_BOOK_LAYOUT_FAMILIES = ['simple', 'profile', 'cover'] as const;
 
+// Keep layout decisions in the data registry so callers do not import the
+// React renderer (and its assets) merely to identify a saved composition.
+export const APPROVED_QUICK_BOOK_LAYOUTS = ['compact_dropdown', 'side_portrait', 'hero_banner'] as const;
+export type ApprovedQuickBookLayout = typeof APPROVED_QUICK_BOOK_LAYOUTS[number];
+
+export function isApprovedQuickBookLayout(id: string | null | undefined): id is ApprovedQuickBookLayout {
+  return typeof id === 'string' && (APPROVED_QUICK_BOOK_LAYOUTS as readonly string[]).includes(id);
+}
+
 export type QuickBookLayoutFamily = (typeof QUICK_BOOK_LAYOUT_FAMILIES)[number];
 
 export type QuickBookPortraitTreatment = 'none' | 'optional' | 'essential';

@@ -154,6 +154,7 @@ export function IslaBookingPage({ place, children, continueBar, flow, manageHref
                 height={725}
                 sizes="(max-width: 760px) calc(100vw - 58px), (max-width: 1120px) 40vw, 430px"
                 priority
+                fetchPriority="high"
               />
             </div>
             <figcaption className="isla-editorial-card">

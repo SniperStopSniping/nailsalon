@@ -3,11 +3,11 @@
  * callers. Both live with the onboarding lab so the onboarding preview, the
  * dashboard chooser and the public booking page mount the same components.
  */
-export { isApprovedQuickBookLayout } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/ApprovedQuickBookComposition';
 export {
   DefaultCoverIllustration,
   DefaultPortraitIllustration,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/DefaultImagery';
+export { isApprovedQuickBookLayout } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/layouts';
 export {
   QuickBookLayoutPoster,
   type QuickBookLayoutPosterProps,
