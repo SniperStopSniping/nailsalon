@@ -355,7 +355,7 @@ describe('AdminDashboardPage', () => {
 
     expect(await screen.findByTestId(tab === 'today' ? 'owner-today-workspace' : 'owner-more-workspace')).toBeVisible();
     expect(screen.queryByText('Loading dashboard')).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Calendar', exact: true })).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Calendar' })).toBeVisible();
     expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ analyticsAppAvailable: false });
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/admin/analytics?'))).toBe(false);
   });
