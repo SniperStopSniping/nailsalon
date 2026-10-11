@@ -11,7 +11,7 @@
  * - Renders a flat baseline when there is no revenue in the period
  */
 
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
 type RevenueChartProps = {
   /** Revenue values, one per bucket, plotted left to right */
@@ -80,13 +80,14 @@ export function RevenueChart({
   gradientId = 'revenueGradient',
   height = 128,
 }: RevenueChartProps) {
+  const reduceMotion = useReducedMotion();
   const series = data ?? [];
   const { path: chartPath, endY } = buildChartPath(series);
   const fillPath = `${chartPath} V${VIEW_HEIGHT} H0 Z`;
 
   return (
     <div className="relative w-full" style={{ height }}>
-      <svg viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`} className="size-full overflow-visible" preserveAspectRatio="none">
+      <svg aria-hidden="true" viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`} className="size-full overflow-visible" preserveAspectRatio="none">
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={gradientStart} stopOpacity="0.25" />
@@ -104,9 +105,9 @@ export function RevenueChart({
           stroke={strokeColor}
           strokeWidth="3"
           strokeLinecap="round"
-          initial={{ pathLength: 0 }}
+          initial={reduceMotion ? false : { pathLength: 0 }}
           animate={{ pathLength: 1 }}
-          transition={{ duration, ease: 'easeOut' }}
+          transition={{ duration: reduceMotion ? 0 : duration, ease: 'easeOut' }}
         />
       </svg>
 
@@ -116,11 +117,11 @@ export function RevenueChart({
         style={{
           backgroundColor: strokeColor,
           top: `calc(${(endY / VIEW_HEIGHT) * 100}% - 6px)`,
-          right: -2,
+          right: 0,
         }}
-        initial={{ scale: 0, opacity: 0 }}
+        initial={reduceMotion ? false : { scale: 0, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        transition={{ delay: duration - 0.2, duration: 0.3 }}
+        transition={{ delay: reduceMotion ? 0 : Math.max(0, duration - 0.2), duration: reduceMotion ? 0 : 0.3 }}
       />
     </div>
   );
@@ -135,7 +136,7 @@ type ChartLabelsProps = {
 
 export function ChartLabels({ labels }: ChartLabelsProps) {
   return (
-    <div className="mt-2 flex justify-between px-1 text-[11px] font-medium text-[#8E8E93]">
+    <div className="mt-2 flex justify-between px-1 text-xs font-medium text-[var(--owner-muted)]">
       {labels.map((label, index) => (
         <span key={index}>{label}</span>
       ))}

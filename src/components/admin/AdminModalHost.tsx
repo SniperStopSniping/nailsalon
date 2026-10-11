@@ -209,6 +209,7 @@ export function AdminModalHost({
       >
         <AnalyticsWidgets
           {...analyticsProps}
+          onBack={onCloseModal}
           salonSlug={activeSalonSlug}
           onOpenSmartFitSettings={onNavigate ? () => onNavigate('marketing', 'smart-fit') : undefined}
         />
