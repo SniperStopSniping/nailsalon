@@ -434,6 +434,7 @@ export async function POST(request: Request): Promise<Response> {
             phone: normalizedPhone,
             email: normalizedEmail,
             allowArchived: true,
+            matchMode: 'booking',
           });
         if (existingIdentity) {
           const [existing] = await tx
