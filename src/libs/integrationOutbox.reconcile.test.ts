@@ -10,11 +10,18 @@ import { PGlite } from '@electric-sql/pglite';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
+
+const provider = vi.hoisted(() => ({
+  fetch: vi.fn(),
+  env: { TWILIO_ACCOUNT_SID: 'AC00000000000000000000000000000000', TWILIO_AUTH_TOKEN: 'test-token' as string | undefined },
+}));
+vi.mock('@/libs/Env', () => ({ Env: provider.env }));
+vi.mock('twilio', () => ({ default: () => ({ messages: (sid: string) => ({ fetch: () => provider.fetch(sid) }) }) }));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
 
@@ -67,6 +74,15 @@ beforeAll(async () => {
   });
 });
 
+const messageSid = (seq: number) => `SM${seq.toString(16).padStart(32, '0')}`;
+
+beforeEach(async () => {
+  provider.env.TWILIO_AUTH_TOKEN = 'test-token';
+  provider.fetch.mockReset();
+  provider.fetch.mockImplementation(async sid => ({ sid, accountSid: provider.env.TWILIO_ACCOUNT_SID, messagingServiceSid: 'MG00000000000000000000000000000000', numSegments: '2', price: '-0.0158', priceUnit: 'usd' }));
+  (await import('./integrationOutbox')).setTwilioCostFetcher(null);
+});
+
 async function seedSettledDelivery(seq: number, predictedSegments: number): Promise<{
   deliveryId: string;
   reservationId: string;
@@ -90,7 +106,7 @@ async function seedSettledDelivery(seq: number, predictedSegments: number): Prom
     segments: predictedSegments,
   });
   const reservationId = (reserved as { reservationId: string }).reservationId;
-  await settleReservationOnAccept({ reservationId, providerSid: `SM_rc_${seq}` });
+  await settleReservationOnAccept({ reservationId, providerSid: messageSid(seq) });
   const deliveryId = `nd_rc_${seq}`;
   await db.insert(schema.notificationDeliverySchema).values({
     id: deliveryId,
@@ -99,6 +115,9 @@ async function seedSettledDelivery(seq: number, predictedSegments: number): Prom
     purpose: 'intent:test',
     dedupeKey: `dk_rc_${seq}`,
     status: 'delivered',
+    providerMessageId: messageSid(seq),
+    senderIdentity: 'luster_shared_v1',
+    messagingServiceSid: 'MG00000000000000000000000000000000',
     statusRank: 50,
     creditReservationId: reservationId,
     settlementState: 'settled',
@@ -139,25 +158,26 @@ async function deliveryRow(deliveryId: string): Promise<Record<string, unknown>>
 }
 
 describe('Twilio cost reconciliation over the outbox', () => {
-  it('retries while no fetcher is configured (Gate B ships none)', async () => {
+  it('uses the production reader without a startup setter', async () => {
     const { processIntegrationOutbox, setTwilioCostFetcher } = await import('./integrationOutbox');
     setTwilioCostFetcher(null);
     const { deliveryId } = await seedSettledDelivery(1, 2);
-    await enqueueDue(deliveryId, 'SM_rc_1');
+    await enqueueDue(deliveryId, messageSid(1));
     await processIntegrationOutbox();
 
     expect(await jobRow(deliveryId)).toMatchObject({
-      status: 'retry',
-      last_error: 'TWILIO_COST_FETCHER_UNCONFIGURED',
+      status: 'completed',
+      last_error: null,
     });
-    expect((await deliveryRow(deliveryId)).reconciled_at).toBeNull();
+    expect((await deliveryRow(deliveryId)).provider_segments).toBe(2);
+    expect(provider.fetch).toHaveBeenCalledWith(messageSid(1));
   });
 
   it('actual == predicted: records provider truth, no anomaly, no ledger writes', async () => {
     const { processIntegrationOutbox, setTwilioCostFetcher } = await import('./integrationOutbox');
     setTwilioCostFetcher(async () => ({ priceRaw: '-0.0079', priceCurrency: 'USD', numSegments: 2 }));
     const { deliveryId } = await seedSettledDelivery(2, 2);
-    await enqueueDue(deliveryId, 'SM_rc_2');
+    await enqueueDue(deliveryId, messageSid(2));
     const before = await db.execute(sql`SELECT COUNT(*)::int AS n FROM sms_credit_ledger WHERE salon_id = 'rc1'`);
     await processIntegrationOutbox();
 
@@ -178,7 +198,7 @@ describe('Twilio cost reconciliation over the outbox', () => {
     const { processIntegrationOutbox, setTwilioCostFetcher } = await import('./integrationOutbox');
     setTwilioCostFetcher(async () => ({ priceRaw: '-0.0158', priceCurrency: 'USD', numSegments: 3 }));
     const { deliveryId } = await seedSettledDelivery(3, 2);
-    await enqueueDue(deliveryId, 'SM_rc_3');
+    await enqueueDue(deliveryId, messageSid(3));
     const before = await db.execute(sql`SELECT COUNT(*)::int AS n FROM sms_credit_ledger WHERE salon_id = 'rc1'`);
     await processIntegrationOutbox();
 
@@ -196,7 +216,7 @@ describe('Twilio cost reconciliation over the outbox', () => {
     const { processIntegrationOutbox, setTwilioCostFetcher } = await import('./integrationOutbox');
     setTwilioCostFetcher(async () => ({ priceRaw: '-0.0079', priceCurrency: 'USD', numSegments: 1 }));
     const { deliveryId, reservationId } = await seedSettledDelivery(4, 3);
-    await enqueueDue(deliveryId, 'SM_rc_4');
+    await enqueueDue(deliveryId, messageSid(4));
     await processIntegrationOutbox();
 
     expect(await deliveryRow(deliveryId)).toMatchObject({
@@ -230,7 +250,7 @@ describe('Twilio cost reconciliation over the outbox', () => {
     const { processIntegrationOutbox, setTwilioCostFetcher } = await import('./integrationOutbox');
     setTwilioCostFetcher(async () => ({ priceRaw: null, priceCurrency: null, numSegments: 0 }));
     const { deliveryId } = await seedSettledDelivery(5, 2);
-    await enqueueDue(deliveryId, 'SM_rc_5');
+    await enqueueDue(deliveryId, messageSid(5));
     await processIntegrationOutbox();
 
     expect(await jobRow(deliveryId)).toMatchObject({
@@ -243,8 +263,9 @@ describe('Twilio cost reconciliation over the outbox', () => {
   it('twilio job exhaustion is ops-only: the salon owner is NEVER emailed', async () => {
     const { processIntegrationOutbox, setTwilioCostFetcher } = await import('./integrationOutbox');
     setTwilioCostFetcher(null);
+    provider.env.TWILIO_AUTH_TOKEN = undefined;
     const { deliveryId } = await seedSettledDelivery(6, 2);
-    await enqueueDue(deliveryId, 'SM_rc_6');
+    await enqueueDue(deliveryId, messageSid(6));
     // Push the job to the exhaustion boundary: next failure terminalizes.
     await db.execute(sql`
       UPDATE integration_outbox SET attempts = 7
@@ -255,5 +276,71 @@ describe('Twilio cost reconciliation over the outbox', () => {
 
     expect(await jobRow(deliveryId)).toMatchObject({ status: 'failed' });
     expect(sendTransactionalEmail).not.toHaveBeenCalled();
+  });
+
+  it('does not read or refund a different salon delivery', async () => {
+    const { processIntegrationOutbox } = await import('./integrationOutbox');
+    await db.insert(schema.salonSchema).values({ id: 'rc_other', name: 'Other salon', slug: 'rc-other' });
+    const { deliveryId } = await seedSettledDelivery(7, 3);
+    await enqueueDue(deliveryId, messageSid(7));
+    await db.execute(sql`UPDATE integration_outbox SET salon_id='rc_other' WHERE dedupe_key=${`twilio:reconcile:${deliveryId}`}`);
+    await processIntegrationOutbox();
+
+    expect(provider.fetch).not.toHaveBeenCalled();
+    expect((await deliveryRow(deliveryId)).reconciled_at).toBeNull();
+  });
+
+  it('rejects a mismatched message id before the provider or ledger', async () => {
+    const { processIntegrationOutbox } = await import('./integrationOutbox');
+    const { deliveryId } = await seedSettledDelivery(8, 3);
+    await enqueueDue(deliveryId, messageSid(999));
+    await processIntegrationOutbox();
+
+    expect(provider.fetch).not.toHaveBeenCalled();
+    expect(await jobRow(deliveryId)).toMatchObject({ status: 'retry', last_error: 'TWILIO_COST_IDENTITY_MISMATCH' });
+    expect((await deliveryRow(deliveryId)).reconciled_at).toBeNull();
+  });
+
+  it('retries the production reader when final price is missing, then completes safely', async () => {
+    const { processIntegrationOutbox } = await import('./integrationOutbox');
+    const { deliveryId } = await seedSettledDelivery(9, 2);
+    await enqueueDue(deliveryId, messageSid(9));
+    provider.fetch.mockResolvedValueOnce({ sid: messageSid(9), accountSid: provider.env.TWILIO_ACCOUNT_SID, messagingServiceSid: 'MG00000000000000000000000000000000', numSegments: '2', price: null, priceUnit: null });
+    await processIntegrationOutbox();
+
+    expect(await jobRow(deliveryId)).toMatchObject({ status: 'retry', last_error: 'PROVIDER_ACTUALS_UNAVAILABLE' });
+    expect((await deliveryRow(deliveryId)).reconciled_at).toBeNull();
+
+    await db.execute(sql`UPDATE integration_outbox SET available_at=now()-interval '1 minute' WHERE dedupe_key=${`twilio:reconcile:${deliveryId}`}`);
+    await processIntegrationOutbox();
+
+    expect(await jobRow(deliveryId)).toMatchObject({ status: 'completed', attempts: 2 });
+    expect((await deliveryRow(deliveryId)).provider_currency).toBe('USD');
+  });
+
+  it('does not repeat a provider read or refund when a completed job is replayed', async () => {
+    const { processIntegrationOutbox } = await import('./integrationOutbox');
+    const { deliveryId } = await seedSettledDelivery(10, 3);
+    await enqueueDue(deliveryId, messageSid(10));
+    await processIntegrationOutbox();
+    const before = await db.execute(sql`SELECT sum(amount)::int AS total FROM sms_credit_ledger WHERE salon_id='rc1'`);
+    await db.execute(sql`UPDATE integration_outbox SET status='pending',available_at=now()-interval '1 minute' WHERE dedupe_key=${`twilio:reconcile:${deliveryId}`}`);
+    await processIntegrationOutbox();
+    const after = await db.execute(sql`SELECT sum(amount)::int AS total FROM sms_credit_ledger WHERE salon_id='rc1'`);
+
+    expect(after.rows).toEqual(before.rows);
+    expect(provider.fetch).toHaveBeenCalledOnce();
+    expect(await jobRow(deliveryId)).toMatchObject({ status: 'completed' });
+  });
+
+  it('keeps lookup failures retryable without storing provider details', async () => {
+    const { processIntegrationOutbox } = await import('./integrationOutbox');
+    const { deliveryId } = await seedSettledDelivery(11, 2);
+    await enqueueDue(deliveryId, messageSid(11));
+    provider.fetch.mockRejectedValueOnce(new Error('private Twilio request details'));
+    await processIntegrationOutbox();
+
+    expect(await jobRow(deliveryId)).toMatchObject({ status: 'retry', last_error: 'TWILIO_COST_LOOKUP_FAILED' });
+    expect((await deliveryRow(deliveryId)).reconciled_at).toBeNull();
   });
 });

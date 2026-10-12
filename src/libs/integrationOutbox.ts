@@ -4087,7 +4087,7 @@ export async function processIntegrationOutbox(
           ? { status: 'failed' as const, error: 'STAFF_RESCHEDULE_EMAIL_FAILED' }
           : { status: 'synced' as const };
       } else if (job.provider === 'twilio' && job.operation === 'reconcile_message_cost') {
-        result = await reconcileTwilioMessageCost(job.payload as TwilioReconcilePayload);
+        result = await reconcileTwilioMessageCost(job.salonId, job.payload as TwilioReconcilePayload);
       } else {
         throw new Error('INVALID_INTEGRATION_OUTBOX_OPERATION');
       }
@@ -4541,8 +4541,7 @@ export async function processIntegrationOutbox(
 // =============================================================================
 // GATE B — Twilio cost/segment reconciliation (contract §7.7, §11).
 // The outbox is reused ONLY for post-hoc provider truth; intents never ride
-// it. The provider fetch is injected so Gate B ships no live Twilio read
-// path — tests and Gate C wiring supply the fetcher.
+// it. Production uses the account-bound Twilio reader; tests can override it.
 // =============================================================================
 
 export type TwilioReconcilePayload = {
@@ -4580,34 +4579,50 @@ export type TwilioMessageCostFetcher = (providerMessageId: string) => Promise<{
 
 let twilioCostFetcher: TwilioMessageCostFetcher | null = null;
 
-/** Gate C wires the real fetcher; tests inject fakes. Unset = unresolved retry. */
+/** Test override. Null restores the production provider reader. */
 export function setTwilioCostFetcher(fetcher: TwilioMessageCostFetcher | null): void {
   twilioCostFetcher = fetcher;
 }
 
 async function reconcileTwilioMessageCost(
+  salonId: string,
   payload: TwilioReconcilePayload,
 ): Promise<{ status: 'synced' } | { status: 'failed'; error: string }> {
-  if (twilioCostFetcher === null) {
-    return { status: 'failed', error: 'TWILIO_COST_FETCHER_UNCONFIGURED' };
+  if (!payload || typeof payload.deliveryId !== 'string' || typeof payload.providerMessageId !== 'string') {
+    return { status: 'failed', error: 'INVALID_TWILIO_RECONCILIATION_PAYLOAD' };
   }
-  const truth = await twilioCostFetcher(payload.providerMessageId);
-  if (truth === null || truth.numSegments === null || truth.numSegments <= 0) {
-    // Missing/zero/unusable actuals: unresolved — retry via outbox backoff.
-    return { status: 'failed', error: 'PROVIDER_ACTUALS_UNAVAILABLE' };
-  }
-
   const [delivery] = await db
     .select({
       segmentCount: notificationDeliverySchema.segmentCount,
       creditReservationId: notificationDeliverySchema.creditReservationId,
       salonId: notificationDeliverySchema.salonId,
+      channel: notificationDeliverySchema.channel,
+      providerMessageId: notificationDeliverySchema.providerMessageId,
+      senderIdentity: notificationDeliverySchema.senderIdentity,
+      messagingServiceSid: notificationDeliverySchema.messagingServiceSid,
+      reconciledAt: notificationDeliverySchema.reconciledAt,
     })
     .from(notificationDeliverySchema)
-    .where(eq(notificationDeliverySchema.id, payload.deliveryId))
+    .where(and(eq(notificationDeliverySchema.id, payload.deliveryId), eq(notificationDeliverySchema.salonId, salonId)))
     .limit(1);
   if (!delivery) {
     return { status: 'synced' };
+  }
+  if (delivery.channel !== 'sms' || delivery.providerMessageId !== payload.providerMessageId) {
+    return { status: 'failed', error: 'TWILIO_COST_IDENTITY_MISMATCH' };
+  }
+  if (delivery.reconciledAt !== null) {
+    return { status: 'synced' };
+  }
+  const truth = twilioCostFetcher
+    ? await twilioCostFetcher(payload.providerMessageId)
+    : await (await import('@/libs/twilioMessageCost')).fetchTwilioMessageCost({
+      providerMessageId: payload.providerMessageId,
+      senderIdentity: delivery.senderIdentity,
+      messagingServiceSid: delivery.messagingServiceSid,
+    });
+  if (truth === null || truth.numSegments === null || !Number.isSafeInteger(truth.numSegments) || truth.numSegments <= 0) {
+    return { status: 'failed', error: 'PROVIDER_ACTUALS_UNAVAILABLE' };
   }
 
   const predicted = delivery.segmentCount;
@@ -4634,6 +4649,6 @@ async function reconcileTwilioMessageCost(
       anomalyCode,
       reconciledAt: new Date(),
     })
-    .where(eq(notificationDeliverySchema.id, payload.deliveryId));
+    .where(and(eq(notificationDeliverySchema.id, payload.deliveryId), eq(notificationDeliverySchema.salonId, salonId), eq(notificationDeliverySchema.providerMessageId, payload.providerMessageId)));
   return { status: 'synced' };
 }
