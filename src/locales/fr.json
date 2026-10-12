@@ -253,7 +253,7 @@
     "tile_description": "Consultez et corrigez les absences marquées par erreur",
     "explainer": "Corriger une absence marquée par erreur annule le rendez-vous et retire ce rendez-vous du risque d’absence partagé. Cette action ne supprime pas la cliente, ne modifie pas les dépôts ni les remboursements, et ne supprime pas l’historique. D’autres absences peuvent toujours déclencher un avertissement.",
     "paused": "La protection contre les absences partagées est actuellement suspendue. L’historique demeure visible.",
-    "pending_help": "Les absences marquées tôt et admissibles sont ajoutées après la fin du rendez-vous, habituellement dans les cinq minutes.",
+    "pending_help": "Les absences admissibles sont comptabilisées dès que vous les signalez. Corriger une absence signalée par erreur la retire du risque partagé.",
     "retry": "Réessayer",
     "confirm_title": "Corriger cette absence en rendez-vous annulé?",
     "confirm_copy": "Cette action enregistre votre raison et retire seulement cette absence marquée par erreur du risque partagé. Les dépôts et remboursements ne changent pas.",
