@@ -1,3 +1,10 @@
+## [1.142.42](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.41...v1.142.42) (2026-10-12)
+
+
+### Bug Fixes
+
+* keep SMS confirmation polling within billing limits ([151f867](https://github.com/SniperStopSniping/nailsalon/commit/151f8679d4806739a136599e8137ef79de044eae))
+
 ## [1.142.41](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.40...v1.142.41) (2026-10-12)
 
 
