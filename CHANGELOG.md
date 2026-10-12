@@ -1,3 +1,10 @@
+## [1.142.37](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.36...v1.142.37) (2026-10-12)
+
+
+### Bug Fixes
+
+* harden native image decoding and cover uploads ([f87bfd3](https://github.com/SniperStopSniping/nailsalon/commit/f87bfd3c4830f48d48bf5460f23db25cab93eebc))
+
 ## [1.142.36](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.35...v1.142.36) (2026-10-11)
 
 
