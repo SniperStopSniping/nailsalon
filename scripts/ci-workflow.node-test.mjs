@@ -86,6 +86,7 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
   assert.ok(statement);
   const reviewed = [...statement.matchAll(/([a-f0-9]{40}):([a-f0-9]{40})\) ;;/g)].map(match => [match[1], match[2]]);
   const monitoringPairs = [
+    ['b7e4591c8df9d94b82b281587cec8f98b0f5439e', '9576667ec691e6f5aba41486cfbbcf8e32d6b3ee'],
     ['f5212c5c05d6cf9a89a3e63c2643f03bbf223d75', '3500380b6019dbab17b1c137064ee1c1e3963eda'],
     ['ea2893563cf943de48bbd6ba91881946fe4c9f98', 'da93db3e2a143e0b8694b3231265f4e8b8885d5a'],
     ['5f3f0c31d902dd4ff5494d02d536de4cf04784ad', 'ac14f583f5e9bde0910231da97b64d28e24b252b'],
@@ -112,6 +113,15 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     }
   }
   assert.notEqual(run('0'.repeat(40), '0'.repeat(40)), 0);
+});
+
+test('the required Node 24 job exercises the installed patched SMS and image dependencies', () => {
+  const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify patched runtime dependencies and SMS transport with zero skips');
+  assert.match(step.run, /set -euo pipefail/);
+  assert.ok(step.run.includes('node --test --test-reporter=tap scripts/runtime-dependency-security.node-test.mjs'));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 10\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 10\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
 });
 
 test('all execution checkouts use the reviewed head and shards cannot fail fast', () => {

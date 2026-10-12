@@ -228,5 +228,10 @@
       "@semantic-release/git",
       "@semantic-release/github"
     ]
+  },
+  "overrides": {
+    "cloudinary": {
+      "lodash": "4.18.1"
+    }
   }
 }
