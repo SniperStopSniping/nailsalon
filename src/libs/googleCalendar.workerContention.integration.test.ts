@@ -264,10 +264,28 @@ describe('actual Calendar workers sharing one connection', () => {
       }]);
     }
     errors.mockRestore();
-    holdTokenCount = 0;
-    firstCalendarResponse = undefined;
+    // Recovery is another concurrent cron invocation. Control its single
+    // collision too; unconstrained worker scheduling can legitimately cause
+    // a second collision, which this test has already asserted fails closed.
+    holdTokenCount = 2;
+    pendingTokens = [];
     providerPaths = [];
-    const recovery = await run();
+    firstCalendarResponse = new Promise<void>((resolve) => {
+      releaseFirstCalendarResponse = resolve;
+    });
+    const recoveryOperation = run();
+    try {
+      await vi.waitFor(() => expect(pendingTokens).toHaveLength(2));
+      pendingTokens[0]!(tokenResponse());
+      await vi.waitFor(() => expect(providerPaths).toHaveLength(1));
+      pendingTokens[1]!(tokenResponse());
+      await vi.waitFor(() => expect(providerPaths.length).toBeGreaterThanOrEqual(2));
+    } finally {
+      releaseFirstCalendarResponse();
+      pendingTokens.forEach(resolve => resolve(tokenResponse()));
+      await recoveryOperation;
+    }
+    const recovery = await recoveryOperation;
     const recovered = await recovery.json();
 
     expect(recovery.status).toBe(200);
