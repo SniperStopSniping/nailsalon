@@ -19,13 +19,13 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { v2 as cloudinary } from 'cloudinary';
-import sharp from 'sharp';
 
 import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
 import { resolveBookingPageContent, updateBookingPageContentDraft } from '@/libs/bookingPageContent';
 import { isCloudinaryConfigured } from '@/libs/Cloudinary';
 import { getSalonById, getSalonBySlug } from '@/libs/queries';
+import sharp from '@/libs/safeSharp.server';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +46,7 @@ const errorResponse = (status: number, code: string, message: string): Response 
 async function prepareCoverImage(input: Buffer): Promise<{ data: Buffer; width: number; height: number }> {
   const image = sharp(input, { failOn: 'error', limitInputPixels: 80_000_000 }).rotate();
   const metadata = await image.metadata();
-  if (!metadata.width || !metadata.height) {
+  if (!metadata.width || !metadata.height || !['jpeg', 'png', 'webp'].includes(metadata.format ?? '')) {
     throw new Error('UNREADABLE_IMAGE');
   }
   const resized = image

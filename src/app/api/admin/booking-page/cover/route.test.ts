@@ -33,7 +33,7 @@ vi.mock('@/libs/bookingPageContent', () => ({ updateBookingPageContentDraft, res
 vi.mock('@/libs/auditLog', () => ({ logAuditEvent }));
 vi.mock('node:fs/promises', () => ({ mkdir, writeFile }));
 vi.mock('cloudinary', () => ({ v2: { config: vi.fn(), uploader: { upload_stream: vi.fn() } } }));
-vi.mock('sharp', () => ({ default: sharpFactory }));
+vi.mock('@/libs/safeSharp.server', () => ({ default: sharpFactory }));
 
 const SALON = { id: 'salon_a', slug: 'salon-a', name: 'Salon A' };
 
@@ -44,7 +44,7 @@ function sharpPipeline(width: number, height: number, fail = false) {
       if (fail) {
         throw new Error('Input buffer contains unsupported image format');
       }
-      return { width, height };
+      return { width, height, format: 'jpeg' };
     }),
     resize: vi.fn(() => pipeline),
     webp: vi.fn(() => pipeline),

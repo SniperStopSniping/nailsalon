@@ -63,6 +63,7 @@ let providerPaths: string[];
 let refreshTokens: Array<string | null>;
 let pendingTokens: Array<(response: Response) => void>;
 let holdTokenCount: number;
+let firstCalendarResponse: Promise<void> | undefined;
 let executed = 0;
 
 const tokenResponse = () => Response.json({ access_token: 'synthetic-access', expires_in: 3600 });
@@ -105,6 +106,7 @@ beforeEach(async () => {
   refreshTokens = [];
   pendingTokens = [];
   holdTokenCount = 0;
+  firstCalendarResponse = undefined;
   boundary.fetch.mockImplementation(async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     if (url.href === 'https://oauth2.googleapis.com/token') {
@@ -125,6 +127,10 @@ beforeEach(async () => {
 
     expect(init.method ?? 'GET').toBe('GET');
     expect(new Headers(init.headers).get('authorization')).toBe('Bearer synthetic-access');
+
+    if (providerPaths.length === 1) {
+      await firstCalendarResponse;
+    }
 
     if (url.pathname === '/calendar/v3/users/me/calendarList') {
       return Response.json({ items: [{ id: CALENDAR_ID, summary: 'Synthetic calendar', accessRole: 'owner' }] });
@@ -155,6 +161,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   executed += 1;
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -169,21 +176,33 @@ afterAll(async () => {
 });
 
 describe('actual Calendar workers sharing one connection', () => {
-  it.each([0, 1])('both cron lanes keep making progress when token response %s wins three revision races', async (winner) => {
+  it.each([0, 1])('both cron lanes make progress after one collision per round when token response %s wins', async (winner) => {
     for (let round = 0; round < 3; round++) {
       pendingTokens = [];
       providerPaths = [];
       holdTokenCount = 2;
+      let releaseFirstCalendarResponse!: () => void;
+      firstCalendarResponse = new Promise<void>((resolve) => {
+        releaseFirstCalendarResponse = resolve;
+      });
       const operation = POST(new Request('http://localhost/api/integrations/outbox/process', {
         method: 'POST',
         headers: { 'x-cron-secret': 'synthetic-worker-secret' },
       }));
-      await vi.waitFor(() => expect(pendingTokens).toHaveLength(2));
-      pendingTokens[winner]!(tokenResponse());
-      // A Calendar request proves the first context write has committed. The
-      // other token response still belongs to the old, actually stored xmin.
-      await vi.waitFor(() => expect(providerPaths.length).toBeGreaterThan(0));
-      pendingTokens[1 - winner]!(tokenResponse());
+      try {
+        await vi.waitFor(() => expect(pendingTokens).toHaveLength(2));
+        pendingTokens[winner]!(tokenResponse());
+        // The first read proves that context write committed. Hold its
+        // response until the loser reacquires: the inbound worker's next
+        // listing/checkpoint must not introduce an unintended second collision.
+        await vi.waitFor(() => expect(providerPaths).toHaveLength(1));
+        pendingTokens[1 - winner]!(tokenResponse());
+        await vi.waitFor(() => expect(providerPaths.length).toBeGreaterThanOrEqual(2));
+      } finally {
+        releaseFirstCalendarResponse();
+        pendingTokens.forEach(resolve => resolve(tokenResponse()));
+        await operation;
+      }
       const response = await operation;
       const result = await response.json();
 
@@ -200,6 +219,81 @@ describe('actual Calendar workers sharing one connection', () => {
       expect(connection?.status).toBe('active');
       expect(connection?.inboundSyncedAt).toBeInstanceOf(Date);
     }
+  });
+
+  it('keeps a second worker collision visible and recovers on the next eligible scan', async () => {
+    holdTokenCount = 3;
+    let releaseFirstCalendarResponse!: () => void;
+    firstCalendarResponse = new Promise<void>((resolve) => {
+      releaseFirstCalendarResponse = resolve;
+    });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const run = () => POST(new Request('http://localhost/api/integrations/outbox/process', {
+      method: 'POST',
+      headers: { 'x-cron-secret': 'synthetic-worker-secret' },
+    }));
+    const operation = run();
+    try {
+      await vi.waitFor(() => expect(pendingTokens).toHaveLength(2));
+      pendingTokens[0]!(tokenResponse());
+      await vi.waitFor(() => expect(providerPaths).toHaveLength(1));
+      pendingTokens[1]!(tokenResponse());
+      await vi.waitFor(() => expect(pendingTokens).toHaveLength(3));
+      // Force an actual stored revision change after the retry read it.
+      await db.update(schema.salonGoogleCalendarConnectionSchema).set({ lastError: 'peer-write-during-retry' })
+        .where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID));
+      pendingTokens[2]!(tokenResponse());
+    } finally {
+      releaseFirstCalendarResponse();
+      pendingTokens.forEach(resolve => resolve(tokenResponse()));
+      await operation;
+    }
+    const response = await operation;
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.data.outbound.failedCancelledEvents + result.data.inbound.failedConnections).toBe(1);
+    expect(providerPaths.filter(value => value.endsWith('/events'))).toHaveLength(1);
+    expect(errors).toHaveBeenCalledTimes(result.data.outbound.failedCancelledEvents);
+
+    for (const call of errors.mock.calls) {
+      expect(call).toEqual(['[GoogleCalendar] Failed to scan reconciliation calendar:', {
+        calendarId: CALENDAR_ID,
+        salonId: SALON_ID,
+        error: 'GOOGLE_CALENDAR_CONNECTION_WRITE_FENCE_LOST',
+      }]);
+    }
+    errors.mockRestore();
+    // Recovery is another concurrent cron invocation. Control its single
+    // collision too; unconstrained worker scheduling can legitimately cause
+    // a second collision, which this test has already asserted fails closed.
+    holdTokenCount = 2;
+    pendingTokens = [];
+    providerPaths = [];
+    firstCalendarResponse = new Promise<void>((resolve) => {
+      releaseFirstCalendarResponse = resolve;
+    });
+    const recoveryOperation = run();
+    try {
+      await vi.waitFor(() => expect(pendingTokens).toHaveLength(2));
+      pendingTokens[0]!(tokenResponse());
+      await vi.waitFor(() => expect(providerPaths).toHaveLength(1));
+      pendingTokens[1]!(tokenResponse());
+      await vi.waitFor(() => expect(providerPaths.length).toBeGreaterThanOrEqual(2));
+    } finally {
+      releaseFirstCalendarResponse();
+      pendingTokens.forEach(resolve => resolve(tokenResponse()));
+      await recoveryOperation;
+    }
+    const recovery = await recoveryOperation;
+    const recovered = await recovery.json();
+
+    expect(recovery.status).toBe(200);
+    expect(recovered.data.outbound.failedCancelledEvents).toBe(0);
+    expect(recovered.data.inbound.failedConnections).toBe(0);
+    expect(providerPaths.filter(value => value.endsWith('/events'))).toHaveLength(2);
+    expect(boundary.heartbeat).toHaveBeenCalledTimes(2);
+    expect(boundary.alert).not.toHaveBeenCalled();
   });
 
   it('reacquires the current stored credential after a concurrent credential rotation', async () => {
