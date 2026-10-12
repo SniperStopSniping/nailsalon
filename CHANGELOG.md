@@ -1,3 +1,10 @@
+## [1.142.39](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.38...v1.142.39) (2026-10-12)
+
+
+### Performance Improvements
+
+* avoid redundant owner salon selection refreshes ([#435](https://github.com/SniperStopSniping/nailsalon/issues/435)) ([3178401](https://github.com/SniperStopSniping/nailsalon/commit/3178401e8d69d79914cabc7d441c398e2d433f40))
+
 ## [1.142.38](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.37...v1.142.38) (2026-10-12)
 
 
