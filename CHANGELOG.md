@@ -1,3 +1,11 @@
+## [1.142.44](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.43...v1.142.44) (2026-10-12)
+
+
+### Bug Fixes
+
+* **no-shows:** count explicit marks immediately ([#443](https://github.com/SniperStopSniping/nailsalon/issues/443)) ([4a11d90](https://github.com/SniperStopSniping/nailsalon/commit/4a11d90a4d19f89d7c4973ee0c5957bdd3b1d8e1))
+* **payments:** refresh salon Stripe readiness on request ([#442](https://github.com/SniperStopSniping/nailsalon/issues/442)) ([4391625](https://github.com/SniperStopSniping/nailsalon/commit/439162560c3778148fe39ea20d02bafd2e4e8fda))
+
 ## [1.142.43](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.42...v1.142.43) (2026-10-12)
 
 
