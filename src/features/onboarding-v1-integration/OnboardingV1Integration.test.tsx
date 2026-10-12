@@ -219,6 +219,12 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
   it('shows the premium gate with every configured provider and one owner heading', async () => {
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
+    // The real account gate is lazy-loaded. Let its module finish loading
+    // before checking the UI so cold CI transforms do not consume the DOM wait.
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
     expect(await screen.findByRole('heading', {
       level: 1,
       name: /Your site is coming together/u,
