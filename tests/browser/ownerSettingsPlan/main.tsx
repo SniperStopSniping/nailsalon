@@ -23,4 +23,4 @@ function Fixture() {
   }
   return <SettingsModal salonSlug="salon-a" salonId="salon_1" userName="Daniela" onClose={close} onOpenApp={openApp} />;
 }
-createRoot(document.getElementById('root')!).render(<Fixture />);
+createRoot(document.getElementById('root')!).render(<main className="owner-workspace-theme min-h-screen"><Fixture /></main>);

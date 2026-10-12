@@ -166,6 +166,18 @@ async function seedSalon(stripeCustomerId: string | null): Promise<string> {
 }
 
 describe('legacy-flow customers — byte-identical behaviour', () => {
+  it('accepts the owner UI relative return to the selected salon credits overview', async () => {
+    const salonId = await seedSalon('cus_selected_salon');
+
+    const response = await post({ salonId, returnUrl: '/admin?salon=isla-nail-studio&app=plan-usage&view=usage' });
+
+    expect(response.status).toBe(200);
+    expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledWith({
+      customer: 'cus_selected_salon',
+      return_url: 'https://app.test/admin?salon=isla-nail-studio&app=plan-usage&view=usage',
+    });
+  });
+
   it('creates a portal session with the legacy customer id and the exact pre-P5b call arguments', async () => {
     const salonId = await seedSalon('cus_legacy_abc');
 

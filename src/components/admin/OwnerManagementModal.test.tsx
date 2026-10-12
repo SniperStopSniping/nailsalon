@@ -70,10 +70,6 @@ vi.mock('./UsageBillingModal', () => ({
   },
 }));
 
-vi.mock('./ChoosePlanPanel', () => ({
-  ChoosePlanPanel: () => <div data-testid="choose-plan-panel" />,
-}));
-
 function renderModal(overrides: Partial<React.ComponentProps<typeof OwnerManagementModal>> = {}) {
   return render(
     <OwnerManagementModal
@@ -248,17 +244,34 @@ describe('OwnerManagementModal', () => {
     renderModal({ app: 'plan-usage', salonSlug: null });
 
     expect(screen.getByRole('button', { name: /messages & credits/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /compare plans/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /plan & billing/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /compare plans/i })).not.toBeInTheDocument();
     expect(usageBillingModalMock).not.toHaveBeenCalled();
   });
 
-  it('does not expose plan comparison to a Free Solo owner, including a direct plans link', () => {
-    state.query = 'salon=isla&app=plan-usage&view=plans';
-    renderModal({ app: 'plan-usage', isFreeSolo: true });
+  it.each([false, true])('opens saved plans links as the current credits overview (Free Solo: %s)', (isFreeSolo) => {
+    state.query = 'salon=isla&app=plan-usage&view=plans&client=client_9';
+    renderModal({ app: 'plan-usage', isFreeSolo });
 
     expect(screen.getByRole('button', { name: /messages & credits/i })).toBeEnabled();
     expect(screen.queryByRole('button', { name: /compare plans/i })).not.toBeInTheDocument();
-    expect(screen.queryByTestId('choose-plan-panel')).not.toBeInTheDocument();
+    expect(usageBillingModalMock).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'isla', initialView: 'overview' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Usage back' }));
+
+    const query = queryOf(replaceMock.mock.calls[0]![0]);
+
+    expect(query.get('salon')).toBe('isla');
+    expect(query.get('client')).toBe('client_9');
+    expect(query.has('view')).toBe(false);
+  });
+
+  it('never opens a saved plans link without a selected salon', () => {
+    state.query = 'app=plan-usage&view=plans';
+    renderModal({ app: 'plan-usage', salonSlug: null });
+
+    expect(usageBillingModalMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /messages & credits/i })).toBeDisabled();
   });
 
   it('delegates Help resources to the existing app destinations', () => {
