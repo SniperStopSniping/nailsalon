@@ -1518,6 +1518,14 @@ export async function PATCH(
           // itself as "cannot be changed safely" and left the duplicate copy
           // unreachable (AG-clients-04 / AG-w2-clients-01).
           for (const key of lockedKeys) {
+            // Booking and manual creation permit household members to share
+            // an email. The locked client ID already identifies this edit;
+            // retaining or leaving its existing email must not require that
+            // email to identify only one profile. Still lock the key, check
+            // every phone/new email, and run the external-account guard below.
+            if (key.kind === 'email' && key.normalizedValue === currentEmail) {
+              continue;
+            }
             let identity;
             try {
               identity = await resolveCanonicalSalonClientIdentityWithHandle(
