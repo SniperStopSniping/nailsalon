@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { checkEndpointRateLimit, RATE_LIMIT_PRESETS } from '@/libs/rateLimit';
+
 import AdminDashboardPage from './page';
 
 const {
@@ -1939,7 +1941,7 @@ describe('AdminDashboardPage', () => {
       });
     });
 
-    it('success: polls /api/billing/topups every 5s for the exact returned purchase, then stops', async () => {
+    it('success: scopes confirmation polling and stays within the billing read limit', async () => {
       searchParamGet.mockImplementation((key: string) => {
         if (key === 'salon') {
           return 'salon-b';
@@ -1983,21 +1985,42 @@ describe('AdminDashboardPage', () => {
       // Fake timers interact badly with the auth/session bootstrap's own
       // async state updates in this harness (React's act-environment
       // detection trips even restricted to setTimeout/clearTimeout), so
-      // this proves the poll is *scheduled* correctly — exactly one 5000ms
-      // timer, requested only after the modal (and so the salon id) is
-      // available — rather than fast-forwarding through it.
+      // capture the scheduled poll without advancing React's timers, then
+      // exercise that cadence against the real endpoint rate limiter.
       const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
       render(<AdminDashboardPage />);
       await screen.findByTestId('usage-billing-modal');
 
       await waitFor(() => {
-        expect(setTimeoutSpy.mock.calls.some(([, delay]) => delay === 5000)).toBe(true);
+        expect(setTimeoutSpy.mock.calls.some(([callback]) => typeof callback === 'function' && callback.name === 'poll')).toBe(true);
       });
 
       expect(topupsCallCount).toBe(1);
       expect(fetchMock.mock.calls.some(([url]) => String(url).includes('purchaseId=stp_returned'))).toBe(true);
 
-      setTimeoutSpy.mockRestore();
+      const pollDelay = setTimeoutSpy.mock.calls.find(([callback]) => typeof callback === 'function' && callback.name === 'poll')?.[1];
+
+      expect(pollDelay).toBeGreaterThan(0);
+
+      const startedAt = Date.now();
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
+      const endpoint = 'test/topup-confirmation-return';
+      const identifier = `owner-${startedAt}`;
+      try {
+        // Leave room for the history read and an auth/bootstrap read-back,
+        // both observed alongside the confirmation poll in hosted Checkout.
+        for (let read = 0; read < 2; read += 1) {
+          expect(checkEndpointRateLimit(endpoint, identifier, 'BILLING').allowed).toBe(true);
+        }
+        for (let elapsed = 0; elapsed <= RATE_LIMIT_PRESETS.BILLING.windowMs; elapsed += pollDelay!) {
+          nowSpy.mockReturnValue(startedAt + elapsed);
+
+          expect(checkEndpointRateLimit(endpoint, identifier, 'BILLING').allowed).toBe(true);
+        }
+      } finally {
+        nowSpy.mockRestore();
+        setTimeoutSpy.mockRestore();
+      }
     });
   });
 
