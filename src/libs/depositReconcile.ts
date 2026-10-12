@@ -178,10 +178,17 @@ async function isolate(pass: string, run: () => Promise<void>): Promise<void> {
 
 /** The out-of-band monitor's in-band half. Mockable so a test can count it. */
 export function emitLivenessCheckIn(): void {
-  Sentry.captureMessage('deposit_reconcile_run', {
-    level: 'info',
-    tags: { deposits: 'reconcile' },
-  });
+  // Healthy five-minute heartbeats belong to Cron Monitoring, not the error
+  // event allowance. A missing check-in remains visible to the monitor.
+  Sentry.captureCheckIn(
+    { monitorSlug: 'deposit-reconcile', status: 'ok' },
+    {
+      schedule: { type: 'crontab', value: '*/5 * * * *' },
+      checkinMargin: 5,
+      maxRuntime: 5,
+      timezone: 'UTC',
+    },
+  );
 }
 
 // =============================================================================

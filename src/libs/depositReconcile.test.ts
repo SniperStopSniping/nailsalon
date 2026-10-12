@@ -10,6 +10,7 @@
  * Time travel is by BACKDATING rows, never by asserting an attempt counter as
  * a proxy for a clock.
  */
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -30,6 +31,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 const sentry = vi.hoisted(() => ({
+  captureCheckIn: vi.fn(),
   captureMessage: vi.fn(),
   captureException: vi.fn(),
 }));
@@ -1176,25 +1178,47 @@ describe('stuck-deposit tripwire', () => {
 // ===========================================================================
 
 describe('liveness', () => {
-  it('emits EXACTLY ONE check-in per run', async () => {
+  it('emits one cron check-in without spending error-event quota on healthy runs', async () => {
     await runDepositReconcile();
 
-    const checkIns = sentry.captureMessage.mock.calls
-      .filter(call => call[0] === 'deposit_reconcile_run');
+    expect(sentry.captureCheckIn).toHaveBeenCalledTimes(1);
+    expect(sentry.captureCheckIn).toHaveBeenCalledWith(
+      { monitorSlug: 'deposit-reconcile', status: 'ok' },
+      {
+        schedule: { type: 'crontab', value: '*/5 * * * *' },
+        checkinMargin: 5,
+        maxRuntime: 5,
+        timezone: 'UTC',
+      },
+    );
 
-    expect(checkIns).toHaveLength(1);
+    const cron = JSON.parse(readFileSync(path.join(process.cwd(), 'vercel.json'), 'utf8'))
+      .crons.find((entry: { path: string }) => entry.path === '/api/deposits/reconcile');
+
+    expect(sentry.captureCheckIn.mock.calls[0]?.[1]?.schedule.value).toBe(cron.schedule);
+    expect(sentry.captureMessage).not.toHaveBeenCalledWith('deposit_reconcile_run', expect.anything());
+    expect(sentry.captureException).not.toHaveBeenCalled();
   });
 
   it('runs every pass even when one of them throws', async () => {
     // These are independent convergence mechanisms. Losing all of them because
     // one had a bad row is how a backlog becomes permanent.
-    await seedExpiredHold();
-    stripeMock.sessionsRetrieve.mockRejectedValue(new Error('boom'));
-
-    const summary = await runDepositReconcile();
+    const failure = new Error('synthetic first-pass failure');
+    const select = vi.spyOn(db, 'select').mockImplementationOnce(() => {
+      throw failure;
+    });
+    let summary;
+    try {
+      summary = await runDepositReconcile();
+    } finally {
+      select.mockRestore();
+    }
 
     expect(summary).toHaveProperty('eventsReclaimed');
-    expect(sentry.captureMessage.mock.calls.filter(call => call[0] === 'deposit_reconcile_run'))
-      .toHaveLength(1);
+    expect(sentry.captureCheckIn).toHaveBeenCalledTimes(1);
+    expect(sentry.captureException).toHaveBeenCalledWith(failure, {
+      tags: { deposits: 'reconcile', pass: 'step0' },
+    });
+    expect(sentry.captureMessage).not.toHaveBeenCalledWith('deposit_reconcile_run', expect.anything());
   });
 });

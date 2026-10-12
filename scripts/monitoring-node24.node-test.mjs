@@ -186,6 +186,20 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
       }
     });
   }
+  await t.test('healthy cron check-ins use their own envelope instead of an error event', async () => {
+    const eventCount = envelopes.flatMap(envelope => envelope[1].filter(item => item[0].type === 'event')).length;
+    sentry.captureCheckIn(
+      { monitorSlug: 'synthetic-deposit-reconcile', status: 'ok' },
+      { schedule: { type: 'crontab', value: '*/5 * * * *' }, checkinMargin: 5, maxRuntime: 5, timezone: 'UTC' },
+    );
+    assert.equal(await sentry.flush(2000), true);
+    const checkIns = envelopes.flatMap(envelope => envelope[1].filter(item => item[0].type === 'check_in').map(item => item[1]));
+    assert.equal(checkIns.length, 1);
+    assert.equal(checkIns[0].monitor_slug, 'synthetic-deposit-reconcile');
+    assert.equal(checkIns[0].status, 'ok');
+    assert.equal(checkIns[0].monitor_config.schedule.value, '*/5 * * * *');
+    assert.equal(envelopes.flatMap(envelope => envelope[1].filter(item => item[0].type === 'event')).length, eventCount);
+  });
   await setImmediate();
   assert.ok(!warnings.includes('DEP0169'));
   assert.equal(networkAttempts, 0);
