@@ -266,6 +266,56 @@ beforeEach(() => {
 });
 
 describe('AdminDashboardPage', () => {
+  it.each(['salon-b', null, undefined, 'salon-a', 'SALON-B'])(
+    'only syncs the selected salon when the server cookie differs or is unknown: %s',
+    async (activeSalonSlug) => {
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith('/api/admin/auth/me')) {
+          return new Response(JSON.stringify({
+            activeSalonSlug,
+            user: { id: 'admin_1', name: 'Owner', isSuperAdmin: false, salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }] },
+          }));
+        }
+        return new Response(JSON.stringify({ data: { modules: {}, moduleReasons: {}, signals: [], unresolvedCount: 0 } }));
+      });
+      render(<AdminDashboardPage />);
+      await screen.findByTestId('owner-today-workspace');
+
+      expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/me?salonSlug=salon-b');
+
+      const expectedSyncCount = activeSalonSlug === 'salon-b' ? 0 : 1;
+
+      expect(fetchMock.mock.calls.filter(([url]) => url === '/api/admin/auth/set-active-salon')).toHaveLength(expectedSyncCount);
+      expect(routerRefresh).toHaveBeenCalledTimes(expectedSyncCount);
+    },
+  );
+
+  it('revalidates the account when Clerk becomes ready without re-saving the same salon cookie', async () => {
+    clerkAuth.isLoaded = false;
+    clerkGetToken.mockResolvedValue('current-session-token');
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).startsWith('/api/admin/auth/me')) {
+        return new Response(JSON.stringify({
+          activeSalonSlug: 'salon-b',
+          user: { id: 'admin_1', name: 'Owner', isSuperAdmin: false, salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }] },
+        }));
+      }
+      return new Response(JSON.stringify({ data: { modules: {}, moduleReasons: {}, signals: [], unresolvedCount: 0 } }));
+    });
+    const view = render(<AdminDashboardPage />);
+    await screen.findByTestId('owner-today-workspace');
+
+    Object.assign(clerkAuth, { isLoaded: true, isSignedIn: true, sessionId: 'session_owner' });
+    view.rerender(<AdminDashboardPage />);
+    await screen.findByTestId('owner-today-workspace');
+
+    expect(clerkGetToken).toHaveBeenCalledWith({ skipCache: true });
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/admin/auth/me'))).toHaveLength(2);
+    expect(fetchMock.mock.calls.some(([url]) => url === '/api/admin/auth/set-active-salon')).toBe(false);
+    expect(routerRefresh).not.toHaveBeenCalled();
+  });
+
   it('keeps reports gated, then loads report data without unmounting the workspace', async () => {
     let app: string | null = 'analytics';
     searchParamGet.mockImplementation(key => key === 'salon' ? 'salon-b' : key === 'app' ? app : null);
