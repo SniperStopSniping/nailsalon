@@ -11,6 +11,11 @@ const { getSalonById, getSalonBySlug } = vi.hoisted(() => ({
   getSalonById: vi.fn(),
   getSalonBySlug: vi.fn(),
 }));
+const { getCookie } = vi.hoisted(() => ({ getCookie: vi.fn() }));
+
+vi.mock('next/headers', () => ({
+  cookies: async () => ({ get: getCookie }),
+}));
 
 vi.mock('@/libs/adminAuth', () => ({
   getAdminImpersonationForAdmin,
@@ -26,6 +31,7 @@ vi.mock('@/libs/queries', () => ({
 describe('GET /api/admin/auth/me', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getCookie.mockReturnValue(undefined);
     getSalonById.mockResolvedValue(null);
     getSalonBySlug.mockResolvedValue(null);
     requireActiveAdminSalon.mockResolvedValue({ salon: null });
@@ -41,6 +47,60 @@ describe('GET /api/admin/auth/me', () => {
         salonName: 'Member Salon',
         role: 'owner',
       }],
+    });
+  });
+
+  it('reports the already selected salon only after authorizing its membership', async () => {
+    getAdminImpersonationForAdmin.mockResolvedValue(null);
+    getCookie.mockReturnValue({ value: 'member-salon' });
+    const response = await GET(new Request('http://localhost/api/admin/auth/me?salonSlug=member-salon'));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ activeSalonSlug: 'member-salon' });
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(getCookie).toHaveBeenCalledWith('__active_salon_slug');
+  });
+
+  it.each([undefined, 'other-salon', 'MEMBER-SALON', ' member-salon '])(
+    'does not report an absent, unrelated or noncanonical cookie as the selected salon: %s',
+    async (value) => {
+      getAdminImpersonationForAdmin.mockResolvedValue(null);
+      getCookie.mockReturnValue(value === undefined ? undefined : { value });
+      const response = await GET(new Request('http://localhost/api/admin/auth/me?salonSlug=member-salon'));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ activeSalonSlug: null });
+    },
+  );
+
+  it('does not treat a matching cookie as permission to open another salon', async () => {
+    getAdminImpersonationForAdmin.mockResolvedValue(null);
+    getAdminSession.mockResolvedValue({
+      id: 'admin_1',
+      isSuperAdmin: false,
+      salons: [{ salonId: 'salon_member', salonSlug: 'member-salon', salonName: 'Member Salon', role: 'owner' }],
+    });
+    getCookie.mockReturnValue({ value: 'other-salon' });
+    const response = await GET(new Request('http://localhost/api/admin/auth/me?salonSlug=other-salon'));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).not.toHaveProperty('activeSalonSlug');
+    expect(getCookie).not.toHaveBeenCalled();
+  });
+
+  it('ignores a cookie outside the impersonated salon', async () => {
+    getAdminImpersonationForAdmin.mockResolvedValue({
+      salonId: 'salon_locked',
+      salonSlug: 'locked-salon',
+      salonName: 'Locked Salon',
+      startedAt: '2026-03-14T15:00:00.000Z',
+    });
+    getCookie.mockReturnValue({ value: 'member-salon' });
+    const response = await GET(new Request('http://localhost/api/admin/auth/me'));
+
+    expect(await response.json()).toMatchObject({
+      activeSalonSlug: null,
+      user: { salons: [{ slug: 'locked-salon' }] },
     });
   });
 

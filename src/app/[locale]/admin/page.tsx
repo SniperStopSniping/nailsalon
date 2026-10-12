@@ -795,12 +795,16 @@ function AdminDashboardContent() {
             setShowSalonSelector(true);
           }
 
-          // Sync cookie with the query param once per selected salon/session.
+          // Sync only when the server has not confirmed the selected cookie.
+          // Re-saving an unchanged cookie also refreshes the route, delaying
+          // returning owners and repeating requests as Clerk becomes ready.
+          // Fresh account/session authorization above still runs every time.
           // Do not hard reload; the dashboard can already render against the requested slug.
           const salonSessionKey = `${sessionId ?? 'legacy'}:${requestedSalonSlug}`;
           if (
             !data.user.impersonation?.isActive
             && requestedSalonSlug
+            && data.activeSalonSlug !== requestedSalonSlug
             && syncedSalonSessionRef.current !== salonSessionKey
           ) {
             const syncResponse = await fetch(

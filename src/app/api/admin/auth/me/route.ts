@@ -13,11 +13,13 @@
  * - Filters salons array to only that salon entry
  */
 
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { getAdminImpersonationForAdmin, getAdminSession, requireActiveAdminSalon } from '@/libs/adminAuth';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getSalonById, getSalonBySlug } from '@/libs/queries';
+import { ACTIVE_SALON_COOKIE } from '@/libs/tenantSlug';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -139,7 +141,14 @@ export async function GET(request: Request) {
         }
       }
 
+      // This is a request-local loading hint, never an authorization source.
+      // Only report a canonical cookie that matches a salon authorized above.
+      // Returning owners can then avoid re-saving it and refreshing the route.
+      const selectedSlug = (await cookies()).get(ACTIVE_SALON_COOKIE)?.value;
+      const activeSalonSlug = salons.find(s => s.slug === selectedSlug)?.slug ?? null;
+
       return NextResponse.json({
+        activeSalonSlug,
         user: {
           id: admin.id,
           phone: admin.phoneE164,
