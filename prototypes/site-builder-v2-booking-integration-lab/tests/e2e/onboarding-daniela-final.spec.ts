@@ -1911,18 +1911,20 @@ test.describe('Daniela-final onboarding acceptance', () => {
   test('@webkit-smoke profile, logo, Gallery, and Canva media decode and persist', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
-    await chooseStartingPoint(page, 'One-page');
+    await chooseStartingPoint(page, 'Quick Book');
     await page.getByLabel('Salon or studio name').fill('WebKit Nail Studio');
+    await page.getByRole('group', { name: 'Which best describes your business?' })
+      .getByText('Independent nail tech — salon/studio', { exact: true })
+      .click();
+
+    await expect(page.getByRole('radio', { name: /Independent nail tech/u })).toBeChecked();
+
     await page.getByLabel('Your name').fill('Avery');
-    await page.getByRole('group', { name: 'Who are you setting Luster up for?' })
-      .getByRole('radio', { name: 'Solo nail tech' })
-      .check();
-    await openBrandingCard(page);
     await page.getByLabel('Profile photo', { exact: true }).setInputFiles(PORTRAIT_PATH);
     await page.getByLabel('Logo', { exact: true }).setInputFiles(LOGO_PATH);
 
-    await expect(page.getByRole('group', { name: 'Your site so far' })
-      .getByRole('img').first()).toBeVisible();
+    await expect(page.getByText('Profile photo ready', { exact: true })).toBeVisible();
+    await expect(page.getByText('Logo ready', { exact: true })).toBeVisible();
     await expect.poll(async () => (await readCustomDesignAssetRecordCounts(page))['image-asset-originals-v1'] ?? 0)
       .toBeGreaterThanOrEqual(2);
 

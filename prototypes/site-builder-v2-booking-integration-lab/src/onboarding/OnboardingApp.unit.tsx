@@ -1002,7 +1002,8 @@ describe('OnboardingApp handoff boundaries', () => {
 
     const firstRender = render(<RealLabHarness />);
     await user.click(screen.getByRole('button', { name: 'Add your design' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Upload a Canva design' });
+    await screen.findByRole('button', { name: 'Save Canva design' });
+    const dialog = screen.getByRole('dialog', { name: 'Upload a Canva design' });
 
     expect(within(dialog).getByRole('button', { name: 'Save Canva design' })).toBeInTheDocument();
 
@@ -1037,7 +1038,8 @@ describe('OnboardingApp handoff boundaries', () => {
     window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, exportSiteBuilderDocument(document));
     render(<RealLabHarness />);
     await user.click(screen.getByRole('button', { name: /Current starting point.*Your Design/u }));
-    const dialog = await screen.findByRole('dialog', { name: 'Upload a Canva design' });
+    await screen.findByRole('button', { name: 'Save Canva design' });
+    const dialog = screen.getByRole('dialog', { name: 'Upload a Canva design' });
 
     expect(within(dialog).getByRole('button', { name: 'Save Canva design' })).toBeInTheDocument();
   });
