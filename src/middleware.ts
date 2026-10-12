@@ -53,10 +53,28 @@ const isOwnerAdminPageRoute = createRouteMatcher([
   '/:locale/admin(.*)',
 ]);
 
+function hasMalformedRequestPath(pathname: string): boolean {
+  try {
+    // next-intl decodes the path before constructing redirects. The URL parser
+    // strips TAB/CR/LF, which can turn a relative path into //another-host.
+    // Validate once at the boundary; leave query data and valid paths intact.
+    return /[\t\r\n]/.test(decodeURI(pathname));
+  } catch {
+    return true;
+  }
+}
+
 export default async function middleware(
   request: NextRequest,
   event: NextFetchEvent,
 ) {
+  if (hasMalformedRequestPath(request.nextUrl.pathname)) {
+    return new NextResponse('Invalid request path.', {
+      status: 400,
+      headers: { 'Cache-Control': 'private, no-store, max-age=0' },
+    });
+  }
+
   const requestedHost = request.headers.get('host') ?? request.nextUrl.hostname;
   const candidateHostnameSalonSlug = getSalonSlugFromHostname(requestedHost);
   const hostnameSalonSlug = candidateHostnameSalonSlug
