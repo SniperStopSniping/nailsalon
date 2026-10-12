@@ -1354,7 +1354,7 @@ describe('SettingsModal index', () => {
         '/api/billing/portal',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ salonId: 'salon_1' }),
+          body: JSON.stringify({ salonId: 'salon_1', returnUrl: '/admin?salon=salon-a&app=plan-usage&view=usage' }),
         }),
       );
     });

@@ -209,7 +209,7 @@ describe('UsageBillingModal', () => {
     expect(fetchMock).not.toHaveBeenCalledWith('/api/billing/checkout/topup', expect.anything());
   });
 
-  it('posts the real salonId (not undefined) when opening the Billing Portal (G20)', async () => {
+  it('posts the real salonId and the selected salon return when opening the Billing Portal', async () => {
     render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
     const button = await screen.findByRole('button', { name: 'Manage billing' });
     // No `url` in the response: the test asserts the outgoing request body,
@@ -222,7 +222,7 @@ describe('UsageBillingModal', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/billing/portal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonId: 'salon_1', salonSlug: 'salon-a' }),
+        body: JSON.stringify({ salonId: 'salon_1', salonSlug: 'salon-a', returnUrl: '/admin?salon=salon-a&app=plan-usage&view=usage' }),
       });
     });
   });

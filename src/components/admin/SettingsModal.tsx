@@ -79,6 +79,7 @@ import {
   toInstagramHandle,
 } from '@/libs/instagramHandle';
 import type { ResolvedLoyaltyPoints } from '@/libs/loyalty';
+import { ownerBillingReturnPath } from '@/libs/ownerNavigation';
 import { hasReviewedForfeitureTaxTreatment } from '@/libs/taxConfig';
 import type { SmsOperationalHealth } from '@/libs/textingStatus';
 import { getDateKeyInTimeZone } from '@/libs/timeZone';
@@ -3537,9 +3538,12 @@ export function SettingsModal({
       const response = await fetch('/api/billing/portal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonId }),
+        body: JSON.stringify({ salonId, returnUrl: ownerBillingReturnPath(salonSlug) }),
       });
       const body = await response.json().catch(() => null);
+      if (body?.error?.code === 'NO_BILLING_ACCOUNT') {
+        throw new Error('Add your payment details when you buy your first text package. No subscription is required.');
+      }
       if (!response.ok || !body?.url) {
         throw new Error(
           body?.error?.message || 'The billing portal could not be opened.',

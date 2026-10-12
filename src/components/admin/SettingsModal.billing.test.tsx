@@ -143,6 +143,33 @@ beforeEach(() => {
 });
 
 describe('Account & Plan — shared access and credits overview', () => {
+  it('includes the selected salon return and explains first-purchase payment details', async () => {
+    mockEndpoints({ billingMode: 'STRIPE', subscriptionStatus: 'active' });
+    const successfulFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/billing/portal') {
+        return Promise.resolve(new Response(JSON.stringify({ error: {
+          code: 'NO_BILLING_ACCOUNT',
+          message: 'No billing account found. Please subscribe to a plan first.',
+        } }), { status: 400 }));
+      }
+      return successfulFetch(input, init);
+    });
+    const { SettingsModal } = await import('./SettingsModal');
+    render(<SettingsModal initialView="plan-billing" leafOnly onClose={vi.fn()} salonSlug="salon-a" salonId="salon_1" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByTestId('manage-billing-button'));
+
+    expect(await screen.findByText('Add your payment details when you buy your first text package. No subscription is required.')).toBeInTheDocument();
+    expect(screen.queryByText(/Please subscribe/)).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/billing/portal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ salonId: 'salon_1', returnUrl: '/admin?salon=salon-a&app=plan-usage&view=usage' }),
+    });
+    expect(screen.getByTestId('manage-billing-button')).toBeEnabled();
+  });
+
   it('keeps billing actions unavailable after a failed read and restores them only after Retry succeeds', async () => {
     mockEndpoints({ billingMode: 'STRIPE', billingSource: 'billing_subscription' });
     const successfulFetch = fetchMock.getMockImplementation()!;

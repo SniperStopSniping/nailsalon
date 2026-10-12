@@ -8,6 +8,13 @@ export const OWNER_MANAGEMENT_VIEWS = {
 
 export type OwnerManagementApp = keyof typeof OWNER_MANAGEMENT_VIEWS;
 
+/** Relative destination; the billing API validates its origin and owner access. */
+export function ownerBillingReturnPath(salonSlug: string | null): string | undefined {
+  return salonSlug
+    ? `/admin?${new URLSearchParams({ salon: salonSlug, app: 'plan-usage', view: 'usage' })}`
+    : undefined;
+}
+
 /** UI focus identity only; never used to authorize a salon or a credit action. */
 export function smsCreditShortcutFocusKey(salonSlug: string, workspace: 'today' | 'more', view: 'topup' | 'history'): string {
   return `sms:${salonSlug}:${workspace}:${view}`;

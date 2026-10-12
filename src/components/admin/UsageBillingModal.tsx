@@ -19,6 +19,7 @@ import { StarterSmsCreditsCard } from '@/components/admin/StarterSmsCreditsCard'
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { useSmsTopupCheckout } from '@/hooks/useSmsTopupCheckout';
 import type { FoundingLifetimeAccess } from '@/libs/billing/foundingLifetime';
+import { ownerBillingReturnPath } from '@/libs/ownerNavigation';
 import { SMS_CREDITS_CHANGED_EVENT } from '@/libs/smsCreditStatus';
 
 type UsagePayload = {
@@ -383,7 +384,7 @@ function UsageBillingOverview({ salonSlug, onClose }: UsageBillingModalProps) {
       const response = await fetch('/api/billing/portal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonId: data?.salonId, salonSlug }),
+        body: JSON.stringify({ salonId: data?.salonId, salonSlug, returnUrl: ownerBillingReturnPath(salonSlug) }),
       });
       const body = await response.json();
       if (body.url) {

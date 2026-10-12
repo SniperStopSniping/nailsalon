@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   isOwnerManagementApp,
+  ownerBillingReturnPath,
   ownerManagementView,
   resolveOwnerNavigationAlias,
   resolveOwnerNavigationPathAlias,
@@ -9,6 +10,22 @@ import {
 } from './ownerNavigation';
 
 describe('owner navigation aliases', () => {
+  it.each(['isla-nail-studio', 'second-salon', 'salon&app=other#test'])('retains salon %s in a relative billing return without injecting query keys', (salonSlug) => {
+    const result = ownerBillingReturnPath(salonSlug)!;
+    const url = new URL(result, 'https://luster.test');
+
+    expect(result.startsWith('/admin?')).toBe(true);
+    expect(url.origin).toBe('https://luster.test');
+    expect(url.searchParams.get('salon')).toBe(salonSlug);
+    expect(url.searchParams.get('app')).toBe('plan-usage');
+    expect(url.searchParams.get('view')).toBe('usage');
+    expect(url.hash).toBe('');
+  });
+
+  it('preserves the existing billing fallback when no salon slug is available', () => {
+    expect(ownerBillingReturnPath(null)).toBeUndefined();
+  });
+
   it('keeps credit shortcut focus identities distinct by salon, workspace and action', () => {
     const identities = ['isla', 'second-salon'].flatMap(salon => (['today', 'more'] as const)
       .flatMap(workspace => (['topup', 'history'] as const)
