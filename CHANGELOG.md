@@ -1,3 +1,10 @@
+## [1.142.41](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.40...v1.142.41) (2026-10-12)
+
+
+### Bug Fixes
+
+* **security:** reject malformed locale paths before routing ([35bfc43](https://github.com/SniperStopSniping/nailsalon/commit/35bfc43c3d5e8010ca111a6d911b7089e66b9905))
+
 ## [1.142.40](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.39...v1.142.40) (2026-10-12)
 
 
