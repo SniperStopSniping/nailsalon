@@ -1,3 +1,11 @@
+## [1.142.43](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.42...v1.142.43) (2026-10-12)
+
+
+### Bug Fixes
+
+* **billing:** simplify owner plans and preserve salon portal return ([#440](https://github.com/SniperStopSniping/nailsalon/issues/440)) ([be0ecd0](https://github.com/SniperStopSniping/nailsalon/commit/be0ecd04cb4bce580fddf7bb373e323d15ff6250))
+* **sms:** connect provider cost and segment reconciliation ([#441](https://github.com/SniperStopSniping/nailsalon/issues/441)) ([bb3f7d3](https://github.com/SniperStopSniping/nailsalon/commit/bb3f7d3e8c256ee0289294b1b1bb3932002689a8))
+
 ## [1.142.42](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.41...v1.142.42) (2026-10-12)
 
 
