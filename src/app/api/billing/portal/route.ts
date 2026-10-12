@@ -138,6 +138,7 @@ export async function POST(request: NextRequest) {
     const [salon] = await db
       .select({
         id: salonSchema.id,
+        slug: salonSchema.slug,
         stripeCustomerId: salonSchema.stripeCustomerId,
       })
       .from(salonSchema)
@@ -166,7 +167,7 @@ export async function POST(request: NextRequest) {
         {
           error: {
             code: 'NO_BILLING_ACCOUNT',
-            message: 'No billing account found. Please subscribe to a plan first.',
+            message: 'Add your payment details when you buy your first text package. No subscription is required.',
           },
         },
         { status: 400 },
@@ -182,7 +183,9 @@ export async function POST(request: NextRequest) {
     //    existing 500 `PORTAL_ERROR`, with the cause captured to Sentry — no
     //    new public error vocabulary.
     const baseUrl = resolveBillingAppOrigin();
-    const defaultReturnUrl = `${baseUrl}/admin?tab=billing`;
+    // Use the authorized salon's saved slug, never a caller-supplied slug.
+    const returnQuery = new URLSearchParams({ salon: salon.slug, app: 'plan-usage', view: 'usage' });
+    const defaultReturnUrl = `${baseUrl}/admin?${returnQuery.toString()}`;
 
     // 7. Create Billing Portal Session. `returnUrl` is caller-supplied and
     //    was previously handed to Stripe unvalidated — an open-redirect

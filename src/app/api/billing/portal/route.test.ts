@@ -1,34 +1,8 @@
 /**
- * Billing Portal session — P5b (G41, G26, D9, D18) proofs.
- *
- * This is a LIVE route used by legacy-flow customers today; P5b's only
- * behaviour changes are (1) the Stripe customer resolves through a live
- * `billing_subscription` row first, falling back to the legacy
- * `salon.stripeCustomerId` projection (G41 — the new billing domain never
- * writes the legacy column, so a new-track subscriber used to hit
- * NO_BILLING_ACCOUNT here even with a live subscription), and (2) the error
- * response is masked (G26 — no more raw `error.message` passthrough). For a
- * legacy-only salon, the `stripe.billingPortal.sessions.create` call and the
- * success response shape must be BYTE-FOR-BYTE identical to the pre-P5b
- * route, which always did:
- *
- *   const session = await stripe.billingPortal.sessions.create({
- *     customer: salon.stripeCustomerId,
- *     return_url: returnUrl || defaultReturnUrl,
- *   });
- *   return NextResponse.json({ url: session.url });
- *
- * The "before" expectation pinned in the first describe block below is that
- * exact call shape, transcribed from the pre-P5b route.ts before any change
- * in this PR.
- *
- * X5 (2026-09-16) deliberately ENDS that byte-for-byte parity in exactly one
- * respect: `return_url` is no longer `returnUrl || defaultReturnUrl`. A
- * caller-supplied value now has to be a same-origin http(s) URL, and anything
- * else falls back to the default instead of reaching Stripe. Parity for a
- * legacy-only salon supplying no `returnUrl`, or a same-origin one, is
- * unchanged and still pinned. The origin itself comes from
- * `resolveBillingAppOrigin()` rather than an inline localhost fallback.
+ * Billing portal: preserve canonical/legacy customer resolution and owner
+ * authorization, mask provider errors, and validate same-origin returns.
+ * The default now restores the authorized salon's credits overview instead
+ * of losing salon context in the workspace picker.
  */
 import path from 'node:path';
 
@@ -153,20 +127,20 @@ const post = async (body: unknown) => {
 };
 
 let salonCounter = 0;
-async function seedSalon(stripeCustomerId: string | null): Promise<string> {
+async function seedSalon(stripeCustomerId: string | null, slug?: string): Promise<string> {
   salonCounter += 1;
   const id = `sal_portal_${salonCounter}`;
   await db.insert(schema.salonSchema).values({
     id,
     name: id,
-    slug: id,
+    slug: slug ?? id,
     stripeCustomerId,
   });
   return id;
 }
 
-describe('legacy-flow customers — byte-identical behaviour', () => {
-  it('creates a portal session with the legacy customer id and the exact pre-P5b call arguments', async () => {
+describe('legacy-flow customers — preserved account access', () => {
+  it('creates a portal session for the legacy customer and returns to the selected salon', async () => {
     const salonId = await seedSalon('cus_legacy_abc');
 
     const response = await post({ salonId });
@@ -174,13 +148,23 @@ describe('legacy-flow customers — byte-identical behaviour', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ url: 'https://billing.stripe.test/session' });
 
-    // The "before" expectation, transcribed from the pre-P5b route: the ONLY
-    // call is `stripe.billingPortal.sessions.create({ customer, return_url })`
-    // with the salon's legacy stripeCustomerId and the default return URL.
     expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledTimes(1);
     expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledWith({
       customer: 'cus_legacy_abc',
-      return_url: 'https://app.test/admin?tab=billing',
+      return_url: `https://app.test/admin?salon=${salonId}&app=plan-usage&view=usage`,
+    });
+  });
+
+  it('uses the saved salon slug even when the caller supplies another salon slug', async () => {
+    const salonId = await seedSalon('cus_selected_salon', 'selected-salon');
+    await seedSalon('cus_other_salon', 'other-salon');
+
+    const response = await post({ salonId, salonSlug: 'other-salon' });
+
+    expect(response.status).toBe(200);
+    expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledWith({
+      customer: 'cus_selected_salon',
+      return_url: 'https://app.test/admin?salon=selected-salon&app=plan-usage&view=usage',
     });
   });
 
@@ -212,7 +196,7 @@ describe('customer resolution (G41)', () => {
     expect(response.status).toBe(200);
     expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledWith({
       customer: 'cus_new_track_live',
-      return_url: 'https://app.test/admin?tab=billing',
+      return_url: `https://app.test/admin?salon=${salonId}&app=plan-usage&view=usage`,
     });
   });
 
@@ -230,7 +214,7 @@ describe('customer resolution (G41)', () => {
 
     expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledWith({
       customer: 'cus_current_live',
-      return_url: 'https://app.test/admin?tab=billing',
+      return_url: `https://app.test/admin?salon=${salonId}&app=plan-usage&view=usage`,
     });
   });
 
@@ -242,7 +226,7 @@ describe('customer resolution (G41)', () => {
     expect(response.status).toBe(200);
     expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledWith({
       customer: 'cus_legacy_wins',
-      return_url: 'https://app.test/admin?tab=billing',
+      return_url: `https://app.test/admin?salon=${salonId}&app=plan-usage&view=usage`,
     });
   });
 
@@ -252,7 +236,10 @@ describe('customer resolution (G41)', () => {
     const response = await post({ salonId });
 
     expect(response.status).toBe(400);
-    expect((await response.json()).error.code).toBe('NO_BILLING_ACCOUNT');
+    expect((await response.json()).error).toEqual({
+      code: 'NO_BILLING_ACCOUNT',
+      message: 'Add your payment details when you buy your first text package. No subscription is required.',
+    });
     expect(stripeMock.billingPortal.sessions.create).not.toHaveBeenCalled();
   });
 });
@@ -382,7 +369,7 @@ describe('X5 — return url origin and returnUrl validation', () => {
       expect(response.status).toBe(200);
       expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledWith({
         customer: 'cus_origin_local',
-        return_url: 'http://localhost:3000/admin?tab=billing',
+        return_url: `http://localhost:3000/admin?salon=${salonId}&app=plan-usage&view=usage`,
       });
     });
   });
@@ -396,7 +383,7 @@ describe('X5 — return url origin and returnUrl validation', () => {
     expect(response.status).toBe(200);
     expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledWith({
       customer: 'cus_origin_strip',
-      return_url: 'https://app.test/admin?tab=billing',
+      return_url: `https://app.test/admin?salon=${salonId}&app=plan-usage&view=usage`,
     });
   });
 
@@ -410,7 +397,7 @@ describe('X5 — return url origin and returnUrl validation', () => {
     expect(response.status).toBe(200);
     expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledWith({
       customer: 'cus_return_foreign',
-      return_url: 'https://app.test/admin?tab=billing',
+      return_url: `https://app.test/admin?salon=${salonId}&app=plan-usage&view=usage`,
     });
 
     const sentToStripe = JSON.stringify(stripeMock.billingPortal.sessions.create.mock.calls[0]);
@@ -428,7 +415,7 @@ describe('X5 — return url origin and returnUrl validation', () => {
 
       const call = stripeMock.billingPortal.sessions.create.mock.calls[0]![0];
 
-      expect(call.return_url).toBe('https://app.test/admin?tab=billing');
+      expect(call.return_url).toBe(`https://app.test/admin?salon=${salonId}&app=plan-usage&view=usage`);
       expect(JSON.stringify(call)).not.toContain('evil.example');
     };
 

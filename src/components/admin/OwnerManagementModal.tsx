@@ -1,6 +1,6 @@
 'use client';
 
-import { BookOpen, CalendarClock, CreditCard, HelpCircle, Shield, SlidersHorizontal, Users } from 'lucide-react';
+import { BookOpen, CreditCard, HelpCircle, Shield, SlidersHorizontal, Users } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -9,7 +9,6 @@ import { type OwnerManagementApp, ownerManagementView } from '@/libs/ownerNaviga
 
 import { BackButton, ModalHeader } from './AppModal';
 import { BookingPageInformationEditor } from './BookingPageInformationEditor';
-import { ChoosePlanPanel } from './ChoosePlanPanel';
 import { OwnerAppHub } from './OwnerAppHub';
 import { OwnerScheduleEditor } from './OwnerScheduleEditor';
 import { SettingsModal } from './SettingsModal';
@@ -187,17 +186,16 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
       <>
         <OwnerAppHub
           title="Plan & Usage"
-          subtitle="Your Luster subscription and message usage"
+          subtitle="Your core app access, billing and text credits"
           onBack={onClose}
           onOpen={open}
           items={[
-            { id: 'billing', title: 'Plan & billing', description: 'Subscription status, secure billing portal and plan options', icon: CreditCard, disabled: !salonSlug },
+            { id: 'billing', title: 'Plan & billing', description: 'Billing status, payment details and invoices', icon: CreditCard, disabled: !salonSlug },
             { id: 'usage', title: 'Messages & credits', description: 'SMS balance, usage and delivery history', icon: CreditCard, disabled: !salonSlug },
-            ...(!isFreeSolo ? [{ id: 'plans', title: 'Compare plans', description: 'Current Luster plans and available options', icon: CalendarClock, disabled: !salonSlug }] : []),
           ]}
         />
-        {(view === 'usage' || view === 'topup' || view === 'history') && salonSlug && <UsageBillingModal salonSlug={salonSlug} initialView={view === 'usage' ? 'overview' : view} onClose={closeUsage} />}
-        {view === 'plans' && !isFreeSolo && salonSlug && <ChoosePlanPanel salonSlug={salonSlug} onClose={back} />}
+        {/* Saved plans links open the current access and credits overview. */}
+        {(view === 'usage' || view === 'plans' || view === 'topup' || view === 'history') && salonSlug && <UsageBillingModal salonSlug={salonSlug} initialView={view === 'usage' || view === 'plans' ? 'overview' : view} onClose={closeUsage} />}
       </>
     );
   }

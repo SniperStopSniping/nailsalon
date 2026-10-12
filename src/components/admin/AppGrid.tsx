@@ -180,7 +180,7 @@ const APPS: AppItem[] = [
   {
     id: 'plan-usage',
     name: 'Plan & Usage',
-    description: 'Subscription, credits and usage',
+    description: 'Core app access, billing and text credits',
     icon: CreditCard,
   },
   {

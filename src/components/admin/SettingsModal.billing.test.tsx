@@ -1,13 +1,6 @@
 /**
- * Settings → Account & Plan billing surface — P7 wiring proofs.
- *
- * D5 ratified deleting `ComparePlansModal`/`BILLING_PLAN_CARDS` in favour of
- * `ChoosePlanPanel`, which reads the catalogue live from the usage/billing-
- * status response instead of carrying a client-side price mirror. This file
- * proves the old dead-end surface is fully gone and that the relabelled
- * "Plans" button opens the new panel; ChoosePlanPanel's own behaviour
- * (cards, checkout, confirmation, portal hand-off) is covered by
- * ChoosePlanPanel.test.tsx.
+ * Billing keeps existing account history and portal access while routing
+ * owners to the shared access/credits overview instead of obsolete plans.
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
@@ -40,9 +33,9 @@ vi.mock('framer-motion', () => {
 
 vi.mock('./PageThemesSettings', () => ({ PageThemesSettings: () => <div /> }));
 vi.mock('./BookingFlowEditor', () => ({ BookingFlowEditor: () => <div /> }));
-vi.mock('./ChoosePlanPanel', () => ({
-  ChoosePlanPanel: ({ salonSlug, onClose }: { salonSlug: string; onClose: () => void }) => (
-    <div data-testid="choose-plan-panel-stub">
+vi.mock('./UsageBillingModal', () => ({
+  UsageBillingModal: ({ salonSlug, onClose }: { salonSlug: string; onClose: () => void }) => (
+    <div data-testid="usage-billing-stub">
       <span>
         panel for
         {' '}
@@ -149,7 +142,7 @@ beforeEach(() => {
   mockEndpoints();
 });
 
-describe('Account & Plan — Choose plan wiring (P7)', () => {
+describe('Account & Plan — shared access and credits overview', () => {
   it('keeps billing actions unavailable after a failed read and restores them only after Retry succeeds', async () => {
     mockEndpoints({ billingMode: 'STRIPE', billingSource: 'billing_subscription' });
     const successfulFetch = fetchMock.getMockImplementation()!;
@@ -185,21 +178,29 @@ describe('Account & Plan — Choose plan wiring (P7)', () => {
     expect(source).not.toContain('showComparePlans');
     expect(source).not.toContain('PLAN_FEATURES');
     expect(source).not.toContain('Most Popular');
+    expect(source).not.toContain('ChoosePlanPanel');
   });
 
-  it('renders a "Plans" button (not "Compare Plans") that opens ChoosePlanPanel for the current salon', async () => {
+  it('opens Usage & billing for the current salon without offering recurring plans', async () => {
     const { SettingsModal } = await import('./SettingsModal');
     render(<SettingsModal initialView="plan-billing" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     expect(screen.queryByText('Compare Plans')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('choose-plan-panel-stub')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('usage-billing-stub')).not.toBeInTheDocument();
 
-    const plansButton = await screen.findByText('Plans');
-    fireEvent.click(plansButton);
+    const usageButton = await screen.findByRole('button', { name: 'Usage & billing' });
 
-    const panel = await screen.findByTestId('choose-plan-panel-stub');
+    expect(screen.queryByRole('button', { name: 'Plans' })).not.toBeInTheDocument();
+
+    fireEvent.click(usageButton);
+
+    const panel = await screen.findByTestId('usage-billing-stub');
 
     expect(panel).toHaveTextContent('panel for salon-a');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close stub' }));
+
+    expect(screen.queryByTestId('usage-billing-stub')).not.toBeInTheDocument();
   });
 
   // D19c companion (LG-4): the component needs NO logic change — it renders

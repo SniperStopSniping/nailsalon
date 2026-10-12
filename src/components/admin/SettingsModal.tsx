@@ -92,7 +92,6 @@ import type {
 
 import { BackButton, ModalHeader } from './AppModal';
 import { BookingFlowEditor } from './BookingFlowEditor';
-import { ChoosePlanPanel } from './ChoosePlanPanel';
 import { PageThemesSettings } from './PageThemesSettings';
 import { ReviewRequestSettings } from './ReviewRequestSettings';
 import { SmartFitSettingsCard } from './SmartFitSettingsCard';
@@ -2166,9 +2165,6 @@ export function SettingsModal({
 
   // Usage & billing modal (Gate C4).
   const [showUsageBilling, setShowUsageBilling] = useState(false);
-
-  // Choose plan panel state (P7) — replaces the Step 19 Compare Plans modal.
-  const [showChoosePlan, setShowChoosePlan] = useState(false);
 
   // Owner profile state (Account view)
   const [profileName, setProfileName] = useState(userName);
@@ -6082,7 +6078,7 @@ export function SettingsModal({
 
             <Section
               title="Plan & Usage"
-              footer="Your Luster subscription, billing and message usage are managed together in Plan & Usage."
+              footer="Your core app access, billing and text credits are managed together in Plan & Usage."
             >
               <div className="p-4">
                 <button
@@ -6112,8 +6108,8 @@ export function SettingsModal({
                     title="Luster plan & billing"
                     footer={
                       billingMode === 'STRIPE'
-                        ? 'This is what your salon pays Luster. Manage billing opens the secure Stripe portal to update payment details, view invoices, or cancel.'
-                        : 'This is what your salon pays Luster. This salon is billed offline; contact Luster to change plans.'
+                        ? 'Manage billing opens the secure Stripe portal for payment details, invoices and any existing billing agreements. Additional texts are one-time purchases; no subscription is required.'
+                        : 'View your core app access and text credits in Usage & billing. Additional texts are one-time purchases; no subscription is required.'
                     }
                   >
                     <div className="space-y-3 p-4">
@@ -6161,15 +6157,6 @@ export function SettingsModal({
                             <span>{portalOpening ? 'Opening…' : 'Manage billing'}</span>
                           </button>
                         )}
-                        {!isFreeSolo && (
-                          <button
-                            type="button"
-                            onClick={() => setShowChoosePlan(true)}
-                            className="owner-action min-h-12"
-                          >
-                            Plans
-                          </button>
-                        )}
                         <button
                           type="button"
                           onClick={() => setShowUsageBilling(true)}
@@ -6189,14 +6176,6 @@ export function SettingsModal({
         <UsageBillingModal
           salonSlug={salonSlug}
           onClose={() => setShowUsageBilling(false)}
-        />
-      )}
-
-      {/* Choose plan (P7) — replaces the Step 19 Compare Plans modal. */}
-      {showChoosePlan && salonSlug && (
-        <ChoosePlanPanel
-          salonSlug={salonSlug}
-          onClose={() => setShowChoosePlan(false)}
         />
       )}
     </div>
