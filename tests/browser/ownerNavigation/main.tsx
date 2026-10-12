@@ -80,7 +80,11 @@ export function OwnerNavigationFixture() {
     );
   }
   if (app === 'payments') {
-    return <PaymentsModal onClose={close} salonSlug="isla" salonId="salon_isla" />;
+    return (
+      <div className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)]">
+        <PaymentsModal onClose={close} salonSlug="isla" salonId="salon_isla" />
+      </div>
+    );
   }
   if (app === 'services') {
     return (
