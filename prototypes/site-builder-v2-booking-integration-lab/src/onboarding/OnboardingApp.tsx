@@ -20,6 +20,7 @@ import { ConfirmationDialog } from '../ui/EditorDialogs';
 import type { LabDocumentController } from '../ui/useLabDocument';
 import { BUILDER_HANDOFF_TRIGGER_ID } from './components/action-ids';
 import { DeferredSetupContent } from './components/DeferredSetupContent';
+import { DeferredSetupDialog } from './components/DeferredSetupDialog';
 import { OnboardingBrandMark } from './components/OnboardingBrandMark';
 import { OnboardingShell } from './components/OnboardingShell';
 import { CORE_SCREEN_ORDER } from './copy';
@@ -54,7 +55,6 @@ import type {
   PlanIntent,
   StarterId,
 } from './model/types';
-import { CanvaDialog, GalleryDialog } from './overlays/ExtrasDialogs';
 import { createLabPlanConfiguration, PlanOfferSheet } from './overlays/PlanOfferSheet';
 import { SetupPreviewOverlay } from './overlays/SetupPreviewOverlay';
 import { LazyOnboardingSitePreview as OnboardingSitePreview } from './preview/LazyOnboardingSitePreview';
@@ -89,6 +89,8 @@ const SiteStyleScreen = lazy(() => import('./screens/DesignScreens').then(module
 const BookingLayoutScreen = lazy(() => import('./screens/BookingLayoutScreen').then(module => ({ default: module.BookingLayoutScreen })));
 const FinalReviewScreen = lazy(() => import('./screens/ReviewScreen').then(module => ({ default: module.FinalReviewScreen })));
 const SaveProgressScreen = lazy(() => import('./screens/SaveProgressScreen').then(module => ({ default: module.SaveProgressScreen })));
+const GalleryDialog = lazy(() => import('./overlays/ExtrasDialogs').then(module => ({ default: module.GalleryDialog })));
+const CanvaDialog = lazy(() => import('./overlays/ExtrasDialogs').then(module => ({ default: module.CanvaDialog })));
 
 type PreviewSource =
   | 'starting_preview'
@@ -1754,22 +1756,34 @@ export function OnboardingApp({
         source={previewSource ?? 'starting_preview'}
         state={onboarding.state}
       />
-      <GalleryDialog
+      <DeferredSetupDialog
         onClose={() => setGalleryOpen(false)}
-        onUpdate={updateState}
         open={galleryOpen}
-        state={onboarding.state}
-      />
-      <CanvaDialog
-        available={canva.available}
-        controller={canva}
-        document={lab.document}
-        onAdd={addCanva}
+        title={onboarding.state.recipe.galleryEnabled ? 'Edit Gallery' : 'Add Gallery'}
+      >
+        <GalleryDialog
+          onClose={() => setGalleryOpen(false)}
+          onUpdate={updateState}
+          open={galleryOpen}
+          state={onboarding.state}
+        />
+      </DeferredSetupDialog>
+      <DeferredSetupDialog
         onClose={() => setCanvaOpen(false)}
-        onUpdate={updateState}
         open={canvaOpen}
-        state={onboarding.state}
-      />
+        title="Upload a Canva design"
+      >
+        <CanvaDialog
+          available={canva.available}
+          controller={canva}
+          document={lab.document}
+          onAdd={addCanva}
+          onClose={() => setCanvaOpen(false)}
+          onUpdate={updateState}
+          open={canvaOpen}
+          state={onboarding.state}
+        />
+      </DeferredSetupDialog>
       <PlanOfferSheet
         configuration={createLabPlanConfiguration(onboarding.state.planOffer.foundingMode)}
         offer={onboarding.state.planOffer}
