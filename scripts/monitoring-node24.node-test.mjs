@@ -87,6 +87,7 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
   sentry = nextRequire('@sentry/node');
   const core = nodeRequire('@sentry/core');
   const envelopes = [];
+  let pendingCheckInDelivery;
   sentry.init({
     ...getPublicSentryRuntimeConfig({
       NEXT_PUBLIC_SENTRY_DSN: 'https://synthetic@example.invalid/1',
@@ -94,13 +95,20 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
       NEXT_PUBLIC_SENTRY_RELEASE: 'synthetic-only',
     }),
     serverName: 'synthetic-diagnostic',
-    transport: () => ({
-      send: async (envelope) => {
-        envelopes.push(envelope);
+    transport: (options) => {
+      // Exercise the installed SDK's real buffer/drain without provider traffic.
+      const transport = core.createTransport(options, async () => {
+        await pendingCheckInDelivery;
         return { statusCode: 200 };
-      },
-      flush: async () => true,
-    }),
+      });
+      return {
+        send: (envelope) => {
+          envelopes.push(envelope);
+          return transport.send(envelope);
+        },
+        flush: timeout => transport.flush(timeout),
+      };
+    },
   });
   initialized = true;
 
@@ -188,11 +196,27 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
   }
   await t.test('healthy cron check-ins use their own envelope instead of an error event', async () => {
     const eventCount = envelopes.flatMap(envelope => envelope[1].filter(item => item[0].type === 'event')).length;
+    let finishDelivery;
+    pendingCheckInDelivery = new Promise((resolve) => {
+      finishDelivery = resolve;
+    });
+    let flushFinished = false;
     sentry.captureCheckIn(
       { monitorSlug: 'synthetic-deposit-reconcile', status: 'ok' },
       { schedule: { type: 'crontab', value: '*/5 * * * *' }, checkinMargin: 5, maxRuntime: 5, timezone: 'UTC' },
     );
-    assert.equal(await sentry.flush(2000), true);
+    const flush = sentry.flush(2000).then((result) => {
+      flushFinished = true;
+      return result;
+    });
+    try {
+      await setImmediate();
+      assert.equal(flushFinished, false, 'flush must wait for queued check-in transport');
+    } finally {
+      finishDelivery();
+      pendingCheckInDelivery = undefined;
+    }
+    assert.equal(await flush, true);
     const checkIns = envelopes.flatMap(envelope => envelope[1].filter(item => item[0].type === 'check_in').map(item => item[1]));
     assert.equal(checkIns.length, 1);
     assert.equal(checkIns[0].monitor_slug, 'synthetic-deposit-reconcile');

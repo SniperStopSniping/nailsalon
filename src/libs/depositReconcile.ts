@@ -103,6 +103,7 @@ const REFUND_PASS_3_BATCH = 10;
 const REFUND_PASS_5_BATCH = 10;
 const REFUND_PASS_LEASE_MS = 15 * 60_000;
 const REFUND_PASS_PROVIDER_BUDGET_MS = 285 * 1000;
+const MONITOR_FLUSH_TIMEOUT_MS = 2000;
 
 export type ReconcileSummary = {
   step0Scanned: number;
@@ -161,7 +162,7 @@ export async function runDepositReconcile(): Promise<ReconcileSummary> {
   // guard returns a `Response.json` rather than throwing, so a 401 or a 500
   // reaches no error pipeline — every alarm this sweep owns lives inside the
   // process that would be the thing that stalled.
-  emitLivenessCheckIn();
+  await emitLivenessCheckIn();
 
   return summary;
 }
@@ -177,18 +178,29 @@ async function isolate(pass: string, run: () => Promise<void>): Promise<void> {
 }
 
 /** The out-of-band monitor's in-band half. Mockable so a test can count it. */
-export function emitLivenessCheckIn(): void {
+export async function emitLivenessCheckIn(): Promise<void> {
   // Healthy five-minute heartbeats belong to Cron Monitoring, not the error
   // event allowance. A missing check-in remains visible to the monitor.
-  Sentry.captureCheckIn(
-    { monitorSlug: 'deposit-reconcile', status: 'ok' },
-    {
-      schedule: { type: 'crontab', value: '*/5 * * * *' },
-      checkinMargin: 5,
-      maxRuntime: 5,
-      timezone: 'UTC',
-    },
-  );
+  try {
+    Sentry.captureCheckIn(
+      { monitorSlug: 'deposit-reconcile', status: 'ok' },
+      {
+        schedule: { type: 'crontab', value: '*/5 * * * *' },
+        checkinMargin: 5,
+        maxRuntime: 5,
+        timezone: 'UTC',
+      },
+    );
+    // captureCheckIn queues transport work. Keep this request alive briefly so
+    // a quick successful sweep does not return before its check-in is sent.
+    if (!await Sentry.flush(MONITOR_FLUSH_TIMEOUT_MS)) {
+      console.warn('deposit_reconcile_checkin_flush_timeout');
+    }
+  } catch {
+    // Telemetry failure must not turn completed money work into a failed cron
+    // response or consume more error quota trying to report itself.
+    console.warn('deposit_reconcile_checkin_delivery_failed');
+  }
 }
 
 // =============================================================================
