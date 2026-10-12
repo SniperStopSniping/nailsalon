@@ -57,6 +57,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 const sentry = vi.hoisted(() => ({
+  captureCheckIn: vi.fn(),
   captureMessage: vi.fn(),
   captureException: vi.fn(),
 }));

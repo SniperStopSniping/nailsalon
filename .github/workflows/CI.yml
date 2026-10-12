@@ -1389,8 +1389,8 @@ jobs:
         run: |
           set -euo pipefail
           npm run test:monitoring:node24 | tee monitoring-node24.log
-          grep -Fqx '# tests 17' monitoring-node24.log
-          grep -Fqx '# pass 17' monitoring-node24.log
+          grep -Fqx '# tests 18' monitoring-node24.log
+          grep -Fqx '# pass 18' monitoring-node24.log
           grep -Fqx '# skipped 0' monitoring-node24.log
       - name: Verify Redis URL compatibility with zero skips
         shell: bash
