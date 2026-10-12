@@ -1,3 +1,10 @@
+## [1.142.38](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.37...v1.142.38) (2026-10-12)
+
+
+### Bug Fixes
+
+* allow safe edits of existing shared-email clients ([#434](https://github.com/SniperStopSniping/nailsalon/issues/434)) ([f998e26](https://github.com/SniperStopSniping/nailsalon/commit/f998e2662cbf4ca8b81661db1eb0f80dc2a080b9))
+
 ## [1.142.37](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.36...v1.142.37) (2026-10-12)
 
 
