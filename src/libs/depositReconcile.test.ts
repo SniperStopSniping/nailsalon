@@ -34,6 +34,7 @@ const sentry = vi.hoisted(() => ({
   captureCheckIn: vi.fn(),
   captureMessage: vi.fn(),
   captureException: vi.fn(),
+  flush: vi.fn(),
 }));
 vi.mock('@sentry/nextjs', () => sentry);
 
@@ -237,6 +238,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  sentry.flush.mockResolvedValue(true);
   stripeMock.refundsList.mockResolvedValue({ data: [] });
   stripeMock.refundsCreate.mockResolvedValue({
     id: 'ref_s',
@@ -1198,7 +1200,56 @@ describe('liveness', () => {
     expect(sentry.captureCheckIn.mock.calls[0]?.[1]?.schedule.value).toBe(cron.schedule);
     expect(sentry.captureMessage).not.toHaveBeenCalledWith('deposit_reconcile_run', expect.anything());
     expect(sentry.captureException).not.toHaveBeenCalled();
+    expect(sentry.flush).toHaveBeenCalledTimes(1);
+    expect(sentry.flush).toHaveBeenCalledWith(2000);
+    expect(sentry.captureCheckIn.mock.invocationCallOrder[0])
+      .toBeLessThan(sentry.flush.mock.invocationCallOrder[0]!);
   });
+
+  it('keeps the completed sweep alive until its check-in delivery settles', async () => {
+    let finishDelivery!: (delivered: boolean) => void;
+    sentry.flush.mockReturnValueOnce(new Promise<boolean>((resolve) => {
+      finishDelivery = resolve;
+    }));
+    let finished = false;
+    const sweep = runDepositReconcile().then((summary) => {
+      finished = true;
+      return summary;
+    });
+
+    try {
+      await vi.waitFor(() => expect(sentry.flush).toHaveBeenCalledOnce());
+
+      expect(finished).toBe(false);
+    } finally {
+      finishDelivery(true);
+    }
+
+    await expect(sweep).resolves.toHaveProperty('eventsReclaimed');
+    expect(finished).toBe(true);
+  });
+
+  it.each(['timeout', 'rejection'])(
+    'preserves completed money work when telemetry delivery reports %s',
+    async (failure) => {
+      const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      if (failure === 'timeout') {
+        sentry.flush.mockResolvedValueOnce(false);
+      } else {
+        sentry.flush.mockRejectedValueOnce(new Error('synthetic telemetry failure'));
+      }
+      try {
+        await expect(runDepositReconcile()).resolves.toHaveProperty('eventsReclaimed');
+        expect(sentry.flush).toHaveBeenCalledTimes(1);
+        expect(sentry.flush).toHaveBeenCalledWith(2000);
+        expect(warning).toHaveBeenCalledOnce();
+        expect(sentry.captureCheckIn).toHaveBeenCalledOnce();
+        expect(sentry.captureException).not.toHaveBeenCalled();
+      } finally {
+        warning.mockRestore();
+      }
+    },
+  );
 
   it('runs every pass even when one of them throws', async () => {
     // These are independent convergence mechanisms. Losing all of them because
