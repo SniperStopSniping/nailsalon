@@ -304,6 +304,9 @@ jobs:
               ea2893563cf943de48bbd6ba91881946fe4c9f98:da93db3e2a143e0b8694b3231265f4e8b8885d5a) ;;
               # Same reviewed Sharp graph after main's 1.142.36 version bump.
               f5212c5c05d6cf9a89a3e63c2643f03bbf223d75:3500380b6019dbab17b1c137064ee1c1e3963eda) ;;
+              # Compatible SMS transport, multipart, ID and editor-parser fixes;
+              # Cloudinary alone resolves patched lodash despite the dev-tool pin.
+              b7e4591c8df9d94b82b281587cec8f98b0f5439e:9576667ec691e6f5aba41486cfbbcf8e32d6b3ee) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -1406,6 +1409,15 @@ jobs:
           grep -Fqx '# tests 17' cloudinary-node24.log
           grep -Fqx '# pass 17' cloudinary-node24.log
           grep -Fqx '# skipped 0' cloudinary-node24.log
+
+      - name: Verify patched runtime dependencies and SMS transport with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/runtime-dependency-security.node-test.mjs | tee runtime-dependency-security.log
+          grep -Fqx '# tests 10' runtime-dependency-security.log
+          grep -Fqx '# pass 10' runtime-dependency-security.log
+          grep -Fqx '# skipped 0' runtime-dependency-security.log
 
   test:
     # Preserve the live ruleset context; success requires the application job
