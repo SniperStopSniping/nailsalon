@@ -304,6 +304,10 @@ function getEmptyDashboardData(): DashboardData {
  */
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 12_000;
 
+// Billing reads allow ten requests per minute. Leave room for the usage
+// history and bootstrap reads alongside the immediate confirmation check.
+const TOPUP_CONFIRMATION_POLL_INTERVAL_MS = 10_000;
+
 const AUTH_UNREACHABLE_MESSAGE
   = 'We can’t reach the sign-in service right now. Check your connection and try again.';
 
@@ -524,7 +528,7 @@ function AdminDashboardContent() {
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }, [searchParams]);
 
-  // Poll the exact salon-scoped purchase every 5s (up to 60s) until it
+  // Poll the exact salon-scoped purchase every 10s (up to 60s) until it
   // reads back as fulfilled — the success redirect itself is never
   // authoritative (fulfilment happens only from verified webhook evidence).
   useEffect(() => {
@@ -570,7 +574,7 @@ function AdminDashboardContent() {
         setBillingReturnNotice({ kind: 'topup', message: 'Your purchase is still being confirmed. Check usage history before trying another purchase.' });
         return;
       }
-      timer = setTimeout(poll, 5000);
+      timer = setTimeout(poll, TOPUP_CONFIRMATION_POLL_INTERVAL_MS);
     };
     void poll();
     return () => {
