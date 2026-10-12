@@ -1,3 +1,15 @@
+## [1.142.40](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.39...v1.142.40) (2026-10-12)
+
+
+### Bug Fixes
+
+* **security:** patch SMS and media runtime dependencies ([cef3f67](https://github.com/SniperStopSniping/nailsalon/commit/cef3f67e3466dc6425aa783cf3a1e41275da1f73))
+
+
+### Performance Improvements
+
+* defer optional onboarding media editors ([09e2ee5](https://github.com/SniperStopSniping/nailsalon/commit/09e2ee520d1afc33c5377f889ad7f063d23fadef))
+
 ## [1.142.39](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.38...v1.142.39) (2026-10-12)
 
 
