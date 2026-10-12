@@ -233,7 +233,7 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
     expect(source).not.toContain('SMS_BYO_MODE_ENABLED');
   });
 
-  it('limits provider-mode imports to reviewed send, eligibility, and historical webhook boundaries', async () => {
+  it('limits sender imports to reviewed send, eligibility, webhook, and read-only reconciliation boundaries', async () => {
     const { execFileSync } = await import('node:child_process');
     const grep = (() => {
       try {
@@ -248,8 +248,8 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
     })();
     const importers = grep.split('\n').filter(line => line.length > 0).sort();
 
-    // Gate B wires the resolver into the (dark, CRON_SECRET-gated, provider-
-    // stubbed) dispatcher and the inbound webhook's sender-identity lookup.
+    // Sending remains gated by the dispatcher. Reconciliation reads the
+    // persisted sender identity only to fetch an existing message's actuals.
     // Any importer beyond this reviewed list re-fails.
     expect(importers).toEqual([
       'src/app/api/integrations/twilio/inbound/route.ts',
@@ -261,6 +261,15 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
       'src/libs/clientSmsEligibility.server.ts',
       'src/libs/communicationDispatcher.ts',
       'src/libs/integrationHealth.ts',
+      'src/libs/twilioMessageCost.ts',
     ]);
+  });
+
+  it('keeps provider reconciliation read-only and outside the send path', () => {
+    const reader = readFileSync(new URL('./twilioMessageCost.ts', import.meta.url), 'utf8');
+
+    expect(reader).toContain('client.messages(delivery.providerMessageId).fetch()');
+    expect(reader).not.toMatch(/\.(?:create|update|remove|delete)\s*\(/);
+    expect(reader).not.toMatch(/from ['"].*(?:communicationDispatcher|twilioMessagingSend|\/SMS)['"]/);
   });
 });
