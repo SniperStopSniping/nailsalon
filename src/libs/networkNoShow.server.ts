@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createHmac, randomUUID } from 'node:crypto';
 
-import { and, asc, eq, gt, gte, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
 import type { db } from '@/libs/DB';
 import type { NetworkNoShowRisk, NoShowProtection } from '@/libs/networkNoShow';
@@ -22,7 +22,6 @@ export type NetworkNoShowHandle = typeof db | Parameters<Parameters<typeof db.tr
 
 const RESOLVER_VERSION = 'exact_contact_pair_v1';
 const WINDOW_MONTHS = 12 as const;
-const REPORTING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 type BookingChannel = 'guest' | 'client';
 
@@ -304,33 +303,13 @@ export async function recordNetworkNoShowInTx(
     ))
     .limit(1);
   if (!control?.prospectiveAfter || !appointment || !binding || !subject || subject.state !== 'active' || appointment.status !== 'no_show' || appointment.deletedAt || binding.state !== 'eligible' || binding.invalidatedAt || !binding.subjectId
-    || appointment.createdAt < control.prospectiveAfter || appointment.createdAt >= appointment.startTime || sourceCorrection || args.now.getTime() - appointment.endTime.getTime() > REPORTING_WINDOW_MS) {
+    || appointment.createdAt < control.prospectiveAfter || appointment.createdAt >= appointment.startTime || sourceCorrection) {
     return false;
   }
-  if (args.now < appointment.endTime) {
-    // An early explicit mark is valid locally, but it cannot count until the
-    // scheduled visit has ended. Preserve its attributable provenance inside
-    // the same transaction so reconciliation can retain the original actor.
-    // The action is appointment-qualified because this audit
-    // table deliberately carries no source-appointment column.
-    const pendingAction = `pending_no_show:${args.appointmentId}`;
-    const [pending] = await tx.select({ id: networkNoShowAuditSchema.id })
-      .from(networkNoShowAuditSchema)
-      .where(and(
-        eq(networkNoShowAuditSchema.salonId, args.salonId),
-        eq(networkNoShowAuditSchema.action, pendingAction),
-      ))
-      .limit(1);
-    if (!pending) {
-      await tx.insert(networkNoShowAuditSchema).values({
-        id: randomUUID(),
-        salonId: args.salonId,
-        actorId: args.actorId,
-        actorRole: args.actorRole,
-        action: pendingAction,
-        createdAt: args.markedAt ?? args.now,
-      });
-    }
+  // An explicit mark counts immediately, even before the scheduled visit.
+  // A late report never extends the source appointment's history window.
+  const expiresAt = expiresAfterTwelveCalendarMonths(appointment.endTime);
+  if (expiresAt <= args.now) {
     return false;
   }
   await lockNetworkNoShowSubjectInTx(tx, binding.subjectId);
@@ -346,7 +325,7 @@ export async function recordNetworkNoShowInTx(
     appointmentId: args.appointmentId,
     subjectId: binding.subjectId,
     occurredAt: appointment.endTime,
-    expiresAt: expiresAfterTwelveCalendarMonths(appointment.endTime),
+    expiresAt,
     markedBy: args.actorId,
     markedByRole: args.actorRole,
     markedAt: args.markedAt ?? args.now,
@@ -424,7 +403,7 @@ async function resolveNoShowReconciliationProvenanceInTx(
 }
 
 /**
- * Replays bounded early no-shows once their source visit has ended. The
+ * Recovers bounded eligible no-shows that have not yet been published. The
  * source-event uniqueness constraint remains the final idempotency fence when
  * overlapping cron invocations select the same row.
  */
@@ -439,7 +418,6 @@ export async function reconcileNetworkNoShows(args: {
   const database = await resolveHandle(args.handle);
   const now = args.now ?? new Date();
   const limit = args.limit ?? 100;
-  const cutoff = new Date(now.getTime() - REPORTING_WINDOW_MS);
   const candidates = await database.select({
     salonId: appointmentSchema.salonId,
     appointmentId: appointmentSchema.id,
@@ -462,8 +440,10 @@ export async function reconcileNetworkNoShows(args: {
       isNotNull(networkNoShowPlatformControlSchema.prospectiveAfter),
       gte(appointmentSchema.createdAt, networkNoShowPlatformControlSchema.prospectiveAfter),
       lt(appointmentSchema.createdAt, appointmentSchema.startTime),
-      lte(appointmentSchema.endTime, now),
-      gt(appointmentSchema.endTime, cutoff),
+      // Match the UTC calendar-month expiry above, including leap-day clamp,
+      // independently of the database session timezone. Exclude expired rows
+      // before LIMIT so they cannot starve an eligible pending record.
+      sql`(((${appointmentSchema.endTime} AT TIME ZONE 'UTC') + ${WINDOW_MONTHS} * interval '1 month') AT TIME ZONE 'UTC') > ${now.toISOString()}::timestamptz`,
       sql`not exists (select 1 from network_no_show_event event where event.salon_id = ${appointmentSchema.salonId} and event.appointment_id = ${appointmentSchema.id})`,
       sql`not exists (select 1 from network_no_show_audit correction where correction.salon_id = ${appointmentSchema.salonId} and correction.action = ${'source_corrected:no_show_to_cancelled:'} || ${appointmentSchema.id})`,
     ))

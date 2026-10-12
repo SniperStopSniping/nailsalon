@@ -47,19 +47,23 @@ client merge transfers network history. Source contact edits suppress existing
 binding attribution.
 
 Count only explicit recorded `no_show` events within 12 calendar months of the
-appointment end. Leap-day anniversary clamps to February 28. Reporting is after
-appointment end and within seven days. Cancellation/refund/completed visits do
-not add events. One appointment has one source event. Status corrections revoke
+appointment end. Leap-day anniversary clamps to February 28. An authorized,
+explicit no-show mark counts immediately, including before the scheduled start
+or end. Reports later than seven days also count while the original twelve-month
+history window remains open; reporting never extends that window.
+Cancellation/refund/completed visits do not add events. One appointment has one
+source event. Status corrections revoke
 it transactionally, even with rollout disabled; stale repeats cannot revive it.
 
-## Early no-show reconciliation
+## Immediate publication and recovery
 
-An owner or staff member may mark a missed appointment before its scheduled end.
-That remains a local no-show immediately, but it must not count in shared risk
-until the scheduled end has passed. `/api/network-no-show/reconcile` runs every
+An owner or staff member's explicit mark publishes an eligible shared-risk event
+in the same transaction. There is no scheduled-start or scheduled-end wait.
+Existing pending marks from the previous timing policy are recovered by
+`/api/network-no-show/reconcile`, which runs every
 five minutes through Vercel and accepts only `CRON_SECRET` in either the
 `Authorization: Bearer` or `x-cron-secret` header. It considers the oldest
-eligible, still-current no-shows first, only within seven days after their end,
+eligible, still-current and unexpired no-shows first, without waiting for their end,
 and preserves the original mark actor and timestamp when an in-transaction
 pending audit or appointment audit proves them. Older records without actor
 evidence are recovered only as an explicitly labelled system reconciliation;

@@ -253,7 +253,7 @@
     "tile_description": "Review and correct mistaken no-shows",
     "explainer": "Correcting a mistaken no-show changes the appointment to cancelled and removes this appointment from shared no-show risk. It does not delete the client, change deposits or refunds, or erase appointment history. Other no-show records may still cause a warning.",
     "paused": "Shared no-show protection is currently paused. Record history is still shown.",
-    "pending_help": "Eligible early marks are added after the appointment ends, usually within five minutes.",
+    "pending_help": "Eligible no-shows count as soon as you mark them. Correcting a mistaken no-show removes it from shared risk.",
     "retry": "Try again",
     "confirm_title": "Correct this no-show to cancelled?",
     "confirm_copy": "This records your reason and removes only this mistaken no-show from shared risk. Deposits and refunds are unchanged.",

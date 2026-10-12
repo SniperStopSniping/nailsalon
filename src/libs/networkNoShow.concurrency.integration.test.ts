@@ -94,13 +94,16 @@ suite('network no-show PostgreSQL serialization', () => {
     }
   });
 
-  it('erasure wins after an in-flight record transaction releases its subject lock', async () => {
+  it('erasure wins after immediate early publication releases its subject lock', async () => {
     const first = await pool.connect();
     const second = await pool.connect();
     try {
       await first.query('BEGIN');
       await first.query('DELETE FROM network_no_show_event WHERE id=\'event\'');
-      await recordNetworkNoShowInTx(drizzle(first, { schema }), { salonId: 'a', appointmentId: 'appt', actorId: 'owner', actorRole: 'owner', now });
+      await first.query('UPDATE appointment SET end_time=\'2030-06-15 17:00Z\' WHERE id=\'appt\'');
+
+      await expect(recordNetworkNoShowInTx(drizzle(first, { schema }), { salonId: 'a', appointmentId: 'appt', actorId: 'owner', actorRole: 'owner', now })).resolves.toBe(true);
+
       await second.query('BEGIN');
       await second.query('SET LOCAL statement_timeout=\'300ms\'');
 
@@ -217,13 +220,9 @@ suite('network no-show PostgreSQL serialization', () => {
     try {
       await pool.query('DELETE FROM network_no_show_event WHERE id=\'event\'');
       await pool.query('UPDATE appointment SET end_time=\'2030-06-15 17:00Z\' WHERE id=\'appt\'');
-      await db.transaction(tx => recordNetworkNoShowInTx(tx, {
-        salonId: 'a',
-        appointmentId: 'appt',
-        actorId: 'owner-early',
-        actorRole: 'admin',
-        now,
-      }));
+      // Existing pending audit from before immediate publication shipped.
+      await pool.query(`INSERT INTO network_no_show_audit(id,salon_id,actor_id,actor_role,action,created_at)
+        VALUES ('pending-early','a','owner-early','admin','pending_no_show:appt','2030-06-15 16:00Z')`);
 
       await correction.query('BEGIN');
       correctionOpen = true;
@@ -234,7 +233,7 @@ suite('network no-show PostgreSQL serialization', () => {
       reconciliation = reconcileNetworkNoShows({
         handle: drizzle(reconciler, { schema }),
         limit: 1,
-        now: new Date('2030-06-15T18:00:00.000Z'),
+        now: new Date('2030-06-15T16:30:00.000Z'),
       });
       await waitForDatabaseLock(reconcilerPid);
       await correction.query('COMMIT');
@@ -257,5 +256,24 @@ suite('network no-show PostgreSQL serialization', () => {
     }
   });
 
-  afterAll(() => process.stdout.write('NETWORK_NO_SHOW_POSTGRES_TESTS_EXECUTED=6 NETWORK_NO_SHOW_POSTGRES_TESTS_SKIPPED=0\n'));
+  it('publishes concurrent early marks exactly once before the scheduled start', async () => {
+    await pool.query('DELETE FROM network_no_show_event WHERE id=\'event\'');
+    const markedAt = new Date('2030-06-15T13:00:00.000Z');
+    const results = await Promise.all(['owner-one', 'owner-two'].map(actorId => db.transaction(tx => recordNetworkNoShowInTx(tx, {
+      salonId: 'a',
+      appointmentId: 'appt',
+      actorId,
+      actorRole: 'admin',
+      now: markedAt,
+    }))));
+
+    expect(results.sort()).toEqual([false, true]);
+
+    const events = await pool.query('SELECT marked_at, state FROM network_no_show_event WHERE salon_id=\'a\' AND appointment_id=\'appt\'');
+
+    expect(events.rows).toEqual([{ marked_at: markedAt, state: 'active' }]);
+    await expect(readNetworkNoShowRisk({ salonId: 'b', phone: '4165551000', email: 'x@example.com', handle: db, now: markedAt })).resolves.toEqual({ state: 'available', activeNoShowCount: 1, windowMonths: 12 });
+  });
+
+  afterAll(() => process.stdout.write('NETWORK_NO_SHOW_POSTGRES_TESTS_EXECUTED=7 NETWORK_NO_SHOW_POSTGRES_TESTS_SKIPPED=0\n'));
 });

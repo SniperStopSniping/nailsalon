@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
 
+import en from '@/locales/en.json';
 import fr from '@/locales/fr.json';
 
-test('owner reviews an early mark and corrects it without overflow at 200% text', async ({ page }) => {
+test('owner reviews an immediately counted mark and corrects it without overflow at 200% text', async ({ page }) => {
   let corrected = false;
   let corrections = 0;
   const errors: string[] = [];
@@ -32,11 +33,11 @@ test('owner reviews an early mark and corrects it without overflow at 200% text'
         updatedAt: '2026-09-29T12:00:00.000Z',
         startTime: '2026-09-29T14:00:00.000Z',
         endTime: '2026-09-29T14:35:00.000Z',
-        eventId: null,
-        eventState: null,
-        eventEligible: false,
-        countsForNetwork: false,
-        expiresAt: null,
+        eventId: 'synthetic-no-show-event',
+        eventState: corrected ? 'revoked' : 'active',
+        eventEligible: !corrected,
+        countsForNetwork: !corrected,
+        expiresAt: '2027-09-29T14:35:00.000Z',
       }] } });
       return;
     }
@@ -59,6 +60,8 @@ test('owner reviews an early mark and corrects it without overflow at 200% text'
 
   await expect(page.getByText('Synthetic client with a long name for mobile layout')).toBeVisible();
   await expect(page.getByText(/10:00:00 AM/)).toBeVisible();
+  await expect(page.getByText(en.NoShowRecords.pending_help, { exact: true })).toBeVisible();
+  await expect(page.getByText(en.NoShowRecords.status_counted, { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Correct mistaken no-show' }).click();
 

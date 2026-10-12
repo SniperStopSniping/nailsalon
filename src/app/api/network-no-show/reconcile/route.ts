@@ -6,9 +6,9 @@ export const maxDuration = 300;
 const noStore = { 'Cache-Control': 'no-store' };
 
 /**
- * Reconciles eligible no-shows that were marked before their scheduled end.
+ * Recovers eligible no-shows, including marks pending from the earlier policy.
  * Vercel invokes this every five minutes; it is CRON_SECRET-gated and never
- * creates a record outside the existing prospective, seven-day, exact-binding
+ * creates a record outside the existing prospective, twelve-month, exact-binding
  * and source-status fences in the server-only projection.
  */
 async function run(request: Request): Promise<Response> {
