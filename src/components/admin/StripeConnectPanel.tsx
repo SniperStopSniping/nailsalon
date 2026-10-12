@@ -1,6 +1,6 @@
 'use client';
 
-import { CreditCard } from 'lucide-react';
+import { CreditCard, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 type ConnectStatus =
@@ -24,6 +24,11 @@ type StripeConnect = {
   hasBindingHistory: boolean;
 };
 
+type ReadinessSnapshot = Pick<StripeConnect, 'status' | 'chargeReady' | 'requirements' | 'lastSyncedAt'> & {
+  payoutsPending: boolean | null;
+  stale: boolean;
+};
+
 const LABELS: Record<ConnectStatus, string> = {
   not_connected: 'Not connected',
   onboarding_incomplete: 'Continue setup',
@@ -40,7 +45,22 @@ function isStripeConnect(value: unknown): value is StripeConnect {
     return false;
   }
   const candidate = value as Partial<StripeConnect>;
-  return candidate.visible === true && typeof candidate.salonId === 'string' && typeof candidate.status === 'string';
+  return candidate.visible === true && typeof candidate.salonId === 'string'
+    && typeof candidate.status === 'string' && Object.hasOwn(LABELS, candidate.status);
+}
+
+function isReadinessSnapshot(value: unknown): value is ReadinessSnapshot {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<ReadinessSnapshot>;
+  const requirements = candidate.requirements;
+  return typeof candidate.status === 'string' && Object.hasOwn(LABELS, candidate.status)
+    && typeof candidate.chargeReady === 'boolean' && typeof candidate.stale === 'boolean'
+    && (candidate.payoutsPending === null || typeof candidate.payoutsPending === 'boolean')
+    && (candidate.lastSyncedAt === null || (typeof candidate.lastSyncedAt === 'string' && Number.isFinite(Date.parse(candidate.lastSyncedAt))))
+    && (requirements === null || (typeof requirements === 'object'
+      && [requirements.currentlyDue, requirements.pastDue].every(items => items === undefined || (Array.isArray(items) && items.every(item => typeof item === 'string')))));
 }
 
 /** The canonical editor for a salon's Stripe Connect and payout readiness. */
@@ -48,7 +68,9 @@ export function StripeConnectPanel({ salonSlug }: { salonSlug: string | null }) 
   const [connect, setConnect] = useState<StripeConnect | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'setup' | 'refresh' | null>(null);
+  const [refreshNotice, setRefreshNotice] = useState<'success' | 'unconfirmed' | null>(null);
+  const pendingAction = useRef(false);
   const requestVersion = useRef(0);
 
   const load = useCallback(async () => {
@@ -56,6 +78,9 @@ export function StripeConnectPanel({ salonSlug }: { salonSlug: string | null }) 
     setLoading(true);
     setError(null);
     setConnect(null);
+    setBusy(null);
+    setRefreshNotice(null);
+    pendingAction.current = false;
 
     if (!salonSlug) {
       setLoading(false);
@@ -96,10 +121,12 @@ export function StripeConnectPanel({ salonSlug }: { salonSlug: string | null }) 
   }, [load]);
 
   const startSetup = async () => {
-    if (!connect || busy) {
+    if (!connect || pendingAction.current) {
       return;
     }
-    setBusy(true);
+    const version = requestVersion.current;
+    pendingAction.current = true;
+    setBusy('setup');
     setError(null);
     try {
       // Preserve the established server-owned account-link flow and exact body.
@@ -109,13 +136,62 @@ export function StripeConnectPanel({ salonSlug }: { salonSlug: string | null }) 
         body: JSON.stringify({ salonId: connect.salonId }),
       });
       const payload = await response.json().catch(() => null);
+      if (version !== requestVersion.current) {
+        return;
+      }
       if (!response.ok || !payload?.url) {
         throw new Error('onboard');
       }
       window.location.href = payload.url;
     } catch {
-      setError('Payment setup could not be started. Try again shortly.');
-      setBusy(false);
+      if (version === requestVersion.current) {
+        setError('Payment setup could not be started. Try again shortly.');
+        setBusy(null);
+        pendingAction.current = false;
+      }
+    }
+  };
+
+  const refreshStatus = async () => {
+    if (!connect || pendingAction.current) {
+      return;
+    }
+    const version = requestVersion.current;
+    const selected = connect;
+    pendingAction.current = true;
+    setBusy('refresh');
+    setRefreshNotice(null);
+    try {
+      const response = await fetch('/api/integrations/stripe-connect/refresh-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonId: selected.salonId }),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (version !== requestVersion.current) {
+        return;
+      }
+      if (!response.ok || !isReadinessSnapshot(payload)) {
+        throw new Error('refresh');
+      }
+      setConnect({
+        ...selected,
+        status: payload.status,
+        chargeReady: payload.chargeReady,
+        payoutsPending: payload.payoutsPending ?? false,
+        requirements: payload.requirements,
+        lastSyncedAt: payload.lastSyncedAt,
+      });
+      setRefreshNotice(payload.stale ? 'unconfirmed' : 'success');
+    } catch {
+      if (version === requestVersion.current) {
+        setRefreshNotice('unconfirmed');
+      }
+    } finally {
+      if (version === requestVersion.current) {
+        setBusy(null);
+        pendingAction.current = false;
+      }
     }
   };
 
@@ -166,8 +242,28 @@ export function StripeConnectPanel({ salonSlug }: { salonSlug: string | null }) 
         {['restricted', 'action_needed_soon', 'onboarding_incomplete'].includes(connect.status) && <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-[var(--owner-muted)]">{(connect.requirements?.pastDue ?? []).concat(connect.requirements?.currentlyDue ?? []).slice(0, 5).map(item => <li key={item}>{item.replaceAll('_', ' ').replaceAll('.', ' → ')}</li>)}</ul>}
         {connect.status === 'mode_mismatch' && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">Payments are unavailable in this environment. Contact support.</p>}
         {connect.status === 'blocked_needs_support' && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">Stripe cannot finish verifying this account automatically. Contact support and we will take it from here.</p>}
-        {canSetup && <button type="button" data-testid="payments-setup-button" onClick={() => void startSetup()} disabled={busy} className="owner-action owner-action--primary mt-5 min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-60">{connect.status === 'not_connected' ? 'Set up payments' : connect.status === 'revoked' ? 'Reconnect' : 'Resume onboarding'}</button>}
-        {connect.lastSyncedAt === null && connect.hasBindingHistory && <p className="mt-3 text-sm text-[var(--owner-muted)]">Status not confirmed yet.</p>}
+        {canSetup && <button type="button" data-testid="payments-setup-button" onClick={() => void startSetup()} disabled={busy !== null} className="owner-action owner-action--primary mt-5 min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-60">{connect.status === 'not_connected' ? 'Set up payments' : connect.status === 'revoked' ? 'Reconnect' : 'Resume onboarding'}</button>}
+        {connect.hasBindingHistory && (
+          <div className="mt-4 border-t border-[var(--owner-line)] pt-4">
+            <p className="text-sm text-[var(--owner-muted)]">
+              {connect.lastSyncedAt && Number.isFinite(Date.parse(connect.lastSyncedAt))
+                ? (
+                    <>
+                      Last checked
+                      {' '}
+                      <time dateTime={connect.lastSyncedAt}>{new Date(connect.lastSyncedAt).toLocaleString()}</time>
+                    </>
+                  )
+                : 'Status not confirmed yet.'}
+            </p>
+            <button type="button" onClick={() => void refreshStatus()} disabled={busy !== null} className="owner-action mt-3 min-h-11 w-full gap-2 disabled:cursor-not-allowed disabled:opacity-60">
+              <RefreshCw aria-hidden="true" size={18} />
+              {busy === 'refresh' ? 'Checking status…' : 'Check status again'}
+            </button>
+            {refreshNotice === 'success' && <p role="status" className="mt-3 text-sm text-[var(--owner-muted)]">Payment status is up to date.</p>}
+            {refreshNotice === 'unconfirmed' && <p role="alert" className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Could not confirm your payment status with Stripe. Showing the last saved status. Try checking again shortly.</p>}
+          </div>
+        )}
       </div>
     </div>
   );
