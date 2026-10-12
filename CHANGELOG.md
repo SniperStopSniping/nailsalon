@@ -1,3 +1,10 @@
+## [1.142.45](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.44...v1.142.45) (2026-10-12)
+
+
+### Bug Fixes
+
+* **monitoring:** preserve error quota with cron heartbeats ([#444](https://github.com/SniperStopSniping/nailsalon/issues/444)) ([43f16a2](https://github.com/SniperStopSniping/nailsalon/commit/43f16a2bac548cb6342b1492236947aa87fe53db))
+
 ## [1.142.44](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.43...v1.142.44) (2026-10-12)
 
 
