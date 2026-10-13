@@ -6,6 +6,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AppGrid, APPS } from './AppGrid';
 
+const smsBalanceCardSpy = vi.hoisted(() => vi.fn());
+vi.mock('./SmsBalanceCard', () => ({
+  SmsBalanceCard: (props: unknown) => {
+    smsBalanceCardSpy(props);
+    return <div data-testid="sms-balance-card" />;
+  },
+}));
+
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key === 'tile_name' ? 'No-show records' : key === 'tile_description' ? 'Review and correct mistaken no-shows' : key,
 }));
@@ -23,6 +31,12 @@ function relativeLuminance(hex: string): number {
 }
 
 describe('AppGrid', () => {
+  it('passes the confirmed active salon identity to the SMS card', () => {
+    render(<AppGrid salonSlug="salon-b" salonId="sal_b" onOpenCredits={vi.fn()} />);
+
+    expect(smsBalanceCardSpy).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'salon-b', salonId: 'sal_b' }));
+  });
+
   it('renders ranked task groups and keeps legacy app ids for compatible links', () => {
     render(<AppGrid onAppTap={vi.fn()} />);
     const buttons = screen.getAllByRole('button');

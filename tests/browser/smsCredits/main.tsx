@@ -90,7 +90,7 @@ export function Fixture() {
                         <h2 className="owner-title mt-6 text-3xl">Your day, beautifully managed.</h2>
                       </div>
                     )
-                  : <AppGrid salonSlug="synthetic" onOpenCredits={setView} onAppTap={() => {}} hiddenIds={['schedule', 'bookings', 'clients', 'services']} />}
+                  : <AppGrid salonSlug="synthetic" salonId="salon_synthetic" onOpenCredits={setView} onAppTap={() => {}} hiddenIds={['schedule', 'bookings', 'clients', 'services']} />}
                 {view && <SmsCreditsModal initialView={view} salonSlug="synthetic" onClose={() => setView(null)} />}
               </>
             )}

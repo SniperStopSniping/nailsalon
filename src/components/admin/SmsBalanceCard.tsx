@@ -8,9 +8,12 @@ import { SMS_CREDIT_STATUS_COPY } from '@/libs/smsCreditStatus';
 
 import { StarterSmsCreditsCard } from './StarterSmsCreditsCard';
 
-export function SmsBalanceCard({ salonSlug, onBuy, onHistory, compact = false }: { salonSlug: string; onBuy: () => void; onHistory?: () => void; compact?: boolean }) {
+export function SmsBalanceCard({ salonSlug, salonId, onBuy, onHistory, compact = false }: { salonSlug: string; salonId?: string; onBuy: () => void; onHistory?: () => void; compact?: boolean }) {
   const { data, loading, error, refresh } = useSmsCredits(salonSlug);
   const balance = data?.balance;
+  // The authenticated workspace ID starts this independent read early. Once
+  // usage resolves, its identity takes precedence over a stale loading hint.
+  const starterSalonId = data?.salonId ?? salonId;
   if (compact && (!balance || balance.status === 'healthy' || balance.status === 'low')) {
     return null;
   }
@@ -69,7 +72,11 @@ export function SmsBalanceCard({ salonSlug, onBuy, onHistory, compact = false }:
           )}
         </>
       )}
-      {data && <StarterSmsCreditsCard key={data.salonId} salonId={data.salonId} onClaimed={refresh} inline />}
+      {starterSalonId && (
+        <div hidden={!data}>
+          <StarterSmsCreditsCard key={starterSalonId} salonId={starterSalonId} onClaimed={refresh} inline />
+        </div>
+      )}
       <button type="button" data-dialog-return-focus-key={smsCreditShortcutFocusKey(salonSlug, 'more', 'topup')} onClick={onBuy} className={`owner-action mt-4 w-full ${balance?.status === 'healthy' ? '' : 'owner-action--primary'}`}>
         <Plus size={17} aria-hidden="true" />
         Buy More Texts

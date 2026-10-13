@@ -53,6 +53,12 @@ for (const outcome of ['enabled', 'disabled', 'failed'] as const) {
         case '/api/admin/salon/communications/usage':
           body = { smsCredits: 143 };
           break;
+        case '/api/admin/salon/communications/starter-credits':
+          if (route.request().method() !== 'GET' || url.searchParams.get('salonId') !== 'synthetic-salon') {
+            throw new Error('The readiness fixture only permits the active salon allowance read.');
+          }
+          body = { data: { status: 'verified', canClaim: false } };
+          break;
         case '/api/admin/owner-assistant/context':
           status = 404;
           body = { error: { code: 'NOT_AVAILABLE' } };
@@ -77,6 +83,7 @@ for (const outcome of ['enabled', 'disabled', 'failed'] as const) {
       await page.getByRole('tab', { name: 'More', exact: true }).click();
 
       await expect(page.getByRole('heading', { name: 'Text Message Balance' })).toBeVisible();
+      await expect.poll(() => requests.includes('/api/admin/salon/communications/starter-credits')).toBe(true);
       await expect(page.getByRole('button', { name: /^Analytics/ })).toHaveCount(0);
 
       const moduleResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/admin/settings/modules');
