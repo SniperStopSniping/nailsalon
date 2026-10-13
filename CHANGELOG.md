@@ -1,3 +1,15 @@
+## [1.142.47](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.46...v1.142.47) (2026-10-13)
+
+
+### Bug Fixes
+
+* **onboarding:** publish in one step and notify support of signups ([#446](https://github.com/SniperStopSniping/nailsalon/issues/446)) ([eb01e7a](https://github.com/SniperStopSniping/nailsalon/commit/eb01e7a574ace66fe1c55d432c01718eb0c345e1))
+
+
+### Performance Improvements
+
+* **owner:** load More text allowance alongside balance ([#447](https://github.com/SniperStopSniping/nailsalon/issues/447)) ([1d3f7d6](https://github.com/SniperStopSniping/nailsalon/commit/1d3f7d6fd9c1e7dc7cbea7985658f36f40795624))
+
 ## [1.142.46](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.45...v1.142.46) (2026-10-13)
 
 
