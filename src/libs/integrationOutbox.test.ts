@@ -97,6 +97,8 @@ const {
 
 const deliverLowBalanceWarning = vi.hoisted(() => vi.fn());
 vi.mock('@/libs/lowBalanceWarnings', () => ({ deliverLowBalanceWarning }));
+const deliverOwnerSignupNotification = vi.hoisted(() => vi.fn());
+vi.mock('@/libs/ownerSignupNotification', () => ({ deliverOwnerSignupNotification }));
 
 vi.mock('@/libs/DB', () => ({
   db,
@@ -291,6 +293,26 @@ describe('processIntegrationOutbox', () => {
       deliveryId: 'delivery_staff_1',
       claimed: true,
     });
+  });
+
+  it.each(['sent', 'expired', 'cancelled'] as const)('finishes a signup email as %s without a customer appointment', async (outcome) => {
+    deliverOwnerSignupNotification.mockResolvedValueOnce(outcome);
+    selectResults.push([staffJob({ operation: 'owner_signup_notification', appointmentId: null })]);
+    finishReadResults();
+
+    expect(await processIntegrationOutbox()).toMatchObject({ scanned: 1 });
+    expect(deliverOwnerSignupNotification).toHaveBeenCalledOnce();
+    expect(retryCustomerBookingConfirmationEmail).not.toHaveBeenCalled();
+    expect(updates).toContainEqual(expect.objectContaining({ status: outcome === 'sent' ? 'completed' : outcome === 'expired' ? 'failed' : 'cancelled' }));
+  });
+
+  it('retries a transient signup email failure', async () => {
+    deliverOwnerSignupNotification.mockRejectedValueOnce(new Error('RESEND_TIMEOUT'));
+    selectResults.push([staffJob({ operation: 'owner_signup_notification', appointmentId: null })]);
+    finishReadResults();
+
+    expect(await processIntegrationOutbox()).toMatchObject({ scanned: 1, retried: 1 });
+    expect(updates).toContainEqual(expect.objectContaining({ status: 'retry', lastError: 'RESEND_TIMEOUT' }));
   });
 
   it.each(['sent', 'cancelled', 'expired'] as const)('finishes a balance email as %s without an appointment or customer message', async (outcome) => {

@@ -9,7 +9,7 @@ for (const width of [320, 390, 430]) {
     await expect(page.getByRole('heading', { name: 'Your Luster site is saved' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Choose how to start' })).toHaveCount(0);
     await expect(page.getByRole('radio')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Claim my free lifetime plan' })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Publish my website & open dashboard' })).toHaveCount(1);
     await expect(page.getByText('100 free texts included')).toBeVisible();
     await expect(page.getByText('Unlimited emails', { exact: true })).toBeVisible();
     await expect(page.getByText('Usage-based features are separate')).toBeVisible();
