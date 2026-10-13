@@ -2104,6 +2104,7 @@ function AdminDashboardContent() {
               >
                 <AppGrid
                   salonSlug={activeDashboardSalonSlug ?? undefined}
+                  salonId={activeDashboardSalon?.id}
                   onOpenCredits={view => openAppViaUrl('plan-usage', view)}
                   theme="apple"
                   isTeamSalon={isTeamSalon}

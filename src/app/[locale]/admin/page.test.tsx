@@ -906,7 +906,11 @@ describe('AdminDashboardPage', () => {
     const appGridProps = appGridSpy.mock.calls.at(-1)?.[0] as {
       hiddenIds?: string[];
       onAppTap?: (appId: string) => void;
+      salonId?: string;
+      salonSlug?: string;
     };
+
+    expect(appGridProps).toMatchObject({ salonId: 'sal_b', salonSlug: 'salon-b' });
 
     // Deliberately reversed from the old assertion: the Workspace tour used to
     // be hidden and inert whenever the onboarding integration was off, which

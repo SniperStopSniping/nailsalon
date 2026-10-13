@@ -407,6 +407,7 @@ function AccountSection({ account, theme }: { account: AppGridAccount; theme: Th
  */
 type AppGridProps = {
   salonSlug?: string;
+  salonId?: string;
   onOpenCredits?: (view: 'topup' | 'history') => void;
   theme?: Theme;
   badges?: Record<string, number>;
@@ -425,7 +426,7 @@ type AppGridProps = {
 const EMPTY_BADGES: Record<string, number> = {};
 const EMPTY_HIDDEN_IDS: string[] = [];
 
-export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, isTeamSalon = false, account, salonSlug, onOpenCredits }: AppGridProps) {
+export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, isTeamSalon = false, account, salonSlug, salonId, onOpenCredits }: AppGridProps) {
   const t = useTranslations('NoShowRecords');
   const appById = new Map(APPS.map(app => [app.id, app]));
   const visibleGroups = MORE_GROUPS.map(group => ({
@@ -458,7 +459,7 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
       style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 6rem)' }}
     >
       <div className="mx-auto max-w-2xl space-y-6">
-        {salonSlug && onOpenCredits && <SmsBalanceCard salonSlug={salonSlug} onBuy={() => onOpenCredits('topup')} onHistory={() => onOpenCredits('history')} />}
+        {salonSlug && onOpenCredits && <SmsBalanceCard salonSlug={salonSlug} salonId={salonId} onBuy={() => onOpenCredits('topup')} onHistory={() => onOpenCredits('history')} />}
         {visibleGroups.map(group => (
           <section aria-labelledby={`more-${group.id}-heading`} key={group.id}>
             <h2

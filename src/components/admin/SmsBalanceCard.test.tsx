@@ -29,6 +29,125 @@ beforeEach(() => {
 });
 
 describe('owner SMS card and purchase UI', () => {
+  it('starts the known salon allowance request alongside balance loading without exposing controls early', async () => {
+    let resolveBalance!: (value: Response) => void;
+    fetchMock.mockImplementation((url: string) => url.includes('/starter-credits')
+      ? Promise.resolve(new Response(JSON.stringify({ data: { status: 'unclaimed', canClaim: true, verification: { email: true, phone: true } } })))
+      : new Promise<Response>((resolve) => {
+        resolveBalance = resolve;
+      }));
+    render(<SmsBalanceCard salonSlug="a" salonId="salon_a" onBuy={vi.fn()} />);
+
+    try {
+      expect(fetchMock).toHaveBeenCalledWith('/api/admin/salon/communications/starter-credits?salonId=salon_a', expect.objectContaining({ cache: 'no-store' }));
+      expect(screen.getByText('Loading your text balance…')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Claim 100 free texts' })).not.toBeInTheDocument();
+    } finally {
+      await act(async () => resolveBalance(response(40, { salonId: 'salon_a' })));
+    }
+
+    expect(await screen.findByText('40')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Claim 100 free texts' })).toBeVisible();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/starter-credits'))).toHaveLength(1);
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
+  });
+
+  it('waits for the balance identity when no confirmed salon ID is supplied', async () => {
+    let resolveBalance!: (value: Response) => void;
+    fetchMock.mockImplementation((url: string) => url.includes('/starter-credits')
+      ? Promise.resolve(new Response(JSON.stringify({ data: { status: 'verified', canClaim: false } })))
+      : new Promise<Response>((resolve) => {
+        resolveBalance = resolve;
+      }));
+    render(<SmsBalanceCard salonSlug="a" onBuy={vi.fn()} />);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await act(async () => resolveBalance(response(40, { salonId: 'salon_a' })));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/admin/salon/communications/starter-credits?salonId=salon_a', expect.objectContaining({ cache: 'no-store' })));
+  });
+
+  it('ignores both late balance and allowance responses after switching known salon identities', async () => {
+    let resolveBalanceA!: (value: Response) => void;
+    let resolveAllowanceA!: (value: Response) => void;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/starter-credits')) {
+        return url.includes('salonId=salon_a')
+          ? new Promise<Response>((resolve) => {
+            resolveAllowanceA = resolve;
+          })
+          : Promise.resolve(new Response(JSON.stringify({ data: { status: 'verified', canClaim: false } })));
+      }
+      return url.includes('salonSlug=a')
+        ? new Promise<Response>((resolve) => {
+          resolveBalanceA = resolve;
+        })
+        : Promise.resolve(response(7, { salonId: 'salon_b' }));
+    });
+    const { rerender } = render(<SmsBalanceCard salonSlug="a" salonId="salon_a" onBuy={vi.fn()} />);
+    rerender(<SmsBalanceCard salonSlug="b" salonId="salon_b" onBuy={vi.fn()} />);
+
+    expect(await screen.findByText('7')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/salon/communications/starter-credits?salonId=salon_a', expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/salon/communications/starter-credits?salonId=salon_b', expect.anything());
+
+    await act(async () => {
+      resolveBalanceA(response(999, { salonId: 'salon_a' }));
+      resolveAllowanceA(new Response(JSON.stringify({ data: { status: 'unclaimed', canClaim: true } })));
+    });
+
+    expect(screen.queryByText('999')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Claim 100 free texts' })).not.toBeInTheDocument();
+  });
+
+  it('uses the balance response identity instead of a stale early-loading hint', async () => {
+    let resolveBalance!: (value: Response) => void;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/starter-credits')) {
+        return Promise.resolve(new Response(JSON.stringify({ data: url.includes('salonId=stale_salon')
+          ? { status: 'unclaimed', canClaim: true, verification: { email: true, phone: true } }
+          : { status: 'verified', canClaim: false } })));
+      }
+      return new Promise<Response>((resolve) => {
+        resolveBalance = resolve;
+      });
+    });
+    render(<SmsBalanceCard salonSlug="b" salonId="stale_salon" onBuy={vi.fn()} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/admin/salon/communications/starter-credits?salonId=stale_salon', expect.anything()));
+
+    expect(screen.queryByRole('button', { name: 'Claim 100 free texts' })).not.toBeInTheDocument();
+
+    await act(async () => resolveBalance(response(7, { salonId: 'salon_b' })));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/admin/salon/communications/starter-credits?salonId=salon_b', expect.anything()));
+
+    expect(await screen.findByText('7')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Claim 100 free texts' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
+  });
+
+  it('keeps allowance controls hidden if the balance fails despite a known salon ID', async () => {
+    fetchMock.mockImplementation(async (url: string) => url.includes('/starter-credits')
+      ? new Response(JSON.stringify({ data: { status: 'unclaimed', canClaim: true, verification: { email: true, phone: true } } }))
+      : new Response('', { status: 503 }));
+    render(<SmsBalanceCard salonSlug="a" salonId="salon_a" onBuy={vi.fn()} />);
+
+    expect(await screen.findByText('Your balance is unavailable right now.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Claim 100 free texts' })).not.toBeInTheDocument();
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
+  });
+
+  it('does not add allowance requests to a healthy compact Today card', async () => {
+    fetchMock.mockImplementation(async () => response(50, { salonId: 'salon_a' }));
+    render(<SmsBalanceCard compact salonSlug="a" salonId="salon_a" onBuy={vi.fn()} />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+    expect(screen.queryByRole('heading', { name: 'Free-text allowance' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/starter-credits'))).toBe(false);
+  });
+
   it('identifies Today, More purchase and More history focus targets for the active salon', async () => {
     fetchMock.mockImplementation(async (url: string) => url.includes('/starter-credits')
       ? new Response(JSON.stringify({ data: { status: 'verified', canClaim: false } }))
