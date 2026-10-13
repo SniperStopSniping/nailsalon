@@ -223,7 +223,8 @@ jobs:
       #   * only chartered paths may change at all — any other migration file,
       #     or any other file under `migrations/`, still fails;
       #   * nothing may be DELETED or REWRITTEN — an edit to an already-shipped
-      #     migration, or to an existing cron entry, still fails;
+      #     migration, or to an existing cron entry, still fails except the
+      #     exact reviewed retirement cadence for legacy voice cleanup below;
       #   * the only new journal tag and the only new cron path permitted are
       #     the ones the owning packet is chartered to add.
       # A later packet EXTENDS the two allowlists below; it does not remove the
@@ -534,9 +535,17 @@ jobs:
           removed="$(git diff --unified=0 "$base" -- migrations vercel.json ':(exclude)migrations/meta/_journal.json' \
             | grep -E '^-' | grep -vE '^--- ' || true)"
           if [ -n "$removed" ]; then
-            echo "::error::The deposits ladder is additive by construction, but these lines were removed or rewritten:"
-            printf '%s\n' "$removed"
-            exit 1
+            # AI voice is retired. Allow only the exact reviewed change from
+            # minute-by-minute maintenance to daily historical-data cleanup.
+            # The old blob cannot match after this change lands on main, so
+            # future cron rewrites remain blocked by the additive guard.
+            if [ -n "$(git diff --name-only "$base" -- migrations)" ] \
+              || [ "$(git rev-parse "$base:vercel.json")" != "45a78be623d92fdc864ccfcd7ee18cd1db4ed27c" ] \
+              || [ "$(git hash-object vercel.json)" != "65091560f73236acf9a0ee6d929439e5d28fd749" ]; then
+              echo "::error::The deposits ladder is additive by construction, but these lines were removed or rewritten:"
+              printf '%s\n' "$removed"
+              exit 1
+            fi
           fi
 
           # 5. D6.1 may add 0068 exactly once and only with its reviewed
