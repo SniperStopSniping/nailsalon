@@ -198,3 +198,44 @@ test('status-aware footer and checkout review complete a long opaque catalog ID 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(unexpected).toEqual([]);
 });
+
+test('prestart no-show requires confirmed nonattendance, stays usable at 200% text, and confirms sharing', async ({ page }, testInfo) => {
+  const { unexpected } = await mockFixtureApi(page);
+  await page.clock.setFixedTime(new Date('2030-06-15T18:30:00Z'));
+  await page.goto('/?prestart=1');
+  await page.getByTestId('open-appointment').click();
+  await page.getByRole('button', { name: 'Details Show', exact: true }).click();
+  await page.getByTestId('appointment-sheet-no-show').click();
+  const dialog = page.getByRole('alertdialog');
+
+  await expect(dialog.getByRole('radio', { name: /Customer did not attend/ })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Confirm no-show' })).toBeDisabled();
+
+  await page.screenshot({ path: testInfo.outputPath(`no-show-reason-default-${testInfo.project.name}.png`) });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '32px';
+  });
+  await dialog.getByRole('radio', { name: /Customer confirmed/ }).check();
+  await dialog.getByText('Add a private note (optional)', { exact: true }).click();
+  await dialog.getByLabel(/Private note/).fill('Customer said they cannot attend.');
+
+  expect(await dialog.evaluate((root) => {
+    const bounds = root.getBoundingClientRect();
+    return Array.from(root.querySelectorAll('button')).filter((button) => {
+      const box = button.getBoundingClientRect();
+      return box.left < bounds.left - 1 || box.right > bounds.right + 1 || button.scrollWidth > button.clientWidth + 1;
+    }).map(button => button.textContent);
+  })).toEqual([]);
+
+  await dialog.getByRole('button', { name: 'Confirm no-show' }).scrollIntoViewIfNeeded();
+
+  await expect(dialog.getByRole('button', { name: 'Confirm no-show' })).toBeInViewport();
+
+  await page.screenshot({ path: testInfo.outputPath(`no-show-reason-${testInfo.project.name}.png`) });
+  await dialog.getByRole('button', { name: 'Confirm no-show' }).click();
+
+  await expect(dialog.getByText('No-show saved')).toBeVisible();
+  await expect(dialog.getByText(/now shared with participating/)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(unexpected).toEqual([]);
+});

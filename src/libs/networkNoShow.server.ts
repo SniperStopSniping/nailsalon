@@ -2,10 +2,11 @@ import 'server-only';
 
 import { createHmac, randomUUID } from 'node:crypto';
 
-import { and, asc, eq, gt, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
 
 import type { db } from '@/libs/DB';
 import type { NetworkNoShowRisk, NoShowProtection } from '@/libs/networkNoShow';
+import { validateNoShowReport } from '@/libs/noShowReporting';
 import { normalizePhone } from '@/libs/phone';
 import {
   appointmentAuditLogSchema,
@@ -302,9 +303,29 @@ export async function recordNetworkNoShowInTx(
       eq(networkNoShowAuditSchema.action, sourceCorrectionAction),
     ))
     .limit(1);
+  // Source correction evidence outlives the shorter network-audit cleanup policy.
+  const [durableCorrection] = await tx.select({ id: appointmentAuditLogSchema.id }).from(appointmentAuditLogSchema)
+    .where(and(eq(appointmentAuditLogSchema.salonId, args.salonId), eq(appointmentAuditLogSchema.appointmentId, args.appointmentId), sql`${appointmentAuditLogSchema.newValue}->>'cancelReason' = 'admin_correction'`, sql`${appointmentAuditLogSchema.newValue}->>'status' = 'cancelled'`)).limit(1);
   if (!control?.prospectiveAfter || !appointment || !binding || !subject || subject.state !== 'active' || appointment.status !== 'no_show' || appointment.deletedAt || binding.state !== 'eligible' || binding.invalidatedAt || !binding.subjectId
-    || appointment.createdAt < control.prospectiveAfter || appointment.createdAt >= appointment.startTime || sourceCorrection) {
+    || appointment.createdAt < control.prospectiveAfter || appointment.createdAt >= appointment.startTime || sourceCorrection || durableCorrection) {
     return false;
+  }
+  const [review] = await tx.select({ value: appointmentAuditLogSchema.newValue }).from(appointmentAuditLogSchema)
+    .where(and(eq(appointmentAuditLogSchema.salonId, args.salonId), eq(appointmentAuditLogSchema.appointmentId, args.appointmentId), sql`${appointmentAuditLogSchema.newValue}->>'noShowReview' is not null`))
+    .orderBy(sql`${appointmentAuditLogSchema.createdAt} desc`, sql`${appointmentAuditLogSchema.id} desc`).limit(1);
+  if (review && review.value?.noShowReview !== 'upheld') {
+    return false;
+  }
+  if (args.now < appointment.startTime) {
+    const [audit] = await tx.select({ value: appointmentAuditLogSchema.newValue, markedAt: appointmentAuditLogSchema.createdAt }).from(appointmentAuditLogSchema)
+      .where(and(eq(appointmentAuditLogSchema.salonId, args.salonId), eq(appointmentAuditLogSchema.appointmentId, args.appointmentId), eq(appointmentAuditLogSchema.action, 'status_changed'), sql`${appointmentAuditLogSchema.newValue}->>'status' = 'no_show'`))
+      .orderBy(asc(appointmentAuditLogSchema.createdAt)).limit(1);
+    try {
+      // Never turn a legacy future mark without confirmed nonattendance into shared history.
+      validateNoShowReport(appointment.startTime, audit?.value?.noShowReport, audit?.markedAt ?? args.now);
+    } catch {
+      return false;
+    }
   }
   // An explicit mark counts immediately, even before the scheduled visit.
   // A late report never extends the source appointment's history window.
@@ -440,11 +461,14 @@ export async function reconcileNetworkNoShows(args: {
       isNotNull(networkNoShowPlatformControlSchema.prospectiveAfter),
       gte(appointmentSchema.createdAt, networkNoShowPlatformControlSchema.prospectiveAfter),
       lt(appointmentSchema.createdAt, appointmentSchema.startTime),
+      sql`(${appointmentSchema.startTime} <= ${now.toISOString()}::timestamptz or exists (select 1 from appointment_audit_log a where a.salon_id = ${appointmentSchema.salonId} and a.appointment_id = ${appointmentSchema.id} and a.new_value->'noShowReport'->>'reason' in ('late_cancellation', 'confirmed_nonattendance') and a.created_at >= ${appointmentSchema.startTime} - interval '24 hours'))`,
+      sql`not exists (select 1 from appointment_audit_log review where review.salon_id = ${appointmentSchema.salonId} and review.appointment_id = ${appointmentSchema.id} and review.new_value->>'noShowReview' in ('requested', 'removed') and not exists (select 1 from appointment_audit_log resolved where resolved.salon_id = review.salon_id and resolved.appointment_id = review.appointment_id and resolved.new_value->>'noShowReview' = 'upheld' and resolved.created_at > review.created_at))`,
       // Match the UTC calendar-month expiry above, including leap-day clamp,
       // independently of the database session timezone. Exclude expired rows
       // before LIMIT so they cannot starve an eligible pending record.
       sql`(((${appointmentSchema.endTime} AT TIME ZONE 'UTC') + ${WINDOW_MONTHS} * interval '1 month') AT TIME ZONE 'UTC') > ${now.toISOString()}::timestamptz`,
       sql`not exists (select 1 from network_no_show_event event where event.salon_id = ${appointmentSchema.salonId} and event.appointment_id = ${appointmentSchema.id})`,
+      sql`not exists (select 1 from appointment_audit_log correction where correction.salon_id = ${appointmentSchema.salonId} and correction.appointment_id = ${appointmentSchema.id} and correction.new_value->>'cancelReason' = 'admin_correction' and correction.new_value->>'status' = 'cancelled')`,
       sql`not exists (select 1 from network_no_show_audit correction where correction.salon_id = ${appointmentSchema.salonId} and correction.action = ${'source_corrected:no_show_to_cancelled:'} || ${appointmentSchema.id})`,
     ))
     .orderBy(asc(appointmentSchema.endTime), asc(appointmentSchema.id))
@@ -482,7 +506,7 @@ export async function reconcileNetworkNoShows(args: {
 
 export async function suppressNetworkNoShowEventInTx(
   tx: NetworkNoShowHandle,
-  args: { eventId: string; operatorId: string; now: Date; reason: 'identity_dispute' | 'accuracy_dispute' },
+  args: { eventId: string; operatorId: string; now: Date; reason: 'identity_dispute' | 'accuracy_dispute' | 'customer_review'; actorRole?: 'client' | 'operator' },
 ): Promise<void> {
   const [event] = await tx.select({ subjectId: networkNoShowEventSchema.subjectId })
     .from(networkNoShowEventSchema).where(eq(networkNoShowEventSchema.id, args.eventId)).limit(1);
@@ -491,8 +515,8 @@ export async function suppressNetworkNoShowEventInTx(
   }
   await lockNetworkNoShowSubjectInTx(tx, event.subjectId);
   await tx.update(networkNoShowEventSchema).set({ state: 'suppressed', revokedAt: args.now, suppressionReason: args.reason })
-    .where(eq(networkNoShowEventSchema.id, args.eventId));
-  await tx.insert(networkNoShowAuditSchema).values({ id: randomUUID(), eventId: args.eventId, actorId: args.operatorId, actorRole: 'operator', action: `suppressed:${args.reason}` });
+    .where(and(eq(networkNoShowEventSchema.id, args.eventId), args.actorRole === 'client' ? eq(networkNoShowEventSchema.state, 'active') : ne(networkNoShowEventSchema.state, 'revoked'))).returning();
+  await tx.insert(networkNoShowAuditSchema).values({ id: randomUUID(), eventId: args.eventId, actorId: args.operatorId, actorRole: args.actorRole ?? 'operator', action: `suppressed:${args.reason}` });
 }
 
 /** Operator-only identity resolution. It removes a pair from every risk decision. */

@@ -14,6 +14,7 @@ import {
   registerNetworkBookingInTx,
   suppressNetworkNoShowSubjectInTx,
 } from '@/libs/networkNoShow.server';
+import { auditNoShowReportInTx } from '@/libs/noShowReporting.server';
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
@@ -246,6 +247,7 @@ describe('network no-show storage', () => {
     await participant(receiver);
     const entry = await booking({ salonId: source });
     const markedAt = new Date(at);
+    await db.transaction(tx => auditNoShowReportInTx(tx, { salonId: source, appointmentId: entry.id, previousStatus: 'confirmed', actorId: 'owner-early', actorRole: 'admin', report: { reason: 'confirmed_nonattendance' }, now: markedAt }));
     await db.update(schema.appointmentSchema).set({ status: 'no_show' }).where(eq(schema.appointmentSchema.id, entry.id));
 
     await expect(db.transaction(tx => recordNetworkNoShowInTx(tx, {
@@ -279,7 +281,7 @@ describe('network no-show storage', () => {
     await expect(readNetworkNoShowRisk({ salonId: receiver, phone: entry.phone, email: entry.email, now: markedAt })).resolves.toEqual({ state: 'available', activeNoShowCount: 0, windowMonths: 12 });
   });
 
-  it('recovers an existing pending mark before the scheduled start with its original provenance', async () => {
+  it('holds a legacy future mark without confirmation evidence until the start, preserving its provenance', async () => {
     const source = `network-pending-${sequence}`;
     const receiver = `network-pending-receiver-${sequence}`;
     await participant(source);
@@ -289,7 +291,8 @@ describe('network no-show storage', () => {
     const sweepAt = new Date('2030-06-15T13:00:00.000Z');
     await db.insert(schema.networkNoShowAuditSchema).values({ id: `pending-${entry.id}`, salonId: source, actorId: 'original-owner', actorRole: 'admin', action: `pending_no_show:${entry.id}`, createdAt: markedAt });
 
-    await expect(reconcileNetworkNoShows({ handle: db, now: sweepAt })).resolves.toEqual({ scanned: 1, recorded: 1 });
+    await expect(reconcileNetworkNoShows({ handle: db, now: sweepAt })).resolves.toEqual({ scanned: 0, recorded: 0 });
+    await expect(reconcileNetworkNoShows({ handle: db, now: new Date('2030-06-15T14:00:00Z') })).resolves.toEqual({ scanned: 1, recorded: 1 });
     await expect(reconcileNetworkNoShows({ handle: db, now: sweepAt })).resolves.toEqual({ scanned: 0, recorded: 0 });
     expect((await db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, entry.id)))[0]).toMatchObject({ markedBy: 'original-owner', markedByRole: 'admin', markedAt });
     await expect(readNetworkNoShowRisk({ salonId: receiver, phone: entry.phone, email: entry.email, now: sweepAt })).resolves.toEqual({ state: 'available', activeNoShowCount: 1, windowMonths: 12 });
@@ -360,6 +363,17 @@ describe('network no-show storage', () => {
     await expect(db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, deleted.id))).resolves.toHaveLength(0);
     await expect(db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, expired.id))).resolves.toHaveLength(0);
     await expect(db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, createdAtStart.id))).resolves.toHaveLength(0);
+  });
+
+  it('retains the source correction fence after shorter network audit retention cleanup', async () => {
+    const source = `network-durable-correction-${sequence}`;
+    await participant(source);
+    const entry = await booking({ salonId: source, status: 'no_show' });
+    await db.insert(schema.appointmentAuditLogSchema).values({ id: `durable-correction-${entry.id}`, salonId: source, appointmentId: entry.id, action: 'admin_override', performedBy: 'owner', performedByRole: 'admin', newValue: { status: 'cancelled', cancelReason: 'admin_correction' }, reason: 'Incorrect report corrected before publication.' });
+    await db.delete(schema.networkNoShowAuditSchema).where(eq(schema.networkNoShowAuditSchema.salonId, source));
+
+    await expect(db.transaction(tx => recordNetworkNoShowInTx(tx, { salonId: source, appointmentId: entry.id, actorId: 'stale-writer', actorRole: 'admin', now }))).resolves.toBe(false);
+    await expect(reconcileNetworkNoShows({ handle: db, now })).resolves.toEqual({ scanned: 0, recorded: 0 });
   });
 
   it('never republishes an early no-show after its source was corrected before event creation', async () => {

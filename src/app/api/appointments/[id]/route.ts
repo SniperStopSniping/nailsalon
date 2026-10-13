@@ -33,6 +33,8 @@ import {
 import { recordNetworkNoShowInTx } from '@/libs/networkNoShow.server';
 import { setNetworkNoShowAuditActorInTx } from '@/libs/networkNoShowAudit.server';
 import { nextVisitMutationFailure } from '@/libs/nextVisitOffer';
+import { NoShowReportingError, noShowReportSchema, validateNoShowReport } from '@/libs/noShowReporting';
+import { auditNoShowReportInTx } from '@/libs/noShowReporting.server';
 import {
   getAppointmentServiceNames,
   getSalonById,
@@ -56,6 +58,7 @@ import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 const updateAppointmentSchema = z.object({
   status: z.enum(APPOINTMENT_STATUSES).optional(),
+  noShowReport: noShowReportSchema.optional(),
   // L1 PR5 — widened from CANCEL_REASONS to also accept the dark
   // request-lifecycle reasons. `request_expired` is finalizer-only (rejected
   // below regardless of caller) and `declined_by_salon` is only valid for a
@@ -756,6 +759,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
               conflictStatus: 'missing',
             };
           }
+          if (lockedAppointment.deletedAt) {
+            throw new NoShowReportingError('NO_SHOW_INVALID_STATE', 'A deleted appointment cannot be marked no-show.');
+          }
           if (lockedAppointment.status === 'no_show') {
             await forfeitAppointmentDepositInTx({
               tx,
@@ -781,11 +787,15 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
             };
           }
 
+          const reportNow = new Date();
+          const noShowReport = validateNoShowReport(lockedAppointment.startTime, data.noShowReport, reportNow);
           const [noShowAppointment] = await tx
             .update(appointmentSchema)
             .set({
               status: 'no_show',
               cancelReason: 'no_show',
+              canvasState: 'no_show',
+              canvasStateUpdatedAt: reportNow,
               updatedAt: new Date(Math.max(
                 Date.now(),
                 lockedAppointment.updatedAt.getTime() + 1,
@@ -808,15 +818,17 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           }
 
           const networkActorId = access.actorRole === 'admin' ? access.admin?.id : access.actorRole === 'staff' ? access.session?.technicianId : null;
-          if (networkActorId) {
-            await recordNetworkNoShowInTx(tx, {
-              salonId: existingAppointment.salonId,
-              appointmentId,
-              actorId: networkActorId,
-              actorRole: access.actorRole,
-              now: new Date(),
-            });
+          if (!networkActorId || (access.actorRole !== 'admin' && access.actorRole !== 'staff')) {
+            throw new NoShowReportingError('NO_SHOW_ACTOR_REQUIRED', 'A signed-in salon manager must record the no-show.');
           }
+          await auditNoShowReportInTx(tx, { salonId: existingAppointment.salonId, appointmentId, previousStatus: lockedAppointment.status, actorId: networkActorId, actorRole: access.actorRole, report: noShowReport, now: reportNow });
+          await recordNetworkNoShowInTx(tx, {
+            salonId: existingAppointment.salonId,
+            appointmentId,
+            actorId: networkActorId,
+            actorRole: access.actorRole,
+            now: reportNow,
+          });
           await forfeitAppointmentDepositInTx({
             tx,
             salonId: existingAppointment.salonId,
@@ -1345,6 +1357,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       meta: { timestamp: new Date().toISOString() },
     });
   } catch (error) {
+    if (error instanceof NoShowReportingError) {
+      return Response.json({ error: { code: error.code, message: error.message } }, { status: 400 });
+    }
     const nextVisitFailure = nextVisitMutationFailure(error);
     if (nextVisitFailure) {
       return Response.json({ error: nextVisitFailure }, { status: 409 });

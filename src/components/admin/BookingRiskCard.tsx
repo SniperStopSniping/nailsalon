@@ -13,10 +13,10 @@ export type BookingRisk =
 
 function protectionCopy(protection: NoShowProtection): string {
   if (protection === 'deposit_1') {
-    return 'Deposit required for eligible public bookings';
+    return 'Deposit after 1 eligible no-show, when payments and booking settings allow';
   }
   if (protection === 'deposit_2') {
-    return 'Deposit required at 2 recorded no-shows';
+    return 'Deposit after 2 eligible no-shows, when payments and booking settings allow';
   }
   return 'Warning only';
 }
@@ -48,7 +48,7 @@ export function BookingRiskCard({ risk }: { risk: BookingRisk }) {
     );
   }
 
-  const noShowLabel = risk.activeNoShowCount === 1 ? 'no-show' : 'no-shows';
+  const noShowLabel = risk.activeNoShowCount === 1 ? 'report' : 'reports';
 
   return (
     <div
@@ -56,20 +56,23 @@ export function BookingRiskCard({ risk }: { risk: BookingRisk }) {
       className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950"
     >
       <div className="text-[12px] font-semibold uppercase text-amber-800">Booking Risk</div>
-      <p className="mt-1 text-sm font-semibold">Higher no-show risk</p>
+      <p className="mt-1 text-sm font-semibold">Recorded No-Show History</p>
       <p className="mt-1 text-sm">
+        This customer has
+        {' '}
         {risk.activeNoShowCount}
         {' '}
-        recorded
+        eligible no-show
         {' '}
         {noShowLabel}
         {' '}
-        on Luster in the last
+        from participating Luster salons within the past
         {' '}
         {risk.windowMonths}
         {' '}
         months.
       </p>
+      <p className="mt-2 text-xs text-amber-900">Recorded history, not a prediction. You choose how to proceed; customers are not automatically blocked.</p>
       <p className="mt-2 text-xs font-medium text-amber-900">
         No-show protection:
         {' '}

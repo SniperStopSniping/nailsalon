@@ -26,6 +26,8 @@ import {
 import { enqueueGoogleCalendarDeleteInTx } from '@/libs/integrationOutbox';
 import { recordNetworkNoShowInTx } from '@/libs/networkNoShow.server';
 import { setNetworkNoShowAuditActorInTx } from '@/libs/networkNoShowAudit.server';
+import { NoShowReportingError, noShowReportSchema, validateNoShowReport } from '@/libs/noShowReporting';
+import { auditNoShowReportInTx } from '@/libs/noShowReporting.server';
 import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 import {
   appointmentArtifactsSchema,
@@ -41,6 +43,7 @@ import {
 
 const transitionRequestSchema = z.object({
   to: z.enum(['working', 'wrap_up', 'complete', 'cancelled', 'no_show']),
+  noShowReport: noShowReportSchema.optional(),
 });
 
 class TransitionConflictError extends Error {}
@@ -348,6 +351,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           return null;
         }
 
+        const noShowReport = legacyStatus === 'no_show'
+          ? validateNoShowReport(lockedAppointment.startTime, parsed.data.noShowReport, now)
+          : null;
         updateData.updatedAt = new Date(Math.max(
           now.getTime(),
           lockedAppointment.updatedAt.getTime() + 1,
@@ -414,7 +420,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
             ),
           )
           .returning();
-        if (winner && legacyStatus === 'no_show') {
+        if (winner && legacyStatus === 'no_show' && noShowReport) {
+          await auditNoShowReportInTx(tx, { salonId: session.salonId, appointmentId, previousStatus: lockedAppointment.status, actorId: session.technicianId, actorRole: 'staff', report: noShowReport, now });
           await recordNetworkNoShowInTx(tx, {
             salonId: session.salonId,
             appointmentId,
@@ -521,6 +528,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       },
     });
   } catch (error) {
+    if (error instanceof NoShowReportingError) {
+      return Response.json({ error: { code: error.code, message: error.message } }, { status: 400 });
+    }
     if (error instanceof DepositForfeitureBlockedError) {
       return depositForfeitureBlockedResponse(error);
     }

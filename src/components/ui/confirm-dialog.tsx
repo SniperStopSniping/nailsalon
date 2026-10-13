@@ -16,6 +16,7 @@ type ConfirmDialogProps = {
   tone?: 'danger' | 'default';
   /** While busy the dialog cannot be dismissed and confirm is disabled. */
   busy?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onClose: () => void;
 };
@@ -29,6 +30,7 @@ export function ConfirmDialog({
   cancelLabel = 'Go back',
   tone = 'default',
   busy = false,
+  confirmDisabled = false,
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
@@ -54,13 +56,13 @@ export function ConfirmDialog({
           <div className="mt-2 text-sm leading-6 text-neutral-600">{description}</div>
         )}
         {children && <div className="mt-3">{children}</div>}
-        <div className="mt-5 flex gap-3">
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row">
           <button
             type="button"
             data-testid="confirm-dialog-cancel"
             onClick={onClose}
             disabled={busy}
-            className="min-h-11 flex-1 rounded-xl border border-neutral-200 px-4 py-2.5 text-sm font-medium text-neutral-700 disabled:opacity-50"
+            className="min-h-11 min-w-0 flex-1 break-words rounded-xl border border-neutral-200 px-4 py-2.5 text-sm font-medium text-neutral-700 disabled:opacity-50"
           >
             {cancelLabel}
           </button>
@@ -68,8 +70,8 @@ export function ConfirmDialog({
             type="button"
             data-testid="confirm-dialog-confirm"
             onClick={onConfirm}
-            disabled={busy}
-            className={`min-h-11 flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 ${tone === 'danger' ? 'bg-red-600' : 'bg-neutral-900'}`}
+            disabled={busy || confirmDisabled}
+            className={`min-h-11 min-w-0 flex-1 break-words rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 ${tone === 'danger' ? 'bg-red-600' : 'bg-neutral-900'}`}
           >
             {busy ? 'Working…' : confirmLabel}
           </button>

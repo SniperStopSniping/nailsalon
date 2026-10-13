@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
@@ -41,6 +41,10 @@ export async function POST(request: Request): Promise<Response> {
         .where(and(eq(appointmentSchema.salonId, salon.id), eq(appointmentSchema.id, appointment.id)));
       const [event] = await tx.select({ id: networkNoShowEventSchema.id }).from(networkNoShowEventSchema)
         .where(and(eq(networkNoShowEventSchema.salonId, salon.id), eq(networkNoShowEventSchema.appointmentId, appointment.id))).limit(1);
+      // The source trigger already holds the subject lock and revokes active
+      // events; a disputed/suppressed event must become a correction tombstone too.
+      await tx.update(networkNoShowEventSchema).set({ state: 'revoked', revokedAt: now, sourceRevision: sql`${networkNoShowEventSchema.sourceRevision} + 1` })
+        .where(and(eq(networkNoShowEventSchema.salonId, salon.id), eq(networkNoShowEventSchema.appointmentId, appointment.id), eq(networkNoShowEventSchema.state, 'suppressed')));
       await tx.insert(appointmentAuditLogSchema).values(buildAppointmentAuditRow({ appointmentId: appointment.id, salonId: salon.id, action: 'admin_override', performedBy: admin.id, performedByRole: 'admin', performedByName: admin.name ?? undefined, previousValue: { status: 'no_show' }, newValue: { status: 'cancelled', cancelReason: 'admin_correction' }, reason: parsed.data.reason }));
       await tx.insert(networkNoShowAuditSchema).values({ id: crypto.randomUUID(), salonId: salon.id, eventId: event?.id ?? null, actorId: admin.id, actorRole: 'admin', action: `source_corrected:no_show_to_cancelled:${appointment.id}` });
       return 'applied';

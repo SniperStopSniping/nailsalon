@@ -4,6 +4,7 @@ import { CalendarPlus, Clock3, Mail, MapPin, UserRound, X } from 'lucide-react';
 import Image from 'next/image';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { NoShowReportDialog } from '@/components/appointments/NoShowReportDialog';
 import { OwnerPhotoRulesLink } from '@/components/appointments/OwnerPhotoRulesLink';
 import { ReviewRequestAction } from '@/components/appointments/ReviewRequestAction';
 import { UpcomingAppointmentActions } from '@/components/appointments/UpcomingAppointmentActions';
@@ -15,6 +16,7 @@ import type { NextVisitPriceReview } from '@/hooks/useAppointmentActions';
 import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
 import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { formatMoney } from '@/libs/formatMoney';
+import type { NoShowReport } from '@/libs/noShowReporting';
 import { cn } from '@/utils/Helpers';
 
 type AppointmentQuickEditSheetProps = {
@@ -50,7 +52,7 @@ type AppointmentQuickEditSheetProps = {
   onConfirmAppointment?: () => Promise<void>;
   /** Declines a pending request-approval booking. Absent unless the surface wires request-lifecycle actions. */
   onDeclineAppointment?: () => Promise<void>;
-  onMarkNoShow?: () => Promise<void>;
+  onMarkNoShow?: (report: NoShowReport) => Promise<'shared' | 'not_shared' | null>;
   onResendConfirmation?: () => Promise<void>;
   onRebook?: () => void;
   /** Opens the snapshot receipt for a completed appointment. */
@@ -801,6 +803,7 @@ export function AppointmentQuickEditSheet({
                           )}
 
                           {adminDepositPanelSlot}
+                          {!detail.permissions.canMarkNoShow && ['pending', 'confirmed', 'in_progress'].includes(detail.appointment.status) && <p className="text-xs text-neutral-500">No-show reporting opens 24 hours before the appointment. Cancellation remains available separately.</p>}
 
                           <div className="rounded-2xl border border-neutral-200 p-4">
                             <div className="mb-3 text-sm font-semibold text-neutral-900">Other actions</div>
@@ -991,7 +994,6 @@ export function AppointmentQuickEditSheet({
           <div className="flex flex-wrap gap-2">
             {([
               ['client_request', 'Client request'],
-              ['no_show', 'No show'],
               ['rescheduled', 'Rescheduled'],
             ] as const).map(([value, label]) => (
               <button
@@ -1022,20 +1024,17 @@ export function AppointmentQuickEditSheet({
         </div>
       </ConfirmDialog>
 
-      <ConfirmDialog
-        isOpen={pendingConfirm === 'no_show'}
-        title="Mark as no-show?"
-        tone="danger"
-        busy={saving}
-        confirmLabel="Mark no-show"
-        cancelLabel="Go back"
-        description="This is recorded on the client's profile and frees the time slot."
-        onClose={() => setPendingConfirm(null)}
-        onConfirm={() => {
-          setPendingConfirm(null);
-          void onMarkNoShow?.();
-        }}
-      />
+      {detail && onMarkNoShow && (
+        <NoShowReportDialog
+          isOpen={pendingConfirm === 'no_show'}
+          startTime={detail.appointment.startTime}
+          timeZone={detail.appointment.timeZone}
+          busy={saving}
+          error={actionError}
+          onClose={() => setPendingConfirm(null)}
+          onConfirm={onMarkNoShow}
+        />
+      )}
 
       <ConfirmDialog
         isOpen={pendingConfirm === 'decline'}
