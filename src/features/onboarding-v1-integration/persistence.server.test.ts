@@ -181,6 +181,20 @@ describe.sequential('account-backed onboarding persistence', () => {
       eq(schema.smsCreditLedgerSchema.bucket, 'starter'),
     ));
 
+  it('queues one signup email for the first saved business, not replays or additional salons', async () => {
+    const owner = identity('signup_notification');
+    const input = request('signup_notification');
+    await claimOnboardingDraft(owner, input, handle());
+    await claimOnboardingDraft(owner, input, handle());
+    await claimOnboardingDraft(owner, request('signup_notification_second', { target: { mode: 'create_business' } }), handle());
+    const jobs = await database.select().from(schema.integrationOutboxSchema)
+      .where(eq(schema.integrationOutboxSchema.dedupeKey, `owner-signup:${owner.clerkUserId}`));
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({ provider: 'email', operation: 'owner_signup_notification', status: 'pending', payload: { ownerEmail: owner.email, salonName: input.snapshot.profile.businessName } });
+    expect(jobs[0]!.payload).not.toHaveProperty('password');
+  });
+
   it('checks available, occupied, and invalid URLs without exposing the occupying salon', async () => {
     const occupiedSalonId = crypto.randomUUID();
     await database.insert(schema.salonSchema).values({

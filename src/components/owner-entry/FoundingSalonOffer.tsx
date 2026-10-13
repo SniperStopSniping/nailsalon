@@ -20,6 +20,9 @@ export function FoundingSalonOffer({
   message,
   closed = false,
   onContinue,
+  claimLabel = 'Claim my free lifetime plan',
+  pendingLabel = 'Saving your claim…',
+  claimNote,
 }: {
   children?: ReactNode;
   onClaim: () => void;
@@ -27,6 +30,9 @@ export function FoundingSalonOffer({
   message?: string | null;
   closed?: boolean;
   onContinue?: () => void;
+  claimLabel?: string;
+  pendingLabel?: string;
+  claimNote?: string;
 }) {
   if (closed) {
     return (
@@ -151,10 +157,11 @@ export function FoundingSalonOffer({
         {message && <p role="status" className="luster-entry-error">{message}</p>}
         <footer className="luster-offer-claim">
           <button className="luster-entry-button luster-entry-button--primary" type="button" disabled={pending} onClick={onClaim}>
-            <span>{pending ? 'Saving your claim…' : 'Claim my free lifetime plan'}</span>
+            <span>{pending ? pendingLabel : claimLabel}</span>
             <ArrowRight aria-hidden="true" />
           </button>
           <p>Founding offer available until January 1, 2027.</p>
+          {claimNote && <p>{claimNote}</p>}
         </footer>
         {children}
       </main>

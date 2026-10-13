@@ -3967,6 +3967,30 @@ export async function processIntegrationOutbox(
           ...(options.signal ? { signal: options.signal } : {}),
         });
         result = { status: 'synced' as const };
+      } else if (job.provider === 'email' && job.operation === 'owner_signup_notification') {
+        const { deliverOwnerSignupNotification } = await import('@/libs/ownerSignupNotification');
+        const outcome = await deliverOwnerSignupNotification(job, { signal: options.signal });
+        if (outcome !== 'sent') {
+          const terminalized = await db.update(integrationOutboxSchema).set({
+            status: outcome === 'expired' ? 'failed' : 'cancelled',
+            processedAt: new Date(),
+            lastError: outcome === 'expired' ? 'EMAIL_RETRY_WINDOW_EXPIRED' : 'NON_PRODUCTION_ENVIRONMENT',
+          }).where(and(
+            eq(integrationOutboxSchema.id, job.id),
+            eq(integrationOutboxSchema.salonId, job.salonId),
+            eq(integrationOutboxSchema.status, 'processing'),
+            eq(integrationOutboxSchema.attempts, claimedAttempt),
+          )).returning();
+          if (terminalized.length) {
+            if (outcome === 'expired') {
+              summary.failed += 1;
+            } else {
+              summary.succeeded += 1;
+            }
+          }
+          continue;
+        }
+        result = { status: 'synced' as const };
       } else if (job.provider === 'email' && job.operation === 'sms_low_balance') {
         const { deliverLowBalanceWarning } = await import('@/libs/lowBalanceWarnings');
         const outcome = await deliverLowBalanceWarning(job, { signal: options.signal });
@@ -4170,8 +4194,8 @@ export async function processIntegrationOutbox(
               );
           }
         }
-        if (job.operation === 'sms_low_balance') {
-          Sentry.captureMessage('sms_low_balance_email_failed', {
+        if (job.operation === 'sms_low_balance' || job.operation === 'owner_signup_notification') {
+          Sentry.captureMessage(job.operation === 'sms_low_balance' ? 'sms_low_balance_email_failed' : 'owner_signup_email_failed', {
             level: 'error',
             extra: { jobId: job.id, salonId: job.salonId },
           });

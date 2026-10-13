@@ -8,8 +8,8 @@ export function getSavedOnboardingSitePreviewUrl(input: {
   return input.embedded ? `${base}?embed=1` : base;
 }
 
-/** Keep the saved-site handoff while taking new owners straight to publication. */
-export function getOnboardingPublishReviewUrl(input: {
+/** Preserve the verified saved-site handoff after an explicit successful publish. */
+export function getOnboardingDashboardHandoffUrl(input: {
   locale: string;
   salonSlug: string;
   siteId: string;
@@ -22,5 +22,5 @@ export function getOnboardingPublishReviewUrl(input: {
     site: input.siteId,
     planIntent: input.planIntent,
   });
-  return `/${locale}/admin/website?${query}`;
+  return `/${locale}/admin?${query}`;
 }

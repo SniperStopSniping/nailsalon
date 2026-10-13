@@ -22,6 +22,7 @@ import { ZodError } from 'zod';
 import { FoundingSalonOffer } from '@/components/owner-entry/FoundingSalonOffer';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { isFoundingLifetimeOfferOpen } from '@/libs/billing/foundingLifetime';
+import { publishSalon } from '@/libs/publishWebsiteClient';
 
 import { IndexedDbAssetRepository } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/assets';
 import {
@@ -99,7 +100,7 @@ import { ResumedOnboardingAssetRepository } from './resume-assets';
 import { hydrateInitialOnboardingResumeDraft } from './resume-client';
 import type { InitialOnboardingResumeDraft } from './resume-draft';
 import { createPersistableOnboardingDraft } from './snapshot';
-import { getOnboardingPublishReviewUrl, getSavedOnboardingSitePreviewUrl } from './urls';
+import { getOnboardingDashboardHandoffUrl, getSavedOnboardingSitePreviewUrl } from './urls';
 
 const PremiumAccountGate = lazy(() => import('./account-gate/AccountGate').then(module => ({ default: module.PremiumAccountGate })));
 
@@ -1055,6 +1056,12 @@ function OnboardingIntegrationController({
       if (accountIdRef.current !== planAccountId) {
         return;
       }
+      // The final button explicitly authorizes publication. Both calls are
+      // idempotent, so an interrupted publish retries the same saved claim.
+      await publishSalon(flow.savedSite.salonSlug);
+      if (accountIdRef.current !== planAccountId) {
+        return;
+      }
       recordIntegrationEvent({
         intent: LAB_INTENT_BY_PLAN_INTENT[result.intent],
         type: 'plan_selected',
@@ -1075,7 +1082,7 @@ function OnboardingIntegrationController({
       }
       // Keep the verified site and plan retry key until the dashboard actually
       // loads this handoff. A navigation interruption must not restart setup.
-      window.location.assign(getOnboardingPublishReviewUrl({
+      window.location.assign(getOnboardingDashboardHandoffUrl({
         locale,
         salonSlug: flow.savedSite.salonSlug,
         siteId: result.siteId,
@@ -1727,6 +1734,9 @@ function PlanSelection({
       message={confirmation}
       onClaim={() => onChoose('founding_interest')}
       pending={pending}
+      claimLabel="Publish my website & open dashboard"
+      pendingLabel="Publishing your website…"
+      claimNote="This claims your free lifetime plan and makes your saved website public. You can keep editing from your dashboard."
     >
       <div className="luster-offer-saved-details">
         {!mediaComplete && (

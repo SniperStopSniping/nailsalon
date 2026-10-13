@@ -52,6 +52,7 @@ const mocks = vi.hoisted(() => ({
     loadIssues: [],
   },
   savePlan: vi.fn(),
+  publish: vi.fn(),
   status: vi.fn(),
   signIn: { authenticateWithRedirect: vi.fn(), create: vi.fn() },
   signUp: { create: vi.fn(), prepareEmailAddressVerification: vi.fn() },
@@ -70,6 +71,7 @@ const verifiedClerkUser = (): NonNullable<MockedClerkUser> => ({
 });
 
 vi.mock('@/libs/billing/foundingLifetime', () => ({ isFoundingLifetimeOfferOpen: () => true }));
+vi.mock('@/libs/publishWebsiteClient', () => ({ publishSalon: (...args: unknown[]) => mocks.publish(...args) }));
 
 vi.mock('@clerk/nextjs', () => ({
   AuthenticateWithRedirectCallback: () => null,
@@ -206,6 +208,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.claimMedia.mockReset();
     mocks.cleanupMedia.mockReset();
     mocks.savePlan.mockReset();
+    mocks.publish.mockReset().mockResolvedValue({ publicationStatus: 'published' });
     mocks.status.mockReset().mockResolvedValue({ claim: null });
     mocks.signIn.create.mockReset();
     mocks.signUp.create.mockReset();
@@ -593,7 +596,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(1));
 
     expect(screen.queryByTitle('Saved preview of Isla Nail Studio')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Claim my free lifetime plan' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Publish my website & open dashboard' })).not.toBeInTheDocument();
 
     await act(async () => {
       completeStatus({ claim: savedSite });
@@ -612,7 +615,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'plans', savedSite });
     mocks.status.mockResolvedValueOnce({ claim: savedSite });
     const { rerender } = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
-    await screen.findByRole('button', { name: 'Claim my free lifetime plan' });
+    await screen.findByRole('button', { name: 'Publish my website & open dashboard' });
 
     mocks.status.mockRejectedValue(new OnboardingIntegrationRequestError('This draft belongs to another account.', {
       code: 'DRAFT_ALREADY_CLAIMED',
@@ -621,12 +624,13 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.userState.user = { ...verifiedClerkUser(), id: 'user-second-owner' };
     rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
-    expect(screen.queryByRole('button', { name: 'Claim my free lifetime plan' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Publish my website & open dashboard' })).not.toBeInTheDocument();
     expect(screen.queryByTitle('Saved preview of Isla Nail Studio')).not.toBeInTheDocument();
 
     await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
 
     expect(mocks.savePlan).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
     expect(mocks.claim).not.toHaveBeenCalled();
   });
 
@@ -777,7 +781,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(await screen.findByText(/This website has newer changes/u)).toBeVisible();
     expect(loadOnboardingIntegrationFlow().savedSite?.revision).toBe(savedSite.revision);
-    expect(screen.queryByRole('button', { name: 'Claim my free lifetime plan' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Publish my website & open dashboard' })).not.toBeInTheDocument();
     expect(mocks.claim).not.toHaveBeenCalled();
   });
 
@@ -797,7 +801,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
     expect(await screen.findByRole('button', { name: 'Continue setting up' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Claim my free lifetime plan' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Publish my website & open dashboard' })).not.toBeInTheDocument();
     expect(screen.getByText('Loading your saved preview…')).toBeVisible();
 
     fireEvent.load(screen.getByTitle(/^Saved preview of /u));
@@ -881,7 +885,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
       name: 'Lock in Luster free for life',
     })).toBeVisible();
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Claim my free lifetime plan' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Publish my website & open dashboard' })).toHaveLength(1);
     expect(screen.getByText('100 free texts included')).toBeVisible();
     expect(screen.getByText(/Additional texts are available as optional one-time purchases/)).toBeVisible();
     expect(screen.queryByRole('button', { name: /pay|checkout|purchase/iu }))
@@ -905,6 +909,37 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(mocks.savePlan).not.toHaveBeenCalled();
   });
 
+  it('keeps the saved site and retry key when publishing fails, then retries publication', async () => {
+    const user = userEvent.setup();
+    const navigationErrors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    onTestFinished(() => navigationErrors.mockRestore());
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    mocks.savePlan.mockResolvedValue({ intent: 'founding_interest', siteId: savedSite.siteId });
+    mocks.publish.mockRejectedValueOnce(new Error('Your website could not be published. Your saved setup is safe. Please try again.'));
+    const flow = { ...createOnboardingIntegrationFlow(), phase: 'plans' as const, savedSite, savedSiteOwnerId: 'user-owner' };
+    saveOnboardingIntegrationFlow(flow);
+    const originalToken = loadOnboardingState().state.anonymousDraftId;
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Publish my website & open dashboard' }));
+
+    expect(await screen.findByText('Your website could not be published. Your saved setup is safe. Please try again.')).toBeVisible();
+    expect(loadOnboardingState().state.anonymousDraftId).toBe(originalToken);
+    expect(loadOnboardingIntegrationFlow().savedSite?.siteId).toBe(savedSite.siteId);
+    expect(navigationErrors).not.toHaveBeenCalled();
+
+    const retryKey = loadOnboardingIntegrationFlow().planIdempotencyKey;
+
+    await user.click(screen.getByRole('button', { name: 'Publish my website & open dashboard' }));
+    await waitFor(() => expect(loadOnboardingState().state.anonymousDraftId).not.toBe(originalToken));
+
+    expect(mocks.publish.mock.calls).toEqual([[savedSite.salonSlug], [savedSite.salonSlug]]);
+    expect(mocks.savePlan.mock.calls.map(([request]) => request.idempotencyKey)).toEqual([retryKey, retryKey]);
+    expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
   it('retains the same saved site and plan retry key when dashboard navigation is interrupted', async () => {
     const user = userEvent.setup();
     const navigationErrors = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -926,7 +961,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     // jsdom deliberately does not complete location.assign, modeling an
     // interrupted handoff after the plan API has accepted this exact site.
-    await user.click(await screen.findByRole('button', { name: 'Claim my free lifetime plan' }));
+    await user.click(await screen.findByRole('button', { name: 'Publish my website & open dashboard' }));
     await waitFor(() => expect(loadOnboardingState().state.anonymousDraftId).not.toBe(originalToken));
     const rotatedToken = loadOnboardingState().state.anonymousDraftId;
 
@@ -941,10 +976,11 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     view.unmount();
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
-    await user.click(await screen.findByRole('button', { name: 'Claim my free lifetime plan' }));
+    await user.click(await screen.findByRole('button', { name: 'Publish my website & open dashboard' }));
 
     expect(mocks.status).toHaveBeenCalledWith(rotatedToken, expect.objectContaining({ savedSiteId: savedSite.siteId }));
     expect(mocks.savePlan).toHaveBeenCalledTimes(2);
+    expect(mocks.publish.mock.calls).toEqual([[savedSite.salonSlug], [savedSite.salonSlug]]);
     expect(mocks.savePlan).toHaveBeenNthCalledWith(1, {
       idempotencyKey: flow.planIdempotencyKey,
       intent: 'founding_interest',

@@ -24,6 +24,7 @@ import {
 } from '@/libs/bookingPageContent';
 import { type DatabaseSessionHandle, db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
+import { enqueueOwnerSignupNotification } from '@/libs/ownerSignupNotification';
 import { seedStarterMenuForSalon } from '@/libs/starterMenu';
 import { isReservedSalonSlug, isValidSalonSlug, normalizeSalonSlug } from '@/libs/tenantSlug';
 import {
@@ -1992,6 +1993,16 @@ async function claimOnboardingDraftUnlocked(
         verifiedEmail: identity.verifiedEmail ?? identity.email,
         verifiedPhone: identity.phoneE164,
       });
+      if (existingMemberships.length === 0) {
+        await enqueueOwnerSignupNotification(tx, {
+          clerkUserId: identity.clerkUserId,
+          salonId,
+          salonSlug,
+          salonName: input.snapshot.profile.businessName,
+          ownerName: identity.name ?? input.snapshot.profile.ownerName,
+          ownerEmail: identity.verifiedEmail ?? identity.email,
+        });
+      }
     }
 
     if (!preserveExistingProductData) {
