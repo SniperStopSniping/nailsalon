@@ -20,12 +20,23 @@ describe('public sentry runtime config', () => {
       dsn: 'https://dsn.ingest.sentry.io/123',
       release: 'release-123',
       environment: 'production',
-      tracesSampleRate: 1,
+      tracesSampleRate: 0.1,
+      sampleRate: 1,
       debug: false,
       beforeSend: scrubSentryEvent,
       beforeSendTransaction: scrubSentryEvent,
       beforeSendSpan: scrubSentrySpan,
     });
+  });
+
+  it.each(['0', '0.05', '0.1', '1', '1.0'])('accepts explicit trace sampling %s without sampling errors', (rate) => {
+    expect(getPublicSentryRuntimeConfig({ NEXT_PUBLIC_SENTRY_DSN: 'https://example.invalid/1', NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: rate }))
+      .toMatchObject({ tracesSampleRate: Number(rate), sampleRate: 1 });
+  });
+
+  it.each(['', ' ', '-1', '1.1', 'NaN', 'Infinity', '0x1', '1e-1'])('uses bounded trace defaults for invalid input %s', (rate) => {
+    expect(getPublicSentryRuntimeConfig({ NEXT_PUBLIC_SENTRY_DSN: 'https://example.invalid/1', NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: rate }))
+      .toMatchObject({ tracesSampleRate: 0.1, sampleRate: 1 });
   });
 
   it('ignores non-public values and only depends on public runtime env', () => {
@@ -141,7 +152,7 @@ describe('trace privacy', () => {
 
     const config = getPublicSentryRuntimeConfig({ NEXT_PUBLIC_SENTRY_DSN: 'https://dsn.ingest.sentry.io/123' });
 
-    expect(config).toMatchObject({ enabled: true, tracesSampleRate: 1, beforeSendTransaction: scrubSentryEvent, beforeSendSpan: scrubSentrySpan });
+    expect(config).toMatchObject({ enabled: true, tracesSampleRate: 0.1, sampleRate: 1, beforeSendTransaction: scrubSentryEvent, beforeSendSpan: scrubSentrySpan });
   });
 });
 

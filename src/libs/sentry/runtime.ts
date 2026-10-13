@@ -2,6 +2,7 @@ export type PublicSentryRuntimeEnv = {
   NEXT_PUBLIC_SENTRY_DSN?: string;
   NEXT_PUBLIC_SENTRY_RELEASE?: string;
   NEXT_PUBLIC_SENTRY_ENVIRONMENT?: string;
+  NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE?: string;
 };
 
 type PublicSentryRuntimeEnvSource = PublicSentryRuntimeEnv | Record<string, string | undefined>;
@@ -37,6 +38,7 @@ export type SentryRuntimeConfig =
     release?: string;
     environment?: string;
     tracesSampleRate: number;
+    sampleRate: number;
     debug: boolean;
     beforeSend: <T extends ScrubbableSentryEvent>(event: T) => T;
     beforeSendTransaction: <T extends ScrubbableSentryEvent>(event: T) => T;
@@ -121,6 +123,15 @@ function clean(value: string | undefined): string | undefined {
   return trimmed || undefined;
 }
 
+/** Performance telemetry is sampled independently from error reporting. */
+function traceSampleRate(value: string | undefined): number {
+  const configured = clean(value);
+  if (!configured || !/^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(configured)) {
+    return 0.1;
+  }
+  return Number(configured);
+}
+
 export function getPublicSentryRuntimeConfig(env: PublicSentryRuntimeEnvSource = process.env): SentryRuntimeConfig {
   const dsn = clean(env.NEXT_PUBLIC_SENTRY_DSN);
 
@@ -135,7 +146,9 @@ export function getPublicSentryRuntimeConfig(env: PublicSentryRuntimeEnvSource =
     dsn,
     release: clean(env.NEXT_PUBLIC_SENTRY_RELEASE),
     environment: clean(env.NEXT_PUBLIC_SENTRY_ENVIRONMENT),
-    tracesSampleRate: 1,
+    tracesSampleRate: traceSampleRate(env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE),
+    // Never sample away booking, authentication, payment or delivery errors.
+    sampleRate: 1,
     debug: false,
     beforeSend: scrubSentryEvent,
     beforeSendTransaction: scrubSentryEvent,

@@ -61,14 +61,17 @@ async function compileClientEntry() {
 
 describe('compiled browser Sentry startup', () => {
   it.each([
-    ['configured', ' https://public@example.invalid/123 ', 'release-client-test', 'preview', true],
-    ['DSN only', 'https://public@example.invalid/123', undefined, undefined, true],
-    ['unconfigured', undefined, 'release-client-test', 'preview', false],
-    ['blank DSN', '  ', 'release-client-test', 'preview', false],
-  ])('handles %s with an empty browser process environment', async (_name, dsn, release, environment, enabled) => {
+    ['configured', ' https://public@example.invalid/123 ', 'release-client-test', 'preview', true, undefined],
+    ['DSN only', 'https://public@example.invalid/123', undefined, undefined, true, undefined],
+    ['unconfigured', undefined, 'release-client-test', 'preview', false, undefined],
+    ['blank DSN', '  ', 'release-client-test', 'preview', false, undefined],
+    ['trace override', 'https://public@example.invalid/123', 'release-client-test', 'production', true, '0.25'],
+    ['invalid trace override', 'https://public@example.invalid/123', 'release-client-test', 'production', true, '1.5'],
+  ])('handles %s with an empty browser process environment', async (_name, dsn, release, environment, enabled, traceRate) => {
     vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', dsn);
     vi.stubEnv('NEXT_PUBLIC_SENTRY_RELEASE', release);
     vi.stubEnv('NEXT_PUBLIC_SENTRY_ENVIRONMENT', environment);
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE', traceRate);
     vi.stubEnv('SENTRY_AUTH_TOKEN', 'synthetic-private-build-token');
 
     const code = await compileClientEntry();
@@ -101,7 +104,8 @@ describe('compiled browser Sentry startup', () => {
       dsn: dsn.trim(),
       release,
       environment,
-      tracesSampleRate: 1,
+      tracesSampleRate: traceRate === '0.25' ? 0.25 : 0.1,
+      sampleRate: 1,
       debug: false,
       replaysOnErrorSampleRate: 1,
       replaysSessionSampleRate: 0.1,
