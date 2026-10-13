@@ -18,7 +18,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -98,6 +98,7 @@ function accessFor(status: string) {
   return {
     ok: true,
     actorRole: 'admin',
+    admin: { id: 'owner_patch_guard', name: 'Guard Owner' },
     salon: { id: SALON_ID, slug: 'patch-guard-salon', name: 'Patch Guard' },
     appointment: {
       id: APPT_ID,
@@ -122,7 +123,10 @@ function patchRequest(body: Record<string, unknown>) {
   return new Request(`http://localhost/api/appointments/${APPT_ID}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      ...body,
+      ...(body.status === 'no_show' ? { noShowReport: { reason: 'did_not_attend' } } : {}),
+    }),
   });
 }
 
@@ -191,9 +195,17 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  // Exercise the post-appointment deposit/reward guards with a valid report.
+  // Date-only faking leaves PGlite and asynchronous work on real timers.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(END.getTime() + 30 * 60_000));
   await db.delete(schema.appointmentDepositSchema);
   await db.delete(schema.rewardSchema);
   await db.delete(schema.appointmentSchema);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 afterAll(async () => {
@@ -283,7 +295,7 @@ describe('§5.8 — PATCH /api/appointments/:id refuses holds', () => {
       params: Promise.resolve({ id: APPT_ID }),
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
     expect((await readBack()).appointment).toMatchObject({
       status: 'no_show',
       cancelReason: 'no_show',

@@ -821,7 +821,7 @@ describe('ClientsModal', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
 
-    expect(await screen.findByTestId('booking-risk-warning')).toHaveTextContent('1 recorded no-show');
+    expect(await screen.findByTestId('booking-risk-warning')).toHaveTextContent('1 eligible no-show report');
 
     fireEvent.click(screen.getByRole('button', { name: 'Clients' }));
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
