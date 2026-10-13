@@ -1,3 +1,10 @@
+## [1.142.46](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.45...v1.142.46) (2026-10-13)
+
+
+### Bug Fixes
+
+* **monitoring:** await bounded cron check-in delivery ([#445](https://github.com/SniperStopSniping/nailsalon/issues/445)) ([8542c86](https://github.com/SniperStopSniping/nailsalon/commit/8542c86bc82a4d14a5f7097cd7f18d290d8c0660))
+
 ## [1.142.45](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.44...v1.142.45) (2026-10-12)
 
 
