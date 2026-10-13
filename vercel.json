@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/voice/maintenance",
-      "schedule": "*/1 * * * *"
+      "schedule": "11 4 * * *"
     },
     {
       "path": "/api/reminders/process",
