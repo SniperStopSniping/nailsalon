@@ -164,75 +164,77 @@ export function OnboardingShell({
 
   return (
     <div ref={shellRef} className="onboarding-shell" data-keyboard-open={keyboardOpen} data-onboarding-stage={currentStage}>
-      <header className="onboarding-shell__header">
-        <a aria-label="Luster onboarding" className="onboarding-shell__brand" href={`#${contentId}`}>
-          <OnboardingBrandMark />
-          <strong>Luster</strong>
-        </a>
-        <p aria-live="polite" className="onboarding-shell__current-stage">
-          <span className="visually-hidden">Current stage: </span>
-          {getRailStepLabel(currentStage, currentScreen)}
-        </p>
-        <AutosaveStatus state={autosaveState} />
-        {hasMoreActions
-          ? (
-              <details
-                ref={moreRef}
-                className="onboarding-shell__more"
-                open={moreOpen}
-                onToggle={event => setMoreOpen(event.currentTarget.open)}
-              >
-                <summary
-                  ref={moreTriggerRef}
-                  aria-controls={moreMenuId}
-                  aria-expanded={moreOpen}
-                  aria-haspopup="menu"
-                  aria-label="More onboarding options"
-                  id={moreTriggerId}
-                  onKeyDown={handleMoreKeyDown}
-                  role="button"
-                  tabIndex={0}
+      <div className="onboarding-shell__chrome">
+        <header className="onboarding-shell__header">
+          <a aria-label="Luster onboarding" className="onboarding-shell__brand" href={`#${contentId}`}>
+            <OnboardingBrandMark />
+            <strong>Luster</strong>
+          </a>
+          <p aria-live="polite" className="onboarding-shell__current-stage">
+            <span className="visually-hidden">Current stage: </span>
+            {getRailStepLabel(currentStage, currentScreen)}
+          </p>
+          <AutosaveStatus state={autosaveState} />
+          {hasMoreActions
+            ? (
+                <details
+                  ref={moreRef}
+                  className="onboarding-shell__more"
+                  open={moreOpen}
+                  onToggle={event => setMoreOpen(event.currentTarget.open)}
                 >
-                  More
-                </summary>
-                <div
-                  ref={moreMenuRef}
-                  aria-labelledby={moreTriggerId}
-                  className="onboarding-shell__more-menu"
-                  id={moreMenuId}
-                  onKeyDown={handleMenuKeyDown}
-                  role="menu"
-                  tabIndex={-1}
-                >
-                  {onSaveForLater
-                    ? (
-                        <button role="menuitem" tabIndex={0} type="button" onClick={() => runMoreAction(onSaveForLater)}>
-                          Save and finish later
-                        </button>
-                      )
-                    : null}
-                  {onRestart
-                    ? (
-                        <button role="menuitem" tabIndex={onSaveForLater ? -1 : 0} type="button" onClick={() => runMoreAction(onRestart)}>
-                          Start over
-                        </button>
-                      )
-                    : null}
-                  {onLabOptions
-                    ? (
-                        <button role="menuitem" tabIndex={onSaveForLater || onRestart ? -1 : 0} type="button" onClick={() => runMoreAction(onLabOptions)}>
-                          Lab review options
-                        </button>
-                      )
-                    : null}
-                </div>
-              </details>
-            )
-          : null}
-      </header>
-      <div className="onboarding-shell__progress">
-        <OnboardingStageProgress completedStages={completedStages} currentScreen={currentScreen} currentStage={currentStage} />
-        <EssentialsCounter remaining={essentialsRemaining} />
+                  <summary
+                    ref={moreTriggerRef}
+                    aria-controls={moreMenuId}
+                    aria-expanded={moreOpen}
+                    aria-haspopup="menu"
+                    aria-label="More onboarding options"
+                    id={moreTriggerId}
+                    onKeyDown={handleMoreKeyDown}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    More
+                  </summary>
+                  <div
+                    ref={moreMenuRef}
+                    aria-labelledby={moreTriggerId}
+                    className="onboarding-shell__more-menu"
+                    id={moreMenuId}
+                    onKeyDown={handleMenuKeyDown}
+                    role="menu"
+                    tabIndex={-1}
+                  >
+                    {onSaveForLater
+                      ? (
+                          <button role="menuitem" tabIndex={0} type="button" onClick={() => runMoreAction(onSaveForLater)}>
+                            Save and finish later
+                          </button>
+                        )
+                      : null}
+                    {onRestart
+                      ? (
+                          <button role="menuitem" tabIndex={onSaveForLater ? -1 : 0} type="button" onClick={() => runMoreAction(onRestart)}>
+                            Start over
+                          </button>
+                        )
+                      : null}
+                    {onLabOptions
+                      ? (
+                          <button role="menuitem" tabIndex={onSaveForLater || onRestart ? -1 : 0} type="button" onClick={() => runMoreAction(onLabOptions)}>
+                            Lab review options
+                          </button>
+                        )
+                      : null}
+                  </div>
+                </details>
+              )
+            : null}
+        </header>
+        <div className="onboarding-shell__progress">
+          <OnboardingStageProgress completedStages={completedStages} currentScreen={currentScreen} currentStage={currentStage} />
+          <EssentialsCounter remaining={essentialsRemaining} />
+        </div>
       </div>
       <main className="onboarding-shell__content" id={contentId} tabIndex={-1}>
         {children}
