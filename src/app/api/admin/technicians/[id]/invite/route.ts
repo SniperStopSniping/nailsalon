@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 // Staff profiles and scheduling remain owner-managed. Do not send links to
 // retired staff authentication, including requests from older owner screens.
-export async function POST(request: Request, _props?: { params: Promise<{ id: string }> }): Promise<Response> {
+export async function POST(request: Request, _props: { params: Promise<{ id: string }> }): Promise<Response> {
   const parsed = z.object({ salonSlug: z.string().min(1) }).safeParse(
     await request.json().catch(() => null),
   );

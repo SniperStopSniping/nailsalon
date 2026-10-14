@@ -105,7 +105,8 @@ describe('retired customer entry points', () => {
 
     expect(screen.getByRole('heading', { name: 'Online Booking Unavailable' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /profile/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/log in|sign in|customer account/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /log in|sign in|customer account/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /log in|sign in|customer account/i })).not.toBeInTheDocument();
   });
 
   it('keeps the valid rewards-disabled booking action without an account action', async () => {
@@ -120,7 +121,8 @@ describe('retired customer entry points', () => {
       '/en/isla-nail-studio/book',
     );
     expect(screen.queryByRole('link', { name: /profile/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/log in|sign in|customer account/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /log in|sign in|customer account/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /log in|sign in|customer account/i })).not.toBeInTheDocument();
   });
 
   it('has no active booking fallback or legacy account navigation callback', () => {

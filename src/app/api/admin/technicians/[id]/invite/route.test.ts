@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { POST } from './route';
 
+const context = { params: Promise.resolve({ id: 'synthetic-id' }) };
+
 const { requireAdminSalon, sendStaffInvite } = vi.hoisted(() => ({ requireAdminSalon: vi.fn(), sendStaffInvite: vi.fn() }));
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon }));
 vi.mock('@/libs/SMS', () => ({ sendStaffInvite }));
@@ -13,7 +15,7 @@ describe('unavailable staff invitations', () => {
 
   it('rejects an older owner screen without sending a login link', async () => {
     requireAdminSalon.mockResolvedValue({ salon: { id: 'synthetic-salon-id' }, error: null });
-    const response = await POST(request());
+    const response = await POST(request(), context);
 
     expect(response.status).toBe(410);
     expect(await response.json()).toMatchObject({ error: { code: 'STAFF_ACCESS_UNAVAILABLE' } });
@@ -24,7 +26,7 @@ describe('unavailable staff invitations', () => {
     const denial = Response.json({}, { status });
     requireAdminSalon.mockResolvedValue({ salon: null, error: denial });
 
-    expect(await POST(request())).toBe(denial);
+    expect(await POST(request(), context)).toBe(denial);
     expect(sendStaffInvite).not.toHaveBeenCalled();
   });
 });

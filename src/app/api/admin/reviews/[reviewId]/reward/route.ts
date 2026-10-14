@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 // Keep a guarded tombstone for older clients. Historical rewards and their
 // checkout/financial references remain readable; this route can never grant one.
-export async function POST(request: Request, _props?: { params: Promise<{ reviewId: string }> }): Promise<Response> {
+export async function POST(request: Request, _props: { params: Promise<{ reviewId: string }> }): Promise<Response> {
   const parsed = z.object({ salonSlug: z.string().min(1) }).safeParse(
     await request.json().catch(() => null),
   );
