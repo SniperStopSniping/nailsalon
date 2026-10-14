@@ -1,3 +1,11 @@
+## [1.142.50](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.49...v1.142.50) (2026-10-14)
+
+
+### Bug Fixes
+
+* **onboarding:** keep mobile header and progress stable while scrolling ([#453](https://github.com/SniperStopSniping/nailsalon/issues/453)) ([f5be554](https://github.com/SniperStopSniping/nailsalon/commit/f5be5549551842b08a0c04c76d845807f1b0613b))
+* **onboarding:** prevent saved setups from moving the top bars ([#454](https://github.com/SniperStopSniping/nailsalon/issues/454)) ([650ffa9](https://github.com/SniperStopSniping/nailsalon/commit/650ffa917ba9844c4c29db665e721d0d6f755542))
+
 ## [1.142.49](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.48...v1.142.49) (2026-10-14)
 
 
