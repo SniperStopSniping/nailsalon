@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const labels = ['Before Photo to Start', 'After Photo to Finish', 'After Photo to Pay', 'Enable Auto-Post', 'AI Caption'];
+const labels = ['Before Photo to Start', 'After Photo to Finish', 'After Photo to Pay', 'Enable Auto-Post'];
 
 for (const width of [320, 390, 1280]) {
   test(`visible labels focus the correct controls at ${width}px`, async ({ page }) => {
@@ -16,6 +16,7 @@ for (const width of [320, 390, 1280]) {
       await expect(select).toBeFocused();
     }
 
+    await expect(page.getByRole('combobox', { name: 'AI Caption', exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 }
