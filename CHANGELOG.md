@@ -1,3 +1,10 @@
+## [1.142.48](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.47...v1.142.48) (2026-10-14)
+
+
+### Bug Fixes
+
+* **monitoring:** bound performance tracing without sampling errors ([#450](https://github.com/SniperStopSniping/nailsalon/issues/450)) ([73d1b9b](https://github.com/SniperStopSniping/nailsalon/commit/73d1b9b8daceb10c8c71f35e7eaad5760e515130))
+
 ## [1.142.47](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.46...v1.142.47) (2026-10-13)
 
 
