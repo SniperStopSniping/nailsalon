@@ -1346,7 +1346,7 @@ function OnboardingIntegrationController({
           forceReview={forceReview}
           integration={{
             checkSiteSlugAvailability,
-            renderSetupRecovery: saveBeforeSwitch => <DeviceSetupRecovery previous beforeSwitch={saveBeforeSwitch} onSwitch={onSwitchSetup} />,
+            renderSetupRecovery: (saveBeforeSwitch, onMenuAction) => <DeviceSetupRecovery previous beforeSwitch={saveBeforeSwitch} onMenuAction={onMenuAction} onSwitch={onSwitchSetup} />,
             hasSavedSite: savedSiteVerified,
             onSaveSite: startSave,
             onStartOver: () => {

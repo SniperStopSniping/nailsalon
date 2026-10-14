@@ -30,7 +30,6 @@
   min-width: 0;
   min-height: 100vh;
   min-height: 100dvh;
-  overflow-x: clip;
   color: var(--onboarding-ink);
   background:
     radial-gradient(
@@ -119,7 +118,6 @@
   min-width: 0;
   min-height: 100vh;
   min-height: 100dvh;
-  overflow-x: clip;
 }
 
 body.onboarding-modal-open,
@@ -402,7 +400,6 @@ body.onboarding-modal-open {
   min-height: 100vh;
   min-height: 100dvh;
   flex-direction: column;
-  overflow-x: clip;
   color: var(--onboarding-ink);
   background: transparent;
 }
@@ -805,9 +802,11 @@ body.onboarding-modal-open {
   min-width: 0;
 }
 
-/* Native scrollIntoView does not understand sticky app chrome on its own. */
+/* Keep app bars out of ancestor clipping layers during iOS scrolling.
+   Native scrollIntoView also needs space for the persistent app chrome. */
 html:has(.onboarding-app),
 body:has(.onboarding-app) {
+  overflow-x: visible;
   scroll-padding-top: 132px;
   scroll-padding-bottom: calc(124px + env(safe-area-inset-bottom));
 }

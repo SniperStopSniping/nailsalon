@@ -30,6 +30,7 @@ type OnboardingShellProps = {
   onLabOptions?: () => void;
   onRestart?: () => void;
   onSaveForLater?: () => void;
+  renderMoreActions?: (runAction: (action: () => void) => void) => ReactNode;
   routeKey?: string;
 };
 
@@ -44,6 +45,7 @@ export function OnboardingShell({
   onLabOptions,
   onRestart,
   onSaveForLater,
+  renderMoreActions,
   routeKey,
 }: OnboardingShellProps) {
   const shellRef = useRef<HTMLDivElement>(null);
@@ -51,7 +53,7 @@ export function OnboardingShell({
   const contentId = useId();
   const moreMenuId = useId();
   const moreTriggerId = useId();
-  const hasMoreActions = Boolean(onSaveForLater || onRestart || onLabOptions);
+  const hasMoreActions = Boolean(onSaveForLater || onRestart || onLabOptions || renderMoreActions);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDetailsElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -226,6 +228,7 @@ export function OnboardingShell({
                           </button>
                         )
                       : null}
+                    {renderMoreActions?.(runMoreAction)}
                   </div>
                 </details>
               )

@@ -143,7 +143,7 @@ type OnboardingAppProps = {
     hasSavedSite?: boolean;
     onSaveSite: (payload: OnboardingSavePayload) => void;
     onStartOver?: () => void;
-    renderSetupRecovery?: (saveBeforeSwitch: () => boolean) => ReactNode;
+    renderSetupRecovery?: (saveBeforeSwitch: () => boolean, onMenuAction?: (action: () => void) => void) => ReactNode;
   };
   onEnterBuilder?: () => void;
   onEnterDashboard?: () => void;
@@ -1693,25 +1693,26 @@ export function OnboardingApp({
     ? STARTER_LABELS[pendingStarter]
     : 'the new starting point';
 
+  const saveBeforeSwitch = () => {
+    if (isOnboardingResetBlocked(lab.transactionPending, profileMediaOperationsRef.current)) {
+      return false;
+    }
+    if (!onboarding.saveNow().success) {
+      return false;
+    }
+    try {
+      if (lab.document) {
+        window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, exportSiteBuilderDocument(lab.document));
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   return (
     <div className={`onboarding-app${reducedMotionClass}${smallPhoneClass}`} data-onboarding-screen={screen}>
       <div className="onboarding-app__surface" ref={surfaceRef}>
-        {integration?.renderSetupRecovery?.(() => {
-          if (isOnboardingResetBlocked(lab.transactionPending, profileMediaOperationsRef.current)) {
-            return false;
-          }
-          if (!onboarding.saveNow().success) {
-            return false;
-          }
-          try {
-            if (lab.document) {
-              window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, exportSiteBuilderDocument(lab.document));
-            }
-            return true;
-          } catch {
-            return false;
-          }
-        })}
         {error || onboarding.storageIssue || lab.loadIssues.length > 0
           ? (
               <div className="onboarding-error-banner" role="alert">
@@ -1721,7 +1722,12 @@ export function OnboardingApp({
             )
           : null}
         {screen === 'starter'
-          ? content
+          ? (
+              <>
+                {content}
+                {integration?.renderSetupRecovery?.(saveBeforeSwitch)}
+              </>
+            )
           : (
               <OnboardingShell
                 autosaveState={onboarding.saveStatus}
@@ -1737,6 +1743,7 @@ export function OnboardingApp({
                     setError(result.message);
                   }
                 }}
+                renderMoreActions={onMenuAction => integration?.renderSetupRecovery?.(saveBeforeSwitch, onMenuAction)}
                 routeKey={screen}
               >
                 <DeferredSetupContent key={screen}>{content}</DeferredSetupContent>

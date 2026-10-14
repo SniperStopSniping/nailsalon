@@ -1,18 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DialogShell } from '@/components/ui/dialog-shell';
 
 import { loadDeviceSetups, switchDeviceSetup } from './device-setups';
 
-export function DeviceSetupRecovery({ beforeSwitch, email, onSwitch, previous = false }: {
+export function DeviceSetupRecovery({ beforeSwitch, email, onMenuAction, onSwitch, previous = false }: {
   beforeSwitch?: () => boolean;
   email?: string;
+  onMenuAction?: (action: () => void) => void;
   onSwitch: () => void;
   previous?: boolean;
 }) {
   const [choice, setChoice] = useState<{ restoreId?: string } | null>(null);
+  const [previousOpen, setPreviousOpen] = useState(false);
+  const titleId = useId();
   const [error, setError] = useState<string | null>(null);
   const [kept] = useState(() => {
     try {
@@ -42,25 +46,45 @@ export function DeviceSetupRecovery({ beforeSwitch, email, onSwitch, previous = 
     }
   };
   return (
-    <div className={previous ? 'onboarding-kept-setups owner-theme-scope' : undefined}>
+    <div className={previous && !onMenuAction ? 'onboarding-kept-setups owner-theme-scope' : undefined} role={onMenuAction ? 'none' : undefined}>
       {previous
         ? (
-            <details>
-              <summary>{`Previous setups on this device (${kept.length})`}</summary>
-              <p>Opening a previous setup also keeps your current one. Saved websites still require their original account.</p>
-              {kept.map((setup, index) => (
-                <button className="onboarding-integration-secondary" key={setup.id} type="button" onClick={() => setChoice({ restoreId: setup.id })}>
-                  {`Open setup ${index + 1} · ${new Date(setup.keptAt).toLocaleDateString()}`}
-                </button>
-              ))}
-            </details>
+            <button
+              className={onMenuAction ? undefined : 'onboarding-integration-secondary'}
+              role={onMenuAction ? 'menuitem' : undefined}
+              tabIndex={onMenuAction ? -1 : undefined}
+              type="button"
+              onClick={() => {
+                const open = () => setPreviousOpen(true);
+                if (onMenuAction) {
+                  onMenuAction(open);
+                } else {
+                  open();
+                }
+              }}
+            >
+              {`Previous setups on this device (${kept.length})`}
+            </button>
           )
         : (
             <button className="onboarding-integration-secondary" type="button" onClick={() => setChoice({})}>
               Build a separate website
             </button>
           )}
-      {error && <p role="alert">{error}</p>}
+      {error && !previousOpen && <p role="alert">{error}</p>}
+      <DialogShell isOpen={previousOpen && !choice} onClose={() => setPreviousOpen(false)}>
+        <div aria-labelledby={titleId} aria-modal="true" className="onboarding-kept-setups-dialog" role="dialog">
+          <h2 id={titleId}>Previous setups on this device</h2>
+          <p>Opening a previous setup also keeps your current one. Saved websites still require their original account.</p>
+          {kept.map((setup, index) => (
+            <button className="onboarding-integration-secondary" key={setup.id} type="button" onClick={() => setChoice({ restoreId: setup.id })}>
+              {`Open setup ${index + 1} · ${new Date(setup.keptAt).toLocaleDateString()}`}
+            </button>
+          ))}
+          {error && <p role="alert">{error}</p>}
+          <button className="onboarding-integration-secondary" type="button" onClick={() => setPreviousOpen(false)}>Close previous setups</button>
+        </div>
+      </DialogShell>
       <ConfirmDialog
         cancelLabel="Go back"
         confirmLabel={choice?.restoreId ? 'Open previous setup' : 'Start a new website'}
