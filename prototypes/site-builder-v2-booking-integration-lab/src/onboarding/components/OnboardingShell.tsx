@@ -30,6 +30,7 @@ type OnboardingShellProps = {
   onLabOptions?: () => void;
   onRestart?: () => void;
   onSaveForLater?: () => void;
+  renderMoreActions?: (runAction: (action: () => void) => void) => ReactNode;
   routeKey?: string;
 };
 
@@ -44,6 +45,7 @@ export function OnboardingShell({
   onLabOptions,
   onRestart,
   onSaveForLater,
+  renderMoreActions,
   routeKey,
 }: OnboardingShellProps) {
   const shellRef = useRef<HTMLDivElement>(null);
@@ -51,7 +53,7 @@ export function OnboardingShell({
   const contentId = useId();
   const moreMenuId = useId();
   const moreTriggerId = useId();
-  const hasMoreActions = Boolean(onSaveForLater || onRestart || onLabOptions);
+  const hasMoreActions = Boolean(onSaveForLater || onRestart || onLabOptions || renderMoreActions);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDetailsElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -61,7 +63,7 @@ export function OnboardingShell({
   const closeMore = useCallback((restoreFocus = false) => {
     setMoreOpen(false);
     if (restoreFocus) {
-      window.requestAnimationFrame(() => moreTriggerRef.current?.focus());
+      window.requestAnimationFrame(() => moreTriggerRef.current?.focus({ preventScroll: true }));
     }
   }, []);
 
@@ -83,7 +85,7 @@ export function OnboardingShell({
       menuItems?.forEach((item) => {
         item.tabIndex = item === target ? 0 : -1;
       });
-      target?.focus();
+      target?.focus({ preventScroll: true });
     });
     const handlePointerDown = (event: PointerEvent) => {
       if (!moreRef.current?.contains(event.target as Node)) {
@@ -159,7 +161,7 @@ export function OnboardingShell({
     menuItems.forEach((item, index) => {
       item.tabIndex = index === nextIndex ? 0 : -1;
     });
-    menuItems[nextIndex]?.focus();
+    menuItems[nextIndex]?.focus({ preventScroll: true });
   }, [closeMore]);
 
   return (
@@ -226,6 +228,7 @@ export function OnboardingShell({
                           </button>
                         )
                       : null}
+                    {renderMoreActions?.(runMoreAction)}
                   </div>
                 </details>
               )

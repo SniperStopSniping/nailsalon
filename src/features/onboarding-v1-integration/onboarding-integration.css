@@ -799,17 +799,18 @@
   font-size: 14px;
 }
 
-.onboarding-kept-setups summary {
-  cursor: pointer;
-  min-height: 44px;
-  padding: 12px 0;
+.onboarding-kept-setups-dialog h2 {
+  margin: 0;
+  font-size: 20px;
 }
 
-.onboarding-kept-setups p {
+.onboarding-kept-setups-dialog p {
   line-height: 1.6;
 }
 
-.onboarding-kept-setups button {
+.onboarding-kept-setups > button,
+.onboarding-kept-setups-dialog button {
+  min-height: 44px;
   margin: 8px 0;
   width: 100%;
 }
