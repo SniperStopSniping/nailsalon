@@ -1,6 +1,6 @@
 # Luster feature cleanup
 
-Status: implemented locally; final verification and delivery recorded below. Based on the October 13, 2026 product audit; current source is inspected independently of that snapshot.
+Status: implemented on PR #451; pre-merge reconciliation is recorded below. Merge and deployment are not authorized. Based on the October 13, 2026 product audit; current source is inspected independently of that snapshot.
 
 ## Scope and implementation plan
 
@@ -8,7 +8,7 @@ Status: implemented locally; final verification and delivery recorded below. Bas
 2. Remove unreachable customer account and membership presentation code, retaining retired route tombstones, customer identity, consent, recovery and financial infrastructure.
 3. Hide unfinished loyalty, referrals, Discover and social-posting controls. Retain photo upload, portfolio metadata and future integration infrastructure with truthful availability states.
 4. Keep owner-managed staff profiles, services, earnings and availability. Remove unavailable staff invitation/authentication and self-service entry points; retain historical time-off records and owner review tools.
-5. Simplify catalog and billing presentation without changing booking rules, entitlements, prices, ledgers or existing subscription contracts.
+5. Simplify catalog and billing presentation; enforce the approved free-core/100-starter-credit policy without changing booking rules, provider prices, historical ledgers or existing subscription contracts.
 6. Run isolated regression and browser checks; document exact results, limitations, remaining legacy code and delivery state.
 
 ## Dependency map established before application edits
@@ -21,14 +21,14 @@ Status: implemented locally; final verification and delivery recorded below. Bas
 | F071/F072 social posting/captions | Marketing shortcut, owner policy page/form, caption placeholder, worker/queue gates | Appointment photos, photo requirements, policy storage, future Meta publisher/queue | Remove ordinary owner controls and fake AI implementation; use explicit worker opt-in |
 | F060/F061 staff workspace/requests | Team and Hours shortcuts, Add Staff invitation, staff Settings access controls, invite API | Technician profiles/contact data, schedules, assignments, commissions, availability, owner time-off decisions/history, existing permission policy | Remove unavailable self-service/access actions; do not reactivate authentication |
 | F010 catalog rules | Services navigation and advanced catalog panels | Canonical rule engine, service/add-on API semantics, required rule enforcement, approvals, technician assignments | Presentation/progressive disclosure only |
-| F065 billing | More navigation, billing hub, usage modal and settings copy | 100-credit eligibility and durable identity, top-up checkout/offers, balances, Stripe, webhook reconciliation/refunds, invoices, financial history, subscription contracts and entitlements | Presentation only; document active-contract migration separately |
+| F065 billing | More navigation, billing hub, usage modal and settings copy | 100-credit eligibility and durable identity, top-up checkout/offers, balances, Stripe, webhook reconciliation/refunds, invoices, financial history, subscription contracts and entitlements | Free core and 100-credit policy, guarded starter grants; active-contract migration remains separate |
 | Protected no-shows | No cleanup edits planned | Shared identity/HMAC, risk counts, corrections, moderation, deposit thresholds and PR #449 | Keep separate branch intact; verify combined compatibility before merge |
 
 ## Concurrent work
 
 - Cleanup starts from `origin/main` at `73d1b9b8daceb10c8c71f35e7eaad5760e515130`, in a clean `codex/product-cleanup` worktree. Original user-owned untracked files are untouched.
 - Open PR #449 (`codex/no-show-reporting`) owns the 24-hour reporting/review workflow. Its worktree and source changes are not overwritten.
-- Open PR #349 (`feat/free-access-sms-topups`) overlaps billing presentation and proposes **50** starter credits. The current instruction and main catalog specify **100**. This cleanup must not import its grant, price, renewal, schema or entitlement changes. Reconcile presentation conflicts and the policy discrepancy before either branch is merged.
+- PR #349 originally specified 50 starter credits. The owner confirmed **100** on October 13. Its reconciliation commit `c6d6decd` now uses 100. PR #451 reuses its central policy and guarded grant/identity locking; no schema, renewal-transition or provider-price changes are imported. Its older presentation still requires careful rebase against current main before merge.
 - No production migrations, records, prices, subscription cancellations, messages or payments are authorized by this cleanup.
 
 ## Before-and-after feature inventory
@@ -67,13 +67,14 @@ The cleanup preserves online/manual/walk-in booking; appointment/calendar manage
 
 Deleted files are verified unmounted presentation and their dedicated tests. Their existing page routes continue to deny entry. The legacy auth/session guards are retained, including disabled customer-session creation. Shared client identity and no-show matching are not account UI and are untouched.
 
-## Billing boundary and decisions still requiring review
+## Billing policy and retained financial boundaries
 
-1. Main's free plan already specifies **100 one-time starter credits**. This cleanup does not grant them, bypass verification, initialize accounts, alter prices, or enable payment/starter readiness flags.
-2. Historical paid plan definitions and monthly allowance processing remain because they describe financial agreements and prepaid coverage. Existing subscription checkout/portal/webhook/reconciliation APIs and their environment gates are retained; hiding plan sales is not cancellation of a contract.
-3. Open PR #349 proposes a broader free-model migration, renewal transitions and **50** starter credits. Do not merge its policy unchanged against this request. Reconcile the intended 100-credit policy, overlapping UI files and any active-contract migration separately.
-4. Any renewal cancellation, active-plan migration, new subscription-sales policy, live Stripe price/provider setup or historical credit backfill requires a separately reviewed rollout. None was performed here.
-5. Founding/lifetime access records remain in the data model; the free-core UI message does not rewrite those records or entitlements.
+1. `COMMERCIAL_POLICY.starterCredits` is **100** in PRs #451 and #349. New verified eligible businesses may receive one non-expiring allowance; canonical grant, plan projection, founding terms and claim UI agree. Readiness and contact-proof gates remain mandatory. No production grant or readiness flag was changed.
+2. The starter account lock precedes identity/claim work, with the existing unique business-identity claim and ledger idempotency fences. A real ten-way race produces one 100-credit lot. Historical 50/100-credit claims remain unchanged and cannot claim again; there is no automatic difference grant.
+3. The operator backfill now refuses new grants when identity readiness or verified contact evidence is missing. Its read-only rehearsal and application use consistent proofs; unverified `salon.owner_email` and non-owner membership emails are not proofs. Identity conflicts fail closed and transaction rollback preserves money/audit consistency.
+4. Core owner access does not depend on historical Stripe subscription status. New subscription checkout and plan/promotion advertising are disabled centrally even if the old environment switch is true. Public pricing remains dark by default and describes free booking and optional SMS when explicitly enabled.
+5. Existing monthly allowance processing, paid-through coverage, invoices, Stripe portal/webhooks, refund/reconciliation and financial catalog identifiers remain. No existing subscription is canceled. One-time top-up checkout keeps its existing provider, payment, entitlement/readiness and environment checks.
+6. Any active-contract migration, renewal cancellation, provider setup, live price change or historical credit backfill requires separately reviewed rollout authorization. None was performed here.
 
 ## Retained legacy code and deliberate limitations
 
@@ -88,7 +89,7 @@ Deleted files are verified unmounted presentation and their dedicated tests. The
 ## Review and release risks
 
 - Review the intentional worker default change before a later release if any operator-managed integration uses an unset global flag. Queue data is preserved; explicit configuration controls processing.
-- Reconcile billing presentation conflicts with PR #349. Its 50-credit policy is inconsistent with the current 100-credit requirement.
+- PR #349 now has the approved 100-credit policy, but its older owner presentation still requires a careful current-main rebase and separate CI/preview verification; do not blindly overwrite newer screens.
 - Keep PR #449 independent. Cleanup does not modify its no-show worktree or reporting implementation; final combined CI is required before either is merged.
 - Older cached clients receive explicit 410 errors for retired reward grants and staff invites. These endpoints do not read customer/technician records or write financial data after authorization.
 - Do not merge or deploy this task automatically. No production data/billing mutation or migration is included.
@@ -133,7 +134,7 @@ Initial failures were expected assertions for retired labels/actions, plus a new
 - Staff invitation retirement covers owner/tenant denial and absence of SMS sends. Staff setting saves omit the historical `userId` field; profile, schedule and service APIs are preserved.
 - Photo uploads still dual-write canonical photo/artifact records and preserve duplicate prevention. Historical enabled social settings cannot queue a post while the global worker is disabled. The worker reports a skipped result and performs no queue/provider work.
 - Credit and legacy agreement tests preserve balances, portal authorization, reconciliation, refunds and paid-through status. No contract transition, live price or grant is tested through production mutation.
-- Core no-show tests include cross-salon counting, tenant isolation, correction and reconciliation. No file changed by open PR #449 overlaps this cleanup as of the recorded review. Its new early-report/review acceptance cases belong to that separate branch.
+- Core no-show tests include cross-salon counting, tenant isolation, correction and reconciliation. The latest PR #449 also updates `ClientsModal.test.tsx`; Git merge-tree with cleanup commit `9f2a1524` merges cleanly. Its early-report/review acceptance cases are verified separately on a synthetic combined tree before merge.
 - Automated components do not establish authenticated hosted-preview readiness or provider delivery. No production migration, merge or deployment is part of this result.
 
 ### Visual evidence
@@ -287,3 +288,15 @@ Type generation/type checking used explicit CI placeholders. These checks do not
 - Open no-show PR #449 has **no changed-file overlap** with this cleanup; its worktree remains untouched.
 - Code, regression manifest, report and four synthetic visual artifacts are prepared for a separate draft pull request.
 - Hosted preview and required remote CI are release gates, not claims of this local verification. No automatic merge or deployment; no production billing/data change.
+
+## Pre-merge follow-up — October 13, 2026
+
+The user confirmed **100** starter credits and requested remote CI, mobile hosted-preview verification and compatibility with PRs #449/#349. No merge or deployment is authorized.
+
+- Fixed Next.js production-build route-context validation for the retired review-reward and staff-invite handlers. Updated stale catalog/navigation tests and the SMS settings browser assertions to verify retired programs are absent while legitimate communication settings still save. Both remote builds and all unit shards passed on `9f2a1524`; the next policy commit requires fresh remote CI.
+- Fresh local billing policy coverage: **184 tests passed across 9 files**, covering pricing, subscription sales disabled, historical subscription state truth, starter claims/backfill, identity safeguards, ledger preservation and UI. PR #349 separately passed **141 focused tests**, **8 plan tests** and **10 real PostgreSQL concurrency tests** after its 100-credit correction.
+- PR #451 real PostgreSQL: **10 credit-engine races passed with zero skips**, **23 subscription refund/customer isolation tests** and **3 top-up checkout races passed**. Founding claim races and combined no-show verification are being completed; do not infer those results from unrelated passing jobs.
+- PR #451 SMS balance/claim/top-up component browsers: **42 passed** on desktop Chromium, mobile Chromium and mobile WebKit, including 320px layout and explicit disabled checkout states. Component fixtures do not establish hosted authentication or payment readiness.
+- Hosted preview remains **blocked**: GitHub has no deployment for this branch SHA, and Vercel has no matching deployment in the latest 100 project deployments. No preview was deployed because the user prohibited automatic deployment. An existing matching preview URL was requested.
+- Historical schemas, migrations, customer records, appointments, existing financial records and provider prices are unchanged. All tests use synthetic fixtures and disposable databases; no actual messages or payments are sent.
+- Merge readiness remains **not established** until required CI on the final SHA and an authenticated, matching hosted preview pass. Live billing and starter rollout configuration require separate evidence and authorization.

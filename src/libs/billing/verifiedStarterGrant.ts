@@ -13,6 +13,8 @@ import type { BillingDbTransaction } from '@/libs/billing/creditLedger';
 import { Env } from '@/libs/Env';
 import { billingStarterGrantSchema } from '@/models/Schema';
 
+import { lockCreditAccount } from './creditLedger';
+
 export type StarterClaimStatus = 'granted' | 'already_claimed' | 'verification_required' | 'identity_setup_required';
 
 /** Only server-verified owner contacts may enter this boundary. Missing proof never blocks salon setup. */
@@ -32,6 +34,8 @@ export async function claimVerifiedStarterCredits(
   if (!isIdentityFingerprintingReady()) {
     return { granted: false, status: 'identity_setup_required' };
   }
+  // Account initialization is independent of whether this business has used its bonus.
+  await lockCreditAccount(tx, input.salonId);
   const identity = await resolveOrCreateBusinessIdentity(tx, input);
   // Existing owners may attach their verified contacts during rollout without
   // receiving another allowance. Only new claims depend on the history gate.

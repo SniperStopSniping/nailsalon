@@ -19,6 +19,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
+const commercialPolicy = vi.hoisted(() => ({ subscriptionsForSale: true }));
+vi.mock('@/libs/commercialPolicy', () => ({ COMMERCIAL_POLICY: commercialPolicy }));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
 vi.mock('@/libs/DB', () => ({
@@ -202,6 +204,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  commercialPolicy.subscriptionsForSale = true;
   envHolder.BILLING_DEPLOYMENT_MARKER = undefined;
   envHolder.BILLING_SUBSCRIPTIONS_ENABLED = 'true';
   envHolder.BILLING_TAX_COLLECTION_ENABLED = undefined;
@@ -241,6 +244,17 @@ const attemptRows = (salonId: string) =>
     .where(eq(schema.billingCheckoutAttemptSchema.salonId, salonId));
 
 describe('dark switch and catalogue gates — reject before any write or provider call', () => {
+  it('refuses new subscriptions under the free-core policy even if a legacy environment flag is enabled', async () => {
+    commercialPolicy.subscriptionsForSale = false;
+    const response = await post({ salonId: 'synthetic-free-policy', billingOfferKey: 'pro_2026_08_monthly' });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: 'BILLING_DISABLED' } });
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(billingCustomerMock.resolveOrCreateBillingCustomer).not.toHaveBeenCalled();
+    expect(await attemptRows('synthetic-free-policy')).toHaveLength(0);
+  });
+
   it('rejects with BILLING_DISABLED while the switch is unset, consuming nothing', async () => {
     envHolder.BILLING_SUBSCRIPTIONS_ENABLED = undefined;
     await seedSalon('s_dark');

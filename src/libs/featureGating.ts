@@ -21,6 +21,7 @@
 
 import { eq } from 'drizzle-orm';
 
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
 import { db } from '@/libs/DB';
 import { FEATURE_DEFAULTS, resolveEntitlement } from '@/libs/featureEntitlements';
 import { salonSchema } from '@/models/Schema';
@@ -526,6 +527,12 @@ export function shouldEnforceBillingLock(salon: {
   stripeSubscriptionStatus?: string | null;
   stripeCurrentPeriodEnd?: number | null;
 }): boolean {
+  // Core booking is free. Subscription status still governs historical SMS
+  // allowance accounting, never owner access. Tenant/platform guards remain.
+  if (COMMERCIAL_POLICY.allFeaturesIncluded) {
+    return false;
+  }
+
   // If not using Stripe billing, never enforce billing locks
   if (!isStripeBillingEnabled(salon.billingMode)) {
     return false;

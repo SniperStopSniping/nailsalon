@@ -1,9 +1,3 @@
-/**
- * Pricing page dark posture — §12. Unset PUBLIIC flag = 404 via notFound();
- * enabled = canonical catalogue only (no Stripe IDs anywhere in the tree),
- * and founding language stays absent while the committed promotion window
- * is null/null (closed).
- */
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,21 +29,16 @@ describe('public pricing page', () => {
     expect(notFoundMock).toHaveBeenCalled();
   });
 
-  it('renders the frozen catalogue with no Stripe IDs and no founding copy (window closed)', async () => {
+  it('describes free core booking and exactly 100 starter credits without subscription offers', async () => {
     envHolder.PUBLIC_PRICING_ENABLED = 'true';
     const { default: PricingPage } = await import('./page');
     const { container } = render(<PricingPage />);
 
-    // Frozen prices, exact (§3.1/§3.2).
-    expect(screen.getByText('$14.99')).toBeInTheDocument();
-    expect(screen.getByText('$24.99')).toBeInTheDocument();
-    expect(screen.getByText('$44.99')).toBeInTheDocument();
-    expect(screen.getByText('$149.90')).toBeInTheDocument();
-    expect(screen.getByText('$249.90')).toBeInTheDocument();
-    expect(screen.getByText('$449.90')).toBeInTheDocument();
-    // The committed promotion window is closed: founding copy absent.
-    expect(screen.queryByText(/founding/i)).not.toBeInTheDocument();
-    // No Stripe identifiers can leak into the public tree.
+    expect(screen.getByRole('heading', { name: 'Optional SMS credits' })).toBeInTheDocument();
+    expect(screen.getByText(/Core booking software is free/)).toBeInTheDocument();
+    expect(screen.getByText(/receive 100 free starter SMS credits once after contact verification/)).toBeInTheDocument();
+    expect(screen.getByText(/one-time purchases/)).toBeInTheDocument();
+    expect(container).not.toHaveTextContent(/50 free|per month|per year|founding offer|two months free/i);
     expect(container.innerHTML).not.toMatch(/price_|coupon_|prod_/);
   });
 });

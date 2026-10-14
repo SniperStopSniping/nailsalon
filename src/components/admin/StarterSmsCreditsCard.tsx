@@ -4,6 +4,8 @@ import { useClerk, useUser } from '@clerk/nextjs';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
+
 type ClaimStatus = 'granted' | 'already_claimed' | 'verification_required' | 'identity_setup_required';
 type StarterCreditsStatus = 'verified' | 'verification_required' | 'unclaimed';
 type Verification = { email: boolean; phone: boolean };
@@ -23,7 +25,7 @@ type StarterSmsCreditsCardProps = {
 };
 
 const STATUS_ENDPOINT = '/api/admin/salon/communications/starter-credits';
-const VERIFIED_MESSAGE = 'Free-text allowance already claimed. Verification does not add another 100 credits.';
+const VERIFIED_MESSAGE = `Free-text allowance already claimed. Verification does not add another ${COMMERCIAL_POLICY.starterCredits} credits.`;
 
 /** The server is the source of truth when the billing panel opens. */
 export function StarterSmsCreditsCard({
@@ -153,7 +155,7 @@ export function StarterSmsCreditsCard({
           return;
         }
         setCompletedMessage(status === 'granted' && body?.data?.granted === true
-          ? '100 free SMS credits have been added.'
+          ? `${COMMERCIAL_POLICY.starterCredits} free SMS credits have been added.`
           : VERIFIED_MESSAGE);
         setStatusState({ kind: 'ready', status: 'verified', canClaim: false });
         return;
@@ -227,7 +229,7 @@ export function StarterSmsCreditsCard({
   return (
     <section aria-labelledby={headingId} className={sectionClassName}>
       <h3 id={headingId} className="text-base font-semibold">
-        {hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify your free-text allowance' : dashboard ? '100 free texts included' : '100 free SMS credits'}
+        {hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify your free-text allowance' : dashboard ? `${COMMERCIAL_POLICY.starterCredits} free texts included` : `${COMMERCIAL_POLICY.starterCredits} free SMS credits`}
       </h3>
       <p className="text-sm leading-relaxed text-[var(--owner-muted)]">
         {hasKnownStarterCredits || statusState.status === 'verification_required'
@@ -242,7 +244,7 @@ export function StarterSmsCreditsCard({
       )}
       {requiresVerification && !inline && !dashboard && <p className="text-sm leading-relaxed text-[var(--owner-muted)]">Verify your primary email and phone in your account, then return here to finish.</p>}
       <button type="button" onClick={requiresVerification ? openVerification : () => void claim()} disabled={claiming} className="owner-action owner-action--primary w-full disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none">
-        {claiming ? 'Verifying…' : dashboard && statusState.status === 'unclaimed' && !hasKnownStarterCredits ? 'Claim 100 free texts' : requiresVerification ? 'Verify email and phone' : hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify free-text allowance' : 'Claim 100 free texts'}
+        {claiming ? 'Verifying…' : dashboard && statusState.status === 'unclaimed' && !hasKnownStarterCredits ? `Claim ${COMMERCIAL_POLICY.starterCredits} free texts` : requiresVerification ? 'Verify email and phone' : hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify free-text allowance' : `Claim ${COMMERCIAL_POLICY.starterCredits} free texts`}
       </button>
       {verificationOpened && requiresVerification && (
         <button type="button" onClick={() => void loadStatus()} className="min-h-11 w-full text-sm font-semibold text-[var(--owner-accent)]">

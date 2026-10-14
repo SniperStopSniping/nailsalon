@@ -2021,7 +2021,7 @@ jobs:
             src/libs/billing/foundingLifetime.concurrency.integration.test.ts \
             | tee billing-postgres-concurrency.log
           grep -Fqx 'BILLING_REFUND_POSTGRES_TESTS_EXECUTED=23 BILLING_REFUND_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
-          grep -Fqx 'BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_EXECUTED=9 BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
+          grep -Fqx 'BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_EXECUTED=10 BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
           grep -Fqx 'BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_EXECUTED=3 BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
           grep -Fqx 'FOUNDING_CORE_POSTGRES_TESTS_EXECUTED=7 FOUNDING_CORE_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
 
