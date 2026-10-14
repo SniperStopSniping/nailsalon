@@ -5708,7 +5708,7 @@ export function SettingsModal({
             {/* Modules (Step 16.3) */}
             <Section
               title="Optional Features"
-              footer="Enable or disable features for your salon. Disabled features won't be available to staff. Locked features are not included in your current plan yet."
+              footer="Choose the tools shown in your salon workspace. SMS messages use credits; core booking stays free."
             >
               {modulesLoading
                 ? (
@@ -5745,7 +5745,7 @@ export function SettingsModal({
                                     <MessageSquare aria-hidden="true" className="size-4 shrink-0 text-[var(--owner-accent)]" />
                                     <span className="min-w-0 flex-1">
                                       <span className="block text-[16px] text-[var(--owner-ink)]">SMS texts &amp; reminders</span>
-                                      <span className="block text-[12px] text-[var(--owner-muted)]">Included on every plan · Uses SMS credits</span>
+                                      <span className="block text-[12px] text-[var(--owner-muted)]">Available with free core booking · Uses SMS credits</span>
                                       <span className="block text-[12px] text-[var(--owner-muted)]">Manage preferences in Client communications</span>
                                     </span>
                                     <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-[var(--owner-muted)]" />
@@ -5754,9 +5754,8 @@ export function SettingsModal({
                               }
 
                               // Entitled -> a live toggle. Not entitled -> a
-                              // locked row naming the reason, so the category
-                              // never renders with nothing under it and the
-                              // owner can see what a higher plan unlocks.
+                              // locked row naming the reason, so an unavailable
+                              // module is explained without changing access.
                               return entitledModules[module.key]
                                 ? (
                                     <ModuleRow
