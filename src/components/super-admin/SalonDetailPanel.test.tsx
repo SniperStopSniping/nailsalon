@@ -253,6 +253,7 @@ describe('SalonDetailPanel Booking Experience entitlement wiring', () => {
     expect(screen.getAllByText('Included')).toHaveLength(1);
     expect(screen.getByText('Texts use SMS credits. The owner manages texting and reminders in communication preferences.')).toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: /sms/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /rewards|referrals/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
 
     await user.type(screen.getByLabelText('Salon Name'), ' Updated');

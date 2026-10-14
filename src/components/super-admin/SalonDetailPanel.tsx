@@ -10,7 +10,6 @@ import {
   CreditCard,
   Download,
   ExternalLink,
-  Gift,
   History,
   Mail,
   MapPin,
@@ -27,7 +26,6 @@ import {
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
-import { resolveEntitlement } from '@/libs/featureEntitlements';
 import {
   detectCurrentTier,
   ELITE_FEATURES,
@@ -421,17 +419,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [showLocationForm, setShowLocationForm] = useState(false);
   const [showSlugModal, setShowSlugModal] = useState(false);
 
-  const setMarketingFeature = useCallback((key: 'rewards' | 'referrals', value: boolean) => {
-    setFeatures(current => ({
-      ...current,
-      marketing: {
-        ...(current.marketing ?? {}),
-        [key]: value,
-      },
-      [key]: value,
-    }));
-  }, []);
-
   const handleLocationsLoaded = useCallback((count: number) => {
     setMetrics(current => current ? { ...current, locationsCount: count } : current);
   }, []);
@@ -657,9 +644,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       : currentSalon);
     setFeatures(nextState.features);
   }, []);
-
-  const rewardsEntitled = resolveEntitlement(features, 'marketing', 'rewards');
-  const referralsEntitled = resolveEntitlement(features, 'marketing', 'referrals');
 
   // Handle owner change (legacy Clerk)
   const handleOwnerChange = async (user: { id: string; email: string | null }) => {
@@ -1262,61 +1246,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                               <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">Included</span>
                             </div>
 
-                            {/* Rewards Program Toggle */}
-                            <div className="flex items-center justify-between py-2">
-                              <div>
-                                <div className="text-sm font-medium text-gray-700">Rewards Program</div>
-                                <div className="text-xs text-gray-500">Let this salon use the rewards system</div>
-                              </div>
-                              <button
-                                type="button"
-                                role="switch"
-                                aria-checked={rewardsEntitled ? 'true' : 'false'}
-                                onClick={() => {
-                                  setMarketingFeature('rewards', !rewardsEntitled);
-                                  setRewardsEnabled(!rewardsEntitled);
-                                  markDirty();
-                                }}
-                                aria-label="Toggle rewards program"
-                                className={`relative h-6 w-11 rounded-full transition-colors ${
-                                  rewardsEntitled ? 'bg-indigo-600' : 'bg-gray-200'
-                                }`}
-                              >
-                                <div
-                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                    rewardsEntitled ? 'translate-x-5' : ''
-                                  }`}
-                                />
-                              </button>
-                            </div>
-
-                            {/* Referrals Program Toggle */}
-                            <div className="flex items-center justify-between py-2">
-                              <div>
-                                <div className="text-sm font-medium text-gray-700">Referrals Program</div>
-                                <div className="text-xs text-gray-500">Allow clients to send referral offers to friends</div>
-                              </div>
-                              <button
-                                type="button"
-                                role="switch"
-                                aria-checked={referralsEntitled ? 'true' : 'false'}
-                                onClick={() => {
-                                  setMarketingFeature('referrals', !referralsEntitled);
-                                  markDirty();
-                                }}
-                                aria-label="Toggle referrals program"
-                                className={`relative h-6 w-11 rounded-full transition-colors ${
-                                  referralsEntitled ? 'bg-indigo-600' : 'bg-gray-200'
-                                }`}
-                              >
-                                <div
-                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                    referralsEntitled ? 'translate-x-5' : ''
-                                  }`}
-                                />
-                              </button>
-                            </div>
-
                             {/* Public Profile Toggle */}
                             <div className="flex items-center justify-between py-2">
                               <div>
@@ -1624,33 +1553,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </button>
                           </div>
 
-                          {/* Rewards Enabled */}
-                          <div className="flex items-center justify-between py-2">
-                            <div>
-                              <div className="text-sm font-medium text-gray-700">Rewards Enabled</div>
-                              <div className="text-xs text-gray-500">Enable loyalty rewards program</div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={rewardsEnabled ? 'true' : 'false'}
-                              onClick={() => {
-                                setRewardsEnabled(!rewardsEnabled);
-                                markDirty();
-                              }}
-                              aria-label="Toggle rewards"
-                              className={`relative h-6 w-11 rounded-full transition-colors ${
-                                rewardsEnabled ? 'bg-indigo-600' : 'bg-gray-200'
-                              }`}
-                            >
-                              <div
-                                className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                  rewardsEnabled ? 'translate-x-5' : ''
-                                }`}
-                              />
-                            </button>
-                          </div>
-
                           {/* Billing Mode */}
                           <div className="border-t border-gray-200 pt-4">
                             <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
@@ -1685,32 +1587,10 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                             </div>
                           </div>
 
-                          {/* Rewards Program Summary */}
-                          <div className="border-t border-gray-200 pt-4">
-                            <div className="mb-3 flex items-center gap-2">
-                              <Gift className="size-4 text-purple-500" />
-                              <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                                Reward Offers
-                              </span>
-                            </div>
-                            <p className="mb-4 text-xs text-gray-500">
-                              Referral and review rewards are fixed platform offers. Visit-earned points remain active at 20 points per dollar spent.
-                            </p>
-                            <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
-                              <div className="flex justify-between">
-                                <span>Friend referral reward</span>
-                                <span className="font-medium">$10 off first appointment</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Referrer reward</span>
-                                <span className="font-medium">$10 off any appointment</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Google review reward</span>
-                                <span className="font-medium">$10 off (manual grant)</span>
-                              </div>
-                            </div>
-                          </div>
+                          <p className="border-t border-gray-200 pt-4 text-xs text-gray-500">
+                            Customer rewards and referrals are unavailable. Historical records are preserved.
+                            Automatic review requests ask for honest feedback without incentives.
+                          </p>
 
                           <div className="border-t border-gray-200 pt-4">
                             <AddSmsCreditsControl salonId={salonId} salonName={salon.name} />

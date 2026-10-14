@@ -368,6 +368,10 @@ jobs:
               # stamping on Session + Subscription, and no customer_email.
               # Independent payment-safety review 2026-09-17.
               c2416168241fce84b8fa556cd5aded8204afa92a) ;;
+              # + Owner-approved free-core policy (2026-10-13): disable NEW
+              # subscription sales centrally. Existing checkout validation,
+              # contracts, payment/refund processing and history are unchanged.
+              de8f5c8c99f27a69f095a4011fab1381060bbb49) ;;
               *)
                 echo "::error::src/app/api/billing/checkout/route.ts must match a reviewed postimage."
                 printf 'actual blob: %s\n' "$checkout_blob"
