@@ -2385,7 +2385,7 @@ function ClientDetail({
                             )}
                             {(statsSource.loyaltyPoints > 0 || (flagsState?.noShowCount ?? statsSource.noShowCount) > 0) && (
                               <p className="text-xs text-stone-500">
-                                {statsSource.loyaltyPoints > 0 ? `${statsSource.loyaltyPoints.toLocaleString()} reward points` : ''}
+                                {statsSource.loyaltyPoints > 0 ? `${statsSource.loyaltyPoints.toLocaleString()} historical points` : ''}
                                 {(flagsState?.noShowCount ?? statsSource.noShowCount) > 0 ? ` · ${flagsState?.noShowCount ?? statsSource.noShowCount} recorded no-shows` : ''}
                               </p>
                             )}

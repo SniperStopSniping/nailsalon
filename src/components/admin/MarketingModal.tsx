@@ -563,7 +563,6 @@ export function MarketingModal({
   onOpenApp,
   onOpenClient,
   onOpenNativeUrl,
-  onOpenSocialPosting,
   smartFitResultsAvailable = false,
 }: MarketingModalProps) {
   const { salonSlug } = useSalon();
@@ -1178,20 +1177,7 @@ export function MarketingModal({
                           status: settings.googleReviewUrl ? 'Link set' : 'Add link',
                           onClick: () => openView('reviews'),
                         })}
-                        {homeRow({
-                          testId: 'marketing-home-rewards',
-                          title: 'Rewards & Referrals',
-                          detail: 'Client rewards, referrals and existing review-reward tools.',
-                          status: 'Manage',
-                          onClick: () => onOpenApp?.('rewards-reviews'),
-                        })}
-                        {homeRow({
-                          testId: 'marketing-home-social-posting',
-                          title: 'Social Posting',
-                          detail: 'Auto-post finished work and control captions.',
-                          status: 'Photo policy',
-                          onClick: onOpenSocialPosting,
-                        })}
+
                         {homeRow({
                           testId: 'marketing-home-results',
                           title: 'Results',
@@ -1555,7 +1541,7 @@ export function MarketingModal({
                       <div className="space-y-4" data-testid="marketing-reviews">
                         <div className="px-1">
                           <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">Review Requests</h2>
-                          <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">Google review requests are customer follow-up messages, separate from rewards and promotional campaigns.</p>
+                          <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">Ask for honest Google reviews after appointments. Reviews are never tied to rewards or discounts.</p>
                         </div>
                         {salonSlug && <ReviewRequestSettings salonSlug={salonSlug} />}
                       </div>

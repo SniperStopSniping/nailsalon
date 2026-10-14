@@ -153,7 +153,7 @@ describe('SettingsModal communications view', () => {
     };
     await openCommunications();
 
-    expect(screen.getByText(/SMS access is included with every plan and uses Luster SMS credits\./)).toBeInTheDocument();
+    expect(screen.getByText(/SMS uses your Luster credit balance\./)).toBeInTheDocument();
     expect(await screen.findByText(availableCredits === null
       ? 'Luster SMS credit balance is unavailable. Contact support.'
       : '42 SMS credits available. See Usage for details.')).toBeInTheDocument();

@@ -102,7 +102,7 @@ describe('AddOnsAndGroupsPanel', () => {
     const nameInput = within(dialog).getByLabelText('Name');
     fireEvent.change(nameInput, { target: { value: 'Polish finish' } });
     fireEvent.click(within(dialog).getByText('Choose multiple'));
-    fireEvent.click(within(dialog).getByText('Required'));
+    fireEvent.click(within(dialog).getByText('Required — client must choose an option'));
     const maxInput = within(dialog).getByLabelText('Maximum (optional)');
     fireEvent.change(maxInput, { target: { value: '3' } });
 

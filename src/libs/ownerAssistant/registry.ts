@@ -53,16 +53,15 @@ export const OWNER_ASSISTANT_REGISTRY: readonly RegistryEntry[] = [
   entry('bookings', 'Bookings', 'Booking requests and upcoming appointments.', ['bookings', 'booking requests', 'pending bookings', 'confirm booking'], { type: 'admin', app: 'bookings' }),
   entry('clients', 'Clients', 'Client list and profiles.', ['clients', 'customers', 'client list', 'client profile'], { type: 'admin', app: 'clients' }),
   entry('services', 'Services', 'Your menu: services, add-ons, prices, durations and order.', ['services', 'menu', 'prices', 'add-ons', 'addons', 'reorder', 'service library', 'duration', 'intro price', 'featured'], { type: 'admin', app: 'services' }),
-  entry('team', 'Team', 'Team members, permissions, services and earnings.', ['team', 'staff', 'technician', 'services & skills', 'skills', 'earnings'], { type: 'admin', app: 'team' }, 'parent'),
+  entry('team', 'Team', 'Team profiles, schedules, services and earnings.', ['team', 'staff', 'technician', 'services & skills', 'skills', 'earnings'], { type: 'admin', app: 'team' }, 'parent'),
   entry('team_members', 'Team members', 'Add or edit team members and their profile photos.', ['team members', 'members', 'add staff', 'profile photo', 'technician photo', 'avatar', 'bio'], { type: 'admin', app: 'staff' }, 'exact_on_open'),
   entry('team_time_off', 'Time off', 'Plan days away from your normal working schedule.', ['time off', 'vacation', 'holiday', 'day off', 'away'], { type: 'admin', app: 'hours', view: 'time-off' }, 'exact_on_open'),
-  entry('team_permissions', 'Team permissions', 'What team members can see and do.', ['permissions', 'roles', 'access', 'collaborator'], { type: 'admin', app: 'team', view: 'permissions' }, 'exact_on_open'),
   entry('portfolio', 'Photos & Gallery', 'Shared photo library used across your pages.', ['portfolio', 'photos', 'gallery library', 'pictures', 'images'], { type: 'admin', app: 'portfolio' }),
   entry('marketing', 'Marketing & Messages', 'Client messages, follow-ups, offers, results and reviews.', ['marketing', 'campaigns', 'follow-ups', 'follow ups', 'rebook reminders', 'retention'], { type: 'admin', app: 'marketing' }),
   entry('integrations', 'Integrations', 'Google Calendar, texting and email connections.', ['integrations', 'google calendar', 'google', 'twilio', 'texting', 'sms connection', 'email connection', 'connect'], { type: 'admin', app: 'integrations' }, 'parent'),
   entry('payments', 'Payments', 'Deposits, payment methods, taxes and currency.', ['payments', 'deposits', 'deposit', 'stripe', 'payment methods', 'taxes', 'tax', 'currency'], { type: 'admin', app: 'payments' }, 'parent'),
   entry('analytics', 'Analytics', 'Performance and utilization dashboard.', ['analytics', 'reports', 'stats', 'utilization', 'revenue'], { type: 'admin', app: 'analytics' }),
-  entry('rewards_reviews', 'Rewards & Reviews', 'Loyalty, referrals, internal reviews and review rewards.', ['rewards', 'review rewards', 'loyalty', 'referrals', 'internal reviews'], { type: 'admin', app: 'rewards-reviews' }),
+  entry('rewards_reviews', 'Client reviews', 'Read feedback already recorded in Luster.', ['client reviews', 'internal reviews', 'recorded feedback'], { type: 'admin', app: 'reviews' }),
 
   entry('business_hours', 'Business hours', 'Regular salon hours and timezone (Hours & Availability).', ['business hours', 'opening hours', 'hours', 'open', 'closed', 'timezone', 'time zone', 'change my hours'], { type: 'admin', app: 'hours' }),
   entry('working_hours', 'Working hours', 'Your regular weekly working schedule in Hours & Availability.', ['working hours', 'working days', 'schedules', 'technician hours', 'staff schedule', 'staff hours'], { type: 'admin', app: 'hours', view: 'working-hours' }, 'exact_on_open'),
@@ -79,7 +78,7 @@ export const OWNER_ASSISTANT_REGISTRY: readonly RegistryEntry[] = [
   entry('settings_visibility', 'Visibility', 'What client details team members can see.', ['visibility', 'hide phone', 'hide client', 'privacy of client details'], { type: 'admin', app: 'settings', view: 'visibility' }),
   entry('settings_features', 'Optional Features', 'Which optional Luster features are turned on.', ['features', 'feature', 'turn on', 'turn off', 'enable', 'disable', 'plan'], { type: 'admin', app: 'settings', view: 'features' }),
   entry('settings_account', 'Account', 'Your account and sign-in.', ['account', 'sign in', 'login', 'password', 'phone number', 'email address'], { type: 'admin', app: 'settings', view: 'account' }),
-  entry('plan_usage', 'Plan & Usage', 'Your core app access, billing portal and text credits.', ['plan', 'subscription', 'billing', 'manage billing', 'invoice', 'usage'], { type: 'admin', app: 'plan-usage', view: 'billing' }, 'exact_on_open'),
+  entry('plan_usage', 'Usage & SMS', 'SMS credits, top-ups and existing billing records.', ['plan', 'subscription', 'billing', 'manage billing', 'invoice', 'usage'], { type: 'admin', app: 'plan-usage', view: 'billing' }, 'exact_on_open'),
 
   entry('booking_page_hub', 'Booking Page', 'Your booking page: preview, edit and publish.', ['booking page', 'website', 'my page', 'public page', 'link to my page', 'share link'], { type: 'path', path: '/admin/website' }),
   entry('page_layouts', 'Layout & Menu', 'Choose the page layout and how your booking menu appears.', ['layout', 'layouts', 'design', 'template', 'quick book', 'booking menu'], { type: 'bookingPage', panel: 'layouts' }),
@@ -91,7 +90,6 @@ export const OWNER_ASSISTANT_REGISTRY: readonly RegistryEntry[] = [
   entry('page_publish', 'Preview & publish', 'Preview your booking page and publish changes.', ['publish', 'go live', 'make live', 'preview', 'unpublished changes', 'revert', 'is my page live'], { type: 'bookingPage', panel: 'publish' }),
 
   entry('policies_photos', 'Photo policies', 'Rules for client photos.', ['photo policies', 'photo policy', 'client photos policy'], { type: 'path', path: '/admin/policies', query: { section: 'photos' } }),
-  entry('policies_social', 'Social policies', 'Rules for social sharing.', ['social policies', 'social policy', 'sharing policy'], { type: 'path', path: '/admin/policies', query: { section: 'social' } }),
 ];
 
 export type RegistryKey = string;

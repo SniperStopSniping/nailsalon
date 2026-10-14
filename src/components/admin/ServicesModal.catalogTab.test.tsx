@@ -101,27 +101,27 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
     expect(screen.queryByTestId('services-more-tabs')).not.toBeInTheDocument();
     expect(screen.queryByTestId('services-tab-library')).not.toBeInTheDocument();
     expect(screen.queryByTestId('services-tab-catalog')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: 'More' })).not.toHaveAttribute('aria-controls');
+    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Advanced Settings' })).not.toHaveAttribute('aria-controls');
 
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
 
-    expect(screen.getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('services-more-tabs')).toBeVisible();
     expect(screen.getByTestId('services-tab-library')).toBeVisible();
-    expect(screen.getByRole('tab', { name: 'Advanced Catalog' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Rules & options' })).toBeVisible();
 
     fireEvent.click(screen.getByTestId('services-tab-library'));
 
-    expect(screen.getByRole('button', { name: 'More' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'More' })).toHaveAttribute('aria-controls', 'services-more-tabs');
+    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toHaveAttribute('aria-controls', 'services-more-tabs');
     expect(screen.getByTestId('services-tab-library')).toBeVisible();
 
     fireEvent.click(screen.getByTestId('services-tab-menu'));
 
-    expect(screen.getByRole('button', { name: 'More' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: 'More' })).not.toHaveAttribute('aria-controls');
+    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Advanced Settings' })).not.toHaveAttribute('aria-controls');
     expect(screen.queryByTestId('services-more-tabs')).not.toBeInTheDocument();
   });
 
@@ -134,7 +134,7 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
 
     expect(catalogFetchesBeforeOpen).toBe(0);
 
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
     fireEvent.click(screen.getByTestId('services-tab-catalog'));
 
     expect(screen.getByTestId('catalog-config-tab')).toBeInTheDocument();
@@ -147,7 +147,7 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
     await screen.findByTestId('services-tab-menu');
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
     fireEvent.click(screen.getByTestId('services-tab-catalog'));
     fireEvent.click(screen.getByTestId('catalog-section-groupServices'));
 
@@ -160,7 +160,7 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
     await screen.findByText('Classic Manicure');
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
     fireEvent.click(screen.getByTestId('services-tab-catalog'));
     await act(async () => {
       fireEvent.click(screen.getByTestId('services-tab-menu'));

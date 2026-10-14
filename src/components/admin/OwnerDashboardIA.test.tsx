@@ -36,18 +36,17 @@ describe('owner dashboard app hubs', () => {
     expect(screen.getByText('Team Members')).toBeInTheDocument();
     expect(screen.getByText('Working Hours')).toBeInTheDocument();
     expect(screen.getByText('Days Off')).toBeInTheDocument();
-    expect(screen.getByText('Time-off requests')).toBeInTheDocument();
+    expect(screen.queryByText('Time-off requests')).not.toBeInTheDocument();
     expect(screen.getByText('Services & Skills')).toBeInTheDocument();
-    expect(screen.getByText('Permissions')).toBeInTheDocument();
+    expect(screen.queryByText('Permissions')).not.toBeInTheDocument();
     expect(screen.getByText('Earnings')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Working Hours'));
     fireEvent.click(screen.getByText('Days Off'));
-    fireEvent.click(screen.getByText('Time-off requests'));
 
-    expect(pushMock).toHaveBeenCalledTimes(3);
+    expect(pushMock).toHaveBeenCalledTimes(2);
 
-    for (const [index, view] of ['working-hours', 'time-off', 'requests'].entries()) {
+    for (const [index, view] of ['working-hours', 'time-off'].entries()) {
       const query = queryOf(pushMock.mock.calls[index]![0]);
 
       expect(query.get('salon')).toBe('studio');
@@ -93,18 +92,10 @@ describe('owner dashboard app hubs', () => {
     await screen.findByRole('status');
   });
 
-  it('combines rewards, referrals, reviews and offer rules without bypassing gates', () => {
-    render(
-      <RewardsReviewsModal
-        onClose={vi.fn()}
-        reviewsAvailable={false}
-        rewardsAvailable={false}
-      />,
-    );
+  it('hides postponed programs and respects the recorded-review gate', () => {
+    render(<RewardsReviewsModal onClose={vi.fn()} reviewsAvailable={false} rewardsAvailable={false} />);
 
-    expect(screen.getByRole('button', { name: /Rewards Program/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Referrals/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Reviews/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Offers/ })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /Rewards Program|Referrals|Offers/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Recorded reviews are unavailable for this workspace.')).toBeInTheDocument();
   });
 });

@@ -107,8 +107,8 @@ test('Advanced Optional Features opens included SMS credits and paused Client co
 
   await expect(smsEntry).toContainText('Included on every plan · Uses SMS credits');
   await expect(page.getByRole('button', { name: /Toggle SMS/ })).toHaveCount(0);
-  await expect(page.getByTestId('locked-feature-rewards')).toContainText('Not included in your plan yet');
-  await expect(page.getByTestId('locked-feature-rewards')).toContainText('Locked');
+  await expect(page.getByTestId('locked-feature-rewards')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Toggle (Rewards|Referrals)/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Toggle Schedule Overrides' })).toBeEnabled();
   expect(mutations).toEqual([]);
 
@@ -119,7 +119,8 @@ test('Advanced Optional Features opens included SMS credits and paused Client co
   await expect(page).toHaveURL(/app=settings&view=communications/);
   await expect(page.getByText('100 SMS credits available. See Usage for details.')).toBeVisible();
   await expect(page.getByText(pausedSms.detail)).toBeVisible();
-  await expect(page.getByText(/SMS access is included with every plan/)).toBeVisible();
+  await expect(page.getByText(/Eligible new businesses can claim 100 starter SMS credits once after verification/)).toBeVisible();
+  await expect(page.getByText(/Additional credits are optional one-time purchases/)).toBeVisible();
 
   const preference = page.getByRole('checkbox', { name: 'Text messages to clients', exact: true });
   const save = page.getByRole('button', { name: 'Save communication settings' });

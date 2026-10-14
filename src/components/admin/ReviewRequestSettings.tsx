@@ -177,7 +177,7 @@ export function ReviewRequestSettings({ salonSlug }: { salonSlug: string }) {
       <fieldset disabled={saving} className="contents">
         <div>
           <h2 className="text-base font-semibold text-[var(--owner-ink)]">Review requests</h2>
-          <p className="mt-1 text-sm text-[var(--owner-muted)]">Ask clients for a Google review after a visit. Review rewards, internal reviews, and promotional messages are managed separately.</p>
+          <p className="mt-1 text-sm text-[var(--owner-muted)]">Ask clients for an honest Google review after a visit, without offering rewards or discounts.</p>
         </div>
         <div className="rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 shadow-sm">
           <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Automatic review requests</p>

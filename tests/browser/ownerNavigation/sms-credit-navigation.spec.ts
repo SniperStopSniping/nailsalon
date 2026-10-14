@@ -64,7 +64,7 @@ for (const entry of [
       expect(new URL(page.url()).searchParams.has('app')).toBe(false);
       expect(new URL(page.url()).searchParams.has('view')).toBe(false);
       expect(new URL(page.url()).searchParams.get('salon')).toBe('isla');
-      await expect(page.getByRole('heading', { name: 'Plan & Usage', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('heading', { name: 'Usage & SMS', exact: true })).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
       await page.screenshot({ path: testInfo.outputPath(`sms-${entry.view}-${dismissal.name}-returned.png`), fullPage: true });

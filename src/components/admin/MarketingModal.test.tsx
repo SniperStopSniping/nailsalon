@@ -287,6 +287,15 @@ describe('MarketingModal', () => {
     // jsdom userAgent is not a phone — tests opt into mobile via stub.
   });
 
+  it('keeps honest review requests and hides postponed reward and social actions', async () => {
+    installSuccessfulFetch();
+    await renderMarketing({ onOpenSocialPosting: vi.fn() });
+
+    expect(screen.getByTestId('marketing-home-reviews')).toBeInTheDocument();
+    expect(screen.queryByTestId('marketing-home-rewards')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('marketing-home-social-posting')).not.toBeInTheDocument();
+  });
+
   it('home answers who needs follow-up, channel truth, and setup — with real counts only', async () => {
     installSuccessfulFetch();
     await renderMarketing();

@@ -219,7 +219,7 @@ function GroupFormDialog({
         )}
 
         <label className="flex items-center justify-between rounded-xl border border-gray-200 p-3">
-          <span className="text-sm font-medium text-[#1C1C1E]">Required</span>
+          <span className="text-sm font-medium text-[#1C1C1E]">Required — client must choose an option</span>
           <input
             type="checkbox"
             checked={draft.required}

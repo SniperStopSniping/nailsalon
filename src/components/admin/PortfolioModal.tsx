@@ -432,49 +432,6 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
               )}
             </section>
 
-            <section className="owner-card mb-4 p-5">
-              <h3 className="text-sm font-semibold text-[var(--owner-muted)]">
-                Discover readiness
-              </h3>
-              <p className="mt-2 text-[15px] text-[var(--owner-ink)]">
-                {data.readiness.discoverEligiblePhotos}
-                {' '}
-                {data.readiness.discoverEligiblePhotos === 1 ? 'photo is' : 'photos are'}
-                {' '}
-                ready for Discover.
-              </p>
-              <ul className="mt-3 space-y-1 text-sm leading-relaxed text-[var(--owner-muted)]">
-                {data.readiness.missingServiceFamily > 0 && (
-                  <li>
-                    {data.readiness.missingServiceFamily}
-                    {' '}
-                    still need a service tag.
-                  </li>
-                )}
-                {data.readiness.missingNailLength > 0 && (
-                  <li>
-                    {data.readiness.missingNailLength}
-                    {' '}
-                    still need a length tag.
-                  </li>
-                )}
-                {data.readiness.missingCrop > 0 && (
-                  <li>
-                    {data.readiness.missingCrop}
-                    {' '}
-                    still need a crop.
-                  </li>
-                )}
-                {data.readiness.unbookableFamily > 0 && (
-                  <li>
-                    {data.readiness.unbookableFamily}
-                    {' '}
-                    are tagged for a service you no longer offer.
-                  </li>
-                )}
-              </ul>
-            </section>
-
             {selected.size > 0 && (
               <section
                 aria-label="Batch tagging"
@@ -523,24 +480,6 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                   ))}
                 </div>
 
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void applyBatch({ discoverIncluded: true })}
-                    className="owner-action owner-action--primary disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Show in Discover
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void applyBatch({ discoverIncluded: false })}
-                    className="owner-action disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Hide from Discover
-                  </button>
-                </div>
               </section>
             )}
 
@@ -552,8 +491,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                       Add your first photos
                     </p>
                     <p className="mt-1 text-[15px] text-[var(--owner-muted)]">
-                      Upload your best nail work once, and it powers your profile
-                      and Luster Discover.
+                      Upload photos of your nail work, then organize them with service and length tags.
                     </p>
                   </div>
                 )

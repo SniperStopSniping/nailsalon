@@ -40,13 +40,6 @@ function renderPage() {
       }}
       salonName="Nail Salon No.5"
       salonSlug="nail-salon-no5"
-      metaStatus={{
-        hasSystemUserToken: false,
-        hasFacebookPageId: false,
-        hasInstagramAccountId: false,
-        graphVersion: 'v19.0',
-      }}
-      latestFailure={null}
       locale="en"
     />,
   );
@@ -67,7 +60,7 @@ describe('SalonPoliciesClient — inside the workspace shell', () => {
     expect(page).toHaveClass('owner-workspace-theme');
     expect(page).toHaveAttribute('data-theme-scope', 'owner');
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Photo & auto-post rules' }),
+      screen.getByRole('heading', { level: 1, name: 'Appointment Photo Rules' }),
     ).toBeInTheDocument();
     expect(screen.getByText('Managing Nail Salon No.5')).toBeInTheDocument();
     expect(
@@ -80,6 +73,8 @@ describe('SalonPoliciesClient — inside the workspace shell', () => {
 
     expect(document.body).not.toHaveTextContent(/super admin/i);
     expect(document.body).not.toHaveTextContent(/SA Forced/);
+    expect(screen.queryByTestId('meta-status-panel')).not.toBeInTheDocument();
+    expect(screen.queryByText('AI Caption')).not.toBeInTheDocument();
     expect(screen.getByText('What is enforced right now')).toBeInTheDocument();
   });
 });

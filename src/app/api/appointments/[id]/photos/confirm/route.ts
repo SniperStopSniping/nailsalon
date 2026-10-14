@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 import { resolveEffectivePolicy } from '@/core/appointments/policyResolver';
+import { FEATURE_FLAGS } from '@/core/config/flags';
 import { getIdempotencyKey, getPresignKey, TTL } from '@/core/redis/keys';
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { verifyUploadExists } from '@/core/storage/storageClient';
@@ -279,7 +280,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       );
 
     // 12. Enqueue autopost if kind === 'after' and autoPostEnabled
-    if (kind === 'after') {
+    if (kind === 'after' && FEATURE_FLAGS.ENABLE_AUTOPOST_GLOBAL) {
       // Load policies
       const salonPolicyRow = await db.query.salonPoliciesSchema.findFirst({
         where: eq(salonPoliciesSchema.salonId, salon.id),

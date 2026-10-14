@@ -23,15 +23,10 @@ const AVAILABLE_THEMES = [
 
 // Page display names for better UI
 const PAGE_DISPLAY_NAMES: Record<string, string> = {
-  'rewards': 'Rewards',
-  'profile': 'Profile',
-  'gallery': 'Gallery',
   'book-service': 'Book Service',
   'book-technician': 'Book Technician',
   'book-datetime': 'Book Date/Time',
   'book-confirm': 'Book Confirm',
-  'preferences': 'Preferences',
-  'invite': 'Invite',
 };
 
 type PageAppearance = {
@@ -245,7 +240,7 @@ export function PageThemesSettings({ className = '' }: PageThemesSettingsProps) 
 
       {/* Page List */}
       <div className="divide-y divide-gray-100">
-        {THEMEABLE_PAGES.map((pageName) => {
+        {THEMEABLE_PAGES.filter(page => page.startsWith('book-')).map((pageName) => {
           const page = pages.find(p => p.pageName === pageName) || {
             pageName,
             mode: 'custom' as const,

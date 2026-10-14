@@ -32,6 +32,7 @@ import { decodeCreditActivityCursor, readSmsCreditActivity, readSmsCreditOvervie
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
 import { listActiveTopupOffersForAudience } from '@/libs/billing/topupOffers';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig.shared';
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
 import { friendlyFailureReason, maskRecipient, ownerSmsDeliveryStatus } from '@/libs/communicationMasking';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
@@ -132,7 +133,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   // ChoosePlanPanel needs to decide "informational cards" vs "live Choose
   // buttons"; granular switch/secret state is P8b's authenticated panel.
   const capabilities = {
-    subscriptions: Env.BILLING_SUBSCRIPTIONS_ENABLED === 'true',
+    subscriptions: COMMERCIAL_POLICY.subscriptionsForSale && Env.BILLING_SUBSCRIPTIONS_ENABLED === 'true',
     topups: Env.BILLING_TOPUPS_ENABLED === 'true',
     pricingPublic: Env.PUBLIC_PRICING_ENABLED === 'true',
   };
@@ -141,7 +142,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   // null) is the committed default and MUST stay that way until §12's seven
   // publication approvals land.
   const foundingPromotion = getPromotion('founding_annual_2026');
-  const founding = foundingPromotion !== null && isPromotionWindowOpen(foundingPromotion, now)
+  const founding = COMMERCIAL_POLICY.subscriptionsForSale && foundingPromotion !== null && isPromotionWindowOpen(foundingPromotion, now)
     ? {
         key: foundingPromotion.key,
         percentOff: foundingPromotion.percentOffAgainstAnnualPrice,
@@ -151,8 +152,8 @@ export async function GET(request: NextRequest): Promise<Response> {
       }
     : null;
   const catalog = {
-    plans: getPublicPlanCatalog(),
-    offers: getPublicBillingOffers(),
+    plans: COMMERCIAL_POLICY.subscriptionsForSale ? getPublicPlanCatalog() : [],
+    offers: COMMERCIAL_POLICY.subscriptionsForSale ? getPublicBillingOffers() : [],
     founding,
   };
 

@@ -239,7 +239,7 @@ describe('OnboardingWorkspaceHandoff', () => {
     expect(screen.queryByText(/Founding offer reserved/)).not.toBeInTheDocument();
     expect(screen.getByText(/Extra texts are optional one-time purchases and never expire/)).toBeInTheDocument();
     expect(screen.getByText(/Open More → Text Message Balance to claim your welcome allowance/)).toBeInTheDocument();
-    expect(screen.queryByText(/verification steps in Plan & Usage/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/verification steps in Usage & SMS/)).not.toBeInTheDocument();
   });
 
   it('shows paid interest only from the persisted handoff intent', async () => {

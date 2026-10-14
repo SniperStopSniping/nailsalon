@@ -43,7 +43,6 @@ import { buildDepositDisclosure, DEPOSIT_CURRENCY, DEPOSIT_FINGERPRINT_NONE } fr
 import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
 import { formatMoney } from '@/libs/formatMoney';
 import { triggerHaptic } from '@/libs/haptics';
-import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
 import { publicBookingReceiptPresentation } from '@/libs/publicBookingReceipt';
 import {
   beginPublicBookingAttempt,
@@ -171,8 +170,6 @@ type BookConfirmClientProps = {
   salonTimeZone?: string;
   bookingFlow: BookingStep[];
   location: LocationSummary;
-  /** Whether the salon's rewards program is enabled — hides points messaging when false */
-  rewardsEnabled?: boolean;
   /** Per-salon default for the public booking reminder control. */
   smsBookingDefault?: SmsBookingDefault;
   /** Salon phone for the "Call the salon" escape hatch on the duplicate-booking screen */
@@ -461,9 +458,7 @@ const BookingCard = ({
   totalDuration,
   dateStr,
   timeStr,
-  pointsEarned,
   location,
-  rewardsEnabled = true,
   resultStatus = 'review',
   totalPriceDisplay,
 }: {
@@ -474,9 +469,7 @@ const BookingCard = ({
   totalDuration: number;
   dateStr: string;
   timeStr: string;
-  pointsEarned: number;
   location: LocationSummary;
-  rewardsEnabled?: boolean;
   resultStatus?: 'review' | BookingResultStatus;
   /** Preformatted total (Smart Fit pricing) — falls back to the legacy `$n` render. */
   totalPriceDisplay?: string;
@@ -594,14 +587,6 @@ const BookingCard = ({
                 ))}
               </ul>
             </>
-          )}
-          {rewardsEnabled && (
-            <p className="font-body mt-3 text-sm leading-6 text-[var(--n5-ink-muted)]">
-              Estimated reward after completion: +
-              {pointsEarned.toLocaleString()}
-              {' '}
-              points
-            </p>
           )}
         </div>
 
@@ -1055,7 +1040,6 @@ const ConfirmContent = ({
   totalDuration,
   dateStr,
   timeStr,
-  pointsEarned,
   onConfirm,
   onEditSelection,
   isSubmitting,
@@ -1067,7 +1051,6 @@ const ConfirmContent = ({
   firstVisitDiscountPreview,
   campaignPromotionPreview,
   campaignMessage,
-  rewardsEnabled,
   isReschedule,
   guestName,
   guestEmail,
@@ -1103,7 +1086,6 @@ const ConfirmContent = ({
   totalDuration: number;
   dateStr: string;
   timeStr: string;
-  pointsEarned: number;
   onConfirm: () => void;
   onEditSelection: () => void;
   isSubmitting: boolean;
@@ -1115,7 +1097,6 @@ const ConfirmContent = ({
   firstVisitDiscountPreview: BookConfirmClientProps['firstVisitDiscountPreview'];
   campaignPromotionPreview: BookConfirmClientProps['campaignPromotionPreview'];
   campaignMessage: string | null;
-  rewardsEnabled: boolean;
   isReschedule: boolean;
   guestName: string;
   guestEmail: string;
@@ -1285,10 +1266,8 @@ const ConfirmContent = ({
             totalDuration={totalDuration}
             dateStr={dateStr}
             timeStr={timeStr}
-            pointsEarned={pointsEarned}
             location={location}
             currency={currency}
-            rewardsEnabled={rewardsEnabled}
             disabled={isSubmitting}
             onEdit={onEditSelection}
           />
@@ -1704,11 +1683,9 @@ const SuccessContent = ({
   totalDuration,
   dateStr,
   timeStr,
-  pointsEarned,
   onOpenDirections,
   onGoHome,
   location,
-  rewardsEnabled,
   smsConsentGranted,
   smsReminderStatus,
   manageUrl,
@@ -1731,12 +1708,10 @@ const SuccessContent = ({
   totalDuration: number;
   dateStr: string;
   timeStr: string;
-  pointsEarned: number;
   totalPriceDisplay: string;
   onOpenDirections: () => void;
   onGoHome: () => void;
   location: LocationSummary;
-  rewardsEnabled: boolean;
   smsConsentGranted: boolean;
   smsReminderStatus: SmsReminderStatus | null;
   manageUrl: string | null;
@@ -1868,9 +1843,7 @@ const SuccessContent = ({
                     totalDuration={totalDuration}
                     dateStr={dateStr}
                     timeStr={timeStr}
-                    pointsEarned={pointsEarned}
                     location={location}
-                    rewardsEnabled={rewardsEnabled}
                     resultStatus={bookingStatus}
                     totalPriceDisplay={totalPriceDisplay}
                   />
@@ -2017,15 +1990,6 @@ const SuccessContent = ({
           </motion.div>
         )}
 
-        {!isPending && rewardsEnabled && (
-          <p className="font-body text-center text-sm leading-6 text-[var(--n5-ink-main)]">
-            Estimated reward after completion: +
-            {pointsEarned.toLocaleString()}
-            {' '}
-            points
-          </p>
-        )}
-
         {/* Footer */}
         <motion.div
           initial={{ opacity: 0 }}
@@ -2092,7 +2056,6 @@ export function BookConfirmClient({
   // bookingFlow is passed for consistency but not used in confirm step
   bookingFlow: _bookingFlow,
   location,
-  rewardsEnabled = true,
   smsBookingDefault = 'default_on',
   salonPhone = null,
   depositDisclosure = null,
@@ -2571,8 +2534,6 @@ export function BookConfirmClient({
     : null;
   const resolvedTotalDuration = totalDuration;
   const resolvedSubtotalBeforeDiscount = subtotalBeforeDiscount;
-  // totalPrice is in dollars, convert to cents for points calculation
-  const pointsEarned = computeEarnedPointsFromCents(Math.round(resolvedTotalPrice * 100));
   const acknowledgmentRequired = isRequiredBookingPolicy(
     displayedPolicy,
     Boolean(originalAppointmentId),
@@ -3273,11 +3234,9 @@ export function BookConfirmClient({
           totalDuration={durableStatus.appointment?.durationMinutes ?? review.durationMinutes}
           dateStr={review.date}
           timeStr={review.time}
-          pointsEarned={0}
           onOpenDirections={() => openGoogleMapsDirections(review.location)}
           onGoHome={() => router.push(appendSalonSlug('/book', salonSlug, { routeSalonSlug, locale }))}
           location={review.location ? { id: 'booked-location', ...review.location } : null}
-          rewardsEnabled={false}
           smsConsentGranted={reminderState === 'enabled'}
           smsReminderStatus={reminderState && reminderState !== 'unrecorded' ? reminderState : null}
           manageUrl={null}
@@ -3417,14 +3376,12 @@ export function BookConfirmClient({
         totalDuration={recovered?.totalDuration ?? resolvedTotalDuration}
         dateStr={recovered?.dateStr ?? dateStr}
         timeStr={recovered?.timeStr ?? timeStr}
-        pointsEarned={recovered ? 0 : pointsEarned}
         onOpenDirections={handleOpenDirections}
         onGoHome={() => router.push(appendSalonSlug('/book', salonSlug, {
           routeSalonSlug,
           locale,
         }))}
         location={recovered ? null : location}
-        rewardsEnabled={!recovered && rewardsEnabled}
         smsConsentGranted={smsConsent}
         smsReminderStatus={smsReminderStatus}
         manageUrl={manageUrl}
@@ -3496,7 +3453,6 @@ export function BookConfirmClient({
         totalDuration={resolvedTotalDuration}
         dateStr={dateStr}
         timeStr={timeStr}
-        pointsEarned={pointsEarned}
         subtotalBeforeDiscount={resolvedSubtotalBeforeDiscount}
         discountAmount={discountAmount}
         firstVisitDiscountPreview={firstVisitDiscountPreview}
@@ -3523,7 +3479,6 @@ export function BookConfirmClient({
         isRecoveringBooking={recoveringHandoff || checkingPublicRecovery}
         recoveryUnresolved={publicRecoveryPending}
         location={location}
-        rewardsEnabled={rewardsEnabled}
         isReschedule={Boolean(originalAppointmentId)}
         guestName={guestName}
         guestEmail={guestEmail}

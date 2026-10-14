@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { ChevronRight, ExternalLink, RefreshCw, Star } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
 
@@ -86,7 +86,6 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [grantingReviewId, setGrantingReviewId] = useState<string | null>(null);
 
   const fetchReviews = useCallback(async () => {
     if (!salonSlug) {
@@ -124,9 +123,7 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
     void fetchReviews();
   }, [fetchReviews]);
 
-  // AG-w2-more-tools-05: this app is the rewards half of Reviews; the Google
-  // review link it depends on lives in Marketing → Review settings, and there
-  // used to be no way across. One tap, salon preserved.
+  // Keep review-request settings one tap away with the salon preserved.
   const openReviewSettings = useCallback(() => {
     const params = new URLSearchParams();
     const salonParam = searchParams?.get('salon') ?? null;
@@ -138,48 +135,12 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
     router.push(`${pathname ?? ''}?${params.toString()}`);
   }, [router, pathname, searchParams]);
 
-  const grantableCount = useMemo(
-    () => reviews.filter(review => !review.googleReviewRewardGranted).length,
-    [reviews],
-  );
-
-  const handleGrant = useCallback(async (reviewId: string) => {
-    if (!salonSlug || grantingReviewId) {
-      return;
-    }
-
-    setGrantingReviewId(reviewId);
-
-    try {
-      const response = await fetch(`/api/admin/reviews/${reviewId}/reward`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonSlug }),
-      });
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error?.message || 'Failed to grant reward');
-      }
-
-      setReviews(current => current.map(review => (
-        review.id === reviewId
-          ? { ...review, googleReviewRewardGranted: true }
-          : review
-      )));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to grant reward');
-    } finally {
-      setGrantingReviewId(null);
-    }
-  }, [grantingReviewId, salonSlug]);
-
   return (
     <div className="flex min-h-full w-full flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]">
       <div className="sticky top-0 z-20 bg-[var(--owner-ground)] backdrop-blur-md">
         <ModalHeader
-          title="Review rewards"
-          subtitle="Thank clients who left a Google review"
+          title="Client reviews"
+          subtitle="Read recorded client feedback"
           leftAction={<BackButton onClick={onClose} label="Back" />}
         />
       </div>
@@ -192,10 +153,10 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-[20px] font-semibold text-[var(--owner-ink)]">Review rewards</h2>
+              <h2 className="text-[20px] font-semibold text-[var(--owner-ink)]">Client reviews</h2>
               <p className="mt-1 text-[14px] leading-relaxed text-[var(--owner-muted)]">
-                After you verify a Google review manually, grant a one-time $10 reward to that client.
-                Your review link and request settings live in Review settings.
+                Read feedback recorded in Luster. Google reviews are managed in Google Business.
+                Ask clients for honest reviews through Review settings, without rewards or discounts.
               </p>
             </div>
             <button
@@ -208,7 +169,7 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
             </button>
           </div>
 
-          <div className="mt-5 grid grid-cols-3 gap-3">
+          <div className="mt-5 grid grid-cols-2 gap-3">
             <div className="rounded-[16px] bg-[var(--owner-ground)] p-3 text-center">
               <div className="text-[24px] font-semibold text-[var(--owner-ink)]">{totalReviews}</div>
               <div className="text-[12px] text-[var(--owner-muted)]">Reviews</div>
@@ -216,10 +177,6 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
             <div className="rounded-[16px] bg-[var(--owner-ground)] p-3 text-center">
               <div className="text-[24px] font-semibold text-[var(--owner-ink)]">{averageRating.toFixed(1)}</div>
               <div className="text-[12px] text-[var(--owner-muted)]">Average</div>
-            </div>
-            <div className="rounded-[16px] bg-[var(--owner-ground)] p-3 text-center">
-              <div className="text-[24px] font-semibold text-[var(--owner-ink)]">{grantableCount}</div>
-              <div className="text-[12px] text-[var(--owner-muted)]">Grantable</div>
             </div>
           </div>
 
@@ -246,7 +203,7 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
         </motion.div>
 
         {error && (
-          <div className="mt-4 rounded-[18px] bg-red-50 px-4 py-3 text-[14px] text-red-600">
+          <div role="alert" className="mt-4 rounded-[18px] bg-red-50 px-4 py-3 text-[14px] text-red-600">
             {error}
           </div>
         )}
@@ -267,9 +224,8 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
                     No reviews yet for this salon.
                   </p>
                   <p className="mx-auto mt-1 max-w-xs text-[13px] leading-5 text-[var(--owner-muted)]">
-                    Reviews clients leave in Luster show up here, and you grant the
-                    reward yourself. To ask for Google reviews, add your review link
-                    in Review settings first.
+                    Existing feedback recorded in Luster appears here. To ask for honest Google
+                    reviews after appointments, add your review link in Review settings.
                   </p>
                   <button
                     type="button"
@@ -308,26 +264,9 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
                           <div className="mt-3 text-[12px] text-[var(--owner-muted)]">{formatDate(review.createdAt)}</div>
                         </div>
 
-                        <div className="shrink-0 text-right">
-                          {review.googleReviewRewardGranted
-                            ? (
-                                <div className="rounded-full bg-green-100 px-3 py-1 text-[12px] font-medium text-green-700">
-                                  $10 granted
-                                </div>
-                              )
-                            : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    void handleGrant(review.id);
-                                  }}
-                                  disabled={grantingReviewId === review.id}
-                                  className="rounded-full bg-[var(--owner-ink)] px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
-                                >
-                                  {grantingReviewId === review.id ? 'Granting...' : 'Grant $10'}
-                                </button>
-                              )}
-                        </div>
+                        {review.googleReviewRewardGranted && (
+                          <span className="text-[12px] text-[var(--owner-muted)]">Historical reward recorded</span>
+                        )}
                       </div>
                     </motion.div>
                   ))}

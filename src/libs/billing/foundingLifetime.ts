@@ -1,3 +1,5 @@
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
+
 /** Public terms for the core-software offer. Usage purchases are independent. */
 export const FOUNDING_LIFETIME_OFFER_KEY = 'founding_lifetime_2026' as const;
 export const FOUNDING_LIFETIME_TERMS_VERSION = 1 as const;
@@ -10,7 +12,7 @@ export const FOUNDING_LIFETIME_TERMS = {
   coreSoftwareMonthlyPriceCents: 0,
   coreSoftwareAccess: 'lifetime',
   emails: 'unlimited',
-  starterTextCredits: 100,
+  starterTextCredits: COMMERCIAL_POLICY.starterCredits,
   starterTextCreditsFrequency: 'once_per_verified_business',
   additionalTexts: 'paid_separately',
   aiReceptionist: 'paid_separately',

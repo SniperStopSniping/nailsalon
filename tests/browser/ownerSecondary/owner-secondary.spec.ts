@@ -63,11 +63,11 @@ for (const width of [320, 390, 430, 1280]) {
     await filter.selectOption('confirmations');
 
     await expect(page.getByText('1 SMS credit charged', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Close usage and billing' })).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Close usage and SMS' })).toBeInViewport();
 
-    await page.getByRole('button', { name: 'Close usage and billing' }).click();
+    await page.getByRole('button', { name: 'Close usage and SMS' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Usage & billing', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Usage & SMS', exact: true })).toHaveCount(0);
     await expect(page).toHaveURL(/app=settings/);
   });
 
@@ -108,7 +108,7 @@ for (const width of [320, 390, 430, 1280]) {
 
     const name = page.getByRole('textbox', { name: 'Name', exact: true });
     await name.fill('Review owner updated');
-    await page.getByRole('button', { name: 'Open Plan & Usage', exact: true }).click();
+    await page.getByRole('button', { name: 'Open Usage & SMS', exact: true }).click();
     const guard = page.getByRole('alertdialog', { name: 'Unsaved changes' });
 
     await expect(guard).toBeVisible();

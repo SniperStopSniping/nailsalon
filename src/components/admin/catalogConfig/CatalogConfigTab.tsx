@@ -32,7 +32,6 @@ import type {
 } from '@/types/admin';
 
 import { AddOnsAndGroupsPanel } from './AddOnsAndGroupsPanel';
-import { BookingConfirmationPanel } from './BookingConfirmationPanel';
 import { CapabilitiesPanel } from './CapabilitiesPanel';
 import { GroupServicesPanel } from './GroupServicesPanel';
 import { PreviewPanel } from './PreviewPanel';
@@ -47,7 +46,6 @@ type CatalogSection =
   | 'overview'
   | 'addOns'
   | 'groupServices'
-  | 'confirmation'
   | 'rules'
   | 'capabilities'
   | 'preview';
@@ -56,9 +54,8 @@ const SECTIONS: Array<{ id: CatalogSection; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'addOns', label: 'Add-ons & groups' },
   { id: 'groupServices', label: 'Group services' },
-  { id: 'confirmation', label: 'Booking confirmation' },
-  { id: 'rules', label: 'Rules' },
-  { id: 'capabilities', label: 'Capabilities & staff' },
+  { id: 'rules', label: 'Required add-ons & limits' },
+  { id: 'capabilities', label: 'Technician skills' },
   { id: 'preview', label: 'Preview & test' },
 ];
 
@@ -71,21 +68,16 @@ const OVERVIEW_CARDS: Array<{ id: CatalogSection; title: string; description: st
   {
     id: 'groupServices',
     title: 'Group services',
-    description: 'Turn related services into variants of one parent service.',
-  },
-  {
-    id: 'confirmation',
-    title: 'Booking confirmation',
-    description: 'Choose which services need your approval before they’re confirmed.',
+    description: 'Group related services so clients can choose a version.',
   },
   {
     id: 'rules',
-    title: 'Rules',
-    description: 'Bundle, hide, require, block, or limit add-ons for specific services.',
+    title: 'Required add-ons & limits',
+    description: 'Choose which extras must be included, cannot be combined, or have quantity limits.',
   },
   {
     id: 'capabilities',
-    title: 'Capabilities & staff',
+    title: 'Technician skills',
     description: 'Define skills and say which technicians have them.',
   },
   {
@@ -212,9 +204,9 @@ export function CatalogConfigTab({ salonSlug }: CatalogConfigTabProps) {
       {section === 'overview' && (
         <div className="space-y-3">
           <p className="text-[13px] leading-relaxed text-[#6B7280]">
-            Advanced catalog options for salons with variants, add-on
-            groups, or booking rules. Nothing here is required — your menu
-            works exactly as it does today until you use one of these.
+            Advanced Settings for salons with service options, add-on
+            groups, or booking rules. Use these when your menu needs more
+            options. Existing rules keep applying until you save a change.
           </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {OVERVIEW_CARDS.map(card => (
@@ -252,13 +244,6 @@ export function CatalogConfigTab({ salonSlug }: CatalogConfigTabProps) {
           )}
           {section === 'groupServices' && (
             <GroupServicesPanel
-              salonSlug={salonSlug}
-              services={services}
-              onRefresh={() => void loadAll()}
-            />
-          )}
-          {section === 'confirmation' && (
-            <BookingConfirmationPanel
               salonSlug={salonSlug}
               services={services}
               onRefresh={() => void loadAll()}

@@ -208,14 +208,14 @@ describe('Account & Plan — shared access and credits overview', () => {
     expect(source).not.toContain('ChoosePlanPanel');
   });
 
-  it('opens Usage & billing for the current salon without offering recurring plans', async () => {
+  it('opens Usage & SMS for the current salon without offering recurring plans', async () => {
     const { SettingsModal } = await import('./SettingsModal');
     render(<SettingsModal initialView="plan-billing" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     expect(screen.queryByText('Compare Plans')).not.toBeInTheDocument();
     expect(screen.queryByTestId('usage-billing-stub')).not.toBeInTheDocument();
 
-    const usageButton = await screen.findByRole('button', { name: 'Usage & billing' });
+    const usageButton = await screen.findByRole('button', { name: 'View SMS credits' });
 
     expect(screen.queryByRole('button', { name: 'Plans' })).not.toBeInTheDocument();
 

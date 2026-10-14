@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-import { getLatestAutopostFailure, getSalonPolicy, getSuperAdminPolicy } from '@/core/appointments/policyRepo';
+import { getSalonPolicy, getSuperAdminPolicy } from '@/core/appointments/policyRepo';
 import { requireAdminSalonForSlug } from '@/libs/adminAuth';
 
 import { SalonPoliciesClient } from './client';
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 export const metadata = {
   title: 'Policy Settings | Admin',
-  description: 'Configure photo requirements and auto-posting',
+  description: 'Configure appointment photo requirements',
 };
 
 /** The salon this page edits comes from the URL when the URL names one. */
@@ -84,20 +84,11 @@ export default async function SalonPoliciesPage({
   const salonId = salon.id;
   const salonName = salon.name;
 
-  // Fetch policies and latest failure
-  const [salonPolicy, superAdminPolicy, latestFailure] = await Promise.all([
+  // Load photo rules; social-provider diagnostics belong to retained platform tools.
+  const [salonPolicy, superAdminPolicy] = await Promise.all([
     getSalonPolicy(undefined, salonId),
     getSuperAdminPolicy(),
-    getLatestAutopostFailure(undefined, { salonId }),
   ]);
-
-  // Get Meta status from env (presence only, not values)
-  const metaStatus = {
-    hasSystemUserToken: !!process.env.META_SYSTEM_USER_TOKEN,
-    hasFacebookPageId: !!process.env.META_FACEBOOK_PAGE_ID,
-    hasInstagramAccountId: !!process.env.META_INSTAGRAM_ACCOUNT_ID,
-    graphVersion: process.env.META_GRAPH_VERSION ?? 'v19.0',
-  };
 
   return (
     <SalonPoliciesClient
@@ -121,15 +112,6 @@ export default async function SalonPoliciesPage({
       }}
       salonName={salonName}
       salonSlug={salon.slug}
-      metaStatus={metaStatus}
-      latestFailure={latestFailure
-        ? {
-            platform: latestFailure.platform,
-            error: latestFailure.error,
-            retryCount: latestFailure.retryCount,
-            processedAt: latestFailure.processedAt?.toISOString() ?? null,
-          }
-        : null}
       locale={locale}
     />
   );

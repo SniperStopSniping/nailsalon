@@ -7,7 +7,7 @@
  * These settings override all salon-level settings.
  */
 
-import { AlertCircle, Camera, Check, Loader2, Share2, Shield, Sparkles } from 'lucide-react';
+import { AlertCircle, Camera, Check, Loader2, Share2, Shield } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 
 // =============================================================================
@@ -231,33 +231,6 @@ export function SuperAdminPolicyForm({
             </select>
           </div>
 
-          {/* AI Caption */}
-          <div>
-            <div className="mb-1 flex items-center gap-2">
-              <Sparkles className="size-4 text-amber-500" />
-              <label htmlFor={`${fieldId}-ai-caption`} className="text-sm font-medium text-gray-700">
-                AI Caption
-              </label>
-            </div>
-            <select
-              id={`${fieldId}-ai-caption`}
-              value={policy.autoPostAiCaptionEnabled === null ? '' : policy.autoPostAiCaptionEnabled.toString()}
-              onChange={(e) => {
-                const val = e.target.value;
-                updatePolicy(
-                  'autoPostAiCaptionEnabled',
-                  val === '' ? null : val === 'true',
-                );
-              }}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-            >
-              {TOGGLE_OPTIONS.map(opt => (
-                <option key={opt.value === null ? 'null' : opt.value.toString()} value={opt.value === null ? '' : opt.value.toString()}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
       </div>
 
@@ -283,11 +256,6 @@ export function SuperAdminPolicyForm({
           <SummaryRow
             label="Auto-Post Enabled"
             value={policy.autoPostEnabled}
-            type="boolean"
-          />
-          <SummaryRow
-            label="AI Caption"
-            value={policy.autoPostAiCaptionEnabled}
             type="boolean"
           />
         </div>

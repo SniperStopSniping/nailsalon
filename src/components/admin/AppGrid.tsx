@@ -30,7 +30,6 @@ import {
   CalendarDays,
   ChevronRight,
   CreditCard,
-  Gift,
   HelpCircle,
   Images,
   LayoutTemplate,
@@ -108,7 +107,7 @@ const APPS: AppItem[] = [
   {
     id: 'team',
     name: 'Team',
-    description: 'People, services and permissions',
+    description: 'Profiles, schedules and services',
     icon: Shield,
   },
   {
@@ -122,12 +121,6 @@ const APPS: AppItem[] = [
     name: 'Integrations',
     description: 'Calendar and connection setup',
     icon: Plug,
-  },
-  {
-    id: 'rewards-reviews',
-    name: 'Rewards & Reviews',
-    description: 'Loyalty, referrals and review rewards',
-    icon: Gift,
   },
   {
     id: 'schedule',
@@ -179,8 +172,8 @@ const APPS: AppItem[] = [
   },
   {
     id: 'plan-usage',
-    name: 'Plan & Usage',
-    description: 'Core app access, billing and text credits',
+    name: 'Usage & SMS',
+    description: 'SMS credits, top-ups and billing records',
     icon: CreditCard,
   },
   {

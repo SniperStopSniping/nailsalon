@@ -92,7 +92,7 @@ test('mobile Settings exposes only secondary destinations and guards a dirty Acc
   await expect(page.getByRole('textbox', { name: 'Email' })).toHaveValue('daniela@example.com');
 
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Daniela D');
-  await page.getByRole('button', { name: 'Open Plan & Usage' }).click();
+  await page.getByRole('button', { name: 'Open Usage & SMS' }).click();
 
   await expect(page.getByRole('alertdialog')).toContainText('unsaved changes');
 
@@ -102,26 +102,26 @@ test('mobile Settings exposes only secondary destinations and guards a dirty Acc
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test('mobile Plan & Usage hosts billing presentation without opening the portal', async ({ page }, testInfo) => {
+test('mobile Usage & SMS hosts billing presentation without opening the portal', async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto('/?salon=salon-a&app=plan-usage');
 
   await expect(page.getByRole('button', { name: /compare plans/i })).toHaveCount(0);
 
   await page.screenshot({ path: testInfo.outputPath('plan-usage-mobile.png'), fullPage: true });
-  await page.getByRole('button', { name: /plan & billing/i }).click();
+  await page.getByRole('button', { name: /Billing records/i }).click();
 
   await expect(page).toHaveURL(/app=plan-usage&view=billing/);
   await expect(page.getByText('Stripe Billing')).toBeVisible();
   await expect(page.getByTestId('manage-billing-button')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Plan & Usage' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'View SMS credits' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Plans', exact: true })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Usage & billing', exact: true }).click();
+  await page.getByRole('button', { name: 'View SMS credits', exact: true }).click();
 
-  await expect(page.getByRole('dialog', { name: 'Usage & billing', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Usage & SMS', exact: true })).toBeVisible();
   await expect(page.getByText('138 SMS credits remaining')).toBeVisible();
-  await expect(page.getByText('Founding Salon · Free for life')).toBeVisible();
+  await expect(page.getByText('Core booking is free')).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -130,9 +130,9 @@ for (const lifetime of [true, false]) {
     await mockApi(page, lifetime);
     await page.goto('/?salon=salon-a&app=plan-usage&view=plans');
 
-    await expect(page.getByRole('dialog', { name: 'Usage & billing', exact: true })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Usage & SMS', exact: true })).toBeVisible();
     await expect(page.getByText('138 SMS credits remaining')).toBeVisible();
-    await expect(page.getByText('Founding Salon · Free for life')).toHaveCount(lifetime ? 1 : 0);
+    await expect(page.getByText('Core booking is free')).toHaveCount(1);
 
     for (const label of ['100 credits — $20.00', '200 credits — $30.00', '500 credits — $50.00']) {
       await expect(page.getByRole('button', { name: label, exact: true })).toBeEnabled();
@@ -142,10 +142,10 @@ for (const lifetime of [true, false]) {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
     await page.screenshot({ path: testInfo.outputPath('credits-overview-mobile.png'), fullPage: true });
-    await page.getByRole('button', { name: 'Close usage and billing', exact: true }).click();
+    await page.getByRole('button', { name: 'Close usage and SMS', exact: true }).click();
 
     await expect(page).toHaveURL(/salon=salon-a&app=plan-usage$/);
-    await expect(page.getByRole('button', { name: /messages & credits/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /SMS credits & top-ups/i })).toBeVisible();
   });
 }
 

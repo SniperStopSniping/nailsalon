@@ -43,7 +43,6 @@ import {
   Shield,
   Star,
   User,
-  Users,
 } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -78,7 +77,6 @@ import {
   resolveInstagramInput,
   toInstagramHandle,
 } from '@/libs/instagramHandle';
-import type { ResolvedLoyaltyPoints } from '@/libs/loyalty';
 import { ownerBillingReturnPath } from '@/libs/ownerNavigation';
 import { hasReviewedForfeitureTaxTreatment } from '@/libs/taxConfig';
 import type { SmsOperationalHealth } from '@/libs/textingStatus';
@@ -274,8 +272,6 @@ const MODULE_GROUPS: ReadonlyArray<{
     title: 'Marketing',
     modules: [
       { key: 'smsReminders', label: 'SMS Reminders', icon: MessageSquare, iconColor: 'bg-green-500' },
-      { key: 'referrals', label: 'Referrals', icon: Users, iconColor: 'bg-blue-500' },
-      { key: 'rewards', label: 'Rewards', icon: Gift, iconColor: 'bg-purple-500' },
     ],
   },
   {
@@ -1828,7 +1824,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'messages': 'Messages & Notifications',
   'advanced': 'Advanced',
   'account': 'Account',
-  'plan-billing': 'Plan & Billing',
+  'plan-billing': 'Usage & Billing',
   'location': 'Location',
   'branding': 'Branding',
   'booking-experience': 'Public booking experience',
@@ -2164,7 +2160,7 @@ export function SettingsModal({
   const [visibilitySaving, setVisibilitySaving] = useState(false);
   const [visibilityEntitled, setVisibilityEntitled] = useState(false);
 
-  // Usage & billing modal (Gate C4).
+  // Usage & SMS modal (Gate C4).
   const [showUsageBilling, setShowUsageBilling] = useState(false);
 
   // Owner profile state (Account view)
@@ -2183,15 +2179,7 @@ export function SettingsModal({
   const [portalOpening, setPortalOpening] = useState(false);
   const [portalError, setPortalError] = useState<string | null>(null);
 
-  // Programs state (Step 21E)
   const [programsLoading, setProgramsLoading] = useState(true);
-  const [programsSaving, setProgramsSaving] = useState(false);
-  const [reviewsEnabled, setReviewsEnabled] = useState(true);
-  const [rewardsEnabledProgram, setRewardsEnabledProgram] = useState(true);
-  const [_effectivePoints, setEffectivePoints]
-    = useState<ResolvedLoyaltyPoints | null>(null);
-  const [_defaultPoints, setDefaultPoints]
-    = useState<ResolvedLoyaltyPoints | null>(null);
   const [billingMode, setBillingMode] = useState<'NONE' | 'STRIPE'>('NONE');
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(
     null,
@@ -2454,10 +2442,6 @@ export function SettingsModal({
         setBookingPolicySaved(false);
         setBookingExperienceError(null);
         setBookingPolicyError(null);
-        setReviewsEnabled(data.reviewsEnabled ?? true);
-        setRewardsEnabledProgram(data.rewardsEnabled ?? true);
-        setEffectivePoints(data.effectivePoints ?? null);
-        setDefaultPoints(data.defaults ?? null);
         setBillingMode(data.billingMode ?? 'NONE');
         setSubscriptionStatus(data.subscriptionStatus ?? null);
         setBookingConfigForm({
@@ -2631,36 +2615,6 @@ export function SettingsModal({
       setBookingExperienceLoading(false);
     }
   }, [salonSlug]);
-
-  // Save programs toggle (Step 21E)
-  const saveProgramToggle = useCallback(
-    async (field: 'reviewsEnabled' | 'rewardsEnabled', value: boolean) => {
-      if (!salonSlug) {
-        return;
-      }
-
-      try {
-        setProgramsSaving(true);
-        const response = await fetch(
-          `/api/admin/salon/settings?salonSlug=${salonSlug}`,
-          {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ [field]: value }),
-          },
-        );
-
-        if (response.ok) {
-          router.refresh();
-        }
-      } catch (error) {
-        console.error('Failed to save program setting:', error);
-      } finally {
-        setProgramsSaving(false);
-      }
-    },
-    [salonSlug, router],
-  );
 
   const saveBookingConfig = useCallback(async () => {
     if (!salonSlug || bookingConfigSaving || !bookingConfigHydrated) {
@@ -3559,9 +3513,6 @@ export function SettingsModal({
       setPortalOpening(false);
     }
   };
-
-  const hasClientPrograms
-    = entitledModules.rewards || entitledModules.referrals;
 
   const saveCommunications = useCallback(async () => {
     if (!salonSlug || communicationsSaving) {
@@ -5190,9 +5141,9 @@ export function SettingsModal({
                   Sets the starting choice for new online bookings. Existing customer preferences and STOP requests are preserved. Promotional texts are separate.
                 </p>
                 <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
-                  Email confirmations and reminders are included with every plan.
-                  SMS access is included with every plan and uses Luster SMS credits.
-                  New businesses receive 100 starter credits once.
+                  Email confirmations and reminders are included.
+                  SMS uses your Luster credit balance. Additional credits are optional one-time purchases.
+                  Eligible new businesses can claim 100 starter SMS credits once after verification.
                   You can save preferences while texting is paused or setup is incomplete.
                 </p>
               </div>
@@ -5850,54 +5801,6 @@ export function SettingsModal({
               </Section>
             )}
 
-            {/* Programs (Step 21E) */}
-            {hasClientPrograms && (
-              <Section
-                title="Programs"
-                footer="Control whether reviews and rewards programs are available. Offer values live in Marketing, and Google review-request automation is configured separately in Marketing & Messages."
-              >
-                {programsLoading
-                  ? (
-                      <div className="flex items-center justify-center py-8">
-                        <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
-                      </div>
-                    )
-                  : (
-                      <>
-                        {/* Program Toggles */}
-                        <Row
-                          icon={MessageSquare}
-                          iconColor="bg-purple-500"
-                          label="Reviews"
-                          type="toggle"
-                          defaultOn={reviewsEnabled}
-                          onToggle={(value) => {
-                            setReviewsEnabled(value);
-                            saveProgramToggle('reviewsEnabled', value);
-                          }}
-                        />
-                        <Row
-                          icon={Gift}
-                          iconColor="bg-green-500"
-                          label="Rewards Program"
-                          type="toggle"
-                          defaultOn={rewardsEnabledProgram}
-                          onToggle={(value) => {
-                            setRewardsEnabledProgram(value);
-                            saveProgramToggle('rewardsEnabled', value);
-                          }}
-                          isLast
-                        />
-
-                        {programsSaving && (
-                          <div className="flex items-center justify-center py-2 text-xs text-[var(--owner-muted)]">
-                            Saving...
-                          </div>
-                        )}
-                      </>
-                    )}
-              </Section>
-            )}
           </>
         )}
 
@@ -6081,8 +5984,8 @@ export function SettingsModal({
             </Section>
 
             <Section
-              title="Plan & Usage"
-              footer="Your core app access, billing and text credits are managed together in Plan & Usage."
+              title="Usage & SMS"
+              footer="Your core app access, billing and text credits are managed together in Usage & SMS."
             >
               <div className="p-4">
                 <button
@@ -6091,7 +5994,7 @@ export function SettingsModal({
                   className="owner-action min-h-12 gap-2"
                 >
                   <CreditCard className="size-4" />
-                  Open Plan & Usage
+                  Open Usage & SMS
                 </button>
               </div>
             </Section>
@@ -6099,21 +6002,21 @@ export function SettingsModal({
         )}
 
         {view === 'plan-billing' && (bookingConfigLoading
-          ? <p className="p-4" role="status">Loading plan and billing…</p>
+          ? <p className="p-4" role="status">Loading billing…</p>
           : !bookingConfigHydrated
               ? (
                   <div className="space-y-3 p-4" data-testid="plan-billing-unavailable">
-                    <p role="alert">Could not load your plan and billing status. Try again before managing billing.</p>
+                    <p role="alert">Could not load your billing status. Try again before managing billing.</p>
                     <button type="button" className="min-h-11 rounded-xl border px-4" onClick={() => void fetchPrograms()}>Try again</button>
                   </div>
                 )
               : (
                   <Section
-                    title="Luster plan & billing"
+                    title="Billing records"
                     footer={
                       billingMode === 'STRIPE'
                         ? 'Manage billing opens the secure Stripe portal for payment details, invoices and any existing billing agreements. Additional texts are one-time purchases; no subscription is required.'
-                        : 'View your core app access and text credits in Usage & billing. Additional texts are one-time purchases; no subscription is required.'
+                        : 'Core booking is free. View text credits in Usage & SMS. Additional texts are one-time purchases; no subscription is required.'
                     }
                   >
                     <div className="space-y-3 p-4">
@@ -6166,7 +6069,7 @@ export function SettingsModal({
                           onClick={() => setShowUsageBilling(true)}
                           className="owner-action min-h-12"
                         >
-                          Usage & billing
+                          View SMS credits
                         </button>
                       </div>
                     </div>
@@ -6175,7 +6078,7 @@ export function SettingsModal({
         )}
       </div>
 
-      {/* Usage & billing (Gate C4) */}
+      {/* Usage & SMS (Gate C4) */}
       {showUsageBilling && salonSlug && (
         <UsageBillingModal
           salonSlug={salonSlug}

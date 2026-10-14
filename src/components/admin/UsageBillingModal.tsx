@@ -425,11 +425,11 @@ function UsageBillingOverview({ salonSlug, onClose }: UsageBillingModalProps) {
     >
       <div role="dialog" aria-modal="true" aria-labelledby="usage-billing-title" className="flex max-h-[90vh] flex-col text-[var(--owner-ink)]">
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--owner-line)] px-5 py-4">
-          <h2 id="usage-billing-title" className="owner-title text-[30px] text-[var(--owner-ink)]">Usage & billing</h2>
+          <h2 id="usage-billing-title" className="owner-title text-[30px] text-[var(--owner-ink)]">Usage & SMS</h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close usage and billing"
+            aria-label="Close usage and SMS"
             className="flex size-11 shrink-0 items-center justify-center rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] transition-colors hover:bg-[var(--owner-blush)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--owner-focus)] motion-reduce:transition-none"
           >
             <X className="size-4 text-[var(--owner-muted)]" />
@@ -459,7 +459,10 @@ function UsageBillingOverview({ salonSlug, onClose }: UsageBillingModalProps) {
                       : 'rounded-lg bg-amber-50 p-3 text-sm text-amber-800'
                   }
                 >
+                  Existing SMS agreement:
+                  {' '}
                   {usage.plan.entitlement.label}
+                  . Core booking remains free.
                 </p>
               )}
 
@@ -539,19 +542,17 @@ function UsageBillingOverview({ salonSlug, onClose }: UsageBillingModalProps) {
               )}
 
               <section aria-labelledby="plan-heading" className="owner-card space-y-3 p-5">
-                <h3 id="plan-heading" className="text-base font-semibold text-[var(--owner-ink)]">{usage.coreAccess ? 'Core app & optional usage' : 'Plan'}</h3>
-                {usage.coreAccess?.status === 'active' && (
-                  <div className="rounded-2xl bg-[var(--owner-blush)] p-4 text-sm leading-relaxed text-[var(--owner-ink)]">
-                    <p className="font-semibold">Founding Salon · Free for life</p>
-                    <p className="mt-1">$0/month for the core Luster app. Unlimited emails included.</p>
-                    <p className="mt-1 text-[var(--owner-muted)]">Additional texts are optional one-time purchases. Purchased texts never expire. No subscription required.</p>
-                  </div>
-                )}
+                <h3 id="plan-heading" className="text-base font-semibold text-[var(--owner-ink)]">Free booking & optional SMS</h3>
+                <div className="rounded-2xl bg-[var(--owner-blush)] p-4 text-sm leading-relaxed text-[var(--owner-ink)]">
+                  <p className="font-semibold">Core booking is free</p>
+                  <p className="mt-1">No mandatory monthly subscription for core booking. Email confirmations and reminders are included.</p>
+                  <p className="mt-1 text-[var(--owner-muted)]">Additional texts are optional one-time purchases. Purchased texts never expire. No subscription required.</p>
+                </div>
                 {usage.plan === null
-                  ? <p className="text-sm text-[var(--owner-muted)]">{usage.coreAccess ? 'No text subscription. Your included and purchased text credits remain available.' : 'No subscription — starter and purchased credits only.'}</p>
+                  ? <p className="text-sm text-[var(--owner-muted)]">No text subscription. Eligible new businesses can claim 100 starter SMS credits once after verification.</p>
                   : (
                       <p className="text-sm text-[var(--owner-muted)]">
-                        {usage.coreAccess && 'Optional text subscription: '}
+                        Existing text subscription:
                         {usage.plan.displayName}
                         {' '}
                         (

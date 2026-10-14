@@ -9,7 +9,7 @@
  *   if (!FEATURE_FLAGS.ENABLE_AUTOPOST_GLOBAL) return;
  *
  * To disable autopost globally:
- *   Set ENABLE_AUTOPOST_GLOBAL=false in environment
+ *   Leave ENABLE_AUTOPOST_GLOBAL unset or false in environment
  *
  * To adjust rate limits:
  *   Set MAX_PRESIGNS_PER_HOUR=100 in environment
@@ -23,9 +23,9 @@ export const FEATURE_FLAGS = {
   /**
    * Global kill switch for autopost worker.
    * Set to 'false' to stop all autopost processing.
-   * Default: true (enabled)
+   * Default: false. Future integration infrastructure requires explicit opt-in.
    */
-  ENABLE_AUTOPOST_GLOBAL: process.env.ENABLE_AUTOPOST_GLOBAL !== 'false',
+  ENABLE_AUTOPOST_GLOBAL: process.env.ENABLE_AUTOPOST_GLOBAL === 'true',
 
   /**
    * Enable dev tools and demo routes.

@@ -1257,7 +1257,7 @@ describe('SettingsModal index', () => {
     fireEvent.click(await screen.findByText('Account'));
     await screen.findByDisplayValue('daniela@example.com');
     fireEvent.change(screen.getByDisplayValue('Daniela'), { target: { value: 'First draft' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Open Plan & Usage' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Usage & SMS' }));
 
     expect(await screen.findByRole('button', { name: 'Discard' })).toBeInTheDocument();
     expect(onOpenApp).not.toHaveBeenCalled();

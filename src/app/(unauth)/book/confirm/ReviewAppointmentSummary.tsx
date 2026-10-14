@@ -1,6 +1,6 @@
 'use client';
 
-import { Calendar, MapPin, Pencil, Sparkles } from 'lucide-react';
+import { Calendar, MapPin, Pencil } from 'lucide-react';
 import Image from 'next/image';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -20,8 +20,6 @@ type ReviewAppointmentSummaryProps = {
   totalDuration: number;
   location: LocationSummary;
   currency: string;
-  rewardsEnabled: boolean;
-  pointsEarned: number;
   disabled: boolean;
   onEdit: () => void;
 };
@@ -57,7 +55,7 @@ function reviewAddress(location: NonNullable<LocationSummary>) {
   return result.join(', ');
 }
 
-export function ReviewAppointmentSummary({ services, addOns, technician, dateStr, timeStr, totalDuration, location, currency, rewardsEnabled, pointsEarned, disabled, onEdit }: ReviewAppointmentSummaryProps) {
+export function ReviewAppointmentSummary({ services, addOns, technician, dateStr, timeStr, totalDuration, location, currency, disabled, onEdit }: ReviewAppointmentSummaryProps) {
   const t = useTranslations('BookingConfirmation');
   const params = useParams();
   const locale = params?.locale === 'fr' ? 'fr-CA' : 'en-CA';
@@ -92,7 +90,7 @@ export function ReviewAppointmentSummary({ services, addOns, technician, dateStr
           <Calendar aria-hidden="true" className="size-5" />
         </div>
         <div className="min-w-0 flex-1 basis-[100px]">
-          <p className="break-words font-heading text-xl font-semibold leading-7">{dateLabel}</p>
+          <p className="font-heading break-words text-xl font-semibold leading-7">{dateLabel}</p>
           <p className="break-words text-lg font-semibold leading-6">{timeLabel}</p>
         </div>
         <button type="button" onClick={onEdit} disabled={disabled} className="ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg px-2 text-sm font-semibold underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-60">
@@ -135,12 +133,6 @@ export function ReviewAppointmentSummary({ services, addOns, technician, dateStr
         )}
         {addOns.some(addOn => addOn.priceMode === 'manual_confirmation') && (
           <p data-testid="booking-manual-price-note" className="text-sm leading-5">{t('review_manual_price_note')}</p>
-        )}
-        {rewardsEnabled && (
-          <p className="inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium leading-5" style={{ backgroundColor: 'color-mix(in srgb, var(--n5-accent) 8%, var(--n5-bg-card))' }}>
-            <Sparkles aria-hidden="true" className="size-4 shrink-0" />
-            <span>{t('review_points', { points: pointsEarned.toLocaleString(locale) })}</span>
-          </p>
         )}
       </div>
     </section>

@@ -309,7 +309,7 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
-        label="Rewards & reviews"
+        label="Client reviews"
         isOpen={activeModal === 'rewards-reviews' || activeModal === 'rewards' || activeModal === 'reviews'}
         onClose={onCloseModal}
       >

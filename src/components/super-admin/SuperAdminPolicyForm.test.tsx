@@ -15,7 +15,7 @@ const policy = {
   autoPostEnabled: null,
   autoPostAiCaptionEnabled: null,
 };
-const labels = ['Before Photo to Start', 'After Photo to Finish', 'After Photo to Pay', 'Enable Auto-Post', 'AI Caption'];
+const labels = ['Before Photo to Start', 'After Photo to Finish', 'After Photo to Pay', 'Enable Auto-Post'];
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe('platform policy accessibility', () => {
-  it('names all five selects through their visible labels and preserves no-override defaults', () => {
+  it('names all four supported selects through their visible labels and preserves no-override defaults', () => {
     render(<SuperAdminPolicyForm initialPolicy={policy} onSave={vi.fn()} />);
 
     for (const label of labels) {
@@ -44,14 +44,14 @@ describe('platform policy accessibility', () => {
     );
     const fields = screen.getAllByRole('combobox');
 
-    expect(new Set(fields.map(field => field.id)).size).toBe(10);
+    expect(new Set(fields.map(field => field.id)).size).toBe(8);
 
     for (const label of labels) {
       expect(screen.getAllByLabelText(label, { exact: true })).toHaveLength(2);
     }
   });
 
-  it('preserves the five policy values submitted through the labelled controls', async () => {
+  it('preserves the visible policy values and hidden legacy setting submitted through the labelled controls', async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     render(<SuperAdminPolicyForm initialPolicy={policy} onSave={save} />);
     const values = ['required', 'optional', 'off', 'true', 'false'];
@@ -60,7 +60,7 @@ describe('platform policy accessibility', () => {
     }
     fireEvent.click(screen.getByRole('button', { name: 'Save Global Overrides' }));
 
-    await waitFor(() => expect(save).toHaveBeenCalledWith({ requireBeforePhotoToStart: 'required', requireAfterPhotoToFinish: 'optional', requireAfterPhotoToPay: 'off', autoPostEnabled: true, autoPostAiCaptionEnabled: false }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ requireBeforePhotoToStart: 'required', requireAfterPhotoToFinish: 'optional', requireAfterPhotoToPay: 'off', autoPostEnabled: true, autoPostAiCaptionEnabled: null }));
 
     expect(await screen.findByRole('button', { name: 'Saved!' })).toBeEnabled();
   });

@@ -2330,7 +2330,7 @@ describe('BookConfirmClient', () => {
     expect(calendar).toHaveFocus();
   });
 
-  it('keeps passive earned-points context without exposing a rewards account action', async () => {
+  it('does not promise unfinished loyalty points or expose retired account actions', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: {
         appointment: {
@@ -2358,7 +2358,7 @@ describe('BookConfirmClient', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     expect(await screen.findByText('Appointment confirmed')).toBeInTheDocument();
-    expect(screen.getByText(/estimated reward after completion:/i)).toBeInTheDocument();
+    expect(screen.queryByText(/estimated reward after completion:|estimated.*points/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /view rewards/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /view rewards/i })).not.toBeInTheDocument();
   });
