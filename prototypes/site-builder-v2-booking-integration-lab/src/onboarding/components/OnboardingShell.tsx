@@ -63,7 +63,7 @@ export function OnboardingShell({
   const closeMore = useCallback((restoreFocus = false) => {
     setMoreOpen(false);
     if (restoreFocus) {
-      window.requestAnimationFrame(() => moreTriggerRef.current?.focus());
+      window.requestAnimationFrame(() => moreTriggerRef.current?.focus({ preventScroll: true }));
     }
   }, []);
 
@@ -85,7 +85,7 @@ export function OnboardingShell({
       menuItems?.forEach((item) => {
         item.tabIndex = item === target ? 0 : -1;
       });
-      target?.focus();
+      target?.focus({ preventScroll: true });
     });
     const handlePointerDown = (event: PointerEvent) => {
       if (!moreRef.current?.contains(event.target as Node)) {
@@ -161,7 +161,7 @@ export function OnboardingShell({
     menuItems.forEach((item, index) => {
       item.tabIndex = index === nextIndex ? 0 : -1;
     });
-    menuItems[nextIndex]?.focus();
+    menuItems[nextIndex]?.focus({ preventScroll: true });
   }, [closeMore]);
 
   return (

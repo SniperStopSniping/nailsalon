@@ -50,6 +50,7 @@ export function DeviceSetupRecovery({ beforeSwitch, email, onMenuAction, onSwitc
       {previous
         ? (
             <button
+              aria-haspopup="dialog"
               className={onMenuAction ? undefined : 'onboarding-integration-secondary'}
               role={onMenuAction ? 'menuitem' : undefined}
               tabIndex={onMenuAction ? -1 : undefined}

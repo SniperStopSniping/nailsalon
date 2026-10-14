@@ -151,8 +151,21 @@ for (const width of [320, 390, 430]) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     }
 
-    await page.getByRole('button', { name: 'More onboarding options' }).click();
-    await page.getByRole('menuitem', { name: 'Previous setups on this device (1)' }).click();
+    await page.evaluate(async () => {
+      window.scrollTo({ top: 280, behavior: 'instant' });
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+    const scrollBeforeRecovery = await page.evaluate(() => window.scrollY);
+    // Native keyboard input avoids the automation driver's scrollIntoView on
+    // sticky controls, and exercises the menu's own focus management.
+    await page.getByRole('button', { name: 'More onboarding options' }).evaluate(element => element.focus({ preventScroll: true }));
+    await page.keyboard.press('Enter');
+
+    await expect(page.getByRole('menuitem', { name: 'Save and finish later' })).toBeFocused();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrollBeforeRecovery);
+
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
 
     const recovery = page.getByRole('dialog', { name: 'Previous setups on this device', exact: true });
 
@@ -167,6 +180,7 @@ for (const width of [320, 390, 430]) {
     await recovery.getByRole('button', { name: 'Close previous setups' }).click();
 
     await expect(page.getByRole('button', { name: 'More onboarding options' })).toBeFocused();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrollBeforeRecovery);
     expect(await readDraftContent(page)).toEqual(draftBefore);
     expect(await page.evaluate(key => localStorage.getItem(key), DEVICE_SETUPS_KEY)).toEqual(keptBefore);
   });
