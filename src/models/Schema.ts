@@ -5643,3 +5643,78 @@ export const networkNoShowAuditSchema = pgTable('network_no_show_audit', {
   eventHistory: index('network_no_show_audit_event_history').on(table.eventId, table.createdAt),
   salonReadHistory: index('network_no_show_audit_salon_history').on(table.salonId, table.createdAt),
 }));
+
+// AI and manual setup share one immutable draft history. Canonical booking rows
+// remain the only live service/schedule authority.
+export const businessSetupWorkspaceSchema = pgTable('business_setup_workspace', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  headRevision: integer('head_revision').notNull(),
+  baselineHash: text('baseline_hash').notNull(),
+  baseline: jsonb('baseline').$type<import('../features/business-setup/contracts').SetupDocument>().notNull(),
+  status: text('status').$type<'editing' | 'published'>().notNull().default('editing'),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+}, table => ({ salonUnique: uniqueIndex('business_setup_workspace_salon_key').on(table.salonId), tenantKey: uniqueIndex('business_setup_workspace_tenant_key').on(table.salonId, table.id) }));
+
+export const businessSetupRevisionSchema = pgTable('business_setup_revision', {
+  salonId: text('salon_id').notNull(),
+  workspaceId: text('workspace_id').notNull(),
+  revision: integer('revision').notNull(),
+  operationId: text('operation_id').notNull(),
+  operationHash: text('operation_hash').notNull(),
+  document: jsonb('document').$type<import('../features/business-setup/contracts').SetupDocument>().notNull(),
+  actorId: text('actor_id').notNull(),
+  origin: text('origin').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+}, table => ({
+  pk: primaryKey({ columns: [table.workspaceId, table.revision] }),
+  operationUnique: uniqueIndex('business_setup_revision_operation_key').on(table.workspaceId, table.operationId),
+  tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade'),
+}));
+
+export const businessSetupApprovalSchema = pgTable('business_setup_approval', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  workspaceId: text('workspace_id').notNull(),
+  revision: integer('revision').notNull(),
+  manifestHash: text('manifest_hash').notNull(),
+  actorId: text('actor_id').notNull(),
+  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+}, table => ({ tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade') }));
+
+export const businessSetupPublicationSchema = pgTable('business_setup_publication', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  workspaceId: text('workspace_id').notNull(),
+  revision: integer('revision').notNull(),
+  operationId: text('operation_id').notNull(),
+  approvalId: text('approval_id').notNull(),
+  actorId: text('actor_id').notNull(),
+  serviceIds: jsonb('service_ids').$type<Record<string, string>>().notNull(),
+  publishedAt: timestamp('published_at', { mode: 'date' }).defaultNow().notNull(),
+  mediaFinalized: boolean('media_finalized').notNull().default(false),
+}, table => ({
+  revisionUnique: uniqueIndex('business_setup_publication_revision_key').on(table.workspaceId, table.revision),
+  operationUnique: uniqueIndex('business_setup_publication_operation_key').on(table.salonId, table.operationId),
+  tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade'),
+}));
+
+export const businessSetupTurnSchema = pgTable('business_setup_turn', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  workspaceId: text('workspace_id').notNull(),
+  actorId: text('actor_id').notNull(),
+  expectedRevision: integer('expected_revision').notNull(),
+  requestHash: text('request_hash').notNull(),
+  message: text('message').notNull(),
+  reply: text('reply'),
+  operations: jsonb('operations').$type<import('../features/business-setup/contracts').SetupOperation[]>(),
+  status: text('status').$type<'pending' | 'generated' | 'completed' | 'failed'>().notNull(),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  costMicroUsd: integer('cost_micro_usd'),
+  leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date' }).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+}, table => ({ tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade') }));

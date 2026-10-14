@@ -1,3 +1,4 @@
+import { hasEditingSetup } from '@/features/business-setup/manual-website.server';
 import { requireAdminOwner } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
 import { hasUnpublishedBookingPageChanges, resolveBookingPageConfig } from '@/libs/bookingPageConfig';
@@ -63,6 +64,9 @@ export async function POST(request: Request) {
 
   // One locked transaction publishes the saved draft and makes it public.
   // Repeated requests leave subsequent unpublished edits and timestamps alone.
+  if (await hasEditingSetup(salon.id)) {
+    return Response.json({ error: { code: 'SETUP_REVIEW_REQUIRED', message: 'Review your website and business setup together before publishing.' } }, { status: 409 });
+  }
   let result;
   try {
     result = await publishWebsite(salon.id);

@@ -1,6 +1,12 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/features/business-setup/manual-website.server', () => ({
+  editSharedSetupWebsite: vi.fn(async () => false),
+  hasEditingSetup: vi.fn(async () => false),
+  getSetupEditingRevision: vi.fn(async () => null),
+}));
+
 const { requireAdminOwner, getSalonBySlug, logAuditEvent, publishWebsite } = vi.hoisted(() => ({
   requireAdminOwner: vi.fn(),
   getSalonBySlug: vi.fn(),
