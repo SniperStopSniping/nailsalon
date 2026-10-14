@@ -42,7 +42,7 @@ export function ServiceAddOnSummary({
       <div className="flex items-center gap-2">
         <Sparkles aria-hidden="true" className="size-4 shrink-0 text-[var(--owner-accent)]" />
         <h3 className="text-[14px] font-semibold text-[var(--owner-ink)]">
-          {optional ? 'Add-ons' : 'Add-ons for this service'}
+          {optional ? 'Add-ons' : 'Add-ons offered with this service'}
         </h3>
         {optional && (
           <span className="rounded-full bg-[var(--owner-ground)] px-2 py-0.5 text-[11px] font-medium text-[var(--owner-muted)]">
@@ -70,6 +70,8 @@ export function ServiceAddOnSummary({
                 : 'Let clients choose extras with this appointment.'}
             </p>
           )}
+
+      <p className="mt-2 text-[12px] leading-5 text-[var(--owner-muted)]">Clients can choose these extras unless an Advanced Settings rule requires them. Required groups must be selected; automatically included add-ons are added by the booking rules.</p>
 
       {error && (
         <p

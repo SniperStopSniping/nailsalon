@@ -51,7 +51,7 @@ describe('owner navigation aliases', () => {
     expect(original.get('app')).toBe('settings');
   });
 
-  it('moves legacy Settings plan billing to Plan & Usage while retaining context', () => {
+  it('moves legacy Settings plan billing to Usage & SMS while retaining context', () => {
     const resolved = resolveOwnerNavigationAlias(new URLSearchParams('salon=isla&app=settings&view=plan-billing&returnTo=calendar'));
 
     expect(resolved?.toString()).toBe('salon=isla&app=plan-usage&returnTo=calendar&view=billing');

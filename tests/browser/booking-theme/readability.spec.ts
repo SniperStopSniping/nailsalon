@@ -78,12 +78,17 @@ test('reduced motion makes opacity changes immediate without a stale transition 
 
 test('the confirmed receipt keeps the salon appearance', async ({ page }) => {
   await page.goto('/?palette=black_champagne&step=confirm');
+
+  await expect(page.getByText(/estimated.*points|reward after completion/i)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /log in|rewards|membership|referrals/i })).toHaveCount(0);
+
   await page.getByRole('textbox', { name: 'Customer name' }).fill('Test Client');
   await page.getByRole('textbox', { name: 'Customer email' }).fill('client@example.test');
   await page.getByRole('textbox', { name: 'Customer phone' }).fill('4165550123');
   await page.getByRole('button', { name: /Confirm appointment/ }).click();
 
   await expect(page.getByTestId('booking-result-receipt')).toBeVisible();
+  await expect(page.getByText(/estimated.*points|reward after completion/i)).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Appointment confirmed' })).toHaveCSS('color', 'rgb(255, 247, 232)');
 });
 

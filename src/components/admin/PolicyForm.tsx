@@ -3,11 +3,11 @@
 /**
  * Salon Policy Form Component
  *
- * Form for salon admins to configure photo requirements and auto-post settings.
+ * Form for salon admins to configure appointment photo requirements.
  * Shows effective policy preview with source badges.
  */
 
-import { AlertCircle, Camera, Check, Facebook, Instagram, Loader2, Share2, Sparkles } from 'lucide-react';
+import { AlertCircle, Camera, Check, Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { resolveEffectivePolicy } from '@/core/appointments/policyResolver';
@@ -84,7 +84,6 @@ export function SalonPolicyForm({
   superAdminPolicy,
   salonName,
   onSave,
-  section = 'all',
 }: PolicyFormProps) {
   const [policy, setPolicy] = useState<SalonPolicy>(initialSalonPolicy);
   const [saving, setSaving] = useState(false);
@@ -128,22 +127,11 @@ export function SalonPolicyForm({
     setSaving(true);
     setError(null);
     try {
-      const ownedPolicy = section === 'photos'
-        ? {
-            requireAfterPhotoToFinish: policy.requireAfterPhotoToFinish,
-            requireAfterPhotoToPay: policy.requireAfterPhotoToPay,
-            requireBeforePhotoToStart: policy.requireBeforePhotoToStart,
-          }
-        : section === 'social'
-          ? {
-              autoPostAiCaptionEnabled: policy.autoPostAiCaptionEnabled,
-              autoPostEnabled: policy.autoPostEnabled,
-              autoPostIncludeBrand: policy.autoPostIncludeBrand,
-              autoPostIncludeColor: policy.autoPostIncludeColor,
-              autoPostIncludePrice: policy.autoPostIncludePrice,
-              autoPostPlatforms: policy.autoPostPlatforms,
-            }
-          : policy;
+      const ownedPolicy = {
+        requireAfterPhotoToFinish: policy.requireAfterPhotoToFinish,
+        requireAfterPhotoToPay: policy.requireAfterPhotoToPay,
+        requireBeforePhotoToStart: policy.requireBeforePhotoToStart,
+      };
 
       await onSave(ownedPolicy);
       setSaved(true);
@@ -158,15 +146,6 @@ export function SalonPolicyForm({
     setPolicy(prev => ({ ...prev, [key]: value }));
   };
 
-  const togglePlatform = (platform: AutoPostPlatform) => {
-    setPolicy(prev => ({
-      ...prev,
-      autoPostPlatforms: prev.autoPostPlatforms.includes(platform)
-        ? prev.autoPostPlatforms.filter(p => p !== platform)
-        : [...prev.autoPostPlatforms, platform],
-    }));
-  };
-
   // Check if a field is overridden by super admin
   const isOverridden = (field: keyof SuperAdminPolicy) => {
     const saValue = superAdminPolicy[field];
@@ -179,11 +158,7 @@ export function SalonPolicyForm({
       <div className="rounded-xl bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-gray-900">What these rules do</h2>
         <p className="mt-1 text-sm text-gray-500">
-          {section === 'photos'
-            ? 'Choose when your team must take appointment photos for '
-            : section === 'social'
-              ? 'Choose how finished work can be posted to social media for '
-              : 'Choose appointment photo requirements and social posting for '}
+          Choose when appointment photos are needed for
           {' '}
           {salonName}
           .
@@ -191,7 +166,7 @@ export function SalonPolicyForm({
       </div>
 
       {/* Photo Requirements Section */}
-      {section !== 'social' && (
+      {(
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
             <Camera className="size-5 text-blue-500" />
@@ -265,148 +240,6 @@ export function SalonPolicyForm({
         </div>
       )}
 
-      {/* Auto-Post Section */}
-      {section !== 'photos' && (
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2">
-            <Share2 className="size-5 text-purple-500" />
-            <h3 className="font-semibold text-gray-900">Auto-Post Settings</h3>
-          </div>
-
-          <div className="space-y-4">
-            {/* Enable Auto-Post */}
-            <div className="flex items-center justify-between">
-              <div>
-                <span id="policy-autoPostEnabled-label" className="text-sm font-medium text-gray-700">
-                  Enable Auto-Post
-                </span>
-                <p className="text-xs text-gray-500">Automatically post after photos to social media</p>
-              </div>
-              <button
-                aria-labelledby="policy-autoPostEnabled-label"
-                type="button"
-                onClick={() => updatePolicy('autoPostEnabled', !policy.autoPostEnabled)}
-                disabled={isOverridden('autoPostEnabled')}
-                className={`relative h-7 w-12 rounded-full transition-colors ${
-                  policy.autoPostEnabled ? 'bg-green-500' : 'bg-gray-300'
-                } ${isOverridden('autoPostEnabled') ? 'cursor-not-allowed opacity-50' : ''}`}
-              >
-                <span
-                  className={`absolute top-0.5 size-6 rounded-full bg-white shadow transition-transform ${
-                    policy.autoPostEnabled ? 'translate-x-5' : 'translate-x-0.5'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Platforms */}
-            {policy.autoPostEnabled && (
-              <>
-                <div className="border-t pt-2">
-                  <label htmlFor="policy-autoPostIncludePrice" className="mb-2 block text-sm font-medium text-gray-700">
-                    Platforms
-                  </label>
-                  <div className="flex gap-3">
-                    <button
-                      type="button"
-                      onClick={() => togglePlatform('instagram')}
-                      className={`flex items-center gap-2 rounded-lg border px-4 py-2 transition-colors ${
-                        policy.autoPostPlatforms.includes('instagram')
-                          ? 'border-pink-300 bg-pink-50 text-pink-700'
-                          : 'border-gray-200 bg-gray-50 text-gray-600'
-                      }`}
-                    >
-                      <Instagram className="size-4" />
-                      Instagram
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => togglePlatform('facebook')}
-                      className={`flex items-center gap-2 rounded-lg border px-4 py-2 transition-colors ${
-                        policy.autoPostPlatforms.includes('facebook')
-                          ? 'border-blue-300 bg-blue-50 text-blue-700'
-                          : 'border-gray-200 bg-gray-50 text-gray-600'
-                      }`}
-                    >
-                      <Facebook className="size-4" />
-                      Facebook
-                    </button>
-                  </div>
-                </div>
-
-                {/* Caption Options */}
-                <div className="border-t pt-2">
-                  <p id="policy-caption-options-label" className="mb-2 block text-sm font-medium text-gray-700">
-                    Caption Options
-                  </p>
-                  <div className="space-y-2">
-                    <label htmlFor="policy-autoPostIncludePrice" className="flex items-center gap-2">
-                      <input
-                        id="policy-autoPostIncludePrice"
-                        type="checkbox"
-                        checked={policy.autoPostIncludePrice}
-                        onChange={e => updatePolicy('autoPostIncludePrice', e.target.checked)}
-                        className="size-4 rounded border-gray-300"
-                      />
-                      <span className="text-sm text-gray-700">Include price</span>
-                    </label>
-                    <label htmlFor="policy-autoPostIncludeColor" className="flex items-center gap-2">
-                      <input
-                        id="policy-autoPostIncludeColor"
-                        type="checkbox"
-                        checked={policy.autoPostIncludeColor}
-                        onChange={e => updatePolicy('autoPostIncludeColor', e.target.checked)}
-                        className="size-4 rounded border-gray-300"
-                      />
-                      <span className="text-sm text-gray-700">Include color</span>
-                    </label>
-                    <label htmlFor="policy-autoPostIncludeBrand" className="flex items-center gap-2">
-                      <input
-                        id="policy-autoPostIncludeBrand"
-                        type="checkbox"
-                        checked={policy.autoPostIncludeBrand}
-                        onChange={e => updatePolicy('autoPostIncludeBrand', e.target.checked)}
-                        className="size-4 rounded border-gray-300"
-                      />
-                      <span className="text-sm text-gray-700">Include brand</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* AI Caption */}
-                <div className="flex items-center justify-between border-t pt-2">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="size-4 text-amber-500" />
-                    <div>
-                      <span id="policy-autoPostAiCaptionEnabled-label" className="text-sm font-medium text-gray-700">
-                        AI Caption
-                      </span>
-                      <p className="text-xs text-gray-500">Generate captions with AI</p>
-                    </div>
-                  </div>
-                  <button
-                    aria-labelledby="policy-autoPostAiCaptionEnabled-label"
-                    type="button"
-                    onClick={() => updatePolicy('autoPostAiCaptionEnabled', !policy.autoPostAiCaptionEnabled)}
-                    disabled={isOverridden('autoPostAiCaptionEnabled')}
-                    className={`relative h-7 w-12 rounded-full transition-colors ${
-                      policy.autoPostAiCaptionEnabled ? 'bg-amber-500' : 'bg-gray-300'
-                    } ${isOverridden('autoPostAiCaptionEnabled') ? 'cursor-not-allowed opacity-50' : ''}`}
-                  >
-                    <span
-                      className={`absolute top-0.5 size-6 rounded-full bg-white shadow transition-transform ${
-                        policy.autoPostAiCaptionEnabled ? 'translate-x-5' : 'translate-x-0.5'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Effective Policy Preview */}
       <div className="rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-purple-50 p-5">
         <h3 className="mb-3 font-semibold text-gray-900">What is enforced right now</h3>
         <p className="mb-4 text-xs text-gray-500">
@@ -415,94 +248,49 @@ export function SalonPolicyForm({
         </p>
 
         <div className="space-y-2 text-sm">
-          {section !== 'social' && (
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">Before Photo to Start</span>
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{effectivePolicy.requireBeforePhotoToStart}</span>
-                <SourceBadge
-                  source={getSourceBadge(
-                    'requireBeforePhotoToStart',
-                    policy.requireBeforePhotoToStart,
-                    superAdminPolicy.requireBeforePhotoToStart,
-                    effectivePolicy.requireBeforePhotoToStart,
-                  )}
-                />
-              </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-600">Before Photo to Start</span>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{effectivePolicy.requireBeforePhotoToStart}</span>
+              <SourceBadge
+                source={getSourceBadge(
+                  'requireBeforePhotoToStart',
+                  policy.requireBeforePhotoToStart,
+                  superAdminPolicy.requireBeforePhotoToStart,
+                  effectivePolicy.requireBeforePhotoToStart,
+                )}
+              />
             </div>
-          )}
-          {section !== 'social' && (
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">After Photo to Finish</span>
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{effectivePolicy.requireAfterPhotoToFinish}</span>
-                <SourceBadge
-                  source={getSourceBadge(
-                    'requireAfterPhotoToFinish',
-                    policy.requireAfterPhotoToFinish,
-                    superAdminPolicy.requireAfterPhotoToFinish,
-                    effectivePolicy.requireAfterPhotoToFinish,
-                  )}
-                />
-              </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-600">After Photo to Finish</span>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{effectivePolicy.requireAfterPhotoToFinish}</span>
+              <SourceBadge
+                source={getSourceBadge(
+                  'requireAfterPhotoToFinish',
+                  policy.requireAfterPhotoToFinish,
+                  superAdminPolicy.requireAfterPhotoToFinish,
+                  effectivePolicy.requireAfterPhotoToFinish,
+                )}
+              />
             </div>
-          )}
-          {section !== 'social' && (
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">After Photo to Pay</span>
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{effectivePolicy.requireAfterPhotoToPay}</span>
-                <SourceBadge
-                  source={getSourceBadge(
-                    'requireAfterPhotoToPay',
-                    policy.requireAfterPhotoToPay,
-                    superAdminPolicy.requireAfterPhotoToPay,
-                    effectivePolicy.requireAfterPhotoToPay,
-                  )}
-                />
-              </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-600">After Photo to Pay</span>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{effectivePolicy.requireAfterPhotoToPay}</span>
+              <SourceBadge
+                source={getSourceBadge(
+                  'requireAfterPhotoToPay',
+                  policy.requireAfterPhotoToPay,
+                  superAdminPolicy.requireAfterPhotoToPay,
+                  effectivePolicy.requireAfterPhotoToPay,
+                )}
+              />
             </div>
-          )}
-          {section !== 'photos' && (
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">Auto-Post Enabled</span>
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{effectivePolicy.autoPostEnabled ? 'Yes' : 'No'}</span>
-                <SourceBadge
-                  source={getSourceBadge(
-                    'autoPostEnabled',
-                    policy.autoPostEnabled,
-                    superAdminPolicy.autoPostEnabled,
-                    effectivePolicy.autoPostEnabled,
-                  )}
-                />
-              </div>
-            </div>
-          )}
-          {section !== 'photos' && effectivePolicy.autoPostEnabled && (
-            <>
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">Platforms</span>
-                <span className="font-medium">
-                  {effectivePolicy.autoPostPlatforms.join(', ') || 'None'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600">AI Caption</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{effectivePolicy.autoPostAIcaptionEnabled ? 'Yes' : 'No'}</span>
-                  <SourceBadge
-                    source={getSourceBadge(
-                      'autoPostAiCaptionEnabled',
-                      policy.autoPostAiCaptionEnabled,
-                      superAdminPolicy.autoPostAiCaptionEnabled,
-                      effectivePolicy.autoPostAIcaptionEnabled,
-                    )}
-                  />
-                </div>
-              </div>
-            </>
-          )}
+          </div>
+
         </div>
       </div>
 
@@ -536,7 +324,7 @@ export function SalonPolicyForm({
                 </>
               )
             : (
-                section === 'photos' ? 'Save photo rules' : section === 'social' ? 'Save social posting' : 'Save changes'
+                'Save photo rules'
               )}
       </button>
     </div>

@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { SettingsTab } from './SettingsTab';
 
 const { fetchMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
@@ -13,8 +14,6 @@ vi.mock('framer-motion', () => ({
     get: () => (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
   }),
 }));
-
-import { SettingsTab } from './SettingsTab';
 
 describe('SettingsTab destructive action errors', () => {
   beforeEach(() => {
@@ -51,7 +50,7 @@ describe('SettingsTab destructive action errors', () => {
           hiredAt: '2026-03-01T00:00:00.000Z',
           terminatedAt: null,
           onboardingStatus: 'active',
-          userId: null,
+          userId: 'synthetic-existing-user',
         }}
         onUpdate={vi.fn()}
         onDelete={vi.fn()}
@@ -94,12 +93,15 @@ describe('SettingsTab destructive action errors', () => {
           hiredAt: '2026-03-01T00:00:00.000Z',
           terminatedAt: null,
           onboardingStatus: 'active',
-          userId: null,
+          userId: 'synthetic-existing-user',
         }}
         onUpdate={vi.fn()}
         onDelete={vi.fn()}
       />,
     );
+
+    expect(screen.queryByLabelText('Clerk User ID')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Invite/ })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Rating'), { target: { value: '4.8' } });
     fireEvent.change(screen.getByLabelText('Review count'), { target: { value: '0' } });
@@ -111,5 +113,9 @@ describe('SettingsTab destructive action errors', () => {
         body: expect.stringContaining('"rating":null'),
       }));
     });
+    const saved = JSON.parse(fetchMock.mock.calls[0]![1].body);
+
+    expect(saved).not.toHaveProperty('userId');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/invite'))).toBe(false);
   });
 });

@@ -8,10 +8,9 @@
  */
 
 import { ArrowLeft } from 'lucide-react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 
 import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
-import { MetaStatusPanel } from '@/components/admin/MetaStatusPanel';
 import { SalonPolicyForm } from '@/components/admin/PolicyForm';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 
@@ -42,28 +41,12 @@ type SuperAdminPolicy = {
   autoPostAiCaptionEnabled: boolean | null;
 };
 
-type MetaStatus = {
-  hasSystemUserToken: boolean;
-  hasFacebookPageId: boolean;
-  hasInstagramAccountId: boolean;
-  graphVersion: string;
-};
-
-type AutopostFailure = {
-  platform: string;
-  error: string | null;
-  retryCount: number;
-  processedAt: string | null;
-};
-
 type Props = {
   initialSalonPolicy: SalonPolicy;
   superAdminPolicy: SuperAdminPolicy;
   salonName: string;
   /** The salon this page resolved from the URL; every write carries it. */
   salonSlug: string;
-  metaStatus: MetaStatus;
-  latestFailure: AutopostFailure | null;
   locale: string;
 };
 
@@ -76,15 +59,11 @@ export function SalonPoliciesClient({
   superAdminPolicy,
   salonName,
   salonSlug,
-  metaStatus,
-  latestFailure,
   locale,
 }: Props) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const requestedSection = searchParams?.get('section');
-  const section = requestedSection === 'photos' || requestedSection === 'social' ? requestedSection : 'all';
-  const pageTitle = section === 'photos' ? 'Appointment Photo Rules' : section === 'social' ? 'Social Posting' : 'Photo & auto-post rules';
+  const section = 'photos' as const;
+  const pageTitle = 'Appointment Photo Rules';
 
   const handleSave = async (policy: Partial<SalonPolicy>) => {
     // The page may be showing a salon the active-salon cookie does not name,
@@ -92,7 +71,7 @@ export function SalonPoliciesClient({
     const response = await fetch(
       `/api/admin/policies?salonSlug=${encodeURIComponent(salonSlug)}`,
       {
-        method: section === 'all' ? 'PUT' : 'PATCH',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(policy),
       },
@@ -135,7 +114,7 @@ export function SalonPoliciesClient({
                 type="button"
                 onClick={() =>
                   router.push(
-                    `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=${section === 'social' ? 'marketing' : 'settings'}${section === 'photos' ? '&view=advanced' : ''}`,
+                    `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=advanced`,
                   )}
                 aria-label="Back to your workspace"
                 className="-ml-1 flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--owner-accent)] outline-none transition-colors hover:bg-[var(--owner-blush)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
@@ -161,14 +140,6 @@ export function SalonPoliciesClient({
             section={section}
           />
 
-          {/* Meta Status Panel */}
-          {section !== 'photos' && (
-            <MetaStatusPanel
-              status={metaStatus}
-              latestFailure={latestFailure}
-              scope="salon"
-            />
-          )}
         </div>
       </div>
     </div>

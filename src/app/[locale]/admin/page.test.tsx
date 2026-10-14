@@ -1896,7 +1896,7 @@ describe('AdminDashboardPage', () => {
       });
     }
 
-    it('success: shows the notice, opens the Usage & billing modal, and strips ?topup=', async () => {
+    it('success: shows the notice, opens the Usage & SMS modal, and strips ?topup=', async () => {
       searchParamGet.mockImplementation((key: string) => {
         if (key === 'salon') {
           return 'salon-b';
@@ -2066,7 +2066,7 @@ describe('AdminDashboardPage', () => {
       });
     }
 
-    it('success: shows the plan notice, opens the Usage & billing modal, and strips ?billing=', async () => {
+    it('success: shows the plan notice, opens the Usage & SMS modal, and strips ?billing=', async () => {
       searchParamGet.mockImplementation((key: string) => {
         if (key === 'salon') {
           return 'salon-b';

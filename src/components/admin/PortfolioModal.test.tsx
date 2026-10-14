@@ -53,6 +53,15 @@ describe('PortfolioModal destructive confirmation', () => {
     });
   });
 
+  it('keeps photo tagging without suggesting a public discovery marketplace', async () => {
+    render(<PortfolioModal onClose={vi.fn()} />);
+    const photo = await screen.findByRole('button', { name: portfolioPayload.photos[0]!.altText });
+    await userEvent.click(photo);
+
+    expect(screen.queryByText(/Discover readiness|Show in Discover|Hide from Discover/)).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Batch tagging' })).toBeInTheDocument();
+  });
+
   it('does not delete on invocation or cancel and executes the existing delete exactly once on confirm', async () => {
     const user = userEvent.setup();
     render(<PortfolioModal onClose={vi.fn()} />);

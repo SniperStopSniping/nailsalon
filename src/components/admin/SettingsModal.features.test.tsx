@@ -134,9 +134,10 @@ describe('SettingsModal — Features view entitlement states', () => {
       expect(screen.getByText('Analytics Dashboard')).toBeInTheDocument();
     });
 
+    expect(screen.queryByText('Referrals')).not.toBeInTheDocument();
+    expect(screen.queryByText('Rewards')).not.toBeInTheDocument();
+
     for (const label of [
-      'Referrals',
-      'Rewards',
       'Staff Earnings',
       'Client Flags',
       'Client Blocking',
@@ -148,7 +149,7 @@ describe('SettingsModal — Features view entitlement states', () => {
 
     expect(
       screen.getAllByText('Not included in your plan yet'),
-    ).toHaveLength(7);
+    ).toHaveLength(5);
 
     expect(screen.getByTestId('settings-sms-communications')).toHaveTextContent('Included on every plan');
     expect(screen.queryByRole('button', { name: 'Toggle SMS Reminders' })).not.toBeInTheDocument();
@@ -180,7 +181,7 @@ describe('SettingsModal — Features view entitlement states', () => {
       expect(group!.children.length).toBeGreaterThan(1);
       expect(
         group!.querySelectorAll(
-          '[data-testid^="locked-feature-"], button[aria-label^="Toggle "]',
+          '[data-testid^="locked-feature-"], button[aria-label^="Toggle "], [data-testid="settings-sms-communications"]',
         ).length,
       ).toBeGreaterThan(0);
     }
@@ -209,7 +210,7 @@ describe('SettingsModal — Features view entitlement states', () => {
     expect(await screen.findByRole('heading', { name: 'Client communications' })).toBeInTheDocument();
     expect(screen.getByText('100 SMS credits available. See Usage for details.')).toBeInTheDocument();
     expect(screen.getByText(/Luster has temporarily paused SMS sending/)).toBeInTheDocument();
-    expect(screen.getByText(/SMS access is included with every plan/)).toBeInTheDocument();
+    expect(screen.getByText(/SMS uses your Luster credit balance/)).toBeInTheDocument();
     expect(screen.queryByText('(Unavailable)')).not.toBeInTheDocument();
 
     const smsPreference = screen.getByRole('checkbox', { name: 'Text messages to clients' });

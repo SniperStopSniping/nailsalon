@@ -287,8 +287,8 @@ function EmptyState({ type }: { type: 'rewards' | 'referrals' }) {
       {/* An empty list still owes the owner a next step. */}
       <p className="mt-2 max-w-xs text-center text-[13px] leading-5 text-[var(--owner-muted)]">
         {type === 'rewards'
-          ? 'You can grant one yourself: open Review rewards after you have checked a client’s Google review.'
-          : 'Nothing to set up — this list fills itself in as clients refer each other.'}
+          ? 'Historical rewards remain recorded. New customer loyalty and referral programs are unavailable.'
+          : 'Historical referrals remain recorded. New referral generation is unavailable.'}
       </p>
     </div>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { AlertTriangle, Check, Send, Trash2, UserCheck } from 'lucide-react';
+import { AlertTriangle, Check, Trash2, UserCheck } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import { DialogShell } from '@/components/ui/dialog-shell';
@@ -30,18 +30,6 @@ type TechnicianDetail = {
   onboardingStatus: string | null;
   userId: string | null;
 };
-
-// Format phone number for display
-function formatPhoneDisplay(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length === 10) {
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
-  }
-  if (digits.length === 11 && digits.startsWith('1')) {
-    return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
-  }
-  return phone;
-}
 
 type SettingsTabProps = {
   salonSlug: string | null;
@@ -81,7 +69,6 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
   const [rating, setRating] = useState(technician.rating !== null ? technician.rating.toFixed(1) : '');
   const [reviewCount, setReviewCount] = useState(String(technician.reviewCount));
   const [notes, setNotes] = useState(technician.notes ?? '');
-  const [userId, setUserId] = useState(technician.userId ?? '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -93,12 +80,6 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
   const [destructiveActionBusy, setDestructiveActionBusy] = useState<'disable' | 'delete' | null>(null);
   const destructiveActionInFlightRef = useRef(false);
   const [destructiveActionError, setDestructiveActionError] = useState<string | null>(null);
-
-  // Resend invite state
-  const [resendingInvite, setResendingInvite] = useState(false);
-  const [inviteSent, setInviteSent] = useState(false);
-  const [inviteCooldown, setInviteCooldown] = useState(false);
-  const [inviteError, setInviteError] = useState<string | null>(null);
 
   const handleSave = async () => {
     if (!salonSlug) {
@@ -155,7 +136,6 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
           rating: normalizedRating,
           reviewCount: parsedReviewCount,
           notes: notes.trim() || null,
-          userId: userId.trim() || null,
         }),
       });
 
@@ -172,7 +152,6 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
         rating: normalizedRating,
         reviewCount: parsedReviewCount,
         notes: notes.trim() || null,
-        userId: userId.trim() || null,
       });
 
       setSaved(true);
@@ -282,42 +261,6 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
       console.error('Error re-enabling staff:', err);
     } finally {
       setReenabling(false);
-    }
-  };
-
-  const handleResendInvite = async () => {
-    if (!salonSlug || !technician.phone || inviteCooldown) {
-      return;
-    }
-
-    setResendingInvite(true);
-    setInviteError(null);
-    try {
-      const response = await fetch(`/api/admin/technicians/${technician.id}/invite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonSlug }),
-      });
-
-      if (!response.ok) {
-        const result = await response.json();
-        throw new Error(result.error?.message ?? 'Failed to send invite');
-      }
-
-      // Show success state
-      setInviteSent(true);
-      setInviteCooldown(true);
-
-      // Reset success message after 3 seconds
-      setTimeout(() => setInviteSent(false), 3000);
-
-      // Cooldown for 10 seconds to prevent spam
-      setTimeout(() => setInviteCooldown(false), 10000);
-    } catch (err) {
-      console.error('Error resending invite:', err);
-      setInviteError(err instanceof Error ? err.message : 'Failed to send invite');
-    } finally {
-      setResendingInvite(false);
     }
   };
 
@@ -477,98 +420,6 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
           </p>
         </div>
       </div>
-
-      {/* Clerk Account Link */}
-      <div>
-        <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
-          Tech Dashboard Login
-        </h3>
-        <div className="rounded-[12px] bg-white p-4">
-          <label htmlFor="staff-clerk-user-id" className="mb-1 block text-[13px] text-[#8E8E93]">Clerk User ID</label>
-          <input
-            id="staff-clerk-user-id"
-            type="text"
-            value={userId}
-            onChange={e => setUserId(e.target.value)}
-            placeholder="user_2abc123..."
-            className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] placeholder:text-[#C7C7CC] focus:outline-none"
-          />
-          <p className="mt-2 text-[12px] text-[#8E8E93]">
-            Paste the tech&apos;s Clerk User ID here to let them access the Tech Dashboard.
-            Find it in your Clerk dashboard under Users → click user → copy User ID.
-          </p>
-          {userId && (
-            <div className="mt-2 flex items-center gap-1.5">
-              <div className="size-2 rounded-full bg-[#34C759]" />
-              <span className="text-[12px] font-medium text-[#34C759]">Account linked</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Account & Invitations */}
-      {technician.phone && (
-        <div>
-          <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
-            Account & Invitations
-          </h3>
-          <div className="overflow-hidden rounded-[12px] bg-white">
-            <div className="border-b border-gray-100 p-4">
-              <span className="text-[13px] text-[#8E8E93]">Phone Number</span>
-              <div className="text-[17px] text-[#1C1C1E]">
-                {formatPhoneDisplay(technician.phone)}
-              </div>
-            </div>
-            <div className="p-4">
-              <p className="mb-3 text-[13px] text-[#8E8E93]">
-                Send an SMS invite so this staff member can access their dashboard.
-              </p>
-              {inviteError && (
-                <p className="mb-3 text-[13px] text-[#FF3B30]">{inviteError}</p>
-              )}
-              <button
-                type="button"
-                onClick={handleResendInvite}
-                disabled={resendingInvite || inviteCooldown}
-                className={`
-                  flex w-full items-center justify-center gap-2
-                  rounded-xl py-3 text-[15px] font-medium
-                  transition-colors
-                  ${inviteSent
-          ? 'bg-[#34C759] text-white'
-          : inviteCooldown
-            ? 'bg-[#E5E5EA] text-[#8E8E93]'
-            : 'bg-[#007AFF]/10 text-[#007AFF]'
-        }
-                  disabled:opacity-50
-                `}
-              >
-                {inviteSent
-                  ? (
-                      <>
-                        <Check className="size-4" />
-                        Invite Sent
-                      </>
-                    )
-                  : resendingInvite
-                    ? (
-                        'Sending...'
-                      )
-                    : inviteCooldown
-                      ? (
-                          'Please wait...'
-                        )
-                      : (
-                          <>
-                            <Send className="size-4" />
-                            Send Invite SMS
-                          </>
-                        )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Notes */}
       <div>

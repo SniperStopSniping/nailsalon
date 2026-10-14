@@ -26,7 +26,7 @@ import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCam
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
 import { resolveRebookingPromptSettings } from '@/libs/rebookingPromptSettings';
 import { applyLocationDisplayMode } from '@/libs/salonContent';
-import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled } from '@/libs/salonStatus';
+import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import {
   resolvePublicSalonPhone,
   resolveSharedSalonProfile,
@@ -467,7 +467,6 @@ export default async function BookConfirmPage(
   const depositFingerprint = buildDepositDisclosureFingerprint(depositCharge);
   const depositNoticeSuppressed = isDepositGovernedBySystem(depositPolicy);
 
-  const rewardsEnabled = await isRewardsEnabled(salon.id);
   // This is a salon-level presentation default. It deliberately contains no
   // client/phone lookup: a public booking page must not reveal whether a
   // number has previously replied STOP. The booking API remains authoritative
@@ -537,7 +536,6 @@ export default async function BookConfirmPage(
           technicianSelectionSource={resolvedTechnicianContext.effectiveTechnicianSelectionSource}
           bookingFlow={effectiveBookingFlow}
           location={locationSummary}
-          rewardsEnabled={rewardsEnabled}
           smsBookingDefault={smsBookingDefault}
           // Post-launch privacy fix: this is the "call the salon" escape
           // hatch on the duplicate-booking screen (`ExistingAppointmentOptions`

@@ -365,7 +365,7 @@ function openSetupTab() {
 
 function openMoreTabs() {
   if (!screen.queryByTestId('services-more-tabs')) {
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
   }
 }
 
@@ -381,6 +381,20 @@ describe('ServicesModal', () => {
     prepareServiceImageMock.mockReset();
     prepareServiceImageMock.mockImplementation(async (file: File) => file);
     vi.stubGlobal('fetch', fetchMock);
+  });
+
+  it('shows booking approval as a primary choice and preserves the stored service mode', async () => {
+    mockRoutes({ services: [{ id: 'synthetic-approval', name: 'Synthetic manicure', price: 50, durationMinutes: 60, category: 'manicure', isActive: true, confirmationMode: 'request_approval' }] });
+    render(<ServicesModal onClose={vi.fn()} salonSlug="salon-a" />);
+    await screen.findByText('Synthetic manicure');
+
+    expect(screen.queryByTestId('services-more-tabs')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Booking approval' }));
+    const panel = screen.getByTestId('catalog-confirmation-panel');
+
+    expect(within(panel).getByRole('radio', { name: 'Request approval' })).toBeChecked();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false);
   });
 
   it('keeps the service-images control off browsing tabs and available in Advanced Catalog', async () => {
@@ -2910,7 +2924,7 @@ describe('ServicesModal — add-ons from inside a service', () => {
 
     const summary = await openGelManicureDetail();
 
-    expect(summary).toHaveTextContent('Add-ons for this service');
+    expect(summary).toHaveTextContent('Add-ons offered with this service');
     expect(screen.getByTestId('service-addons-summary-names')).toHaveTextContent('French Tips');
     expect(screen.getByTestId('service-addons-summary-manage')).toHaveTextContent('Manage add-ons');
   });

@@ -32,6 +32,7 @@ import {
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
+import { BookingConfirmationPanel } from '@/components/admin/catalogConfig/BookingConfirmationPanel';
 import { CatalogConfigTab } from '@/components/admin/catalogConfig/CatalogConfigTab';
 import { ServiceAddOnPicker } from '@/components/admin/serviceAddOns/ServiceAddOnPicker';
 import { ServiceAddOnSummary } from '@/components/admin/serviceAddOns/ServiceAddOnSummary';
@@ -68,6 +69,7 @@ import { ServiceLibraryTab } from './serviceLibrary/ServiceLibraryTab';
 type BookingCategory = 'manicure' | 'pedicure' | 'combo';
 
 type ServiceData = {
+  confirmationMode?: 'instant' | 'request_approval' | 'consultation' | null;
   id: string;
   name: string;
   description: string | null;
@@ -2285,7 +2287,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const [menuDisplaySaved, setMenuDisplaySaved] = useState(false);
   const showServiceImagesSaveInFlight = useRef(false);
   const showServiceImagesSaveAbort = useRef<AbortController | null>(null);
-  const [activeTab, setActiveTab] = useState<'menu' | 'library' | 'addons' | 'catalog'>('menu');
+  const [activeTab, setActiveTab] = useState<'menu' | 'library' | 'addons' | 'catalog' | 'approval'>('menu');
   const [showMoreTabs, setShowMoreTabs] = useState(false);
   const isAdvancedTab = activeTab === 'library' || activeTab === 'catalog';
   // An active advanced editor must retain its own selector. In particular,
@@ -2372,6 +2374,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           isIntroPrice?: boolean | null;
           introPriceLabel?: string | null;
           assignedTechnicianCount?: number;
+          confirmationMode?: 'instant' | 'request_approval' | 'consultation' | null;
         }) => ({
           id: service.id,
           name: service.name,
@@ -2393,6 +2396,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           isIntroPrice: service.isIntroPrice ?? false,
           introPriceLabel: service.introPriceLabel ?? null,
           assignedTechnicianCount: service.assignedTechnicianCount,
+          confirmationMode: service.confirmationMode ?? null,
         }),
       );
 
@@ -3026,7 +3030,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
             setShowAddOnCreate(true);
           },
         }
-      : activeTab === 'catalog'
+      : activeTab === 'catalog' || activeTab === 'approval'
         ? null
         : {
             label: 'Service',
@@ -3162,7 +3166,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           )}
         />
         <div className="px-4 pb-2">
-          <div className="grid grid-cols-3 gap-1 rounded-full bg-[var(--owner-blush)] p-1" role="tablist" aria-label="Service menu sections">
+          <div className="grid grid-cols-2 gap-1 rounded-2xl bg-[var(--owner-blush)] p-1" role="tablist" aria-label="Service menu sections">
             <button
               type="button"
               role="tab"
@@ -3189,6 +3193,16 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={activeTab === 'approval'}
+              data-testid="services-tab-approval"
+              onClick={() => selectTab('approval')}
+              className={`min-h-11 rounded-full px-2 text-[13px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${activeTab === 'approval' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'}`}
+            >
+              Booking approval
+            </button>
+            <button
+              type="button"
               aria-expanded={advancedTabsVisible}
               aria-controls={advancedTabsVisible ? 'services-more-tabs' : undefined}
               onClick={() => setShowMoreTabs(current => !current)}
@@ -3197,7 +3211,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                 advancedTabsVisible ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
               }`}
             >
-              More
+              Advanced Settings
             </button>
           </div>
           {advancedTabsVisible && (
@@ -3206,7 +3220,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               data-testid="services-more-tabs"
               className="mt-2 grid grid-cols-2 gap-2"
               role="group"
-              aria-label="More service settings"
+              aria-label="Advanced service settings"
             >
               <button
                 type="button"
@@ -3230,7 +3244,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                   activeTab === 'catalog' ? 'border-[var(--owner-accent)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
                 }`}
               >
-                Advanced Catalog
+                Rules & options
               </button>
             </div>
           )}
@@ -3491,7 +3505,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">Advanced menu settings</h3>
               <p className="mt-0.5 text-[12px] leading-4 text-[var(--owner-muted)]">
                 How your menu looks to clients. These used to sit above every
-                service; they live in Advanced Catalog so My Menu opens
+                service; they live in Advanced Settings so My Menu opens
                 straight onto your services.
               </p>
             </div>
@@ -3617,6 +3631,20 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                 </div>
               </div>
             </div>
+          </div>
+        )}
+        {activeTab === 'approval' && salonSlug && (
+          <div className="px-4 pb-6">
+            {loading
+              ? <p role="status">Loading services…</p>
+              : error
+                ? (
+                    <div role="alert">
+                      <p>{error}</p>
+                      <button type="button" className="min-h-11 underline" onClick={() => void fetchServices()}>Try again</button>
+                    </div>
+                  )
+                : <BookingConfirmationPanel salonSlug={salonSlug} services={services} onRefresh={fetchServices} />}
           </div>
         )}
         {activeTab === 'catalog' && (

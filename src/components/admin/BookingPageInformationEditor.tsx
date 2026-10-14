@@ -781,7 +781,7 @@ export function BookingPageInformationEditor({
         <div className="mt-5">{mediaControls}</div>
         <div className="mt-6 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-ground)] p-4" data-testid="photos-gallery-portfolio">
           <h3 className="font-semibold text-[var(--owner-ink)]">Nail-work Portfolio</h3>
-          <p className="mt-1 text-sm text-[var(--owner-muted)]">Upload and organize reusable photos of your nail work for your profile and Luster Discover.</p>
+          <p className="mt-1 text-sm text-[var(--owner-muted)]">Upload and organize reusable photos of your nail work.</p>
           <a className={`${secondaryButtonClass} mt-3`} href={`${workspace}&app=portfolio`}>Manage Portfolio</a>
         </div>
       </section>

@@ -47,7 +47,7 @@ describe('CatalogConfigTab', () => {
     render(<CatalogConfigTab salonSlug="isla-nail-studio" />);
 
     expect(screen.getByTestId('catalog-config-tab')).toBeInTheDocument();
-    expect(screen.getByText(/Nothing here is required/)).toBeInTheDocument();
+    expect(screen.getByText(/Existing rules keep applying/)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -64,9 +64,9 @@ describe('CatalogConfigTab', () => {
     mockRoutes();
     render(<CatalogConfigTab salonSlug="isla-nail-studio" />);
 
-    fireEvent.click(screen.getByTestId('catalog-overview-confirmation'));
+    fireEvent.click(screen.getByTestId('catalog-overview-addOns'));
 
-    expect(await screen.findByTestId('catalog-confirmation-panel')).toBeInTheDocument();
+    expect(await screen.findByTestId('catalog-addons-panel')).toBeInTheDocument();
   });
 
   it('legacy simplicity: a flat service with every L1 field NULL shows no pre-filled or forced state anywhere in the tab', async () => {
@@ -118,11 +118,7 @@ describe('CatalogConfigTab', () => {
 
     expect(await screen.findByTestId('service-standalone-svc_legacy')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('catalog-section-confirmation'));
-    const row = await screen.findByTestId('confirmation-row-svc_legacy');
-
-    expect(row).toHaveTextContent('Default (today\'s behavior)');
-    expect(screen.getByTestId('confirmation-save-svc_legacy')).toBeDisabled();
+    expect(screen.queryByTestId('catalog-section-confirmation')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('catalog-section-addOns'));
     await waitFor(() => expect(screen.getByTestId('catalog-addons-panel')).toBeInTheDocument());
@@ -142,7 +138,7 @@ describe('CatalogConfigTab', () => {
     render(<CatalogConfigTab salonSlug="isla-nail-studio" />);
     const tabs = screen.getAllByRole('tab');
 
-    expect(tabs.length).toBeGreaterThanOrEqual(7);
+    expect(tabs.length).toBeGreaterThanOrEqual(6);
 
     for (const tab of tabs) {
       expect(tab).toHaveAttribute('aria-selected');

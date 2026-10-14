@@ -154,7 +154,7 @@ describe('OwnerManagementModal', () => {
     state.query = 'client=client_9&returnTo=calendar';
     const rendered = renderModal({ app: 'plan-usage' });
 
-    fireEvent.click(screen.getByRole('button', { name: /messages & credits/i }));
+    fireEvent.click(screen.getByRole('button', { name: /SMS credits & top-ups/i }));
 
     expect(pushMock).toHaveBeenCalledTimes(1);
 
@@ -208,7 +208,7 @@ describe('OwnerManagementModal', () => {
     const onClose = vi.fn();
     state.query = 'salon=isla&app=plan-usage';
     const rendered = renderModal({ app: 'plan-usage', onClose });
-    fireEvent.click(screen.getByRole('button', { name: /messages & credits/i }));
+    fireEvent.click(screen.getByRole('button', { name: /SMS credits & top-ups/i }));
     state.query = queryOf(pushMock.mock.calls[0]![0]).toString();
     rendered.rerender(<OwnerManagementModal app="plan-usage" salonSlug="isla" salonId="salon_1" isFreeSolo={false} teamAvailable={false} onClose={onClose} />);
 
@@ -223,7 +223,7 @@ describe('OwnerManagementModal', () => {
     state.query = 'client=client_9&returnTo=calendar';
     const rendered = renderModal({ app: 'plan-usage' });
 
-    fireEvent.click(screen.getByRole('button', { name: /plan & billing/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Billing records/i }));
 
     const query = queryOf(pushMock.mock.calls[0]![0]);
 
@@ -243,8 +243,8 @@ describe('OwnerManagementModal', () => {
   it('reuses the existing billing gate when no salon is selected', () => {
     renderModal({ app: 'plan-usage', salonSlug: null });
 
-    expect(screen.getByRole('button', { name: /messages & credits/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /plan & billing/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /SMS credits & top-ups/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Billing records/i })).toBeDisabled();
     expect(screen.queryByRole('button', { name: /compare plans/i })).not.toBeInTheDocument();
     expect(usageBillingModalMock).not.toHaveBeenCalled();
   });
@@ -253,7 +253,7 @@ describe('OwnerManagementModal', () => {
     state.query = 'salon=isla&app=plan-usage&view=plans&client=client_9';
     renderModal({ app: 'plan-usage', isFreeSolo });
 
-    expect(screen.getByRole('button', { name: /messages & credits/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /SMS credits & top-ups/i })).toBeEnabled();
     expect(screen.queryByRole('button', { name: /compare plans/i })).not.toBeInTheDocument();
     expect(usageBillingModalMock).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'isla', initialView: 'overview' }));
 
@@ -271,7 +271,7 @@ describe('OwnerManagementModal', () => {
     renderModal({ app: 'plan-usage', salonSlug: null });
 
     expect(usageBillingModalMock).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: /messages & credits/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /SMS credits & top-ups/i })).toBeDisabled();
   });
 
   it('delegates Help resources to the existing app destinations', () => {

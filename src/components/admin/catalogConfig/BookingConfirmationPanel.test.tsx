@@ -44,6 +44,7 @@ describe('BookingConfirmationPanel', () => {
     expect(defaultOption).toBeChecked();
     expect(within(row).getByTestId('confirmation-save-svc_legacy')).toBeDisabled();
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(within(row).queryByLabelText('Consultation (coming later)')).not.toBeInTheDocument();
   });
 
   it('consultation is always shown disabled and is never sent by this panel', () => {
@@ -131,7 +132,7 @@ describe('BookingConfirmationPanel', () => {
   it('every radio option is reachable via its label (keyboard/label association)', () => {
     renderPanel([legacyService]);
     const row = screen.getByTestId('confirmation-row-svc_legacy');
-    for (const label of ['Default (today\'s behavior)', 'Book instantly', 'Request approval', 'Consultation (coming later)']) {
+    for (const label of ['Default (today\'s behavior)', 'Book instantly', 'Request approval']) {
       expect(within(row).getByLabelText(label)).toBeInstanceOf(HTMLInputElement);
     }
   });

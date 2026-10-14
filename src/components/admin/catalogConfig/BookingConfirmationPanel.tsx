@@ -159,13 +159,15 @@ function ServiceConfirmationRow({
             Request approval
           </label>
         </div>
-        <label
-          className="mt-1.5 flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2 text-[13px] text-[#8E8E93]"
-          title="Coming in a future update"
-        >
-          <input type="radio" name={groupName} disabled checked={stored === 'consultation'} readOnly />
-          Consultation (coming later)
-        </label>
+        {stored === 'consultation' && (
+          <label
+            className="mt-1.5 flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2 text-[13px] text-[#8E8E93]"
+            title="Coming in a future update"
+          >
+            <input type="radio" name={groupName} disabled checked={stored === 'consultation'} readOnly />
+            Consultation (coming later)
+          </label>
+        )}
       </fieldset>
       {error && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
@@ -202,8 +204,7 @@ export function BookingConfirmationPanel({ salonSlug, services, onRefresh }: Boo
         <h3 className="text-[15px] font-semibold text-[#1C1C1E]">Booking confirmation</h3>
         <p className="mt-0.5 text-[13px] text-[#6B7280]">
           Choose whether a service books instantly or needs your approval
-          first. Services left on "Default" keep today's always-instant
-          behavior.
+          first. Default keeps the existing booking rules.
         </p>
       </div>
       {services.length === 0

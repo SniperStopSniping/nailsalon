@@ -38,54 +38,17 @@ const superAdminPolicy = {
 };
 
 describe('SalonPolicyForm section-owned saves', () => {
-  it('keeps photo and social changes when both open surfaces save', async () => {
+  it.each(['photos', 'all', 'social'] as const)('only saves photo rules from the %s entry point', async (section) => {
     const user = userEvent.setup();
-    const canonicalPolicy = { ...initialPolicy };
-    const savePhotos = vi.fn(async (patch: Partial<TestSalonPolicy>) => {
-      Object.assign(canonicalPolicy, patch);
-    });
-    const saveSocial = vi.fn(async (patch: Partial<TestSalonPolicy>) => {
-      Object.assign(canonicalPolicy, patch);
-    });
+    const onSave = vi.fn(async () => undefined);
+    render(<SalonPolicyForm initialSalonPolicy={{ ...initialPolicy, autoPostEnabled: true, autoPostAiCaptionEnabled: true }} superAdminPolicy={superAdminPolicy} salonName="Synthetic Studio" onSave={onSave} section={section} />);
 
-    render(
-      <>
-        <SalonPolicyForm
-          initialSalonPolicy={initialPolicy}
-          superAdminPolicy={superAdminPolicy}
-          salonName="Luster"
-          onSave={savePhotos}
-          section="photos"
-        />
-        <SalonPolicyForm
-          initialSalonPolicy={initialPolicy}
-          superAdminPolicy={superAdminPolicy}
-          salonName="Luster"
-          onSave={saveSocial}
-          section="social"
-        />
-      </>,
-    );
+    expect(screen.queryByRole('button', { name: 'Enable Auto-Post' })).not.toBeInTheDocument();
+    expect(screen.queryByText('AI Caption')).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText('Before Photo to Start'), 'required');
-    await user.click(screen.getByRole('button', { name: 'Enable Auto-Post' }));
     await user.click(screen.getByRole('button', { name: 'Save photo rules' }));
-    await user.click(screen.getByRole('button', { name: 'Save social posting' }));
 
-    expect(savePhotos).toHaveBeenCalledWith({
-      requireAfterPhotoToFinish: 'off',
-      requireAfterPhotoToPay: 'off',
-      requireBeforePhotoToStart: 'required',
-    });
-    expect(saveSocial).toHaveBeenCalledWith({
-      autoPostAiCaptionEnabled: false,
-      autoPostEnabled: true,
-      autoPostIncludeBrand: true,
-      autoPostIncludeColor: false,
-      autoPostIncludePrice: true,
-      autoPostPlatforms: [],
-    });
-    expect(canonicalPolicy.requireBeforePhotoToStart).toBe('required');
-    expect(canonicalPolicy.autoPostEnabled).toBe(true);
+    expect(onSave).toHaveBeenCalledWith({ requireAfterPhotoToFinish: 'off', requireAfterPhotoToPay: 'off', requireBeforePhotoToStart: 'required' });
   });
 });

@@ -23,7 +23,7 @@ export default async function RewardsDisabledPage(
     <SalonStatusPage
       icon={Gift}
       title="Rewards Program Unavailable"
-      description="The rewards program is not currently available for this salon. Please contact the salon directly for information about promotions and special offers."
+      description="Customer loyalty and referral programs are unavailable. You can book without a customer account."
       actions={[
         {
           label: 'Book an Appointment',
@@ -31,7 +31,7 @@ export default async function RewardsDisabledPage(
           primary: true,
         },
       ]}
-      footer="The rewards program may be temporarily unavailable or not offered by this salon."
+      footer="Manage existing appointments using your secure booking link."
     />
   );
 }

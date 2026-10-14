@@ -146,7 +146,6 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
             <>
               <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => open('working-hours'))}>Working hours</button>
               <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => open('time-off'))}>Days Off</button>
-              {teamAvailable && <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => open('requests'))}>Team time-off requests</button>}
             </>
           )}
           <p className="text-sm text-[var(--owner-muted)]">Bookable times also depend on working schedules, time off, existing appointments and booking rules.</p>
@@ -180,18 +179,18 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
 
   if (app === 'plan-usage') {
     if (view === 'billing') {
-      return <SettingsModal key={`${salonSlug}:plan-billing`} initialView="plan-billing" leafOnly leafBackLabel="Plan & Usage" onClose={back} salonSlug={salonSlug} salonId={salonId} isFreeSolo={isFreeSolo} onOpenApp={onOpenApp} />;
+      return <SettingsModal key={`${salonSlug}:plan-billing`} initialView="plan-billing" leafOnly leafBackLabel="Usage & SMS" onClose={back} salonSlug={salonSlug} salonId={salonId} isFreeSolo={isFreeSolo} onOpenApp={onOpenApp} />;
     }
     return (
       <>
         <OwnerAppHub
-          title="Plan & Usage"
-          subtitle="Your core app access, billing and text credits"
+          title="Usage & SMS"
+          subtitle="Free booking, SMS credits and billing records"
           onBack={onClose}
           onOpen={open}
           items={[
-            { id: 'billing', title: 'Plan & billing', description: 'Billing status, payment details and invoices', icon: CreditCard, disabled: !salonSlug },
-            { id: 'usage', title: 'Messages & credits', description: 'SMS balance, usage and delivery history', icon: CreditCard, disabled: !salonSlug },
+            { id: 'usage', title: 'SMS credits & top-ups', description: 'Balance, optional purchases and message history', icon: CreditCard, disabled: !salonSlug },
+            { id: 'billing', title: 'Billing records', description: 'Payment details, invoices and existing agreements', icon: CreditCard, disabled: !salonSlug },
           ]}
         />
         {/* Saved plans links open the current access and credits overview. */}

@@ -148,8 +148,8 @@ describe('UsageBillingModal', () => {
     });
     render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
 
-    expect(await screen.findByText('Founding Salon · Free for life')).toBeInTheDocument();
-    expect(screen.getByText(/Optional text subscription:/)).toBeInTheDocument();
+    expect(await screen.findByText('Core booking is free')).toBeInTheDocument();
+    expect(screen.getByText(/Existing text subscription:/)).toBeInTheDocument();
     expect(screen.getByText(/Additional texts are optional one-time purchases. Purchased texts never expire/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /100 credits — \$5\.99/ })).toBeInTheDocument();
   });
@@ -494,7 +494,7 @@ describe('§6.5a status banner (G18)', () => {
       return;
     }
 
-    const banner = await screen.findByText(label);
+    const banner = await screen.findByText(label, { exact: false });
 
     expect(banner.className).toMatch(grantsEligible ? /bg-blue-50/ : /bg-amber-50/);
   });

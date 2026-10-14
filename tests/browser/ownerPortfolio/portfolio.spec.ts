@@ -107,3 +107,16 @@ test('empty portfolio preserves upload permission and back navigation', async ({
   await expect(page.getByRole('button', { name: 'Open Portfolio', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Choose photos', exact: true })).toHaveCount(0);
 });
+
+test('portfolio has no marketplace controls or acquisition promise', async ({ page }, testInfo) => {
+  await page.goto('/');
+
+  await expect(page.getByText('Discover readiness')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'French manicure review photo', exact: true }).click();
+
+  await expect(page.getByRole('region', { name: 'Batch tagging' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /in Discover/ })).toHaveCount(0);
+
+  await page.screenshot({ path: testInfo.outputPath('portfolio-cleanup.png'), fullPage: true });
+});

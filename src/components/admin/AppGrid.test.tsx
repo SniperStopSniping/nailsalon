@@ -56,7 +56,7 @@ describe('AppGrid', () => {
     expect(indexOf('plan-usage')).toBeLessThan(indexOf('settings'));
     expect(indexOf('settings')).toBeLessThan(indexOf('help'));
 
-    expect(APPS.find(app => app.id === 'rewards-reviews')).toBeDefined();
+    expect(APPS.find(app => app.id === 'rewards-reviews')).toBeUndefined();
     expect(APPS.find(app => app.id === 'luster')).toBeDefined();
     expect(screen.queryByTestId('admin-app-tile-rewards-reviews')).not.toBeInTheDocument();
     expect(screen.queryByTestId('admin-app-tile-luster')).not.toBeInTheDocument();

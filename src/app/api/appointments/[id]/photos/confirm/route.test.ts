@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { appointmentArtifactsSchema, appointmentPhotoSchema } from '@/models/Schema';
+import { appointmentArtifactsSchema, appointmentPhotoSchema, autopostQueueSchema } from '@/models/Schema';
 
 import { POST } from './route';
 
@@ -55,6 +55,7 @@ const {
 });
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/core/config/flags', () => ({ FEATURE_FLAGS: { ENABLE_AUTOPOST_GLOBAL: false } }));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/staffApiGuards', () => ({ requireStaffAppointmentAccess }));
 vi.mock('@/libs/queries', () => ({ getSalonById }));
@@ -131,6 +132,15 @@ describe('POST /api/appointments/[id]/photos/confirm', () => {
     expect(logAppointmentChange).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'photo_uploaded' }),
     );
+  });
+
+  it('saves an after photo but does not queue social posts from historical enabled settings', async () => {
+    db.query.salonPoliciesSchema.findFirst.mockResolvedValueOnce({ autoPostEnabled: true, autoPostPlatforms: ['instagram'] } as never);
+    const response = await POST(confirmRequest(), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(200);
+    expect(insertedRows.some(row => row.table === appointmentPhotoSchema)).toBe(true);
+    expect(insertedRows.some(row => row.table === autopostQueueSchema)).toBe(false);
   });
 
   it('does not duplicate the appointment_photo row when the objectKey was already confirmed', async () => {

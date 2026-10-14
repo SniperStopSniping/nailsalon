@@ -217,7 +217,7 @@ test('Services keeps Library and Advanced Catalog out of the 320px menu until Mo
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto('/?app=services&salon=isla');
 
-  const more = page.getByRole('button', { name: 'More' });
+  const more = page.getByRole('button', { name: 'Advanced Settings' });
 
   await expect(more).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByTestId('services-tab-menu')).toBeVisible();
@@ -346,7 +346,7 @@ test('Help dispatches to existing paths and Free Solo keeps Messages & Credits a
 
   await page.goto('/?app=plan-usage&salon=isla&freeSolo=1');
 
-  await expect(page.getByRole('button', { name: /messages & credits/i })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /SMS credits & top-ups/i })).toBeEnabled();
   await expect(page.getByRole('button', { name: /compare plans/i })).toHaveCount(0);
 });
 
@@ -425,3 +425,33 @@ test('Booking Rules saves notice without submitting currency or timezone on mobi
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(unexpected).toEqual([]);
 });
+
+for (const width of [320, 1280]) {
+  test(`booking approval keeps the stored mode outside Advanced Settings at ${width}px`, async ({ page }, testInfo) => {
+    const { unexpected } = await mockInformationApi(page);
+    await page.route('**/api/salon/services?*', route => route.fulfill({ json: { data: {
+      services: [{ id: 'approval-fixture', name: 'Synthetic approval manicure', price: 55, durationMinutes: 45, category: 'manicure', isActive: true, confirmationMode: 'request_approval' }],
+      activeTechnicianCount: 1,
+    } } }));
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/?app=services&salon=isla');
+
+    await expect(page.getByText('Synthetic approval manicure', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('services-more-tabs')).toHaveCount(0);
+
+    await page.getByRole('tab', { name: 'Booking approval', exact: true }).click();
+
+    await expect(page.getByRole('radio', { name: 'Request approval', exact: true })).toBeChecked();
+    await expect(page.getByTestId('confirmation-save-approval-fixture')).toBeDisabled();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+    const tabs = page.getByRole('tablist', { name: 'Service menu sections' });
+
+    expect(await tabs.evaluate(element => [...element.children].every(child => child.getBoundingClientRect().right <= element.getBoundingClientRect().right))).toBe(true);
+    await expect(page.getByRole('radio', { name: /Consultation/ })).toHaveCount(0);
+
+    await page.screenshot({ path: testInfo.outputPath(`booking-approval-${width}.png`), fullPage: true });
+
+    expect(unexpected).toEqual([]);
+  });
+}

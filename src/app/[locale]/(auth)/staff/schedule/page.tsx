@@ -5,7 +5,6 @@
  *
  * Allows staff to:
  * - View/edit weekly schedule
- * - Request time off (submit requests for admin approval)
  * - View/edit schedule overrides (if module enabled)
  *
  * EDIT 2: Staff cannot directly write time off - must submit requests only.
@@ -675,161 +674,6 @@ function AddOverrideForm({
 }
 
 // =============================================================================
-// Request Time Off Form (EDIT 2: Request-based, not direct write)
-// =============================================================================
-
-function RequestTimeOffForm({
-  onSubmit,
-  onCancel,
-  isSubmitting,
-}: {
-  onSubmit: (startDate: string, endDate: string, note: string) => void;
-  onCancel: () => void;
-  isSubmitting: boolean;
-}) {
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [note, setNote] = useState('');
-  const [showStartCalendar, setShowStartCalendar] = useState(false);
-  const [showEndCalendar, setShowEndCalendar] = useState(false);
-
-  const handleSubmit = () => {
-    if (!startDate || !endDate) {
-      return;
-    }
-    onSubmit(startDate, endDate, note);
-  };
-
-  const today = new Date().toISOString().split('T')[0];
-
-  const formatDisplayDate = (dateStr: string) => {
-    if (!dateStr) {
-      return 'Tap to select';
-    }
-    const date = new Date(`${dateStr}T00:00:00`);
-    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
-        <strong>Note:</strong>
-        {' '}
-        Time off requests require admin approval. You&apos;ll receive a notification when your request is reviewed.
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <div className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
-            Start Date
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setShowStartCalendar(!showStartCalendar);
-              setShowEndCalendar(false);
-            }}
-            className={`
-              w-full rounded-xl border-2 p-3 text-left text-sm font-medium transition-all
-              ${startDate
-      ? 'border-amber-400 bg-amber-50 text-neutral-900'
-      : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
-            `}
-          >
-            <div className="flex items-center justify-between">
-              <span>{formatDisplayDate(startDate)}</span>
-              <span className="text-lg">📅</span>
-            </div>
-          </button>
-          {showStartCalendar && (
-            <div className="mt-2">
-              <MiniCalendar
-                selectedDate={startDate}
-                onSelect={(date) => {
-                  setStartDate(date);
-                  if (endDate && date > endDate) {
-                    setEndDate('');
-                  }
-                }}
-                minDate={today}
-                onClose={() => setShowStartCalendar(false)}
-              />
-            </div>
-          )}
-        </div>
-        <div>
-          <div className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
-            End Date
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setShowEndCalendar(!showEndCalendar);
-              setShowStartCalendar(false);
-            }}
-            className={`
-              w-full rounded-xl border-2 p-3 text-left text-sm font-medium transition-all
-              ${endDate
-      ? 'border-amber-400 bg-amber-50 text-neutral-900'
-      : 'border-neutral-200 bg-white text-neutral-400 hover:border-neutral-300'}
-            `}
-          >
-            <div className="flex items-center justify-between">
-              <span>{formatDisplayDate(endDate)}</span>
-              <span className="text-lg">📅</span>
-            </div>
-          </button>
-          {showEndCalendar && (
-            <div className="mt-2">
-              <MiniCalendar
-                selectedDate={endDate}
-                onSelect={setEndDate}
-                minDate={startDate || today}
-                onClose={() => setShowEndCalendar(false)}
-              />
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div>
-        <label htmlFor="request-note" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
-          Note (optional)
-        </label>
-        <input
-          id="request-note"
-          type="text"
-          value={note}
-          onChange={e => setNote(e.target.value)}
-          placeholder="e.g., Family vacation"
-          className="w-full rounded-xl border-2 border-neutral-200 bg-white p-3 text-sm font-medium transition-all placeholder:text-neutral-400 focus:border-amber-400 focus:outline-none"
-        />
-      </div>
-
-      <div className="flex gap-3 pt-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isSubmitting}
-          className="flex-1 rounded-xl border-2 border-neutral-200 py-3 text-sm font-semibold text-neutral-600 transition-all hover:bg-neutral-50 disabled:opacity-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!startDate || !endDate || isSubmitting}
-          className="flex-1 rounded-xl py-3 text-sm font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
-          style={{ backgroundColor: themeVars.accent }}
-        >
-          {isSubmitting ? 'Submitting...' : 'Submit Request'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// =============================================================================
 // Staff Schedule Page
 // =============================================================================
 
@@ -848,8 +692,6 @@ export default function StaffSchedulePage() {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({});
   const [timeOffRequests, setTimeOffRequests] = useState<TimeOffRequest[]>([]);
-  const [showRequestTimeOff, setShowRequestTimeOff] = useState(false);
-  const [submittingRequest, setSubmittingRequest] = useState(false);
   const [technicianId, setTechnicianId] = useState<string | null>(null);
   const [salonSlug, setSalonSlug] = useState<string | null>(null);
   const [salonName, setSalonName] = useState<string>(providerSalonName);
@@ -867,15 +709,6 @@ export default function StaffSchedulePage() {
   // Module capabilities
   const { modules, loading: capabilitiesLoading } = useStaffCapabilities();
   const scheduleOverridesEnabled = modules?.scheduleOverrides ?? false;
-
-  const fetchTimeOffRequests = useCallback(async () => {
-    const requestsResponse = await fetch('/api/staff/time-off-requests');
-    if (!requestsResponse.ok) {
-      throw new Error('Failed to fetch time-off requests');
-    }
-    const data = await requestsResponse.json();
-    setTimeOffRequests(data.data?.requests || []);
-  }, []);
 
   const fetchOverrides = useCallback(async () => {
     if (!scheduleOverridesEnabled) {
@@ -1021,30 +854,6 @@ export default function StaffSchedulePage() {
       ...prev,
       [day]: schedule,
     }));
-  };
-
-  // Submit time off request (EDIT 2: Request-based)
-  const handleSubmitTimeOffRequest = async (startDate: string, endDate: string, note: string) => {
-    setSubmittingRequest(true);
-    try {
-      const response = await fetch('/api/staff/time-off-requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startDate, endDate, note: note || undefined }),
-      });
-
-      if (response.ok) {
-        await fetchTimeOffRequests();
-        setShowRequestTimeOff(false);
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Failed to submit request:', errorData);
-      }
-    } catch (error) {
-      console.error('Failed to submit time-off request:', error);
-    } finally {
-      setSubmittingRequest(false);
-    }
   };
 
   // Save schedule override
@@ -1326,43 +1135,25 @@ export default function StaffSchedulePage() {
                         <h2 className="font-bold" style={{ color: themeVars.titleText }}>
                           Time Off Requests
                         </h2>
-                        <p className="text-xs text-neutral-500">Requires admin approval</p>
+                        <p className="text-xs text-neutral-500">Historical requests and owner decisions</p>
                       </div>
-                      {!showRequestTimeOff && (
-                        <button
-                          type="button"
-                          onClick={() => setShowRequestTimeOff(true)}
-                          className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors"
-                          style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
-                        >
-                          + Request
-                        </button>
-                      )}
                     </div>
 
-                    {showRequestTimeOff
+                    {timeOffRequests.length === 0
                       ? (
-                          <RequestTimeOffForm
-                            onSubmit={handleSubmitTimeOffRequest}
-                            onCancel={() => setShowRequestTimeOff(false)}
-                            isSubmitting={submittingRequest}
-                          />
+                          <div className="py-6 text-center text-neutral-500">
+                            <div className="mb-2 text-2xl">📅</div>
+                            <p>No time off requests</p>
+                            <p className="mt-1 text-xs">Ask the salon owner to manage days off.</p>
+                          </div>
                         )
-                      : timeOffRequests.length === 0
-                        ? (
-                            <div className="py-6 text-center text-neutral-500">
-                              <div className="mb-2 text-2xl">📅</div>
-                              <p>No time off requests</p>
-                              <p className="mt-1 text-xs">Submit a request for admin approval</p>
-                            </div>
-                          )
-                        : (
-                            <div className="space-y-2">
-                              {timeOffRequests.map(request => (
-                                <TimeOffRequestCard key={request.id} request={request} />
-                              ))}
-                            </div>
-                          )}
+                      : (
+                          <div className="space-y-2">
+                            {timeOffRequests.map(request => (
+                              <TimeOffRequestCard key={request.id} request={request} />
+                            ))}
+                          </div>
+                        )}
                   </div>
                 </div>
               </div>
