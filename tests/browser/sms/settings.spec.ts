@@ -105,7 +105,7 @@ test('Advanced Optional Features opens included SMS credits and paused Client co
 
   const smsEntry = page.getByTestId('settings-sms-communications');
 
-  await expect(smsEntry).toContainText('Included on every plan · Uses SMS credits');
+  await expect(smsEntry).toContainText('Available with free core booking · Uses SMS credits');
   await expect(page.getByRole('button', { name: /Toggle SMS/ })).toHaveCount(0);
   await expect(page.getByTestId('locked-feature-rewards')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Toggle (Rewards|Referrals)/ })).toHaveCount(0);
