@@ -151,7 +151,7 @@ describe('SettingsModal — Features view entitlement states', () => {
       screen.getAllByText('Not included in your plan yet'),
     ).toHaveLength(5);
 
-    expect(screen.getByTestId('settings-sms-communications')).toHaveTextContent('Included on every plan');
+    expect(screen.getByTestId('settings-sms-communications')).toHaveTextContent('Available with free core booking');
     expect(screen.queryByRole('button', { name: 'Toggle SMS Reminders' })).not.toBeInTheDocument();
 
     // The one entitled module stays a working toggle, not a locked row.
@@ -187,7 +187,7 @@ describe('SettingsModal — Features view entitlement states', () => {
     }
   });
 
-  it('tells the owner that locked features are a plan matter', async () => {
+  it('explains free core booking and optional SMS credits', async () => {
     mockEndpoints({ scheduleOverrides: true });
     await openFeaturesView();
 
@@ -196,7 +196,7 @@ describe('SettingsModal — Features view entitlement states', () => {
     });
 
     expect(
-      screen.getByText(/Locked features are not included in your current plan yet/i),
+      screen.getByText(/SMS messages use credits; core booking stays free/i),
     ).toBeInTheDocument();
   });
 

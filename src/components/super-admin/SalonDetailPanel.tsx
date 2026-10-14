@@ -1186,7 +1186,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                         <div className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50/50 px-4 py-3">
                           <div>
                             <div className="text-sm font-medium text-gray-700">Locations</div>
-                            <div className="text-xs text-gray-500">Included on every plan</div>
+                            <div className="text-xs text-gray-500">Included with free core booking</div>
                           </div>
                           <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">Unlimited</span>
                         </div>
