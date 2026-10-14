@@ -1,3 +1,10 @@
+## [1.142.49](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.48...v1.142.49) (2026-10-14)
+
+
+### Bug Fixes
+
+* **product:** align remaining copy with free booking and 100 SMS credits ([#452](https://github.com/SniperStopSniping/nailsalon/issues/452)) ([74644b7](https://github.com/SniperStopSniping/nailsalon/commit/74644b7aa5ceb0d8ad41c87ab4ff5685a538036c))
+
 ## [1.142.48](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.47...v1.142.48) (2026-10-14)
 
 
