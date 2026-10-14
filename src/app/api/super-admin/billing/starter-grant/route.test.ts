@@ -162,7 +162,7 @@ describe('POST /api/super-admin/billing/starter-grant — plan', () => {
       businessIdentityId: null,
       alreadyGranted: false,
       wouldGrant: false,
-      credits: 50,
+      credits: 100,
       heldReason: 'IDENTITY_SETUP_REQUIRED',
     });
     expect(await rowCounts()).toEqual(before);
@@ -219,7 +219,7 @@ describe('POST /api/super-admin/billing/starter-grant — apply', () => {
     expect(await rowCounts()).toEqual(before);
   });
 
-  it('grants once with matching confirmation — one grant row, one 50-credit starter lot, one audit row (actor super_admin); a second apply is a no-op', async () => {
+  it('grants once with matching confirmation — one grant row, one 100-credit starter lot, one audit row (actor super_admin); a second apply is a no-op', async () => {
     await seedSalon({
       id: 's_apply_route',
       slug: 'apply-route-salon',
@@ -238,7 +238,7 @@ describe('POST /api/super-admin/billing/starter-grant — apply', () => {
 
     expect(first.status).toBe(200);
     expect(firstJson.granted).toBe(true);
-    expect(firstJson.ledgerEvidence).toMatchObject({ credits: 50, bucket: 'starter' });
+    expect(firstJson.ledgerEvidence).toMatchObject({ credits: 100, bucket: 'starter' });
 
     const businessIdentityId = firstJson.businessIdentityId as string;
 
@@ -246,13 +246,13 @@ describe('POST /api/super-admin/billing/starter-grant — apply', () => {
       .where(eq(schema.billingStarterGrantSchema.businessIdentityId, businessIdentityId));
 
     expect(grantRows).toHaveLength(1);
-    expect(grantRows[0]).toMatchObject({ salonId: 's_apply_route', credits: 50 });
+    expect(grantRows[0]).toMatchObject({ salonId: 's_apply_route', credits: 100 });
 
     const lotRows = await db.select().from(schema.smsCreditLedgerSchema)
       .where(eq(schema.smsCreditLedgerSchema.id, firstJson.ledgerEvidence.lotId));
 
     expect(lotRows).toHaveLength(1);
-    expect(lotRows[0]).toMatchObject({ salonId: 's_apply_route', bucket: 'starter', entryType: 'grant', amount: 50 });
+    expect(lotRows[0]).toMatchObject({ salonId: 's_apply_route', bucket: 'starter', entryType: 'grant', amount: 100 });
 
     const auditRows = await db.select().from(schema.auditLogSchema)
       .where(eq(schema.auditLogSchema.action, 'billing_starter_grant_backfilled'));

@@ -22,6 +22,8 @@
 
 import 'server-only';
 
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
+
 export const PLAN_FAMILIES = ['free', 'starter', 'pro', 'elite'] as const;
 export type PlanFamily = (typeof PLAN_FAMILIES)[number];
 
@@ -57,7 +59,7 @@ export const PLAN_DEFINITIONS: Record<PlanDefinitionKey, PlanDefinition> = {
     family: 'free',
     displayName: 'Free',
     monthlySmsCredits: 0,
-    starterCreditsOneTime: 100,
+    starterCreditsOneTime: COMMERCIAL_POLICY.starterCredits,
     featureBundleKey: 'legacy_v1',
     active: true,
     successorKey: null,
@@ -67,7 +69,7 @@ export const PLAN_DEFINITIONS: Record<PlanDefinitionKey, PlanDefinition> = {
     family: 'starter',
     displayName: 'Starter',
     monthlySmsCredits: 200,
-    starterCreditsOneTime: 100,
+    starterCreditsOneTime: COMMERCIAL_POLICY.starterCredits,
     featureBundleKey: 'legacy_v1',
     active: true,
     successorKey: null,
@@ -77,7 +79,7 @@ export const PLAN_DEFINITIONS: Record<PlanDefinitionKey, PlanDefinition> = {
     family: 'pro',
     displayName: 'Pro',
     monthlySmsCredits: 400,
-    starterCreditsOneTime: 100,
+    starterCreditsOneTime: COMMERCIAL_POLICY.starterCredits,
     featureBundleKey: 'legacy_v1',
     active: true,
     successorKey: null,
@@ -87,7 +89,7 @@ export const PLAN_DEFINITIONS: Record<PlanDefinitionKey, PlanDefinition> = {
     family: 'elite',
     displayName: 'Elite',
     monthlySmsCredits: 800,
-    starterCreditsOneTime: 100,
+    starterCreditsOneTime: COMMERCIAL_POLICY.starterCredits,
     featureBundleKey: 'legacy_v1',
     active: true,
     successorKey: null,

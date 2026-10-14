@@ -3,7 +3,7 @@ export const COMMERCIAL_POLICY = Object.freeze({
   key: 'free_sms_topups_2026_10',
   allFeaturesIncluded: true,
   subscriptionsForSale: false,
-  starterCredits: 50,
+  starterCredits: 100,
   lowBalanceThreshold: 20,
 });
 

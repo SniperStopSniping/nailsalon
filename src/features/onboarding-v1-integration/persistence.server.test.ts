@@ -478,9 +478,9 @@ describe.sequential('account-backed onboarding persistence', () => {
       throw new Error('Expected saved businesses.');
     }
 
-    expect(await starterLots(first.data.salonId)).toMatchObject([{ amount: 50 }]);
+    expect(await starterLots(first.data.salonId)).toMatchObject([{ amount: 100 }]);
     expect(await starterLots(second.data.salonId)).toEqual([]);
-    expect(await starterLots(independent.data.salonId)).toMatchObject([{ amount: 50 }]);
+    expect(await starterLots(independent.data.salonId)).toMatchObject([{ amount: 100 }]);
   });
 
   it('does not backfill starter credits when an existing owner saves a site for an older salon', async () => {
@@ -540,7 +540,7 @@ describe.sequential('account-backed onboarding persistence', () => {
       throw new Error('Expected retry to create the business.');
     }
 
-    expect(await starterLots(retry.data.salonId)).toMatchObject([{ amount: 50 }]);
+    expect(await starterLots(retry.data.salonId)).toMatchObject([{ amount: 100 }]);
   });
 
   it('persists onboarding routing and booking rules into canonical salon settings', async () => {
@@ -1021,7 +1021,7 @@ describe.sequential('account-backed onboarding persistence', () => {
       .where(eq(schema.onboardingDraftClaimSchema.siteId, left.data.siteId));
 
     expect(claims).toHaveLength(1);
-    expect(await starterLots(left.data.salonId)).toMatchObject([{ amount: 50 }]);
+    expect(await starterLots(left.data.salonId)).toMatchObject([{ amount: 100 }]);
   });
 
   it.each([false, true])('verifies the snapshot after another server wins the claim race (changed: %s)', async (changed) => {
@@ -1077,7 +1077,7 @@ describe.sequential('account-backed onboarding persistence', () => {
       throw new Error('Expected initial claim.');
     }
 
-    expect(await starterLots(initial.data.salonId)).toMatchObject([{ amount: 50 }]);
+    expect(await starterLots(initial.data.salonId)).toMatchObject([{ amount: 100 }]);
     expect(await database.select().from(schema.billingBusinessIdentityLinkSchema)
       .where(eq(schema.billingBusinessIdentityLinkSchema.linkValue, 'user_wrong_owner'))).toEqual([]);
   });

@@ -133,34 +133,34 @@ async function eligibleSalon() {
 }
 
 describe('free model migration', () => {
-  it('rehearses without writes and grants 50 non-expiring credits once with audit evidence', async () => {
+  it('rehearses without writes and grants 100 non-expiring credits once with audit evidence', async () => {
     const { salonId } = await eligibleSalon();
     const { planStarterGrantBackfill, applyStarterGrantBackfill } = await backfill();
 
-    expect(await planStarterGrantBackfill(db, { salonSlug: salonId })).toMatchObject({ wouldGrant: true, credits: 50, heldReason: null });
+    expect(await planStarterGrantBackfill(db, { salonSlug: salonId })).toMatchObject({ wouldGrant: true, credits: 100, heldReason: null });
     expect(await db.select().from(schema.smsCreditAccountSchema).where(eq(schema.smsCreditAccountSchema.salonId, salonId))).toEqual([]);
 
     const first = await applyStarterGrantBackfill(db, { salonSlug: salonId, actorId: 'qa' });
 
-    expect(first).toMatchObject({ granted: true, ledgerEvidence: { credits: 50, bucket: 'starter' } });
+    expect(first).toMatchObject({ granted: true, ledgerEvidence: { credits: 100, bucket: 'starter' } });
     expect(await applyStarterGrantBackfill(db, { salonSlug: salonId, actorId: 'qa' })).toMatchObject({ granted: false });
-    expect(await db.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, salonId))).toMatchObject([{ amount: 50, expiresAt: null }]);
+    expect(await db.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, salonId))).toMatchObject([{ amount: 100, expiresAt: null }]);
     expect(await db.select().from(schema.auditLogSchema).where(eq(schema.auditLogSchema.salonId, salonId))).toHaveLength(1);
   });
 
-  it('preserves a historical 100-credit grant even while new identity claims are disabled', async () => {
+  it.each([50, 100])('preserves a historical %i-credit grant even while new identity claims are disabled', async (historicalCredits) => {
     const { salonId, businessIdentityId } = await eligibleSalon();
     const { lockCreditAccount, appendLotGrant } = await import('./creditLedger');
     await db.transaction(async (tx) => {
       await lockCreditAccount(tx, salonId);
-      const { lotId } = await appendLotGrant(tx, { salonId, bucket: 'starter', amount: 100, expiresAt: null, idempotencyKey: `historical:${salonId}`, reason: 'starter_grant' });
-      await tx.insert(schema.billingStarterGrantSchema).values({ id: `old_${salonId}`, businessIdentityId, salonId, credits: 100, ledgerId: lotId });
+      const { lotId } = await appendLotGrant(tx, { salonId, bucket: 'starter', amount: historicalCredits, expiresAt: null, idempotencyKey: `historical:${salonId}`, reason: 'starter_grant' });
+      await tx.insert(schema.billingStarterGrantSchema).values({ id: `old_${salonId}`, businessIdentityId, salonId, credits: historicalCredits, ledgerId: lotId });
     });
     envHolder.BILLING_STARTER_IDENTITY_READY = undefined;
     const { applyStarterGrantBackfill } = await backfill();
 
     expect(await applyStarterGrantBackfill(db, { salonSlug: salonId, actorId: 'qa' })).toMatchObject({ granted: false });
-    expect(await db.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, salonId))).toMatchObject([{ amount: 100 }]);
+    expect(await db.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, salonId))).toMatchObject([{ amount: historicalCredits }]);
   });
 
   it('holds unverified salons and never treats owner_email as verified evidence', async () => {
@@ -195,6 +195,28 @@ describe('free model migration', () => {
 
     expect(await applyStarterGrantBackfill(db, { salonSlug: recreated, actorId: 'qa' })).toMatchObject({ granted: false });
     expect(await db.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, recreated))).toEqual([]);
+  });
+
+  it.each(['owner', 'admin'])('accepts only verified owner membership email evidence, role %s', async (role) => {
+    const { salonId } = await eligibleSalon();
+    const legacy = `${salonId}_membership_${role}`;
+    const email = `${legacy}@example.com`;
+    await seedSalon({ id: legacy, slug: legacy });
+    await seedOwner({ adminId: `admin_${legacy}`, salonId: legacy, email, emailVerifiedAt: new Date(), role });
+    const { resolveOrCreateBusinessIdentity } = await identity();
+    await db.transaction(tx => resolveOrCreateBusinessIdentity(tx, { salonId: legacy, verifiedPhone: `+1416555${String(counter + 5000).padStart(4, '0')}` }));
+    const { planStarterGrantBackfill, applyStarterGrantBackfill } = await backfill();
+    const plan = await planStarterGrantBackfill(db, { salonSlug: legacy });
+
+    expect(plan.wouldGrant).toBe(role === 'owner');
+
+    if (role === 'owner') {
+      expect(await applyStarterGrantBackfill(db, { salonSlug: legacy, actorId: 'qa' })).toMatchObject({ granted: true, ledgerEvidence: { credits: 100 } });
+      expect(identitySpy.signals.at(-1)).toMatchObject({ verifiedEmail: email });
+    } else {
+      await expect(applyStarterGrantBackfill(db, { salonSlug: legacy, actorId: 'qa' })).rejects.toMatchObject({ code: 'CONTACT_VERIFICATION_REQUIRED' });
+      expect(await db.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, legacy))).toEqual([]);
+    }
   });
 
   it('holds conflicting identity evidence without writes', async () => {

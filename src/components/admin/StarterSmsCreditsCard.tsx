@@ -3,6 +3,8 @@
 import { useClerk } from '@clerk/nextjs';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
+
 type ClaimStatus = 'granted' | 'already_claimed' | 'verification_required' | 'identity_setup_required';
 type StarterCreditsStatus = 'verified' | 'verification_required' | 'unclaimed';
 type StatusState =
@@ -103,7 +105,7 @@ export function StarterSmsCreditsCard({
           return;
         }
         setCompletedMessage(status === 'granted' && !hasKnownStarterCredits && statusState.status === 'unclaimed'
-          ? '50 free text credits have been added.'
+          ? `${COMMERCIAL_POLICY.starterCredits} free text credits have been added.`
           : VERIFIED_MESSAGE);
         setStatusState({ kind: 'ready', status: 'verified', canClaim: false });
         return;
@@ -165,7 +167,7 @@ export function StarterSmsCreditsCard({
   return (
     <section aria-labelledby="starter-texts-heading" className="space-y-2 rounded-lg bg-pink-50 p-4 text-gray-900">
       <h3 id="starter-texts-heading" className="text-[15px] font-medium">
-        {hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify your free-text allowance' : '50 free text credits'}
+        {hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify your free-text allowance' : `${COMMERCIAL_POLICY.starterCredits} free text credits`}
       </h3>
       <p className="text-[14px] text-gray-700">
         {hasKnownStarterCredits || statusState.status === 'verification_required'
@@ -173,7 +175,7 @@ export function StarterSmsCreditsCard({
           : 'One lifetime allowance linked to your verified owner email and phone number. Creating another salon does not reset it. Long text messages may use more than one text credit.'}
       </p>
       <button type="button" onClick={() => void claim()} disabled={claiming} className="rounded-lg bg-gray-900 px-3 py-2 text-[14px] font-medium text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none">
-        {claiming ? 'Verifying…' : hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify free-text allowance' : 'Claim 50 free texts'}
+        {claiming ? 'Verifying…' : hasKnownStarterCredits || statusState.status === 'verification_required' ? 'Verify free-text allowance' : `Claim ${COMMERCIAL_POLICY.starterCredits} free texts`}
       </button>
       {needsVerification && (
         <button type="button" onClick={openVerification} className="ml-2 rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800">

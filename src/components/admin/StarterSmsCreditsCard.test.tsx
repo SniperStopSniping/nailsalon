@@ -35,7 +35,7 @@ describe('StarterSmsCreditsCard', () => {
 
     expect(screen.getByText('Checking free-text allowance…')).toBeInTheDocument();
 
-    const claim = await screen.findByRole('button', { name: 'Claim 50 free texts' });
+    const claim = await screen.findByRole('button', { name: 'Claim 100 free texts' });
     fireEvent.click(claim);
 
     await waitFor(() => expect(onClaimed).toHaveBeenCalledOnce());
@@ -46,7 +46,7 @@ describe('StarterSmsCreditsCard', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ salonId: 'salon_a' }),
     });
-    expect(screen.getByText('50 free text credits have been added.')).toBeInTheDocument();
+    expect(screen.getByText('100 free text credits have been added.')).toBeInTheDocument();
   });
 
   it('sends an unverified owner to the Clerk profile instead of requesting contact data', async () => {
@@ -92,7 +92,7 @@ describe('StarterSmsCreditsCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry status check' }));
 
-    expect(await screen.findByRole('button', { name: 'Claim 50 free texts' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Claim 100 free texts' })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
   });
@@ -143,7 +143,7 @@ describe('StarterSmsCreditsCard', () => {
     });
     const { rerender } = render(<StarterSmsCreditsCard salonId="salon_a" hasKnownStarterCredits={false} onClaimed={onClaimed} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Claim 50 free texts' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Claim 100 free texts' }));
 
     expect(await screen.findByRole('button', { name: 'Verifying…' })).toBeDisabled();
 

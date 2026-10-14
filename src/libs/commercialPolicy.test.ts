@@ -8,8 +8,8 @@ const { shouldEnforceBillingLock } = await import('./featureGating');
 const { getPlanLimits } = await import('./planLimits');
 
 describe('current free access policy', () => {
-  it('includes all features, grants 50 once, and disables new subscriptions centrally', () => {
-    expect(COMMERCIAL_POLICY).toMatchObject({ allFeaturesIncluded: true, subscriptionsForSale: false, starterCredits: 50 });
+  it('includes all features, grants 100 once, and disables new subscriptions centrally', () => {
+    expect(COMMERCIAL_POLICY).toMatchObject({ allFeaturesIncluded: true, subscriptionsForSale: false, starterCredits: 100 });
   });
 
   it.each(['active', 'past_due', 'unpaid', 'canceled', 'incomplete_expired', null])('keeps normal app access for %s subscriptions', (status) => {

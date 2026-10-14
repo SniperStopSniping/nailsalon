@@ -293,7 +293,11 @@ export async function planStarterGrantBackfill(
               eq(billingBusinessIdentityLinkSchema.hmacKeyVersion, Env.BILLING_IDENTITY_HMAC_VERSION ?? 0),
             ))
           : [];
-        if (!contacts.some(link => link.type === 'email_hmac') || !contacts.some(link => link.type === 'phone_hmac')) {
+        // Application attaches the verified owner email in the same transaction.
+        // Rehearsal may use that same proof without creating an identity link.
+        const hasVerifiedEmail = contacts.some(link => link.type === 'email_hmac')
+          || (salon.ownerVerifiedEmail !== null && computeEmailFingerprint(salon.ownerVerifiedEmail) !== null);
+        if (!hasVerifiedEmail || !contacts.some(link => link.type === 'phone_hmac')) {
           heldReason = 'CONTACT_VERIFICATION_REQUIRED';
         }
       }
