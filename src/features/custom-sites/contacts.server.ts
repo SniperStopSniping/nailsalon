@@ -43,7 +43,7 @@ function walk(node: any, visit: (node: any) => void) {
  * Explicit owner repair may recover unambiguous visible details from a saved design.
  * Never use generated metadata/ARIA labels, hidden text or another tenant's source.
  */
-export function recoverSavedContacts(html: string, current?: WebsiteDetails): WebsiteDetails {
+export function recoverSavedContacts(html: string, current?: WebsiteDetails, includeBoundText = false): WebsiteDetails {
   const root = parseFragment(html);
   const found = Object.fromEntries(CONTACT_KINDS.map(kind => [kind, new Map<string, string>()])) as Record<ContactKind, Map<string, string>>;
   walk(root, (node) => {
@@ -53,7 +53,7 @@ export function recoverSavedContacts(html: string, current?: WebsiteDetails): We
     let parentKind: string | undefined;
     for (let parent = node.parentNode; parent; parent = parent.parentNode) {
       parentKind ??= attr(parent, 'data-luster-link');
-      if (attr(parent, 'data-luster-field')?.startsWith('details.')) {
+      if (!includeBoundText && attr(parent, 'data-luster-field')?.startsWith('details.')) {
         return;
       }
     }

@@ -44,6 +44,18 @@ describe('deterministic contact wiring', () => {
     expect(() => assertWebsiteDetailsCoverage(mismatched.html, { ...EMPTY_WEBSITE_DETAILS, instagram: '@salon' })).toThrow('saved instagram');
   });
 
+  it('recovers old bound fallback text only during an explicit owner repair', () => {
+    const html = '<a data-luster-link="email"><span data-luster-field="details.email">STUDIO@EXAMPLE.COM</span></a>';
+
+    expect(recoverSavedContacts(html).email).toBeNull();
+    expect(() => assertWebsiteDetailsCoverage('<span data-luster-field="details.email"></span>')).toThrow('Save the email address');
+
+    const details = recoverSavedContacts(html, undefined, true);
+
+    expect(details.email).toBe('STUDIO@EXAMPLE.COM');
+    expect(() => assertWebsiteDetailsCoverage(bindWebsiteContacts({ ...source, html }, details).html, details)).not.toThrow();
+  });
+
   it('wires generic anchors and standalone data fields without a model repair', () => {
     const details = { ...EMPTY_WEBSITE_DETAILS, instagram: '@studio', email: 'hello@example.com' };
     const wired = bindWebsiteContacts({ ...source, html: '<a class="contact" href="#">@studio</a><span data-luster-field="details.email"></span>' }, details);

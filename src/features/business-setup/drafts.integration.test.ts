@@ -480,7 +480,7 @@ describe('private multimodal design references', () => {
 describe('no-model contact repairs', () => {
   it('repairs legacy contacts atomically, preserves design/services, replays and never calls AI', async () => {
     const actor = await fixture();
-    const legacy = { ...editorialSource, html: `${editorialSource.html}<a class="contact" data-luster-link="instagram">@TestStudio</a><p>hello@example.com</p><a data-luster-link="phone"><span>416-555-0100</span></a>` };
+    const legacy = { ...editorialSource, html: `${editorialSource.html}<a class="contact" data-luster-link="instagram">@TestStudio</a><a data-luster-link="email"><span data-luster-field="details.email">hello@example.com</span></a><a data-luster-link="phone"><span>416-555-0100</span></a>` };
     const first = await saveCustomSource(actor, { source: legacy, assetIds: [], expectedRevision: 2, operationId: randomUUID() });
     const input = { expectedRevision: first.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Make the Instagram clickable' };
     const provider = { createResponse: vi.fn() };

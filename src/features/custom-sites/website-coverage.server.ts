@@ -30,7 +30,7 @@ export function assertWebsiteDetailsCoverage(html: string, details?: WebsiteDeta
   visit(parseFragment(html));
   const visible = recoverSavedContacts(html);
   for (const kind of CONTACT_KINDS) {
-    if ((links.has(kind) || visible[kind]) && !details?.[kind]) {
+    if ((links.has(kind) || fields.has(`details.${kind}`) || visible[kind]) && !details?.[kind]) {
       throw new SetupError('INVALID', `Save the ${kind === 'instagram' ? 'Instagram handle' : kind === 'email' ? 'email address' : 'phone number'} before showing its contact link.`);
     }
     if (visible[kind] && details?.[kind] && visible[kind]!.toLowerCase().replace(/^@/u, '') !== details[kind]!.toLowerCase().replace(/^@/u, '')) {

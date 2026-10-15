@@ -25,7 +25,7 @@ export async function repairDraftContacts(actor: SetupActor, input: { expectedRe
   }
   const { artifact } = await assertCustomArtifact(db, actor.salonId, id);
   const proposed = applySetupOperations(head.revision.document, operations, 'assistant');
-  const details = recoverSavedContacts(artifact.source.html, proposed.website.content.websiteDetails);
+  const details = recoverSavedContacts(artifact.source.html, proposed.website.content.websiteDetails, true);
   const required = input.required?.toLowerCase();
   const missing = required?.includes('instagram') && !details.instagram ? 'Instagram handle' : required?.includes('email') && !details.email ? 'email address' : required?.includes('phone') && !details.phone ? 'phone number' : null;
   if (missing) {
