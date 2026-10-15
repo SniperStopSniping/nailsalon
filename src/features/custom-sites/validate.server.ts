@@ -9,7 +9,7 @@ import { customSiteSourceSchema } from './contracts';
 
 const TAGS = new Set('main section article aside header footer nav div span p h1 h2 h3 h4 h5 h6 strong em b i small br hr ul ol li dl dt dd figure figcaption blockquote button a img picture details summary template label time mark svg path circle ellipse rect line polyline polygon g title desc'.split(' '));
 const ATTRS = new Set('id class role title alt width height viewBox viewbox d fill stroke stroke-width stroke-linecap stroke-linejoin cx cy r rx ry x y x1 y1 x2 y2 points transform opacity tabindex hidden open type'.split(' '));
-const FIELDS = new Set(['business.name', 'business.city', 'business.address', 'business.bio', 'service.name', 'service.description', 'service.priceLabel', 'service.durationMinutes']);
+const FIELDS = new Set(['business.name', 'business.city', 'business.address', 'business.bio', 'business.hoursLabel', 'service.name', 'service.description', 'service.priceLabel', 'service.durationMinutes']);
 type SourceNode = { tagName?: string; attrs?: { name: string; value: string }[]; childNodes?: SourceNode[]; content?: SourceNode };
 
 /** Retained revision assets are private unless this exact source uses them. */
@@ -30,7 +30,7 @@ export function customSourceImageIds(html: string) {
   walk(parseFragment(html) as SourceNode);
   return ids;
 }
-export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>) {
+export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>, requireLiveFields = false) {
   const source = customSiteSourceSchema.parse(raw);
   const fail = (message: string): never => {
     throw new SetupError('INVALID', message);
@@ -42,6 +42,36 @@ export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>)
     fail('Use uploaded images and local fonts. External CSS resources are not supported.');
   }
   const root = parseFragment(source.html);
+  if (requireLiveFields) {
+    const templates: SourceNode[] = [];
+    const findTemplates = (node: SourceNode) => {
+      if (node.tagName === 'template' && node.attrs?.some(a => a.name === 'data-luster-service')) {
+        templates.push(node);
+      }
+      node.childNodes?.forEach(findTemplates);
+    };
+    findTemplates(root as SourceNode);
+    const fields = new Set<string>();
+    let serviceBook = false;
+    const collect = (node: SourceNode) => {
+      for (const attr of node.attrs ?? []) {
+        if (attr.name === 'data-luster-field') {
+          fields.add(attr.value);
+        }
+        if (attr.name === 'data-luster-book' && node.tagName === 'button') {
+          serviceBook = true;
+        }
+      }
+      node.childNodes?.forEach(collect);
+    };
+    templates.forEach(t => t.content && collect(t.content));
+    if (templates.length !== 1 || !serviceBook || ['service.name', 'service.priceLabel', 'service.durationMinutes'].some(field => !fields.has(field))) {
+      fail('Use one service template containing the live name, price, duration and service booking button.');
+    }
+    if (/(?:[$€£]|\bCAD|\bUSD)\s*\d/iu.test(source.html)) {
+      fail('Display prices through service.priceLabel, never as copied price text.');
+    }
+  }
   let count = 0;
   let booking = false;
   let services = false;

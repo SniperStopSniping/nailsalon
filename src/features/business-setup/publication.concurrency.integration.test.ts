@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { attestDisposableDatabaseSession, requireDisposableDatabaseTarget, resolveDisposableDatabaseServerExpectation } from '@/libs/disposableDatabaseTarget';
 import * as schema from '@/models/Schema';
 
+import { runSetupModel } from './ai-trial.server';
 import { CLOSED_HOURS } from './contracts';
 import { approveSetup, editSetup, openSetup, reviewSetup } from './drafts.server';
 import { publishSetup } from './publish.server';
@@ -120,5 +121,30 @@ describe.skipIf(!target)('setup publication on attested disposable PostgreSQL', 
     }
 
     expect((await publishSetup(actor, input)).receipt.serviceIds.draft_service).toBeTruthy();
+  });
+});
+
+describe.skipIf(!target)('AI trial global reservation on PostgreSQL', () => {
+  it('admits only one simultaneous call when different salons compete for the remaining budget', async () => {
+    const first = await fixture();
+    const second = await fixture();
+    const history = await database.select().from(schema.setupAiCallSchema);
+    const used = history.reduce((sum, row) => sum + row.chargedMicroCad, 0);
+    await database.insert(schema.setupAiBudgetSchema).values({ id: 'initial-custom-website-trial', capMicroCad: used + 1900000 }).onConflictDoUpdate({ target: schema.setupAiBudgetSchema.id, set: { capMicroCad: used + 1900000 } });
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: null, items: [] });
+    const request = { model: 'gpt-6-astra', input: [{ role: 'user' as const, content: 'Synthetic test' }], tools: [], toolChoice: 'none' as const, maxOutputTokens: 14000, timeoutMs: 1000, jsonMode: 'prompt' as const };
+    try {
+      const results = await Promise.allSettled([first, second].map(({ actor }) => runSetupModel(actor, { operationId: randomUUID(), ordinal: 0, expectedRevision: 2, request }, { createResponse })));
+
+      expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+      expect(results.filter(r => r.status === 'rejected')).toHaveLength(1);
+      expect(createResponse).toHaveBeenCalledTimes(1);
+
+      const after = await database.select().from(schema.setupAiCallSchema);
+
+      expect(after.reduce((sum, row) => sum + row.chargedMicroCad, 0)).toBeLessThanOrEqual(used + 1900000);
+    } finally {
+      await database.update(schema.setupAiBudgetSchema).set({ capMicroCad: 40000000 });
+    }
   });
 });

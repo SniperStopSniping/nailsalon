@@ -31,4 +31,13 @@ describe('custom frontend source validation', () => {
     expect(() => validateCustomSource({ ...source, html: '<div data-luster-services></div><button data-luster-book>Book</button>' }, new Set())).toThrow();
     expect(() => validateCustomSource({ ...source, javascript: 'function (' }, new Set())).toThrow();
   });
+
+  it('requires generated sites to bind live names, prices, times and service booking', () => {
+    expect(() => validateCustomSource(source, new Set(), true)).toThrow('live name, price, duration');
+
+    const connected = { ...source, html: source.html.replace('<button', '<span data-luster-field="service.priceLabel"></span><span data-luster-field="service.durationMinutes"></span><button') };
+
+    expect(validateCustomSource(connected, new Set(), true).html).toContain('service.priceLabel');
+    expect(() => validateCustomSource({ ...connected, html: `${connected.html}<p>BIAB $65</p>` }, new Set(), true)).toThrow('copied price text');
+  });
 });

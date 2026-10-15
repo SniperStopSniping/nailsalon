@@ -1,24 +1,28 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireSetupOwner } from '@/features/business-setup/access.server';
+import { setupAiConfigured } from '@/features/business-setup/ai-trial.server';
 import { SetupError } from '@/features/business-setup/contracts';
+import { runSetupConversation } from '@/features/business-setup/conversation.server';
 import { editSetup, loadSetupHead, lockSetupSalon, readSetupSnapshot } from '@/features/business-setup/drafts.server';
 import { saveCustomSource } from '@/features/custom-sites/artifacts.server';
-import { uploadCustomAsset } from '@/features/custom-sites/assets.server';
+import { assetDataUrl, ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
 import { customSiteGenerateSchema, customSiteSourceSchema } from '@/features/custom-sites/contracts';
-import { generateCustomSite } from '@/features/custom-sites/generate.server';
+import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
 import { customSitePayload, customSiteRendererOrigin } from '@/features/custom-sites/payload.server';
+import { isExplicitServicePriceEdit } from '@/features/custom-sites/price-edit';
 import { db } from '@/libs/DB';
-import { customSiteArtifactSchema as artifacts, customSiteAssetSchema as assets, customSiteGenerationSchema as jobs } from '@/models/Schema';
+import { customSiteArtifactSchema as artifacts, customSiteAssetSchema as assets, customSiteGenerationSchema as jobs, setupAiCallSchema as calls } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-export const maxDuration = 180;
+export const maxDuration = 300;
 const headers = { 'Cache-Control': 'private, no-store' };
 const edit = { expectedRevision: z.number().int().positive(), operationId: z.string().uuid() };
 const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('generate'), input: customSiteGenerateSchema }).strict(),
+  z.object({ action: z.literal('resume'), operationId: z.string().uuid() }).strict(),
   z.object({ action: z.literal('save'), input: z.object({ ...edit, source: customSiteSourceSchema, assetIds: z.array(z.string().uuid()).max(12) }).strict() }).strict(),
   z.object({ action: z.literal('restore'), input: z.object({ ...edit, artifactId: z.string().uuid() }).strict() }).strict(),
 ]);
@@ -32,6 +36,24 @@ export async function GET(request: Request) {
     return access.response;
   }
   try {
+    const query = new URL(request.url).searchParams;
+    const generation = query.get('generation');
+    const assetId = query.get('asset');
+    if (generation || assetId) {
+      await db.transaction(async (tx) => {
+        await lockSetupSalon(tx, access.actor);
+      });
+      if (generation) {
+        z.string().uuid().parse(generation);
+        const evidence = await db.select().from(calls).where(and(eq(calls.operationId, generation), eq(calls.salonId, access.actor.salonId))).orderBy(calls.ordinal);
+        // Private source evidence is text data, never rendered or executable.
+        return Response.json({ evidence: evidence.map(({ rawOutput, model, provider, inputTokens, outputTokens, costMicroUsd, elapsedMs, validation, ordinal }) => ({ rawOutput, model, provider, inputTokens, outputTokens, costMicroUsd, elapsedMs, validation, ordinal })) }, { headers });
+      }
+      z.string().uuid().parse(assetId);
+      const [asset] = await ownedAssets(db, access.actor.salonId, [assetId!]);
+      const data = await assetDataUrl(asset!);
+      return new Response(Buffer.from(data.slice(data.indexOf(',') + 1), 'base64'), { headers: { ...headers, 'Content-Type': asset!.mimeType, 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': asset!.mimeType === 'application/pdf' ? 'attachment; filename="reference.pdf"' : 'inline', 'Content-Security-Policy': 'default-src \'none\'; sandbox' } });
+    }
     const head = await db.transaction(async (tx) => {
       const salon = await lockSetupSalon(tx, access.actor);
       const head = await loadSetupHead(tx, salon.id);
@@ -44,9 +66,10 @@ export async function GET(request: Request) {
     const id = document.website.config.customFrontendId;
     const history = await db.select({ id: artifacts.id, source: artifacts.source, createdAt: artifacts.createdAt, assetIds: artifacts.assetIds }).from(artifacts).where(eq(artifacts.salonId, access.actor.salonId)).orderBy(desc(artifacts.createdAt)).limit(30);
     const media = await db.select({ id: assets.id, name: assets.name, role: assets.role, mimeType: assets.mimeType }).from(assets).where(eq(assets.salonId, access.actor.salonId)).orderBy(desc(assets.createdAt));
-    const attempts = await db.select({ id: jobs.id, status: jobs.status, message: jobs.message, artifactId: jobs.artifactId, inputTokens: jobs.inputTokens, outputTokens: jobs.outputTokens, costMicroUsd: jobs.costMicroUsd }).from(jobs).where(eq(jobs.salonId, access.actor.salonId)).orderBy(desc(jobs.createdAt)).limit(30);
+    const attempts = await db.select({ id: jobs.id, status: jobs.status, phase: jobs.phase, message: jobs.message, artifactId: jobs.artifactId, inputTokens: jobs.inputTokens, outputTokens: jobs.outputTokens, costMicroUsd: jobs.costMicroUsd, createdAt: jobs.createdAt }).from(jobs).where(eq(jobs.salonId, access.actor.salonId)).orderBy(desc(jobs.createdAt)).limit(30);
+    const recoverable = new Set((await db.select({ operationId: calls.operationId }).from(calls).where(and(eq(calls.salonId, access.actor.salonId), eq(calls.validation, 'passed')))).map(call => call.operationId));
     const payload = id ? await customSitePayload(access.actor.salonId, id, { business: { name: document.business.name, city: document.business.city, address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio ?? '', hours: document.hours }, services: document.services.filter(s => s.priceCents !== null && s.durationMinutes !== null).map(s => ({ id: `setup_preview_${s.id}`, name: s.name, description: s.description, priceCents: s.priceCents!, priceLabel: new Intl.NumberFormat('en-CA', { style: 'currency', currency: document.booking.currency }).format(s.priceCents! / 100), durationMinutes: s.durationMinutes! })), currency: document.booking.currency, preview: true }) : null;
-    return Response.json({ head, payload, rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts }, { headers });
+    return Response.json({ head, payload, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });
   } catch (e) {
     return errorResponse(e);
   }
@@ -97,10 +120,16 @@ export async function POST(request: Request) {
       if (!access.aiEnabled) {
         return Response.json({ error: 'AI is unavailable. Your saved website remains editable.' }, { status: 503, headers });
       }
+      if (isExplicitServicePriceEdit(parsed.input.message)) {
+        return Response.json(await runSetupConversation(access.actor, { message: parsed.input.message, operationId: parsed.input.operationId, expectedRevision: parsed.input.expectedRevision, scope: 'service_price' }), { headers });
+      }
       return Response.json(await generateCustomSite(access.actor, parsed.input), { headers });
     }
     if (parsed.action === 'save') {
       return Response.json(await saveCustomSource(access.actor, parsed.input), { headers });
+    }
+    if (parsed.action === 'resume') {
+      return Response.json(await resumeCustomSite(access.actor, parsed.operationId), { headers });
     }
     return Response.json({ head: await editSetup(access.actor, { expectedRevision: parsed.input.expectedRevision, operationId: parsed.input.operationId, operations: [{ type: 'custom_frontend', artifactId: parsed.input.artifactId }] }) }, { headers });
   } catch (e) {

@@ -11,6 +11,7 @@ import { businessSetupTurnSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 300;
 const headers = { 'Cache-Control': 'private, no-store' };
 const base = { salonSlug: z.string().min(1).max(160) };
 const requestSchema = z.discriminatedUnion('action', [

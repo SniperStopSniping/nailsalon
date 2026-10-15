@@ -10,6 +10,10 @@ export async function resetSyntheticSetup() {
     if (identity.name !== 'luster_ai_setup_development' || identity.host !== '127.0.0.1/32' || marker.length !== 1 || marker[0].environment !== 'development') {
       throw new Error('The task-owned Development database is required.');
     }
+    const ledger = (await database.query('SELECT to_regclass(\'public.setup_ai_call\') AS name')).rows[0];
+    if (ledger.name && (await database.query('SELECT 1 FROM setup_ai_call WHERE salon_id=$1 AND provider=\'openai\' LIMIT 1', ['setup-synthetic-salon'])).rowCount) {
+      throw new Error('This synthetic salon contains real-provider trial evidence. Preserve it and use a fresh isolated test database instead of resetting it.');
+    }
     await database.query('BEGIN');
     await database.query('DELETE FROM appointment WHERE salon_id = $1', ['setup-synthetic-salon']);
     await database.query('DELETE FROM technician_services WHERE service_id IN (SELECT id FROM service WHERE salon_id = $1)', ['setup-synthetic-salon']);

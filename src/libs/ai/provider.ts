@@ -75,6 +75,8 @@ export type ModelProviderResponse = {
   status: 'completed' | 'incomplete' | 'failed';
   /** Provider's own reason when `status` is 'incomplete' (e.g. 'max_output_tokens'). */
   incompleteReason?: string;
+  /** Incomplete output retained as untrusted evidence; never an actionable item. */
+  partialText?: string;
 };
 
 /**

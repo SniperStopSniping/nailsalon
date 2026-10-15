@@ -5,13 +5,15 @@ import { useEffect, useState } from 'react';
 import type { CustomSitePayload, CustomSiteSource } from './contracts';
 import { CustomTextEditor } from './CustomTextEditor';
 import { CustomWebsiteFrame } from './CustomWebsiteFrame';
+import { GenerationEvidence } from './GenerationEvidence';
 
 type State = {
   payload: CustomSitePayload | null;
   rendererOrigin: string | null;
+  configured: boolean;
   assets: { id: string; name: string; role: string; mimeType: string }[];
   history: { id: string; title: string; createdAt: string; assetIds: string[] }[];
-  attempts: { id: string; message: string; status: string; artifactId: string | null; inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null }[];
+  attempts: { id: string; message: string; status: string; phase: string; recoverable: boolean; createdAt: string; artifactId: string | null; inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null }[];
 };
 export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, aiEnabled, onSaved }: { salonSlug: string; revision: number; artifactId?: string; disabled: boolean; aiEnabled: boolean; onSaved: () => Promise<void> }) {
   const [state, setState] = useState<State | null>(null);
@@ -21,6 +23,13 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
   const [startOver, setStartOver] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [reply, setReply] = useState('');
+  const [previewSize, setPreviewSize] = useState<'desktop' | 'mobile'>('desktop');
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 640px)').matches) {
+      setPreviewSize('mobile');
+    }
+  }, []);
   const endpoint = `/api/admin/custom-sites?salonSlug=${encodeURIComponent(salonSlug)}`;
   async function load() {
     const response = await fetch(endpoint, { cache: 'no-store' });
@@ -30,10 +39,23 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     }
     setState(data);
     setSource(data.payload?.source ?? null);
+    if (data.head.revision.revision !== revision) {
+      await onSaved();
+    }
   }
   useEffect(() => {
     void load().catch(e => setError(e.message));
   }, [endpoint, revision]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pending = state?.attempts.some(item => item.status === 'pending' && Date.now() - new Date(item.createdAt).getTime() < 300000);
+  useEffect(() => {
+    if (!busy && !pending) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void load().catch(() => {});
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [busy, pending, endpoint]); // eslint-disable-line react-hooks/exhaustive-deps
   async function action(label: string, work: () => Promise<void>) {
     setBusy(label);
     setError('');
@@ -43,6 +65,9 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Please try again.');
+      // A lost response may follow a committed result. Read it before offering
+      // a new paid generation. The server keeps the original operation ID.
+      await load().catch(() => {});
     } finally {
       setBusy('');
     }
@@ -60,6 +85,8 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     <div id="custom-design" className="custom-design-studio">
       <h2>Custom design with AI</h2>
       <p>Show Luster your inspiration, or describe an original design. It builds an editable website around your business and booking system.</p>
+      {reply && <p role="status">{reply}</p>}
+      {state && !state.configured && <p role="status">AI is not connected yet. Your business details, uploads and saved designs are safe. You can keep using the manual controls.</p>}
       {error && (
         <p role="alert">
           {error}
@@ -67,9 +94,9 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           <button type="button" onClick={() => void action('Loading saved design…', load)}>Reload saved design</button>
         </p>
       )}
-      {busy && (
+      {(busy || pending) && (
         <p role="status">
-          {busy}
+          {state?.attempts[0]?.phase === 'repairing' ? 'Correcting the design after its automatic checks…' : busy || 'Your design is still being created…'}
           {' '}
           Your published website stays unchanged. You can return to your saved design after this finishes.
         </p>
@@ -120,6 +147,11 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                   {' '}
                   ·
                   {asset.role === 'reference' ? 'Inspiration only' : 'Website asset'}
+                  {asset.mimeType.startsWith('image/') && (
+                    // Private authenticated asset endpoint; never an external URL.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={`${endpoint}&asset=${asset.id}`} alt={`${asset.name} reference`} style={{ display: 'block', maxWidth: 180, maxHeight: 140, objectFit: 'contain' }} />
+                  )}
                 </label>
               ))}
             </fieldset>
@@ -128,14 +160,15 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       <form onSubmit={(event) => {
         event.preventDefault();
         void action('Studying your references and writing your website…', async () => {
-          await post({ action: 'generate', input: { expectedRevision: revision, operationId: crypto.randomUUID(), message, referenceIds: selected, startOver } });
+          const result = await post({ action: 'generate', input: { expectedRevision: revision, operationId: crypto.randomUUID(), message, referenceIds: selected, startOver } });
+          setReply(result.reply ?? 'Your new design is saved as a draft. Review it before publishing.');
           setMessage('');
           setStartOver(false);
         });
       }}
       >
         <label>
-          Describe your design or a change
+          What do you like about your references, or what should change?
           <textarea value={message} onChange={event => setMessage(event.target.value)} maxLength={4000} rows={4} required placeholder="Use this Canva composition, my salon name and my photos. Make the mobile version less crowded." />
         </label>
         {artifactId && (
@@ -144,7 +177,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
             Start over with an entirely new design
           </label>
         )}
-        <button type="submit" disabled={disabled || !aiEnabled || Boolean(busy) || !message.trim()}>{artifactId ? 'Update my custom design' : 'Generate my custom website'}</button>
+        <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim()}>{artifactId ? 'Update my custom design' : 'Generate my custom website'}</button>
       </form>
       {state?.attempts.length
         ? (
@@ -157,7 +190,19 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                     {' '}
                     {attempt.message}
                   </p>
-                  <p>{attempt.status === 'completed' ? 'Design saved for review.' : attempt.status === 'generated' ? 'Design generated; reload or retry to apply it.' : attempt.status === 'pending' ? 'Generation in progress. Reload to check for a result.' : 'This attempt did not finish. Your earlier design is safe.'}</p>
+                  <p>{attempt.status === 'completed' ? 'Design saved for review.' : attempt.status === 'generated' ? 'Design generated; reload or retry to apply it.' : attempt.status === 'pending' ? Date.now() - new Date(attempt.createdAt).getTime() < 300000 ? 'Generation in progress. Reload to check for a result.' : 'This attempt was interrupted. Your saved design is safe; you can start a new attempt.' : 'This attempt did not finish. Your earlier design is safe.'}</p>
+                  {attempt.status !== 'completed' && attempt.recoverable && (
+                    <button
+                      type="button"
+                      disabled={Boolean(busy)}
+                      onClick={() => void action('Applying your saved design…', async () => {
+                        await post({ action: 'resume', operationId: attempt.id });
+                      })}
+                    >
+                      Apply saved result without generating again
+                    </button>
+                  )}
+                  <GenerationEvidence endpoint={endpoint} operationId={attempt.id} />
                 </div>
               ))}
             </details>
@@ -177,7 +222,16 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
               <ul>{state.payload.source.limitations.map(item => <li key={item}>{item}</li>)}</ul>
             </div>
           )}
-          {state.rendererOrigin ? <CustomWebsiteFrame key={`${artifactId}-${revision}`} payload={state.payload} rendererOrigin={state.rendererOrigin} /> : <p>Your website preview is not available right now. Your design is saved. Please try again before publishing.</p>}
+          <div role="group" aria-label="Preview size">
+            <button type="button" aria-pressed={previewSize === 'desktop'} onClick={() => setPreviewSize('desktop')}>Desktop preview</button>
+            <button type="button" aria-pressed={previewSize === 'mobile'} onClick={() => setPreviewSize('mobile')}>Mobile preview</button>
+          </div>
+          {previewSize === 'desktop' && <p>Scroll sideways to inspect the full desktop layout.</p>}
+          <div style={{ width: '100%', overflowX: 'auto' }}>
+            <div style={{ width: previewSize === 'mobile' ? 390 : 1280, maxWidth: previewSize === 'mobile' ? '100%' : undefined, margin: 'auto' }}>
+              {state.rendererOrigin ? <CustomWebsiteFrame key={`${artifactId}-${revision}`} payload={state.payload} rendererOrigin={state.rendererOrigin} /> : <p>Your website preview is not available right now. Your design is saved. Please try again before publishing.</p>}
+            </div>
+          </div>
           <details>
             <summary>Edit website source</summary>
             <p>HTML, CSS and interactions stay editable. Saving creates a new draft version.</p>

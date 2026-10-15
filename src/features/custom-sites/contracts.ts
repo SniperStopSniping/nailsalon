@@ -18,8 +18,9 @@ export const customSiteGenerateSchema = z.object({
   referenceIds: z.array(z.string().uuid()).max(6),
   startOver: z.boolean().default(false),
 }).strict();
+export type CustomSiteGenerateInput = z.infer<typeof customSiteGenerateSchema>;
 export type CustomSiteData = {
-  business: { name: string; city: string; address: string | null; bio: string; hours: Record<string, { open: string; close: string } | null> };
+  business: { name: string; city: string; address: string | null; bio: string; hours: Record<string, { open: string; close: string } | null>; hoursLabel?: string };
   services: { id: string; name: string; description: string | null; priceCents: number; priceLabel: string; durationMinutes: number }[];
   currency: string;
   preview: boolean;

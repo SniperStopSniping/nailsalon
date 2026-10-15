@@ -11,8 +11,9 @@ import { PDFDocument } from 'pdf-lib';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { saveCustomSource } from '@/features/custom-sites/artifacts.server';
+import * as customArtifacts from '@/features/custom-sites/artifacts.server';
 import { ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
-import { generateCustomSite } from '@/features/custom-sites/generate.server';
+import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
 import { customSitePayload } from '@/features/custom-sites/payload.server';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { synchronizeBookingPageLifecycle } from '@/libs/bookingPageLifecycle';
@@ -200,18 +201,18 @@ describe('isolated business setup persistence', () => {
 
   it('applies multiple out-of-order conversation answers once and persists measured fake-provider usage', async () => {
     const actor = await fixture();
-    const createResponse = vi.fn(async () => ({ status: 'completed' as const, usage: { inputTokens: 1000, cachedInputTokens: 100, outputTokens: 100 }, items: [{ type: 'message' as const, text: JSON.stringify({ reply: 'I saved your city and design direction in the draft.', operationsJson: JSON.stringify([{ type: 'business', values: { city: 'Ottawa' } }, { type: 'design', style: 'luxury', palette: 'black_champagne', layout: 'editorial' }]) }) }] }));
+    const createResponse = vi.fn().mockResolvedValueOnce({ status: 'completed', usage: { inputTokens: 1000, cachedInputTokens: 100, outputTokens: 100 }, items: [{ type: 'message', text: JSON.stringify({ reply: 'I saved your city and will create your requested design.', operationsJson: JSON.stringify([{ type: 'business', values: { city: 'Ottawa' } }]), designRequest: 'Cream and black, with an original editorial composition.' }) }] }).mockResolvedValueOnce({ status: 'completed', usage: { inputTokens: 3000, cachedInputTokens: 0, outputTokens: 2000 }, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
     const input = { expectedRevision: 2, operationId: randomUUID(), scope: 'business_and_website', message: 'I am based in Ottawa. Make it cream and black.' };
     const result = await runSetupConversation(actor, input, { createResponse });
 
     expect(result.head.revision.document.business.city).toBe('Ottawa');
-    expect(result.head.revision.document.website.config.sitePalettePreset).toBe('black_champagne');
-    expect((await runSetupConversation(actor, input, { createResponse })).head.revision.revision).toBe(3);
-    expect(createResponse).toHaveBeenCalledTimes(1);
+    expect(result.head.revision.document.website.config.customFrontendId).toBeTruthy();
+    expect((await runSetupConversation(actor, input, { createResponse })).head.revision.revision).toBe(4);
+    expect(createResponse).toHaveBeenCalledTimes(2);
 
     const [turn] = await database.select().from(schema.businessSetupTurnSchema).where(eq(schema.businessSetupTurnSchema.id, input.operationId));
 
-    expect(turn).toMatchObject({ status: 'completed', inputTokens: 1000, outputTokens: 100, costMicroUsd: 1133 });
+    expect(turn).toMatchObject({ status: 'completed', inputTokens: 1000, outputTokens: 100, costMicroUsd: 14100 });
   });
 
   it.each([
@@ -371,5 +372,138 @@ describe('private multimodal design references', () => {
 
     await expect(generateCustomSite(actor, { expectedRevision: 2, operationId: randomUUID(), message: 'Build it', referenceIds: [] }, { createResponse, countInputTokens: vi.fn().mockResolvedValue(150001) })).rejects.toMatchObject({ code: 'NOT_READY' });
     expect(createResponse).not.toHaveBeenCalled();
+  });
+});
+
+describe('metered owner generation and automatic repair', () => {
+  const response = (source: unknown, usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | null = { inputTokens: 2000, outputTokens: 1000, cachedInputTokens: 0 }) => ({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(source) }] });
+
+  it('retains invalid first output and the automatic repair, then resumes without another call', async () => {
+    const actor = await fixture();
+    const invalid = { ...editorialSource, html: `${editorialSource.html}<script>fetch('/admin')</script>` };
+    const createResponse = vi.fn().mockResolvedValueOnce(response(invalid)).mockResolvedValueOnce(response(editorialSource));
+    const input = { expectedRevision: 2, operationId: randomUUID(), message: 'Create my custom website', referenceIds: [] };
+    const generated = await generateCustomSite(actor, input, { createResponse });
+    const rows = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId)).orderBy(schema.setupAiCallSchema.ordinal);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.rawOutput).toBe(JSON.stringify(invalid));
+    expect(rows[0]?.validation).toContain('unsupported element');
+    expect(rows[1]?.rawOutput).toBe(JSON.stringify(editorialSource));
+    expect(rows[1]?.validation).toBe('passed');
+    expect(rows.every(row => row.provider === 'test-double' && row.model === 'gpt-6-astra' && row.elapsedMs !== null)).toBe(true);
+    expect(rows.reduce((sum, row) => sum + row.chargedMicroCad, 0)).toBe(280000);
+    expect((await resumeCustomSite(actor, input.operationId)).artifactId).toBe(generated.artifactId);
+    expect(createResponse).toHaveBeenCalledTimes(2);
+    expect((await openSetup(actor)).revision.revision).toBe(3);
+  });
+
+  it('stops after one failed repair and keeps all output out of the saved website', async () => {
+    const actor = await fixture();
+    const invalid = { ...editorialSource, html: '<iframe src="/admin"></iframe>' };
+    const createResponse = vi.fn().mockResolvedValue(response(invalid));
+    const operationId = randomUUID();
+
+    await expect(generateCustomSite(actor, { expectedRevision: 2, operationId, message: 'Build', referenceIds: [] }, { createResponse })).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect(createResponse).toHaveBeenCalledTimes(2);
+    expect((await openSetup(actor)).revision.revision).toBe(2);
+    expect(await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId))).toHaveLength(2);
+  });
+
+  it('recovers validated provider output after a source-save failure without paying again', async () => {
+    const actor = await fixture();
+    const other = await fixture();
+    const operationId = randomUUID();
+    const createResponse = vi.fn().mockResolvedValue(response(editorialSource));
+    const failure = vi.spyOn(customArtifacts, 'storeCustomArtifact').mockRejectedValueOnce(new Error('Synthetic source-save interruption'));
+    try {
+      await expect(generateCustomSite(actor, { expectedRevision: 2, operationId, message: 'Design', referenceIds: [] }, { createResponse })).rejects.toMatchObject({ code: 'NOT_READY' });
+    } finally {
+      failure.mockRestore();
+    }
+
+    await expect(resumeCustomSite(other, operationId)).rejects.toMatchObject({ code: 'NOT_READY' });
+
+    const recovered = await resumeCustomSite(actor, operationId);
+
+    expect(recovered.head.revision.revision).toBe(3);
+    expect(recovered.artifactId).toBeTruthy();
+    expect(createResponse).toHaveBeenCalledTimes(1);
+    expect((await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId)))).toHaveLength(1);
+  });
+
+  it('changes a canonical price through conversation without rewriting the custom source', async () => {
+    const actor = await fixture();
+    const design = await generateCustomSite(actor, { expectedRevision: 2, operationId: randomUUID(), message: 'Design', referenceIds: [] }, { createResponse: vi.fn().mockResolvedValue(response(editorialSource)) });
+    const service = design.head.revision.document.services[0]!;
+    const { confirmed: _confirmed, origin: _origin, ...fields } = service;
+    const createResponse = vi.fn().mockResolvedValue(response({ reply: 'Gel manicure is now $72 in your draft, ready for review. Your design is unchanged.', operationsJson: JSON.stringify([{ type: 'service', values: { ...fields, priceCents: 7200 } }]), designRequest: null }));
+    const changed = await runSetupConversation(actor, { expectedRevision: 3, operationId: randomUUID(), scope: 'service_price', message: 'Keep the design, but change Gel manicure to $72' }, { createResponse });
+
+    expect(changed.head.revision.document.website).toEqual(design.head.revision.document.website);
+    expect(changed.head.revision.document.services[0]).toMatchObject({ id: service.id, priceCents: 7200, durationMinutes: 60, confirmed: false });
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect(createResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not transmit references after owner membership is removed', async () => {
+    const actor = await fixture();
+    await database.delete(schema.adminSalonMembershipSchema).where(eq(schema.adminSalonMembershipSchema.adminId, actor.adminId));
+    const countInputTokens = vi.fn();
+    const createResponse = vi.fn();
+
+    await expect(generateCustomSite(actor, { expectedRevision: 2, operationId: randomUUID(), message: 'Design', referenceIds: [] }, { countInputTokens, createResponse })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(countInputTokens).not.toHaveBeenCalled();
+    expect(createResponse).not.toHaveBeenCalled();
+  });
+
+  it('rejects unrelated changes in a price-only conversation', async () => {
+    const actor = await fixture();
+    const createResponse = vi.fn().mockResolvedValue(response({ reply: 'Changed.', operationsJson: JSON.stringify([{ type: 'business', values: { locationDisplayMode: 'full_address' } }]), designRequest: null }));
+
+    await expect(runSetupConversation(actor, { expectedRevision: 2, operationId: randomUUID(), scope: 'service_price', message: 'Change Gel to $72' }, { createResponse })).rejects.toMatchObject({ code: 'INVALID' });
+    expect((await openSetup(actor)).revision.document.business.locationDisplayMode).toBe('city_only');
+    expect((await openSetup(actor)).revision.revision).toBe(2);
+  });
+
+  it('preserves newer manual edits and paid evidence if the design finishes after a concurrent save', async () => {
+    const actor = await fixture();
+    const operationId = randomUUID();
+    const createResponse = vi.fn(async () => {
+      await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'business', values: { city: 'Ottawa' } }] });
+      return response(editorialSource);
+    });
+
+    await expect(generateCustomSite(actor, { expectedRevision: 2, operationId, message: 'Design', referenceIds: [] }, { createResponse })).rejects.toMatchObject({ code: 'STALE' });
+
+    const head = await openSetup(actor);
+
+    expect(head.revision.document.business.city).toBe('Ottawa');
+    expect(head.revision.document.website.config.customFrontendId).toBeUndefined();
+    expect((await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId)))[0]?.rawOutput).toBe(JSON.stringify(editorialSource));
+    expect(createResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps unknown usage reserved and enforces one shared cap across different salons', async () => {
+    const actor = await fixture();
+    const other = await fixture();
+    const operationId = randomUUID();
+    await generateCustomSite(actor, { expectedRevision: 2, operationId, message: 'Design', referenceIds: [] }, { createResponse: vi.fn().mockResolvedValue(response(editorialSource, null)) });
+    const [call] = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId));
+
+    expect(call?.costMicroUsd).toBeNull();
+    expect(call?.chargedMicroCad).toBe(call!.reservedMicroUsd * 2);
+
+    const all = await database.select().from(schema.setupAiCallSchema);
+    const used = all.reduce((sum, row) => sum + row.chargedMicroCad, 0);
+    await database.update(schema.setupAiBudgetSchema).set({ capMicroCad: used + 1 });
+    const createResponse = vi.fn();
+    try {
+      await expect(generateCustomSite(other, { expectedRevision: 2, operationId: randomUUID(), message: 'Another salon', referenceIds: [] }, { createResponse })).rejects.toThrow('approved AI trial budget');
+      expect(createResponse).not.toHaveBeenCalled();
+    } finally {
+      await database.update(schema.setupAiBudgetSchema).set({ capMicroCad: 40000000 });
+    }
   });
 });

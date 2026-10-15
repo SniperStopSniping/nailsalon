@@ -694,6 +694,13 @@
       "when": 1792022400001,
       "tag": "0099_custom_frontend_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1792022400002,
+      "tag": "0100_setup_ai_trial_evidence",
+      "breakpoints": true
     }
   ]
 }

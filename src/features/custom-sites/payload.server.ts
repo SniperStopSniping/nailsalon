@@ -38,5 +38,6 @@ export async function customSitePayload(salonId: string, artifactId: string, dat
   for (const asset of media.filter(a => a.role !== 'reference' && used.has(a.id))) {
     images[asset.id] = await assetDataUrl(asset);
   }
-  return { source: artifact.source, data, images };
+  const hoursLabel = Object.entries(data.business.hours).map(([day, hours]) => `${day[0]!.toUpperCase()}${day.slice(1)}: ${hours ? `${hours.open}–${hours.close}` : 'Closed'}`).join(' · ');
+  return { source: artifact.source, data: { ...data, business: { ...data.business, hoursLabel } }, images };
 }

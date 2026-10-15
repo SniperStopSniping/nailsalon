@@ -1,5 +1,8 @@
 # Custom frontend checkpoint — local pilot
 
+Historical checkpoint at `2b76e2f7`. See [owner-generation checkpoint](owner-generation-checkpoint.md)
+for the current shared CAD budget, dedicated-key setup and repair/evidence flow.
+
 Continues `codex/ai-business-setup` on top of `b62aeb9e`; no production operations.
 This changes the design architecture from preset combinations to immutable HTML,
 CSS and interaction source. The completed business draft, approval, publication

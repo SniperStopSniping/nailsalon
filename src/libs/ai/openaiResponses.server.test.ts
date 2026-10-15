@@ -184,7 +184,7 @@ describe('response parsing', () => {
   it('reports an incomplete response with its reason', async () => {
     fetchMock.mockResolvedValue(jsonResponse({
       status: 'incomplete',
-      output: [],
+      output: [{ type: 'message', status: 'incomplete', content: [{ type: 'output_text', text: '{\"title\":' }] }],
       incomplete_details: { reason: 'max_output_tokens' },
     }));
 
@@ -192,6 +192,8 @@ describe('response parsing', () => {
 
     expect(result.status).toBe('incomplete');
     expect(result.incompleteReason).toBe('max_output_tokens');
+    expect(result.items).toEqual([]);
+    expect(result.partialText).toBe('{\"title\":');
   });
 
   it('ignores unknown output item types rather than failing', async () => {

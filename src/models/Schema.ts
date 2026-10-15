@@ -5716,6 +5716,8 @@ export const businessSetupTurnSchema = pgTable('business_setup_turn', {
   outputTokens: integer('output_tokens'),
   costMicroUsd: integer('cost_micro_usd'),
   leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date' }).notNull(),
+  designRequest: text('design_request'),
+  designOperationId: text('design_operation_id'),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 }, table => ({ tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade') }));
 
@@ -5758,5 +5760,35 @@ export const customSiteGenerationSchema = pgTable('custom_site_generation', {
   outputTokens: integer('output_tokens'),
   costMicroUsd: integer('cost_micro_usd'),
   reservedMicroUsd: integer('reserved_micro_usd').notNull(),
+  request: jsonb('request').$type<import('../features/custom-sites/contracts').CustomSiteGenerateInput>(),
+  phase: text('phase').notNull().default('waiting'),
   createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
 }, table => ({ tenantIndex: index('custom_site_generation_salon_idx').on(table.salonId, table.createdAt) }));
+
+// One shared ledger across every salon in the isolated trial. Deleting a salon
+// must not erase spend or release uncertain, already-sent reservations.
+export const setupAiBudgetSchema = pgTable('setup_ai_budget', {
+  id: text('id').primaryKey(),
+  capMicroCad: integer('cap_micro_cad').notNull(),
+});
+export const setupAiCallSchema = pgTable('setup_ai_call', {
+  id: text('id').primaryKey(),
+  budgetId: text('budget_id').notNull().references(() => setupAiBudgetSchema.id),
+  salonId: text('salon_id').notNull(),
+  actorId: text('actor_id').notNull(),
+  operationId: text('operation_id').notNull(),
+  ordinal: integer('ordinal').notNull(),
+  model: text('model').notNull(),
+  provider: text('provider').notNull(),
+  requestHash: text('request_hash').notNull(),
+  reservedMicroUsd: integer('reserved_micro_usd').notNull(),
+  chargedMicroCad: integer('charged_micro_cad').notNull(),
+  costMicroUsd: integer('cost_micro_usd'),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  elapsedMs: integer('elapsed_ms'),
+  status: text('status').$type<'pending' | 'completed' | 'incomplete' | 'failed'>().notNull(),
+  rawOutput: text('raw_output'),
+  validation: text('validation').notNull().default('unchecked'),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+}, table => ({ requestKey: uniqueIndex('setup_ai_call_request_key').on(table.operationId, table.ordinal) }));

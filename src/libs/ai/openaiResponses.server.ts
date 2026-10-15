@@ -267,6 +267,17 @@ export function createOpenAiResponsesProvider(options: {
           : parsed.data.status === 'completed' ? 'completed' : 'failed';
       return {
         items: status === 'completed' ? parseItems(parsed.data.output, usage) : [],
+        ...(status === 'incomplete'
+          ? { partialText: parsed.data.output.flatMap((item) => {
+              const partial = z.object({ type: z.literal('message'), content: z.array(z.unknown()) }).safeParse(item);
+              return partial.success
+                ? partial.data.content.flatMap((part) => {
+                  const text = outputTextPartSchema.safeParse(part);
+                  return text.success ? [text.data.text] : [];
+                })
+                : [];
+            }).join('').slice(0, 200000) }
+          : {}),
         usage,
         // Anything other than completed/incomplete (failed, cancelled, queued)
         // is a provider-side failure, not a malformed answer.
