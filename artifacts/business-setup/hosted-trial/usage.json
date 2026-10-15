@@ -1,0 +1,35 @@
+{
+  "testedAt": "2026-10-15T04:17:45.644Z",
+  "budget": {
+    "cap_micro_cad": 33610000
+  },
+  "calls": [
+    {
+      "id": "6b5911a8-644d-4a66-9ba7-b5c227032674",
+      "operation_id": "03683dfb-0e02-474e-a0b3-bfb5c565c901",
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 1495,
+      "output_tokens": 549,
+      "cost_micro_usd": 46130,
+      "charged_micro_cad": 92260,
+      "elapsed_ms": 9481,
+      "validation": "unchecked"
+    },
+    {
+      "id": "7464f079-6ae9-4b48-a108-412e2d032f5a",
+      "operation_id": "4ac80f13-83d8-4986-bd4e-53686b284cd6",
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 6710,
+      "output_tokens": 4944,
+      "cost_micro_usd": 331068,
+      "charged_micro_cad": 662136,
+      "elapsed_ms": 77066,
+      "validation": "passed"
+    }
+  ],
+  "totalChargedCad": 0.754396
+}

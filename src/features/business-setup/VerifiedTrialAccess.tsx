@@ -4,6 +4,34 @@ import { useUser } from '@clerk/nextjs';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 
+export function OpenPreviewTrial({ locale }: { locale: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function open() {
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/admin/business-setup/trial', { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok || typeof result.data?.slug !== 'string') {
+        throw new Error(result.error?.message ?? 'We could not open your test. Please try again.');
+      }
+      // A full navigation crosses the auth/admin layouts without depending on
+      // server-action redirect prefetches through Preview access protection.
+      window.location.assign(`/${locale}/admin/business-setup?salon=${encodeURIComponent(result.data.slug)}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Please try again.');
+      setBusy(false);
+    }
+  }
+  return (
+    <div>
+      {error && <p role="alert">{error}</p>}
+      <button type="button" disabled={busy} onClick={() => void open()} className="rounded-full bg-stone-900 px-8 py-4 font-medium text-white disabled:opacity-50">{busy ? 'Opening your saved test…' : 'Open my AI website test'}</button>
+    </div>
+  );
+}
+
 /** Uses the same Clerk email-code verification as the existing owner onboarding. */
 export function VerifiedTrialAccess({ children }: { children: ReactNode }) {
   const { user, isLoaded } = useUser();

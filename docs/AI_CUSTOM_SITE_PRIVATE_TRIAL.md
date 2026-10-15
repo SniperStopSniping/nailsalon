@@ -49,3 +49,8 @@ flags and returned404; the Git-source Preview received them. Keep the secrets
 scoped to this branch. Normal Clerk sign-up may require an organization according
 to the existing Development instance settings. Email verification is required
 before creating the test salon; the entry provides an explicit email-code step.
+
+Hosted entry verification found a Next server-action redirect client failure across
+the protected Preview auth/admin layouts. The trial entry now calls a same-origin
+authenticated POST and uses a full navigation. The endpoint verifies email and
+resolves the owner on the server; no browser identity or salon is accepted.

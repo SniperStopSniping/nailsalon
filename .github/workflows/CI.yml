@@ -308,6 +308,9 @@ jobs:
               # Compatible SMS transport, multipart, ID and editor-parser fixes;
               # Cloudinary alone resolves patched lodash despite the dev-tool pin.
               b7e4591c8df9d94b82b281587cec8f98b0f5439e:9576667ec691e6f5aba41486cfbbcf8e32d6b3ee) ;;
+              # Custom website builder: constrained JS/HTML parsers, PDF references
+              # and private-suffix isolation; Acorn retains main's 8.18.0 version.
+              ed0e8734ece6869797c94dfa57037955df0d02e5:433031ed9d0c705c548bc522e585e15d69648dba) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -506,6 +509,13 @@ jobs:
               migrations/0096_rebooking_reminders.sql) ;;
               # Explicit owner claim: lifetime core pricing, paid usage unchanged.
               migrations/0097_founding_lifetime_core.sql) ;;
+              # Owner-approved AI setup: draft/source/usage/private-asset storage only.
+              migrations/0098_business_setup_drafts.sql) ;;
+              migrations/0099_custom_frontend_sources.sql) ;;
+              migrations/0100_setup_ai_trial_evidence.sql) ;;
+              migrations/0101_setup_timestamp_instants.sql) ;;
+              migrations/0102_custom_site_private_preview_images.sql) ;;
+              migrations/0103_custom_site_asset_storage_choice.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -963,6 +973,26 @@ jobs:
             exit 1
           fi
 
+          # AI setup SQL may be introduced only at these exact postimages.
+          # Already-shipped SQL stays immutable, including additive rewrites.
+          while read -r file expected_blob; do
+            if ! git diff --quiet "$base" -- "$file"; then
+              if git cat-file -e "$base:$file" 2>/dev/null \
+                || [ "$(git diff --name-status "$base" -- "$file")" != $'A\t'"$file" ] \
+                || [ "$(git hash-object "$file")" != "$expected_blob" ]; then
+                echo "::error::AI setup migrations must be new files at the pinned postimages."
+                exit 1
+              fi
+            fi
+          done <<'AI_SETUP_MIGRATIONS'
+          migrations/0098_business_setup_drafts.sql 95f1ebe6ce842d1834baedaba70f7733deed57ec
+          migrations/0099_custom_frontend_sources.sql 13b73c00ae86594ae585922fdb967aed9583e08f
+          migrations/0100_setup_ai_trial_evidence.sql 8f8346dbad47d8a2d940aa9e94773e01b1c1b3d7
+          migrations/0101_setup_timestamp_instants.sql c1fd9b453b49a814ab8683bb4d1d9df772a18a02
+          migrations/0102_custom_site_private_preview_images.sql e8a181f7f590b51c98b3b14bf896ee197bdd17d5
+          migrations/0103_custom_site_asset_storage_choice.sql 2d9634222c474275a6e5c1f23e53da09bd1131dc
+          AI_SETUP_MIGRATIONS
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -1028,6 +1058,12 @@ jobs:
               0095_salon_chooser_visibility) ;;
               0096_rebooking_reminders) ;;
               0097_founding_lifetime_core) ;;
+              0098_business_setup_drafts) ;;
+              0099_custom_frontend_sources) ;;
+              0100_setup_ai_trial_evidence) ;;
+              0101_setup_timestamp_instants) ;;
+              0102_custom_site_private_preview_images) ;;
+              0103_custom_site_asset_storage_choice) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1

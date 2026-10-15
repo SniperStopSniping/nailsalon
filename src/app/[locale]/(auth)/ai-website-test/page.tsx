@@ -1,11 +1,9 @@
 import { SignIn, SignUp } from '@clerk/nextjs';
 import { auth } from '@clerk/nextjs/server';
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 
 import { setupPreviewTrialEnabled } from '@/features/business-setup/access.server';
-import { openPreviewTrial } from '@/features/business-setup/preview-trial.server';
-import { VerifiedTrialAccess } from '@/features/business-setup/VerifiedTrialAccess';
-import { requireAuthenticatedOnboardingIdentity } from '@/features/onboarding-v1-integration/identity.server';
+import { OpenPreviewTrial, VerifiedTrialAccess } from '@/features/business-setup/VerifiedTrialAccess';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Luster · Private AI website test', robots: { index: false, follow: false } };
@@ -17,12 +15,6 @@ export default async function AIWebsiteTest(props: { params: Promise<{ locale: s
   const { signup } = await props.searchParams;
   const { userId } = await auth();
   const returnUrl = `/${locale}/ai-website-test`;
-  async function begin() {
-    'use server';
-    const identity = await requireAuthenticatedOnboardingIdentity();
-    const slug = await openPreviewTrial(identity);
-    redirect(`/${locale}/admin/business-setup?salon=${encodeURIComponent(slug)}`);
-  }
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center gap-6 px-5 py-12 text-center">
       <p className="text-sm tracking-widest">✦ LUSTER · PRIVATE TEST</p>
@@ -33,7 +25,7 @@ export default async function AIWebsiteTest(props: { params: Promise<{ locale: s
         ? signup
           ? <SignUp routing="hash" signInUrl={returnUrl} forceRedirectUrl={returnUrl} />
           : <SignIn routing="hash" signUpUrl={`${returnUrl}?signup=1`} forceRedirectUrl={returnUrl} />
-        : <VerifiedTrialAccess><form action={begin}><button type="submit" className="rounded-full bg-stone-900 px-8 py-4 font-medium text-white">Open my AI website test</button></form></VerifiedTrialAccess>}
+        : <VerifiedTrialAccess><OpenPreviewTrial locale={locale} /></VerifiedTrialAccess>}
       <p className="text-sm text-stone-500">Your answers and designs are saved to this test account so you can return on another device. The approved AI testing budget is shared across this private trial.</p>
     </main>
   );

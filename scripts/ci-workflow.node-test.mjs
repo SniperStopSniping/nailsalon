@@ -1,7 +1,9 @@
 /* eslint-disable no-template-curly-in-string -- GitHub expressions are literal workflow contracts. */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { BaseSequencer } from 'vitest/node';
@@ -113,6 +115,36 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     }
   }
   assert.notEqual(run('0'.repeat(40), '0'.repeat(40)), 0);
+});
+
+test('AI migration pins accept the new packet and reject changed or already-shipped SQL', () => {
+  const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
+  const packet = run.match(/while read -r file expected_blob; do[\s\S]*?\nAI_SETUP_MIGRATIONS/)[0];
+  const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
+  assert.equal(files.length, 6);
+  const directory = mkdtempSync(path.join(tmpdir(), 'ai-migration-gate-'));
+  const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
+  const check = () => spawnSync('bash', ['-eu', '-c', `base="$(git rev-parse HEAD)"\n${packet}`], { cwd: directory }).status;
+  try {
+    git('init', '-q');
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-qm', 'test base');
+    mkdirSync(path.join(directory, 'migrations'));
+    for (const file of files) {
+      writeFileSync(path.join(directory, file), readFileSync(new URL(`../${file}`, import.meta.url)));
+    }
+    git('add', 'migrations');
+    assert.equal(check(), 0);
+    const first = path.join(directory, files[0]);
+    const source = readFileSync(first);
+    writeFileSync(first, `${source}\n-- unapproved change\n`);
+    assert.notEqual(check(), 0);
+    writeFileSync(first, source);
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic shipped packet');
+    writeFileSync(first, `${source}\n-- rewrite shipped SQL\n`);
+    assert.notEqual(check(), 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('the required Node 24 job exercises the installed patched SMS and image dependencies', () => {
