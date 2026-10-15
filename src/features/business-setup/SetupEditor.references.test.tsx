@@ -150,9 +150,9 @@ it.each([false, true])('reads an own design through the same chat without extrac
 });
 
 it('renders old emphasis safely instead of showing Markdown stars', async () => {
-  messages = [{ id: 'prior', message: 'Hello', reply: 'Your **saved details** are here. <script>unsafe()</script>', status: 'completed' }];
+  messages = [{ id: 'prior', message: 'Hello', reply: 'Your **saved details** are here. Hours: not_shown. <script>unsafe()</script>', status: 'completed' }];
   render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
-  await screen.findByText('Your saved details are here. <script>unsafe()</script>', { exact: true });
+  await screen.findByText('Your saved details are here. Hours: unclear. <script>unsafe()</script>', { exact: true });
 
   expect(screen.getByRole('log')).not.toHaveTextContent('**');
   expect(screen.getByRole('log').querySelector('script')).toBeNull();

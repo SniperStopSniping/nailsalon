@@ -279,7 +279,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               {messages.map(message => (
                 <div key={message.id}>
                   <p className="setup-owner">{message.message}</p>
-                  {message.reply && <p className="setup-assistant">{message.reply.replace(/\*\*([^*]+)\*\*/gu, '$1')}</p>}
+                  {message.reply && <p className="setup-assistant">{message.reply.replace(/\*\*([^*]+)\*\*/gu, '$1').replaceAll('not_shown', 'unclear')}</p>}
                   {message.status === 'pending' && <p>Preparing your draft…</p>}
                   {['failed', 'interrupted'].includes(message.status) && <p>This request did not finish. Your saved changes are safe. You can retry or check Preview for a saved result.</p>}
                 </div>
