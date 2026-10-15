@@ -129,22 +129,34 @@ it('opens with one conversation and keeps preview and manual forms out of the de
   expect(screen.getByRole('textbox', { name: 'Message Luster' })).toBeVisible();
 });
 
-it('requires file permission and explicit ownership; owned uploads offer extraction into a separate review', async () => {
+it.each([false, true])('reads an own design through the same chat without extraction buttons (custom site: %s)', async (custom) => {
+  if (custom) {
+    document.website.config.customFrontendId = 'ceec2235-6a4d-4cf2-b052-daf29b74b859';
+  }
   render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
   await screen.findByText('Saved as draft');
   await attach('My design or menu');
 
   expect(document.designBrief).toMatchObject({ fidelity: 'match', ownedReferenceIds: [reference.id] });
   expect(requests.find(request => request.action === 'upload')).toMatchObject({ rightsConfirmed: 'true' });
+  expect(screen.queryByRole('button', { name: 'Read business details from my design' })).not.toBeInTheDocument();
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Read business details from my design' }));
-  const review = await screen.findByRole('region', { name: 'Details found in your upload' });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Luster' }), { target: { value: 'Just get all the info from my image' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await screen.findByText('Saved your request.');
 
-  expect(within(review).getByText('Name in my image')).toBeVisible();
-  expect(within(review).getByText('USD 65.00 · Appointment length needed')).toBeVisible();
-  expect(document.business.name).toBe('Studio');
-  expect(document.booking.currency).toBe('CAD');
-  expect(requests.some(request => ['edit', 'apply_upload', 'approve', 'publish'].includes(request.action))).toBe(false);
+  expect(requests.find(request => request.action === 'message').message).toMatchObject({ message: 'Just get all the info from my image', referenceIds: [reference.id] });
+  expect(requests.some(request => ['generate', 'read_upload', 'apply_upload', 'approve', 'publish'].includes(request.action))).toBe(false);
+});
+
+it('renders old emphasis safely instead of showing Markdown stars', async () => {
+  messages = [{ id: 'prior', message: 'Hello', reply: 'Your **saved details** are here. <script>unsafe()</script>', status: 'completed' }];
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Your saved details are here. <script>unsafe()</script>', { exact: true });
+
+  expect(screen.getByRole('log')).not.toHaveTextContent('**');
+  expect(screen.getByRole('log').querySelector('script')).toBeNull();
+  expect(screen.getByRole('log')).toHaveTextContent('<script>unsafe()</script>');
 });
 
 it('restores image purpose, ownership, and conversation after reopening without making a model request', async () => {
@@ -156,7 +168,7 @@ it('restores image purpose, ownership, and conversation after reopening without 
   await screen.findByRole('button', { name: `Detach ${reference.name}` });
 
   expect(screen.getByText('Your design', { exact: true })).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Read business details from my design' })).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'Read business details from my design' })).not.toBeInTheDocument();
   expect(requests.every(request => request.action === 'open')).toBe(true);
 });
 

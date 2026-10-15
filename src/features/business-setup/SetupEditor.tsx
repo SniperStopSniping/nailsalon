@@ -205,18 +205,6 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
     }, 4000);
     return () => window.clearInterval(timer);
   }, [ownBusy, hasPendingMessage]); // eslint-disable-line react-hooks/exhaustive-deps
-  async function readBusinessDetails(referenceIds: string[]) {
-    await run(async () => {
-      setActivity('Reading your image…');
-      try {
-        await call({ action: 'read_upload', input: { expectedRevision: head!.revision.revision, operationId: crypto.randomUUID(), referenceIds, source: 'my_business' } });
-        await refresh();
-        setTab('chat');
-      } finally {
-        setActivity('');
-      }
-    });
-  }
   async function sendMessage() {
     if (!head || busy || published || !text.trim()) {
       return;
@@ -227,17 +215,8 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
     setActivity(customFrontendId && !includeBusiness ? 'Working on your website…' : 'Luster is thinking…');
     await run(async () => {
       try {
-        if (head.revision.document.website.config.customFrontendId && !includeBusiness) {
-          const response = await fetch(`/api/admin/custom-sites?salonSlug=${encodeURIComponent(salonSlug)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'generate', input: { expectedRevision: head.revision.revision, operationId: crypto.randomUUID(), message, referenceIds: requestAssets, startOver: false } }) });
-          const result = await response.json();
-          if (!response.ok) {
-            throw new Error(result.error ?? 'Your design could not be updated.');
-          }
-          setHead(result.head);
-        } else {
-          const result = await call<{ head: Head; reply: string }>({ action: 'message', message: { message, operationId: crypto.randomUUID(), expectedRevision: head.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: requestAssets } });
-          setHead(result.head);
-        }
+        const result = await call<{ head: Head; reply: string }>({ action: 'message', message: { message, operationId: crypto.randomUUID(), expectedRevision: head.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: requestAssets } });
+        setHead(result.head);
         setReview(null);
       } catch (error) {
         // Keep their words available after a failed or disconnected request.
@@ -300,7 +279,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               {messages.map(message => (
                 <div key={message.id}>
                   <p className="setup-owner">{message.message}</p>
-                  {message.reply && <p className="setup-assistant">{message.reply}</p>}
+                  {message.reply && <p className="setup-assistant">{message.reply.replace(/\*\*([^*]+)\*\*/gu, '$1')}</p>}
                   {message.status === 'pending' && <p>Preparing your draft…</p>}
                   {['failed', 'interrupted'].includes(message.status) && <p>This request did not finish. Your saved changes are safe. You can retry or check Preview for a saved result.</p>}
                 </div>
@@ -433,13 +412,11 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                 open={attachOpen}
                 onClose={() => setAttachOpen(false)}
                 disabled={busy || published}
-                aiEnabled={aiEnabled}
                 onBusyChange={setBusy}
                 onSaved={async () => {
                   setReview(null);
                   await refresh();
                 }}
-                onReadDetails={readBusinessDetails}
               />
             )}
             <form
@@ -501,7 +478,6 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               aiEnabled={aiEnabled}
               compact
               onAssetsChange={setAssets}
-              onReadBusinessDetails={readBusinessDetails}
               selected={selectedDesignAssets}
               setSelected={setSelectedDesignAssets}
               missingDetails={missingDesignDetails(head.revision.document)}

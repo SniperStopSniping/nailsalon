@@ -46,7 +46,16 @@ export const businessSchema = z.object({
   workMode: z.enum(['solo', 'team', 'unknown']).default('unknown'),
   locationDisplayMode: z.enum(['full_address', 'after_booking', 'city_only']),
 }).strict();
+// Internal, persisted batch: extracted facts keep their upload provenance while
+// sharing the same atomic draft revision as the owner's conversational changes.
+const uploadOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('business'), values: businessSchema.omit({ workMode: true }).partial() }).strict(),
+  z.object({ type: z.literal('hours'), values: hoursSchema }).strict(),
+  z.object({ type: z.literal('booking'), values: bookingConfigSchema.pick({ currency: true }).partial().strict() }).strict(),
+  z.object({ type: z.literal('service'), values: setupServiceSchema }).strict(),
+]);
 export const setupOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('import_upload'), referenceIds: z.array(z.string().uuid()).min(1).max(6), operations: z.array(uploadOperationSchema).min(1).max(30) }).strict(),
   z.object({ type: z.literal('design_brief'), values: designBriefSchema }).strict(),
   z.object({ type: z.literal('custom_frontend'), artifactId: z.string().uuid() }).strict(),
   z.object({ type: z.literal('business'), values: businessSchema.partial() }).strict(),
@@ -109,6 +118,12 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   for (const raw of operations) {
     const op = setupOperationSchema.parse(raw);
     switch (op.type) {
+      case 'import_upload':
+        if (origin !== 'assistant') {
+          throw new SetupError('FORBIDDEN', 'Upload details must be read through your conversation.');
+        }
+        Object.assign(next, applySetupOperations(next, op.operations, 'upload'));
+        break;
       case 'design_brief':
         if (origin !== 'owner') {
           throw new SetupError('FORBIDDEN', 'Only you can choose which images may be used and confirm a design is yours.');

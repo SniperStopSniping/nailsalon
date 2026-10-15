@@ -185,6 +185,13 @@ export async function editSetup(actor: SetupActor, input: unknown, origin: 'owne
       throw new SetupError('STALE', 'Your business settings changed elsewhere. Review the newer changes before continuing.');
     }
     for (const op of edit.operations) {
+      if (op.type === 'import_upload') {
+        const owned = head.revision.document.designBrief?.ownedReferenceIds ?? [];
+        const references = await ownedAssets(tx, salon.id, op.referenceIds);
+        if (references.some(asset => asset.role !== 'reference' || !owned.includes(asset.id))) {
+          throw new SetupError('FORBIDDEN', 'Only your own attached design or menu can supply business details.');
+        }
+      }
       if (op.type === 'design_brief') {
         const media = await ownedAssets(tx, salon.id, [...op.values.referenceIds, ...op.values.websiteAssetIds]);
         if (media.some(asset => (op.values.referenceIds.includes(asset.id) && asset.role !== 'reference') || (op.values.websiteAssetIds.includes(asset.id) && asset.role === 'reference'))) {

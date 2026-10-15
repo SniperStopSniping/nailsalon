@@ -14,7 +14,7 @@ const PURPOSES: { value: Purpose; label: string; description: string }[] = [
 ];
 
 /** Uses the same saved brief and asset API as the manual website controls. */
-export function ChatAttachments({ salonSlug, revision, brief, assets, selected, open, onClose, disabled, aiEnabled, onBusyChange, onSaved, onReadDetails }: {
+export function ChatAttachments({ salonSlug, revision, brief, assets, selected, open, onClose, disabled, onBusyChange, onSaved }: {
   salonSlug: string;
   revision: number;
   brief?: DesignBrief;
@@ -23,10 +23,8 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
   open: boolean;
   onClose: () => void;
   disabled: boolean;
-  aiEnabled: boolean;
   onBusyChange: (busy: boolean) => void;
   onSaved: () => Promise<void>;
-  onReadDetails: (ids: string[]) => Promise<void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -110,7 +108,7 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
       if (fileInput.current) {
         fileInput.current.value = '';
       }
-      setNotice(purpose === 'own' ? 'Design attached. I can read its business details, or you can tell me what to create.' : purpose === 'inspiration' ? 'Inspiration attached. Tell me what you like about it.' : 'Attached for your website. Tell me where you’d like to use it.');
+      setNotice(purpose === 'own' ? 'Attached. Tell me what to create — I can read the business details in your image.' : purpose === 'inspiration' ? 'Inspiration attached. Tell me what you like about it.' : 'Attached for your website. Tell me where you’d like to use it.');
       onClose();
     });
   }
@@ -131,7 +129,6 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
         </div>
       )}
       {notice && <p className="setup-attachment-note" role="status">{notice}</p>}
-      {values.ownedReferenceIds.length > 0 && <button type="button" className="setup-read-image" disabled={disabled || !aiEnabled} onClick={() => void onReadDetails(values.ownedReferenceIds)}>Read business details from my design</button>}
       {error && !open && <p role="alert" className="setup-attachment-note">{error}</p>}
       <dialog
         ref={dialog}

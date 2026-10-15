@@ -854,3 +854,111 @@ describe('owned design matching and website photos', () => {
     expect(saved!.assetIds).toEqual([]);
   });
 });
+
+describe('reading own images directly in conversation', () => {
+  const facts = { businessName: 'Petal Nails', city: 'Toronto', address: '42 Synthetic Lane', homeBased: true, currency: 'CAD', hoursJson: JSON.stringify([{ day: 'tuesday', status: 'open', open: '10:00', close: '18:00' }]), servicesJson: JSON.stringify([{ name: 'BIAB', description: null, priceKind: 'fixed', priceCents: 6500, durationMinutes: null, kind: 'base', category: 'builder_gel', bookingCategory: 'manicure' }]), notes: [] };
+  const answer = (values: Record<string, unknown> = {}) => ({ reply: 'How long is a BIAB appointment, and do you work on your own?', operationsJson: '[]', designRequest: null, uploadFactsJson: JSON.stringify(facts), ...values });
+  const model = (value: unknown) => ({ createResponse: vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 1200, outputTokens: 800, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(value) }] }) });
+  async function attached(empty = true, own = true) {
+    const actor = await fixture();
+    if (empty) {
+      // A different new salon, without erasing the original fixture or trial data.
+      actor.salonId = randomUUID();
+      await database.insert(schema.salonSchema).values({ id: actor.salonId, slug: actor.salonId, name: 'Untitled business', publicationStatus: 'draft', onlineBookingEnabled: false });
+      await database.insert(schema.adminSalonMembershipSchema).values({ ...actor, role: 'owner' });
+      await openSetup(actor);
+    }
+    const png = await sharp({ create: { width: 100, height: 100, channels: 3, background: '#fff' } }).png().toBuffer();
+    const asset = await uploadCustomAsset(actor, new File([new Uint8Array(png)], 'own-menu.png', { type: 'image/png' }), 'reference');
+    const head = await openSetup(actor);
+    const saved = await editSetup(actor, { expectedRevision: head.revision.revision, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { fidelity: 'match', referenceIds: [asset.id], ownedReferenceIds: own ? [asset.id] : [], websiteAssetIds: [] } }] });
+    return { actor, asset, revision: saved.revision.revision };
+  }
+
+  it.each(['Just get all the info from my image', 'Read my menu and use what is already there', 'Make my website using the details in my design'])('acts on %s, saves unconfirmed facts atomically, and replays without duplicate services or calls', async (message) => {
+    const { actor, asset, revision } = await attached();
+    const provider = model(answer());
+    const input = { expectedRevision: revision, operationId: randomUUID(), scope: 'business_and_website', message, referenceIds: [asset.id] };
+    const result = await runSetupConversation(actor, input, provider);
+    const next = result.head.revision.document;
+
+    expect(provider.createResponse.mock.calls[0]![0].input.at(-1).content.some((part: any) => part.type === 'input_image' && part.image_url.startsWith('data:'))).toBe(true);
+    expect(result.head.revision.revision).toBe(revision + 1);
+    expect(next.business).toMatchObject({ name: 'Petal Nails', city: 'Toronto', exactAddress: '42 Synthetic Lane', locationDisplayMode: 'city_only', workMode: 'unknown' });
+    expect(next.services).toHaveLength(1);
+    expect(next.services[0]).toMatchObject({ name: 'BIAB', priceCents: 6500, durationMinutes: null, origin: 'upload', confirmed: false });
+    expect(next.hours.tuesday).toEqual({ open: '10:00', close: '18:00' });
+    expect(result.reply).toContain('BIAB: CAD 65.00');
+    expect(result.reply).not.toContain('42 Synthetic Lane');
+    expect(result.reply).not.toMatch(/Use these details|Read business details from my design/u);
+    expect((await openSetup(actor)).revision.document).toEqual(next);
+    expect((await runSetupConversation(actor, input, provider)).head.revision.revision).toBe(revision + 1);
+    expect(provider.createResponse).toHaveBeenCalledTimes(1);
+    expect((await reviewSetup(actor)).blockers).toContain('Review the price and time for BIAB.');
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId)))[0]).toMatchObject({ name: 'Untitled business', publicationStatus: 'draft', onlineBookingEnabled: false, address: null });
+  });
+
+  it('captures typed answers with extraction and recovers after a lost post-commit response', async () => {
+    const { actor, asset, revision } = await attached();
+    const provider = model(answer({ operationsJson: JSON.stringify([{ type: 'business', values: { workMode: 'solo', city: 'Ottawa' } }, { type: 'service', values: { id: 'draft_biab', name: 'BIAB', description: null, priceCents: 6500, durationMinutes: 75, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'builder_gel', bookingCategory: 'manicure' } }]) }));
+    const input = { expectedRevision: revision, operationId: randomUUID(), scope: 'business_and_website', message: 'Read my menu. I work solo, moved to Ottawa, and BIAB takes 75 minutes.', referenceIds: [asset.id] };
+    const result = await runSetupConversation(actor, input, provider);
+
+    expect(result.head.revision.document.business).toMatchObject({ workMode: 'solo', city: 'Ottawa' });
+    expect(result.head.revision.document.services).toHaveLength(1);
+    expect(result.head.revision.document.services[0]).toMatchObject({ name: 'BIAB', durationMinutes: 75, confirmed: false });
+
+    await database.update(schema.businessSetupTurnSchema).set({ status: 'generated' }).where(eq(schema.businessSetupTurnSchema.id, input.operationId));
+    const recovered = await runSetupConversation(actor, input, provider);
+
+    expect(recovered.head.revision.revision).toBe(result.head.revision.revision);
+    expect(recovered.head.revision.document.services).toHaveLength(1);
+    expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps existing names, prices, lengths, hours, and private address when the image disagrees', async () => {
+    const { actor, asset, revision } = await attached(false);
+    const before = (await openSetup(actor)).revision.document;
+    const conflicting = { ...facts, servicesJson: JSON.stringify([{ name: 'Gel manicure', description: null, priceKind: 'fixed', priceCents: 9900, durationMinutes: 90, kind: 'base', category: 'manicure', bookingCategory: 'manicure' }]) };
+    const result = await runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'website', message: 'Read my old menu', referenceIds: [asset.id] }, model(answer({ uploadFactsJson: JSON.stringify(conflicting) })));
+
+    expect(result.head.revision.document).toEqual(before);
+    expect(result.reply).toContain('kept');
+    expect(result.reply).not.toContain('123 Private Street');
+  });
+
+  it('does not send inspiration as business facts or accept fabricated extraction from it', async () => {
+    const { actor, asset, revision } = await attached(true, false);
+    const provider = model(answer());
+
+    await expect(runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'business_and_website', message: 'Read this image', referenceIds: [asset.id] }, provider)).rejects.toMatchObject({ code: 'INVALID' });
+    expect(provider.createResponse.mock.calls[0]![0].input.at(-1).content).toHaveLength(1);
+    expect((await openSetup(actor)).revision.revision).toBe(revision);
+  });
+
+  it.each(['approval', 'policy', 'direct_import'])('rejects malicious %s in image output without any draft or publication writes', async (kind) => {
+    const { actor, asset, revision } = await attached();
+    const output = kind === 'direct_import' ? answer({ uploadFactsJson: null, operationsJson: JSON.stringify([{ type: 'import_upload', referenceIds: [asset.id], operations: [{ type: 'business', values: { name: 'Injected' } }] }]) }) : answer({ uploadFactsJson: JSON.stringify({ ...facts, [kind === 'approval' ? 'publish' : 'minimumNoticeMinutes']: kind === 'approval' ? true : 0 }) });
+
+    await expect(runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'business_and_website', message: 'Read my design', referenceIds: [asset.id] }, model(output))).rejects.toBeInstanceOf(Error);
+    expect((await openSetup(actor)).revision.revision).toBe(revision);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
+  it('refuses stale extraction after a concurrent manual edit and does not retry the paid call', async () => {
+    const { actor, asset, revision } = await attached();
+    const provider = model(answer());
+    provider.createResponse.mockImplementationOnce(async () => {
+      await editSetup(actor, { expectedRevision: revision, operationId: randomUUID(), operations: [{ type: 'business', values: { name: 'My newer name' } }] });
+      return { status: 'completed', usage: { inputTokens: 1200, outputTokens: 800, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(answer()) }] };
+    });
+    const input = { expectedRevision: revision, operationId: randomUUID(), scope: 'business_and_website', message: 'Read my design', referenceIds: [asset.id] };
+
+    await expect(runSetupConversation(actor, input, provider)).rejects.toMatchObject({ code: 'STALE' });
+    await expect(runSetupConversation(actor, input, provider)).rejects.toMatchObject({ code: 'STALE' });
+    expect((await openSetup(actor)).revision.document.business.name).toBe('My newer name');
+    expect((await openSetup(actor)).revision.document.services).toHaveLength(0);
+    expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  });
+});
