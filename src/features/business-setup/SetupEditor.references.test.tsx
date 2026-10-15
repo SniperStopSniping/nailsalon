@@ -94,7 +94,7 @@ it('reads an explicitly owned image into a separate review and does not apply it
     const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
     if (request?.action === 'read_upload') {
       requests.push(request);
-      reviews = [{ id: request.input.operationId, operations: [{ type: 'business', values: { name: 'Name in my image' } }], notes: 'Appointment lengths are missing.', expectedRevision: 1 }];
+      reviews = [{ id: request.input.operationId, operations: [{ type: 'business', values: { name: 'Name in my image' } }, { type: 'booking', values: { currency: 'USD' } }, { type: 'service', values: { ...document.services[0], priceCents: 6500, durationMinutes: null } }], notes: 'Appointment lengths are missing.', expectedRevision: 1 }];
       return { ok: true, json: async () => ({ data: reviews[0] }) };
     }
     if (url.startsWith('/api/admin/business-setup?') && !options?.method) {
@@ -113,6 +113,8 @@ it('reads an explicitly owned image into a separate review and does not apply it
   const review = await screen.findByRole('region', { name: 'Details found in your upload' });
 
   expect(within(review).getByText('Name in my image')).toBeVisible();
+  expect(within(review).getByText('USD 65.00 · Appointment length needed')).toBeVisible();
+  expect(document.booking.currency).toBe('CAD');
   expect(within(review).getByRole('button', { name: 'Use these details' })).toBeEnabled();
   expect(requests.filter(request => request.action === 'read_upload')[0].input).toMatchObject({ referenceIds: [reference.id], source: 'my_business' });
   expect(requests.some(request => ['edit', 'apply_upload', 'approve', 'publish'].includes(request.action))).toBe(false);

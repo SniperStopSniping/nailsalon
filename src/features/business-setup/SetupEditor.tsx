@@ -24,6 +24,10 @@ type Message = {
   status: string;
 };
 type UploadReview = { id: string; operations: SetupOperation[]; notes: string; expectedRevision: number };
+function uploadReviewCurrency(upload: UploadReview, fallback: string) {
+  const proposed = upload.operations.find(operation => operation.type === 'booking' && operation.values.currency);
+  return proposed?.type === 'booking' ? proposed.values.currency : fallback;
+}
 const INTRO = 'Start with an image you love or an idea in your own words. If your design already includes your business details, I can read them for you. We’ll fill in anything missing together, then build your website.';
 const LABELS: Record<string, string> = {
   'business.name': 'Business name',
@@ -295,7 +299,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                       <div key={operation.values.id}>
                         <dt>{operation.values.name}</dt>
                         <dd>
-                          {operation.values.priceCents === null ? 'Price needed' : `${draft?.booking.currency} ${(operation.values.priceCents / 100).toFixed(2)}`}
+                          {operation.values.priceCents === null ? 'Price needed' : `${uploadReviewCurrency(upload, draft?.booking.currency ?? '')} ${(operation.values.priceCents / 100).toFixed(2)}`}
                           {' '}
                           ·
                           {' '}
