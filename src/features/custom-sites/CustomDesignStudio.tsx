@@ -11,6 +11,7 @@ import type { DesignAsset } from './WebsitePhotoLibrary';
 import { WebsitePhotoLibrary } from './WebsitePhotoLibrary';
 
 type State = {
+  head: { revision: { revision: number; document: { website: { config: { customFrontendId?: string } } } } };
   preferences: DesignBrief | null;
   payload: CustomSitePayload | null;
   rendererOrigin: string | null;
@@ -64,12 +65,17 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       setPreviewSize('mobile');
     }
   }, []);
+  const loadSequence = useRef(0);
   const endpoint = `/api/admin/custom-sites?salonSlug=${encodeURIComponent(salonSlug)}`;
   async function load() {
+    const sequence = ++loadSequence.current;
     const response = await fetch(endpoint, { cache: 'no-store' });
     const data = await response.json();
     if (!response.ok) {
       throw new Error(data.error ?? 'Your design could not be loaded.');
+    }
+    if (sequence !== loadSequence.current) {
+      return;
     }
     setState(data);
     onAssetsChange?.(data.assets);
@@ -214,7 +220,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           </div>
           <div ref={previewBox} className="studio-frame-wrap">
             <div style={{ width: previewSize === 'mobile' ? 390 : 1280, maxWidth: previewSize === 'mobile' ? '100%' : undefined, zoom: previewSize === 'desktop' ? Math.min(1, previewWidth / 1280) : 1, margin: 'auto' }}>
-              {state.rendererOrigin ? <CustomWebsiteFrame key={`${artifactId}-${revision}`} payload={state.payload} rendererOrigin={state.rendererOrigin} /> : <p>Your website preview is not available right now. Your design is saved. Please try again before publishing.</p>}
+              {state.rendererOrigin ? <CustomWebsiteFrame key={`${state.head.revision.document.website.config.customFrontendId}-${state.head.revision.revision}`} payload={state.payload} rendererOrigin={state.rendererOrigin} /> : <p>Your website preview is not available right now. Your design is saved. Please try again before publishing.</p>}
             </div>
           </div>
         </div>
