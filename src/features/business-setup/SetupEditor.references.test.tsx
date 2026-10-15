@@ -240,6 +240,7 @@ it('keeps the message available after a failed request and does not retry a paid
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
   await screen.findByRole('alert');
 
+  expect(screen.getByText('Please retry after reconnecting.')).toBeInTheDocument();
   expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveValue('');
   expect(screen.getByText('My salon is called Aster.')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Retry message' })).toBeInTheDocument();

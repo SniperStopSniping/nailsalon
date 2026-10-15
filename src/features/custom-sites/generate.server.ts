@@ -61,11 +61,13 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
       const priorId = document.website.config.customFrontendId;
       const [prior] = priorId && !input.startOver ? await db.select().from(artifacts).where(and(eq(artifacts.salonId, actor.salonId), eq(artifacts.id, priorId))) : [];
       const brief = document.designBrief;
-      if (brief?.fidelity === 'match' && !brief.referenceIds.length) {
+      // Older saved briefs may omit the reference selection. Existing source is
+      // sufficient for iterative edits; starting over still requires a reference.
+      if (brief?.fidelity === 'match' && !brief.referenceIds.length && !prior) {
         throw new SetupError('NOT_READY', 'Upload or select a design to match before creating your website.');
       }
       const selectedIds = brief ? [...brief.referenceIds, ...brief.websiteAssetIds] : input.referenceIds;
-      const assetIds = [...new Set([...selectedIds, ...(brief ? [] : prior?.assetIds ?? [])])];
+      const assetIds = [...new Set([...selectedIds, ...(!brief || (brief.fidelity === 'match' && !brief.referenceIds.length) ? prior?.assetIds ?? [] : [])])];
       if (assetIds.length > 12) {
         throw new SetupError('INVALID', 'Choose fewer references for this design.');
       }

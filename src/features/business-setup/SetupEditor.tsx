@@ -281,7 +281,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
         setActivity('Checking your saved changes…');
         const latest = await refresh().catch(() => null);
         if (submissionRef.current && latest && !latest.messages.some(m => m.id === request.operationId) && error instanceof Error && 'status' in error && Number(error.status) >= 400 && Number(error.status) < 500) {
-          saveSubmission({ request: { ...request, expectedRevision: latest.revision.revision }, startedAt: Date.now(), status: 'failed', error: 'Your request could not start. Your latest saved changes are loaded; try again.' });
+          saveSubmission({ request: { ...request, expectedRevision: latest.revision.revision }, startedAt: Date.now(), status: 'failed', error: error.message });
           setActivity('');
         }
       }
@@ -380,7 +380,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                   )}
                   {['failed', 'interrupted'].includes(message.status) && (
                     <div>
-                      <p>This request stopped. Your saved changes are safe.</p>
+                      {submission?.request.operationId !== message.id && <p>This request stopped. Your saved changes are safe.</p>}
                       {submission?.request.operationId !== message.id && (
                         <button
                           type="button"

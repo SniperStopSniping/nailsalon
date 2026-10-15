@@ -499,6 +499,43 @@ describe('metered owner generation and automatic repair', () => {
     expect((await openSetup(actor)).revision.revision).toBe(3);
   });
 
+  it('edits an existing matched website when legacy reference selection is empty', async () => {
+    const actor = await fixture();
+    const createResponse = vi.fn().mockResolvedValue(response(editorialSource));
+    const first = await generateCustomSite(actor, { expectedRevision: 2, operationId: randomUUID(), message: 'Build it', referenceIds: [] }, { createResponse });
+    const head = await editSetup(actor, { expectedRevision: first.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { fidelity: 'match', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: [] } }] });
+    const edited = await generateCustomSite(actor, { expectedRevision: head.revision.revision, operationId: randomUUID(), message: 'Make the Instagram clickable', referenceIds: [] }, { createResponse });
+
+    expect(edited.head.revision.revision).toBe(head.revision.revision + 1);
+    expect(createResponse).toHaveBeenCalledTimes(2);
+
+    const [saved] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, edited.artifactId));
+
+    expect(saved?.parentId).toBe(first.artifactId);
+  });
+
+  it('releases a failed conversation design immediately and accepts a new message', async () => {
+    const actor = await fixture();
+    const operationId = randomUUID();
+    const reply = { reply: 'Updating your design.', operationsJson: '[]', designRequest: 'Change the hero', uploadFactsJson: null };
+    const createResponse = vi.fn().mockResolvedValueOnce(response(reply)).mockRejectedValueOnce(new Error('provider stopped'));
+
+    await expect(runSetupConversation(actor, { expectedRevision: 2, operationId, message: 'Change the hero', scope: 'website' }, { createResponse })).rejects.toThrow();
+
+    const [turn] = await database.select().from(schema.businessSetupTurnSchema).where(eq(schema.businessSetupTurnSchema.id, operationId));
+
+    expect(turn?.status).toBe('failed');
+    expect(turn?.reply).toContain('saved');
+
+    // Also recover older deployments that left the parent turn generated.
+    await database.update(schema.businessSetupTurnSchema).set({ status: 'generated' }).where(eq(schema.businessSetupTurnSchema.id, operationId));
+    const nextProvider = { createResponse: vi.fn().mockResolvedValue(response({ ...reply, reply: 'Ready.', designRequest: null })) };
+    const next = await runSetupConversation(actor, { expectedRevision: 2, operationId: randomUUID(), message: 'What can I change?', scope: 'website' }, nextProvider);
+
+    expect(next.reply).toBe('Ready.');
+    expect(nextProvider.createResponse).toHaveBeenCalledTimes(1);
+  });
+
   it('gives detailed generation more time while bounding its repair to the remaining request time', async () => {
     const actor = await fixture();
     let now = Date.now();

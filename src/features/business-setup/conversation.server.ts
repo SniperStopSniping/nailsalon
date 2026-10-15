@@ -10,7 +10,7 @@ import { generateCustomSite } from '@/features/custom-sites/generate.server';
 import { isExplicitServicePriceEdit } from '@/features/custom-sites/price-edit';
 import type { ModelProviderInputItem, OwnerAssistantModelProvider } from '@/libs/ai/provider';
 import { db } from '@/libs/DB';
-import { businessSetupTurnSchema as turns } from '@/models/Schema';
+import { businessSetupTurnSchema as turns, customSiteGenerationSchema as designs } from '@/models/Schema';
 
 import { estimateSetupAiCost, runSetupModel, SETUP_AI_MODEL, setupAiConfigured } from './ai-trial.server';
 import { applySetupOperations, missingDesignDetails, SetupError, setupOperationSchema } from './contracts';
@@ -64,7 +64,9 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       throw new SetupError('STALE', 'Your setup changed. Reload your saved changes first.');
     }
     const history = await tx.select().from(turns).where(eq(turns.workspaceId, head.workspace.id)).orderBy(desc(turns.createdAt)).limit(40);
-    if (history.some(t => ['pending', 'generated'].includes(t.status) && t.leaseExpiresAt.getTime() > Date.now())) {
+    const designHistory = await tx.select({ id: designs.id, status: designs.status }).from(designs).where(eq(designs.salonId, actor.salonId));
+    const terminalDesigns = new Set(designHistory.filter(d => ['completed', 'failed'].includes(d.status)).map(d => d.id));
+    if (history.some(t => ['pending', 'generated'].includes(t.status) && t.leaseExpiresAt.getTime() > Date.now() && !(t.designOperationId && terminalDesigns.has(t.designOperationId)))) {
       throw new SetupError('NOT_READY', 'Your previous message is still being processed.');
     }
     // A bounded first-release budget, separate from billing/SMS credits. Unknown
@@ -193,10 +195,16 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       await lockSetupSalon(tx, actor);
       return loadSetupHead(tx, actor.salonId);
     });
-  if (designRequest && designOperationId) {
-    const generated = await generateCustomSite(actor, { expectedRevision: head.revision.revision, operationId: designOperationId, message: designRequest, referenceIds: input.referenceIds ?? [], startOver: false }, providerOverride, deadlineAt);
-    head = generated.head;
-    reply = `${reply ?? ''} Your custom website is saved as a draft. Open Preview to review it.`;
+  try {
+    if (designRequest && designOperationId) {
+      const generated = await generateCustomSite(actor, { expectedRevision: head.revision.revision, operationId: designOperationId, message: designRequest, referenceIds: input.referenceIds ?? [], startOver: false }, providerOverride, deadlineAt);
+      head = generated.head;
+      reply = `${reply ?? ''} Your custom website is saved as a draft. Open Preview to review it.`;
+    }
+  } catch (error) {
+    const reply = error instanceof SetupError ? error.message : 'Your website change could not finish. Your saved design is safe. Please try again.';
+    await db.update(turns).set({ status: 'failed', reply }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
+    throw error;
   }
   await db.update(turns).set({ status: 'completed', reply }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
   return { reply, head };
