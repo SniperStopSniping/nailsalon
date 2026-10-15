@@ -23,7 +23,8 @@ type Message = {
   reply: string | null;
   status: string;
 };
-const INTRO = 'Let’s get your business ready for bookings. I’ll help prepare your services, booking setup, and website for your review. What’s your business called, where are you based, and do you work alone or with a team?';
+type UploadReview = { id: string; operations: SetupOperation[]; notes: string; expectedRevision: number };
+const INTRO = 'Start with an image you love or an idea in your own words. If your design already includes your business details, I can read them for you. We’ll fill in anything missing together, then build your website.';
 const LABELS: Record<string, string> = {
   'business.name': 'Business name',
   'business.city': 'City or area',
@@ -75,6 +76,9 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
   const [published, setPublished] = useState(false);
   const [includeBusiness, setIncludeBusiness] = useState(!existingSalon);
   const [selectedDesignAssets, setSelectedDesignAssets] = useState<string[]>([]);
+  const [entryMode, setEntryMode] = useState<'upload' | 'describe' | null>(null);
+  const [uploadReviews, setUploadReviews] = useState<UploadReview[]>([]);
+  const [activity, setActivity] = useState('');
   const customFrontendId = head?.revision.document.website.config.customFrontendId;
   useEffect(() => {
     if (customFrontendId) {
@@ -102,10 +106,12 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
     const { data } = await response.json() as {
       data: Head & {
         messages: Message[];
+        uploadReviews?: UploadReview[];
       };
     };
     setHead(data);
     setMessages(data.messages);
+    setUploadReviews(data.uploadReviews ?? []);
     setPublished(data.workspace.status === 'published');
   }
   useEffect(() => {
@@ -147,14 +153,31 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
   }
   const draft = head?.revision.document;
   const pending = draft?.services.filter(s => !s.confirmed) ?? [];
+  const missing = draft ? missingDesignDetails(draft) : [];
+  function chooseEntry(mode: 'upload' | 'describe') {
+    setEntryMode(mode);
+    setTab('website');
+    window.requestAnimationFrame(() => document.getElementById(mode === 'upload' ? 'custom-design-upload' : 'custom-design-brief')?.focus());
+  }
   return (
     <main className="luster-setup">
       <header className="setup-heading">
-        <a href={`/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`}>← Website</a>
-        <span className="setup-wordmark">✦ LUSTER</span>
-        <h1>{existingSalon ? 'Edit with AI' : 'Let’s build your business.'}</h1>
-        <p>Business details → Services & bookings → Design → Review & publish</p>
-        <div role="status">{busy ? 'Saving your changes…' : published ? 'Published' : head ? 'Saved as draft · Your live business is unchanged' : 'Loading your saved setup…'}</div>
+        <div className="setup-topbar">
+          <a href={`/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`}>← Website</a>
+          <span className="setup-wordmark">✦ LUSTER</span>
+          <span className="setup-product-label">Your AI studio</span>
+        </div>
+        <h1>{existingSalon || customFrontendId ? 'Your website, your way.' : 'Let’s bring your business to life.'}</h1>
+        <p>A little inspiration. A conversation. A website that feels like you.</p>
+        <ol className="setup-steps" aria-label="Your progress">
+          {['Your business', 'Your design', 'Review & publish'].map((step, i) => (
+            <li key={step} aria-current={i === (review || published ? 2 : missing.length ? 0 : 1) ? 'step' : undefined}>
+              <span>{i + 1}</span>
+              {step}
+            </li>
+          ))}
+        </ol>
+        <div className="setup-save-status" role="status">{busy ? activity || 'Saving your changes…' : published ? 'Published' : head ? 'Saved as draft · Your live business is unchanged' : 'Loading your saved setup…'}</div>
       </header>
       {error && (
         <div role="alert" className="setup-error">
@@ -163,11 +186,83 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
           <button type="button" onClick={() => void run(refresh)}>Reload saved changes</button>
         </div>
       )}
+      {!customFrontendId && !published && (
+        <section className={`setup-start${entryMode ? ' setup-start-active' : ''}`} aria-labelledby="setup-start-title">
+          <div>
+            <span className="setup-eyebrow">MADE FOR YOUR BUSINESS</span>
+            <h2 id="setup-start-title">Where should we start?</h2>
+            <p>Bring a design you love, or let’s dream something up together.</p>
+          </div>
+          <div className="setup-start-options">
+            <button type="button" className="setup-start-card" aria-pressed={entryMode === 'upload'} disabled={!head || busy} onClick={() => chooseEntry('upload')}>
+              <span className="setup-card-art" aria-hidden="true">
+                <i />
+                <i />
+                <b>✦</b>
+              </span>
+              <strong>
+                Upload a design
+                <span aria-hidden="true">↗</span>
+              </strong>
+              <span>A Canva design, screenshot, menu or inspiration image.</span>
+            </button>
+            <button type="button" className="setup-start-card" aria-pressed={entryMode === 'describe'} disabled={!head || busy} onClick={() => chooseEntry('describe')}>
+              <span className="setup-card-art setup-card-art-describe" aria-hidden="true">
+                <i />
+                <i />
+                <b>✧</b>
+              </span>
+              <strong>
+                Describe your idea
+                <span aria-hidden="true">↗</span>
+              </strong>
+              <span>Tell us the feeling, colours and details you have in mind.</span>
+            </button>
+          </div>
+          <p className="setup-start-note">Have your business details in an image? You won’t need to type them all again.</p>
+        </section>
+      )}
       <nav className="setup-tabs" aria-label="Setup views">
-        {(['chat', 'website', 'setup'] as const).map(item => <button key={item} type="button" aria-pressed={tab === item} onClick={() => setTab(item)}>{item === 'chat' ? 'Conversation' : item === 'website' ? 'Website' : 'Business setup'}</button>)}
+        {(['chat', 'website', 'setup'] as const).map(item => (
+          <button
+            key={item}
+            type="button"
+            aria-pressed={tab === item}
+            onClick={() => {
+              setTab(item);
+              if (item === 'website' && !entryMode) {
+                setEntryMode('upload');
+              }
+            }}
+          >
+            {item === 'chat' ? 'Conversation' : item === 'website' ? 'Website' : 'Business setup'}
+          </button>
+        ))}
       </nav>
       <div className="setup-columns" data-tab={tab}>
         <section className="setup-chat" aria-label="Conversation">
+          <div className="setup-panel-heading">
+            <span className="setup-avatar" aria-hidden="true">✦</span>
+            <div>
+              <h2>Your creative partner</h2>
+              <p>Let’s put it together.</p>
+            </div>
+          </div>
+          {draft && draft.business.name !== 'Untitled business' && (
+            <div className="setup-saved-summary">
+              <span className="setup-eyebrow">YOUR SAVED DETAILS</span>
+              <strong>{draft.business.name}</strong>
+              <p>{[draft.business.city, draft.services.length ? `${draft.services.length} services` : '', draft.business.workMode === 'solo' ? 'Working solo' : draft.business.workMode === 'team' ? 'With a team' : ''].filter(Boolean).join(' · ')}</p>
+              <button type="button" onClick={() => setTab('setup')}>Check or edit details</button>
+              {!customFrontendId && missing.length > 0 && (
+                <p>
+                  Next, tell me
+                  {missing.slice(0, 2).join(' and ')}
+                  . We’ll take it a little at a time.
+                </p>
+              )}
+            </div>
+          )}
           {!aiEnabled && <p role="status">AI is unavailable. You can still edit, review, and publish your saved setup using Business setup.</p>}
           <div className="setup-messages" aria-live="polite">
             <p className="setup-assistant">{existingSalon ? 'I’ve loaded your saved website and business details. What would you like to change? Your live setup stays unchanged while we work.' : INTRO}</p>
@@ -180,14 +275,85 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               </div>
             ))}
           </div>
+          {uploadReviews.map(upload => (
+            <section key={upload.id} className="setup-upload-review" aria-label="Details found in your upload">
+              <span className="setup-eyebrow">READ FROM YOUR UPLOAD</span>
+              <h3>Does this look right?</h3>
+              <p>Check what Luster found. Nothing has been added to your business details yet.</p>
+              <dl>
+                {upload.operations.flatMap((operation) => {
+                  if (operation.type === 'business') {
+                    return Object.entries(operation.values).map(([key, value]) => (
+                      <div key={key}>
+                        <dt>{key === 'exactAddress' ? 'Private service address' : key === 'name' ? 'Business name' : 'City or area'}</dt>
+                        <dd>{reviewValue(value)}</dd>
+                      </div>
+                    ));
+                  }
+                  if (operation.type === 'service') {
+                    return (
+                      <div key={operation.values.id}>
+                        <dt>{operation.values.name}</dt>
+                        <dd>
+                          {operation.values.priceCents === null ? 'Price needed' : `${draft?.booking.currency} ${(operation.values.priceCents / 100).toFixed(2)}`}
+                          {' '}
+                          ·
+                          {' '}
+                          {operation.values.durationMinutes === null ? 'Appointment length needed' : `${operation.values.durationMinutes} min`}
+                        </dd>
+                      </div>
+                    );
+                  }
+                  if (operation.type === 'hours') {
+                    return (
+                      <div key={operation.type}>
+                        <dt>Opening hours · unlisted days keep saved hours</dt>
+                        <dd>{Object.entries(operation.values).map(([day, hours]) => `${day}: ${hours ? `${hours.open}–${hours.close}` : 'closed'}`).join(' · ')}</dd>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={operation.type}>
+                      <dt>Booking details</dt>
+                      <dd>{'values' in operation ? reviewValue(operation.values) : ''}</dd>
+                    </div>
+                  );
+                })}
+              </dl>
+              {upload.notes && <p className="setup-reading-notes">{upload.notes}</p>}
+              {upload.expectedRevision !== head?.revision.revision && <p>Your details changed since this image was read. Read it again to compare with your latest details.</p>}
+              <button
+                type="button"
+                disabled={busy || published || !upload.operations.length || upload.expectedRevision !== head?.revision.revision}
+                onClick={() => void run(async () => {
+                  await call({ action: 'apply_upload', operationId: upload.id });
+                  await refresh();
+                  setReview(null);
+                  setTab('chat');
+                })}
+              >
+                Use these details
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void run(async () => {
+                  await call({ action: 'dismiss_upload', operationId: upload.id });
+                  await refresh();
+                })}
+              >
+                Skip these details
+              </button>
+              <small>Prices and appointment lengths still need your review. Your address visibility stays as you set it.</small>
+            </section>
+          ))}
           <button
             type="button"
             className="setup-upload-shortcut"
             aria-controls="custom-design-upload"
             disabled={!head}
             onClick={() => {
-              setTab('website');
-              window.requestAnimationFrame(() => document.getElementById('custom-design-upload')?.focus());
+              chooseEntry('upload');
             }}
           >
             Upload an image
@@ -206,44 +372,51 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               Also allow changes to services and booking setup
             </label>
           )}
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            if (!head || !text.trim()) {
-              return;
-            }
-            void run(async () => {
-              if (head.revision.document.website.config.customFrontendId && !includeBusiness) {
-                const response = await fetch(`/api/admin/custom-sites?salonSlug=${encodeURIComponent(salonSlug)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'generate', input: { expectedRevision: head.revision.revision, operationId: crypto.randomUUID(), message: text, referenceIds: selectedDesignAssets, startOver: false } }) });
-                const result = await response.json();
-                if (!response.ok) {
-                  throw new Error(result.error ?? 'Your design could not be updated.');
+          <form
+            className="setup-composer"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!head || !text.trim()) {
+                return;
+              }
+              void run(async () => {
+                if (head.revision.document.website.config.customFrontendId && !includeBusiness) {
+                  const response = await fetch(`/api/admin/custom-sites?salonSlug=${encodeURIComponent(salonSlug)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'generate', input: { expectedRevision: head.revision.revision, operationId: crypto.randomUUID(), message: text, referenceIds: selectedDesignAssets, startOver: false } }) });
+                  const result = await response.json();
+                  if (!response.ok) {
+                    throw new Error(result.error ?? 'Your design could not be updated.');
+                  }
+                  setHead(result.head);
+                  setText('');
+                  setReview(null);
+                  await refresh();
+                  return;
                 }
+                const result = await call<{
+                  head: Head;
+                  reply: string;
+                }>({ action: 'message', message: { message: text, operationId: crypto.randomUUID(), expectedRevision: head.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: selectedDesignAssets } });
                 setHead(result.head);
                 setText('');
                 setReview(null);
                 await refresh();
-                return;
-              }
-              const result = await call<{
-                head: Head;
-                reply: string;
-              }>({ action: 'message', message: { message: text, operationId: crypto.randomUUID(), expectedRevision: head.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: selectedDesignAssets } });
-              setHead(result.head);
-              setText('');
-              setReview(null);
-              await refresh();
-            });
-          }}
+              });
+            }}
           >
             <label htmlFor="setup-message">Tell Luster what you have in mind</label>
-            <textarea id="setup-message" value={text} onChange={e => setText(e.target.value)} maxLength={4000} placeholder="I work alone in Toronto. I offer gel manicures and BIAB…" rows={4} />
+            <textarea id="setup-message" value={text} onChange={e => setText(e.target.value)} maxLength={4000} placeholder={customFrontendId ? 'Make the hero bolder, or tell me what you’d like to change…' : 'My salon is called… I’m based in…'} rows={3} />
             <div className="setup-quick-replies">{['Help me choose prices and times', 'I already have a service menu', 'Cream and black, with a premium feel'].map(reply => <button type="button" key={reply} onClick={() => setText(reply)}>{reply}</button>)}</div>
             <button type="submit" disabled={!aiEnabled || busy || !head || published || !text.trim()}>Send to Luster</button>
           </form>
         </section>
         <section className="setup-preview" aria-label="Website preview">
-          <h2>Your website draft</h2>
-          <p>Private preview. Booking is disabled here.</p>
+          <div className="setup-panel-heading">
+            <div>
+              <span className="setup-eyebrow">YOUR VISION, TAKING SHAPE</span>
+              <h2>{customFrontendId ? 'Your website draft' : 'From inspiration to your website'}</h2>
+              <p>Private preview. Booking is disabled here.</p>
+            </div>
+          </div>
           {head && (
             <CustomDesignStudio
               salonSlug={salonSlug}
@@ -251,6 +424,23 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               artifactId={head.revision.document.website.config.customFrontendId}
               disabled={published || busy}
               aiEnabled={aiEnabled}
+              entryMode={entryMode}
+              onReadBusinessDetails={async (referenceIds) => {
+                setActivity('Reading your image…');
+                setBusy(true);
+                setError('');
+                try {
+                  await call({ action: 'read_upload', input: { expectedRevision: head.revision.revision, operationId: crypto.randomUUID(), referenceIds, source: 'my_business' } });
+                  await refresh();
+                  setTab('chat');
+                } catch (error) {
+                  await refresh().catch(() => {});
+                  throw error;
+                } finally {
+                  setBusy(false);
+                  setActivity('');
+                }
+              }}
               selected={selectedDesignAssets}
               setSelected={setSelectedDesignAssets}
               missingDetails={missingDesignDetails(head.revision.document)}
@@ -264,10 +454,16 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               }}
             />
           )}
-          {head && !head.revision.document.website.config.customFrontendId && <iframe title="Your website draft" sandbox="" src={`/${locale}/admin/business-setup/preview/${encodeURIComponent(salonSlug)}?revision=${head.revision.revision}`} />}
+          {head && !customFrontendId && missing.length === 0 && (
+            <details>
+              <summary>Preview your current booking details</summary>
+              <iframe title="Your website draft" sandbox="" src={`/${locale}/admin/business-setup/preview/${encodeURIComponent(salonSlug)}?revision=${head.revision.revision}`} />
+            </details>
+          )}
         </section>
         <section className="setup-details" aria-label="Business setup">
           <h2>Your business setup</h2>
+          <p>Everything we’ve put together so far. Make a correction here or tell Luster in the conversation.</p>
           {draft && (
             <>
               <form
@@ -375,7 +571,8 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               </h3>
               {pending.length > 0 && (
                 <div className="setup-notice">
-                  <p>Suggested prices and appointment times need your review. These are illustrative starting recommendations, not researched local market rates.</p>
+                  <p>Check the prices and appointment lengths below before accepting them. Details read from uploads may be incomplete.</p>
+                  {pending.some(service => service.origin === 'assistant') && <p>AI recommendations are illustrative starting points, not researched local market rates.</p>}
                   <button type="button" disabled={busy || published} onClick={() => void run(() => edit([{ type: 'confirm_services', ids: pending.map(s => s.id) }]))}>Accept the displayed prices and times</button>
                 </div>
               )}
@@ -405,7 +602,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                     </label>
                   </div>
                   <small>
-                    {service.confirmed ? 'Reviewed' : 'Needs your review'}
+                    {service.confirmed ? 'Reviewed' : service.origin === 'upload' ? 'Read from your upload · needs review' : service.origin === 'assistant' ? 'AI proposal · needs review' : 'Needs your review'}
                     {' '}
                     ·
                     {' '}
@@ -427,7 +624,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
           )}
         </section>
       </div>
-      {!published && <footer className="setup-review-action"><button type="button" disabled={busy || !head} onClick={() => void run(async () => setReview(await call<SetupReview>({ action: 'review' })))}>Review before publishing</button></footer>}
+      {!published && head && head.revision.revision > 1 && <footer className="setup-review-action"><button type="button" disabled={busy || !head} onClick={() => void run(async () => setReview(await call<SetupReview>({ action: 'review' })))}>Review before publishing</button></footer>}
       {review && (
         <section className="setup-review" aria-labelledby="setup-review-title">
           <h2 id="setup-review-title">Review your changes</h2>
@@ -466,12 +663,12 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               <p>
                 <strong>Before:</strong>
                 {' '}
-                {reviewValue(change.before)}
+                {change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : reviewValue(change.before)}
               </p>
               <p>
                 <strong>After:</strong>
                 {' '}
-                {reviewValue(change.after)}
+                {change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : reviewValue(change.after)}
               </p>
             </div>
           ))}

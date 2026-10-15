@@ -153,9 +153,9 @@ export async function projectSetupWebsite(tx: SetupTransaction, salonId: string,
   return (await readSetupSnapshot(tx, updated!)).hash;
 }
 
-export async function editSetup(actor: SetupActor, input: unknown, origin: 'owner' | 'assistant' = 'owner') {
+export async function editSetup(actor: SetupActor, input: unknown, origin: 'owner' | 'assistant' | 'upload' = 'owner', transaction?: SetupTransaction) {
   const edit = setupEditSchema.parse(input);
-  return db.transaction(async (tx) => {
+  const apply = async (tx: SetupTransaction) => {
     const salon = await lockSetupSalon(tx, actor);
     const head = await loadSetupHead(tx, salon.id);
     const operationHash = setupHash({ edit, origin });
@@ -184,7 +184,8 @@ export async function editSetup(actor: SetupActor, input: unknown, origin: 'owne
     const baselineHash = await projectSetupWebsite(tx, salon.id, document);
     await tx.update(workspaces).set({ headRevision: revision, baselineHash, updatedAt: new Date() }).where(eq(workspaces.id, head.workspace.id));
     return loadSetupHead(tx, salon.id);
-  });
+  };
+  return transaction ? apply(transaction) : db.transaction(apply);
 }
 export function setupChanges(before: unknown, after: unknown, path = ''): SetupChange[] {
   if (stableJson(before) === stableJson(after)) {

@@ -59,7 +59,7 @@ export type SetupOperation = z.infer<typeof setupOperationSchema>;
 export const setupEditSchema = z.object({
   expectedRevision: z.number().int().positive(),
   operationId: z.string().uuid(),
-  operations: z.array(setupOperationSchema).min(1).max(10),
+  operations: z.array(setupOperationSchema).min(1).max(50),
 }).strict();
 export type SetupDocument = {
   schemaVersion: 1;
@@ -76,8 +76,9 @@ export type SetupDocument = {
 /** Essentials for a useful first design; service approval is a later publish gate. */
 export function missingDesignDetails(draft: SetupDocument): string[] {
   return [
-    !draft.business.name.trim() && 'business name',
+    (!draft.business.name.trim() || draft.business.name === 'Untitled business') && 'business name',
     !draft.business.city.trim() && 'city or area',
+    draft.business.workMode === 'unknown' && 'whether you work alone or with a team',
     !Object.values(draft.hours).some(Boolean) && 'opening hours',
     !draft.services.some(service => service.priceCents !== null && service.durationMinutes !== null) && 'a service with its price and appointment length',
   ].filter((item): item is string => Boolean(item));
@@ -100,7 +101,7 @@ export class SetupError extends Error {
   }
 }
 /** No model-origin command is capable of confirming financial or timing proposals. */
-export function applySetupOperations(document: SetupDocument, operations: SetupOperation[], origin: 'owner' | 'assistant'): SetupDocument {
+export function applySetupOperations(document: SetupDocument, operations: SetupOperation[], origin: 'owner' | 'assistant' | 'upload'): SetupDocument {
   const next = structuredClone(document);
   for (const raw of operations) {
     const op = setupOperationSchema.parse(raw);

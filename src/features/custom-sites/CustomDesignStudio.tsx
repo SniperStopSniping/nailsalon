@@ -16,7 +16,7 @@ type State = {
   history: { id: string; title: string; createdAt: string; assetIds: string[] }[];
   attempts: { id: string; message: string; status: string; phase: string; recoverable: boolean; createdAt: string; artifactId: string | null; inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null }[];
 };
-export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation }: { salonSlug: string; revision: number; artifactId?: string; disabled: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void }) {
+export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation, entryMode, onReadBusinessDetails }: { salonSlug: string; revision: number; artifactId?: string; disabled: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void; entryMode?: 'upload' | 'describe' | null; onReadBusinessDetails?: (ids: string[]) => Promise<void> }) {
   const [state, setState] = useState<State | null>(null);
   const [source, setSource] = useState<CustomSiteSource | null>(null);
   const [message, setMessage] = useState('');
@@ -25,6 +25,36 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [reply, setReply] = useState('');
+  const [uploadSource, setUploadSource] = useState<'own' | 'inspiration'>('inspiration');
+  const [showUpload, setShowUpload] = useState(false);
+  const [showBrief, setShowBrief] = useState(false);
+  useEffect(() => {
+    if (entryMode === 'upload') {
+      setShowUpload(true);
+    }
+    if (entryMode === 'describe') {
+      setShowBrief(true);
+    }
+  }, [entryMode]);
+  useEffect(() => {
+    if ((entryMode === 'upload' && showUpload) || (entryMode === 'describe' && showBrief)) {
+      const frame = window.requestAnimationFrame(() => document.getElementById(entryMode === 'upload' ? 'custom-design-upload' : 'custom-design-brief')?.focus());
+      return () => window.cancelAnimationFrame(frame);
+    }
+    return undefined;
+  }, [entryMode, showUpload, showBrief]);
+  const hasPreview = Boolean(state?.payload);
+  const previewBox = useRef<HTMLDivElement>(null);
+  const [previewWidth, setPreviewWidth] = useState(680);
+  useEffect(() => {
+    const box = previewBox.current;
+    if (!box || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const observer = new ResizeObserver(entries => setPreviewWidth(entries[0]?.contentRect.width ?? 680));
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [hasPreview]);
   const [previewSize, setPreviewSize] = useState<'desktop' | 'mobile'>('desktop');
   useEffect(() => {
     if (window.matchMedia('(max-width: 640px)').matches) {
@@ -48,7 +78,9 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       const unused = (data.assets as State['assets']).filter(asset => !used.has(asset.id)).slice(0, 6);
       setSelected(unused.map(asset => asset.id));
       if (unused.length) {
-        setMessage('Create my website from the selected inspiration. Match its layout, colours, typography and image arrangement using my saved business details and photos. Improve readability and booking on mobile.');
+        setMessage('Create my website from the selected inspiration, but make it even better.');
+        setShowUpload(true);
+        setShowBrief(true);
       }
     }
     if (data.head.revision.revision !== revision) {
@@ -95,8 +127,13 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
   const current = state?.history.find(item => item.id === artifactId);
   return (
     <div id="custom-design" className="custom-design-studio">
-      <h2>Custom design with AI</h2>
-      <p>Show Luster your inspiration, or describe an original design. It builds an editable website around your business and booking system.</p>
+      {!artifactId && !entryMode && !state?.assets.length && (
+        <div className="setup-preview-empty">
+          <span aria-hidden="true">✦</span>
+          <h3>A website that feels like you.</h3>
+          <p>Choose how you’d like to start above. Your design will take shape here, with your services and booking details already connected.</p>
+        </div>
+      )}
       {state && !state.configured && <p role="status">AI is not connected yet. Your business details, uploads and saved designs are safe. You can keep using the manual controls.</p>}
       {error && (
         <p role="alert">
@@ -112,77 +149,137 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           Your published website stays unchanged. You can return to your saved design after this finishes.
         </p>
       )}
-      <section id="custom-design-upload" className="custom-design-upload" tabIndex={-1} aria-labelledby="custom-design-upload-title">
-        <h3 id="custom-design-upload-title">Upload an image</h3>
-        <p>Upload inspiration, a logo or your photographs</p>
+      {state?.payload && (
+        <div className="studio-preview">
+          <p>
+            <strong>{state.payload.source.title}</strong>
+            {' '}
+            · Saved as draft
+          </p>
+          <details>
+            <summary>About this design</summary>
+            <p>{state.payload.source.analysis}</p>
+          </details>
+          {state.payload.source.limitations.length > 0 && (
+            <div>
+              <strong>Design differences to review</strong>
+              <ul>{state.payload.source.limitations.map(item => <li key={item}>{item}</li>)}</ul>
+            </div>
+          )}
+          <div role="group" aria-label="Preview size">
+            <button type="button" aria-pressed={previewSize === 'desktop'} onClick={() => setPreviewSize('desktop')}>Desktop preview</button>
+            <button type="button" aria-pressed={previewSize === 'mobile'} onClick={() => setPreviewSize('mobile')}>Mobile preview</button>
+            <a href={`/admin/business-setup/design-preview/${encodeURIComponent(salonSlug)}?revision=${revision}`} target="_blank" rel="noreferrer">Open full preview</a>
+          </div>
+          <div ref={previewBox} className="studio-frame-wrap">
+            <div style={{ width: previewSize === 'mobile' ? 390 : 1280, maxWidth: previewSize === 'mobile' ? '100%' : undefined, zoom: previewSize === 'desktop' ? Math.min(1, previewWidth / 1280) : 1, margin: 'auto' }}>
+              {state.rendererOrigin ? <CustomWebsiteFrame key={`${artifactId}-${revision}`} payload={state.payload} rendererOrigin={state.rendererOrigin} /> : <p>Your website preview is not available right now. Your design is saved. Please try again before publishing.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+      <details className="studio-step" open={showUpload} onToggle={event => setShowUpload(event.currentTarget.open)}>
+        <summary>
+          Your images & inspiration
+          <span>Add a design, menu or photographs</span>
+        </summary>
+        <section id="custom-design-upload" className="custom-design-upload" tabIndex={-1} aria-labelledby="custom-design-upload-title">
+          <h3 id="custom-design-upload-title">Upload an image</h3>
+          <p>Is this your business, or a style you love?</p>
+          <div className="studio-source-options" role="group" aria-label="What is in your upload?">
+            <button type="button" aria-pressed={uploadSource === 'own'} onClick={() => setUploadSource('own')}>
+              <strong>My own business</strong>
+              <span>Read my name, services, prices and hours.</span>
+            </button>
+            <button type="button" aria-pressed={uploadSource === 'inspiration'} onClick={() => setUploadSource('inspiration')}>
+              <strong>Style inspiration</strong>
+              <span>Use the look, with my business details.</span>
+            </button>
+          </div>
+          {uploadSource === 'own' && <p className="studio-hint">Already written in your image? Leave those details for now. Upload it, then let Luster read them for your review.</p>}
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            void action('Checking and saving your upload…', async () => {
+              data.set('rightsConfirmed', data.get('rightsConfirmed') === 'on' ? 'true' : 'false');
+              const response = await fetch(endpoint, { method: 'POST', body: data });
+              const result = await response.json();
+              if (!response.ok) {
+                throw new Error(result.error ?? 'The upload failed.');
+              }
+              setSelected(ids => [...ids.slice(-5), result.asset.id]);
+              setReply('Your image is saved and selected. Describe what you like below, then choose Create my website. You can also ask Luster in Conversation.');
+              setMessage(current => current || 'Create my website from the selected inspiration, but make it even better.');
+              setShowBrief(true);
+            });
+          }}
+          >
+            <label>
+              Use this as
+              <select name="role">
+                <option value="reference">Design inspiration</option>
+                <option value="photo">My website photograph</option>
+                <option value="logo">My logo</option>
+              </select>
+            </label>
+            <label>
+              PNG, JPG, WebP or PDF · up to 3 MB
+              <input type="file" name="file" accept="image/png,image/jpeg,image/webp,application/pdf" required />
+            </label>
+            <label>
+              <input type="checkbox" name="rightsConfirmed" required />
+              I may use this file. Other businesses’ content is for inspiration only.
+            </label>
+            <button type="submit" disabled={disabled || Boolean(busy)}>Upload</button>
+          </form>
+          {uploadSource === 'own' && selected.length > 0 && onReadBusinessDetails && (
+            <div className="studio-read-details">
+              <p>Does your image include your salon’s details? I can read them, then we’ll check them together.</p>
+              <button type="button" disabled={disabled || !aiEnabled || Boolean(busy)} onClick={() => void action('Reading your business details…', () => onReadBusinessDetails(selected))}>Read my business details</button>
+              <button type="button" onClick={onContinueConversation}>I’ll tell Luster instead</button>
+            </div>
+          )}
+        </section>
+      </details>
+      {reply && <p role="status" className="setup-notice">{reply}</p>}
+      <details className="studio-step" open={showBrief} onToggle={event => setShowBrief(event.currentTarget.open)}>
+        <summary>
+          Your design direction
+          <span>Tell us what you like</span>
+        </summary>
         <form onSubmit={(event) => {
           event.preventDefault();
-          const data = new FormData(event.currentTarget);
-          void action('Checking and saving your upload…', async () => {
-            data.set('rightsConfirmed', data.get('rightsConfirmed') === 'on' ? 'true' : 'false');
-            const response = await fetch(endpoint, { method: 'POST', body: data });
-            const result = await response.json();
-            if (!response.ok) {
-              throw new Error(result.error ?? 'The upload failed.');
-            }
-            setSelected(ids => [...ids.slice(-5), result.asset.id]);
-            setReply('Your image is saved and selected. Describe what you like below, then choose Create my website. You can also ask Luster in Conversation.');
-            setMessage(current => current || 'Create my website from the selected inspiration. Match its layout, colours, typography and image arrangement using my saved business details and photos. Improve readability and booking on mobile.');
+          void action('Studying your references and writing your website…', async () => {
+            const result = await post({ action: 'generate', input: { expectedRevision: revision, operationId: crypto.randomUUID(), message, referenceIds: selected, startOver } });
+            setReply(result.reply ?? 'Your new design is saved as a draft. Review it before publishing.');
+            setMessage('');
+            setStartOver(false);
           });
         }}
         >
           <label>
-            Use this as
-            <select name="role">
-              <option value="reference">Design inspiration</option>
-              <option value="photo">My website photograph</option>
-              <option value="logo">My logo</option>
-            </select>
+            What do you like about your references, or what should change?
+            <textarea id="custom-design-brief" value={message} onChange={event => setMessage(event.target.value)} maxLength={4000} rows={4} required placeholder="Something warm and elegant. Cream backgrounds, bold photography and a little personality…" />
           </label>
-          <label>
-            PNG, JPG, WebP or PDF · up to 3 MB
-            <input type="file" name="file" accept="image/png,image/jpeg,image/webp,application/pdf" required />
-          </label>
-          <label>
-            <input type="checkbox" name="rightsConfirmed" required />
-            I may use this file. Other businesses’ content is for inspiration only.
-          </label>
-          <button type="submit" disabled={disabled || Boolean(busy)}>Upload</button>
+          {artifactId && (
+            <label>
+              <input type="checkbox" checked={startOver} onChange={event => setStartOver(event.target.checked)} />
+              Start over with an entirely new design
+            </label>
+          )}
+          <p>{selected.length ? `${selected.length} uploaded file(s) will be used for this request.` : 'Describe your idea, or select an uploaded image below.'}</p>
+          {missingDetails.length > 0 && (
+            <div className="setup-notice">
+              <p>{`Before creating your website, Luster needs ${missingDetails.join(', ')}. You can tell us in the conversation or read them from your own uploaded design.`}</p>
+              <button type="button" onClick={onContinueConversation}>Continue with Luster</button>
+            </div>
+          )}
+          <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim() || missingDetails.length > 0}>{busy.includes('writing your website') || pending ? 'Creating your website…' : 'Create my website'}</button>
         </form>
-      </section>
-      {reply && <p role="status" className="setup-notice">{reply}</p>}
-      <form onSubmit={(event) => {
-        event.preventDefault();
-        void action('Studying your references and writing your website…', async () => {
-          const result = await post({ action: 'generate', input: { expectedRevision: revision, operationId: crypto.randomUUID(), message, referenceIds: selected, startOver } });
-          setReply(result.reply ?? 'Your new design is saved as a draft. Review it before publishing.');
-          setMessage('');
-          setStartOver(false);
-        });
-      }}
-      >
-        <label>
-          What do you like about your references, or what should change?
-          <textarea value={message} onChange={event => setMessage(event.target.value)} maxLength={4000} rows={4} required placeholder="Use this Canva composition, my salon name and my photos. Make the mobile version less crowded." />
-        </label>
-        {artifactId && (
-          <label>
-            <input type="checkbox" checked={startOver} onChange={event => setStartOver(event.target.checked)} />
-            Start over with an entirely new design
-          </label>
-        )}
-        <p>{selected.length ? `${selected.length} uploaded file(s) will be used for this request.` : 'Describe your idea, or select an uploaded image below.'}</p>
-        {missingDetails.length > 0 && (
-          <div className="setup-notice">
-            <p>{`Your images are saved. Before creating your website, Luster needs ${missingDetails.join(', ')}.`}</p>
-            <button type="button" onClick={onContinueConversation}>Continue with Luster</button>
-          </div>
-        )}
-        <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim() || missingDetails.length > 0}>{busy.includes('writing your website') || pending ? 'Creating your website…' : 'Create my website'}</button>
-      </form>
+      </details>
       {state?.assets.length
         ? (
-            <fieldset>
+            <fieldset className="studio-assets">
               <legend>References for this request (up to six)</legend>
               {state.assets.map(asset => (
                 <label key={asset.id}>
@@ -190,7 +287,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                   {asset.name}
                   {' '}
                   ·
-                  {asset.role === 'reference' ? 'Inspiration only' : 'Website asset'}
+                  {asset.role === 'reference' ? 'Design reference' : 'Website asset'}
                   {asset.mimeType.startsWith('image/') && (
                     // Private authenticated asset endpoint; never an external URL.
                     // eslint-disable-next-line @next/next/no-img-element
@@ -232,29 +329,6 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
         : null}
       {state?.payload && (
         <>
-          <p>
-            <strong>{state.payload.source.title}</strong>
-            {' '}
-            · Saved as draft
-          </p>
-          <p>{state.payload.source.analysis}</p>
-          {state.payload.source.limitations.length > 0 && (
-            <div>
-              <strong>Design differences to review</strong>
-              <ul>{state.payload.source.limitations.map(item => <li key={item}>{item}</li>)}</ul>
-            </div>
-          )}
-          <div role="group" aria-label="Preview size">
-            <button type="button" aria-pressed={previewSize === 'desktop'} onClick={() => setPreviewSize('desktop')}>Desktop preview</button>
-            <button type="button" aria-pressed={previewSize === 'mobile'} onClick={() => setPreviewSize('mobile')}>Mobile preview</button>
-            <a href={`/admin/business-setup/design-preview/${encodeURIComponent(salonSlug)}?revision=${revision}`} target="_blank" rel="noreferrer">Open full preview</a>
-          </div>
-          {previewSize === 'desktop' && <p>Scroll sideways to inspect the full desktop layout.</p>}
-          <div style={{ width: '100%', overflowX: 'auto' }}>
-            <div style={{ width: previewSize === 'mobile' ? 390 : 1280, maxWidth: previewSize === 'mobile' ? '100%' : undefined, margin: 'auto' }}>
-              {state.rendererOrigin ? <CustomWebsiteFrame key={`${artifactId}-${revision}`} payload={state.payload} rendererOrigin={state.rendererOrigin} /> : <p>Your website preview is not available right now. Your design is saved. Please try again before publishing.</p>}
-            </div>
-          </div>
           <details>
             <summary>Edit website source</summary>
             <p>HTML, CSS and interactions stay editable. Saving creates a new draft version.</p>

@@ -17,7 +17,7 @@ test('real local draft UI uses authenticated production preview without publishi
   });
   await page.goto('/admin/business-setup?salon=setup-synthetic-studio');
 
-  await expect(page.getByRole('heading', { name: 'Let’s build your business.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Let’s bring your business to life.' })).toBeVisible();
   await expect(page.getByText('Saved as draft · Your live business is unchanged')).toBeVisible({ timeout: 30_000 });
 
   await page.getByRole('button', { name: 'Business setup', exact: true }).click();
@@ -28,6 +28,7 @@ test('real local draft UI uses authenticated production preview without publishi
   await expect(page.getByText('Saved as draft · Your live business is unchanged')).toBeVisible();
 
   await page.getByRole('button', { name: 'Website', exact: true }).click();
+  await page.getByText('Preview your current booking details', { exact: true }).click();
   const preview = page.frameLocator('iframe[title="Your website draft"]');
 
   await expect(preview.getByText('Private draft preview. Booking is disabled here. Availability examples are simulated.')).toBeVisible({ timeout: 30_000 });

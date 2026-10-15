@@ -5711,7 +5711,7 @@ export const businessSetupTurnSchema = pgTable('business_setup_turn', {
   message: text('message').notNull(),
   reply: text('reply'),
   operations: jsonb('operations').$type<import('../features/business-setup/contracts').SetupOperation[]>(),
-  status: text('status').$type<'pending' | 'generated' | 'completed' | 'failed'>().notNull(),
+  status: text('status').$type<'pending' | 'generated' | 'completed' | 'failed' | 'upload_review' | 'upload_applied' | 'upload_dismissed'>().notNull(),
   inputTokens: integer('input_tokens'),
   outputTokens: integer('output_tokens'),
   costMicroUsd: integer('cost_micro_usd'),

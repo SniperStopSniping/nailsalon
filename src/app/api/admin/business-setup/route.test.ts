@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { readOwnUploadSchema } from '@/features/business-setup/read-upload.server';
+
 import { POST } from './route';
 
 vi.mock('server-only', () => ({}));
-const state = vi.hoisted(() => ({ access: vi.fn(), open: vi.fn(), edit: vi.fn(), approve: vi.fn(), publish: vi.fn(), message: vi.fn() }));
+const state = vi.hoisted(() => ({ access: vi.fn(), open: vi.fn(), edit: vi.fn(), approve: vi.fn(), publish: vi.fn(), message: vi.fn(), readUpload: vi.fn(), applyUpload: vi.fn(), dismissUpload: vi.fn() }));
 vi.mock('@/features/business-setup/access.server', () => ({ requireSetupOwner: state.access }));
 vi.mock('@/features/business-setup/drafts.server', () => ({ openSetup: state.open, editSetup: state.edit, approveSetup: state.approve, restartSetup: vi.fn(), reviewSetup: vi.fn(), loadSetupHead: vi.fn(), lockSetupSalon: vi.fn() }));
+vi.mock('@/features/business-setup/read-upload.server', async original => ({ ...await original<typeof import('@/features/business-setup/read-upload.server')>(), readOwnUpload: state.readUpload, applyOwnUpload: state.applyUpload, dismissOwnUpload: state.dismissUpload }));
 vi.mock('@/features/business-setup/publish.server', () => ({ publishSetup: state.publish }));
 vi.mock('@/features/business-setup/conversation.server', async original => ({ ...await original<typeof import('@/features/business-setup/conversation.server')>(), runSetupConversation: state.message }));
 
@@ -53,4 +56,26 @@ describe('setup request boundary', () => {
     expect((await POST(request({ action: 'open', salonSlug: 'someone-else' }))).status).toBe(403);
     expect(state.open).not.toHaveBeenCalled();
   });
+});
+
+it('requires an explicitly own-business upload and keeps model reads behind the AI flag', async () => {
+  const input = { expectedRevision: 1, operationId: crypto.randomUUID(), referenceIds: [crypto.randomUUID()], source: 'my_business' };
+
+  expect(readOwnUploadSchema.safeParse({ ...input, source: 'inspiration' }).success).toBe(false);
+  expect((await POST(request({ action: 'read_upload', salonSlug: 'salon', input }))).status).toBe(503);
+  expect(state.readUpload).not.toHaveBeenCalled();
+
+  state.access.mockResolvedValue({ actor: { salonId: 'authorized-salon', adminId: 'owner' }, salon: {}, aiEnabled: true });
+
+  expect((await POST(request({ action: 'read_upload', salonSlug: 'salon', input }))).status).toBe(200);
+  expect(state.readUpload).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'owner' }, input);
+});
+
+it('allows reviewing stored extraction with AI off but never turns it into approval or publication', async () => {
+  const operationId = crypto.randomUUID();
+
+  expect((await POST(request({ action: 'apply_upload', salonSlug: 'salon', operationId }))).status).toBe(200);
+  expect(state.applyUpload).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'owner' }, operationId);
+  expect(state.approve).not.toHaveBeenCalled();
+  expect(state.publish).not.toHaveBeenCalled();
 });

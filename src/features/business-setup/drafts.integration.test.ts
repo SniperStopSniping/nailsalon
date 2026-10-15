@@ -27,6 +27,7 @@ import { approveSetup, editSetup, openSetup, restartSetup, reviewSetup } from '.
 import { editSharedSetupWebsite } from './manual-website.server';
 import { setupPreviewBooking } from './preview-data.server';
 import { publishSetup } from './publish.server';
+import { applyOwnUpload, dismissOwnUpload, readOwnUpload, uploadFactsToOperations } from './read-upload.server';
 
 vi.mock('server-only', () => ({}));
 const holder = vi.hoisted(() => ({ db: null as unknown }));
@@ -618,5 +619,106 @@ describe('metered owner generation and automatic repair', () => {
     } finally {
       await database.update(schema.setupAiBudgetSchema).set({ capMicroCad: 40000000 });
     }
+  });
+});
+
+describe('own business upload review', () => {
+  const facts = (values: Record<string, unknown> = {}) => ({ businessName: 'Read Studio', city: 'Toronto', address: '42 Synthetic Lane', currency: 'CAD', hoursJson: JSON.stringify([{ day: 'tuesday', status: 'open', open: '10:00', close: '18:00' }]), servicesJson: JSON.stringify([{ name: 'Gel manicure', description: null, priceKind: 'fixed', priceCents: 7000, durationMinutes: null, kind: 'base', category: 'manicure', bookingCategory: 'manicure' }, { name: 'BIAB', description: null, priceKind: 'from', priceCents: 6500, durationMinutes: null, kind: 'base', category: 'builder_gel', bookingCategory: 'manicure' }]), notes: [], ...values });
+  async function upload(actor: { salonId: string; adminId: string }) {
+    const png = await sharp({ create: { width: 100, height: 100, channels: 3, background: '#ffffff' } }).png().toBuffer();
+    return uploadCustomAsset(actor, new File([new Uint8Array(png)], 'synthetic-menu.png', { type: 'image/png' }), 'reference');
+  }
+  const model = (value: unknown) => ({ createResponse: vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 1200, outputTokens: 800, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(value) }] }) });
+
+  it('reads privately, retains a review across reloads, then applies once without touching live data', async () => {
+    const actor = await fixture();
+    const asset = await upload(actor);
+    const input = { expectedRevision: 2, operationId: randomUUID(), referenceIds: [asset.id], source: 'my_business' };
+    const provider = model(facts());
+    const review = await readOwnUpload(actor, input, provider);
+
+    expect(review.status).toBe('upload_review');
+    expect((await openSetup(actor)).revision.revision).toBe(2);
+    expect((await readOwnUpload(actor, input, provider)).id).toBe(review.id);
+    expect(provider.createResponse).toHaveBeenCalledTimes(1);
+    expect(provider.createResponse.mock.calls[0]![0].input[1].content[1].type).toBe('input_image');
+
+    const applied = await applyOwnUpload(actor, review.id);
+
+    expect((await applyOwnUpload(actor, review.id)).revision.revision).toBe(applied.revision.revision);
+    expect(applied.revision.document.services).toHaveLength(2);
+    expect(applied.revision.document.services[0]).toMatchObject({ id: 'draft_gel', priceCents: 7000, durationMinutes: 60, cleanupBufferMinutes: 10, confirmed: false, origin: 'upload' });
+    expect(applied.revision.document.services[1]).toMatchObject({ name: 'BIAB', priceCents: null, durationMinutes: null, confirmed: false });
+    expect(applied.revision.document.business).toMatchObject({ name: 'Read Studio', exactAddress: '42 Synthetic Lane', locationDisplayMode: 'city_only' });
+    expect(applied.revision.document.hours.monday).toEqual({ open: '09:00', close: '17:00' });
+    expect(applied.revision.document.hours.tuesday).toEqual({ open: '10:00', close: '18:00' });
+    expect((await reviewSetup(actor)).blockers.length).toBeGreaterThan(0);
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId)))[0]).toMatchObject({ name: 'Untitled business', publicationStatus: 'draft', address: null });
+  });
+
+  it('rejects cross-tenant files and reviews before model access or draft writes', async () => {
+    const actor = await fixture();
+    const other = await fixture();
+    const asset = await upload(actor);
+    const provider = model(facts());
+    const operationId = randomUUID();
+
+    await expect(readOwnUpload(other, { expectedRevision: 2, operationId, referenceIds: [asset.id], source: 'my_business' }, provider)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(provider.createResponse).not.toHaveBeenCalled();
+
+    await readOwnUpload(actor, { expectedRevision: 2, operationId, referenceIds: [asset.id], source: 'my_business' }, provider);
+
+    await expect(applyOwnUpload(other, operationId)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(dismissOwnUpload(other, operationId)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect((await openSetup(other)).revision.revision).toBe(2);
+  });
+
+  it('detects later manual edits and lets the owner dismiss an outdated review', async () => {
+    const actor = await fixture();
+    const asset = await upload(actor);
+    const operationId = randomUUID();
+    await readOwnUpload(actor, { expectedRevision: 2, operationId, referenceIds: [asset.id], source: 'my_business' }, model(facts()));
+    await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'business', values: { name: 'My corrected name' } }] });
+
+    await expect(applyOwnUpload(actor, operationId)).rejects.toMatchObject({ code: 'STALE' });
+
+    await dismissOwnUpload(actor, operationId);
+    await dismissOwnUpload(actor, operationId);
+
+    await expect(applyOwnUpload(actor, operationId)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect((await openSetup(actor)).revision.document.business.name).toBe('My corrected name');
+  });
+
+  it('rejects invented actions and unsafe fields in provider output without accepting any changes', async () => {
+    const actor = await fixture();
+    const asset = await upload(actor);
+    const input = { expectedRevision: 2, operationId: randomUUID(), referenceIds: [asset.id], source: 'my_business' };
+
+    await expect(readOwnUpload(actor, input, model(facts({ publish: true, salonId: 'another', locationDisplayMode: 'full_address' })))).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect((await openSetup(actor)).revision.revision).toBe(2);
+    await expect(applyOwnUpload(actor, input.operationId)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('never converts add-ons, duplicate names or ambiguous amounts into guessed bookable services', async () => {
+    const actor = await fixture();
+    const head = await openSetup(actor);
+    const base = { name: 'French tips', description: null, priceKind: 'fixed', priceCents: 1500, durationMinutes: 15, kind: 'addon', category: 'manicure', bookingCategory: 'manicure' };
+    const proposal = uploadFactsToOperations(facts({ businessName: null, city: null, address: null, currency: null, hoursJson: '[]', servicesJson: JSON.stringify([base, { ...base, kind: 'unclear' }, { ...base, name: 'New service', kind: 'base', priceKind: 'range' }, { ...base, name: 'New service', kind: 'base' }]) }), head.revision.document, randomUUID());
+
+    expect(proposal.operations).toHaveLength(1);
+    expect(proposal.operations[0]).toMatchObject({ type: 'service', values: { name: 'New service', priceCents: null } });
+    expect(proposal.notes.join(' ')).toContain('repeated');
+    expect(proposal.notes.join(' ')).toContain('add-on');
+  });
+
+  it('leaves the draft unchanged when an upload cannot be read, and rejects conflicting hours', async () => {
+    const actor = await fixture();
+    const head = await openSetup(actor);
+    const empty = uploadFactsToOperations(facts({ businessName: null, city: null, address: null, currency: null, hoursJson: '[]', servicesJson: '[]' }), head.revision.document, randomUUID());
+
+    expect(empty.operations).toEqual([]);
+    expect(() => uploadFactsToOperations(facts({ hoursJson: JSON.stringify([{ day: 'monday', status: 'open', open: '10:00', close: '18:00' }, { day: 'monday', status: 'closed', open: null, close: null }]) }), head.revision.document, randomUUID())).toThrow('conflicting');
+    expect((await openSetup(actor)).revision.revision).toBe(2);
   });
 });

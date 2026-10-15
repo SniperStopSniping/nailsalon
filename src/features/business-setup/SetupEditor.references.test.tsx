@@ -73,3 +73,48 @@ it('restores unused uploads after refresh and explains missing business details 
   expect(screen.getByRole('button', { name: 'Continue with Luster' })).toBeEnabled();
   expect(requests.every(request => request.action === 'open')).toBe(true);
 });
+
+it('offers upload or description without making a model request', async () => {
+  document.business.city = '';
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft · Your live business is unchanged');
+  fireEvent.click(screen.getByRole('button', { name: /Describe your idea/ }));
+  await waitFor(() => expect(screen.getByLabelText('What do you like about your references, or what should change?')).toBeVisible());
+  fireEvent.click(screen.getByRole('button', { name: /Upload a design/ }));
+  await screen.findByRole('button', { name: /My own business/ });
+
+  expect(requests.every(request => request.action === 'open')).toBe(true);
+});
+
+it('reads an explicitly owned image into a separate review and does not apply it automatically', async () => {
+  assets = [reference];
+  const baseFetch = globalThis.fetch;
+  let reviews: any[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'read_upload') {
+      requests.push(request);
+      reviews = [{ id: request.input.operationId, operations: [{ type: 'business', values: { name: 'Name in my image' } }], notes: 'Appointment lengths are missing.', expectedRevision: 1 }];
+      return { ok: true, json: async () => ({ data: reviews[0] }) };
+    }
+    if (url.startsWith('/api/admin/business-setup?') && !options?.method) {
+      return { ok: true, json: async () => ({ data: { ...head(), uploadReviews: reviews } }) };
+    }
+    return baseFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  fireEvent.click(await screen.findByRole('button', { name: /Upload a design/ }));
+  await screen.findByText('1 uploaded file(s) will be used for this request.');
+
+  expect(screen.queryByRole('button', { name: 'Read my business details' })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: /My own business/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Read my business details' }));
+  const review = await screen.findByRole('region', { name: 'Details found in your upload' });
+
+  expect(within(review).getByText('Name in my image')).toBeVisible();
+  expect(within(review).getByRole('button', { name: 'Use these details' })).toBeEnabled();
+  expect(requests.filter(request => request.action === 'read_upload')[0].input).toMatchObject({ referenceIds: [reference.id], source: 'my_business' });
+  expect(requests.some(request => ['edit', 'apply_upload', 'approve', 'publish'].includes(request.action))).toBe(false);
+  expect(document.business.name).toBe('Studio');
+});

@@ -6,6 +6,7 @@ import { setupEditSchema, SetupError } from '@/features/business-setup/contracts
 import { runSetupConversation, setupMessageSchema } from '@/features/business-setup/conversation.server';
 import { approveSetup, editSetup, loadSetupHead, lockSetupSalon, openSetup, restartSetup, reviewSetup } from '@/features/business-setup/drafts.server';
 import { publishSetup } from '@/features/business-setup/publish.server';
+import { applyOwnUpload, dismissOwnUpload, readOwnUpload, readOwnUploadSchema } from '@/features/business-setup/read-upload.server';
 import { setupTimeline } from '@/features/business-setup/timeline';
 import { db } from '@/libs/DB';
 import { businessSetupTurnSchema, customSiteGenerationSchema } from '@/models/Schema';
@@ -17,6 +18,9 @@ const headers = { 'Cache-Control': 'private, no-store' };
 const base = { salonSlug: z.string().min(1).max(160) };
 const requestSchema = z.discriminatedUnion('action', [
   z.object({ ...base, action: z.literal('open') }).strict(),
+  z.object({ ...base, action: z.literal('read_upload'), input: readOwnUploadSchema }).strict(),
+  z.object({ ...base, action: z.literal('apply_upload'), operationId: z.string().uuid() }).strict(),
+  z.object({ ...base, action: z.literal('dismiss_upload'), operationId: z.string().uuid() }).strict(),
   z.object({ ...base, action: z.literal('start_editing'), expectedRevision: z.number().int().positive() }).strict(),
   z.object({ ...base, action: z.literal('message'), message: setupMessageSchema }).strict(),
   z.object({ ...base, action: z.literal('edit'), edit: setupEditSchema }).strict(),
@@ -46,10 +50,10 @@ export async function GET(request: Request) {
     const data = await db.transaction(async (tx) => {
       await lockSetupSalon(tx, access.actor);
       const head = await loadSetupHead(tx, access.actor.salonId);
-      const turns = await tx.select({ id: businessSetupTurnSchema.id, message: businessSetupTurnSchema.message, reply: businessSetupTurnSchema.reply, status: businessSetupTurnSchema.status, createdAt: businessSetupTurnSchema.createdAt, leaseExpiresAt: businessSetupTurnSchema.leaseExpiresAt, designOperationId: businessSetupTurnSchema.designOperationId }).from(businessSetupTurnSchema).where(and(eq(businessSetupTurnSchema.salonId, access.actor.salonId), eq(businessSetupTurnSchema.workspaceId, head.workspace.id))).orderBy(desc(businessSetupTurnSchema.createdAt)).limit(40);
+      const turns = await tx.select({ id: businessSetupTurnSchema.id, message: businessSetupTurnSchema.message, reply: businessSetupTurnSchema.reply, status: businessSetupTurnSchema.status, createdAt: businessSetupTurnSchema.createdAt, leaseExpiresAt: businessSetupTurnSchema.leaseExpiresAt, designOperationId: businessSetupTurnSchema.designOperationId, operations: businessSetupTurnSchema.operations, expectedRevision: businessSetupTurnSchema.expectedRevision }).from(businessSetupTurnSchema).where(and(eq(businessSetupTurnSchema.salonId, access.actor.salonId), eq(businessSetupTurnSchema.workspaceId, head.workspace.id))).orderBy(desc(businessSetupTurnSchema.createdAt)).limit(40);
       const designs = await tx.select({ id: customSiteGenerationSchema.id, message: customSiteGenerationSchema.message, status: customSiteGenerationSchema.status, createdAt: customSiteGenerationSchema.createdAt }).from(customSiteGenerationSchema).where(eq(customSiteGenerationSchema.salonId, access.actor.salonId)).orderBy(desc(customSiteGenerationSchema.createdAt)).limit(40);
       const messages = setupTimeline(turns, designs);
-      return { ...head, messages };
+      return { ...head, messages, uploadReviews: turns.filter(turn => turn.status === 'upload_review').map(({ id, operations, reply, expectedRevision }) => ({ id, operations, notes: reply, expectedRevision })) };
     });
     return Response.json({ data }, { headers });
   } catch (error) {
@@ -99,6 +103,18 @@ export async function POST(request: Request) {
   try {
     let data: unknown;
     switch (parsed.action) {
+      case 'read_upload':
+        if (!access.aiEnabled) {
+          return Response.json({ error: { message: 'AI is unavailable. Your uploads are saved.' } }, { status: 503, headers });
+        }
+        data = await readOwnUpload(access.actor, parsed.input);
+        break;
+      case 'dismiss_upload':
+        data = await dismissOwnUpload(access.actor, parsed.operationId);
+        break;
+      case 'apply_upload':
+        data = await applyOwnUpload(access.actor, parsed.operationId);
+        break;
       case 'message':
         if (!access.aiEnabled) {
           return Response.json({ error: { message: 'AI is unavailable. Your saved setup is still editable below.' } }, { status: 503, headers });
