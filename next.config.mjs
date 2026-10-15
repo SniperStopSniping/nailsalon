@@ -88,7 +88,7 @@ const baseNextConfig = bundleAnalyzer(
       return ['/admin/business-setup/preview/:slug', '/:locale/admin/business-setup/preview/:slug'].map(source => ({
         source,
         headers: [
-          { key: 'Content-Security-Policy', value: "sandbox allow-same-origin; form-action 'none'; frame-ancestors 'self'" },
+          { key: 'Content-Security-Policy', value: 'sandbox allow-same-origin; form-action \'none\'; frame-ancestors \'self\'' },
           { key: 'Cache-Control', value: 'private, no-store' },
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
           { key: 'Referrer-Policy', value: 'no-referrer' },
