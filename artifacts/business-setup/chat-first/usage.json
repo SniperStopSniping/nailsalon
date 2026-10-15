@@ -1,0 +1,9 @@
+{
+  "hostedChargedOrReservedCad": 9.310002,
+  "frozenLocalCad": 6.384406,
+  "combinedCad": 15.694408,
+  "capCad": 40,
+  "newHostedChargeSinceCheckpointCad": 0.65016,
+  "calls": 17,
+  "note": "Conservative tracked allowance, includes unknown-charge reservations; not a reconciled invoice."
+}

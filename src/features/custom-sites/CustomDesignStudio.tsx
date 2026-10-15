@@ -203,15 +203,10 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
             · Saved as draft
           </p>
           <details>
-            <summary>About this design</summary>
+            <summary>{state.payload.source.limitations.length ? `Design notes · ${state.payload.source.limitations.length} differences to review` : 'About this design'}</summary>
             <p>{state.payload.source.analysis}</p>
+            {state.payload.source.limitations.length > 0 && <ul>{state.payload.source.limitations.map(item => <li key={item}>{item}</li>)}</ul>}
           </details>
-          {state.payload.source.limitations.length > 0 && (
-            <div>
-              <strong>Design differences to review</strong>
-              <ul>{state.payload.source.limitations.map(item => <li key={item}>{item}</li>)}</ul>
-            </div>
-          )}
           <div role="group" aria-label="Preview size">
             <button type="button" aria-pressed={previewSize === 'desktop'} onClick={() => setPreviewSize('desktop')}>Desktop preview</button>
             <button type="button" aria-pressed={previewSize === 'mobile'} onClick={() => setPreviewSize('mobile')}>Mobile preview</button>

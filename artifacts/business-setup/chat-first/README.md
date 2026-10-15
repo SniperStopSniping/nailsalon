@@ -14,6 +14,17 @@ The chat shows the owner's request immediately, refreshes pending work, keeps un
 - A fictional Aster menu was uploaded via the real local API and appeared again after refresh. Test retries left two menu uploads in this disposable local fixture; neither affected a published salon. Local model credentials were disabled; these checks are not real-provider evidence.
 - Existing browser journey selectors were updated for the new navigation. The old reset fixture has real-provider cost/evidence records, so the full destructive reset suite was not rerun against that database. Existing booking/publication safeguards were tested with the isolated PGlite integration suite.
 
-Screenshots in this folder show the actual application. Hosted verification and deployment metadata will be added after the committed source is built and checked.
+Screenshots in this folder show the actual application. Hosted screenshots show the actual saved owner conversation, a new request, generation progress, result, preview and review.
 
 No production deployment, migration or customer-data change. Generated sample websites are preserved. This checkpoint simplifies the builder UI; it does not claim completion of the broader AI feature or pixel-perfect Canva conversion.
+
+
+## Hosted verification
+
+Preview source `23aa096adf882f2cfbb0a99dde157168e4a07882` / `dpl_2MGAqXxo656XQG8tzishC2TVg95e` was built from the clean feature branch and assigned only to the isolated test alias. A real mobile owner session used the single composer to request more rounded booking controls and mobile breathing room. Astra (`gpt-6-astra`, OpenAI) generated revision17 / artifact `f171d670-aae1-4786-8685-253444241c0e` in54.1seconds end-to-end (provider51.2seconds), with11,751 input/3,564 output tokens. First validation passed, no repair or manual source intervention. Estimated provider costUSD0.325080; conservative tracked allowanceCAD0.650160. The model interpreted “main booking button” as the lower menu control; it disclosed that distinction. This is a real chat edit, not a new broad reference-fidelity evaluation.
+
+The result appeared in Preview, survived refresh and could be reviewed. The business/service/hour/booking objects stayed byte-equivalent; the generated revision was **not published**. The anonymous public site still showed BIABCAD65 and its canonical service identifier, and its Book button opened the original Luster service/staff/availability screens. No additional appointment was created during this UI regression. Both existing published samples and their appointment counts/settings hashes were independently checked unchanged.
+
+The hosted screen exposed two small usability refinements: returning from mobile Preview should show the latest messages, and detailed model caveats should sit behind a clearly labelled design-notes disclosure. The follow-up makes those UI-only changes; final hosted capture reuses the saved generated result without another model call.
+
+Current CI is not a merge approval: the SMS PostgreSQL job failed while pulling its Docker image with `toomanyrequests: Data limit exceeded` (run38780629432/job116580507038), before application tests. The PR stays draft. No production merge/deployment or unrelated CLI upgrade.

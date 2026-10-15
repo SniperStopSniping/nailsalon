@@ -192,10 +192,10 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
   useEffect(() => {
     // Scroll this conversation, never the whole page or the mobile keyboard.
     const element = feed.current;
-    if (element) {
+    if (element && tab === 'chat') {
       element.scrollTop = element.scrollHeight;
     }
-  }, [messages.length, lastReply, uploadReviews.length, pendingMessage, activity]);
+  }, [messages.length, lastReply, uploadReviews.length, pendingMessage, activity, tab]);
   useEffect(() => {
     if (!ownBusy && !hasPendingMessage) {
       return;

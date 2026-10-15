@@ -1,0 +1,16 @@
+{
+  "generationTestDeployment": {
+    "id": "dpl_2MGAqXxo656XQG8tzishC2TVg95e",
+    "url": "isla-nail-studio-a4awiwzwc-sniperstopsnipings-projects.vercel.app",
+    "readyState": "READY",
+    "target": null,
+    "gitSource": {
+      "type": "github",
+      "repoId": 1108169436,
+      "ref": "codex/ai-business-setup",
+      "sha": "23aa096adf882f2cfbb0a99dde157168e4a07882"
+    }
+  },
+  "testAlias": "https://luster-ai-builder-test.vercel.app",
+  "productionChanged": false
+}
