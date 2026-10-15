@@ -264,28 +264,31 @@ export function conversationalUpload(raw: unknown, document: SetupDocument, oper
       }
     }
   }
-  return { operations, notes: [...new Set(notes)], readableFacts: proposal.operations.length > 0 };
+  // The summary already shows missing lengths. Keep one warning per unsupported
+  // item instead of repeating the model's note and the domain validator's note.
+  const unsupported = notes.filter(note => note.includes(': needs a separate review as an add-on or unsupported service.'));
+  const itemNames = unsupported.map(note => note.split(':')[0]!.replace(/\s+add-on$/iu, '').toLowerCase());
+  const conciseNotes = [...new Set(notes)].filter(note => !note.includes(': appointment length is not shown.') && !itemNames.some(name => note.toLowerCase().includes(name)));
+  conciseNotes.push(...unsupported.map(note => `${note.split(':')[0]} has not been added as a bookable service; it needs separate add-on details.`));
+  return { operations, notes: conciseNotes, readableFacts: proposal.operations.length > 0 };
 }
 
 export function conversationalUploadSummary(operations: SetupOperation[], next: SetupDocument, readableFacts: boolean) {
+  if (!operations.length) {
+    return readableFacts ? 'I read your image. I kept your saved details where they already match or differ.' : 'I could not find clear business details in this image.';
+  }
   const facts: string[] = [];
+  const business = operations.find(op => op.type === 'business');
+  if (business?.type === 'business' && (business.values.name || business.values.city)) {
+    facts.push(`${next.business.name}${next.business.city ? ` in ${next.business.city}` : ''}`);
+  }
   for (const op of operations) {
-    if (op.type === 'business') {
-      if (op.values.name) {
-        facts.push(next.business.name);
-      }
-      if (op.values.city) {
-        facts.push(next.business.city);
-      }
-      if (op.values.exactAddress) {
-        facts.push('Service address saved privately');
-      }
-    } else if (op.type === 'hours') {
-      facts.push('Opening hours saved');
-    } else if (op.type === 'service') {
+    if (op.type === 'service') {
       const service = next.services.find(service => service.id === op.values.id)!;
       facts.push(`${service.name}: ${service.priceCents === null ? 'price unclear' : `${next.booking.currency} ${(service.priceCents / 100).toFixed(2)}`} · ${service.durationMinutes === null ? 'length not shown' : `${service.durationMinutes} min`}`);
     }
   }
-  return operations.length ? `I read your image and added these details to your draft:\n${facts.slice(0, 8).map(fact => `• ${fact}`).join('\n')}${facts.length > 8 ? `\nPlus ${facts.length - 8} more details, saved under Details.` : ''}\nYou can correct anything here. Prices and times stay unconfirmed until your review.` : readableFacts ? 'I read your image. I kept your saved details where they already match or differ.' : 'I could not find clear business details in this image.';
+  const hours = operations.some(op => op.type === 'hours') ? ' Your hours are saved too.' : '';
+  const address = business?.type === 'business' && business.values.exactAddress ? ' Your address stays private.' : '';
+  return `I read your image and saved these details for review:\n${facts.slice(0, 6).map(fact => `• ${fact}`).join('\n')}${facts.length > 6 ? `\nPlus ${facts.length - 6} more services.` : ''}\n${hours}${address} You can correct anything here.`;
 }
