@@ -42,3 +42,10 @@ Raw outputs remain private; diagnostics contain token/cost counts and record IDs
 Disabling AI preserves saved drafts, published frontends and ordinary booking.
 For pilot rollback disable its entry/generation flags or re-alias the prior tested
 Preview deployment; never delete paid-call evidence or reverse appointments.
+
+Deployment note: create a Git-source Preview using the exact branch and committed
+SHA. An uploaded-files CLI Preview did not receive the branch-specific trial
+flags and returned404; the Git-source Preview received them. Keep the secrets
+scoped to this branch. Normal Clerk sign-up may require an organization according
+to the existing Development instance settings. Email verification is required
+before creating the test salon; the entry provides an explicit email-code step.

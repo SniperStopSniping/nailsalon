@@ -39,6 +39,13 @@ HTML/CSS was substituted with a hand-authored design or manually repaired.
   appointment creation completed. DB: exactly one appointment, CAD65 / 75 minutes.
   `35-original-booking-review.png`, `36-original-booking-confirmed.png` and receipt
   metadata record this result. No email/SMS/payment was sent.
+- A later manual price edit through the same draft controls changed BIAB to CAD67.
+  Live services stayed at65 before approval; revision18 published67 with the same
+  service IDs and design source. The original appointment retained65/75 minutes.
+  Files39–41 and `later-price-history-evidence.json` record this result. A first
+  automation attempt filled a field before the preceding save finished and saved
+  no price change (revision16); it was corrected by waiting for the enabled control
+  and asserting the exact submitted price. No AI source was edited.
 
 ## Visual assessment and intervention
 

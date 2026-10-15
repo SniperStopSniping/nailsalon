@@ -153,6 +153,7 @@ export default async function middleware(
       || firstPublicSegment === 'super-admin'
       || firstPublicSegment === 'onboarding'
       || firstPublicSegment === 'onboarding-v1'
+      || firstPublicSegment === 'ai-website-test'
       || firstPublicSegment === 'owner-sign-in'
       || firstPublicSegment === 'owner-sign-up'
       || firstPublicSegment === 'owner'

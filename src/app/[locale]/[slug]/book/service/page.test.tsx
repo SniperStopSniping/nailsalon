@@ -37,6 +37,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
+// Custom artifact storage is a server-only boundary, like the other DB queries.
+vi.mock('@/features/custom-sites/payload.server', () => ({
+  customSiteRendererOrigin: () => null,
+  customSitePayload: vi.fn(),
+}));
+
 vi.mock('next/headers', () => ({
   cookies: async () => ({ get: () => undefined, getAll: () => [] }),
 }));

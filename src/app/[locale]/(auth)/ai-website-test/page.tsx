@@ -4,6 +4,7 @@ import { notFound, redirect } from 'next/navigation';
 
 import { setupPreviewTrialEnabled } from '@/features/business-setup/access.server';
 import { openPreviewTrial } from '@/features/business-setup/preview-trial.server';
+import { VerifiedTrialAccess } from '@/features/business-setup/VerifiedTrialAccess';
 import { requireAuthenticatedOnboardingIdentity } from '@/features/onboarding-v1-integration/identity.server';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +33,7 @@ export default async function AIWebsiteTest(props: { params: Promise<{ locale: s
         ? signup
           ? <SignUp routing="hash" signInUrl={returnUrl} forceRedirectUrl={returnUrl} />
           : <SignIn routing="hash" signUpUrl={`${returnUrl}?signup=1`} forceRedirectUrl={returnUrl} />
-        : <form action={begin}><button type="submit" className="rounded-full bg-stone-900 px-8 py-4 font-medium text-white">Open my AI website test</button></form>}
+        : <VerifiedTrialAccess><form action={begin}><button type="submit" className="rounded-full bg-stone-900 px-8 py-4 font-medium text-white">Open my AI website test</button></form></VerifiedTrialAccess>}
       <p className="text-sm text-stone-500">Your answers and designs are saved to this test account so you can return on another device. The approved AI testing budget is shared across this private trial.</p>
     </main>
   );
