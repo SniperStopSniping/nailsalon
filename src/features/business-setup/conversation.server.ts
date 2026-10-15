@@ -14,6 +14,7 @@ import { businessSetupTurnSchema as turns } from '@/models/Schema';
 
 import { estimateSetupAiCost, runSetupModel, SETUP_AI_MODEL, setupAiConfigured } from './ai-trial.server';
 import { applySetupOperations, missingDesignDetails, SetupError, setupOperationSchema } from './contracts';
+import { requestsFirstWebsite } from './design-intent';
 import type { SetupActor } from './drafts.server';
 import { editSetup, loadSetupHead, lockSetupSalon, setupHash } from './drafts.server';
 import { conversationalUpload, conversationalUploadSummary, UPLOAD_FACTS_PROMPT } from './read-upload.server';
@@ -30,7 +31,7 @@ Supported operations (all keys exact):
 {"type":"service","values":{"id":"draft_gel","name":"Gel manicure","description":null,"priceCents":6500,"durationMinutes":60,"preparationBufferMinutes":0,"cleanupBufferMinutes":10,"category":"manicure","bookingCategory":"manicure"}} (price/time may be null; all fields required; category manicure/builder_gel/extensions/pedicure/hands/feet/combo; bookingCategory manicure/pedicure/combo). Service time and cleanup are different.
 {"type":"website_details","values":{"locationDirections":"Dixie and Countryside","instagram":"@studio","email":"hello@example.com","phone":null,"sections":[{"id":"guests","title":"Guests","text":"Please come alone."}]}} (only supplied fields; sections replace the entire list, preserve unrelated sections. These are website statements only, never activated booking rules).
 {"type":"copy","bio":"Grounded description","specialtyLine":"Short factual line"}.
-When the owner asks for website design, produce designRequest with their actual visual instructions, preserving out-of-order design preferences from the recent conversation. This invokes the custom frontend generator, not a preset selector. Only do this after the draft has business name, city/area, solo or team, at least one open day, and at least one service with a price and duration; otherwise ask only for what is missing. Do not regenerate a website for business-only changes such as "Keep the design, but change BIAB to $65". Use the existing service ID, preserve every other service field and return designRequest:null. Website-only requests must not change prices, hours or operational booking rules. Explicitly requested website policy wording is supported by website_details and remains subject to owner review. Only return explicitly requested changes. Never emit design, custom_frontend, import_upload or confirm_services. Owners confirm prices/times using the review controls. If the scope is website, emit only copy/website_details operations or a designRequest. If the scope is service_price, return only existing service operations that change priceCents; preserve ALL other fields exactly, return designRequest:null, and ask for clarification with [] if the service or currency is ambiguous. Return [] when asking a question. Do not claim unsupported staff/settings work is complete.
+When the owner asks for website design, produce designRequest with their actual visual instructions, preserving out-of-order design preferences from the recent conversation. This invokes the custom frontend generator, not a preset selector. Only do this after the draft has business name, city/area, solo or team, at least one open day, and at least one service with a price and duration; otherwise ask only for what is missing. Unconfirmed prices and extracted website wording do NOT prevent creating a private draft. Never require review or another confirmation before the first preview when essentials are present. Do not regenerate a website for business-only changes such as "Keep the design, but change BIAB to $65". Use the existing service ID, preserve every other service field and return designRequest:null. Website-only requests must not change prices, hours or operational booking rules. Explicitly requested website policy wording is supported by website_details and remains subject to owner review. Only return explicitly requested changes. Never emit design, custom_frontend, import_upload or confirm_services. Owners confirm prices/times using the review controls. If the scope is website, emit only copy/website_details operations or a designRequest. If the scope is service_price, return only existing service operations that change priceCents; preserve ALL other fields exactly, return designRequest:null, and ask for clarification with [] if the service or currency is ambiguous. Return [] when asking a question. Do not claim unsupported staff/settings work is complete.
 When uploadFactsJson is present, put ONLY visibly extracted facts in it, not in operationsJson. The server fills missing draft details and keeps conflicting saved values. In reply, ask at most two short questions for information missing from BOTH the saved draft AND the image. Do not claim that conflicting saved information was overwritten. Do not repeat a full extraction summary: the application displays the exact saved facts. Put separately supplied text answers/corrections in operationsJson, preserving existing service IDs. Image prices and lengths remain unconfirmed, and new addresses stay private. Do not change saved facts, prices, policies or hours as part of a purely visual request. A question such as 'what does this look like?' is not a request to import business details.
 Extraction contract for uploadFactsJson:
 ${UPLOAD_FACTS_PROMPT}
@@ -139,6 +140,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
         throw new SetupError('INVALID', 'AI suggested a change outside the requested scope. Nothing was changed.');
       }
       reply = answer.reply;
+      let extractedSummary = '';
       if (answer.uploadFactsJson) {
         if (!readable.length) {
           throw new SetupError('INVALID', 'Is this your own business design, or just inspiration? Business details can only come from your own files.');
@@ -159,10 +161,18 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
         }
         const after = applySetupOperations(admitted.head.revision.document, operations, 'assistant');
         const notes = extracted.notes.filter(note => !after.services.some(service => service.durationMinutes !== null && note.startsWith(`${service.name}: appointment length is not shown.`)));
-        reply = [conversationalUploadSummary(extracted.operations, after, extracted.readableFacts), ...notes.slice(0, 5), answer.reply].filter(Boolean).join('\n\n');
+        extractedSummary = [conversationalUploadSummary(extracted.operations, after, extracted.readableFacts), ...notes.slice(0, 5)].filter(Boolean).join('\n\n');
+        reply = [extractedSummary, answer.reply].filter(Boolean).join('\n\n');
       }
       const proposed = applySetupOperations(admitted.head.revision.document, operations, 'assistant');
       designRequest = answer.designRequest && !missingDesignDetails(proposed).length ? answer.designRequest : null;
+      if (!designRequest && input.scope !== 'service_price' && !proposed.website.config.customFrontendId && !missingDesignDetails(proposed).length && requestsFirstWebsite(input.message)) {
+        // Seeing a draft never requires approving suggested prices or wording.
+        // The owner's explicit request is authoritative even if the conversation
+        // model mistakenly defers generation until another confirmation.
+        designRequest = input.message;
+        reply = [extractedSummary, 'I’ll use your saved details to create your first website draft. You can review and change it before publishing.'].filter(Boolean).join('\n\n');
+      }
       designOperationId = designRequest ? randomUUID() : null;
       if (!designRequest && admitted.head.revision.document.website.config.customFrontendId && operations.some(op => op.type === 'website_details' || (op.type === 'import_upload' && op.operations.some(item => item.type === 'website_details')))) {
         designRequest = 'Preserve the existing visual design and unrelated content. Include all saved website details with their required text bindings and clickable contact bindings.';

@@ -12,7 +12,7 @@ Application commits: `0c42f687` and `e7f502f8`. Work is on `codex/ai-business-se
 
 ## Deterministic verification
 
-126 focused tests across setup persistence, UI, timeline, API routes, custom source validation, renderer frame, website details and content persistence. Nine browser checks across desktop Chromium, mobile Chromium and mobile WebKit cover isolated runtime attacks, preview booking rejection, complete details and clickable contact destinations (external destinations intercepted).
+139 focused tests across setup persistence, UI, timeline, API routes, custom source validation, renderer frame, website details and content persistence. Nine browser checks across desktop Chromium, mobile Chromium and mobile WebKit cover isolated runtime attacks, preview booking rejection, complete details and clickable contact destinations (external destinations intercepted).
 
 TypeScript, scoped ESLint and diff checks passed. A source-only secret scan passed over 3,954 tracked files before the final wording-only adjustment. The normal scanner could not scan three oversized local development bundles; it reported unscanned files, not a detected credential. Production bundle verification is separate.
 
@@ -29,4 +29,4 @@ OpenAI Responses, `gpt-6-astra`, through the hosted owner composer. The 279 × 1
 - Two browser harness assertions were corrected (icon text matching, multiple valid Instagram anchors). The existing request was resumed without resubmitting generation. No generated source was edited by a developer.
 - Screenshots and reference-bearing evidence are retained privately, not committed. The test salon remains unpublished, with online booking disabled and zero appointments.
 
-A clear synthetic policy-reference trial is recorded separately after completion. No new end-to-end customer booking or real publication is claimed for these UI/content fixes; isolated publication/idempotency is covered by the deterministic persistence tests.
+The first clear synthetic-reference trial extracted the full details but the conversation model unnecessarily deferred generation until another review. This was a real product failure, not a renderer failure. The follow-up fix makes an explicit first-website request start generation as soon as essentials are present, even if the model omits its design action. Deferred, negative and informational requests are excluded; publishing still requires exact approval. A fresh real-provider trial of that fix is recorded separately after completion. No new end-to-end customer booking or real publication is claimed for these UI/content fixes; isolated publication/idempotency is covered by the deterministic persistence tests.

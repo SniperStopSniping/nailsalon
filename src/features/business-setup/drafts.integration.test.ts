@@ -226,6 +226,16 @@ describe('isolated business setup persistence', () => {
     await expect(restartSetup(actor, review.revision)).rejects.toMatchObject({ code: 'STALE' });
   });
 
+  it('creates the requested first website even when the conversation model asks for an unnecessary review', async () => {
+    const actor = await fixture();
+    const provider = { createResponse: vi.fn().mockResolvedValueOnce({ status: 'completed', usage: { inputTokens: 1000, cachedInputTokens: 0, outputTokens: 100 }, items: [{ type: 'message', text: JSON.stringify({ reply: 'Review the details before I make the website.', operationsJson: '[]', designRequest: null }) }] }).mockResolvedValueOnce({ status: 'completed', usage: { inputTokens: 1000, cachedInputTokens: 0, outputTokens: 1000 }, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] }) };
+    const result = await runSetupConversation(actor, { expectedRevision: 2, operationId: randomUUID(), scope: 'business_and_website', message: 'Make my booking website from this design.' }, provider);
+
+    expect(result.head.revision.document.website.config.customFrontendId).toBeTruthy();
+    expect(result.reply).not.toContain('Review the details before');
+    expect(provider.createResponse).toHaveBeenCalledTimes(2);
+  });
+
   it('applies multiple out-of-order conversation answers once and persists measured fake-provider usage', async () => {
     const actor = await fixture();
     const createResponse = vi.fn().mockResolvedValueOnce({ status: 'completed', usage: { inputTokens: 1000, cachedInputTokens: 100, outputTokens: 100 }, items: [{ type: 'message', text: JSON.stringify({ reply: 'I saved your city and will create your requested design.', operationsJson: JSON.stringify([{ type: 'business', values: { city: 'Ottawa' } }]), designRequest: 'Cream and black, with an original editorial composition.' }) }] }).mockResolvedValueOnce({ status: 'completed', usage: { inputTokens: 3000, cachedInputTokens: 0, outputTokens: 2000 }, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
