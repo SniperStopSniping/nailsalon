@@ -1,6 +1,6 @@
 # Website detail preservation and chat recovery
 
-Application commits: `0c42f687` and `e7f502f8`. Work is on `codex/ai-business-setup`; no production merge, migration, or data change.
+Application commits: `0c42f687`, `e7f502f8`, and `3cca3b97`. Work is on `codex/ai-business-setup`; no production merge, migration, or data change.
 
 ## Implemented
 
@@ -14,7 +14,7 @@ Application commits: `0c42f687` and `e7f502f8`. Work is on `codex/ai-business-se
 
 139 focused tests across setup persistence, UI, timeline, API routes, custom source validation, renderer frame, website details and content persistence. Nine browser checks across desktop Chromium, mobile Chromium and mobile WebKit cover isolated runtime attacks, preview booking rejection, complete details and clickable contact destinations (external destinations intercepted).
 
-TypeScript, scoped ESLint and diff checks passed. A source-only secret scan passed over 3,954 tracked files before the final wording-only adjustment. The normal scanner could not scan three oversized local development bundles; it reported unscanned files, not a detected credential. Production bundle verification is separate.
+TypeScript, scoped ESLint and diff checks passed. A source-only secret scan passed over 3,957 tracked files at the final application commit. The normal scanner could not scan three oversized local development bundles; it reported unscanned files, not a detected credential. Production bundle verification is separate.
 
 ## Real provider: supplied Dynasty screenshot
 
@@ -30,3 +30,16 @@ OpenAI Responses, `gpt-6-astra`, through the hosted owner composer. The 279 × 1
 - Screenshots and reference-bearing evidence are retained privately, not committed. The test salon remains unpublished, with online booking disabled and zero appointments.
 
 The first clear synthetic-reference trial extracted the full details but the conversation model unnecessarily deferred generation until another review. This was a real product failure, not a renderer failure. The follow-up fix makes an explicit first-website request start generation as soon as essentials are present, even if the model omits its design action. Deferred, negative and informational requests are excluded; publishing still requires exact approval. A fresh real-provider trial of that fix is recorded separately after completion. No new end-to-end customer booking or real publication is claimed for these UI/content fixes; isolated publication/idempotency is covered by the deterministic persistence tests.
+
+## Final isolated release and clear-image verification
+
+- Test alias: https://luster-ai-builder-test.vercel.app/ai-website-test
+- App deployment `dpl_7xpTNE2K2b5cXtW5QKF6pU2YEPh9`, application commit `3cca3b97a55db05a1463a1b49ae2e04fb65d0315`, Preview/READY.
+- Renderer preview deployment `dpl_6ryD6Dv3pQpz6XZwDkgFTJ6SddzQ`; separate renderer alias remains https://luster-ai-render-test.vercel.app.
+- A fresh synthetic salon used the same owner-facing upload and composer, with one prompt: “Make my booking website from this design. I work solo.” All other details came from the clear synthetic reference. The reference is a manually authored **input test fixture**, not a substituted generated website.
+- First generated draft: revision 4, artifact `e12aedef-38d3-4bb5-9c1b-02266f1f2e8a`. Seven saved sections include all five expected policy topics: Deposits, Payments, Guests, Late arrivals, Squeeze-in. Text bindings were checked against saved content; Instagram had a trusted working destination. Refresh retained the same revision.
+- One conversation call plus two generation calls. The first generated source had a copied monetary amount and failed validation. The application's one automatic AI repair produced valid bound source. Both responses remain in the private trial ledger. No developer-edited generated source was used.
+- Model generation/extraction calls took 11.355s, 50.693s and 37.878s respectively; the owner flow took approximately 104.5 seconds. This successful clear-image trial used CAD 0.983374 of the conservative allowance; the earlier extra-review failure used CAD 0.193186.
+- All real-provider work in this round used CAD 2.724802 of the allowance. Final combined ledger: CAD 33.442764 / 40; CAD 6.557236 remains. These are conservative accounting amounts, not a reconciled CAD invoice.
+- `mobile-policies.png` and `desktop-policies.png` use the actual corresponding preview modes. `message-loading.png` shows the sent prompt and empty composer during the real generation. Private screenshots containing the user's original reference remain outside Git.
+- Neither synthetic salon was published; booking remained disabled and appointment counts remained zero. No production deployment, production migration, customer message, charge or live salon edit was performed.
