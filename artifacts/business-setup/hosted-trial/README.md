@@ -1,5 +1,8 @@
 # Hosted AI website pilot — verified checkpoint
 
+Latest uploaded-reference checkpoint: [working result and evidence](reference-upload-checkpoint.md).
+The following section preserves the earlier text/reference pilot evidence.
+
 Test entry: https://luster-ai-builder-test.vercel.app/ai-website-test
 
 Deployed application commit: `6343c7b0d288c04023499000ddf4e31e58fb7c5d`.
