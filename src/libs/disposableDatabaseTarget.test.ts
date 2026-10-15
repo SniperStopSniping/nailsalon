@@ -280,7 +280,7 @@ describe('disposable database target validation', () => {
 });
 
 describe('disposable PostgreSQL service-container attestation', () => {
-  const mirroredImage = 'public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea';
+  const mirroredImage = 'mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea';
   const containerId = 'a'.repeat(64);
   const network = 'github_network_123';
   const target = requireDisposableDatabaseTarget({
@@ -297,7 +297,7 @@ describe('disposable PostgreSQL service-container attestation', () => {
     inspect.mockReset();
   });
 
-  it.each(['postgres:16-alpine', mirroredImage])('attests the approved image %s', (image) => {
+  it.each(['postgres:16-alpine', mirroredImage, mirroredImage.replace('mirror.gcr.io/library/', 'public.ecr.aws/docker/library/')])('attests the approved image %s', (image) => {
     inspect.mockReturnValueOnce(`${image}\n`)
       .mockReturnValueOnce(portMapping)
       .mockReturnValueOnce('172.18.0.2\n');
@@ -342,10 +342,12 @@ describe('disposable PostgreSQL service-container attestation', () => {
   it.each([
     'postgres:latest',
     'postgres:17-alpine',
+    'mirror.gcr.io/library/postgres:16-alpine',
+    `mirror.gcr.io/library/postgres:16-alpine@sha256:${'0'.repeat(64)}`,
     'public.ecr.aws/docker/library/postgres:16-alpine',
     `public.ecr.aws/docker/library/postgres:16-alpine@sha256:${'0'.repeat(64)}`,
-    mirroredImage.replace('docker/library', 'unreviewed/library'),
-    mirroredImage.replace('public.ecr.aws/', 'public.ecr.aws.example.invalid/'),
+    mirroredImage.replace('/library/', '/unreviewed/'),
+    mirroredImage.replace('mirror.gcr.io/', 'mirror.gcr.io.example.invalid/'),
     mirroredImage.replace('postgres:16-alpine', 'redis:7-alpine'),
   ])('rejects an unreviewed image before inspecting its network: %s', (image) => {
     inspect.mockReturnValueOnce(image);
