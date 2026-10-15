@@ -26,8 +26,9 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0103_custom_site_asset_storage_choice';
-const MIGRATION_COUNT = 103;
+// 0104 only extends the setup turn status constraint; no FK contract changes.
+const FINAL_MIGRATION = '0104_setup_upload_reviews';
+const MIGRATION_COUNT = 104;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';

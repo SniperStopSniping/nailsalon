@@ -3,6 +3,7 @@ import './setup.css';
 
 import { useEffect, useState } from 'react';
 
+import { designBriefSchema } from '@/features/custom-sites/contracts';
 import { CustomDesignStudio } from '@/features/custom-sites/CustomDesignStudio';
 
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
@@ -68,6 +69,17 @@ function reviewValue(value: unknown): string {
     return Object.entries(value).map(([key, item]) => `${key}: ${reviewValue(item)}`).join(', ');
   }
   return String(value).replaceAll('_', ' ');
+}
+function designReviewValue(value: unknown): string {
+  const parsed = designBriefSchema.safeParse(value);
+  if (parsed.success) {
+    const brief = parsed.data;
+    return `${brief.fidelity === 'match' ? 'Match my design closely' : 'Use it as inspiration'} · ${brief.referenceIds.length} design reference(s) · ${brief.ownedReferenceIds.length} confirmed as your own · ${brief.websiteAssetIds.length} website photo(s) or logo(s). Review the selected images in Website.`;
+  }
+  if (Array.isArray(value)) {
+    return `${value.length} selected image(s), shown in Website`;
+  }
+  return value === 'match' ? 'Match my design closely' : value === 'inspiration' ? 'Use it as inspiration' : reviewValue(value);
 }
 export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
   salonSlug: string;
@@ -642,17 +654,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
           <h2 id="setup-review-title">Review your changes</h2>
           {draft && (
             <p>
-              Bookings use
-              {draft.booking.currency}
-              ,
-              {draft.booking.timezone}
-              ,
-              {draft.booking.minimumNoticeMinutes}
-              {' '}
-              minutes minimum notice, and a
-              {draft.booking.bufferMinutes}
-              {' '}
-              minute booking buffer.
+              {`Bookings use ${draft.booking.currency}, ${draft.booking.timezone}, ${draft.booking.minimumNoticeMinutes} minutes minimum notice, and a ${draft.booking.bufferMinutes} minute booking buffer.`}
             </p>
           )}
           {draft?.bookingPolicy?.enabled && (
@@ -662,8 +664,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               <p>{draft.bookingPolicy.text}</p>
               {draft.bookingPolicy.acknowledgment?.required && (
                 <p>
-                  Customers must agree:
-                  {draft.bookingPolicy.acknowledgment?.text}
+                  {`Customers must agree: ${draft.bookingPolicy.acknowledgment?.text}`}
                 </p>
               )}
             </div>
@@ -675,12 +676,12 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               <p>
                 <strong>Before:</strong>
                 {' '}
-                {change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') && Array.isArray(change.before) ? `${change.before.length} selected image(s)` : reviewValue(change.before)}
+                {change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') ? designReviewValue(change.before) : reviewValue(change.before)}
               </p>
               <p>
                 <strong>After:</strong>
                 {' '}
-                {change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') && Array.isArray(change.after) ? `${change.after.length} selected image(s), shown in Website` : reviewValue(change.after)}
+                {change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') ? designReviewValue(change.after) : reviewValue(change.after)}
               </p>
             </div>
           ))}

@@ -118,7 +118,9 @@ it('reads an explicitly owned image into a separate review and does not apply it
   expect(within(review).getByText('Name in my image')).toBeVisible();
   expect(within(review).getByText('USD 65.00 · Appointment length needed')).toBeVisible();
   expect(document.booking.currency).toBe('CAD');
+
   await waitFor(() => expect(within(review).getByRole('button', { name: 'Use these details' })).toBeEnabled());
+
   expect(requests.filter(request => request.action === 'read_upload')[0].input).toMatchObject({ referenceIds: [reference.id], source: 'my_business' });
   expect(requests.some(request => ['edit', 'apply_upload', 'approve', 'publish'].includes(request.action))).toBe(false);
   expect(document.business.name).toBe('Studio');

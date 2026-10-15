@@ -1,0 +1,15 @@
+{
+  "checkedAt": "2026-10-15T17:07:54.937Z",
+  "environment": "branch-specific-preview",
+  "checks": {
+    "preview": true,
+    "databaseCredentialRedacted": true,
+    "smsDisabled": true,
+    "noTwilio": true,
+    "noPayments": true,
+    "noCustomerEmail": true,
+    "noCalendar": true,
+    "boundedAi": true
+  },
+  "database": "Host and preview marker independently verified using existing isolated credential; CLI redacts sensitive values."
+}
