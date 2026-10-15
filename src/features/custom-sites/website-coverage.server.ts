@@ -4,13 +4,11 @@ import { parseFragment } from 'parse5';
 
 import { SetupError } from '@/features/business-setup/contracts';
 
+import { CONTACT_KINDS, recoverSavedContacts } from './contacts.server';
 import type { WebsiteDetails } from './website-details';
 
 /** Require real bindings, not assertions in model prose or text in comments. */
 export function assertWebsiteDetailsCoverage(html: string, details?: WebsiteDetails) {
-  if (!details) {
-    return;
-  }
   const fields = new Set<string>();
   const links = new Set<string>();
   function visit(node: any) {
@@ -30,6 +28,18 @@ export function assertWebsiteDetailsCoverage(html: string, details?: WebsiteDeta
     }
   }
   visit(parseFragment(html));
+  const visible = recoverSavedContacts(html);
+  for (const kind of CONTACT_KINDS) {
+    if ((links.has(kind) || visible[kind]) && !details?.[kind]) {
+      throw new SetupError('INVALID', `Save the ${kind === 'instagram' ? 'Instagram handle' : kind === 'email' ? 'email address' : 'phone number'} before showing its contact link.`);
+    }
+    if (visible[kind] && details?.[kind] && visible[kind]!.toLowerCase().replace(/^@/u, '') !== details[kind]!.toLowerCase().replace(/^@/u, '')) {
+      throw new SetupError('INVALID', `Use the saved ${kind} details and contact bindings instead of copied contact text.`);
+    }
+  }
+  if (!details) {
+    return;
+  }
   const missing = ['locationDirections', 'instagram', 'email', 'phone'].filter(key => details[key as keyof WebsiteDetails] && !fields.has(`details.${key}`));
   for (const key of ['instagram', 'email', 'phone'] as const) {
     if (details[key] && !links.has(key)) {

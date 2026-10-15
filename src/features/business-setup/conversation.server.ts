@@ -6,6 +6,8 @@ import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { assetDataUrl, ownedAssets } from '@/features/custom-sites/assets.server';
+import { repairDraftContacts } from '@/features/custom-sites/contact-edit.server';
+import { requestsContactRepair } from '@/features/custom-sites/contacts.server';
 import { generateCustomSite } from '@/features/custom-sites/generate.server';
 import { isExplicitServicePriceEdit } from '@/features/custom-sites/price-edit';
 import type { ModelProviderInputItem, OwnerAssistantModelProvider } from '@/libs/ai/provider';
@@ -44,7 +46,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
   if (input.scope === 'website' && isExplicitServicePriceEdit(input.message)) {
     input.scope = 'service_price';
   }
-  if (!providerOverride && !setupAiConfigured()) {
+  if (!providerOverride && !setupAiConfigured() && !requestsContactRepair(input.message)) {
     throw new SetupError('NOT_READY', 'AI is not configured yet. You can keep editing your saved setup manually.');
   }
   const admitted = await db.transaction(async (tx) => {
@@ -71,7 +73,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
     }
     // A bounded first-release budget, separate from billing/SMS credits. Unknown
     // usage retains the reservation, never becomes a zero-cost measurement.
-    if (history.length >= 40) {
+    if (history.length >= 40 && !requestsContactRepair(input.message)) {
       throw new SetupError('NOT_READY', 'AI has reached its setup limit. Your saved setup is still editable manually.');
     }
     const [turn] = await tx.insert(turns).values({ id: input.operationId, salonId: actor.salonId, workspaceId: head.workspace.id, actorId: actor.adminId, expectedRevision: input.expectedRevision, requestHash, message: input.message, status: 'pending', leaseExpiresAt: new Date(deadlineAt) }).returning();
@@ -85,6 +87,18 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
   }
   if (admitted.turn.status === 'failed') {
     throw new SetupError('NOT_READY', 'That AI attempt did not finish. Send a new message to retry; your saved draft is safe.');
+  }
+  if (!admitted.turn.operations && input.scope !== 'service_price' && requestsContactRepair(input.message)) {
+    try {
+      const head = await repairDraftContacts(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId, required: input.message });
+      const reply = 'Your contact details are connected in the saved draft. Instagram opens the profile, email opens a message, and phone opens a call wherever those details are available. Nothing is published.';
+      await db.update(turns).set({ status: 'completed', operations: [], reply }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
+      return { reply, head };
+    } catch (error) {
+      const reply = error instanceof SetupError ? error.message : 'I could not connect those links. Your saved design is safe.';
+      await db.update(turns).set({ status: 'failed', reply }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
+      throw error;
+    }
   }
   let operations = admitted.turn.operations;
   let reply = admitted.turn.reply;
@@ -187,6 +201,17 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
         throw error;
       }
       throw new SetupError('NOT_READY', 'AI could not finish that request. Your saved draft is safe. Try again or use the manual controls.');
+    }
+  }
+  if (operations.length && operations.every(op => op.type === 'website_details' && Object.entries(op.values).every(([key, value]) => ['instagram', 'email', 'phone'].includes(key) && typeof value === 'string')) && admitted.head.revision.document.website.config.customFrontendId) {
+    try {
+      const head = await repairDraftContacts(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId }, operations);
+      reply = 'Your contact details and clickable links are updated in the saved draft. Your design is preserved. Nothing is published.';
+      await db.update(turns).set({ status: 'completed', reply, designRequest: null, designOperationId: null }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
+      return { reply, head };
+    } catch (error) {
+      await db.update(turns).set({ status: 'failed', reply: error instanceof SetupError ? error.message : 'I could not save those contact details. Your design is safe.' }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
+      throw error;
     }
   }
   let head = operations.length

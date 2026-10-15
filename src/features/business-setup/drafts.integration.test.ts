@@ -477,6 +477,60 @@ describe('private multimodal design references', () => {
   });
 });
 
+describe('no-model contact repairs', () => {
+  it('repairs legacy contacts atomically, preserves design/services, replays and never calls AI', async () => {
+    const actor = await fixture();
+    const legacy = { ...editorialSource, html: `${editorialSource.html}<a class="contact" data-luster-link="instagram">@TestStudio</a><p>hello@example.com</p><a data-luster-link="phone"><span>416-555-0100</span></a>` };
+    const first = await saveCustomSource(actor, { source: legacy, assetIds: [], expectedRevision: 2, operationId: randomUUID() });
+    const input = { expectedRevision: first.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Make the Instagram clickable' };
+    const provider = { createResponse: vi.fn() };
+    const changed = await runSetupConversation(actor, input, provider);
+
+    expect(provider.createResponse).not.toHaveBeenCalled();
+    expect(changed.head.revision.document.website.content.websiteDetails).toMatchObject({ instagram: '@TestStudio', email: 'hello@example.com', phone: '416-555-0100' });
+    expect(changed.head.revision.document.services).toEqual(first.head.revision.document.services);
+
+    const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, changed.head.revision.document.website.config.customFrontendId!));
+
+    expect(artifact?.source.css).toBe(legacy.css);
+    expect(artifact?.source.javascript).toBe(legacy.javascript);
+    expect(artifact?.source.html).toContain('data-luster-field="details.instagram"');
+    expect((await runSetupConversation(actor, input, provider)).head.revision.revision).toBe(changed.head.revision.revision);
+
+    const [live] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect(resolveBookingPageContent(live?.settings).live.websiteDetails).toBeUndefined();
+    expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId))).toHaveLength(0);
+  });
+
+  it('applies a typed contact correction without paying for a design regeneration', async () => {
+    const actor = await fixture();
+    const legacy = { ...editorialSource, html: `${editorialSource.html}<a data-luster-link="instagram">@old_studio</a>` };
+    const saved = await saveCustomSource(actor, { source: legacy, assetIds: [], expectedRevision: 2, operationId: randomUUID() });
+    const provider = { createResponse: vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 1000, outputTokens: 100, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ reply: 'Updating it.', operationsJson: JSON.stringify([{ type: 'website_details', values: { instagram: '@new_studio' } }]), designRequest: 'Update the Instagram', uploadFactsJson: null }) }] }) };
+    const result = await runSetupConversation(actor, { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'My Instagram is @new_studio' }, provider);
+
+    expect(provider.createResponse).toHaveBeenCalledTimes(1);
+    expect(result.head.revision.document.website.content.websiteDetails?.instagram).toBe('@new_studio');
+
+    const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, result.head.revision.document.website.config.customFrontendId!));
+
+    expect(artifact?.source.css).toBe(legacy.css);
+    expect(artifact?.source.html).not.toContain('@old_studio');
+  });
+
+  it('asks about missing/ambiguous handles without changing or regenerating the saved design', async () => {
+    const actor = await fixture();
+    const legacy = { ...editorialSource, html: `${editorialSource.html}<p>@first @second</p>` };
+    const saved = await saveCustomSource(actor, { source: legacy, assetIds: [], expectedRevision: 2, operationId: randomUUID() });
+    const provider = { createResponse: vi.fn() };
+
+    await expect(runSetupConversation(actor, { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Make Instagram clickable' }, provider)).rejects.toThrow('Which one');
+    expect((await openSetup(actor)).revision.revision).toBe(saved.head.revision.revision);
+    expect(provider.createResponse).not.toHaveBeenCalled();
+  });
+});
+
 describe('approved model costs', () => {
   it('accounts separately for each model including cached inputs', () => {
     const usage = { inputTokens: 8000, outputTokens: 6000, cachedInputTokens: 0 };
