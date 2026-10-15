@@ -162,6 +162,31 @@ describe('isolated business setup persistence', () => {
     expect(await database.select().from(schema.auditLogSchema).where(eq(schema.auditLogSchema.salonId, actor.salonId))).toHaveLength(1);
   });
 
+  it('publishes public website details only with exact approval and preserves operational policies', async () => {
+    const actor = await fixture();
+    const initial = await openSetup(actor);
+    const websiteDetails = { locationDirections: 'Dixie and Countryside', instagram: '@test_studio', email: 'studio@example.com', phone: null, sections: [{ id: 'guests', title: 'Guests', text: 'Please come alone.' }] };
+    await editSetup(actor, { expectedRevision: initial.revision.revision, operationId: randomUUID(), operations: [{ type: 'website_details', values: websiteDetails }] });
+    const review = await reviewSetup(actor);
+
+    expect(review.changes.some(change => change.path.startsWith('website.content.websiteDetails'))).toBe(true);
+
+    const approval = await approveSetup(actor, review.revision, review.hash);
+    const request = { approvalId: approval.id, revision: review.revision, operationId: randomUUID() };
+    const first = await publishSetup(actor, request);
+
+    expect((await publishSetup(actor, request)).receipt.id).toBe(first.receipt.id);
+
+    const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect(resolveBookingPageContent(salon!.settings).live.websiteDetails).toEqual(websiteDetails);
+
+    const reopened = await restartSetup(actor, review.revision);
+
+    expect(reopened.revision.document.website.content.websiteDetails).toEqual(websiteDetails);
+    expect(reopened.revision.document.bookingPolicy).toEqual(initial.revision.document.bookingPolicy);
+  });
+
   it('blocks independent publication inside the locked canonical lifecycle', async () => {
     const actor = await fixture();
 
