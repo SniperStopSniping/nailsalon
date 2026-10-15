@@ -179,6 +179,18 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               </div>
             ))}
           </div>
+          <button
+            type="button"
+            className="setup-upload-shortcut"
+            aria-controls="custom-design-upload"
+            disabled={!head}
+            onClick={() => {
+              setTab('website');
+              window.requestAnimationFrame(() => document.getElementById('custom-design-upload')?.focus());
+            }}
+          >
+            Upload an image
+          </button>
           {(existingSalon || head?.revision.document.website.config.customFrontendId) && (
             <label className="setup-scope">
               <input type="checkbox" checked={includeBusiness} onChange={e => setIncludeBusiness(e.target.checked)} />
@@ -224,7 +236,6 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
         <section className="setup-preview" aria-label="Website preview">
           <h2>Your website draft</h2>
           <p>Private preview. Booking is disabled here.</p>
-          {head && !head.revision.document.website.config.customFrontendId && <iframe title="Your website draft" sandbox="" src={`/${locale}/admin/business-setup/preview/${encodeURIComponent(salonSlug)}?revision=${head.revision.revision}`} />}
           {head && (
             <CustomDesignStudio
               salonSlug={salonSlug}
@@ -238,6 +249,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               }}
             />
           )}
+          {head && !head.revision.document.website.config.customFrontendId && <iframe title="Your website draft" sandbox="" src={`/${locale}/admin/business-setup/preview/${encodeURIComponent(salonSlug)}?revision=${head.revision.revision}`} />}
         </section>
         <section className="setup-details" aria-label="Business setup">
           <h2>Your business setup</h2>

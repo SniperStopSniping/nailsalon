@@ -101,8 +101,9 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           Your published website stays unchanged. You can return to your saved design after this finishes.
         </p>
       )}
-      <details>
-        <summary>Upload inspiration, a logo or your photographs</summary>
+      <section id="custom-design-upload" className="custom-design-upload" tabIndex={-1} aria-labelledby="custom-design-upload-title">
+        <h3 id="custom-design-upload-title">Upload an image</h3>
+        <p>Upload inspiration, a logo or your photographs</p>
         <form onSubmit={(event) => {
           event.preventDefault();
           const data = new FormData(event.currentTarget);
@@ -135,7 +136,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           </label>
           <button type="submit" disabled={disabled || Boolean(busy)}>Upload</button>
         </form>
-      </details>
+      </section>
       {state?.assets.length
         ? (
             <fieldset>
