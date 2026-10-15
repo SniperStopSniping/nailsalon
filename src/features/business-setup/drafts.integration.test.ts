@@ -28,7 +28,7 @@ import { approveSetup, editSetup, openSetup, restartSetup, reviewSetup } from '.
 import { editSharedSetupWebsite } from './manual-website.server';
 import { setupPreviewBooking } from './preview-data.server';
 import { publishSetup } from './publish.server';
-import { applyOwnUpload, dismissOwnUpload, readOwnUpload, uploadFactsToOperations } from './read-upload.server';
+import { applyOwnUpload, conversationalUpload, conversationalUploadSummary, dismissOwnUpload, readOwnUpload, uploadFactsToOperations } from './read-upload.server';
 
 vi.mock('server-only', () => ({}));
 const holder = vi.hoisted(() => ({ db: null as unknown }));
@@ -908,6 +908,16 @@ describe('reading own images directly in conversation', () => {
     expect((await reviewSetup(actor)).blockers).toContain('Review the price and time for BIAB.');
     expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
     expect((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId)))[0]).toMatchObject({ name: 'Untitled business', publicationStatus: 'draft', onlineBookingEnabled: false, address: null });
+  });
+
+  it('does not claim opening hours were saved when a low-resolution image only repeats a closed day', async () => {
+    const { actor } = await attached();
+    const document = (await openSetup(actor)).revision.document;
+    const raw = { ...facts, address: null, city: null, servicesJson: [], hoursJson: [{ day: 'sunday', status: 'closed', open: null, close: null }] };
+    const result = conversationalUpload(raw, document, randomUUID());
+
+    expect(result.operations.some(operation => operation.type === 'hours')).toBe(false);
+    expect(conversationalUploadSummary(result.operations, document, true)).not.toContain('hours are saved');
   });
 
   it('captures typed answers with extraction and recovers after a lost post-commit response', async () => {

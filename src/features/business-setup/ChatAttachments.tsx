@@ -33,7 +33,6 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
   const [permission, setPermission] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const uploaded = useRef(new Map<File, DesignAsset>());
   const endpoint = `/api/admin/custom-sites?salonSlug=${encodeURIComponent(salonSlug)}`;
   const values: DesignBrief = brief ?? { fidelity: 'inspiration', referenceIds: selected.filter(id => assets.some(asset => asset.id === id && asset.role === 'reference')), ownedReferenceIds: [], websiteAssetIds: selected.filter(id => assets.some(asset => asset.id === id && asset.role !== 'reference')) };
@@ -108,7 +107,6 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
       if (fileInput.current) {
         fileInput.current.value = '';
       }
-      setNotice(purpose === 'own' ? 'Attached. Tell me what to create — I can read the business details in your image.' : purpose === 'inspiration' ? 'Inspiration attached. Tell me what you like about it.' : 'Attached for your website. Tell me where you’d like to use it.');
       onClose();
     });
   }
@@ -128,7 +126,6 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
           ))}
         </div>
       )}
-      {notice && <p className="setup-attachment-note" role="status">{notice}</p>}
       {error && !open && <p role="alert" className="setup-attachment-note">{error}</p>}
       <dialog
         ref={dialog}

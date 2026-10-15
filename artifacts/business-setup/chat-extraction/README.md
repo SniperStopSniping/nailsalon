@@ -8,7 +8,7 @@ The single owner composer now routes both initial setup and existing custom-site
 
 ## Verification before hosted trial
 
-- 85 focused tests passed: 54 disposable-PGlite domain/integration, 13 owner UI, 3 timeline, 8 business API, 7 custom-site API.
+- 86 focused tests passed: 55 disposable-PGlite domain/integration, 13 owner UI, 3 timeline, 8 business API, 7 custom-site API.
 - Added exact-request and paraphrase cases, image binary forwarding, atomic typed answers plus extraction, duplicate/replay recovery, missing durations, conflicting existing data, malicious output, inspiration ownership, and concurrent edits.
 - TypeScript, changed-file ESLint and whitespace checks passed.
 - Local Chromium desktop, Chromium mobile and WebKit mobile: one composer, viewport fit, attachments, keyboard focus, preview/details/review. Local model calls disabled.
@@ -26,3 +26,9 @@ On isolated Preview `5939aa02`, the exact message “Just get all the info from 
 The next chat answer supplied solo/60 minutes and requested a cream website. Astra saved revision 5 with custom source `0f4480ed-3fca-416b-8383-c45068aa2f21` in 64 seconds. Source validation passed first time; there was no manual source editing. Refresh restored the answers, services, source and attachments. The preview displays the real draft. This new synthetic salon remains private/unpublished, with zero live services and appointments. The existing published original-booking journey was checked separately and remains unchanged.
 
 The extraction reply was still repetitive on a phone, so the final UI copy groups the summary and removes duplicate missing-length/add-on notes. The same 85 focused checks passed after this copy adjustment. Final deployment and low-resolution reference trial follow below.
+
+## Supplied low-resolution reference
+
+The actual 137×1280 reference was uploaded in a separate private synthetic salon through the same owner UI. Astra read the business name, flagged unreadable small contact/policy/opening-time text, and identified collapsed category headings rather than inventing service prices or durations. Refresh retained the result. The reference and screenshots remain private; sanitized timing/usage is in `reference-real-provider.json`.
+
+A no-change hours operation initially made the summary say hours were saved even though only an already-closed day was read. The final correction compares weekday intervals semantically (independent of PostgreSQL JSON key ordering), omits that operation and removes the stale attachment hint. The expanded 86-check suite, TypeScript and scoped ESLint pass. Broader CI is not green: the communications PostgreSQL job failed before tests on Docker Hub `toomanyrequests: Data limit exceeded`.

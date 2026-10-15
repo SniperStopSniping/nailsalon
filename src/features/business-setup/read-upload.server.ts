@@ -235,9 +235,12 @@ export function conversationalUpload(raw: unknown, document: SetupDocument, oper
         operations.push(setupOperationSchema.parse({ type: 'business', values }));
       }
     } else if (operation.type === 'hours') {
+      if (WEEKDAYS.every(day => operation.values[day]?.open === document.hours[day]?.open && operation.values[day]?.close === document.hours[day]?.close)) {
+        continue;
+      }
       if (!Object.values(document.hours).some(Boolean)) {
         operations.push(operation);
-      } else if (JSON.stringify(operation.values) !== JSON.stringify(document.hours)) {
+      } else {
         notes.push('The image has different opening hours. I kept your saved hours; tell me if you want to use the hours in the image instead.');
       }
     } else if (operation.type === 'service') {
