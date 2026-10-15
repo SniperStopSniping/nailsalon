@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { and, asc, eq, sql } from 'drizzle-orm';
 
+import { assertCustomArtifact } from '@/features/custom-sites/artifacts.server';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig.shared';
 import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
@@ -171,6 +172,11 @@ export async function editSetup(actor: SetupActor, input: unknown, origin: 'owne
     const snapshot = await readSetupSnapshot(tx, salon);
     if (snapshot.hash !== head.workspace.baselineHash) {
       throw new SetupError('STALE', 'Your business settings changed elsewhere. Review the newer changes before continuing.');
+    }
+    for (const op of edit.operations) {
+      if (op.type === 'custom_frontend') {
+        await assertCustomArtifact(tx, salon.id, op.artifactId);
+      }
     }
     const document = applySetupOperations(head.revision.document, edit.operations, origin);
     const revision = head.workspace.headRevision + 1;

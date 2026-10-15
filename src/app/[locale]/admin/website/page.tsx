@@ -45,7 +45,7 @@ export default async function WebsiteHubPage({ params, searchParams }: {
     })
     : null;
 
-  return (
+  const hub = (
     <BookingPageHub
       canPublish={canEditSetup || admin.isSuperAdmin}
       hasDraftChanges={hasUnpublishedBookingPageChanges(config, content)}
@@ -67,4 +67,16 @@ export default async function WebsiteHubPage({ params, searchParams }: {
       setupUrl={handoff?.site.setupAvailable ? handoff.site.setupUrl : null}
     />
   );
+  return canEditSetup && (config.draft.customFrontendId || config.live.customFrontendId)
+    ? (
+        <>
+          <div className="p-6">
+            <h2>Custom website</h2>
+            <p>Your website has its own design and saved source.</p>
+            <a href={`/${locale}/admin/business-setup?salon=${encodeURIComponent(salon.slug)}#custom-design`}>Edit with AI or edit the design manually</a>
+          </div>
+          {hub}
+        </>
+      )
+    : hub;
 }

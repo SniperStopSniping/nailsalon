@@ -454,3 +454,28 @@ describe('disclosure discipline', () => {
     expect(`${error.message} ${error.stack ?? ''}`).not.toContain(API_KEY);
   });
 });
+
+describe('exact multimodal input token preflight', () => {
+  it('counts the same input and schema without asking for generation or retaining content', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ object: 'response.input_tokens', input_tokens: 12345 }));
+
+    expect(await provider().countInputTokens!(REQUEST)).toBe(12345);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+
+    expect(url).toBe('https://provider.test/v1/responses/input_tokens');
+
+    const body = JSON.parse(init.body as string);
+
+    expect(body.input).toEqual(REQUEST.input);
+    expect(body.text.format.schema).toEqual(REQUEST.jsonSchema);
+    expect(body.max_output_tokens).toBeUndefined();
+    expect(body.store).toBeUndefined();
+  });
+
+  it.each([{ object: 'response.input_tokens', input_tokens: -1 }, { object: 'other', input_tokens: 100 }, { input_tokens: '100' }])('fails closed on invalid token counts', async (payload) => {
+    fetchMock.mockResolvedValue(jsonResponse(payload));
+
+    await expect(provider().countInputTokens!(REQUEST)).rejects.toMatchObject({ kind: 'provider_error' });
+  });
+});

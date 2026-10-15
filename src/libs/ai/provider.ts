@@ -10,6 +10,7 @@
 /** One item in the Responses API `input` array, passed through verbatim. */
 export type ModelProviderInputItem =
   | { role: 'system' | 'developer' | 'user' | 'assistant'; content: string }
+  | { role: 'user'; content: ({ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string; detail: 'high' | 'low' } | { type: 'input_file'; filename: string; file_data: string })[] }
   /**
    * A `function_call` item returned by a previous response, echoed back
    * unchanged so the provider can match it to its output. Extra provider-owned
@@ -97,5 +98,7 @@ export class ModelProviderError extends Error {
 }
 
 export type OwnerAssistantModelProvider = {
+  /** Optional exact multimodal preflight; generation fails closed when required and unavailable. */
+  countInputTokens?: (request: ModelProviderRequest) => Promise<number>;
   createResponse: (request: ModelProviderRequest, signal?: AbortSignal) => Promise<ModelProviderResponse>;
 };

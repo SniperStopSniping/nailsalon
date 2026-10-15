@@ -5,6 +5,9 @@ import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { assertCustomArtifact } from '@/features/custom-sites/artifacts.server';
+import { assetDataUrl } from '@/features/custom-sites/assets.server';
+import { customSiteRendererOrigin } from '@/features/custom-sites/payload.server';
 import { db } from '@/libs/DB';
 import { auditLogSchema, businessSetupApprovalSchema as approvals, businessSetupPublicationSchema as publications, businessSetupWorkspaceSchema as workspaces, salonLocationSchema, salonSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
 
@@ -18,6 +21,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
   const input = requestSchema.parse(raw);
   // Authorize and replay BEFORE external work. A lost response never republishes
   // whatever draft happens to exist when the owner retries.
+  let customArtifactId: string | undefined;
   const replay = await db.transaction(async (tx) => {
     const salon = await lockSetupSalon(tx, actor);
     const [receipt] = await tx.select().from(publications).where(and(eq(publications.salonId, actor.salonId), eq(publications.operationId, input.operationId)));
@@ -26,6 +30,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
     }
     if (!receipt) {
       const head = await loadSetupHead(tx, salon.id);
+      customArtifactId = head.revision.document.website.config.customFrontendId;
       const review = makeSetupReview(head);
       const [approval] = await tx.select().from(approvals).where(and(eq(approvals.id, input.approvalId), eq(approvals.salonId, salon.id), eq(approvals.workspaceId, head.workspace.id)));
       if (!approval || approval.actorId !== actor.adminId || approval.expiresAt.getTime() <= Date.now() || approval.revision !== input.revision || approval.manifestHash !== review.hash || head.workspace.status !== 'editing' || review.revision !== input.revision) {
@@ -42,6 +47,12 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
   });
   if (replay) {
     return { receipt: replay, mediaFinalized: replay.mediaFinalized };
+  }
+  if (customArtifactId) {
+    const { media } = await assertCustomArtifact(db, actor.salonId, customArtifactId);
+    for (const asset of media.filter(a => a.role !== 'reference')) {
+      await assetDataUrl(asset);
+    }
   }
   // This slice publishes only reviewed canonical configuration. Pending
   // onboarding media is deliberately not promoted as an unrelated side effect.
@@ -69,6 +80,15 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       throw new SetupError('STALE', 'Your business changed elsewhere. Review those changes before publishing.');
     }
     const draft = head.revision.document;
+    if (draft.website.config.customFrontendId) {
+      if (!customSiteRendererOrigin()) {
+        throw new SetupError('NOT_READY', 'Your website preview is not available yet. Please try again before publishing.');
+      }
+      const { artifact } = await assertCustomArtifact(tx, salon.id, draft.website.config.customFrontendId);
+      if (draft.business.exactAddress && draft.business.locationDisplayMode !== 'full_address' && JSON.stringify(artifact.source).toLowerCase().includes(draft.business.exactAddress.toLowerCase())) {
+        throw new SetupError('INVALID', 'Remove your private address from the design before publishing.');
+      }
+    }
     if (salon.publicationStatus === 'published' && (draft.booking.currency !== current.document.booking.currency || draft.booking.timezone !== current.document.booking.timezone)) {
       throw new SetupError('INVALID', 'Currency and time zone changes need a separate review for an existing business.');
     }

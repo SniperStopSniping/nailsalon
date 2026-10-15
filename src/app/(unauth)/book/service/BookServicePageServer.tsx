@@ -8,6 +8,8 @@ import { Suspense } from 'react';
 import { CustomerAssistantLauncher } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { CustomWebsiteFrame } from '@/features/custom-sites/CustomWebsiteFrame';
+import { customSitePayload, customSiteRendererOrigin } from '@/features/custom-sites/payload.server';
 import { resolveCatalogDomainView } from '@/libs/bookingCatalog';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { resolveBookingExperience } from '@/libs/bookingExperience';
@@ -47,6 +49,7 @@ const NEW_CLIENT_PROMO_END_DATE = '2026-04-30';
 
 export type BookServicePageProps = {
   searchParams: {
+    nativeBooking?: string;
     locationId?: string;
     salonSlug?: string;
     campaign?: string;
@@ -434,18 +437,34 @@ export async function renderBookServicePage({
     throw new Error('PUBLIC_CATALOGUE_UNAVAILABLE');
   }
   const l1Snapshot = l1SnapshotResult?.ok ? projectPublicBookingCatalog(l1SnapshotResult.snapshot, publicBookableServiceIds) : undefined;
+  const bookingServices = l1Snapshot
+    ? services.filter(service => l1Snapshot.services.some(item => item.id === service.id && item.effectiveConfirmationMode !== 'consultation')).map((service) => {
+      const entry = l1Snapshot.services.find(item => item.id === service.id)!;
+      const parent = entry.parentServiceId ? l1Snapshot.services.find(item => item.id === entry.parentServiceId) : null;
+      return { ...service, name: parent ? `${parent.name} · ${entry.variantLabel ?? entry.name}` : entry.name };
+    })
+    : services;
 
+  // Custom frontend is only an entrance into the ORIGINAL booking journey.
+  // nativeBooking preserves all canonical availability, add-on and payment rules.
+  const rendererOrigin = customSiteRendererOrigin();
+  if (activeBookingPageSide.customFrontendId && rendererOrigin && searchParams.nativeBooking !== '1' && !ownerPreviewState.isPreviewing) {
+    const payload = await customSitePayload(salon.id, activeBookingPageSide.customFrontendId, {
+      business: { name: salon.name, city: salon.city ?? '', address: activeBookingPageContentSide.locationDisplayMode === 'full_address' ? salon.address : null, bio: activeBookingPageContentSide.bio ?? '', hours: salon.businessHours ?? {} },
+      services: bookingServices.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, priceLabel: s.priceDisplayText || new Intl.NumberFormat('en-CA', { style: 'currency', currency: bookingConfig.currency }).format(s.priceCents / 100), durationMinutes: s.durationMinutes })),
+      currency: bookingConfig.currency,
+      preview: false,
+    });
+    const base = `/${params?.locale ?? 'en'}/${encodeURIComponent(salon.slug)}`;
+    // Refresh the isolated document when either immutable source or canonical
+    // service/business data changes during a client navigation.
+    return <CustomWebsiteFrame key={JSON.stringify([activeBookingPageSide.customFrontendId, payload.data])} payload={payload} rendererOrigin={rendererOrigin} bookingPath={`${base}/book/service`} managePath={`${base}/find-booking`} />;
+  }
   const bookingContent = (
     <BookServiceClient
       l1Snapshot={l1Snapshot}
       enforceRequiredAddOns={bookingConfig.enforceRequiredAddOns}
-      services={l1Snapshot
-        ? services.filter(service => l1Snapshot.services.some(item => item.id === service.id && item.effectiveConfirmationMode !== 'consultation')).map((service) => {
-          const entry = l1Snapshot.services.find(item => item.id === service.id)!;
-          const parent = entry.parentServiceId ? l1Snapshot.services.find(item => item.id === entry.parentServiceId) : null;
-          return { ...service, name: parent ? `${parent.name} · ${entry.variantLabel ?? entry.name}` : entry.name };
-        })
-        : services}
+      services={bookingServices}
       addOns={addOns}
       serviceAddOnRules={serviceAddOnRules}
       bookingFlow={bookingFlow}

@@ -687,6 +687,13 @@
       "when": 1792022400000,
       "tag": "0098_business_setup_drafts",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1792022400001,
+      "tag": "0099_custom_frontend_sources",
+      "breakpoints": true
     }
   ]
 }

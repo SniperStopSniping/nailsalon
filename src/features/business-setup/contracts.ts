@@ -46,6 +46,7 @@ export const businessSchema = z.object({
   locationDisplayMode: z.enum(['full_address', 'after_booking', 'city_only']),
 }).strict();
 export const setupOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('custom_frontend'), artifactId: z.string().uuid() }).strict(),
   z.object({ type: z.literal('business'), values: businessSchema.partial() }).strict(),
   z.object({ type: z.literal('hours'), values: hoursSchema }).strict(),
   z.object({ type: z.literal('booking'), values: bookingConfigSchema.pick({ currency: true, timezone: true, minimumNoticeMinutes: true, bufferMinutes: true, slotIntervalMinutes: true, confirmationMode: true }).partial().strict() }).strict(),
@@ -95,6 +96,9 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   for (const raw of operations) {
     const op = setupOperationSchema.parse(raw);
     switch (op.type) {
+      case 'custom_frontend':
+        next.website.config.customFrontendId = op.artifactId;
+        break;
       case 'business':
         next.business = businessSchema.parse({ ...next.business, ...op.values });
         // Changing to a home salon never implicitly publishes its address.
@@ -135,6 +139,9 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
         next.services = next.services.map(s => op.ids.includes(s.id) ? { ...s, confirmed: true } : s);
         break;
       case 'design':
+        if (next.website.config.customFrontendId) {
+          throw new SetupError('INVALID', 'Use the custom design conversation or its manual controls to change this website.');
+        }
         next.website.config = { ...next.website.config, layout: op.layout, siteStylePreset: op.style, sitePalettePreset: op.palette };
         break;
       case 'copy':

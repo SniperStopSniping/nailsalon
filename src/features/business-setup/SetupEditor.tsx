@@ -3,6 +3,8 @@ import './setup.css';
 
 import { useEffect, useState } from 'react';
 
+import { CustomDesignStudio } from '@/features/custom-sites/CustomDesignStudio';
+
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
 import { WEEKDAYS } from './contracts';
 
@@ -30,6 +32,7 @@ const LABELS: Record<string, string> = {
   'business.workMode': 'Solo or team',
   'business.locationDisplayMode': 'Public address visibility',
   'services': 'Service menu',
+  'website.config.customFrontendId': 'Custom website design version (see the exact preview above)',
   'booking.currency': 'Currency',
   'booking.timezone': 'Time zone',
   'booking.minimumNoticeMinutes': 'Minimum booking notice (minutes)',
@@ -71,6 +74,12 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
   const [review, setReview] = useState<SetupReview | null>(null);
   const [published, setPublished] = useState(false);
   const [includeBusiness, setIncludeBusiness] = useState(!existingSalon);
+  const customFrontendId = head?.revision.document.website.config.customFrontendId;
+  useEffect(() => {
+    if (customFrontendId) {
+      setIncludeBusiness(false);
+    }
+  }, [customFrontendId]);
   async function call<T>(body: Record<string, unknown>): Promise<T> {
     const response = await fetch('/api/admin/business-setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ salonSlug, ...body }) });
     const payload = await response.json().catch(() => null) as {
@@ -169,7 +178,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               </div>
             ))}
           </div>
-          {existingSalon && (
+          {(existingSalon || head?.revision.document.website.config.customFrontendId) && (
             <label className="setup-scope">
               <input type="checkbox" checked={includeBusiness} onChange={e => setIncludeBusiness(e.target.checked)} />
               {' '}
@@ -182,6 +191,18 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               return;
             }
             void run(async () => {
+              if (head.revision.document.website.config.customFrontendId && !includeBusiness) {
+                const response = await fetch(`/api/admin/custom-sites?salonSlug=${encodeURIComponent(salonSlug)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'generate', input: { expectedRevision: head.revision.revision, operationId: crypto.randomUUID(), message: text, referenceIds: [], startOver: false } }) });
+                const result = await response.json();
+                if (!response.ok) {
+                  throw new Error(result.error ?? 'Your design could not be updated.');
+                }
+                setHead(result.head);
+                setText('');
+                setReview(null);
+                await refresh();
+                return;
+              }
               const result = await call<{
                 head: Head;
                 reply: string;
@@ -202,7 +223,20 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
         <section className="setup-preview" aria-label="Website preview">
           <h2>Your website draft</h2>
           <p>Private preview. Booking is disabled here.</p>
-          {head && <iframe title="Your website draft" sandbox="" src={`/${locale}/admin/business-setup/preview/${encodeURIComponent(salonSlug)}?revision=${head.revision.revision}`} />}
+          {head && !head.revision.document.website.config.customFrontendId && <iframe title="Your website draft" sandbox="" src={`/${locale}/admin/business-setup/preview/${encodeURIComponent(salonSlug)}?revision=${head.revision.revision}`} />}
+          {head && (
+            <CustomDesignStudio
+              salonSlug={salonSlug}
+              revision={head.revision.revision}
+              artifactId={head.revision.document.website.config.customFrontendId}
+              disabled={published || busy}
+              aiEnabled={aiEnabled}
+              onSaved={async () => {
+                setReview(null);
+                await refresh();
+              }}
+            />
+          )}
         </section>
         <section className="setup-details" aria-label="Business setup">
           <h2>Your business setup</h2>

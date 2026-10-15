@@ -262,3 +262,32 @@
     flex: 1;
   }
 }
+
+.custom-design-studio {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #ddd;
+}
+.custom-design-studio details {
+  margin: 16px 0;
+}
+.custom-design-studio textarea {
+  width: 100%;
+  max-width: 100%;
+}
+.custom-design-studio iframe {
+  min-height: 500px;
+  max-height: none !important;
+}
+.custom-design-studio fieldset {
+  padding: 12px;
+  margin: 12px 0;
+}
+.custom-design-studio label {
+  display: block;
+  margin: 12px 0;
+}
+.custom-design-studio input[type='checkbox'] {
+  width: auto;
+  margin-right: 8px;
+}

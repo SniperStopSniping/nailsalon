@@ -1,16 +1,25 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
+import { PDFDocument } from 'pdf-lib';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { saveCustomSource } from '@/features/custom-sites/artifacts.server';
+import { ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
+import { generateCustomSite } from '@/features/custom-sites/generate.server';
+import { customSitePayload } from '@/features/custom-sites/payload.server';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { synchronizeBookingPageLifecycle } from '@/libs/bookingPageLifecycle';
+import sharp from '@/libs/safeSharp.server';
 import * as schema from '@/models/Schema';
 
+import { darkSource, editorialSource } from '../../../tests/browser/businessSetup/custom-design-fixtures';
 import { CLOSED_HOURS } from './contracts';
 import { runSetupConversation } from './conversation.server';
 import { approveSetup, editSetup, openSetup, restartSetup, reviewSetup } from './drafts.server';
@@ -28,10 +37,13 @@ vi.mock('@/features/onboarding-v1-integration/canonical-profile-media-lifecycle.
   applyPreparedCanonicalProfileMediaPromotion: vi.fn(),
   completeCanonicalProfileMediaPromotion: vi.fn(),
 }));
+let mediaRoot: string;
 const client = new PGlite();
 const database = drizzle(client, { schema });
 
 beforeAll(async () => {
+  mediaRoot = await mkdtemp(path.join(tmpdir(), 'luster-custom-assets-test-'));
+  vi.stubEnv('LUSTER_ONBOARDING_MEDIA_DIR', mediaRoot);
   await client.waitReady;
   await migrate(database, { migrationsFolder: path.join(process.cwd(), 'migrations') });
   holder.db = database;
@@ -39,6 +51,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await client.close();
+  await rm(mediaRoot, { recursive: true, force: true });
 });
 
 async function fixture() {
@@ -226,5 +239,137 @@ describe('isolated business setup persistence', () => {
     const closed = { ...head.revision.document, hours: CLOSED_HOURS };
 
     expect(setupPreviewBooking(closed, { staff: [], assignments: [] }).examples).toEqual([]);
+  });
+});
+
+describe('custom frontend shared draft integration', () => {
+  it('saves immutable source revisions, rejects cross-salon attachments and restores through exact review', async () => {
+    const actor = await fixture();
+    const other = await fixture();
+    const first = await saveCustomSource(actor, { source: editorialSource, assetIds: [], operationId: randomUUID(), expectedRevision: 2 });
+
+    expect(first.head.revision.document.website.config.customFrontendId).toBe(first.artifact.id);
+
+    const [live] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect((live!.settings as { bookingPage?: { live?: { customFrontendId?: string } } } | null)?.bookingPage?.live?.customFrontendId).toBeUndefined();
+    await expect(editSetup(other, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'custom_frontend', artifactId: first.artifact.id }] })).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(database.update(schema.customSiteArtifactSchema).set({ source: darkSource }).where(eq(schema.customSiteArtifactSchema.id, first.artifact.id))).rejects.toThrow();
+
+    const review = await reviewSetup(actor);
+    const approval = await approveSetup(actor, review.revision, review.hash);
+    await saveCustomSource(actor, { source: darkSource, assetIds: [], operationId: randomUUID(), expectedRevision: 3 });
+
+    await expect(publishSetup(actor, { approvalId: approval.id, revision: 3, operationId: randomUUID() })).rejects.toMatchObject({ code: 'APPROVAL_REQUIRED' });
+
+    const restored = await editSetup(actor, { expectedRevision: 4, operationId: randomUUID(), operations: [{ type: 'custom_frontend', artifactId: first.artifact.id }] });
+
+    expect(restored.revision.revision).toBe(5);
+    expect(restored.revision.document.website.config.customFrontendId).toBe(first.artifact.id);
+  });
+
+  it('writes and iterates actual source through the provider contract without modifying business settings', async () => {
+    const actor = await fixture();
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 3000, outputTokens: 2000, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
+    const input = { expectedRevision: 2, operationId: randomUUID(), message: 'Build an original editorial website', referenceIds: [], startOver: false };
+    const first = await generateCustomSite(actor, input, { createResponse });
+    await generateCustomSite(actor, input, { createResponse });
+
+    expect(createResponse).toHaveBeenCalledTimes(1);
+    expect(first.head.revision.document.services[0]?.priceCents).toBe(6500);
+
+    createResponse.mockResolvedValue({ status: 'completed', usage: { inputTokens: 8000, outputTokens: 3000, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(darkSource) }] });
+    const second = await generateCustomSite(actor, { ...input, expectedRevision: 3, operationId: randomUUID(), message: 'Redesign completely as a dark immersive website' }, { createResponse });
+
+    expect(second.artifactId).not.toBe(first.artifactId);
+
+    const request = createResponse.mock.calls[1]![0];
+
+    expect(request.tools).toEqual([]);
+    expect(JSON.stringify(request.input)).toContain('previousSource');
+    expect(JSON.stringify(request.input)).not.toContain('123 Private Street');
+    expect(second.head.revision.document.business).toEqual(first.head.revision.document.business);
+
+    const [usage] = await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.id, input.operationId));
+
+    expect(usage?.costMicroUsd).toBe(130000);
+  });
+});
+
+describe('private multimodal design references', () => {
+  it('keeps removed photographs out of public payloads while retaining private source history', async () => {
+    const actor = await fixture();
+    const bytes = await sharp({ create: { width: 100, height: 100, channels: 3, background: '#ac9481' } }).png().toBuffer();
+    const photo = await uploadCustomAsset(actor, new File([new Uint8Array(bytes)], 'salon.png', { type: 'image/png' }), 'photo');
+    const first = await saveCustomSource(actor, { expectedRevision: 2, operationId: randomUUID(), assetIds: [photo.id], source: { ...editorialSource, html: `${editorialSource.html}<img src="asset:${photo.id}" alt="Salon photograph">` } });
+    const data = { business: { name: 'Test', city: 'Toronto', address: null, bio: '', hours: {} }, services: [], currency: 'CAD', preview: false };
+
+    expect(Object.keys((await customSitePayload(actor.salonId, first.artifact.id, data)).images)).toEqual([photo.id]);
+
+    const removed = await saveCustomSource(actor, { expectedRevision: 3, operationId: randomUUID(), assetIds: [photo.id], source: editorialSource });
+
+    expect((await customSitePayload(actor.salonId, removed.artifact.id, data)).images).toEqual({});
+    expect(Object.keys((await customSitePayload(actor.salonId, first.artifact.id, data)).images)).toEqual([photo.id]);
+  });
+
+  it('does not start paid generation when a manual edit arrives during token counting', async () => {
+    const actor = await fixture();
+    const createResponse = vi.fn();
+    const countInputTokens = vi.fn(async () => {
+      await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'business', values: { name: 'New owner choice' } }] });
+      return 10000;
+    });
+
+    await expect(generateCustomSite(actor, { expectedRevision: 2, operationId: randomUUID(), message: 'Build it', referenceIds: [] }, { createResponse, countInputTokens })).rejects.toMatchObject({ code: 'STALE' });
+    expect(createResponse).not.toHaveBeenCalled();
+  });
+
+  it('stores validated images and PDFs privately and sends actual multimodal parts to the provider', async () => {
+    const actor = await fixture();
+    const other = await fixture();
+    const png = await sharp({ create: { width: 120, height: 160, channels: 3, background: '#eecbdb' } }).png().toBuffer();
+    const image = await uploadCustomAsset(actor, new File([new Uint8Array(png)], 'inspiration.png', { type: 'image/png' }), 'reference');
+    const pdf = await PDFDocument.create();
+    pdf.addPage([400, 600]);
+    const document = await uploadCustomAsset(actor, new File([await pdf.save()], 'canva.pdf', { type: 'application/pdf' }), 'reference');
+
+    await expect(ownedAssets(database as any, other.salonId, [image.id])).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
+    const countInputTokens = vi.fn().mockResolvedValue(12000);
+    await generateCustomSite(actor, { expectedRevision: 2, operationId: randomUUID(), message: 'Use these visual references, not their text', referenceIds: [image.id, document.id], startOver: false }, { createResponse, countInputTokens });
+    const request = createResponse.mock.calls[0]![0];
+
+    expect(request.model).toBe('gpt-6-astra');
+    expect(countInputTokens).toHaveBeenCalledWith(request);
+
+    const parts = request.input.at(-1).content;
+
+    expect(parts.some((part: any) => part.type === 'input_image' && part.image_url.startsWith('data:image/webp;base64,'))).toBe(true);
+    expect(parts.some((part: any) => part.type === 'input_file' && part.file_data.startsWith('data:application/pdf;base64,'))).toBe(true);
+
+    const [job] = await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.salonId, actor.salonId));
+
+    expect(job?.costMicroUsd).toBeNull();
+    expect(job!.reservedMicroUsd).toBeGreaterThan(0);
+  });
+
+  it('rejects invalid files and oversized token inputs before paid generation', async () => {
+    const actor = await fixture();
+
+    await expect(uploadCustomAsset(actor, new File(['<svg onload="bad()"/>'], 'bad.png', { type: 'image/png' }), 'photo')).rejects.toThrow();
+    await expect(uploadCustomAsset(actor, new File(['not a PDF'], 'bad.pdf', { type: 'application/pdf' }), 'reference')).rejects.toThrow();
+
+    const pdf = await PDFDocument.create();
+    for (let i = 0; i < 7; i++) {
+      pdf.addPage([10, 10]);
+    }
+
+    await expect(uploadCustomAsset(actor, new File([await pdf.save()], 'many.pdf', { type: 'application/pdf' }), 'reference')).rejects.toThrow();
+
+    const createResponse = vi.fn();
+
+    await expect(generateCustomSite(actor, { expectedRevision: 2, operationId: randomUUID(), message: 'Build it', referenceIds: [] }, { createResponse, countInputTokens: vi.fn().mockResolvedValue(150001) })).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect(createResponse).not.toHaveBeenCalled();
   });
 });

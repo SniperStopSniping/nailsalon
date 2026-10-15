@@ -5718,3 +5718,45 @@ export const businessSetupTurnSchema = pgTable('business_setup_turn', {
   leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date' }).notNull(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 }, table => ({ tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade') }));
+
+// Generated frontend files are immutable. Only their tenant-checked identity is
+// referenced by the existing shared draft and exact publication manifest.
+export const customSiteAssetSchema = pgTable('custom_site_asset', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  actorId: text('actor_id').notNull(),
+  role: text('role').$type<'reference' | 'logo' | 'photo'>().notNull(),
+  name: text('name').notNull(),
+  mimeType: text('mime_type').notNull(),
+  storageKey: text('storage_key'),
+  pdfBase64: text('pdf_base64'),
+  byteSize: integer('byte_size').notNull(),
+  hash: text('hash').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+}, table => ({ tenantKey: uniqueIndex('custom_site_asset_tenant_key').on(table.salonId, table.id) }));
+export const customSiteArtifactSchema = pgTable('custom_site_artifact', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  actorId: text('actor_id').notNull(),
+  source: jsonb('source').$type<import('../features/custom-sites/contracts').CustomSiteSource>().notNull(),
+  sourceHash: text('source_hash').notNull(),
+  assetIds: jsonb('asset_ids').$type<string[]>().notNull(),
+  parentId: text('parent_id'),
+  operationId: text('operation_id').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+}, table => ({ operationKey: uniqueIndex('custom_site_artifact_operation_key').on(table.salonId, table.operationId) }));
+export const customSiteGenerationSchema = pgTable('custom_site_generation', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  actorId: text('actor_id').notNull(),
+  requestHash: text('request_hash').notNull(),
+  expectedRevision: integer('expected_revision').notNull(),
+  message: text('message').notNull(),
+  status: text('status').$type<'pending' | 'generated' | 'completed' | 'failed'>().notNull(),
+  artifactId: text('artifact_id'),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  costMicroUsd: integer('cost_micro_usd'),
+  reservedMicroUsd: integer('reserved_micro_usd').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+}, table => ({ tenantIndex: index('custom_site_generation_salon_idx').on(table.salonId, table.createdAt) }));

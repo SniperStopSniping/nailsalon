@@ -25,7 +25,7 @@ export async function editSharedSetupWebsite(input: {
 }) {
   return db.transaction(async (tx) => {
     const [workspace] = await tx.select().from(businessSetupWorkspaceSchema).where(eq(businessSetupWorkspaceSchema.salonId, input.salonId));
-    if (!workspace || workspace.status !== 'editing') {
+    if (!workspace) {
       return false;
     }
     const [membership] = await tx.select().from(adminSalonMembershipSchema).where(and(eq(adminSalonMembershipSchema.salonId, input.salonId), eq(adminSalonMembershipSchema.adminId, input.adminId))).for('share');
@@ -37,6 +37,12 @@ export async function editSharedSetupWebsite(input: {
       throw new SetupError('NOT_FOUND', 'This business is unavailable.');
     }
     const head = await loadSetupHead(tx, salon.id);
+    if (head.revision.document.website.config.customFrontendId) {
+      throw new SetupError('NOT_READY', 'This is a custom website. Open Edit with AI to change its design or edit its saved source.');
+    }
+    if (workspace.status !== 'editing') {
+      return false;
+    }
     if (input.expectedRevision !== head.revision.revision) {
       throw new SetupError('STALE', 'Your website changed elsewhere. Reload the latest changes before saving.');
     }
