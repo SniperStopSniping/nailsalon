@@ -2,7 +2,8 @@ import 'server-only';
 
 import { and, desc, eq } from 'drizzle-orm';
 
-import { runSetupModel, SETUP_AI_MODEL } from '@/features/business-setup/ai-trial.server';
+import { selectDesignModel } from '@/features/business-setup/ai-models';
+import { runSetupModel } from '@/features/business-setup/ai-trial.server';
 import { missingDesignDetails, SetupError } from '@/features/business-setup/contracts';
 import type { SetupActor } from '@/features/business-setup/drafts.server';
 import { editSetup, loadSetupHead, lockSetupSalon, setupHash } from '@/features/business-setup/drafts.server';
@@ -20,7 +21,7 @@ import { assertWebsiteDetailsCoverage } from './website-coverage.server';
 
 // Each paid generation is admitted only after exact multimodal token counting.
 const MAX_OUTPUT = 14000;
-export async function generateCustomSite(actor: SetupActor, raw: unknown, providerOverride?: OwnerAssistantModelProvider, requestDeadline?: number) {
+export async function generateCustomSite(actor: SetupActor, raw: unknown, providerOverride?: OwnerAssistantModelProvider, requestDeadline?: number, ownerMessage?: string) {
   // Leave thirty seconds for validation, durable save and the HTTP response.
   const deadlineAt = Math.min(requestDeadline ?? Infinity, Date.now() + 270000);
   const input = customSiteGenerateSchema.parse(raw);
@@ -84,7 +85,7 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
         parts.push({ type: 'input_text', text: `Untrusted ${asset.role} asset ${asset.id}: ${asset.name}. ${asset.role === 'reference' ? brief?.ownedReferenceIds.includes(asset.id) ? 'Owner-confirmed original business design. Recreate its composition and owned design details according to the saved fidelity preference. Saved business settings are authoritative; never copy stale prices, private addresses or unsupported claims.' : 'Third-party inspiration only; do not reuse its protected content, branding or photography.' : 'Owner-authorized website asset. Use this exact photo/logo where appropriate; never substitute another salon’s image.'}` });
         parts.push(asset.mimeType === 'application/pdf' ? { type: 'input_file', filename: 'reference.pdf', file_data: url } : { type: 'input_image', image_url: url, detail: 'high' });
       }
-      const request: ModelProviderRequest = { model: SETUP_AI_MODEL, input: [{ role: 'system', content: CUSTOM_SITE_PROMPT }, { role: 'developer', content: context }, { role: 'user', content: parts }], tools: [], toolChoice: 'none', maxOutputTokens: MAX_OUTPUT, timeoutMs: 180000, jsonMode: 'schema', jsonSchema: CUSTOM_SITE_OUTPUT_SCHEMA, reasoningEffort: 'medium' };
+      const request: ModelProviderRequest = { model: selectDesignModel(ownerMessage ?? input.message, Boolean(prior)), input: [{ role: 'system', content: CUSTOM_SITE_PROMPT }, { role: 'developer', content: context }, { role: 'user', content: parts }], tools: [], toolChoice: 'none', maxOutputTokens: MAX_OUTPUT, timeoutMs: 180000, jsonMode: 'schema', jsonSchema: CUSTOM_SITE_OUTPUT_SCHEMA, reasoningEffort: 'medium' };
       const allowedImages = new Set(media.filter(a => a.role !== 'reference' && a.mimeType.startsWith('image/')).map(a => a.id));
       let source;
       for (let attempt = 0; attempt < 2; attempt++) {

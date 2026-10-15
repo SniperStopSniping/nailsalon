@@ -22,6 +22,7 @@ import sharp from '@/libs/safeSharp.server';
 import * as schema from '@/models/Schema';
 
 import { darkSource, editorialSource } from '../../../tests/browser/businessSetup/custom-design-fixtures';
+import { estimateSetupAiCost, runSetupModel } from './ai-trial.server';
 import { CLOSED_HOURS } from './contracts';
 import { runSetupConversation } from './conversation.server';
 import { approveSetup, editSetup, openSetup, restartSetup, reviewSetup } from './drafts.server';
@@ -249,7 +250,7 @@ describe('isolated business setup persistence', () => {
 
     const [turn] = await database.select().from(schema.businessSetupTurnSchema).where(eq(schema.businessSetupTurnSchema.id, input.operationId));
 
-    expect(turn).toMatchObject({ status: 'completed', inputTokens: 1000, outputTokens: 100, costMicroUsd: 14100 });
+    expect(turn).toMatchObject({ status: 'completed', inputTokens: 1000, outputTokens: 100, costMicroUsd: 141 });
   });
 
   it.each([
@@ -330,7 +331,7 @@ describe('custom frontend shared draft integration', () => {
 
     const [usage] = await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.id, input.operationId));
 
-    expect(usage?.costMicroUsd).toBe(130000);
+    expect(usage?.costMicroUsd).toBe(26000);
   });
 });
 
@@ -442,7 +443,7 @@ describe('private multimodal design references', () => {
     await generateCustomSite(actor, { expectedRevision: 2, operationId: randomUUID(), message: 'Use these visual references, not their text', referenceIds: [image.id, document.id], startOver: false }, { createResponse, countInputTokens });
     const request = createResponse.mock.calls[0]![0];
 
-    expect(request.model).toBe('gpt-6-astra');
+    expect(request.model).toBe('gpt-6.1-sol');
     expect(countInputTokens).toHaveBeenCalledWith(request);
 
     const parts = request.input.at(-1).content;
@@ -476,6 +477,25 @@ describe('private multimodal design references', () => {
   });
 });
 
+describe('approved model costs', () => {
+  it('accounts separately for each model including cached inputs', () => {
+    const usage = { inputTokens: 8000, outputTokens: 6000, cachedInputTokens: 0 };
+
+    expect(estimateSetupAiCost(usage, 'gpt-6-luna')).toBe(3800);
+    expect(estimateSetupAiCost(usage, 'gpt-6.1-sol')).toBe(76000);
+    expect(estimateSetupAiCost({ inputTokens: 1000, outputTokens: 0, cachedInputTokens: 800, cacheWriteInputTokens: 100 }, 'gpt-6-luna')).toBe(31);
+    expect(estimateSetupAiCost(null)).toBeNull();
+  });
+
+  it('rejects Astra rather than silently substituting a paid model', async () => {
+    const actor = await fixture();
+    const provider = { createResponse: vi.fn() };
+
+    await expect(runSetupModel(actor, { operationId: randomUUID(), ordinal: 0, expectedRevision: 2, request: { model: 'gpt-6-astra', input: [], tools: [], toolChoice: 'none', maxOutputTokens: 100, timeoutMs: 1000, jsonMode: 'prompt' } }, provider)).rejects.toThrow('not enabled');
+    expect(provider.createResponse).not.toHaveBeenCalled();
+  });
+});
+
 describe('metered owner generation and automatic repair', () => {
   const response = (source: unknown, usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | null = { inputTokens: 2000, outputTokens: 1000, cachedInputTokens: 0 }) => ({ status: 'completed' as const, usage, items: [{ type: 'message' as const, text: JSON.stringify(source) }] });
 
@@ -492,8 +512,8 @@ describe('metered owner generation and automatic repair', () => {
     expect(rows[0]?.validation).toContain('unsupported element');
     expect(rows[1]?.rawOutput).toBe(JSON.stringify(editorialSource));
     expect(rows[1]?.validation).toBe('passed');
-    expect(rows.every(row => row.provider === 'test-double' && row.model === 'gpt-6-astra' && row.elapsedMs !== null)).toBe(true);
-    expect(rows.reduce((sum, row) => sum + row.chargedMicroCad, 0)).toBe(280000);
+    expect(rows.every(row => row.provider === 'test-double' && row.model === 'gpt-6.1-sol' && row.elapsedMs !== null)).toBe(true);
+    expect(rows.reduce((sum, row) => sum + row.chargedMicroCad, 0)).toBe(56000);
     expect((await resumeCustomSite(actor, input.operationId)).artifactId).toBe(generated.artifactId);
     expect(createResponse).toHaveBeenCalledTimes(2);
     expect((await openSetup(actor)).revision.revision).toBe(3);

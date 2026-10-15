@@ -154,9 +154,9 @@ describe.skipIf(!target)('AI trial global reservation on PostgreSQL', () => {
     const second = await fixture();
     const history = await database.select().from(schema.setupAiCallSchema);
     const used = history.reduce((sum, row) => sum + row.chargedMicroCad, 0);
-    await database.insert(schema.setupAiBudgetSchema).values({ id: 'initial-custom-website-trial', capMicroCad: used + 1900000 }).onConflictDoUpdate({ target: schema.setupAiBudgetSchema.id, set: { capMicroCad: used + 1900000 } });
+    await database.insert(schema.setupAiBudgetSchema).values({ id: 'initial-custom-website-trial', capMicroCad: used + 400000 }).onConflictDoUpdate({ target: schema.setupAiBudgetSchema.id, set: { capMicroCad: used + 400000 } });
     const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: null, items: [] });
-    const request = { model: 'gpt-6-astra', input: [{ role: 'user' as const, content: 'Synthetic test' }], tools: [], toolChoice: 'none' as const, maxOutputTokens: 14000, timeoutMs: 1000, jsonMode: 'prompt' as const };
+    const request = { model: 'gpt-6.1-sol', input: [{ role: 'user' as const, content: 'Synthetic test' }], tools: [], toolChoice: 'none' as const, maxOutputTokens: 14000, timeoutMs: 1000, jsonMode: 'prompt' as const };
     try {
       const results = await Promise.allSettled([first, second].map(({ actor }) => runSetupModel(actor, { operationId: randomUUID(), ordinal: 0, expectedRevision: 2, request }, { createResponse })));
 
@@ -166,7 +166,7 @@ describe.skipIf(!target)('AI trial global reservation on PostgreSQL', () => {
 
       const after = await database.select().from(schema.setupAiCallSchema);
 
-      expect(after.reduce((sum, row) => sum + row.chargedMicroCad, 0)).toBeLessThanOrEqual(used + 1900000);
+      expect(after.reduce((sum, row) => sum + row.chargedMicroCad, 0)).toBeLessThanOrEqual(used + 400000);
     } finally {
       await database.update(schema.setupAiBudgetSchema).set({ capMicroCad: 40000000 });
     }

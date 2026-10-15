@@ -197,7 +197,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
     });
   try {
     if (designRequest && designOperationId) {
-      const generated = await generateCustomSite(actor, { expectedRevision: head.revision.revision, operationId: designOperationId, message: designRequest, referenceIds: input.referenceIds ?? [], startOver: false }, providerOverride, deadlineAt);
+      const generated = await generateCustomSite(actor, { expectedRevision: head.revision.revision, operationId: designOperationId, message: designRequest, referenceIds: input.referenceIds ?? [], startOver: false }, providerOverride, deadlineAt, input.message);
       head = generated.head;
       reply = `${reply ?? ''} Your custom website is saved as a draft. Open Preview to review it.`;
     }
