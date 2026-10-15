@@ -167,7 +167,7 @@ describe('StaffAppointmentsPage', () => {
     });
     render(<StaffAppointmentsPage />);
     fireEvent.click(await screen.findByTestId('appointment-block-appt_1'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Details Show', exact: true }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Details Show$/ }));
     fireEvent.click(await screen.findByTestId('appointment-sheet-no-show'));
 
     expect(screen.getByRole('radio', { name: /Customer did not attend/ })).toBeDisabled();
