@@ -135,23 +135,8 @@ const resolveStoragePath = (storageKey: string): string => {
   return absolute;
 };
 
-export const saveOnboardingMediaFile = async ({
-  file,
-  role,
-  revisionId,
-  salonId,
-  siteId,
-  stableItemId,
-  uploadAttemptId,
-}: SaveOnboardingMediaFileInput): Promise<StoredOnboardingMediaFile> => {
-  assertSafeId(stableItemId, 'image item id');
-  assertSafeId(revisionId, 'site revision id');
-  assertSafeId(salonId, 'salon id');
-  assertSafeId(siteId, 'site id');
-  assertSafeId(uploadAttemptId, 'upload attempt id');
-  if (!ROLES.has(role)) {
-    throw new OnboardingMediaStorageError('INVALID_MEDIA_OWNER', 'Invalid image role.');
-  }
+/** Decode, validate and normalize image bytes before any storage adapter. */
+export async function normalizeOnboardingImage(file: File) {
   if (!ALLOWED_TYPES.has(file.type)) {
     throw new OnboardingMediaStorageError(
       'UNSUPPORTED_IMAGE',
@@ -225,6 +210,28 @@ export const saveOnboardingMediaFile = async ({
       'This photo has invalid dimensions or is too large after preparation.',
     );
   }
+
+  return { normalized, normalizedMetadata };
+}
+
+export const saveOnboardingMediaFile = async ({
+  file,
+  role,
+  revisionId,
+  salonId,
+  siteId,
+  stableItemId,
+  uploadAttemptId,
+}: SaveOnboardingMediaFileInput): Promise<StoredOnboardingMediaFile> => {
+  assertSafeId(stableItemId, 'image item id');
+  assertSafeId(revisionId, 'site revision id');
+  assertSafeId(salonId, 'salon id');
+  assertSafeId(siteId, 'site id');
+  assertSafeId(uploadAttemptId, 'upload attempt id');
+  if (!ROLES.has(role)) {
+    throw new OnboardingMediaStorageError('INVALID_MEDIA_OWNER', 'Invalid image role.');
+  }
+  const { normalized, normalizedMetadata } = await normalizeOnboardingImage(file);
 
   const fingerprint = createHash('sha256')
     // Revisions are append-only. Including the immutable revision identity

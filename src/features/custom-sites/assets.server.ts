@@ -8,7 +8,7 @@ import { PDFDocument } from 'pdf-lib';
 import { SetupError } from '@/features/business-setup/contracts';
 import type { SetupActor, SetupTransaction } from '@/features/business-setup/drafts.server';
 import { loadSetupHead, lockSetupSalon } from '@/features/business-setup/drafts.server';
-import { deleteOnboardingMediaFile, readOnboardingMediaFile, saveOnboardingMediaFile } from '@/features/onboarding-v1-integration/media-storage.server';
+import { deleteOnboardingMediaFile, normalizeOnboardingImage, readOnboardingMediaFile, saveOnboardingMediaFile } from '@/features/onboarding-v1-integration/media-storage.server';
 import { db } from '@/libs/DB';
 import { customSiteAssetSchema as assets } from '@/models/Schema';
 
@@ -31,6 +31,8 @@ export async function uploadCustomAsset(actor: SetupActor, file: File, rawRole: 
   const id = randomUUID();
   const bytes = Buffer.from(await file.arrayBuffer());
   let pdfBase64: string | null = null;
+  let imageBase64: string | null = null;
+  let normalizedBytes: Buffer | null = null;
   let stored: Awaited<ReturnType<typeof saveOnboardingMediaFile>> | null = null;
   // Authorize before storing or parsing; repeat when accepting the immutable asset.
   const head = await db.transaction(async (tx) => {
@@ -52,6 +54,14 @@ export async function uploadCustomAsset(actor: SetupActor, file: File, rawRole: 
     // Never rendered or offered as a public download. Bounded private reference
     // bytes avoid introducing a second public-media system for PDF input.
     pdfBase64 = bytes.toString('base64');
+  } else if (process.env.APP_ENV === 'preview' && process.env.CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES === 'true') {
+    // Isolated pilot only: bounded private bytes in the existing Preview DB.
+    // No production storage credentials, public upload URLs or ephemeral disk.
+    normalizedBytes = (await normalizeOnboardingImage(file)).normalized;
+    if (normalizedBytes.length > 750000) {
+      throw new SetupError('INVALID', 'This image is too detailed for the site. Try a smaller export.');
+    }
+    imageBase64 = normalizedBytes.toString('base64');
   } else {
     stored = await saveOnboardingMediaFile({ file, role: role === 'reference' ? 'custom_design' : role === 'photo' ? 'gallery' : 'logo', salonId: actor.salonId, siteId: head.workspace.id, revisionId: id, stableItemId: id, uploadAttemptId: id });
     if (stored.byteSize > 750000) {
@@ -59,15 +69,16 @@ export async function uploadCustomAsset(actor: SetupActor, file: File, rawRole: 
       throw new SetupError('INVALID', 'This image is too detailed for the site. Try a smaller export.');
     }
   }
-  const storedBytes = stored ? await readOnboardingMediaFile(stored.storageKey, { salonId: actor.salonId }) : bytes;
+  const storedBytes = stored ? await readOnboardingMediaFile(stored.storageKey, { salonId: actor.salonId }) : normalizedBytes ?? bytes;
+  const byteSize = stored?.byteSize ?? normalizedBytes?.length ?? bytes.length;
   try {
     return await db.transaction(async (tx) => {
       await lockSetupSalon(tx, actor);
       const current = await tx.select({ byteSize: assets.byteSize }).from(assets).where(eq(assets.salonId, actor.salonId));
-      if (current.length >= 24 || current.reduce((sum, a) => sum + a.byteSize, 0) + (stored?.byteSize ?? bytes.length) > 15000000) {
+      if (current.length >= 24 || current.reduce((sum, a) => sum + a.byteSize, 0) + byteSize > 15000000) {
         throw new SetupError('NOT_READY', 'This business has reached its reference storage limit.');
       }
-      const [asset] = await tx.insert(assets).values({ id, salonId: actor.salonId, actorId: actor.adminId, role, name: file.name.replace(/[^\w .-]/gu, '').slice(0, 120) || 'Reference', mimeType: stored?.mimeType ?? 'application/pdf', storageKey: stored?.storageKey ?? null, pdfBase64, byteSize: stored?.byteSize ?? bytes.length, hash: createHash('sha256').update(storedBytes).digest('hex') }).returning();
+      const [asset] = await tx.insert(assets).values({ id, salonId: actor.salonId, actorId: actor.adminId, role, name: file.name.replace(/[^\w .-]/gu, '').slice(0, 120) || 'Reference', mimeType: stored?.mimeType ?? (imageBase64 ? 'image/webp' : 'application/pdf'), storageKey: stored?.storageKey ?? null, pdfBase64, imageBase64, byteSize, hash: createHash('sha256').update(storedBytes).digest('hex') }).returning();
       return { id: asset!.id, name: asset!.name, role: asset!.role, mimeType: asset!.mimeType };
     });
   } catch (e) {
@@ -78,7 +89,7 @@ export async function uploadCustomAsset(actor: SetupActor, file: File, rawRole: 
   }
 }
 export async function assetDataUrl(asset: typeof assets.$inferSelect) {
-  const bytes = asset.storageKey ? await readOnboardingMediaFile(asset.storageKey, { salonId: asset.salonId }) : Buffer.from(asset.pdfBase64!, 'base64');
+  const bytes = asset.storageKey ? await readOnboardingMediaFile(asset.storageKey, { salonId: asset.salonId }) : Buffer.from(asset.imageBase64 ?? asset.pdfBase64!, 'base64');
   if (createHash('sha256').update(bytes).digest('hex') !== asset.hash) {
     throw new SetupError('INVALID', 'A saved image changed or is unavailable. Please upload it again.');
   }

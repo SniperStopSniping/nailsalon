@@ -701,6 +701,27 @@
       "when": 1792022400002,
       "tag": "0100_setup_ai_trial_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1792022400003,
+      "tag": "0101_setup_timestamp_instants",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1792022400004,
+      "tag": "0102_custom_site_private_preview_images",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1792022400005,
+      "tag": "0103_custom_site_asset_storage_choice",
+      "breakpoints": true
     }
   ]
 }

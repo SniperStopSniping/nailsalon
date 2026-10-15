@@ -10,7 +10,7 @@ import { saveCustomSource } from '@/features/custom-sites/artifacts.server';
 import { assetDataUrl, ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
 import { customSiteGenerateSchema, customSiteSourceSchema } from '@/features/custom-sites/contracts';
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
-import { customSitePayload, customSiteRendererOrigin } from '@/features/custom-sites/payload.server';
+import { customSiteRendererOrigin, setupCustomSitePayload } from '@/features/custom-sites/payload.server';
 import { isExplicitServicePriceEdit } from '@/features/custom-sites/price-edit';
 import { db } from '@/libs/DB';
 import { customSiteArtifactSchema as artifacts, customSiteAssetSchema as assets, customSiteGenerationSchema as jobs, setupAiCallSchema as calls } from '@/models/Schema';
@@ -63,12 +63,11 @@ export async function GET(request: Request) {
       return head;
     });
     const document = head.revision.document;
-    const id = document.website.config.customFrontendId;
     const history = await db.select({ id: artifacts.id, source: artifacts.source, createdAt: artifacts.createdAt, assetIds: artifacts.assetIds }).from(artifacts).where(eq(artifacts.salonId, access.actor.salonId)).orderBy(desc(artifacts.createdAt)).limit(30);
     const media = await db.select({ id: assets.id, name: assets.name, role: assets.role, mimeType: assets.mimeType }).from(assets).where(eq(assets.salonId, access.actor.salonId)).orderBy(desc(assets.createdAt));
     const attempts = await db.select({ id: jobs.id, status: jobs.status, phase: jobs.phase, message: jobs.message, artifactId: jobs.artifactId, inputTokens: jobs.inputTokens, outputTokens: jobs.outputTokens, costMicroUsd: jobs.costMicroUsd, createdAt: jobs.createdAt }).from(jobs).where(eq(jobs.salonId, access.actor.salonId)).orderBy(desc(jobs.createdAt)).limit(30);
-    const recoverable = new Set((await db.select({ operationId: calls.operationId }).from(calls).where(and(eq(calls.salonId, access.actor.salonId), eq(calls.validation, 'passed')))).map(call => call.operationId));
-    const payload = id ? await customSitePayload(access.actor.salonId, id, { business: { name: document.business.name, city: document.business.city, address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio ?? '', hours: document.hours }, services: document.services.filter(s => s.priceCents !== null && s.durationMinutes !== null).map(s => ({ id: `setup_preview_${s.id}`, name: s.name, description: s.description, priceCents: s.priceCents!, priceLabel: new Intl.NumberFormat('en-CA', { style: 'currency', currency: document.booking.currency }).format(s.priceCents! / 100), durationMinutes: s.durationMinutes! })), currency: document.booking.currency, preview: true }) : null;
+    const recoverable = new Set((await db.select({ operationId: calls.operationId }).from(calls).where(and(eq(calls.salonId, access.actor.salonId), eq(calls.status, 'completed')))).map(call => call.operationId));
+    const payload = await setupCustomSitePayload(access.actor.salonId, document);
     return Response.json({ head, payload, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });
   } catch (e) {
     return errorResponse(e);

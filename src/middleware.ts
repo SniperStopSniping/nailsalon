@@ -34,6 +34,8 @@ const isProtectedRoute = createRouteMatcher([
 ]);
 
 const isPublicClerkRoute = createRouteMatcher([
+  '/ai-website-test(.*)',
+  '/:locale/ai-website-test(.*)',
   '/join(.*)',
   '/:locale/join(.*)',
 ]);

@@ -5653,8 +5653,8 @@ export const businessSetupWorkspaceSchema = pgTable('business_setup_workspace', 
   baselineHash: text('baseline_hash').notNull(),
   baseline: jsonb('baseline').$type<import('../features/business-setup/contracts').SetupDocument>().notNull(),
   status: text('status').$type<'editing' | 'published'>().notNull().default('editing'),
-  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
 }, table => ({ salonUnique: uniqueIndex('business_setup_workspace_salon_key').on(table.salonId), tenantKey: uniqueIndex('business_setup_workspace_tenant_key').on(table.salonId, table.id) }));
 
 export const businessSetupRevisionSchema = pgTable('business_setup_revision', {
@@ -5666,7 +5666,7 @@ export const businessSetupRevisionSchema = pgTable('business_setup_revision', {
   document: jsonb('document').$type<import('../features/business-setup/contracts').SetupDocument>().notNull(),
   actorId: text('actor_id').notNull(),
   origin: text('origin').notNull(),
-  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
 }, table => ({
   pk: primaryKey({ columns: [table.workspaceId, table.revision] }),
   operationUnique: uniqueIndex('business_setup_revision_operation_key').on(table.workspaceId, table.operationId),
@@ -5680,8 +5680,8 @@ export const businessSetupApprovalSchema = pgTable('business_setup_approval', {
   revision: integer('revision').notNull(),
   manifestHash: text('manifest_hash').notNull(),
   actorId: text('actor_id').notNull(),
-  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
-  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
 }, table => ({ tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade') }));
 
 export const businessSetupPublicationSchema = pgTable('business_setup_publication', {
@@ -5693,7 +5693,7 @@ export const businessSetupPublicationSchema = pgTable('business_setup_publicatio
   approvalId: text('approval_id').notNull(),
   actorId: text('actor_id').notNull(),
   serviceIds: jsonb('service_ids').$type<Record<string, string>>().notNull(),
-  publishedAt: timestamp('published_at', { mode: 'date' }).defaultNow().notNull(),
+  publishedAt: timestamp('published_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
   mediaFinalized: boolean('media_finalized').notNull().default(false),
 }, table => ({
   revisionUnique: uniqueIndex('business_setup_publication_revision_key').on(table.workspaceId, table.revision),
@@ -5715,10 +5715,10 @@ export const businessSetupTurnSchema = pgTable('business_setup_turn', {
   inputTokens: integer('input_tokens'),
   outputTokens: integer('output_tokens'),
   costMicroUsd: integer('cost_micro_usd'),
-  leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date' }).notNull(),
+  leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date', withTimezone: true }).notNull(),
   designRequest: text('design_request'),
   designOperationId: text('design_operation_id'),
-  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
 }, table => ({ tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade') }));
 
 // Generated frontend files are immutable. Only their tenant-checked identity is
@@ -5732,9 +5732,10 @@ export const customSiteAssetSchema = pgTable('custom_site_asset', {
   mimeType: text('mime_type').notNull(),
   storageKey: text('storage_key'),
   pdfBase64: text('pdf_base64'),
+  imageBase64: text('image_base64'),
   byteSize: integer('byte_size').notNull(),
   hash: text('hash').notNull(),
-  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 }, table => ({ tenantKey: uniqueIndex('custom_site_asset_tenant_key').on(table.salonId, table.id) }));
 export const customSiteArtifactSchema = pgTable('custom_site_artifact', {
   id: text('id').primaryKey(),
@@ -5745,7 +5746,7 @@ export const customSiteArtifactSchema = pgTable('custom_site_artifact', {
   assetIds: jsonb('asset_ids').$type<string[]>().notNull(),
   parentId: text('parent_id'),
   operationId: text('operation_id').notNull(),
-  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 }, table => ({ operationKey: uniqueIndex('custom_site_artifact_operation_key').on(table.salonId, table.operationId) }));
 export const customSiteGenerationSchema = pgTable('custom_site_generation', {
   id: text('id').primaryKey(),
@@ -5762,7 +5763,7 @@ export const customSiteGenerationSchema = pgTable('custom_site_generation', {
   reservedMicroUsd: integer('reserved_micro_usd').notNull(),
   request: jsonb('request').$type<import('../features/custom-sites/contracts').CustomSiteGenerateInput>(),
   phase: text('phase').notNull().default('waiting'),
-  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 }, table => ({ tenantIndex: index('custom_site_generation_salon_idx').on(table.salonId, table.createdAt) }));
 
 // One shared ledger across every salon in the isolated trial. Deleting a salon
@@ -5790,5 +5791,5 @@ export const setupAiCallSchema = pgTable('setup_ai_call', {
   status: text('status').$type<'pending' | 'completed' | 'incomplete' | 'failed'>().notNull(),
   rawOutput: text('raw_output'),
   validation: text('validation').notNull().default('unchecked'),
-  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 }, table => ({ requestKey: uniqueIndex('setup_ai_call_request_key').on(table.operationId, table.ordinal) }));

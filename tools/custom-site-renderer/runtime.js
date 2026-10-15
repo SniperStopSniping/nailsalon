@@ -7,7 +7,6 @@
   let worker;
   const root = document.getElementById('site-root');
   const send = data => parent.postMessage({ channel, ...data }, PARENT_ORIGIN);
-  const reportSize = () => send({ type: 'size', height: Math.min(16000, Math.max(500, document.documentElement.scrollHeight)) });
   addEventListener('message', async (event) => {
     if (initialized || event.source !== parent || event.origin !== PARENT_ORIGIN || event.data?.type !== 'initialize') {
       return;
@@ -144,9 +143,7 @@
         send({ type: 'interaction-stopped', reason: 'error' });
       };
     }
-    new ResizeObserver(reportSize).observe(root);
     addEventListener('resize', () => worker?.postMessage({ type: 'resize', id: '', width: innerWidth }));
-    reportSize();
     send({ type: 'rendered' });
   });
   const ready = setInterval(() => {

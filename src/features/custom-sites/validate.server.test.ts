@@ -26,6 +26,15 @@ describe('custom frontend source validation', () => {
     expect(() => validateCustomSource({ ...source, html: `${source.html}<img src="asset:other" alt="Work">` }, new Set(['photo']))).toThrow();
   });
 
+  it('permits bounded image loading hints without allowing new resource URLs', () => {
+    const image = '<img src="asset:photo" alt="Work" loading="lazy" decoding="async" fetchpriority="high">';
+
+    expect(validateCustomSource({ ...source, html: source.html + image }, new Set(['photo'])).html).toContain('loading="lazy"');
+    expect(() => validateCustomSource({ ...source, html: source.html + image.replace('lazy', 'https://evil.invalid') }, new Set(['photo']))).toThrow();
+    expect(() => validateCustomSource({ ...source, html: `${source.html}<div loading="lazy"></div>` }, new Set())).toThrow();
+    expect(() => validateCustomSource({ ...source, html: source.html + image.replace('asset:photo', 'https://evil.invalid/image') }, new Set(['photo']))).toThrow();
+  });
+
   it('rejects missing booking integrations and syntactically invalid interactions', () => {
     expect(() => validateCustomSource({ ...source, html: '<h1>Disconnected site</h1>' }, new Set())).toThrow();
     expect(() => validateCustomSource({ ...source, html: '<div data-luster-services></div><button data-luster-book>Book</button>' }, new Set())).toThrow();

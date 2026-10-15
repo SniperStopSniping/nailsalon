@@ -6,12 +6,15 @@ import { requireAdminSalonForSlug, requireRealSalonOwner } from '@/libs/adminAut
 import { db } from '@/libs/DB';
 import { businessSetupWorkspaceSchema } from '@/models/Schema';
 
+export function setupPreviewTrialEnabled() {
+  return process.env.APP_ENV === 'preview' && process.env.BUSINESS_SETUP_PREVIEW_TRIAL === 'true';
+}
 export function businessSetupEnabled() {
   return process.env.BUSINESS_SETUP_AI_ENABLED === 'true';
 }
 export function setupAiAvailableForSalon(salonId: string) {
   const allowlist = (process.env.BUSINESS_SETUP_SALON_ALLOWLIST ?? '').split(',').map(v => v.trim()).filter(Boolean);
-  return businessSetupEnabled() && allowlist.includes(salonId);
+  return businessSetupEnabled() && (allowlist.includes(salonId) || (setupPreviewTrialEnabled() && /^ai_trial_[a-f0-9]{32}$/u.test(salonId)));
 }
 export async function requireSetupOwner(salonSlug: string) {
   const { salon, error } = await requireAdminSalonForSlug(salonSlug, { persistActiveSalon: false });

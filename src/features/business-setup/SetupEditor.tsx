@@ -175,6 +175,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                 <p className="setup-owner">{message.message}</p>
                 {message.reply && <p className="setup-assistant">{message.reply}</p>}
                 {message.status === 'pending' && <p>Preparing your draft…</p>}
+                {['failed', 'interrupted'].includes(message.status) && <p>This request did not finish. Your saved changes are safe. You can retry or check for a saved design in Website.</p>}
               </div>
             ))}
           </div>

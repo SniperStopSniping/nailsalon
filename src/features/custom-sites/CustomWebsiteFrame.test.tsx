@@ -42,3 +42,19 @@ describe('custom website trusted parent bridge', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Loading your custom website');
   });
 });
+
+describe('custom website browsing viewport', () => {
+  it('does not grow a viewport-height hero in response to document height', () => {
+    const { container } = render(<CustomWebsiteFrame payload={payload} rendererOrigin="https://renderer.example.net" />);
+    const frame = container.querySelector('iframe')!;
+    const initialHeight = frame.style.height;
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'renderer-ready' } }));
+      window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'size', height: 16000 } }));
+    });
+
+    expect(frame.style.height).toBe(initialHeight);
+    expect(Number.parseInt(initialHeight)).toBeLessThanOrEqual(window.innerHeight);
+    expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
+  });
+});

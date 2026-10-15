@@ -130,9 +130,9 @@ export async function resumeCustomSite(actor: SetupActor, operationId: string) {
     throw new SetupError('NOT_READY', 'There is no finished design to apply yet. Your earlier version is safe.');
   }
   if (!job.artifactId) {
-    const [evidence] = await db.select().from(calls).where(and(eq(calls.operationId, job.id), eq(calls.salonId, actor.salonId), eq(calls.validation, 'passed'))).orderBy(desc(calls.ordinal)).limit(1);
+    const [evidence] = await db.select().from(calls).where(and(eq(calls.operationId, job.id), eq(calls.salonId, actor.salonId), eq(calls.status, 'completed'))).orderBy(desc(calls.ordinal)).limit(1);
     if (!evidence?.rawOutput) {
-      throw new SetupError('NOT_READY', 'No validated result is ready to recover. Your earlier design is safe.');
+      throw new SetupError('NOT_READY', 'No complete result is ready to check. Your earlier design is safe.');
     }
     const head = await db.transaction(async (tx) => {
       await lockSetupSalon(tx, actor);
@@ -144,7 +144,13 @@ export async function resumeCustomSite(actor: SetupActor, operationId: string) {
     const priorId = head.revision.document.website.config.customFrontendId;
     const [prior] = priorId && !job.request.startOver ? await db.select().from(artifacts).where(and(eq(artifacts.salonId, actor.salonId), eq(artifacts.id, priorId))) : [];
     const assetIds = [...new Set([...job.request.referenceIds, ...(prior?.assetIds ?? [])])];
-    const artifact = await storeCustomArtifact(actor, { source: customSiteSourceSchema.parse(JSON.parse(evidence.rawOutput)), assetIds, expectedRevision: job.expectedRevision, operationId: job.id });
+    const media = await ownedAssets(db, actor.salonId, assetIds);
+    // A later application version can support a safe attribute previously
+    // rejected. Revalidate the EXACT retained model output, including strict
+    // live bindings, without editing source or paying for another response.
+    // Keep the original call's validation result as historical evidence.
+    const source = validateCustomSource(customSiteSourceSchema.parse(JSON.parse(evidence.rawOutput)), new Set(media.filter(a => a.role !== 'reference' && a.mimeType.startsWith('image/')).map(a => a.id)), true);
+    const artifact = await storeCustomArtifact(actor, { source, assetIds, expectedRevision: job.expectedRevision, operationId: job.id });
     await db.update(jobs).set({ artifactId: artifact.id, status: 'generated', phase: 'applying' }).where(eq(jobs.id, job.id));
   }
   return generateCustomSite(actor, job.request);

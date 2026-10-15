@@ -325,6 +325,32 @@ describe('private multimodal design references', () => {
     expect(createResponse).not.toHaveBeenCalled();
   });
 
+  it('keeps normalized Preview images private, tenant-owned and independent of local disk', async () => {
+    const actor = await fixture();
+    const other = await fixture();
+    vi.stubEnv('APP_ENV', 'preview');
+    vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', 'true');
+    try {
+      const png = await sharp({ create: { width: 120, height: 160, channels: 3, background: '#eecbdb' } }).png().toBuffer();
+      const uploaded = await uploadCustomAsset(actor, new File([new Uint8Array(png)], 'salon.png', { type: 'image/png' }), 'photo');
+      const [asset] = await ownedAssets(database as any, actor.salonId, [uploaded.id]);
+
+      expect(asset!.storageKey).toBeNull();
+      expect(asset!.pdfBase64).toBeNull();
+      expect(asset!.imageBase64).toBeTruthy();
+      expect(asset!.mimeType).toBe('image/webp');
+      await expect(ownedAssets(database as any, other.salonId, [uploaded.id])).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+      const { assetDataUrl } = await import('@/features/custom-sites/assets.server');
+
+      expect(await assetDataUrl(asset!)).toMatch(/^data:image\/webp;base64,/u);
+      await expect(assetDataUrl({ ...asset!, hash: 'changed' })).rejects.toThrow('changed');
+    } finally {
+      vi.stubEnv('APP_ENV', 'development');
+      vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', 'false');
+    }
+  });
+
   it('stores validated images and PDFs privately and sends actual multimodal parts to the provider', async () => {
     const actor = await fixture();
     const other = await fixture();
@@ -376,7 +402,7 @@ describe('private multimodal design references', () => {
 });
 
 describe('metered owner generation and automatic repair', () => {
-  const response = (source: unknown, usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | null = { inputTokens: 2000, outputTokens: 1000, cachedInputTokens: 0 }) => ({ status: 'completed', usage, items: [{ type: 'message', text: JSON.stringify(source) }] });
+  const response = (source: unknown, usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | null = { inputTokens: 2000, outputTokens: 1000, cachedInputTokens: 0 }) => ({ status: 'completed' as const, usage, items: [{ type: 'message' as const, text: JSON.stringify(source) }] });
 
   it('retains invalid first output and the automatic repair, then resumes without another call', async () => {
     const actor = await fixture();
@@ -409,6 +435,9 @@ describe('metered owner generation and automatic repair', () => {
     expect((await openSetup(actor)).revision.revision).toBe(2);
     expect(await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.salonId, actor.salonId))).toHaveLength(0);
     expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId))).toHaveLength(2);
+    await expect(resumeCustomSite(actor, operationId)).rejects.toThrow();
+    expect((await openSetup(actor)).revision.revision).toBe(2);
+    expect(createResponse).toHaveBeenCalledTimes(2);
   });
 
   it('recovers validated provider output after a source-save failure without paying again', async () => {
@@ -423,6 +452,10 @@ describe('metered owner generation and automatic repair', () => {
       failure.mockRestore();
     }
 
+    // A prior validator may have rejected something now supported. Retain
+    // that historical verdict while checking the unchanged output again.
+    await database.update(schema.setupAiCallSchema).set({ validation: 'Earlier application validation rejected this result.' }).where(eq(schema.setupAiCallSchema.operationId, operationId));
+
     await expect(resumeCustomSite(other, operationId)).rejects.toMatchObject({ code: 'NOT_READY' });
 
     const recovered = await resumeCustomSite(actor, operationId);
@@ -431,6 +464,7 @@ describe('metered owner generation and automatic repair', () => {
     expect(recovered.artifactId).toBeTruthy();
     expect(createResponse).toHaveBeenCalledTimes(1);
     expect((await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId)))).toHaveLength(1);
+    expect((await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId)))[0]?.validation).toBe('Earlier application validation rejected this result.');
   });
 
   it('changes a canonical price through conversation without rewriting the custom source', async () => {

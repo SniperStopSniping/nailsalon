@@ -199,7 +199,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                         await post({ action: 'resume', operationId: attempt.id });
                       })}
                     >
-                      Apply saved result without generating again
+                      Check and apply saved result without generating again
                     </button>
                   )}
                   <GenerationEvidence endpoint={endpoint} operationId={attempt.id} />
@@ -225,6 +225,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           <div role="group" aria-label="Preview size">
             <button type="button" aria-pressed={previewSize === 'desktop'} onClick={() => setPreviewSize('desktop')}>Desktop preview</button>
             <button type="button" aria-pressed={previewSize === 'mobile'} onClick={() => setPreviewSize('mobile')}>Mobile preview</button>
+            <a href={`/admin/business-setup/design-preview/${encodeURIComponent(salonSlug)}?revision=${revision}`} target="_blank" rel="noreferrer">Open full preview</a>
           </div>
           {previewSize === 'desktop' && <p>Scroll sideways to inspect the full desktop layout.</p>}
           <div style={{ width: '100%', overflowX: 'auto' }}>

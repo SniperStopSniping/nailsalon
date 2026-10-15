@@ -12,6 +12,7 @@ import * as schema from '@/models/Schema';
 
 import { runSetupModel } from './ai-trial.server';
 import { CLOSED_HOURS } from './contracts';
+import { runSetupConversation } from './conversation.server';
 import { approveSetup, editSetup, openSetup, reviewSetup } from './drafts.server';
 import { publishSetup } from './publish.server';
 
@@ -67,6 +68,29 @@ async function fixture() {
 }
 
 describe.skipIf(!target)('setup publication on attested disposable PostgreSQL', () => {
+  it('accepts a fresh owner conversation when PostgreSQL uses a non-UTC timezone', async () => {
+    const connection = await pool.connect();
+    const normal = holder.db;
+    try {
+      await connection.query('SET TIME ZONE \'America/Toronto\'');
+      holder.db = drizzle(connection, { schema });
+      const { actor } = await fixture();
+      const operationId = randomUUID();
+      const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 100, cachedInputTokens: 0, outputTokens: 50 }, items: [{ type: 'message', text: JSON.stringify({ reply: 'Your draft is ready to continue.', operationsJson: '[]', designRequest: null }) }] });
+      await runSetupConversation(actor, { expectedRevision: 2, operationId, scope: 'business_and_website', message: 'Continue my saved setup.' }, { createResponse });
+      const [turn] = await drizzle(connection, { schema }).select().from(schema.businessSetupTurnSchema).where(eq(schema.businessSetupTurnSchema.id, operationId));
+
+      expect(createResponse).toHaveBeenCalledTimes(1);
+      expect(turn?.status).toBe('completed');
+      expect(Math.abs(Date.now() - turn!.createdAt.getTime())).toBeLessThan(10000);
+      expect(turn!.leaseExpiresAt.getTime() - turn!.createdAt.getTime()).toBeGreaterThan(50000);
+    } finally {
+      holder.db = normal;
+      await connection.query('RESET TIME ZONE');
+      connection.release();
+    }
+  });
+
   it('serializes duplicate concurrent publication into one receipt and one service', async () => {
     const { actor, input } = await fixture();
     const results = await Promise.all([publishSetup(actor, input), publishSetup(actor, input)]);

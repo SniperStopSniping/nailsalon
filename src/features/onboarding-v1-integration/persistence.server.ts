@@ -615,10 +615,10 @@ async function resolveIdentityAdmin(
   return owner;
 }
 
-async function ensureIdentityAdmin(
+export async function ensureOnboardingIdentityAdmin(
   database: QueryDatabase,
   identity: AuthenticatedOnboardingIdentity,
-  snapshot: OnboardingPersistedSnapshot,
+  fallbackName: string,
 ): Promise<IdentityAdmin> {
   const existing = await resolveIdentityAdmin(database, identity);
   if (existing) {
@@ -654,7 +654,7 @@ async function ensureIdentityAdmin(
       email: identity.email.trim().toLowerCase(),
       emailVerifiedAt: new Date(),
       id: crypto.randomUUID(),
-      name: identity.name?.trim() || ownerDisplayName(snapshot),
+      name: identity.name?.trim() || fallbackName,
       // `admin_user.phone_e164` is a legacy authentication identifier. Never
       // promote an owner-entered salon/contact number into that identity
       // boundary; only Clerk-verified account data may populate it.
@@ -1967,7 +1967,7 @@ async function claimOnboardingDraftUnlocked(
           salonSlug = renamed.slug;
         }
       }
-      admin = await ensureIdentityAdmin(tx as QueryDatabase, identity, input.snapshot);
+      admin = await ensureOnboardingIdentityAdmin(tx as QueryDatabase, identity, ownerDisplayName(input.snapshot));
       if (!preserveExistingProductData) {
         technicianId = await syncExistingBusinessProfile({
           database: tx as QueryDatabase,
@@ -1978,7 +1978,7 @@ async function claimOnboardingDraftUnlocked(
         });
       }
     } else {
-      admin = await ensureIdentityAdmin(tx as QueryDatabase, identity, input.snapshot);
+      admin = await ensureOnboardingIdentityAdmin(tx as QueryDatabase, identity, ownerDisplayName(input.snapshot));
       const created = await createBusiness(tx as QueryDatabase, admin, identity, input.snapshot);
       salonId = created.salonId;
       salonSlug = created.salonSlug;

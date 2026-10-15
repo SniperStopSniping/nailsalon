@@ -1,5 +1,9 @@
 import 'server-only';
 
+import { getDomain } from 'tldts';
+
+import type { SetupDocument } from '@/features/business-setup/contracts';
+import { WEEKDAYS } from '@/features/business-setup/contracts';
 import { db } from '@/libs/DB';
 
 import { assertCustomArtifact } from './artifacts.server';
@@ -23,7 +27,7 @@ export function customSiteRendererOrigin() {
     const local = process.env.NODE_ENV !== 'production' && render.hostname === '127.0.0.1' && parent.hostname === 'localhost' && render.protocol === 'http:';
     // Pilot cannot be hosted until its separate site has been reviewed. A
     // subdomain on the administration cookie domain is explicitly insufficient.
-    if (!local && (render.protocol !== 'https:' || process.env.CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED !== 'true' || render.hostname.split('.').slice(-2).join('.') === parent.hostname.split('.').slice(-2).join('.'))) {
+    if (!local && (render.protocol !== 'https:' || process.env.CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED !== 'true' || !getDomain(render.hostname, { allowPrivateDomains: true }) || !getDomain(parent.hostname, { allowPrivateDomains: true }) || getDomain(render.hostname, { allowPrivateDomains: true }) === getDomain(parent.hostname, { allowPrivateDomains: true }))) {
       return null;
     }
     return render.origin;
@@ -38,6 +42,23 @@ export async function customSitePayload(salonId: string, artifactId: string, dat
   for (const asset of media.filter(a => a.role !== 'reference' && used.has(a.id))) {
     images[asset.id] = await assetDataUrl(asset);
   }
-  const hoursLabel = Object.entries(data.business.hours).map(([day, hours]) => `${day[0]!.toUpperCase()}${day.slice(1)}: ${hours ? `${hours.open}–${hours.close}` : 'Closed'}`).join(' · ');
+  const hoursLabel = WEEKDAYS.map((day) => {
+    const hours = data.business.hours[day];
+    return `${day[0]!.toUpperCase()}${day.slice(1)}: ${hours ? `${hours.open}–${hours.close}` : 'Closed'}`;
+  }).join(' · ');
   return { source: artifact.source, data: { ...data, business: { ...data.business, hoursLabel } }, images };
+}
+
+/** Shared by the owner studio and its full-page authenticated preview. */
+export function setupCustomSitePayload(salonId: string, document: SetupDocument) {
+  const id = document.website.config.customFrontendId;
+  if (!id) {
+    return null;
+  }
+  return customSitePayload(salonId, id, {
+    business: { name: document.business.name, city: document.business.city, address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio ?? '', hours: document.hours },
+    services: document.services.filter(s => s.priceCents !== null && s.durationMinutes !== null).map(s => ({ id: `setup_preview_${s.id}`, name: s.name, description: s.description, priceCents: s.priceCents!, priceLabel: new Intl.NumberFormat('en-CA', { style: 'currency', currency: document.booking.currency }).format(s.priceCents! / 100), durationMinutes: s.durationMinutes! })),
+    currency: document.booking.currency,
+    preview: true,
+  });
 }

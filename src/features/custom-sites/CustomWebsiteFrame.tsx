@@ -8,11 +8,19 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
   const frame = useRef<HTMLIFrameElement>(null);
   const channelRef = useRef<string | null>(null);
   const rendered = useRef(false);
-  const [height, setHeight] = useState(1000);
+  const [height, setHeight] = useState(800);
   const [status, setStatus] = useState('Loading your custom website…');
   const bookingHref = !payload.data.preview && bookingPath?.startsWith('/') && !bookingPath.startsWith('//')
     ? `${bookingPath}${bookingPath.includes('?') ? '&' : '?'}nativeBooking=1`
     : null;
+  useEffect(() => {
+    // Keep the browsing viewport independent of document content. Expanding an
+    // iframe to scrollHeight makes 100vh heroes recursively grow on every resize.
+    const resize = () => setHeight(Math.max(500, window.innerHeight - 48));
+    resize();
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
   useEffect(() => {
     const channel = channelRef.current ?? crypto.randomUUID();
     channelRef.current = channel;
@@ -37,11 +45,6 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
         return;
       }
       switch (event.data.type) {
-        case 'size':
-          if (Number.isFinite(event.data.height)) {
-            setHeight(Math.max(500, Math.min(16000, event.data.height)));
-          }
-          break;
         case 'rendered': window.clearTimeout(slow);
           rendered.current = true;
           setStatus('');

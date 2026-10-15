@@ -54,3 +54,15 @@ PDF parser isolation, immutable asset delivery/retention operations, sandbox
 browser compatibility, rendered accessibility/fidelity gates and verified isolated
 hosting. Browser workers limit authority, but are not an operating-system CPU or
 memory quota. Do not represent this pilot as production-ready.
+
+Private hosted pilot: `api/renderer.mjs` and the local HTTP adapter import the
+same handler/runtime. Deploy this directory alone as a separate Vercel project,
+Preview target, with only `CUSTOM_SITE_PARENT_ORIGIN` set to the exact owner test
+alias. Verify CSP and absence of cookies before enabling the application origin
+flag. No database, AI key or application packages belong in this project. The
+application uses the Public Suffix List (including private suffixes) to reject
+shared cookie sites while allowing separate `*.vercel.app` tenants.
+
+The iframe retains a stable viewport and scrolls its document internally. Never
+resize it to its own scrollHeight: custom viewport-height heroes then recursively
+grow, especially on mobile.

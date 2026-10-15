@@ -1,0 +1,7 @@
+{
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "",
+  "rewrites": [{ "source": "/renderer", "destination": "/api/renderer" }],
+  "functions": { "api/renderer.mjs": { "includeFiles": "runtime.js" } }
+}
