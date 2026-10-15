@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,6 +35,9 @@ vi.mock('@/components/staff', () => ({
 vi.mock('@/components/staff/appointments/AppointmentWorkflowDialogs', () => ({
   AppointmentWorkflowDialogs: () => <div>workflow dialogs</div>,
 }));
+
+vi.mock('@/components/admin/LusterClientSms', () => ({ LusterClientSms: () => null }));
+vi.mock('@/components/appointments/ReviewRequestAction', () => ({ ReviewRequestAction: () => null }));
 
 describe('StaffAppointmentsPage', () => {
   const getLocalDateKey = (date: Date) => {
@@ -102,5 +105,77 @@ describe('StaffAppointmentsPage', () => {
 
     expect(await screen.findByText('Day view (1)')).toBeInTheDocument();
     expect(screen.getByText('My calendar')).toBeInTheDocument();
+  });
+
+  it('lets staff confirm an early report and keeps the sharing acknowledgement visible', async () => {
+    useUserMock.mockReturnValue({ user: { id: 'user_1' }, isLoaded: true });
+    const startTime = new Date(Date.now() + 30 * 60_000).toISOString();
+    const appointment = {
+      id: 'appt_1',
+      salonId: 'salon_1',
+      salonSlug: 'salon-a',
+      salonName: 'Salon A',
+      timeZone: 'America/Toronto',
+      clientName: 'Ava',
+      clientPhone: '4165551234',
+      technicianId: 'tech_1',
+      locationId: null,
+      locationName: null,
+      status: 'confirmed',
+      startTime,
+      endTime: new Date(Date.now() + 90 * 60_000).toISOString(),
+      totalPrice: 6500,
+      totalDurationMinutes: 60,
+      bufferMinutes: 0,
+      slotIntervalMinutes: 15,
+      isLocked: false,
+      lockedAt: null,
+      paymentStatus: 'pending',
+      baseServiceId: 'srv_1',
+      baseServiceName: 'Gel Manicure',
+      discountType: null,
+      discountAmountCents: 0,
+      notes: null,
+      techNotes: null,
+      services: [{ id: 'srv_1', name: 'Gel Manicure' }],
+      photos: [],
+    };
+    const detail = {
+      appointment,
+      client: null,
+      location: null,
+      services: [{ id: 'srv_1', name: 'Gel Manicure', category: 'manicure', priceAtBooking: 6500, durationAtBooking: 60, isBaseService: true }],
+      addOns: [],
+      serviceOptions: [],
+      technicianOptions: [{ id: 'tech_1', name: 'Taylor' }],
+      financial: { state: 'under_review' },
+      permissions: { canMove: false, canChangeService: false, canCancel: true, canMarkCompleted: false, canStart: true, canConfirm: false, canDecline: false, canMarkNoShow: true, canReassignTechnician: false },
+      warnings: [],
+      communications: [],
+    };
+    let report: unknown;
+    fetchMock.mockImplementation(async (url: string, options?: RequestInit) => {
+      if (url.endsWith('/cancel')) {
+        report = JSON.parse(String(options?.body));
+        appointment.status = 'no_show';
+        return Response.json({ data: { appointment, noShowSharing: 'shared' } });
+      }
+      if (url.endsWith('/manage')) {
+        return Response.json({ data: detail });
+      }
+      return Response.json({ data: { appointments: [appointment] } });
+    });
+    render(<StaffAppointmentsPage />);
+    fireEvent.click(await screen.findByTestId('appointment-block-appt_1'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Details Show', exact: true }));
+    fireEvent.click(await screen.findByTestId('appointment-sheet-no-show'));
+
+    expect(screen.getByRole('radio', { name: /Customer did not attend/ })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('radio', { name: /Customer confirmed/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm no-show' }));
+
+    expect(await screen.findByText(/now shared with participating/)).toBeVisible();
+    expect(report).toEqual({ cancelReason: 'no_show', noShowReport: { reason: 'confirmed_nonattendance' } });
   });
 });
