@@ -25,6 +25,7 @@ import { resolveDepositCredit } from '@/libs/depositCredit';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
 import { recordNextVisitEvent, resolveReservedNextVisitDiscount } from '@/libs/nextVisitOffer.server';
+import { isNoShowWindowOpen } from '@/libs/noShowReporting';
 import { getLocationById, getTechnicianById, getTechniciansBySalonId } from '@/libs/queries';
 import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import {
@@ -442,7 +443,7 @@ function buildPermissions(
     canDecline: appointment.status === 'pending'
       && appointment.requestExpiresAt !== null
       && !appointment.lockedAt,
-    canMarkNoShow: ['pending', 'confirmed', 'in_progress'].includes(appointment.status),
+    canMarkNoShow: ['pending', 'confirmed', 'in_progress'].includes(appointment.status) && !appointment.deletedAt && isNoShowWindowOpen(appointment.startTime),
     canReassignTechnician: canReassignTechnician && !terminal && !isLocked,
   };
 }

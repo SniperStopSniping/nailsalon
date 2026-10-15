@@ -126,6 +126,7 @@ const {
 });
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/libs/noShowReporting.server', () => ({ auditNoShowReportInTx: vi.fn(async () => {}), noShowSharingInTx: vi.fn(async () => 'not_shared') }));
 vi.mock('@/libs/staffApiGuards', () => ({ requireStaffAppointmentAccess }));
 vi.mock('@/libs/appointmentAudit', () => ({
   logAppointmentChange,
@@ -195,7 +196,7 @@ function transitionRequest(to: string) {
   return new Request('http://localhost/api/appointments/appt_1/transition', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ to }),
+    body: JSON.stringify({ to, ...(to === 'no_show' ? { noShowReport: { reason: 'did_not_attend' } } : {}) }),
   });
 }
 

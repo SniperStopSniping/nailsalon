@@ -13,7 +13,7 @@ const headers = { 'Cache-Control': 'private, no-store' };
 const querySchema = z.object({
   salon: z.string().trim().min(1).max(100).optional(),
   page: z.coerce.number().int().min(1).max(10000).default(1),
-  state: z.enum(['all', 'counted', 'not_shared', 'suppressed', 'revoked', 'expired']).default('all'),
+  state: z.enum(['all', 'counted', 'not_shared', 'suppressed', 'revoked', 'expired', 'disputed']).default('all'),
 }).strict();
 
 function maskPhone(phone: string): string {
@@ -60,7 +60,10 @@ export async function GET(request: Request): Promise<Response> {
   if (salon) {
     conditions.push(or(ilike(salonSchema.name, `%${salon}%`), ilike(salonSchema.slug, `%${salon}%`))!);
   }
-  if (state === 'counted') {
+  if (state === 'disputed') {
+    conditions.push(eq(appointmentSchema.status, 'no_show'));
+    conditions.push(sql`(select a.new_value->>'noShowReview' from appointment_audit_log a where a.salon_id = ${appointmentSchema.salonId} and a.appointment_id = ${appointmentSchema.id} and a.new_value->>'noShowReview' is not null order by a.created_at desc, a.id desc limit 1) = 'requested'`);
+  } else if (state === 'counted') {
     conditions.push(platformActive
       ? and(eq(networkNoShowEventSchema.state, 'active'), sql`${networkNoShowEventSchema.expiresAt} > ${now}`)!
       : sql`false`);
@@ -85,6 +88,8 @@ export async function GET(request: Request): Promise<Response> {
         .innerJoin(salonSchema, eq(appointmentSchema.salonId, salonSchema.id))
         .leftJoin(networkNoShowEventSchema, joinEvent).where(where),
       db.select({
+        reviewReason: sql<string | null>`(select a.reason from appointment_audit_log a where a.salon_id = ${appointmentSchema.salonId} and a.appointment_id = ${appointmentSchema.id} and a.new_value->>'noShowReview' = 'requested' order by a.created_at desc limit 1)`,
+        reviewState: sql<string | null>`(select a.new_value->>'noShowReview' from appointment_audit_log a where a.salon_id = ${appointmentSchema.salonId} and a.appointment_id = ${appointmentSchema.id} and a.new_value->>'noShowReview' is not null order by a.created_at desc, a.id desc limit 1)`,
         appointmentId: appointmentSchema.id,
         salonId: appointmentSchema.salonId,
         salonName: salonSchema.name,

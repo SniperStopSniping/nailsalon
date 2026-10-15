@@ -4,6 +4,7 @@ import { Phone } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { NoShowReviewRequest } from '@/components/appointments/NoShowReviewRequest';
 import styles from '@/components/customer-booking/customer-booking.module.css';
 
 /**
@@ -54,8 +55,11 @@ export function ManageAppointmentActions({ token, rescheduleUrl, appointmentStat
   if (status === 'cancelled') {
     return <div role="status" className={styles.notice}>This appointment is cancelled.</div>;
   }
+  if (appointmentStatus === 'no_show') {
+    return <NoShowReviewRequest token={token} />;
+  }
   if (!isActive && appointmentStatus) {
-    const label = appointmentStatus === 'completed' ? 'This appointment is completed.' : appointmentStatus === 'in_progress' ? 'Your appointment is in progress.' : appointmentStatus === 'no_show' ? 'This appointment was marked as a no-show.' : 'This appointment is awaiting payment.';
+    const label = appointmentStatus === 'completed' ? 'This appointment is completed.' : appointmentStatus === 'in_progress' ? 'Your appointment is in progress.' : 'This appointment is awaiting payment.';
     return <p className={styles.notice}>{label}</p>;
   }
   return (

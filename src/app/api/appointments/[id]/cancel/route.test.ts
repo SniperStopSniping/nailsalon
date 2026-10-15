@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/libs/noShowReporting.server', () => ({ auditNoShowReportInTx: vi.fn(async () => {}), noShowSharingInTx: vi.fn(async () => 'not_shared') }));
 
 import { materializeAppointmentLifecycle } from '@/libs/communicationMaterialization';
 
@@ -44,6 +45,7 @@ const {
       status: string;
       cancelReason: string | null;
       notes: string | null;
+      startTime: Date;
       updatedAt: Date;
     }>,
     rewardRows: [] as Array<{
@@ -185,6 +187,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       id: 'appt_1',
       salonId: 'salon_1',
       status: 'confirmed',
+      startTime: new Date('2020-01-01T15:00:00.000Z'),
       cancelReason: null,
       notes: null,
       updatedAt: new Date('2026-07-17T15:00:00.000Z'),
@@ -257,7 +260,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       new Request('http://localhost/api/appointments/appt_1/cancel', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cancelReason: 'no_show' }),
+        body: JSON.stringify({ cancelReason: 'no_show', noShowReport: { reason: 'did_not_attend' } }),
       }),
       { params: Promise.resolve({ id: 'appt_1' }) },
     );
@@ -337,6 +340,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     requireAppointmentManagerAccess.mockResolvedValue({
       ok: true,
       actorRole: 'admin',
+      admin: { id: 'owner_1' },
       appointment: {
         id: 'appt_1',
         salonId: 'salon_1',
@@ -354,7 +358,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       new Request('http://localhost/api/appointments/appt_1/cancel', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cancelReason: 'no_show' }),
+        body: JSON.stringify({ cancelReason: 'no_show', noShowReport: { reason: 'did_not_attend' } }),
       }),
       { params: Promise.resolve({ id: 'appt_1' }) },
     );
@@ -384,6 +388,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     requireAppointmentManagerAccess.mockResolvedValue({
       ok: true,
       actorRole: 'admin',
+      admin: { id: 'owner_1' },
       appointment: {
         id: 'appt_1',
         salonId: 'salon_1',
@@ -490,6 +495,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     requireAppointmentManagerAccess.mockResolvedValue({
       ok: true,
       actorRole: 'admin',
+      admin: { id: 'owner_1' },
       appointment: {
         id: 'appt_1',
         salonId: 'salon_1',
@@ -546,6 +552,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     requireAppointmentManagerAccess.mockResolvedValue({
       ok: true,
       actorRole: 'admin',
+      admin: { id: 'owner_1' },
       appointment: {
         id: 'appt_1',
         salonId: 'salon_1',
@@ -595,6 +602,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     requireAppointmentManagerAccess.mockResolvedValue({
       ok: true,
       actorRole: 'admin',
+      admin: { id: 'owner_1' },
       appointment: {
         id: 'appt_1',
         salonId: 'salon_1',

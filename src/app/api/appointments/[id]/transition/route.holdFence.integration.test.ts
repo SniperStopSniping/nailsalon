@@ -19,7 +19,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -44,6 +44,18 @@ vi.mock('@/libs/staffApiGuards', () => ({
 vi.mock('@/libs/appointmentAudit', () => ({
   logAppointmentChange: vi.fn(async () => {}),
   logAppointmentLocked: vi.fn(async () => {}),
+  buildAppointmentAuditRow: vi.fn((input: Record<string, unknown>) => ({
+    id: `audit_${crypto.randomUUID()}`,
+    appointmentId: input.appointmentId,
+    salonId: input.salonId,
+    action: input.action,
+    performedBy: input.performedBy,
+    performedByRole: input.performedByRole,
+    performedByName: input.performedByName ?? null,
+    previousValue: input.previousValue ?? null,
+    newValue: input.newValue ?? null,
+    reason: input.reason ?? null,
+  })),
 }));
 
 vi.mock('@/libs/integrationOutbox', () => ({
@@ -97,7 +109,10 @@ function transitionRequest(to: string) {
   return new Request(`http://localhost/api/appointments/${APPT_ID}/transition`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ to }),
+    body: JSON.stringify({
+      to,
+      ...(to === 'no_show' ? { noShowReport: { reason: 'did_not_attend' } } : {}),
+    }),
   });
 }
 
@@ -160,9 +175,16 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  // Keep the reward/hold assertions on the post-appointment report path.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(END.getTime() + 30 * 60_000));
   await db.delete(schema.appointmentDepositSchema);
   await db.delete(schema.rewardSchema);
   await db.delete(schema.appointmentSchema);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 afterAll(async () => {
