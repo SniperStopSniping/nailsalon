@@ -73,6 +73,15 @@ export type SetupDocument = {
     content: BookingPageContentSide;
   };
 };
+/** Essentials for a useful first design; service approval is a later publish gate. */
+export function missingDesignDetails(draft: SetupDocument): string[] {
+  return [
+    !draft.business.name.trim() && 'business name',
+    !draft.business.city.trim() && 'city or area',
+    !Object.values(draft.hours).some(Boolean) && 'opening hours',
+    !draft.services.some(service => service.priceCents !== null && service.durationMinutes !== null) && 'a service with its price and appointment length',
+  ].filter((item): item is string => Boolean(item));
+}
 export type SetupChange = {
   path: string;
   before: unknown;

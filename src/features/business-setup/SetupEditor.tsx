@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { CustomDesignStudio } from '@/features/custom-sites/CustomDesignStudio';
 
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
-import { WEEKDAYS } from './contracts';
+import { missingDesignDetails, WEEKDAYS } from './contracts';
 
 type Head = {
   workspace: {
@@ -74,6 +74,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
   const [review, setReview] = useState<SetupReview | null>(null);
   const [published, setPublished] = useState(false);
   const [includeBusiness, setIncludeBusiness] = useState(!existingSalon);
+  const [selectedDesignAssets, setSelectedDesignAssets] = useState<string[]>([]);
   const customFrontendId = head?.revision.document.website.config.customFrontendId;
   useEffect(() => {
     if (customFrontendId) {
@@ -191,6 +192,13 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
           >
             Upload an image
           </button>
+          {selectedDesignAssets.length > 0 && (
+            <p role="status">
+              {selectedDesignAssets.length}
+              {' '}
+              uploaded image(s) selected for your next design request. Tell Luster what you like about them.
+            </p>
+          )}
           {(existingSalon || head?.revision.document.website.config.customFrontendId) && (
             <label className="setup-scope">
               <input type="checkbox" checked={includeBusiness} onChange={e => setIncludeBusiness(e.target.checked)} />
@@ -205,7 +213,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
             }
             void run(async () => {
               if (head.revision.document.website.config.customFrontendId && !includeBusiness) {
-                const response = await fetch(`/api/admin/custom-sites?salonSlug=${encodeURIComponent(salonSlug)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'generate', input: { expectedRevision: head.revision.revision, operationId: crypto.randomUUID(), message: text, referenceIds: [], startOver: false } }) });
+                const response = await fetch(`/api/admin/custom-sites?salonSlug=${encodeURIComponent(salonSlug)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'generate', input: { expectedRevision: head.revision.revision, operationId: crypto.randomUUID(), message: text, referenceIds: selectedDesignAssets, startOver: false } }) });
                 const result = await response.json();
                 if (!response.ok) {
                   throw new Error(result.error ?? 'Your design could not be updated.');
@@ -219,7 +227,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               const result = await call<{
                 head: Head;
                 reply: string;
-              }>({ action: 'message', message: { message: text, operationId: crypto.randomUUID(), expectedRevision: head.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website' } });
+              }>({ action: 'message', message: { message: text, operationId: crypto.randomUUID(), expectedRevision: head.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: selectedDesignAssets } });
               setHead(result.head);
               setText('');
               setReview(null);
@@ -243,6 +251,13 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               artifactId={head.revision.document.website.config.customFrontendId}
               disabled={published || busy}
               aiEnabled={aiEnabled}
+              selected={selectedDesignAssets}
+              setSelected={setSelectedDesignAssets}
+              missingDetails={missingDesignDetails(head.revision.document)}
+              onContinueConversation={() => {
+                setTab('chat');
+                window.requestAnimationFrame(() => document.getElementById('setup-message')?.focus());
+              }}
               onSaved={async () => {
                 setReview(null);
                 await refresh();

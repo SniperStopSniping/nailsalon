@@ -298,6 +298,44 @@ describe('custom frontend shared draft integration', () => {
 });
 
 describe('private multimodal design references', () => {
+  it('passes an uploaded reference from owner conversation into actual design generation', async () => {
+    const actor = await fixture();
+    const png = await sharp({ create: { width: 120, height: 160, channels: 3, background: '#eecbdb' } }).png().toBuffer();
+    const image = await uploadCustomAsset(actor, new File([new Uint8Array(png)], 'inspiration.png', { type: 'image/png' }), 'reference');
+    const createResponse = vi.fn()
+      .mockResolvedValueOnce({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify({ reply: 'I will use your uploaded reference.', operationsJson: '[]', designRequest: 'Recreate the selected pink collage reference using my business.' }) }] })
+      .mockResolvedValueOnce({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
+    const input = { expectedRevision: 2, operationId: randomUUID(), scope: 'business_and_website', message: 'Create my website from the image I uploaded.', referenceIds: [image.id] };
+    const result = await runSetupConversation(actor, input, { createResponse });
+
+    expect(result.head.revision.revision).toBe(3);
+    expect(createResponse).toHaveBeenCalledTimes(2);
+
+    const request = createResponse.mock.calls[1]![0];
+
+    expect(request.input.at(-1).content.some((part: any) => part.type === 'input_image' && part.image_url.startsWith('data:image/webp;base64,'))).toBe(true);
+
+    const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, result.head.revision.document.website.config.customFrontendId!));
+
+    expect(artifact!.assetIds).toContain(image.id);
+
+    await runSetupConversation(actor, input, { createResponse });
+
+    expect(createResponse).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects another salon reference in conversation before any paid provider call', async () => {
+    const actor = await fixture();
+    const other = await fixture();
+    const png = await sharp({ create: { width: 100, height: 100, channels: 3, background: '#eecbdb' } }).png().toBuffer();
+    const image = await uploadCustomAsset(other, new File([new Uint8Array(png)], 'private.png', { type: 'image/png' }), 'reference');
+    const createResponse = vi.fn();
+
+    await expect(runSetupConversation(actor, { expectedRevision: 2, operationId: randomUUID(), scope: 'business_and_website', message: 'Use this picture.', referenceIds: [image.id] }, { createResponse })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(createResponse).not.toHaveBeenCalled();
+    expect((await openSetup(actor)).revision.revision).toBe(2);
+  });
+
   it('keeps removed photographs out of public payloads while retaining private source history', async () => {
     const actor = await fixture();
     const bytes = await sharp({ create: { width: 100, height: 100, channels: 3, background: '#ac9481' } }).png().toBuffer();

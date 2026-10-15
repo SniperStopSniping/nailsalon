@@ -1,0 +1,75 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
+import { CLOSED_HOURS } from './contracts';
+import { SetupEditor } from './SetupEditor';
+
+vi.mock('@/features/custom-sites/CustomWebsiteFrame', () => ({ CustomWebsiteFrame: () => <div>Isolated preview</div> }));
+const reference = { id: '120fb904-9319-48f0-89e9-0e5cd013c1ec', name: 'my-reference.png', role: 'reference', mimeType: 'image/png' };
+let assets: typeof reference[];
+let requests: any[];
+let document: any;
+const head = () => ({ workspace: { status: 'editing' }, revision: { revision: 1, document }, messages: [] });
+
+beforeEach(() => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
+  assets = [];
+  requests = [];
+  document = {
+    business: { name: 'Studio', city: 'Toronto', exactAddress: '', workMode: 'solo', homeBased: true, locationDisplayMode: 'city_only' },
+    hours: { ...CLOSED_HOURS, monday: { open: '09:00', close: '17:00' } },
+    booking: { currency: 'CAD', timezone: 'America/Toronto', minimumNoticeMinutes: 120, bufferMinutes: 0 },
+    services: [{ id: 'draft_gel', name: 'Gel', priceCents: 5000, durationMinutes: 60, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, confirmed: false }],
+    website: { config: {}, content: {} },
+  };
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const custom = url.startsWith('/api/admin/custom-sites');
+    if (options?.body instanceof FormData) {
+      assets = [reference];
+      return { ok: true, json: async () => ({ asset: reference }) };
+    }
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request) {
+      requests.push(request);
+    }
+    return { ok: true, json: async () => custom
+      ? request ? { head: head() } : { head: head(), assets, history: [], attempts: [], configured: true, payload: null, rendererOrigin: null }
+      : { data: request?.action === 'message' ? { head: head(), reply: 'Saved.' } : head() } };
+  }));
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+it.each([false, true])('keeps an uploaded image attached when moving to chat (existing custom website: %s)', async (existingCustom) => {
+  if (existingCustom) {
+    document.website.config.customFrontendId = 'ceec2235-6a4d-4cf2-b052-daf29b74b859';
+  }
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft · Your live business is unchanged');
+  fireEvent.click(screen.getByRole('button', { name: 'Website' }));
+  const upload = screen.getByRole('region', { name: 'Upload an image' });
+  fireEvent.submit(within(upload).getByRole('button', { name: 'Upload' }).closest('form')!);
+  await screen.findByText(/Your image is saved and selected/);
+
+  expect(screen.getByRole('button', { name: 'Create my website' })).toBeEnabled();
+  expect((screen.getByLabelText('What do you like about your references, or what should change?') as HTMLTextAreaElement).value).toContain('selected inspiration');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Conversation' }));
+  fireEvent.change(screen.getByLabelText('Tell Luster what you have in mind'), { target: { value: 'Make my website look like the image I uploaded.' } });
+  fireEvent.submit(screen.getByRole('button', { name: 'Send to Luster' }).closest('form')!);
+  await waitFor(() => expect(requests.some(request => (request.input ?? request.message)?.referenceIds?.includes(reference.id))).toBe(true));
+});
+
+it('restores unused uploads after refresh and explains missing business details before generation', async () => {
+  assets = [reference];
+  document.business.city = '';
+  document.hours = CLOSED_HOURS;
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Website' }));
+  await screen.findByText('1 uploaded file(s) will be used for this request.');
+
+  expect(screen.getByRole('button', { name: 'Create my website' })).toBeDisabled();
+  expect(screen.getByText(/Before creating your website, Luster needs city or area, opening hours/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Continue with Luster' })).toBeEnabled();
+  expect(requests.every(request => request.action === 'open')).toBe(true);
+});

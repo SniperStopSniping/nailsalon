@@ -32,6 +32,17 @@
       "input_tokens": 6877,
       "output_tokens": 6165,
       "cost_micro_usd": 394205
+    },
+    {
+      "id": "572b5503-5cee-4c96-937e-cf6165c11698",
+      "artifact_id": "cd8f0fb5-0f73-426d-aaa7-7ea2c92efd50",
+      "expected_revision": 9,
+      "status": "completed",
+      "phase": "completed",
+      "start_over": "true",
+      "input_tokens": 4654,
+      "output_tokens": 8585,
+      "cost_micro_usd": 487418
     }
   ],
   "artifacts": [
@@ -52,6 +63,12 @@
       "parent_id": "b0d3194b-cbb9-45d3-ac9a-8602ec98e28c",
       "source_hash": "3cb01755b731d8e317ca4b548349c1e957011a3fd0d91f7059f39075390d4775",
       "created_at": "2026-10-15T04:25:00.921Z"
+    },
+    {
+      "id": "cd8f0fb5-0f73-426d-aaa7-7ea2c92efd50",
+      "parent_id": "f0bb4cde-6589-4385-af21-4277d6db1e3b",
+      "source_hash": "34d6f230589ad817caa64ea8b9ff975fafdce0b4161308901c20c00e4020eee8",
+      "created_at": "2026-10-15T14:08:46.518Z"
     }
   ],
   "retainedOutputs": [
@@ -82,9 +99,16 @@
       "ordinal": 0,
       "retained_characters": 20141,
       "validation": "passed"
+    },
+    {
+      "id": "e6c1b353-d3a5-4131-bfa3-b0570112c65b",
+      "operation_id": "572b5503-5cee-4c96-937e-cf6165c11698",
+      "ordinal": 0,
+      "retained_characters": 27089,
+      "validation": "passed"
     }
   ],
-  "testedAt": "2026-10-15T04:27:52.185Z",
+  "testedAt": "2026-10-15T14:20:23.807Z",
   "budget": {
     "cap_micro_cad": 33610000
   },
@@ -140,7 +164,20 @@
       "charged_micro_cad": 788410,
       "elapsed_ms": 74630,
       "validation": "passed"
+    },
+    {
+      "id": "e6c1b353-d3a5-4131-bfa3-b0570112c65b",
+      "operation_id": "572b5503-5cee-4c96-937e-cf6165c11698",
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4654,
+      "output_tokens": 8585,
+      "cost_micro_usd": 487418,
+      "charged_micro_cad": 974836,
+      "elapsed_ms": 110217,
+      "validation": "passed"
     }
   ],
-  "totalChargedCad": 2.252866
+  "totalChargedCad": 3.227702
 }

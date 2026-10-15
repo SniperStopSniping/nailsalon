@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { CustomSitePayload, CustomSiteSource } from './contracts';
 import { CustomTextEditor } from './CustomTextEditor';
@@ -15,11 +16,11 @@ type State = {
   history: { id: string; title: string; createdAt: string; assetIds: string[] }[];
   attempts: { id: string; message: string; status: string; phase: string; recoverable: boolean; createdAt: string; artifactId: string | null; inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null }[];
 };
-export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, aiEnabled, onSaved }: { salonSlug: string; revision: number; artifactId?: string; disabled: boolean; aiEnabled: boolean; onSaved: () => Promise<void> }) {
+export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation }: { salonSlug: string; revision: number; artifactId?: string; disabled: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void }) {
   const [state, setState] = useState<State | null>(null);
   const [source, setSource] = useState<CustomSiteSource | null>(null);
   const [message, setMessage] = useState('');
-  const [selected, setSelected] = useState<string[]>([]);
+  const initializedSelection = useRef(false);
   const [startOver, setStartOver] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -39,6 +40,17 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     }
     setState(data);
     setSource(data.payload?.source ?? null);
+    if (!initializedSelection.current) {
+      initializedSelection.current = true;
+      // Unused uploads survive refresh/device changes in the private asset store.
+      // Restore them visibly; consumed references are not silently reattached.
+      const used = new Set((data.history as State['history']).flatMap(item => item.assetIds));
+      const unused = (data.assets as State['assets']).filter(asset => !used.has(asset.id)).slice(0, 6);
+      setSelected(unused.map(asset => asset.id));
+      if (unused.length) {
+        setMessage('Create my website from the selected inspiration. Match its layout, colours, typography and image arrangement using my saved business details and photos. Improve readability and booking on mobile.');
+      }
+    }
     if (data.head.revision.revision !== revision) {
       await onSaved();
     }
@@ -85,7 +97,6 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     <div id="custom-design" className="custom-design-studio">
       <h2>Custom design with AI</h2>
       <p>Show Luster your inspiration, or describe an original design. It builds an editable website around your business and booking system.</p>
-      {reply && <p role="status">{reply}</p>}
       {state && !state.configured && <p role="status">AI is not connected yet. Your business details, uploads and saved designs are safe. You can keep using the manual controls.</p>}
       {error && (
         <p role="alert">
@@ -115,6 +126,8 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
               throw new Error(result.error ?? 'The upload failed.');
             }
             setSelected(ids => [...ids.slice(-5), result.asset.id]);
+            setReply('Your image is saved and selected. Describe what you like below, then choose Create my website. You can also ask Luster in Conversation.');
+            setMessage(current => current || 'Create my website from the selected inspiration. Match its layout, colours, typography and image arrangement using my saved business details and photos. Improve readability and booking on mobile.');
           });
         }}
         >
@@ -137,6 +150,36 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           <button type="submit" disabled={disabled || Boolean(busy)}>Upload</button>
         </form>
       </section>
+      {reply && <p role="status" className="setup-notice">{reply}</p>}
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        void action('Studying your references and writing your website…', async () => {
+          const result = await post({ action: 'generate', input: { expectedRevision: revision, operationId: crypto.randomUUID(), message, referenceIds: selected, startOver } });
+          setReply(result.reply ?? 'Your new design is saved as a draft. Review it before publishing.');
+          setMessage('');
+          setStartOver(false);
+        });
+      }}
+      >
+        <label>
+          What do you like about your references, or what should change?
+          <textarea value={message} onChange={event => setMessage(event.target.value)} maxLength={4000} rows={4} required placeholder="Use this Canva composition, my salon name and my photos. Make the mobile version less crowded." />
+        </label>
+        {artifactId && (
+          <label>
+            <input type="checkbox" checked={startOver} onChange={event => setStartOver(event.target.checked)} />
+            Start over with an entirely new design
+          </label>
+        )}
+        <p>{selected.length ? `${selected.length} uploaded file(s) will be used for this request.` : 'Describe your idea, or select an uploaded image below.'}</p>
+        {missingDetails.length > 0 && (
+          <div className="setup-notice">
+            <p>{`Your images are saved. Before creating your website, Luster needs ${missingDetails.join(', ')}.`}</p>
+            <button type="button" onClick={onContinueConversation}>Continue with Luster</button>
+          </div>
+        )}
+        <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim() || missingDetails.length > 0}>{busy.includes('writing your website') || pending ? 'Creating your website…' : 'Create my website'}</button>
+      </form>
       {state?.assets.length
         ? (
             <fieldset>
@@ -158,28 +201,6 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
             </fieldset>
           )
         : null}
-      <form onSubmit={(event) => {
-        event.preventDefault();
-        void action('Studying your references and writing your website…', async () => {
-          const result = await post({ action: 'generate', input: { expectedRevision: revision, operationId: crypto.randomUUID(), message, referenceIds: selected, startOver } });
-          setReply(result.reply ?? 'Your new design is saved as a draft. Review it before publishing.');
-          setMessage('');
-          setStartOver(false);
-        });
-      }}
-      >
-        <label>
-          What do you like about your references, or what should change?
-          <textarea value={message} onChange={event => setMessage(event.target.value)} maxLength={4000} rows={4} required placeholder="Use this Canva composition, my salon name and my photos. Make the mobile version less crowded." />
-        </label>
-        {artifactId && (
-          <label>
-            <input type="checkbox" checked={startOver} onChange={event => setStartOver(event.target.checked)} />
-            Start over with an entirely new design
-          </label>
-        )}
-        <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim()}>{artifactId ? 'Update my custom design' : 'Generate my custom website'}</button>
-      </form>
       {state?.attempts.length
         ? (
             <details>

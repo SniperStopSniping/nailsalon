@@ -3,7 +3,7 @@ import 'server-only';
 import { and, desc, eq } from 'drizzle-orm';
 
 import { runSetupModel, SETUP_AI_MODEL } from '@/features/business-setup/ai-trial.server';
-import { SetupError } from '@/features/business-setup/contracts';
+import { missingDesignDetails, SetupError } from '@/features/business-setup/contracts';
 import type { SetupActor } from '@/features/business-setup/drafts.server';
 import { editSetup, loadSetupHead, lockSetupSalon, setupHash } from '@/features/business-setup/drafts.server';
 import type { ModelProviderInputItem, ModelProviderRequest, OwnerAssistantModelProvider } from '@/libs/ai/provider';
@@ -51,7 +51,7 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
   if (!artifactId) {
     try {
       const document = admitted.head.revision.document;
-      if (!document.business.name.trim() || !document.business.city.trim() || !Object.values(document.hours).some(Boolean) || !document.services.some(s => s.priceCents !== null && s.durationMinutes !== null)) {
+      if (missingDesignDetails(document).length) {
         throw new SetupError('NOT_READY', 'First add your business name, area, opening hours and at least one service with a price and appointment length. Luster will use those saved details for your design.');
       }
       const priorId = document.website.config.customFrontendId;

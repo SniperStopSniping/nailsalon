@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { ownedAssets } from '@/features/custom-sites/assets.server';
 import { generateCustomSite } from '@/features/custom-sites/generate.server';
 import type { OwnerAssistantModelProvider } from '@/libs/ai/provider';
 import { db } from '@/libs/DB';
@@ -15,7 +16,7 @@ import { SetupError, setupOperationSchema } from './contracts';
 import type { SetupActor } from './drafts.server';
 import { editSetup, loadSetupHead, lockSetupSalon, setupHash } from './drafts.server';
 
-export const setupMessageSchema = z.object({ message: z.string().trim().min(1).max(4000), expectedRevision: z.number().int().positive(), operationId: z.string().uuid(), scope: z.enum(['website', 'business_and_website', 'service_price']) }).strict();
+export const setupMessageSchema = z.object({ message: z.string().trim().min(1).max(4000), expectedRevision: z.number().int().positive(), operationId: z.string().uuid(), scope: z.enum(['website', 'business_and_website', 'service_price']), referenceIds: z.array(z.string().uuid()).max(6).optional() }).strict();
 const answerSchema = z.object({ reply: z.string().min(1).max(3000), operationsJson: z.string().max(30000), designRequest: z.string().max(4000).nullable().default(null) }).strict();
 const outputSchema = { type: 'object', properties: { reply: { type: 'string' }, operationsJson: { type: 'string' }, designRequest: { type: ['string', 'null'] } }, required: ['reply', 'operationsJson', 'designRequest'], additionalProperties: false };
 const PROMPT = `You are Luster's owner-facing business setup assistant. Work in this order: business name/location/hours/solo or team, services/prices/durations and booking essentials, then design inspiration, visible draft, review. Ask only a few related questions per reply. Capture information provided out of order, and do not ask again for saved facts. Keep language warm, concise and nontechnical. Never say workspace, canonical configuration or revision conflict to the owner.
@@ -34,6 +35,8 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
   }
   const admitted = await db.transaction(async (tx) => {
     await lockSetupSalon(tx, actor);
+    // Browser-selected references are tenant checked before any paid model call.
+    await ownedAssets(tx, actor.salonId, input.referenceIds ?? []);
     const head = await loadSetupHead(tx, actor.salonId);
     const requestHash = setupHash(input);
     const [previous] = await tx.select().from(turns).where(eq(turns.id, input.operationId));
@@ -77,7 +80,8 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
     }
     try {
       const document = { ...admitted.head.revision.document, business: { ...admitted.head.revision.document.business, exactAddress: admitted.head.revision.document.business.exactAddress ? '[saved privately]' : '' } };
-      const context = JSON.stringify({ scope: input.scope, draft: document });
+      const references = await ownedAssets(db, actor.salonId, input.referenceIds ?? []);
+      const context = JSON.stringify({ scope: input.scope, draft: document, selectedDesignAssets: references.map(asset => ({ id: asset.id, name: asset.name, role: asset.role })), referenceInstructions: 'Selected images are already uploaded. When the owner asks to build from them, put the visual instructions in designRequest. The frontend generator receives their actual image content. Do not claim to have seen image details in this conversation step.' });
       if (context.length > 40000) {
         throw new SetupError('NOT_READY', 'This setup is too large for one AI update. Use the manual controls for this change.');
       }
@@ -130,7 +134,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       return loadSetupHead(tx, actor.salonId);
     });
   if (designRequest && designOperationId) {
-    const generated = await generateCustomSite(actor, { expectedRevision: head.revision.revision, operationId: designOperationId, message: designRequest, referenceIds: [], startOver: false }, providerOverride);
+    const generated = await generateCustomSite(actor, { expectedRevision: head.revision.revision, operationId: designOperationId, message: designRequest, referenceIds: input.referenceIds ?? [], startOver: false }, providerOverride);
     head = generated.head;
     reply = `${reply ?? ''} Your custom website is saved as a draft. Open Website to review it.`;
   }
