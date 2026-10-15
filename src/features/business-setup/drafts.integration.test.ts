@@ -668,6 +668,17 @@ describe('own business upload review', () => {
   }
   const model = (value: unknown) => ({ createResponse: vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 1200, outputTokens: 800, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(value) }] }) });
 
+  it('accepts validated nested arrays returned by real chat extraction without weakening fact validation', async () => {
+    const actor = await fixture();
+    const head = await openSetup(actor);
+    const raw = facts();
+    const nested = { ...raw, hoursJson: JSON.parse(raw.hoursJson), servicesJson: JSON.parse(raw.servicesJson) };
+
+    expect(uploadFactsToOperations(nested, head.revision.document, 'same-operation')).toEqual(uploadFactsToOperations(raw, head.revision.document, 'same-operation'));
+    expect(() => uploadFactsToOperations({ ...nested, hoursJson: [{ ...nested.hoursJson[0], publish: true }] }, head.revision.document, randomUUID())).toThrow();
+    expect(() => uploadFactsToOperations({ ...nested, servicesJson: [{ ...nested.servicesJson[0], durationMinutes: 0 }] }, head.revision.document, randomUUID())).toThrow();
+  });
+
   it('reads privately, retains a review across reloads, then applies once without touching live data', async () => {
     const actor = await fixture();
     const asset = await upload(actor);
