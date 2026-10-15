@@ -16,7 +16,7 @@ import { SetupError, setupOperationSchema } from './contracts';
 import type { SetupActor } from './drafts.server';
 import { editSetup, loadSetupHead, lockSetupSalon, setupHash } from './drafts.server';
 
-export const setupMessageSchema = z.object({ message: z.string().trim().min(1).max(4000), expectedRevision: z.number().int().positive(), operationId: z.string().uuid(), scope: z.enum(['website', 'business_and_website', 'service_price']), referenceIds: z.array(z.string().uuid()).max(6).optional() }).strict();
+export const setupMessageSchema = z.object({ message: z.string().trim().min(1).max(4000), expectedRevision: z.number().int().positive(), operationId: z.string().uuid(), scope: z.enum(['website', 'business_and_website', 'service_price']), referenceIds: z.array(z.string().uuid()).max(12).optional() }).strict();
 const answerSchema = z.object({ reply: z.string().min(1).max(3000), operationsJson: z.string().max(30000), designRequest: z.string().max(4000).nullable().default(null) }).strict();
 const outputSchema = { type: 'object', properties: { reply: { type: 'string' }, operationsJson: { type: 'string' }, designRequest: { type: ['string', 'null'] } }, required: ['reply', 'operationsJson', 'designRequest'], additionalProperties: false };
 const PROMPT = `You are Luster's owner-facing business setup assistant. Work in this order: business name/location/hours/solo or team, services/prices/durations and booking essentials, then design inspiration, visible draft, review. Ask only a few related questions per reply. Capture information provided out of order, and do not ask again for saved facts. An upload can arrive first: if it belongs to the owner and includes their business details, point them to My own business and Read my business details. They review and choose Use these details before those facts enter the draft. Unaccepted upload reviews in conversation history are not saved business facts. Use the current structured draft as the authority. Never ask them to retype accepted extracted details. Keep language warm, concise and nontechnical. Never say workspace, canonical configuration or revision conflict to the owner.
@@ -113,7 +113,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
           throw new SetupError('INVALID', 'That price request tried to change other details. Nothing was changed. Please name the service and its new price.');
         }
       }
-      if (operations.some(op => ['confirm_services', 'custom_frontend', 'design'].includes(op.type) || (input.scope === 'website' && !['design', 'copy'].includes(op.type)))) {
+      if (operations.some(op => ['confirm_services', 'custom_frontend', 'design', 'design_brief'].includes(op.type) || (input.scope === 'website' && !['design', 'copy'].includes(op.type)))) {
         throw new SetupError('INVALID', 'AI suggested a change outside the requested scope. Nothing was changed.');
       }
       reply = answer.reply;

@@ -1,0 +1,9 @@
+# Owner photos and reference matching
+
+This checkpoint adds a saved choice between closely matching a reference and using it as inspiration, explicit owner reference attribution, and a separate photo/logo library. Assets remain tenant-scoped; these controls update the shared setup draft. Replace/remove creates a new immutable design version without a model call. Restoring a design restores its relevant image selection. Generation receives the saved choices and only selected website assets, so removed images are not silently reintroduced from an older design.
+
+Local verification: 82 automated tests passed across draft integration, API authorization/routing, UI, custom-source validation, payloads and isolated frame behavior. ESLint and TypeScript passed. A real browser uploaded an inspiration image, two photos and a logo, selected close matching, refreshed, and resumed in a separate mobile browser context. Browser testing exposed and fixed hidden file inputs causing horizontal mobile overflow. Synthetic local test photos were explicitly uploaded Isla fixtures; they were not an automatic fallback. No provider calls occurred in this local check.
+
+The existing custom renderer and original booking integration remain authoritative. This is editable source reconstruction, not a pixel-perfect Canva import or screenshot overlay. Separate original photos/logo improve fidelity; current font and safe interaction restrictions remain. Existing custom-site uploads are reusable in the library. Importing an older salon portfolio, extracting individual photo layers from flattened artwork, and automatic visual similarity scoring are not implemented in this change.
+
+Hosted real-provider evidence will be recorded separately after deploying committed source to the isolated test environment. Production is not authorized.

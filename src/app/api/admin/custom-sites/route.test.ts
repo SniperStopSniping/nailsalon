@@ -3,11 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from './route';
 
 vi.mock('server-only', () => ({}));
-const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn() }));
+const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn() }));
 vi.mock('@/features/business-setup/conversation.server', () => ({ runSetupConversation: state.business }));
 vi.mock('@/features/business-setup/access.server', () => ({ requireSetupOwner: state.access }));
 vi.mock('@/features/custom-sites/artifacts.server', () => ({ saveCustomSource: state.save }));
 vi.mock('@/features/custom-sites/generate.server', () => ({ generateCustomSite: state.generate }));
+vi.mock('@/features/custom-sites/media-edit.server', async original => ({ ...await original<any>(), editCustomMedia: state.editMedia }));
 vi.mock('@/features/custom-sites/assets.server', () => ({ uploadCustomAsset: state.upload }));
 vi.mock('@/features/business-setup/drafts.server', () => ({ editSetup: state.edit }));
 function request(body: unknown, origin = 'http://localhost:3197') {
@@ -65,5 +66,20 @@ it('routes an explicit price request from the design chat into the canonical ser
 
   expect((await POST(request({ action: 'generate', input }))).status).toBe(200);
   expect(state.business).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, { expectedRevision: 1, operationId: input.operationId, message: input.message, scope: 'service_price' });
+  expect(state.generate).not.toHaveBeenCalled();
+});
+
+it('keeps owner photo and design-choice controls available with AI disabled and scopes writes to the authorized salon', async () => {
+  const values = { fidelity: 'match', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: [] };
+  const input = { expectedRevision: 1, operationId: crypto.randomUUID(), values };
+
+  expect((await POST(request({ action: 'preferences', input }))).status).toBe(200);
+  expect(state.edit).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, { expectedRevision: 1, operationId: input.operationId, operations: [{ type: 'design_brief', values }] });
+
+  state.editMedia.mockResolvedValue({ head: {} });
+  const image = { expectedRevision: 2, operationId: crypto.randomUUID(), assetId: crypto.randomUUID(), replacementId: null };
+
+  expect((await POST(request({ action: 'edit_media', input: image }))).status).toBe(200);
+  expect(state.editMedia).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, image);
   expect(state.generate).not.toHaveBeenCalled();
 });

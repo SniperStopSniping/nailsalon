@@ -14,6 +14,7 @@ import { saveCustomSource } from '@/features/custom-sites/artifacts.server';
 import * as customArtifacts from '@/features/custom-sites/artifacts.server';
 import { ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
+import { editCustomMedia } from '@/features/custom-sites/media-edit.server';
 import { customSitePayload } from '@/features/custom-sites/payload.server';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { synchronizeBookingPageLifecycle } from '@/libs/bookingPageLifecycle';
@@ -757,5 +758,99 @@ describe('own business upload review', () => {
     expect(empty.operations).toEqual([]);
     expect(() => uploadFactsToOperations(facts({ hoursJson: JSON.stringify([{ day: 'monday', status: 'open', open: '10:00', close: '18:00' }, { day: 'monday', status: 'closed', open: null, close: null }]) }), head.revision.document, randomUUID())).toThrow('conflicting');
     expect((await openSetup(actor)).revision.revision).toBe(2);
+  });
+});
+
+describe('owned design matching and website photos', () => {
+  async function photo(actor: { salonId: string; adminId: string }, role: 'photo' | 'reference' | 'logo' = 'photo') {
+    const bytes = await sharp({ create: { width: 40, height: 60, channels: 3, background: '#eecbdb' } }).png().toBuffer();
+    return uploadCustomAsset(actor, new File([new Uint8Array(bytes)], `${role}.png`, { type: 'image/png' }), role);
+  }
+
+  it('persists owned matching choices with the draft, rejects other salons, and sends actual reference ownership to the model', async () => {
+    const actor = await fixture();
+    const foreign = await photo(await fixture());
+    const reference = await photo(actor, 'reference');
+    const image = await photo(actor);
+    const values = { fidelity: 'match', referenceIds: [reference.id], ownedReferenceIds: [reference.id], websiteAssetIds: [image.id] };
+    const input = { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'design_brief', values }] };
+
+    await expect(editSetup(actor, input, 'assistant')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(editSetup(actor, { ...input, operations: [{ type: 'design_brief', values: { ...values, websiteAssetIds: [foreign.id] } }] })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(editSetup(actor, { ...input, operations: [{ type: 'design_brief', values: { ...values, websiteAssetIds: [reference.id] } }] })).rejects.toMatchObject({ code: 'INVALID' });
+
+    await editSetup(actor, input);
+    const head = await openSetup(actor);
+
+    expect(head.revision.document.designBrief).toEqual(values);
+    expect(head.revision.document.services[0]?.priceCents).toBe(6500);
+
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
+    await generateCustomSite(actor, { expectedRevision: 3, operationId: randomUUID(), message: 'Make this my booking website', referenceIds: [], startOver: false }, { createResponse, countInputTokens: async () => 10000 });
+    const request = createResponse.mock.calls[0]![0];
+    const context = JSON.parse(request.input[1].content);
+
+    expect(context.designBrief).toEqual(values);
+    expect(JSON.stringify(request.input)).toContain('Owner-confirmed original business design');
+    expect(request.input.at(-1).content.filter((part: any) => part.type === 'input_image')).toHaveLength(2);
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
+  it('replaces and removes draft photos idempotently without changing prior versions, service data or live settings', async () => {
+    const actor = await fixture();
+    const a = await photo(actor);
+    const b = await photo(actor);
+    const other = await photo(await fixture());
+    const originalSource = { ...editorialSource, html: editorialSource.html.replace('<main', `<img src="asset:${a.id}" alt="Owner photograph"><main`) };
+    const original = await saveCustomSource(actor, { expectedRevision: 2, operationId: randomUUID(), source: originalSource, assetIds: [a.id] });
+    await editSetup(actor, { expectedRevision: 3, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { fidelity: 'inspiration', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: [a.id] } }] });
+    const before = (await openSetup(actor)).revision.document;
+
+    await expect(editCustomMedia(actor, { expectedRevision: 4, operationId: randomUUID(), assetId: a.id, replacementId: other.id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    const input = { expectedRevision: 4, operationId: randomUUID(), assetId: a.id, replacementId: b.id };
+    const changed = await editCustomMedia(actor, input);
+    const replay = await editCustomMedia(actor, input);
+
+    expect(replay.artifactId).toBe(changed.artifactId);
+    expect(replay.head.revision.revision).toBe(5);
+    expect(changed.head.revision.document.services).toEqual(before.services);
+    expect(changed.head.revision.document.designBrief?.websiteAssetIds).toEqual([b.id]);
+
+    const publicData = { business: { name: 'Test', city: 'Toronto', address: null, bio: '', hours: {} }, services: [], currency: 'CAD', preview: false };
+
+    expect(Object.keys((await customSitePayload(actor.salonId, original.artifact.id, publicData)).images)).toEqual([a.id]);
+    expect(Object.keys((await customSitePayload(actor.salonId, changed.artifactId, publicData)).images)).toEqual([b.id]);
+
+    const removed = await editCustomMedia(actor, { expectedRevision: 5, operationId: randomUUID(), assetId: b.id, replacementId: null });
+
+    expect((await customSitePayload(actor.salonId, removed.artifactId, publicData)).images).toEqual({});
+    expect(removed.head.revision.document.designBrief?.websiteAssetIds).toEqual([]);
+    await expect(editCustomMedia(actor, { ...input, operationId: randomUUID() })).rejects.toMatchObject({ code: 'STALE' });
+
+    const restored = await editSetup(actor, { expectedRevision: 6, operationId: randomUUID(), operations: [{ type: 'custom_frontend', artifactId: original.artifact.id }] });
+
+    expect(restored.revision.document.designBrief?.websiteAssetIds).toEqual([a.id]);
+
+    const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect(salon!.publicationStatus).toBe('draft');
+    expect(salon!.onlineBookingEnabled).toBe(false);
+  });
+
+  it('does not inherit deselected photos into a new generated revision', async () => {
+    const actor = await fixture();
+    const a = await photo(actor);
+    const source = { ...editorialSource, html: editorialSource.html.replace('<main', `<img src="asset:${a.id}" alt="Owner photograph"><main`) };
+    await saveCustomSource(actor, { expectedRevision: 2, operationId: randomUUID(), source, assetIds: [a.id] });
+    await editSetup(actor, { expectedRevision: 3, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { fidelity: 'inspiration', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: [] } }] });
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
+    const result = await generateCustomSite(actor, { expectedRevision: 4, operationId: randomUUID(), message: 'Keep the layout without that photo', referenceIds: [] }, { createResponse, countInputTokens: async () => 10000 });
+
+    expect(JSON.parse(createResponse.mock.calls[0]![0].input[1].content).assets).toEqual([]);
+
+    const [saved] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, result.artifactId));
+
+    expect(saved!.assetIds).toEqual([]);
   });
 });

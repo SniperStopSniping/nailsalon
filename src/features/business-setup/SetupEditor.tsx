@@ -30,6 +30,11 @@ function uploadReviewCurrency(upload: UploadReview, fallback: string) {
 }
 const INTRO = 'Start with an image you love or an idea in your own words. If your design already includes your business details, I can read them for you. We’ll fill in anything missing together, then build your website.';
 const LABELS: Record<string, string> = {
+  'designBrief': 'Design matching and chosen images',
+  'designBrief.fidelity': 'How closely to match your design',
+  'designBrief.referenceIds': 'Design references',
+  'designBrief.ownedReferenceIds': 'Your own design artwork',
+  'designBrief.websiteAssetIds': 'Website photos and logo',
   'business.name': 'Business name',
   'business.city': 'City or area',
   'business.exactAddress': 'Service address',
@@ -74,7 +79,9 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
   const [tab, setTab] = useState<'chat' | 'website' | 'setup'>('chat');
-  const [busy, setBusy] = useState(false);
+  const [ownBusy, setBusy] = useState(false);
+  const [studioBusy, setStudioBusy] = useState(false);
+  const busy = ownBusy || studioBusy;
   const [error, setError] = useState('');
   const [review, setReview] = useState<SetupReview | null>(null);
   const [published, setPublished] = useState(false);
@@ -426,7 +433,8 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               salonSlug={salonSlug}
               revision={head.revision.revision}
               artifactId={head.revision.document.website.config.customFrontendId}
-              disabled={published || busy}
+              disabled={published || ownBusy}
+              onBusyChange={setStudioBusy}
               aiEnabled={aiEnabled}
               entryMode={entryMode}
               onReadBusinessDetails={async (referenceIds) => {
@@ -667,12 +675,12 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               <p>
                 <strong>Before:</strong>
                 {' '}
-                {change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : reviewValue(change.before)}
+                {change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') && Array.isArray(change.before) ? `${change.before.length} selected image(s)` : reviewValue(change.before)}
               </p>
               <p>
                 <strong>After:</strong>
                 {' '}
-                {change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : reviewValue(change.after)}
+                {change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') && Array.isArray(change.after) ? `${change.after.length} selected image(s), shown in Website` : reviewValue(change.after)}
               </p>
             </div>
           ))}

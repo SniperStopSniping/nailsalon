@@ -5,6 +5,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { and, asc, eq, sql } from 'drizzle-orm';
 
 import { assertCustomArtifact } from '@/features/custom-sites/artifacts.server';
+import { ownedAssets } from '@/features/custom-sites/assets.server';
+import { customSourceImageIds } from '@/features/custom-sites/validate.server';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig.shared';
 import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
@@ -140,6 +142,9 @@ export async function restartSetup(actor: SetupActor, expectedRevision: number) 
     const document = structuredClone(snapshot.document);
     document.website = { config: snapshot.page.draft, content: snapshot.content.draft };
     document.business.locationDisplayMode = document.website.content.locationDisplayMode;
+    if (document.website.config.customFrontendId === head.revision.document.website.config.customFrontendId) {
+      document.designBrief = head.revision.document.designBrief;
+    }
     const revision = head.revision.revision + 1;
     await tx.insert(revisions).values({ salonId: salon.id, workspaceId: head.workspace.id, revision, operationId: randomUUID(), operationHash: setupHash(document), document, actorId: actor.adminId, origin: 'existing' });
     await tx.update(workspaces).set({ status: 'editing', headRevision: revision, baselineHash: snapshot.hash, baseline: snapshot.document, updatedAt: new Date() }).where(eq(workspaces.id, head.workspace.id));
@@ -180,11 +185,25 @@ export async function editSetup(actor: SetupActor, input: unknown, origin: 'owne
       throw new SetupError('STALE', 'Your business settings changed elsewhere. Review the newer changes before continuing.');
     }
     for (const op of edit.operations) {
+      if (op.type === 'design_brief') {
+        const media = await ownedAssets(tx, salon.id, [...op.values.referenceIds, ...op.values.websiteAssetIds]);
+        if (media.some(asset => (op.values.referenceIds.includes(asset.id) && asset.role !== 'reference') || (op.values.websiteAssetIds.includes(asset.id) && asset.role === 'reference'))) {
+          throw new SetupError('INVALID', 'Keep design references separate from the photos and logo used on your website.');
+        }
+      }
       if (op.type === 'custom_frontend') {
         await assertCustomArtifact(tx, salon.id, op.artifactId);
       }
     }
     const document = applySetupOperations(head.revision.document, edit.operations, origin);
+    // Restoring an earlier source also restores its photo selection. Otherwise a
+    // later AI edit could resurrect the selection from a different design.
+    if (origin === 'owner' && document.designBrief && !edit.operations.some(op => op.type === 'design_brief') && edit.operations.some(op => op.type === 'custom_frontend')) {
+      const { artifact, media } = await assertCustomArtifact(tx, salon.id, document.website.config.customFrontendId!);
+      const used = customSourceImageIds(artifact.source.html);
+      const referenceIds = media.filter(asset => asset.role === 'reference').map(asset => asset.id).slice(0, 6);
+      document.designBrief = { ...document.designBrief, referenceIds, ownedReferenceIds: document.designBrief.ownedReferenceIds.filter(id => referenceIds.includes(id)), websiteAssetIds: media.filter(asset => asset.role !== 'reference' && used.has(asset.id)).map(asset => asset.id).slice(0, 6) };
+    }
     const revision = head.workspace.headRevision + 1;
     await tx.insert(revisions).values({ salonId: salon.id, workspaceId: head.workspace.id, revision, operationId: edit.operationId, operationHash, document, actorId: actor.adminId, origin });
     const baselineHash = await projectSetupWebsite(tx, salon.id, document);

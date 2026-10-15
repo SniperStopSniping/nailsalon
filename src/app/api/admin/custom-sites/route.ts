@@ -8,8 +8,9 @@ import { runSetupConversation } from '@/features/business-setup/conversation.ser
 import { editSetup, loadSetupHead, lockSetupSalon, readSetupSnapshot } from '@/features/business-setup/drafts.server';
 import { saveCustomSource } from '@/features/custom-sites/artifacts.server';
 import { assetDataUrl, ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
-import { customSiteGenerateSchema, customSiteSourceSchema } from '@/features/custom-sites/contracts';
+import { customSiteGenerateSchema, customSiteSourceSchema, designBriefSchema } from '@/features/custom-sites/contracts';
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
+import { editCustomMedia, mediaEditSchema } from '@/features/custom-sites/media-edit.server';
 import { customSiteRendererOrigin, setupCustomSitePayload } from '@/features/custom-sites/payload.server';
 import { isExplicitServicePriceEdit } from '@/features/custom-sites/price-edit';
 import { db } from '@/libs/DB';
@@ -21,6 +22,8 @@ export const maxDuration = 300;
 const headers = { 'Cache-Control': 'private, no-store' };
 const edit = { expectedRevision: z.number().int().positive(), operationId: z.string().uuid() };
 const requestSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('preferences'), input: z.object({ ...edit, values: designBriefSchema }).strict() }).strict(),
+  z.object({ action: z.literal('edit_media'), input: mediaEditSchema }).strict(),
   z.object({ action: z.literal('generate'), input: customSiteGenerateSchema }).strict(),
   z.object({ action: z.literal('resume'), operationId: z.string().uuid() }).strict(),
   z.object({ action: z.literal('save'), input: z.object({ ...edit, source: customSiteSourceSchema, assetIds: z.array(z.string().uuid()).max(12) }).strict() }).strict(),
@@ -68,7 +71,7 @@ export async function GET(request: Request) {
     const attempts = await db.select({ id: jobs.id, status: jobs.status, phase: jobs.phase, message: jobs.message, artifactId: jobs.artifactId, inputTokens: jobs.inputTokens, outputTokens: jobs.outputTokens, costMicroUsd: jobs.costMicroUsd, createdAt: jobs.createdAt }).from(jobs).where(eq(jobs.salonId, access.actor.salonId)).orderBy(desc(jobs.createdAt)).limit(30);
     const recoverable = new Set((await db.select({ operationId: calls.operationId }).from(calls).where(and(eq(calls.salonId, access.actor.salonId), eq(calls.status, 'completed')))).map(call => call.operationId));
     const payload = await setupCustomSitePayload(access.actor.salonId, document);
-    return Response.json({ head, payload, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });
+    return Response.json({ head, payload, preferences: document.designBrief ?? null, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });
   } catch (e) {
     return errorResponse(e);
   }
@@ -115,6 +118,12 @@ export async function POST(request: Request) {
       return Response.json({ asset: await uploadCustomAsset(access.actor, file, form.get('role')) }, { headers });
     }
     const parsed = requestSchema.parse(JSON.parse(bytes.toString('utf8')));
+    if (parsed.action === 'preferences') {
+      return Response.json({ head: await editSetup(access.actor, { expectedRevision: parsed.input.expectedRevision, operationId: parsed.input.operationId, operations: [{ type: 'design_brief', values: parsed.input.values }] }) }, { headers });
+    }
+    if (parsed.action === 'edit_media') {
+      return Response.json(await editCustomMedia(access.actor, parsed.input), { headers });
+    }
     if (parsed.action === 'generate') {
       if (!access.aiEnabled) {
         return Response.json({ error: 'AI is unavailable. Your saved website remains editable.' }, { status: 503, headers });

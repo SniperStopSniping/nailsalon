@@ -31,9 +31,12 @@ beforeEach(() => {
     const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
     if (request) {
       requests.push(request);
+      if (request.action === 'preferences') {
+        document.designBrief = request.input.values;
+      }
     }
     return { ok: true, json: async () => custom
-      ? request ? { head: head() } : { head: head(), assets, history: [], attempts: [], configured: true, payload: null, rendererOrigin: null }
+      ? request ? { head: head() } : { head: head(), assets, preferences: document.designBrief ?? null, history: [], attempts: [], configured: true, payload: null, rendererOrigin: null }
       : { data: request?.action === 'message' ? { head: head(), reply: 'Saved.' } : head() } };
   }));
 });
@@ -115,8 +118,29 @@ it('reads an explicitly owned image into a separate review and does not apply it
   expect(within(review).getByText('Name in my image')).toBeVisible();
   expect(within(review).getByText('USD 65.00 · Appointment length needed')).toBeVisible();
   expect(document.booking.currency).toBe('CAD');
-  expect(within(review).getByRole('button', { name: 'Use these details' })).toBeEnabled();
+  await waitFor(() => expect(within(review).getByRole('button', { name: 'Use these details' })).toBeEnabled());
   expect(requests.filter(request => request.action === 'read_upload')[0].input).toMatchObject({ referenceIds: [reference.id], source: 'my_business' });
   expect(requests.some(request => ['edit', 'apply_upload', 'approve', 'publish'].includes(request.action))).toBe(false);
   expect(document.business.name).toBe('Studio');
+});
+
+it('saves match intent and per-image ownership separately, then restores them after refresh', async () => {
+  assets = [reference];
+  const first = render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  fireEvent.click(await screen.findByRole('button', { name: /Describe your idea/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Match my design closely/ }));
+  await waitFor(() => expect(document.designBrief?.fidelity).toBe('match'));
+  await waitFor(() => expect(screen.getByLabelText('This is my own design; I may reuse its branding and artwork.')).toBeEnabled());
+
+  expect(document.designBrief.ownedReferenceIds).toEqual([]);
+
+  fireEvent.click(screen.getByLabelText('This is my own design; I may reuse its branding and artwork.'));
+  await waitFor(() => expect(document.designBrief.ownedReferenceIds).toEqual([reference.id]));
+  first.unmount();
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  fireEvent.click(await screen.findByRole('button', { name: /Describe your idea/ }));
+  await waitFor(() => expect(screen.getByRole('button', { name: /Match my design closely/ })).toHaveAttribute('aria-pressed', 'true'));
+
+  expect(screen.getByLabelText('This is my own design; I may reuse its branding and artwork.')).toBeChecked();
+  expect(requests.some(request => ['generate', 'publish', 'approve'].includes(request.action))).toBe(false);
 });

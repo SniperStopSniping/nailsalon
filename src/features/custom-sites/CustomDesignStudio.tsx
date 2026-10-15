@@ -3,12 +3,15 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
-import type { CustomSitePayload, CustomSiteSource } from './contracts';
+import type { CustomSitePayload, CustomSiteSource, DesignBrief } from './contracts';
 import { CustomTextEditor } from './CustomTextEditor';
 import { CustomWebsiteFrame } from './CustomWebsiteFrame';
 import { GenerationEvidence } from './GenerationEvidence';
+import type { DesignAsset } from './WebsitePhotoLibrary';
+import { WebsitePhotoLibrary } from './WebsitePhotoLibrary';
 
 type State = {
+  preferences: DesignBrief | null;
   payload: CustomSitePayload | null;
   rendererOrigin: string | null;
   configured: boolean;
@@ -16,7 +19,7 @@ type State = {
   history: { id: string; title: string; createdAt: string; assetIds: string[] }[];
   attempts: { id: string; message: string; status: string; phase: string; recoverable: boolean; createdAt: string; artifactId: string | null; inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null }[];
 };
-export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation, entryMode, onReadBusinessDetails }: { salonSlug: string; revision: number; artifactId?: string; disabled: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void; entryMode?: 'upload' | 'describe' | null; onReadBusinessDetails?: (ids: string[]) => Promise<void> }) {
+export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation, entryMode, onReadBusinessDetails, onBusyChange }: { salonSlug: string; revision: number; artifactId?: string; disabled: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void; entryMode?: 'upload' | 'describe' | null; onBusyChange?: (busy: boolean) => void; onReadBusinessDetails?: (ids: string[]) => Promise<void> }) {
   const [state, setState] = useState<State | null>(null);
   const [source, setSource] = useState<CustomSiteSource | null>(null);
   const [message, setMessage] = useState('');
@@ -70,13 +73,18 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     }
     setState(data);
     setSource(data.payload?.source ?? null);
+    if (data.preferences) {
+      setSelected([...data.preferences.referenceIds, ...data.preferences.websiteAssetIds]);
+    }
     if (!initializedSelection.current) {
       initializedSelection.current = true;
       // Unused uploads survive refresh/device changes in the private asset store.
       // Restore them visibly; consumed references are not silently reattached.
       const used = new Set((data.history as State['history']).flatMap(item => item.assetIds));
-      const unused = (data.assets as State['assets']).filter(asset => !used.has(asset.id)).slice(0, 6);
-      setSelected(unused.map(asset => asset.id));
+      const unused = data.preferences ? [] : (data.assets as State['assets']).filter(asset => !used.has(asset.id)).slice(0, 6);
+      if (!data.preferences) {
+        setSelected([...new Set([...unused.map(asset => asset.id), ...Object.keys(data.payload?.images ?? {})])]);
+      }
       if (unused.length) {
         setMessage('Create my website from the selected inspiration, but make it even better.');
         setShowUpload(true);
@@ -91,6 +99,9 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     void load().catch(e => setError(e.message));
   }, [endpoint, revision]); // eslint-disable-line react-hooks/exhaustive-deps
   const pending = state?.attempts.some(item => item.status === 'pending' && Date.now() - new Date(item.createdAt).getTime() < 300000);
+  useEffect(() => {
+    onBusyChange?.(Boolean(busy || pending));
+  }, [busy, pending, onBusyChange]);
   useEffect(() => {
     if (!busy && !pending) {
       return;
@@ -123,6 +134,40 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       throw new Error(result.error ?? 'The design could not be saved.');
     }
     return result;
+  }
+  const brief: DesignBrief = state?.preferences ?? { fidelity: 'inspiration', referenceIds: selected.filter(id => state?.assets.some(asset => asset.id === id && asset.role === 'reference')), ownedReferenceIds: [], websiteAssetIds: [...new Set([...selected.filter(id => state?.assets.some(asset => asset.id === id && asset.role !== 'reference')), ...Object.keys(state?.payload?.images ?? {})])].slice(0, 6) };
+  async function saveBrief(values: DesignBrief) {
+    await post({ action: 'preferences', input: { expectedRevision: revision, operationId: crypto.randomUUID(), values } });
+    setSelected([...values.referenceIds, ...values.websiteAssetIds]);
+  }
+  function changeBrief(values: DesignBrief) {
+    void action('Saving your design choices…', () => saveBrief(values));
+  }
+  async function uploadFiles(files: File[], role: 'photo' | 'logo', replaceId?: string) {
+    await action('Saving your photos…', async () => {
+      if (files.length > 6 || (!replaceId && brief.websiteAssetIds.length + files.length > 6)) {
+        throw new Error('Choose up to six photos and logos for this design.');
+      }
+      const uploaded: DesignAsset[] = [];
+      for (const file of files) {
+        const data = new FormData();
+        data.set('file', file);
+        data.set('role', role);
+        data.set('rightsConfirmed', 'true');
+        const response = await fetch(endpoint, { method: 'POST', body: data });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error ?? 'This photo could not be uploaded. Earlier uploads are saved in your library.');
+        }
+        uploaded.push(result.asset);
+      }
+      if (replaceId) {
+        await post({ action: 'edit_media', input: { expectedRevision: revision, operationId: crypto.randomUUID(), assetId: replaceId, replacementId: uploaded[0]!.id } });
+      } else {
+        await saveBrief({ ...brief, websiteAssetIds: [...brief.websiteAssetIds, ...uploaded.map(asset => asset.id)] });
+      }
+      setReply(replaceId ? 'Your draft now uses the replacement photo. Your published site is unchanged.' : 'Your photos are saved and selected for your next design.');
+    });
   }
   const current = state?.history.find(item => item.id === artifactId);
   return (
@@ -207,9 +252,11 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
               if (!response.ok) {
                 throw new Error(result.error ?? 'The upload failed.');
               }
-              setSelected(ids => [...ids.slice(-5), result.asset.id]);
+              const asset = result.asset as DesignAsset;
+              const referenceIds = asset.role === 'reference' ? [...brief.referenceIds.slice(-5), asset.id] : brief.referenceIds;
+              await saveBrief({ ...brief, referenceIds, ownedReferenceIds: [...brief.ownedReferenceIds.filter(id => referenceIds.includes(id)), ...(asset.role === 'reference' && uploadSource === 'own' ? [asset.id] : [])], websiteAssetIds: asset.role === 'reference' ? brief.websiteAssetIds : [...brief.websiteAssetIds.slice(-5), asset.id] });
               setReply('Your image is saved and selected. Describe what you like below, then choose Create my website. You can also ask Luster in Conversation.');
-              setMessage(current => current || 'Create my website from the selected inspiration, but make it even better.');
+              setMessage(current => current || (brief.fidelity === 'match' ? 'Recreate my uploaded design as a working, editable booking website.' : 'Create my website from the selected inspiration, but make it even better.'));
               setShowBrief(true);
             });
           }}
@@ -232,21 +279,80 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
             </label>
             <button type="submit" disabled={disabled || Boolean(busy)}>Upload</button>
           </form>
-          {uploadSource === 'own' && selected.length > 0 && onReadBusinessDetails && (
+          {uploadSource === 'own' && brief.referenceIds.length > 0 && onReadBusinessDetails && (
             <div className="studio-read-details">
               <p>Does your image include your salon’s details? I can read them, then we’ll check them together.</p>
-              <button type="button" disabled={disabled || !aiEnabled || Boolean(busy)} onClick={() => void action('Reading your business details…', () => onReadBusinessDetails(selected))}>Read my business details</button>
+              <button type="button" disabled={disabled || !aiEnabled || Boolean(busy)} onClick={() => void action('Reading your business details…', () => onReadBusinessDetails(brief.referenceIds))}>Read my business details</button>
               <button type="button" onClick={onContinueConversation}>I’ll tell Luster instead</button>
             </div>
           )}
         </section>
       </details>
       {reply && <p role="status" className="setup-notice">{reply}</p>}
+      {state && (
+        <WebsitePhotoLibrary
+          assets={state.assets.filter(asset => asset.role !== 'reference')}
+          selected={brief.websiteAssetIds}
+          displayed={Object.keys(state.payload?.images ?? {})}
+          endpoint={endpoint}
+          disabled={disabled || Boolean(busy) || pending === true}
+          onUpload={uploadFiles}
+          onSelect={(id, checked) => changeBrief({ ...brief, websiteAssetIds: checked ? [...brief.websiteAssetIds, id] : brief.websiteAssetIds.filter(item => item !== id) })}
+          onEdit={(assetId, replacementId) => action('Updating your draft photo…', async () => {
+            await post({ action: 'edit_media', input: { expectedRevision: revision, operationId: crypto.randomUUID(), assetId, replacementId } });
+            setReply('Photo removed from this draft. Earlier versions and your published website are unchanged.');
+          })}
+        />
+      )}
+      {state?.assets.some(asset => asset.role === 'reference') && (
+        <fieldset className="studio-assets">
+          <legend>Your design references</legend>
+          {state.assets.filter(asset => asset.role === 'reference').map(asset => (
+            <div key={asset.id} className="studio-reference-card">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={brief.referenceIds.includes(asset.id)}
+                  disabled={disabled || Boolean(busy) || (!brief.referenceIds.includes(asset.id) && brief.referenceIds.length >= 6)}
+                  onChange={(event) => {
+                    const ids = event.target.checked ? [...brief.referenceIds, asset.id] : brief.referenceIds.filter(id => id !== asset.id);
+                    changeBrief({ ...brief, referenceIds: ids, ownedReferenceIds: brief.ownedReferenceIds.filter(id => ids.includes(id)) });
+                  }}
+                />
+                {asset.name}
+                {' '}
+                · Design reference
+              </label>
+              {asset.mimeType.startsWith('image/') && <img src={`${endpoint}&asset=${asset.id}`} alt={`${asset.name} reference`} /> /* eslint-disable-line @next/next/no-img-element */}
+              {brief.referenceIds.includes(asset.id) && (
+                <label>
+                  <input type="checkbox" checked={brief.ownedReferenceIds.includes(asset.id)} disabled={disabled || Boolean(busy)} onChange={event => changeBrief({ ...brief, ownedReferenceIds: event.target.checked ? [...brief.ownedReferenceIds, asset.id] : brief.ownedReferenceIds.filter(id => id !== asset.id) })} />
+                  {' '}
+                  This is my own design; I may reuse its branding and artwork.
+                </label>
+              )}
+            </div>
+          ))}
+        </fieldset>
+      )}
       <details className="studio-step" open={showBrief} onToggle={event => setShowBrief(event.currentTarget.open)}>
         <summary>
           Your design direction
           <span>Tell us what you like</span>
         </summary>
+        <fieldset className="studio-fidelity" disabled={disabled || Boolean(busy) || pending === true}>
+          <legend>How should Luster use your design?</legend>
+          <button type="button" aria-pressed={brief.fidelity === 'match'} onClick={() => changeBrief({ ...brief, fidelity: 'match' })}>
+            <strong>Match my design closely</strong>
+            <span>Keep its layout, proportions and details. Make it responsive and interactive.</span>
+          </button>
+          <button type="button" aria-pressed={brief.fidelity === 'inspiration'} onClick={() => changeBrief({ ...brief, fidelity: 'inspiration' })}>
+            <strong>Use it as inspiration</strong>
+            <span>Keep the feeling, with freedom to create something new.</span>
+          </button>
+          <p>Your original Canva artwork can be recreated as editable website elements. Upload the original photos and logo for the closest match. Unavailable fonts or interactions will be explained in the result.</p>
+          {brief.fidelity === 'match' && brief.referenceIds.length === 0 && <p role="status">Upload or select a design to match before creating your website.</p>}
+        </fieldset>
         <form onSubmit={(event) => {
           event.preventDefault();
           void action('Studying your references and writing your website…', async () => {
@@ -274,30 +380,9 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
               <button type="button" onClick={onContinueConversation}>Continue with Luster</button>
             </div>
           )}
-          <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim() || missingDetails.length > 0}>{busy.includes('writing your website') || pending ? 'Creating your website…' : 'Create my website'}</button>
+          <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim() || missingDetails.length > 0 || (brief.fidelity === 'match' && brief.referenceIds.length === 0)}>{busy.includes('writing your website') || pending ? 'Creating your website…' : 'Create my website'}</button>
         </form>
       </details>
-      {state?.assets.length
-        ? (
-            <fieldset className="studio-assets">
-              <legend>References for this request (up to six)</legend>
-              {state.assets.map(asset => (
-                <label key={asset.id}>
-                  <input type="checkbox" checked={selected.includes(asset.id)} disabled={!selected.includes(asset.id) && selected.length >= 6} onChange={event => setSelected(ids => event.target.checked ? [...ids, asset.id] : ids.filter(id => id !== asset.id))} />
-                  {asset.name}
-                  {' '}
-                  ·
-                  {asset.role === 'reference' ? 'Design reference' : 'Website asset'}
-                  {asset.mimeType.startsWith('image/') && (
-                    // Private authenticated asset endpoint; never an external URL.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={`${endpoint}&asset=${asset.id}`} alt={`${asset.name} reference`} style={{ display: 'block', maxWidth: 180, maxHeight: 140, objectFit: 'contain' }} />
-                  )}
-                </label>
-              ))}
-            </fieldset>
-          )
-        : null}
       {state?.attempts.length
         ? (
             <details>

@@ -59,21 +59,26 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
       }
       const priorId = document.website.config.customFrontendId;
       const [prior] = priorId && !input.startOver ? await db.select().from(artifacts).where(and(eq(artifacts.salonId, actor.salonId), eq(artifacts.id, priorId))) : [];
-      const assetIds = [...new Set([...input.referenceIds, ...(prior?.assetIds ?? [])])];
+      const brief = document.designBrief;
+      if (brief?.fidelity === 'match' && !brief.referenceIds.length) {
+        throw new SetupError('NOT_READY', 'Upload or select a design to match before creating your website.');
+      }
+      const selectedIds = brief ? [...brief.referenceIds, ...brief.websiteAssetIds] : input.referenceIds;
+      const assetIds = [...new Set([...selectedIds, ...(brief ? [] : prior?.assetIds ?? [])])];
       if (assetIds.length > 12) {
         throw new SetupError('INVALID', 'Choose fewer references for this design.');
       }
       const media = await ownedAssets(db, actor.salonId, assetIds);
-      const context = JSON.stringify({ business: { name: document.business.name, city: document.business.city, address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio, hours: document.hours, timezone: document.booking.timezone }, booking: { currency: document.booking.currency, minimumNoticeMinutes: document.booking.minimumNoticeMinutes, bufferMinutes: document.booking.bufferMinutes, confirmationMode: document.booking.confirmationMode }, services: document.services.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, durationMinutes: s.durationMinutes, confirmed: s.confirmed })), previousSource: prior?.source ?? null, assets: media.map(a => ({ id: a.id, role: a.role, name: a.name })), startOver: input.startOver });
+      const context = JSON.stringify({ business: { name: document.business.name, city: document.business.city, address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio, hours: document.hours, timezone: document.booking.timezone }, booking: { currency: document.booking.currency, minimumNoticeMinutes: document.booking.minimumNoticeMinutes, bufferMinutes: document.booking.bufferMinutes, confirmationMode: document.booking.confirmationMode }, services: document.services.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, durationMinutes: s.durationMinutes, confirmed: s.confirmed })), previousSource: prior?.source ?? null, designBrief: brief ?? { fidelity: 'inspiration', ownedReferenceIds: [] }, assets: media.map(a => ({ id: a.id, role: a.role, name: a.name })), startOver: input.startOver });
       if (Buffer.byteLength(context + CUSTOM_SITE_PROMPT + input.message) > 140000) {
         throw new SetupError('INVALID', 'This design is too large for one generation. Simplify the saved source first.');
       }
       const parts: Extract<ModelProviderInputItem, { role: 'user'; content: unknown[] }>['content'] = [{ type: 'input_text', text: input.message }];
       // Send selected references only. Inherited website images retain identity
       // without resending every binary on each small source modification.
-      for (const asset of media.filter(a => input.referenceIds.includes(a.id))) {
+      for (const asset of media.filter(a => selectedIds.includes(a.id))) {
         const url = await assetDataUrl(asset);
-        parts.push({ type: 'input_text', text: `Untrusted ${asset.role} asset ${asset.id}: ${asset.name}. ${asset.role === 'reference' ? 'Visual inspiration only; do not reuse its protected content.' : 'Owner-authorized website asset.'}` });
+        parts.push({ type: 'input_text', text: `Untrusted ${asset.role} asset ${asset.id}: ${asset.name}. ${asset.role === 'reference' ? brief?.ownedReferenceIds.includes(asset.id) ? 'Owner-confirmed original business design. Recreate its composition and owned design details according to the saved fidelity preference. Saved business settings are authoritative; never copy stale prices, private addresses or unsupported claims.' : 'Third-party inspiration only; do not reuse its protected content, branding or photography.' : 'Owner-authorized website asset. Use this exact photo/logo where appropriate; never substitute another salon’s image.'}` });
         parts.push(asset.mimeType === 'application/pdf' ? { type: 'input_file', filename: 'reference.pdf', file_data: url } : { type: 'input_image', image_url: url, detail: 'high' });
       }
       const request: ModelProviderRequest = { model: SETUP_AI_MODEL, input: [{ role: 'system', content: CUSTOM_SITE_PROMPT }, { role: 'developer', content: context }, { role: 'user', content: parts }], tools: [], toolChoice: 'none', maxOutputTokens: MAX_OUTPUT, timeoutMs: 180000, jsonMode: 'schema', jsonSchema: CUSTOM_SITE_OUTPUT_SCHEMA, reasoningEffort: 'medium' };
@@ -149,7 +154,8 @@ export async function resumeCustomSite(actor: SetupActor, operationId: string) {
     }
     const priorId = head.revision.document.website.config.customFrontendId;
     const [prior] = priorId && !job.request.startOver ? await db.select().from(artifacts).where(and(eq(artifacts.salonId, actor.salonId), eq(artifacts.id, priorId))) : [];
-    const assetIds = [...new Set([...job.request.referenceIds, ...(prior?.assetIds ?? [])])];
+    const brief = head.revision.document.designBrief;
+    const assetIds = [...new Set(brief ? [...brief.referenceIds, ...brief.websiteAssetIds] : [...job.request.referenceIds, ...(prior?.assetIds ?? [])])];
     const media = await ownedAssets(db, actor.salonId, assetIds);
     // A later application version can support a safe attribute previously
     // rejected. Revalidate the EXACT retained model output, including strict

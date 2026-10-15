@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { designBriefSchema } from '@/features/custom-sites/contracts';
 import { bookingConfigSchema } from '@/libs/bookingConfig.shared';
 import type { resolveBookingExperience } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
@@ -46,6 +47,7 @@ export const businessSchema = z.object({
   locationDisplayMode: z.enum(['full_address', 'after_booking', 'city_only']),
 }).strict();
 export const setupOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('design_brief'), values: designBriefSchema }).strict(),
   z.object({ type: z.literal('custom_frontend'), artifactId: z.string().uuid() }).strict(),
   z.object({ type: z.literal('business'), values: businessSchema.partial() }).strict(),
   z.object({ type: z.literal('hours'), values: hoursSchema }).strict(),
@@ -68,6 +70,7 @@ export type SetupDocument = {
   booking: z.infer<typeof bookingConfigSchema>;
   bookingPolicy?: ReturnType<typeof resolveBookingExperience>['policy'];
   services: SetupService[];
+  designBrief?: z.infer<typeof designBriefSchema>;
   website: {
     config: BookingPageConfigSide;
     content: BookingPageContentSide;
@@ -106,6 +109,12 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   for (const raw of operations) {
     const op = setupOperationSchema.parse(raw);
     switch (op.type) {
+      case 'design_brief':
+        if (origin !== 'owner') {
+          throw new SetupError('FORBIDDEN', 'Only you can choose which images may be used and confirm a design is yours.');
+        }
+        next.designBrief = op.values;
+        break;
       case 'custom_frontend':
         next.website.config.customFrontendId = op.artifactId;
         break;
