@@ -116,6 +116,12 @@ export async function openSetup(actor: SetupActor) {
     const id = randomUUID();
     const draft = structuredClone(snapshot.document);
     draft.website = { config: snapshot.page.draft, content: snapshot.content.draft };
+    // Legacy public-page defaults are not an owner's choice to expose a new
+    // address. Preserve explicit choices and existing published presentations.
+    const savedContent = (salon.settings as { bookingPageContent?: { draft?: { locationDisplayMode?: unknown }; live?: { locationDisplayMode?: unknown } } } | null)?.bookingPageContent;
+    if (salon.publicationStatus !== 'published' && savedContent?.draft?.locationDisplayMode === undefined && savedContent?.live?.locationDisplayMode === undefined) {
+      draft.website.content.locationDisplayMode = 'city_only';
+    }
     draft.business.locationDisplayMode = draft.website.content.locationDisplayMode;
     await tx.insert(workspaces).values({ id, salonId: salon.id, headRevision: 1, baselineHash: snapshot.hash, baseline: snapshot.document });
     await tx.insert(revisions).values({ salonId: salon.id, workspaceId: id, revision: 1, operationId: randomUUID(), operationHash: setupHash(draft), document: draft, actorId: actor.adminId, origin: 'existing' });

@@ -76,7 +76,7 @@ export type SetupDocument = {
 /** Essentials for a useful first design; service approval is a later publish gate. */
 export function missingDesignDetails(draft: SetupDocument): string[] {
   return [
-    (!draft.business.name.trim() || draft.business.name === 'Untitled business') && 'business name',
+    (!draft.business.name.trim() || ['Untitled business', 'My test business'].includes(draft.business.name)) && 'business name',
     !draft.business.city.trim() && 'city or area',
     draft.business.workMode === 'unknown' && 'whether you work alone or with a team',
     !Object.values(draft.hours).some(Boolean) && 'opening hours',
@@ -163,7 +163,7 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
 }
 export function setupReadiness(draft: SetupDocument): string[] {
   const blockers: string[] = [];
-  if (!draft.business.name || draft.business.name === 'Untitled business') {
+  if (!draft.business.name || ['Untitled business', 'My test business'].includes(draft.business.name)) {
     blockers.push('Confirm your business name.');
   }
   if (draft.business.workMode === 'unknown') {

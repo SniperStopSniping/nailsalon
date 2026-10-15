@@ -172,9 +172,23 @@
       "ordinal": 0,
       "retained_characters": 18549,
       "validation": "passed"
+    },
+    {
+      "id": "e4701946-fcc7-46e3-8087-76e82ca1ff62",
+      "operation_id": "3ec48d1f-981b-4c51-8e22-66d64cda69c9",
+      "ordinal": 0,
+      "retained_characters": 336,
+      "validation": "unchecked"
+    },
+    {
+      "id": "31215c58-1f15-4790-a595-7d2d4b223dfb",
+      "operation_id": "28d5fde6-0512-498c-987a-4aff75368d0a",
+      "ordinal": 0,
+      "retained_characters": 1591,
+      "validation": "unchecked"
     }
   ],
-  "testedAt": "2026-10-15T15:40:20.849Z",
+  "testedAt": "2026-10-15T16:16:11.615Z",
   "budget": {
     "cap_micro_cad": 33610000
   },
@@ -282,7 +296,33 @@
       "charged_micro_cad": 660860,
       "elapsed_ms": 74908,
       "validation": "passed"
+    },
+    {
+      "id": "e4701946-fcc7-46e3-8087-76e82ca1ff62",
+      "operation_id": "3ec48d1f-981b-4c51-8e22-66d64cda69c9",
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 2648,
+      "output_tokens": 119,
+      "cost_micro_usd": 39043,
+      "charged_micro_cad": 78086,
+      "elapsed_ms": 4918,
+      "validation": "unchecked"
+    },
+    {
+      "id": "31215c58-1f15-4790-a595-7d2d4b223dfb",
+      "operation_id": "28d5fde6-0512-498c-987a-4aff75368d0a",
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 2648,
+      "output_tokens": 411,
+      "cost_micro_usd": 53643,
+      "charged_micro_cad": 107286,
+      "elapsed_ms": 14787,
+      "validation": "unchecked"
     }
   ],
-  "totalChargedCad": 6.799784
+  "totalChargedCad": 6.985156
 }

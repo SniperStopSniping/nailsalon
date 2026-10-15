@@ -1,0 +1,16 @@
+{
+  "testedAt": "2026-10-15T16:07:27.530Z",
+  "environment": "isolated-preview",
+  "provider": "openai",
+  "model": "gpt-6-astra",
+  "fixture": "ai-onboarding-082c9d52379e",
+  "manualSourceIntervention": false,
+  "published": false,
+  "read": {
+    "operationId": "28d5fde6-0512-498c-987a-4aff75368d0a",
+    "status": "upload_review",
+    "resumedWithoutRepeatingPaidCall": true
+  },
+  "draftUnchangedBeforeAcceptance": true,
+  "reviewRestoredAfterRefresh": true
+}

@@ -248,7 +248,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               <p>Let’s put it together.</p>
             </div>
           </div>
-          {draft && draft.business.name !== 'Untitled business' && (
+          {draft && !['Untitled business', 'My test business'].includes(draft.business.name) && (
             <div className="setup-saved-summary">
               <span className="setup-eyebrow">YOUR SAVED DETAILS</span>
               <strong>{draft.business.name}</strong>
@@ -285,7 +285,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                   if (operation.type === 'business') {
                     return Object.entries(operation.values).map(([key, value]) => (
                       <div key={key}>
-                        <dt>{key === 'exactAddress' ? 'Private service address' : key === 'name' ? 'Business name' : 'City or area'}</dt>
+                        <dt>{key === 'exactAddress' ? 'Private service address' : key === 'name' ? 'Business name' : key === 'homeBased' ? 'Home-based salon' : key === 'locationDisplayMode' ? 'Address visibility' : 'City or area'}</dt>
                         <dd>{reviewValue(value)}</dd>
                       </div>
                     ));
@@ -344,7 +344,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               >
                 Skip these details
               </button>
-              <small>Prices and appointment lengths still need your review. Your address visibility stays as you set it.</small>
+              <small>Prices and appointment lengths still need your review. A new address from an image is kept private. You can choose what customers see in Business setup.</small>
             </section>
           ))}
           <button

@@ -334,7 +334,8 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(103);
+    expect(journal.entries).toHaveLength(104);
+    expect(journal.entries[103]).toMatchObject({ idx: 103, when: 1792022400006, tag: '0104_setup_upload_reviews' });
     expect(journal.entries[102]).toMatchObject({ idx: 102, when: 1792022400005, tag: '0103_custom_site_asset_storage_choice' });
     expect(journal.entries[86]).toMatchObject({ idx: 86, tag: '0087_network_no_show_protection' });
     expect(journal.entries[87]).toMatchObject({ idx: 87, tag: '0088_network_no_show_platform_control' });
@@ -381,7 +382,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     [77, 'Stripe 0076'],
     [78, 'Review 0077'],
     [94, 'phone identity 0094'],
-  ])('upgrades a %s ledger through review requests, booking service snapshots, voice reception, text defaults, chooser visibility, rebooking reminders, and lifetime core claims and AI drafts through 0103', async (existingCount) => {
+  ])('upgrades a %s ledger through review requests, booking service snapshots, voice reception, text defaults, chooser visibility, rebooking reminders, and lifetime core claims and AI drafts and upload reviews through 0104', async (existingCount) => {
     const upgradeClient = new PGlite();
     const upgradeDb = drizzle(upgradeClient);
     const migrationsFolder = path.join(process.cwd(), 'migrations');
@@ -399,7 +400,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
         'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',
       );
 
-      expect(rows.rows).toHaveLength(103);
+      expect(rows.rows).toHaveLength(104);
       expect(Number(rows.rows[93]?.created_at)).toBe(1790609459475);
       expect(Number(rows.rows[94]?.created_at)).toBe(1790745061453);
       expect(Number(rows.rows[95]?.created_at)).toBe(migrations[95]?.folderMillis);

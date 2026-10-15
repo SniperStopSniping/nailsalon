@@ -622,6 +622,43 @@ describe('metered owner generation and automatic repair', () => {
   });
 });
 
+describe('private defaults for new drafts', () => {
+  it('keeps a new unconfigured address private but preserves a published salon choice', async () => {
+    const actor = { salonId: randomUUID(), adminId: randomUUID() };
+    await database.insert(schema.adminUserSchema).values({ id: actor.adminId });
+    await database.insert(schema.salonSchema).values({ id: actor.salonId, slug: actor.salonId, name: 'My test business', publicationStatus: 'draft', settings: {} });
+    await database.insert(schema.adminSalonMembershipSchema).values({ ...actor, role: 'owner' });
+    const draft = await openSetup(actor);
+
+    expect(draft.revision.document.business.locationDisplayMode).toBe('city_only');
+    expect(draft.revision.document.website.content.locationDisplayMode).toBe('city_only');
+
+    const other = { salonId: randomUUID(), adminId: actor.adminId };
+    await database.insert(schema.salonSchema).values({ id: other.salonId, slug: other.salonId, name: 'Existing public salon', publicationStatus: 'published', settings: {} });
+    await database.insert(schema.adminSalonMembershipSchema).values({ ...other, role: 'owner' });
+
+    expect((await openSetup(other)).revision.document.business.locationDisplayMode).toBe('full_address');
+
+    const explicit = { salonId: randomUUID(), adminId: actor.adminId };
+    await database.insert(schema.salonSchema).values({ id: explicit.salonId, slug: explicit.salonId, name: 'Commercial studio', publicationStatus: 'draft', settings: { bookingPageContent: { draft: { locationDisplayMode: 'full_address' } } } as any });
+    await database.insert(schema.adminSalonMembershipSchema).values({ ...explicit, role: 'owner' });
+
+    expect((await openSetup(explicit)).revision.document.business.locationDisplayMode).toBe('full_address');
+
+    const legacy = structuredClone(draft.revision.document);
+    legacy.business.locationDisplayMode = 'full_address';
+    const proposal = uploadFactsToOperations({ businessName: null, city: null, address: '42 Test Lane', currency: null, homeBased: true, hoursJson: '[]', servicesJson: '[]', notes: [] }, legacy, randomUUID());
+
+    expect(proposal.operations).toEqual([{ type: 'business', values: { exactAddress: '42 Test Lane', homeBased: true, locationDisplayMode: 'city_only' } }]);
+
+    legacy.business.exactAddress = '42 Test Lane';
+    legacy.business.homeBased = true;
+    const preserved = uploadFactsToOperations({ businessName: null, city: null, address: '42 Test Lane', currency: null, homeBased: true, hoursJson: '[]', servicesJson: '[]', notes: [] }, legacy, randomUUID());
+
+    expect(preserved.operations).toEqual([{ type: 'business', values: { exactAddress: '42 Test Lane', homeBased: true, locationDisplayMode: 'full_address' } }]);
+  });
+});
+
 describe('own business upload review', () => {
   const facts = (values: Record<string, unknown> = {}) => ({ businessName: 'Read Studio', city: 'Toronto', address: '42 Synthetic Lane', currency: 'CAD', hoursJson: JSON.stringify([{ day: 'tuesday', status: 'open', open: '10:00', close: '18:00' }]), servicesJson: JSON.stringify([{ name: 'Gel manicure', description: null, priceKind: 'fixed', priceCents: 7000, durationMinutes: null, kind: 'base', category: 'manicure', bookingCategory: 'manicure' }, { name: 'BIAB', description: null, priceKind: 'from', priceCents: 6500, durationMinutes: null, kind: 'base', category: 'builder_gel', bookingCategory: 'manicure' }]), notes: [], ...values });
   async function upload(actor: { salonId: string; adminId: string }) {
