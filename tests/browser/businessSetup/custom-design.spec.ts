@@ -39,7 +39,7 @@ for (const [name, source] of [['editorial', editorialSource], ['dark', darkSourc
     expect(saved.status(), await saved.text()).toBe(200);
 
     await page.goto('/admin/business-setup?salon=setup-synthetic-studio');
-    await page.getByRole('button', { name: 'Website', exact: true }).click();
+    await page.getByRole('button', { name: 'Preview', exact: true }).click();
     const custom = page.frameLocator('iframe[src="http://127.0.0.1:3198/renderer"]');
 
     await expect(custom.getByText('Synthetic Gel Manicure', { exact: true })).toBeVisible({ timeout: 45000 });
@@ -67,13 +67,13 @@ for (const [name, source] of [['editorial', editorialSource], ['dark', darkSourc
       await expect(custom.getByText('Synthetic Gel Manicure', { exact: true })).toBeVisible();
 
       await page.reload();
-      await page.getByRole('button', { name: 'Website', exact: true }).click();
+      await page.getByRole('button', { name: 'Preview', exact: true }).click();
 
       await expect(custom.getByText('Synthetic Gel Manicure', { exact: true })).toBeVisible();
 
-      await page.getByRole('button', { name: 'Review before publishing', exact: true }).click();
+      await page.getByRole('button', { name: 'Review', exact: true }).click();
 
-      await expect(page.getByText('Custom website design version (see the exact preview above)')).toBeVisible();
+      await expect(page.getByText('Website design (see Preview)')).toBeVisible();
 
       await page.getByRole('button', { name: 'Approve and publish', exact: true }).click();
 

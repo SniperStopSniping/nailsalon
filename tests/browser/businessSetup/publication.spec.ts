@@ -24,9 +24,9 @@ test('local setup publishes approved records and completes the original booking 
     await page.route('**/*', route => ['localhost', '127.0.0.1'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort());
     await page.goto('/admin/business-setup?salon=setup-synthetic-studio');
 
-    await expect(page.getByText('Saved as draft · Your live business is unchanged')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Saved as draft')).toBeVisible({ timeout: 30_000 });
 
-    await page.getByRole('button', { name: 'Business setup', exact: true }).click();
+    await page.getByRole('button', { name: 'Details', exact: true }).click();
     await page.getByLabel('Business name', { exact: true }).fill('Synthetic Gel Studio');
     await page.getByLabel('City or area', { exact: true }).fill('Toronto');
     await page.getByLabel('Private service address').fill('123 Synthetic Private Street');
@@ -35,14 +35,14 @@ test('local setup publishes approved records and completes the original booking 
     await page.getByLabel('What customers see').selectOption('city_only');
     await page.getByRole('button', { name: 'Save business details' }).click();
 
-    await expect(page.getByText('Saved as draft · Your live business is unchanged')).toBeVisible();
+    await expect(page.getByText('Saved as draft')).toBeVisible();
 
     for (const day of ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']) {
       await page.getByRole('checkbox', { name: day, exact: true }).check();
     }
     await page.getByRole('button', { name: 'Save opening hours' }).click();
 
-    await expect(page.getByText('Saved as draft · Your live business is unchanged')).toBeVisible();
+    await expect(page.getByText('Saved as draft')).toBeVisible();
 
     if (await page.getByRole('button', { name: 'Save service', exact: true }).count() === 0) {
       await page.getByRole('button', { name: 'Add a service', exact: true }).click();
@@ -52,14 +52,15 @@ test('local setup publishes approved records and completes the original booking 
     await page.getByLabel('Minutes', { exact: true }).fill('60');
     await page.getByRole('button', { name: 'Save service', exact: true }).click();
 
-    await expect(page.getByText('Saved as draft · Your live business is unchanged')).toBeVisible();
+    await expect(page.getByText('Saved as draft')).toBeVisible();
 
     await page.getByRole('button', { name: 'Clean and minimal', exact: true }).click();
 
-    await expect(page.getByText('Saved as draft · Your live business is unchanged')).toBeVisible();
+    await expect(page.getByText('Saved as draft')).toBeVisible();
 
     await page.screenshot({ path: testInfo.outputPath('editable-setup.png'), fullPage: true });
-    await page.getByRole('button', { name: 'Website', exact: true }).click();
+    await page.getByRole('button', { name: 'Preview', exact: true }).click();
+    await page.getByText('Preview your current booking details', { exact: true }).click();
     const preview = page.frameLocator('iframe');
 
     await expect(preview.getByText('Synthetic Gel Manicure', { exact: true })).toBeVisible({ timeout: 30_000 });
@@ -72,7 +73,7 @@ test('local setup publishes approved records and completes the original booking 
     expect(before.rows[0]).toMatchObject({ publication_status: 'draft', business_hours: null });
     expect((await database.query('SELECT id FROM service WHERE salon_id = $1', ['setup-synthetic-salon'])).rows).toHaveLength(0);
 
-    await page.getByRole('button', { name: 'Review before publishing' }).click();
+    await page.getByRole('button', { name: 'Review' }).click();
 
     await expect(page.getByRole('heading', { name: 'Review your changes', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Approve and publish', exact: true })).toBeEnabled();
@@ -169,19 +170,19 @@ test('local setup publishes approved records and completes the original booking 
     }
     await page.getByRole('button', { name: 'Make more changes' }).click();
 
-    await expect(page.getByText('Saved as draft · Your live business is unchanged')).toBeVisible();
+    await expect(page.getByText('Saved as draft')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Business setup', exact: true }).click();
+    await page.getByRole('button', { name: 'Details', exact: true }).click();
 
     await expect(page.getByLabel('I work from home')).toBeChecked();
 
     await page.getByLabel('Price', { exact: true }).fill('70');
     await page.getByRole('button', { name: 'Save service', exact: true }).click();
 
-    await expect(page.getByText('Saved as draft · Your live business is unchanged')).toBeVisible();
+    await expect(page.getByText('Saved as draft')).toBeVisible();
     expect((await database.query('SELECT price FROM service WHERE id = $1', [service[0].id])).rows[0].price).toBe(6500);
 
-    await page.getByRole('button', { name: 'Review before publishing' }).click();
+    await page.getByRole('button', { name: 'Review' }).click();
     await page.getByRole('button', { name: 'Approve and publish', exact: true }).click();
 
     await expect(page.getByRole('heading', { name: 'Your approved changes are published.' })).toBeVisible();

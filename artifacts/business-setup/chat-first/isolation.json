@@ -1,0 +1,8 @@
+{
+  "appEnv": "preview",
+  "smsEnabled": "false",
+  "customerIntegrationsAbsent": true,
+  "providerKeyConfigured": true,
+  "model": "source-defined",
+  "check": "Branch-specific Preview variables; secret values not retained"
+}
