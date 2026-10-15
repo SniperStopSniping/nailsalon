@@ -67,6 +67,16 @@ describe('owner no-show correction', () => {
     expect(event?.state).toBe('revoked');
   });
 
+  it('turns a disputed contribution into a revoked correction tombstone', async () => {
+    const version = await seed('owner-correct-disputed');
+    await db.update(schema.networkNoShowEventSchema).set({ state: 'suppressed', suppressionReason: 'customer_review' }).where(eq(schema.networkNoShowEventSchema.appointmentId, 'owner-correct-disputed'));
+    const response = await POST(request({ appointmentId: 'owner-correct-disputed', expectedUpdatedAt: version, reason: 'Attendance was verified after the customer requested review.' }));
+
+    expect(response.status).toBe(200);
+    expect((await db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, 'owner-correct-disputed')))[0]?.state).toBe('revoked');
+    expect((await db.select().from(schema.appointmentAuditLogSchema).where(eq(schema.appointmentAuditLogSchema.appointmentId, 'owner-correct-disputed')))[0]?.reason).toBe('Attendance was verified after the customer requested review.');
+  });
+
   it('returns not found for an appointment outside the authorized salon and conflicts on a stale record', async () => {
     const otherVersion = await seed('owner-correct-other', 'other-salon');
 

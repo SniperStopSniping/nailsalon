@@ -15,8 +15,8 @@ describe('BookingRiskCard', () => {
       />,
     );
 
-    expect(screen.getByTestId('booking-risk-warning')).toHaveTextContent('Higher no-show risk');
-    expect(screen.getByTestId('booking-risk-warning')).toHaveTextContent('1 recorded no-show on Luster in the last 12 months.');
+    expect(screen.getByTestId('booking-risk-warning')).toHaveTextContent('Recorded No-Show History');
+    expect(screen.getByTestId('booking-risk-warning')).toHaveTextContent('1 eligible no-show report from participating Luster salons within the past 12 months.');
     expect(screen.getByTestId('booking-risk-warning')).toHaveTextContent('Warning only');
   });
 

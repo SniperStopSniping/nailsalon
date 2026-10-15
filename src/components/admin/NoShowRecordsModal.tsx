@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackButton, ModalHeader } from './AppModal';
 
 type RecordItem = {
+  reviewState?: string | null;
   appointmentId: string;
   clientName: string | null;
   clientPhone: string;
@@ -27,6 +28,9 @@ function formatDate(value: string, timeZone?: string) {
   return new Date(value).toLocaleString(undefined, { timeZone });
 }
 function status(item: RecordItem, platformActive: boolean, t: ReturnType<typeof useTranslations>) {
+  if (item.reviewState === 'requested' && item.appointmentStatus === 'no_show') {
+    return 'Customer review requested · not shared';
+  }
   if (item.cancelReason === 'admin_correction') {
     return t('status_corrected');
   }

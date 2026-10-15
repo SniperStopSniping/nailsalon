@@ -266,11 +266,11 @@ describe('useAppointmentActions', () => {
     const { result } = await renderOpenHook({ onCancelled });
     fetchMock.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
 
-    await act(async () => result.current.markNoShow());
+    await act(async () => result.current.markNoShow({ reason: 'confirmed_nonattendance' }));
 
-    const [, init] = fetchMock.mock.calls.at(-1)!;
+    const [, init] = fetchMock.mock.calls.find(call => call[0].includes('/cancel'))!;
 
-    expect(JSON.parse(init.body).cancelReason).toBe('no_show');
+    expect(JSON.parse(init.body)).toMatchObject({ cancelReason: 'no_show', noShowReport: { reason: 'confirmed_nonattendance' } });
     expect(onCancelled).toHaveBeenCalledWith('appt_1', 'no_show');
   });
 
@@ -356,8 +356,8 @@ describe('useAppointmentActions', () => {
     });
 
     await act(async () => {
-      const first = result.current.markNoShow();
-      const second = result.current.markNoShow();
+      const first = result.current.markNoShow({ reason: 'confirmed_nonattendance' });
+      const second = result.current.markNoShow({ reason: 'confirmed_nonattendance' });
       await waitFor(() => expect(releaseNoShow).not.toBeNull());
       releaseNoShow!();
       await Promise.all([first, second]);

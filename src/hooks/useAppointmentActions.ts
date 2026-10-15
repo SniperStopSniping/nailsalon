@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CalendarAppointment } from '@/components/appointments/AppointmentsDayView';
 import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
 import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
+import type { NoShowReport } from '@/libs/noShowReporting';
 
 export type AppointmentMutationResult = {
   detail: AppointmentManageDetail;
@@ -16,7 +17,7 @@ export type CancelArgs = {
   // 'declined_by_salon' — L1 PR5: declining a pending request-approval
   // booking. It routes through the same cancel endpoint/CAS as every other
   // reason (see declineAppointment below).
-  reason: 'client_request' | 'no_show' | 'rescheduled' | 'declined_by_salon';
+  reason: 'client_request' | 'rescheduled' | 'declined_by_salon';
   /** Optional internal note, appended to the appointment notes (never sent to the client). */
   internalNote?: string;
 };
@@ -429,7 +430,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       return;
     }
 
-    const targetStatus = args.reason === 'no_show' ? 'no_show' : 'cancelled';
+    const targetStatus = 'cancelled';
     const existingNotes = detail?.appointment.notes ?? '';
     // The cancel endpoint replaces notes wholesale, so the internal note is
     // appended client-side to avoid dropping what's already there.
@@ -473,9 +474,36 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     });
   }, [apiPath, detail, onCancelled, runExclusive, selectedAppointmentId]);
 
-  const markNoShow = useCallback(async () => {
-    await cancelAppointment({ reason: 'no_show' });
-  }, [cancelAppointment]);
+  const markNoShow = useCallback(async (report: NoShowReport): Promise<'shared' | 'not_shared' | null> => {
+    if (!selectedAppointmentId) {
+      return null;
+    }
+    let sharing: 'shared' | 'not_shared' | null = null;
+    await runExclusive(async () => {
+      setDetailSaving(true);
+      setDetailError(null);
+      try {
+        const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/cancel`), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cancelReason: 'no_show', noShowReport: report }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw payload.error ?? new Error('Unable to record no-show');
+        }
+        sharing = payload.data?.noShowSharing === 'shared' ? 'shared' : 'not_shared';
+        onCancelled?.(selectedAppointmentId, 'no_show');
+        notifyAppointmentDataChanged();
+        await fetchDetail(selectedAppointmentId);
+      } catch (cause) {
+        setDetailError(errorMessage(cause, 'Unable to record no-show'));
+      } finally {
+        setDetailSaving(false);
+      }
+    });
+    return sharing;
+  }, [apiPath, fetchDetail, onCancelled, runExclusive, selectedAppointmentId]);
 
   /** L1 PR5 — declines a pending request-approval booking via the same cancel endpoint/CAS as every other terminal reason. */
   const declineAppointment = useCallback(async () => {

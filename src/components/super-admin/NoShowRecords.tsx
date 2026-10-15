@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 type RecordItem = {
+  reviewState?: string | null;
+  reviewReason?: string | null;
   appointmentId: string;
   salonId: string;
   salonName: string;
@@ -33,6 +35,7 @@ type RecordsResponse = {
 
 const STATES = [
   ['all', 'All records'],
+  ['disputed', 'Customer review requests'],
   ['counted', 'In network risk'],
   ['not_shared', 'No network event'],
   ['suppressed', 'Removed from risk'],
@@ -45,6 +48,9 @@ function formatDate(value: string | null): string {
 }
 
 function networkLabel(item: RecordItem, platformActive: boolean): string {
+  if (item.reviewState === 'requested' && item.appointmentStatus === 'no_show') {
+    return 'Customer review requested; shared consequences suspended';
+  }
   if (!item.eventId) {
     return item.cancelReason === 'admin_correction' ? 'Source corrected; no network event' : 'No network event';
   }
@@ -71,6 +77,8 @@ export function NoShowRecords() {
   const [correcting, setCorrecting] = useState<RecordItem | null>(null);
   const [correctionReason, setCorrectionReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [reviewing, setReviewing] = useState<RecordItem | null>(null);
+  const [reviewReason, setReviewReason] = useState('');
   const latestRequest = useRef(0);
 
   useEffect(() => {
@@ -170,6 +178,32 @@ export function NoShowRecords() {
     }
   }
 
+  function openCustomerReview(item: RecordItem) {
+    setReviewing(item);
+    setReviewReason('');
+  }
+
+  async function resolveReview(decision: 'upheld' | 'removed') {
+    if (!reviewing || reviewReason.trim().length < 10) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/super-admin/network-no-show/review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ salonId: reviewing.salonId, appointmentId: reviewing.appointmentId, expectedUpdatedAt: reviewing.updatedAt, decision, reason: reviewReason }) });
+      if (!response.ok) {
+        throw new Error('The record changed or cannot be restored safely. Refresh and review its source, identity and suppression state.');
+      }
+      setReviewing(null);
+      setReviewReason('');
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not resolve review');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="mx-auto max-w-7xl px-4 pb-8 sm:px-6 lg:px-8" aria-labelledby="no-show-records-title">
       <div className="rounded-2xl border border-rose-100 bg-white p-4 shadow-[0_10px_30px_rgba(76,29,46,0.06)]">
@@ -209,6 +243,22 @@ export function NoShowRecords() {
           </label>
         </div>
         {error && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+        {reviewing && (
+          <section className="mb-4 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
+            <h3 className="font-semibold">Review customer request</h3>
+            <p>{reviewing.reviewReason}</p>
+            <p>Correct a mistaken source mark with “Correct to cancelled”. Uphold only a verified report: restoration requires an eligible, current, unsuppressed identity and source. Review earlier deposit decisions separately; this action never charges or refunds money.</p>
+            <label className="block">
+              Review outcome explanation (required)
+              <textarea value={reviewReason} onChange={event => setReviewReason(event.target.value)} maxLength={500} rows={3} className="mt-2 w-full rounded-lg border p-3" />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={busy || reviewReason.trim().length < 10} onClick={() => void resolveReview('removed')} className="min-h-11 rounded-lg border px-3">Keep out of shared history</button>
+              <button type="button" disabled={busy || reviewReason.trim().length < 10} onClick={() => void resolveReview('upheld')} className="min-h-11 rounded-lg border px-3">Uphold eligible report</button>
+              <button type="button" disabled={busy} onClick={() => setReviewing(null)} className="min-h-11 rounded-lg border px-3">Close review</button>
+            </div>
+          </section>
+        )}
         {pending && (
           <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             <p className="font-semibold">Remove this no-show from network risk?</p>
@@ -315,6 +365,15 @@ export function NoShowRecords() {
                   <td className="p-3">{formatDate(item.markedAt)}</td>
                   <td className="p-3">
                     <div className="flex flex-col gap-2">
+                      {item.reviewState === 'requested' && item.appointmentStatus === 'no_show' && (
+                        <button
+                          type="button"
+                          className="min-h-11 rounded-lg border px-3"
+                          onClick={() => openCustomerReview(item)}
+                        >
+                          Review customer request
+                        </button>
+                      )}
                       {item.eventEligible && (
                         <button
                           type="button"
