@@ -405,7 +405,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               {submission?.status === 'failed' && (
                 <div role="alert">
                   <p>{submission.error}</p>
-                  <button type="button" disabled={ownBusy || studioBusy} onClick={() => void retryMessage()}>Retry message</button>
+                  <button type="button" disabled={busy} onClick={() => void retryMessage()}>Retry message</button>
                 </div>
               )}
               {busy && !hasPendingMessage && (

@@ -318,10 +318,27 @@ export function conversationalUploadSummary(operations: SetupOperation[], next: 
       facts.push(`${service.name}: ${service.priceCents === null ? 'price unclear' : `${next.booking.currency} ${(service.priceCents / 100).toFixed(2)}`} · ${service.durationMinutes === null ? 'length not shown' : `${service.durationMinutes} min`}`);
     }
   }
-  if (operations.some(op => op.type === 'website_details')) {
-    facts.push('Your contact details, location directions and readable website policies');
+  for (const op of operations) {
+    if (op.type !== 'website_details') {
+      continue;
+    }
+    if (op.values.locationDirections) {
+      facts.push(`Public directions: ${op.values.locationDirections}`);
+    }
+    if (op.values.instagram) {
+      facts.push(`Instagram: ${op.values.instagram}`);
+    }
+    if (op.values.email) {
+      facts.push(`Contact email: ${op.values.email}`);
+    }
+    if (op.values.phone) {
+      facts.push(`Contact phone: ${op.values.phone}`);
+    }
+    if (op.values.sections?.length) {
+      facts.push(`Website wording: ${op.values.sections.map(section => section.title).join(', ')}`);
+    }
   }
   const hours = operations.some(op => op.type === 'hours') ? ' Your hours are saved too.' : '';
   const address = business?.type === 'business' && business.values.exactAddress ? ' Your address stays private.' : '';
-  return `I read your image and saved these details for review:\n${facts.slice(0, 6).map(fact => `• ${fact}`).join('\n')}${facts.length > 6 ? `\nPlus ${facts.length - 6} more services.` : ''}\n${hours}${address} You can correct anything here.`;
+  return `I read your image and saved these details for review:\n${facts.slice(0, 6).map(fact => `• ${fact}`).join('\n')}${facts.length > 6 ? `\nPlus ${facts.length - 6} more saved details.` : ''}\n${hours}${address} You can correct anything here.`;
 }
