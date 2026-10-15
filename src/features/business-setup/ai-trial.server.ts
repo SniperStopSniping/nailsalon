@@ -42,6 +42,7 @@ export async function runSetupModel(actor: SetupActor, input: {
   ordinal: number;
   expectedRevision: number;
   request: ModelProviderRequest;
+  deadlineAt?: number;
 }, override?: OwnerAssistantModelProvider): Promise<{ result: ModelProviderResponse; callId: string }> {
   if (!override && !setupAiConfigured()) {
     throw new SetupError('NOT_READY', 'AI is not connected yet. Your draft is saved, and you can keep editing.');
@@ -59,9 +60,20 @@ export async function runSetupModel(actor: SetupActor, input: {
     }
   });
   const provider = override ?? createOpenAiResponsesProvider({ apiKey: process.env.OPENAI_API_KEY_CUSTOM_SITES! });
+  if (input.deadlineAt !== undefined && input.deadlineAt - Date.now() < 30000) {
+    throw new SetupError('NOT_READY', 'There was not enough time to finish this design safely. Your saved design is unchanged. Please try again.');
+  }
   const counted = provider.countInputTokens ? await provider.countInputTokens(request) : override ? 10000 : null;
   if (counted === null || !Number.isSafeInteger(counted) || counted < 0 || counted > 150000) {
     throw new SetupError('NOT_READY', 'These references could not be measured safely. Try fewer pages or images.');
+  }
+  // Token counting can itself take twenty seconds. Bound the paid call only
+  // after counting, leaving time to record usage and save a validated result.
+  if (input.deadlineAt !== undefined) {
+    request.timeoutMs = Math.min(request.timeoutMs, input.deadlineAt - Date.now() - 5000);
+    if (request.timeoutMs < 30000) {
+      throw new SetupError('NOT_READY', 'There was not enough time to finish this design safely. Your saved design is unchanged. Please try again.');
+    }
   }
   const reserved = Math.ceil((counted * 12.5 + request.maxOutputTokens * 50) * 1.1);
   const requestHash = setupHash(request);

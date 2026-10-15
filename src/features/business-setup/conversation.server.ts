@@ -29,6 +29,7 @@ Supported operations (all keys exact):
 {"type":"copy","bio":"Grounded description","specialtyLine":"Short factual line"}.
 When the owner asks for website design, produce designRequest with their actual visual instructions, preserving out-of-order design preferences from the recent conversation. This invokes the custom frontend generator, not a preset selector. Only do this after the draft has business name, city/area, at least one open day, and at least one service with a price and duration; otherwise ask only for what is missing. Do not regenerate a website for business-only changes such as "Keep the design, but change BIAB to $65". Use the existing service ID, preserve every other service field and return designRequest:null. Website-only requests must not change prices/hours/policies. Only return explicitly requested changes. Never emit design, custom_frontend or confirm_services. Owners confirm prices/times using the review controls. If the scope is website, emit only copy operations or a designRequest. If the scope is service_price, return only existing service operations that change priceCents; preserve ALL other fields exactly, return designRequest:null, and ask for clarification with [] if the service or currency is ambiguous. Return [] when asking a question. Do not claim unsupported staff/settings/upload work is complete.`;
 export async function runSetupConversation(actor: SetupActor, raw: unknown, providerOverride?: OwnerAssistantModelProvider) {
+  const deadlineAt = Date.now() + 270000;
   const input = setupMessageSchema.parse(raw);
   if (!providerOverride && !setupAiConfigured()) {
     throw new SetupError('NOT_READY', 'AI is not configured yet. You can keep editing your saved setup manually.');
@@ -134,7 +135,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       return loadSetupHead(tx, actor.salonId);
     });
   if (designRequest && designOperationId) {
-    const generated = await generateCustomSite(actor, { expectedRevision: head.revision.revision, operationId: designOperationId, message: designRequest, referenceIds: input.referenceIds ?? [], startOver: false }, providerOverride);
+    const generated = await generateCustomSite(actor, { expectedRevision: head.revision.revision, operationId: designOperationId, message: designRequest, referenceIds: input.referenceIds ?? [], startOver: false }, providerOverride, deadlineAt);
     head = generated.head;
     reply = `${reply ?? ''} Your custom website is saved as a draft. Open Website to review it.`;
   }

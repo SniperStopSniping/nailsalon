@@ -30,3 +30,20 @@ they are not counted as passed. TypeScript and scoped ESLint passed.
 Real hosted refinement, exact publication and another original-flow booking are
 pending at this checkpoint. Existing published revision8 and appointments remain
 unchanged while revision10 is private.
+
+## Hosted refinement timeout and correction
+
+The main-chat refinement correctly sent all three selected image identities but
+hit the provider's120-second timeout after121.888seconds at the owner interface.
+No new source or revision was saved; revision10 remains intact. Unknown provider
+usage stays conservatively charged at the reserved maximum in the shared ledger.
+The failed request screenshot is21-klaws-chat-input.png.
+
+The application now permits up to180seconds per custom-source call within a
+270-second overall deadline. Business conversation and generation share that
+deadline. Token counting consumes the same allowance; any automatic repair gets
+only the remaining time, and no additional paid call starts with under30seconds
+remaining. One repair maximum and the existing spending cap are unchanged.
+New deterministic tests cover deadline reduction and refusing an unaffordable
+(in time) repair.48 focused tests and TypeScript passed; scoped lint passed.
+A real-provider retry on this version is still pending.

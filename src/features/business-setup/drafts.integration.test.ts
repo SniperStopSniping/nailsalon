@@ -462,6 +462,47 @@ describe('metered owner generation and automatic repair', () => {
     expect((await openSetup(actor)).revision.revision).toBe(3);
   });
 
+  it('gives detailed generation more time while bounding its repair to the remaining request time', async () => {
+    const actor = await fixture();
+    let now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const timeouts: number[] = [];
+    const createResponse = vi.fn(async (request) => {
+      timeouts.push(request.timeoutMs);
+      if (timeouts.length === 1) {
+        now += 210000;
+        return response({ ...editorialSource, html: '<iframe></iframe>' });
+      }
+      return response(editorialSource);
+    });
+    try {
+      await generateCustomSite(actor, { expectedRevision: 2, operationId: randomUUID(), message: 'Detailed design', referenceIds: [] }, { createResponse });
+
+      expect(timeouts).toEqual([180000, 55000]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('does not start another paid repair when the request deadline is exhausted', async () => {
+    const actor = await fixture();
+    let now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const operationId = randomUUID();
+    const createResponse = vi.fn(async () => {
+      now += 250000;
+      return response({ ...editorialSource, html: '<iframe></iframe>' });
+    });
+    try {
+      await expect(generateCustomSite(actor, { expectedRevision: 2, operationId, message: 'Detailed design', referenceIds: [] }, { createResponse })).rejects.toMatchObject({ code: 'NOT_READY' });
+      expect(createResponse).toHaveBeenCalledTimes(1);
+      expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId))).toHaveLength(1);
+      expect((await openSetup(actor)).revision.revision).toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('stops after one failed repair and keeps all output out of the saved website', async () => {
     const actor = await fixture();
     const invalid = { ...editorialSource, html: '<iframe src="/admin"></iframe>' };

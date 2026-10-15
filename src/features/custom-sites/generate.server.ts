@@ -7,6 +7,7 @@ import { missingDesignDetails, SetupError } from '@/features/business-setup/cont
 import type { SetupActor } from '@/features/business-setup/drafts.server';
 import { editSetup, loadSetupHead, lockSetupSalon, setupHash } from '@/features/business-setup/drafts.server';
 import type { ModelProviderInputItem, ModelProviderRequest, OwnerAssistantModelProvider } from '@/libs/ai/provider';
+import { ModelProviderError } from '@/libs/ai/provider';
 import { db } from '@/libs/DB';
 import { customSiteArtifactSchema as artifacts, customSiteGenerationSchema as jobs, setupAiCallSchema as calls } from '@/models/Schema';
 
@@ -18,7 +19,9 @@ import { validateCustomSource } from './validate.server';
 
 // Each paid generation is admitted only after exact multimodal token counting.
 const MAX_OUTPUT = 14000;
-export async function generateCustomSite(actor: SetupActor, raw: unknown, providerOverride?: OwnerAssistantModelProvider) {
+export async function generateCustomSite(actor: SetupActor, raw: unknown, providerOverride?: OwnerAssistantModelProvider, requestDeadline?: number) {
+  // Leave thirty seconds for validation, durable save and the HTTP response.
+  const deadlineAt = Math.min(requestDeadline ?? Infinity, Date.now() + 270000);
   const input = customSiteGenerateSchema.parse(raw);
   const admitted = await db.transaction(async (tx) => {
     await lockSetupSalon(tx, actor);
@@ -73,12 +76,12 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
         parts.push({ type: 'input_text', text: `Untrusted ${asset.role} asset ${asset.id}: ${asset.name}. ${asset.role === 'reference' ? 'Visual inspiration only; do not reuse its protected content.' : 'Owner-authorized website asset.'}` });
         parts.push(asset.mimeType === 'application/pdf' ? { type: 'input_file', filename: 'reference.pdf', file_data: url } : { type: 'input_image', image_url: url, detail: 'high' });
       }
-      const request: ModelProviderRequest = { model: SETUP_AI_MODEL, input: [{ role: 'system', content: CUSTOM_SITE_PROMPT }, { role: 'developer', content: context }, { role: 'user', content: parts }], tools: [], toolChoice: 'none', maxOutputTokens: MAX_OUTPUT, timeoutMs: 120000, jsonMode: 'schema', jsonSchema: CUSTOM_SITE_OUTPUT_SCHEMA, reasoningEffort: 'medium' };
+      const request: ModelProviderRequest = { model: SETUP_AI_MODEL, input: [{ role: 'system', content: CUSTOM_SITE_PROMPT }, { role: 'developer', content: context }, { role: 'user', content: parts }], tools: [], toolChoice: 'none', maxOutputTokens: MAX_OUTPUT, timeoutMs: 180000, jsonMode: 'schema', jsonSchema: CUSTOM_SITE_OUTPUT_SCHEMA, reasoningEffort: 'medium' };
       const allowedImages = new Set(media.filter(a => a.role !== 'reference' && a.mimeType.startsWith('image/')).map(a => a.id));
       let source;
       for (let attempt = 0; attempt < 2; attempt++) {
         await db.update(jobs).set({ phase: attempt ? 'repairing' : 'generating' }).where(eq(jobs.id, input.operationId));
-        const { result, callId } = await runSetupModel(actor, { operationId: input.operationId, ordinal: attempt, expectedRevision: input.expectedRevision, request }, providerOverride);
+        const { result, callId } = await runSetupModel(actor, { operationId: input.operationId, ordinal: attempt, expectedRevision: input.expectedRevision, request, deadlineAt }, providerOverride);
         const rawOutput = result.partialText ?? result.items.filter(i => i.type === 'message').map(i => i.type === 'message' ? i.text : '').join('');
         const evidence = await db.select().from(calls).where(and(eq(calls.operationId, input.operationId), eq(calls.salonId, actor.salonId)));
         await db.update(jobs).set({ inputTokens: evidence.reduce((sum, c) => sum + (c.inputTokens ?? 0), 0), outputTokens: evidence.reduce((sum, c) => sum + (c.outputTokens ?? 0), 0), costMicroUsd: evidence.every(c => c.costMicroUsd !== null) ? evidence.reduce((sum, c) => sum + c.costMicroUsd!, 0) : null, reservedMicroUsd: evidence.reduce((sum, c) => sum + c.reservedMicroUsd, 0), phase: 'validating' }).where(eq(jobs.id, input.operationId));
@@ -111,6 +114,9 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
       await db.update(jobs).set({ status: 'failed', phase: 'failed' }).where(and(eq(jobs.id, input.operationId), eq(jobs.salonId, actor.salonId)));
       if (e instanceof SetupError) {
         throw e;
+      }
+      if (e instanceof ModelProviderError && e.kind === 'provider_timeout') {
+        throw new SetupError('NOT_READY', 'This detailed design took longer than expected. Your saved design and images are safe. Try again; nothing has been published.');
       }
       throw new SetupError('NOT_READY', 'The design could not be generated or validated. Your saved website is unchanged. Try again with a smaller request.');
     }

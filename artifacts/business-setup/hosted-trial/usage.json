@@ -43,6 +43,17 @@
       "input_tokens": 4654,
       "output_tokens": 8585,
       "cost_micro_usd": 487418
+    },
+    {
+      "id": "9baccd0e-4914-4147-9eba-6ade8080002f",
+      "artifact_id": null,
+      "expected_revision": 10,
+      "status": "failed",
+      "phase": "failed",
+      "start_over": "false",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_micro_usd": null
     }
   ],
   "artifacts": [
@@ -106,9 +117,16 @@
       "ordinal": 0,
       "retained_characters": 27089,
       "validation": "passed"
+    },
+    {
+      "id": "fc112bfa-dfcc-4bef-b039-0f3ef1161681",
+      "operation_id": "9baccd0e-4914-4147-9eba-6ade8080002f",
+      "ordinal": 0,
+      "retained_characters": null,
+      "validation": "unchecked"
     }
   ],
-  "testedAt": "2026-10-15T14:20:23.807Z",
+  "testedAt": "2026-10-15T14:31:26.567Z",
   "budget": {
     "cap_micro_cad": 33610000
   },
@@ -177,7 +195,20 @@
       "charged_micro_cad": 974836,
       "elapsed_ms": 110217,
       "validation": "passed"
+    },
+    {
+      "id": "fc112bfa-dfcc-4bef-b039-0f3ef1161681",
+      "operation_id": "9baccd0e-4914-4147-9eba-6ade8080002f",
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "failed",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cost_micro_usd": null,
+      "charged_micro_cad": 1890572,
+      "elapsed_ms": 120006,
+      "validation": "unchecked"
     }
   ],
-  "totalChargedCad": 3.227702
+  "totalChargedCad": 5.118274
 }
