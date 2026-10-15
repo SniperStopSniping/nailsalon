@@ -50,3 +50,11 @@ describe('custom frontend source validation', () => {
     expect(() => validateCustomSource({ ...connected, html: `${connected.html}<p>BIAB $65</p>` }, new Set(), true)).toThrow('copied price text');
   });
 });
+
+it('permits trusted contact bindings without allowing generated navigation', () => {
+  expect(validateCustomSource({ ...source, html: `${source.html}<a data-luster-link="instagram"><span data-luster-field="details.instagram"></span></a><p data-luster-field="details.section_guests"></p>` }, new Set()).html).toContain('data-luster-link="instagram"');
+
+  for (const link of ['<a href="https://instagram.com/studio">Instagram</a>', '<a data-luster-link="https://evil.invalid">Link</a>', '<a data-luster-link="instagram" href="javascript:alert(1)">Link</a>']) {
+    expect(() => validateCustomSource({ ...source, html: source.html + link }, new Set())).toThrow();
+  }
+});

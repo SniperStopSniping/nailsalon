@@ -452,6 +452,7 @@ export async function renderBookServicePage({
     const payload = await customSitePayload(salon.id, activeBookingPageSide.customFrontendId, {
       business: { name: salon.name, city: salon.city ?? '', address: activeBookingPageContentSide.locationDisplayMode === 'full_address' ? salon.address : null, bio: activeBookingPageContentSide.bio ?? '', hours: salon.businessHours ?? {} },
       services: bookingServices.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, priceLabel: s.priceDisplayText || new Intl.NumberFormat('en-CA', { style: 'currency', currency: bookingConfig.currency }).format(s.priceCents / 100), durationMinutes: s.durationMinutes })),
+      details: activeBookingPageContentSide.websiteDetails,
       currency: bookingConfig.currency,
       preview: false,
     });

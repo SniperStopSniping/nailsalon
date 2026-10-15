@@ -17,7 +17,7 @@ const payload = (javascript: string, preview = false): CustomSitePayload => ({
 test('opaque renderer blocks network, persistent storage, forged booking and canonical data changes', async ({ page }) => {
   // A trusted parent harness drives the same standalone renderer. No database,
   // provider or outbound integration is involved in these hostile-source tests.
-  await page.route('http://localhost:3197/renderer-probe', route => route.fulfill({ contentType: 'text/html', body: '<html><body><iframe title="Probe" src="http://127.0.0.1:3198/renderer" sandbox="allow-scripts"></iframe></body></html>' }));
+  await page.route('http://localhost:3197/renderer-probe', route => route.fulfill({ contentType: 'text/html', body: '<html><body><iframe title="Probe" src="http://127.0.0.1:3198/renderer" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></body></html>' }));
   await page.goto('/renderer-probe');
   const source = payload(`
     (async () => {
@@ -60,7 +60,7 @@ test('opaque renderer blocks network, persistent storage, forged booking and can
 });
 
 test('runaway interaction terminates while the draft remains visible and cannot book', async ({ page }) => {
-  await page.route('http://localhost:3197/renderer-probe', route => route.fulfill({ contentType: 'text/html', body: '<html><body><iframe title="Probe" src="http://127.0.0.1:3198/renderer" sandbox="allow-scripts"></iframe></body></html>' }));
+  await page.route('http://localhost:3197/renderer-probe', route => route.fulfill({ contentType: 'text/html', body: '<html><body><iframe title="Probe" src="http://127.0.0.1:3198/renderer" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></body></html>' }));
   await page.goto('/renderer-probe');
   await page.evaluate((input) => {
     const frame = document.querySelector('iframe')!;
@@ -85,4 +85,36 @@ test('runaway interaction terminates while the draft remains visible and cannot 
 
   await expect.poll(() => page.evaluate(() => (window as unknown as { probeMessages: unknown[] }).probeMessages)).toContainEqual({ channel: 'probe-channel', type: 'preview-booking' });
   expect(await page.evaluate(() => (window as unknown as { probeMessages: { type: string }[] }).probeMessages.filter(item => item.type === 'book'))).toEqual([]);
+});
+
+test('trusted contact links are clickable while public directions and complete policies render', async ({ page, context }) => {
+  await context.route('https://www.instagram.com/**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Intercepted Instagram destination</h1>' }));
+  await page.route('http://localhost:3197/renderer-contacts', route => route.fulfill({ contentType: 'text/html', body: '<html><body><iframe title="Probe" src="http://127.0.0.1:3198/renderer" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></body></html>' }));
+  await page.goto('/renderer-contacts');
+  const input = payload('', true);
+  input.data.details = { locationDirections: 'Dixie and Countryside', instagram: '@dynastybeautyy', email: 'studio@example.com', phone: '+1 416 555 0100', sections: [{ id: 'guests', title: 'Guests', text: 'Please come alone.' }] };
+  input.source.html += '<p data-luster-field="details.locationDirections"></p><a data-luster-link="instagram"><span data-luster-field="details.instagram"></span></a><a data-luster-link="email">Email</a><a data-luster-link="phone">Call</a><h2 data-luster-field="details.title_guests"></h2><p data-luster-field="details.section_guests"></p>';
+  await page.evaluate((payload) => {
+    const frame = document.querySelector('iframe')!;
+    window.addEventListener('message', (event) => {
+      if (event.source === frame.contentWindow && event.origin === 'null' && event.data?.type === 'renderer-ready') {
+        frame.contentWindow!.postMessage({ type: 'initialize', channel: 'contact-probe', payload }, '*');
+      }
+    });
+  }, input);
+  const site = page.frameLocator('iframe');
+
+  await expect(site.getByText('Dixie and Countryside')).toBeVisible();
+  await expect(site.getByText('Please come alone.')).toBeVisible();
+  await expect(site.getByRole('link', { name: 'Email' })).toHaveAttribute('href', 'mailto:studio@example.com');
+  await expect(site.getByRole('link', { name: 'Call' })).toHaveAttribute('href', 'tel:+14165550100');
+
+  const opened = context.waitForEvent('page');
+  await site.getByRole('link', { name: '@dynastybeautyy' }).click();
+  const popup = await opened;
+
+  await expect(popup).toHaveURL('https://www.instagram.com/dynastybeautyy/');
+  expect(await popup.evaluate(() => window.opener === null)).toBe(true);
+
+  await popup.close();
 });

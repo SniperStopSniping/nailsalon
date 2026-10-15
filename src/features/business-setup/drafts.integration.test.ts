@@ -886,6 +886,26 @@ describe('reading own images directly in conversation', () => {
     return { actor, asset, revision: saved.revision.revision };
   }
 
+  it('keeps readable policies and public contacts in the draft without changing live settings', async () => {
+    const { actor, asset, revision } = await attached();
+    const websiteDetails = { locationDirections: 'Dixie and Countryside', instagram: '@dynastybeautyy', email: 'studio@example.com', phone: null, sections: [{ id: 'guests', title: 'Guests', text: 'Please come alone.' }, { id: 'deposit', title: 'Deposits', text: 'A deposit is required; contact me to arrange it.' }] };
+    const provider = model(answer({ uploadFactsJson: JSON.stringify({ ...facts, websiteDetails }) }));
+    const result = await runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'website', message: 'Make my website from my design', referenceIds: [asset.id] }, provider);
+
+    expect(result.head.revision.document.website.content.websiteDetails).toEqual(websiteDetails);
+
+    const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect(resolveBookingPageContent(salon!.settings).live.websiteDetails).toBeUndefined();
+    expect(result.head.revision.document.business.locationDisplayMode).toBe('city_only');
+    expect(result.head.revision.document.services[0]?.confirmed).toBe(false);
+
+    const resumed = await openSetup(actor);
+
+    expect(resumed.revision.document.website.content.websiteDetails).toEqual(websiteDetails);
+    await expect(editSetup(actor, { expectedRevision: resumed.revision.revision, operationId: randomUUID(), operations: [{ type: 'website_details', values: { locationDirections: '42 Synthetic Lane' } }] })).rejects.toMatchObject({ code: 'INVALID' });
+  });
+
   it.each(['Just get all the info from my image', 'Read my menu and use what is already there', 'Make my website using the details in my design'])('acts on %s, saves unconfirmed facts atomically, and replays without duplicate services or calls', async (message) => {
     const { actor, asset, revision } = await attached();
     const provider = model(answer());

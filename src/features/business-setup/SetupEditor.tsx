@@ -10,6 +10,7 @@ import type { DesignAsset } from '@/features/custom-sites/WebsitePhotoLibrary';
 import { ChatAttachments } from './ChatAttachments';
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
 import { missingDesignDetails, WEEKDAYS } from './contracts';
+import { WebsiteDetailsEditor } from './WebsiteDetailsEditor';
 
 type Head = {
   workspace: {
@@ -26,6 +27,8 @@ type Message = {
   reply: string | null;
   status: string;
 };
+type MessageRequest = { message: string; operationId: string; expectedRevision: number; scope: string; referenceIds: string[] };
+type Submission = { request: MessageRequest; status: 'sending' | 'checking' | 'failed'; startedAt: number; error?: string };
 type UploadReview = { id: string; operations: SetupOperation[]; notes: string; expectedRevision: number };
 function uploadReviewCurrency(upload: UploadReview, fallback: string) {
   const proposed = upload.operations.find(operation => operation.type === 'booking' && operation.values.currency);
@@ -45,6 +48,7 @@ const LABELS: Record<string, string> = {
   'business.workMode': 'Solo or team',
   'business.locationDisplayMode': 'Public address visibility',
   'services': 'Service menu',
+  'website.content.websiteDetails': 'Public contact details, directions and website policies',
   'website.config.customFrontendId': 'Website design (see Preview)',
   'booking.currency': 'Currency',
   'booking.timezone': 'Time zone',
@@ -95,7 +99,22 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
   const [tab, setTab] = useState<'chat' | 'website' | 'setup' | 'review'>('chat');
   const [ownBusy, setBusy] = useState(false);
   const [studioBusy, setStudioBusy] = useState(false);
-  const busy = ownBusy || studioBusy;
+  const [submission, setSubmission] = useState<Submission | null>(null);
+  const submissionRef = useRef<Submission | null>(null);
+  const sendLock = useRef<string | null>(null);
+  const messageConnection = useRef<AbortController | null>(null);
+  const busy = ownBusy || studioBusy || Boolean(submission && submission.status !== 'failed') || messages.some(m => m.status === 'pending');
+  function saveSubmission(value: Submission | null) {
+    submissionRef.current = value;
+    setSubmission(value);
+    try {
+      if (value) {
+        sessionStorage.setItem(`luster-message:${salonSlug}`, JSON.stringify(value));
+      } else {
+        sessionStorage.removeItem(`luster-message:${salonSlug}`);
+      }
+    } catch { /* Recovery still works from the server when storage is unavailable. */ }
+  }
   const [error, setError] = useState('');
   const [review, setReview] = useState<SetupReview | null>(null);
   const [published, setPublished] = useState(false);
@@ -113,16 +132,17 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
       setIncludeBusiness(false);
     }
   }, [customFrontendId]);
-  async function call<T>(body: Record<string, unknown>): Promise<T> {
-    const response = await fetch('/api/admin/business-setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ salonSlug, ...body }) });
+  async function call<T>(body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
+    const response = await fetch('/api/admin/business-setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ salonSlug, ...body }), signal });
     const payload = await response.json().catch(() => null) as {
       data?: T;
       error?: {
         message?: string;
+        code?: string;
       };
     } | null;
     if (!response.ok || !payload || !('data' in payload)) {
-      throw new Error(payload?.error?.message ?? 'We could not save this step. Please try again.');
+      throw Object.assign(new Error(payload?.error?.message ?? 'We could not save this step. Please try again.'), { status: response.status, code: payload?.error?.code });
     }
     return payload.data as T;
   }
@@ -137,17 +157,45 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
         uploadReviews?: UploadReview[];
       };
     };
-    setHead(data);
-    setMessages(data.messages);
+    setHead(current => current && current.revision.revision > data.revision.revision ? current : data);
+    setMessages(current => data.messages.map(message => message.status === 'completed' ? message : current.find(old => old.id === message.id && old.status === 'completed') ?? message));
+    const current = submissionRef.current;
+    if (current) {
+      const saved = data.messages.find(m => m.id === current.request.operationId);
+      if (saved?.status === 'completed') {
+        messageConnection.current?.abort();
+        sendLock.current = null;
+        saveSubmission(null);
+        setPendingMessage(null);
+        setActivity('');
+        setError('');
+      } else if (saved && ['failed', 'interrupted'].includes(saved.status)) {
+        saveSubmission({ ...current, status: 'failed', error: 'This attempt stopped. Your saved changes are safe.' });
+        setPendingMessage(null);
+        setActivity('');
+      } else if (!saved && current.status === 'checking' && Date.now() - current.startedAt > 30000) {
+        saveSubmission({ ...current, status: 'failed', error: 'We could not confirm delivery. Retry checks the same request safely.' });
+        setActivity('');
+      }
+    }
     setUploadReviews(data.uploadReviews ?? []);
     setPublished(data.workspace.status === 'published');
     if (data.workspace.status === 'published') {
       setTab('chat');
       setReview(null);
     }
+    return data;
   }
   useEffect(() => {
     let active = true;
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(`luster-message:${salonSlug}`) ?? 'null');
+      if (stored?.request && typeof stored.request.operationId === 'string' && typeof stored.request.message === 'string' && Date.now() - stored.startedAt < 86400000) {
+        saveSubmission({ ...stored, status: 'checking' });
+        setPendingMessage(stored.request.message);
+        setActivity('Checking your saved changes…');
+      }
+    } catch { /* Ignore unavailable or outdated browser storage. */ }
     call<Head>({ action: 'open' }).then(async (data) => {
       if (active) {
         setHead(data);
@@ -164,7 +212,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
     // Identity changes mount a fresh editor in its server page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [salonSlug]);
-  async function run(work: () => Promise<void>) {
+  async function run(work: () => Promise<unknown>) {
     setBusy(true);
     setError('');
     try {
@@ -197,37 +245,80 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
     }
   }, [messages.length, lastReply, uploadReviews.length, pendingMessage, activity, tab]);
   useEffect(() => {
-    if (!ownBusy && !hasPendingMessage) {
+    if (!ownBusy && !hasPendingMessage && (!submission || submission.status === 'failed')) {
       return;
     }
     const timer = window.setInterval(() => {
       void refresh().catch(() => {});
     }, 4000);
     return () => window.clearInterval(timer);
-  }, [ownBusy, hasPendingMessage]); // eslint-disable-line react-hooks/exhaustive-deps
-  async function sendMessage() {
-    if (!head || busy || published || !text.trim()) {
+  }, [ownBusy, hasPendingMessage, submission?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function submitRequest(request: MessageRequest) {
+    if (sendLock.current) {
       return;
     }
-    const message = text.trim();
-    setPendingMessage(message);
-    setText('');
-    setActivity(customFrontendId && !includeBusiness ? 'Working on your website…' : 'Luster is thinking…');
-    await run(async () => {
-      try {
-        const result = await call<{ head: Head; reply: string }>({ action: 'message', message: { message, operationId: crypto.randomUUID(), expectedRevision: head.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: requestAssets } });
-        setHead(result.head);
-        setReview(null);
-      } catch (error) {
-        // Keep their words available after a failed or disconnected request.
-        setText(current => current || message);
-        throw error;
-      } finally {
-        await refresh().catch(() => {});
-        setPendingMessage(null);
-        setActivity('');
+    sendLock.current = request.operationId;
+    const connection = new AbortController();
+    messageConnection.current = connection;
+    saveSubmission({ request, status: 'sending', startedAt: Date.now() });
+    setPendingMessage(request.message);
+    setActivity('Working on your changes…');
+    setError('');
+    try {
+      const result = await call<{ head: Head; reply: string }>({ action: 'message', message: request }, connection.signal);
+      setHead(result.head);
+      setReview(null);
+      // The response proves completion even if the subsequent history GET fails.
+      setMessages(current => [...current.filter(m => m.id !== request.operationId), { id: request.operationId, message: request.message, reply: result.reply, status: 'completed' }]);
+      saveSubmission(null);
+      setPendingMessage(null);
+      setActivity('');
+      await refresh().catch(() => {});
+    } catch (error) {
+      // A lost HTTP response does not prove the operation failed. Reconcile by ID.
+      if (submissionRef.current?.request.operationId === request.operationId) {
+        saveSubmission({ ...submissionRef.current, status: 'checking' });
+        setActivity('Checking your saved changes…');
+        const latest = await refresh().catch(() => null);
+        if (submissionRef.current && latest && !latest.messages.some(m => m.id === request.operationId) && error instanceof Error && 'status' in error && Number(error.status) >= 400 && Number(error.status) < 500) {
+          saveSubmission({ request: { ...request, expectedRevision: latest.revision.revision }, startedAt: Date.now(), status: 'failed', error: 'Your request could not start. Your latest saved changes are loaded; try again.' });
+          setActivity('');
+        }
       }
-    });
+    } finally {
+      if (sendLock.current === request.operationId) {
+        sendLock.current = null;
+      }
+    }
+  }
+  async function sendMessage() {
+    if (!head || busy || sendLock.current || published || !text.trim()) {
+      return;
+    }
+    const request: MessageRequest = { message: text.trim(), operationId: crypto.randomUUID(), expectedRevision: head.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: requestAssets };
+    setText('');
+    await submitRequest(request);
+  }
+  async function retryMessage() {
+    const failed = submissionRef.current;
+    if (!failed || failed.status !== 'failed' || sendLock.current) {
+      return;
+    }
+    try {
+      const latest = await refresh();
+      const saved = latest.messages.find(m => m.id === failed.request.operationId);
+      if (saved?.status === 'completed' || saved?.status === 'pending') {
+        return;
+      }
+      // An explicit retry of a terminal failure is a fresh AI attempt. Unknown
+      // delivery and saved generated work always retain the original identity.
+      const request = saved && ['failed', 'interrupted'].includes(saved.status)
+        ? { ...failed.request, operationId: crypto.randomUUID(), expectedRevision: latest.revision.revision }
+        : failed.request;
+      await submitRequest(request);
+    } catch {
+      setError('Still unable to connect. Your message is saved here; try again when you’re online.');
+    }
   }
   return (
     <main className="luster-setup setup-chat-first" data-view={tab}>
@@ -280,12 +371,44 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                 <div key={message.id}>
                   <p className="setup-owner">{message.message}</p>
                   {message.reply && <p className="setup-assistant">{message.reply.replace(/\*\*([^*]+)\*\*/gu, '$1').replaceAll('not_shown', 'unclear')}</p>}
-                  {message.status === 'pending' && <p>Preparing your draft…</p>}
-                  {['failed', 'interrupted'].includes(message.status) && <p>This request did not finish. Your saved changes are safe. You can retry or check Preview for a saved result.</p>}
+                  {message.status === 'pending' && (
+                    <p role="status" className="setup-thinking">
+                      <span aria-hidden="true">✦</span>
+                      {' '}
+                      Working on your changes…
+                    </p>
+                  )}
+                  {['failed', 'interrupted'].includes(message.status) && (
+                    <div>
+                      <p>This request stopped. Your saved changes are safe.</p>
+                      {submission?.request.operationId !== message.id && (
+                        <button
+                          type="button"
+                          disabled={busy || published}
+                          onClick={() => void run(async () => {
+                            const latest = await refresh();
+                            const saved = latest.messages.find(m => m.id === message.id);
+                            if (!saved || !['failed', 'interrupted'].includes(saved.status)) {
+                              return;
+                            }
+                            await submitRequest({ message: saved.message, operationId: crypto.randomUUID(), expectedRevision: latest.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: requestAssets });
+                          })}
+                        >
+                          Retry message
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
-              {pendingMessage && !messages.some(message => message.message === pendingMessage) && <p className="setup-owner">{pendingMessage}</p>}
-              {busy && (
+              {pendingMessage && !messages.some(message => message.id === submission?.request.operationId) && <p className="setup-owner">{pendingMessage}</p>}
+              {submission?.status === 'failed' && (
+                <div role="alert">
+                  <p>{submission.error}</p>
+                  <button type="button" disabled={ownBusy || studioBusy} onClick={() => void retryMessage()}>Retry message</button>
+                </div>
+              )}
+              {busy && !hasPendingMessage && (
                 <p className="setup-thinking" role="status">
                   <span aria-hidden="true">✦</span>
                   {' '}
@@ -547,6 +670,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                 </label>
                 <button type="submit" disabled={busy || published}>Save business details</button>
               </form>
+              <WebsiteDetailsEditor value={draft.website.content.websiteDetails} disabled={busy || published} onSave={values => void run(() => edit([{ type: 'website_details', values }]))} />
               <h3>Booking essentials</h3>
               <form
                 key={`booking-${head.revision.revision}`}

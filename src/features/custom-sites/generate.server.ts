@@ -16,6 +16,7 @@ import { assetDataUrl, ownedAssets } from './assets.server';
 import { customSiteGenerateSchema, customSiteSourceSchema } from './contracts';
 import { CUSTOM_SITE_OUTPUT_SCHEMA, CUSTOM_SITE_PROMPT } from './prompt';
 import { validateCustomSource } from './validate.server';
+import { assertWebsiteDetailsCoverage } from './website-coverage.server';
 
 // Each paid generation is admitted only after exact multimodal token counting.
 const MAX_OUTPUT = 14000;
@@ -69,7 +70,7 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
         throw new SetupError('INVALID', 'Choose fewer references for this design.');
       }
       const media = await ownedAssets(db, actor.salonId, assetIds);
-      const context = JSON.stringify({ business: { name: document.business.name, city: document.business.city, address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio, hours: document.hours, timezone: document.booking.timezone }, booking: { currency: document.booking.currency, minimumNoticeMinutes: document.booking.minimumNoticeMinutes, bufferMinutes: document.booking.bufferMinutes, confirmationMode: document.booking.confirmationMode }, services: document.services.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, durationMinutes: s.durationMinutes, confirmed: s.confirmed })), previousSource: prior?.source ?? null, designBrief: brief ?? { fidelity: 'inspiration', ownedReferenceIds: [] }, assets: media.map(a => ({ id: a.id, role: a.role, name: a.name })), startOver: input.startOver });
+      const context = JSON.stringify({ websiteDetails: document.website.content.websiteDetails, business: { name: document.business.name, city: document.business.city, address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio, hours: document.hours, timezone: document.booking.timezone }, booking: { currency: document.booking.currency, minimumNoticeMinutes: document.booking.minimumNoticeMinutes, bufferMinutes: document.booking.bufferMinutes, confirmationMode: document.booking.confirmationMode }, services: document.services.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, durationMinutes: s.durationMinutes, confirmed: s.confirmed })), previousSource: prior?.source ?? null, designBrief: brief ?? { fidelity: 'inspiration', ownedReferenceIds: [] }, assets: media.map(a => ({ id: a.id, role: a.role, name: a.name })), startOver: input.startOver });
       if (Buffer.byteLength(context + CUSTOM_SITE_PROMPT + input.message) > 140000) {
         throw new SetupError('INVALID', 'This design is too large for one generation. Simplify the saved source first.');
       }
@@ -95,6 +96,7 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
             throw new SetupError('INVALID', 'The response was incomplete. Return a smaller complete website.');
           }
           source = validateCustomSource(customSiteSourceSchema.parse(JSON.parse(rawOutput)), allowedImages, true);
+          assertWebsiteDetailsCoverage(source.html, document.website.content.websiteDetails);
           await db.update(calls).set({ validation: 'passed' }).where(eq(calls.id, callId));
           break;
         } catch (error) {

@@ -17,7 +17,7 @@ describe('custom website trusted parent bridge', () => {
   it('uses an opaque sandbox and exposes the original booking fallback', () => {
     render(<CustomWebsiteFrame payload={payload} rendererOrigin="https://renderer.example" bookingPath="/salon/book/service" />);
 
-    expect(screen.getByTitle('Custom site')).toHaveAttribute('sandbox', 'allow-scripts');
+    expect(screen.getByTitle('Custom site')).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
     expect(screen.getByRole('link', { name: 'Open booking menu' })).toHaveAttribute('href', '/salon/book/service?nativeBooking=1');
   });
 
@@ -55,6 +55,6 @@ describe('custom website browsing viewport', () => {
 
     expect(frame.style.height).toBe(initialHeight);
     expect(Number.parseInt(initialHeight)).toBeLessThanOrEqual(window.innerHeight);
-    expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
+    expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
   });
 });

@@ -14,6 +14,11 @@ describe('saved owner conversation', () => {
     expect(setupTimeline([{ ...turn, designOperationId: 'design', status: 'generated' }], [design], 2000)).toEqual([{ id: 'business', message: 'My details', reply: 'Saved', status: 'completed' }]);
   });
 
+  it('keeps generation and applying stages visibly pending until saved', () => {
+    expect(setupTimeline([{ ...turn, status: 'generated' }], [], 2000)[0]?.status).toBe('pending');
+    expect(setupTimeline([{ ...turn, status: 'generated', designOperationId: 'design' }], [{ ...design, status: 'generated' }], 2000)[0]?.status).toBe('pending');
+  });
+
   it('shows an interruption instead of an endless preparation message', () => {
     expect(setupTimeline([{ ...turn, status: 'pending' }], [{ ...design, status: 'pending' }], 400000).map(message => message.status)).toEqual(['interrupted', 'interrupted']);
   });

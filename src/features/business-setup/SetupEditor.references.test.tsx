@@ -23,6 +23,7 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () {
     this.removeAttribute('open');
   };
+  sessionStorage.clear();
   assets = [];
   requests = [];
   messages = [];
@@ -52,7 +53,7 @@ beforeEach(() => {
         revision++;
       }
       if (['generate', 'message'].includes(request.action)) {
-        messages.push({ id: 'turn-1', message: (request.message ?? request.input).message, reply: 'Saved your request.', status: 'completed' });
+        messages.push({ id: (request.message ?? request.input).operationId, message: (request.message ?? request.input).message, reply: 'Saved your request.', status: 'completed' });
       }
       if (request.action === 'read_upload') {
         reviews = [{ id: request.input.operationId, operations: [{ type: 'business', values: { name: 'Name in my image' } }, { type: 'booking', values: { currency: 'USD' } }, { type: 'service', values: { ...document.services[0], priceCents: 6500, durationMinutes: null } }], notes: 'Appointment lengths are missing.', expectedRevision: revision }];
@@ -229,7 +230,7 @@ it('keeps the message available after a failed request and does not retry a paid
     const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
     if (request?.action === 'message') {
       requests.push(request);
-      return { ok: false, json: async () => ({ error: { message: 'Please retry after reconnecting.' } }) };
+      return { ok: false, status: 400, json: async () => ({ error: { message: 'Please retry after reconnecting.' } }) };
     }
     return baseFetch(url, options);
   }));
@@ -239,7 +240,9 @@ it('keeps the message available after a failed request and does not retry a paid
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
   await screen.findByRole('alert');
 
-  expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveValue('My salon is called Aster.');
+  expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveValue('');
+  expect(screen.getByText('My salon is called Aster.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Retry message' })).toBeInTheDocument();
   expect(requests.filter(request => request.action === 'message')).toHaveLength(1);
 });
 
@@ -262,4 +265,83 @@ it('recovers the published state after a lost response without asking for approv
 
   expect(screen.queryByRole('button', { name: 'Approve and publish' })).not.toBeInTheDocument();
   expect(requests.filter(request => request.action === 'publish')).toHaveLength(1);
+});
+
+it('clears a sent follow-up immediately, shows progress and preserves a newly typed message', async () => {
+  const baseFetch = globalThis.fetch;
+  let finish!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'message') {
+      await gate;
+    }
+    return baseFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  const composer = screen.getByRole('textbox', { name: 'Message Luster' });
+  fireEvent.change(composer, { target: { value: 'Make the images bigger' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+  expect(composer).toHaveValue('');
+  expect(screen.getByText('Make the images bigger')).toBeInTheDocument();
+  expect(screen.getByText('Working on your changes…')).toBeInTheDocument();
+
+  fireEvent.change(composer, { target: { value: 'My next idea' } });
+  finish();
+  await screen.findByText('Saved your request.');
+
+  expect(composer).toHaveValue('My next idea');
+  expect(screen.queryByText('Working on your changes…')).not.toBeInTheDocument();
+});
+
+it('recovers a completed message after a lost response without resending or restoring the textbox', async () => {
+  const baseFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    const response = await baseFetch(url, options);
+    if (request?.action === 'message') {
+      throw new Error('Lost response');
+    }
+    return response;
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Luster' }), { target: { value: 'Make Instagram clickable' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await screen.findByText('Saved your request.');
+
+  expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveValue('');
+  expect(screen.queryByRole('button', { name: 'Retry message' })).not.toBeInTheDocument();
+  expect(requests.filter(request => request.action === 'message')).toHaveLength(1);
+  expect(screen.getAllByText('Make Instagram clickable')).toHaveLength(1);
+});
+
+it('polls a still-running operation after disconnect and loads its result without another paid request', async () => {
+  const baseFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'message') {
+      requests.push(request);
+      messages.push({ id: request.message.operationId, message: request.message.message, reply: null, status: 'pending' });
+      throw new Error('Connection lost while server continues');
+    }
+    return baseFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Luster' }), { target: { value: 'Keep all my policies' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(messages).toHaveLength(1));
+  await screen.findByText('Working on your changes…');
+  messages = messages.map(message => ({ ...message, status: 'completed', reply: 'Your policies are included.' }));
+  await screen.findByText('Your policies are included.', {}, { timeout: 6500 });
+
+  expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveValue('');
+  expect(requests.filter(request => request.action === 'message')).toHaveLength(1);
+  expect(screen.queryByRole('button', { name: 'Retry message' })).not.toBeInTheDocument();
+  expect(sessionStorage.getItem('luster-message:test')).toBeNull();
 });

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { designBriefSchema } from '@/features/custom-sites/contracts';
+import { websiteDetailsSchema } from '@/features/custom-sites/website-details';
 import { bookingConfigSchema } from '@/libs/bookingConfig.shared';
 import type { resolveBookingExperience } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
@@ -48,13 +49,16 @@ export const businessSchema = z.object({
 }).strict();
 // Internal, persisted batch: extracted facts keep their upload provenance while
 // sharing the same atomic draft revision as the owner's conversational changes.
+const websiteDetailsOperation = z.object({ type: z.literal('website_details'), values: websiteDetailsSchema.partial().strict() }).strict();
 const uploadOperationSchema = z.discriminatedUnion('type', [
+  websiteDetailsOperation,
   z.object({ type: z.literal('business'), values: businessSchema.omit({ workMode: true }).partial() }).strict(),
   z.object({ type: z.literal('hours'), values: hoursSchema }).strict(),
   z.object({ type: z.literal('booking'), values: bookingConfigSchema.pick({ currency: true }).partial().strict() }).strict(),
   z.object({ type: z.literal('service'), values: setupServiceSchema }).strict(),
 ]);
 export const setupOperationSchema = z.discriminatedUnion('type', [
+  websiteDetailsOperation,
   z.object({ type: z.literal('import_upload'), referenceIds: z.array(z.string().uuid()).min(1).max(6), operations: z.array(uploadOperationSchema).min(1).max(30) }).strict(),
   z.object({ type: z.literal('design_brief'), values: designBriefSchema }).strict(),
   z.object({ type: z.literal('custom_frontend'), artifactId: z.string().uuid() }).strict(),
@@ -178,10 +182,16 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
         }
         next.website.config = { ...next.website.config, layout: op.layout, siteStylePreset: op.style, sitePalettePreset: op.palette };
         break;
+      case 'website_details':
+        next.website.content.websiteDetails = websiteDetailsSchema.parse({ locationDirections: null, instagram: null, email: null, phone: null, sections: [], ...next.website.content.websiteDetails, ...op.values });
+        break;
       case 'copy':
         next.website.content = { ...next.website.content, bio: op.bio, specialtyLine: op.specialtyLine };
         break;
     }
+  }
+  if (next.business.locationDisplayMode !== 'full_address' && next.business.exactAddress.trim().length >= 5 && JSON.stringify(next.website.content.websiteDetails ?? {}).toLowerCase().includes(next.business.exactAddress.trim().toLowerCase())) {
+    throw new SetupError('INVALID', 'Keep your private street address out of public website details. Use a nearby intersection or area instead.');
   }
   return next;
 }

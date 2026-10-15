@@ -294,3 +294,7 @@
 .setup-published-card { padding: 20px; border: 1px solid var(--setup-line); border-radius: 18px; margin: 20px 0; font-size: 13px; }
 .setup-published-card h2 { font-size: 18px; margin-bottom: 14px; }
 .setup-published-card a { display: block; margin-top: 12px; color: var(--setup-accent); }
+
+@keyframes setup-working-pulse { 0%, 100% { opacity: .4; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.1); } }
+.setup-thinking span { animation: setup-working-pulse 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .setup-thinking span { animation: none; } }

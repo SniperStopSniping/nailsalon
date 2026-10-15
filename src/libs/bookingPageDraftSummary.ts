@@ -31,6 +31,7 @@ const CONTENT_LABELS: Record<keyof BookingPageContentSide, string> = {
   portraitFocalPoint: 'Profile photo crop',
   coverTextMode: 'Cover text display',
   coverText: 'Cover text',
+  websiteDetails: 'Contact details and website policies',
   galleryPhotoIds: 'Gallery photos',
 };
 

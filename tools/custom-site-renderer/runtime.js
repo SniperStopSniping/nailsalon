@@ -46,6 +46,31 @@
     root.querySelectorAll('[data-luster-field^="business."]').forEach((node) => {
       node.textContent = String(data.business[node.dataset.lusterField.split('.')[1]] ?? '');
     });
+    const details = data.details ?? {};
+    const detailText = { ...details };
+    for (const section of details.sections ?? []) {
+      detailText[`title_${section.id}`] = section.title;
+      detailText[`section_${section.id}`] = section.text;
+    }
+    root.querySelectorAll('[data-luster-field^="details."]').forEach((node) => {
+      node.textContent = String(detailText[node.dataset.lusterField.slice(8)] ?? '');
+    });
+    // Only trusted contact bindings can navigate; generated hrefs remain forbidden.
+    root.querySelectorAll('a[data-luster-link]').forEach((node) => {
+      const kind = node.dataset.lusterLink;
+      const value = details[kind];
+      let href = null;
+      if (kind === 'instagram' && typeof value === 'string' && /^@?[a-z0-9._]{1,30}$/i.test(value)) href = `https://www.instagram.com/${value.replace(/^@/, '')}/`;
+      if (kind === 'email' && typeof value === 'string' && /^[^\s@?:#%]+@[^\s@?:#%]+\.[^\s@?:#%]+$/.test(value)) href = `mailto:${value}`;
+      if (kind === 'phone' && typeof value === 'string' && /^\+?[0-9 ()-]{7,30}$/.test(value)) href = `tel:${value.replace(/[^+0-9]/g, '')}`;
+      if (href) {
+        node.href = href;
+        node.target = '_blank';
+        node.rel = 'noopener noreferrer';
+      } else {
+        node.removeAttribute('href');
+      }
+    });
     root.querySelectorAll('img').forEach((node) => {
       const image = images[node.getAttribute('src')?.replace(/^asset:/, '')];
       if (typeof image === 'string' && /^data:image\/(?:webp|png|jpeg);base64,/.test(image)) {

@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { assertCustomArtifact } from '@/features/custom-sites/artifacts.server';
 import { assetDataUrl } from '@/features/custom-sites/assets.server';
 import { customSiteRendererOrigin } from '@/features/custom-sites/payload.server';
+import { assertWebsiteDetailsCoverage } from '@/features/custom-sites/website-coverage.server';
 import { db } from '@/libs/DB';
 import { auditLogSchema, businessSetupApprovalSchema as approvals, businessSetupPublicationSchema as publications, businessSetupWorkspaceSchema as workspaces, salonLocationSchema, salonSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
 
@@ -85,6 +86,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
         throw new SetupError('NOT_READY', 'Your website preview is not available yet. Please try again before publishing.');
       }
       const { artifact } = await assertCustomArtifact(tx, salon.id, draft.website.config.customFrontendId);
+      assertWebsiteDetailsCoverage(artifact.source.html, draft.website.content.websiteDetails);
       if (draft.business.exactAddress && draft.business.locationDisplayMode !== 'full_address' && JSON.stringify(artifact.source).toLowerCase().includes(draft.business.exactAddress.toLowerCase())) {
         throw new SetupError('INVALID', 'Remove your private address from the design before publishing.');
       }

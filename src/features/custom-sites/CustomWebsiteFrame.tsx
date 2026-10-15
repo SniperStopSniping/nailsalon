@@ -86,7 +86,7 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
     <div>
       {status && <p role="status" className="p-3 text-center text-sm">{status}</p>}
       {/* Separate site AND opaque origin: no cookies, persistent storage or cross-salon channels. */}
-      <iframe ref={frame} title={payload.source.title} src={`${rendererOrigin}/renderer`} sandbox="allow-scripts" referrerPolicy="no-referrer" style={{ width: '100%', height, border: 0, display: 'block' }} />
+      <iframe ref={frame} title={payload.source.title} src={`${rendererOrigin}/renderer`} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" style={{ width: '100%', height, border: 0, display: 'block' }} />
       {bookingHref && <p className="p-3 text-center text-sm"><a className="underline" href={bookingHref}>Open booking menu</a></p>}
     </div>
   );

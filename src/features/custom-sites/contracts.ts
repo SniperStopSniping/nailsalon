@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import type { WebsiteDetails } from './website-details';
+
 /** Source files, not a template/composition registry. No server code or dependencies. */
 export const customSiteSourceSchema = z.object({
   title: z.string().trim().min(1).max(100),
@@ -30,6 +32,7 @@ export type CustomSiteGenerateInput = z.infer<typeof customSiteGenerateSchema>;
 export type CustomSiteData = {
   business: { name: string; city: string; address: string | null; bio: string; hours: Record<string, { open: string; close: string } | null>; hoursLabel?: string };
   services: { id: string; name: string; description: string | null; priceCents: number; priceLabel: string; durationMinutes: number }[];
+  details?: WebsiteDetails;
   currency: string;
   preview: boolean;
 };

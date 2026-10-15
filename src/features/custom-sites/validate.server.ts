@@ -101,6 +101,9 @@ export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>,
         }
         continue;
       }
+      if (attr.name === 'data-luster-link' && node.tagName === 'a' && ['instagram', 'email', 'phone'].includes(attr.value)) {
+        continue;
+      }
       if (attr.name === 'href' && /^#[\w-]*$/u.test(attr.value)) {
         continue;
       }
@@ -110,7 +113,7 @@ export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>,
       if (attr.name === 'data-edit' && /^[\w-]{1,80}$/u.test(attr.value)) {
         continue;
       }
-      if (attr.name === 'data-luster-field' && FIELDS.has(attr.value)) {
+      if (attr.name === 'data-luster-field' && (FIELDS.has(attr.value) || /^details\.(?:locationDirections|instagram|email|phone|(?:section|title)_[a-z][a-z0-9_-]{0,59})$/u.test(attr.value))) {
         continue;
       }
       if (attr.name === 'data-luster-book' && node.tagName === 'button' && attr.value === '') {
