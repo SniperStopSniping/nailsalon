@@ -1,0 +1,60 @@
+{
+  "verifiedAt": "2026-10-15T19:26:36.714Z",
+  "target": "Preview",
+  "appCommit": "bf72b76d9ebd05da62d61f7b6b56b1d68a7fa174",
+  "deploymentId": "dpl_GFD6nB85rhQiFvUjRd2L3Tas8yr3",
+  "deploymentUrl": "https://isla-nail-studio-oj2ji9mpi-sniperstopsnipings-projects.vercel.app",
+  "testUrl": "https://luster-ai-builder-test.vercel.app/ai-website-test",
+  "status": "READY",
+  "finalReferenceTrial": {
+    "operationId": "db413599-3c35-4ef1-9eb3-1ec5cd8a7661",
+    "revision": 3,
+    "elapsedMs": 12542,
+    "calls": [
+      {
+        "operation_id": "db413599-3c35-4ef1-9eb3-1ec5cd8a7661",
+        "ordinal": 0,
+        "model": "gpt-6-astra",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 2767,
+        "output_tokens": 436,
+        "cost_micro_usd": 56380,
+        "charged_micro_cad": 112760,
+        "elapsed_ms": 11030,
+        "validation": "unchecked"
+      }
+    ],
+    "refreshResumes": true,
+    "liveUnchanged": {
+      "publication_status": "draft",
+      "online_booking_enabled": false,
+      "live_services": 0,
+      "appointments": 0,
+      "publications": 0
+    },
+    "noIncorrectHoursClaim": true
+  },
+  "budget": {
+    "approvedCapCAD": 40,
+    "hostedChargedOrReservedCAD": 10.43343,
+    "frozenLocalCAD": 6.384406,
+    "combinedCAD": 16.817836,
+    "remainingCAD": 23.182164,
+    "accounting": "Conservative usage estimate including retained unknown-charge reservations; not invoice reconciliation"
+  },
+  "preservation": {
+    "sample": {
+      "settings_hash": "de2a9f7285ee7648c12972917b2dc45c",
+      "appointments": 3
+    },
+    "fixture": {
+      "publication_status": "published",
+      "live_services": 2,
+      "appointments": 1,
+      "publications": 1
+    },
+    "likedSampleUnchanged": true
+  },
+  "productionModified": false
+}
