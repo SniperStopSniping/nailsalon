@@ -1,0 +1,20 @@
+{
+  "checkedAt": "2026-10-16T02:17:16.347Z",
+  "calls": [
+    {
+      "operation_id": "f89d1d1f-9d5a-4eb8-8cc3-6bd3c9514484",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "validation": "passed",
+      "input_tokens": 3155,
+      "output_tokens": 686,
+      "cost_micro_usd": 738,
+      "charged_micro_cad": 1476,
+      "elapsed_ms": 8454
+    }
+  ],
+  "hostedCalls": 84,
+  "combinedConservativeCad": 39.21669,
+  "approvedCapCad": 50
+}

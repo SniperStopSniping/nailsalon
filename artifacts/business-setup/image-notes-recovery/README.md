@@ -19,4 +19,16 @@ Conversation validation records a safe status in the existing private call ledge
 - TypeScript, scoped ESLint and diff checks passed.
 - Deterministic tests use provider doubles. Replaying retained real-provider output is not a new model generation or proof of website visual fidelity.
 
-No production migration, production data change or merge is part of this fix. Hosted deployment and real-provider verification evidence will be recorded separately after completion.
+No production migration, production data change or merge is part of this fix. 
+
+## Hosted verification
+
+Runtime commit `a160eb09451e773b4b5f1d08957e64e432b6398e`, deployment `dpl_tvUHJWecDiQzjBrUfruPfWH8VfPT`, READY Preview, build 2m24s. The stable test alias is https://luster-ai-builder-test.vercel.app/ai-website-test. Production was not deployed.
+
+A synthetic salon used the actual mobile owner controls: Start over, upload the owner-provided screenshot as an own-business design, send “Make exactly like this.” OpenAI `gpt-6-luna` completed in 8.454 seconds (provider call), using 3,155 input and 686 output tokens. Estimated cost USD 0.000738; conservative budget accounting CAD 0.001476. No automatic or developer retry was submitted.
+
+The readable salon name, intersection, Instagram and email were saved. Small policy text was flagged unreadable and category labels were not guessed into priced services. The assistant asked for the genuinely missing working mode, hours and a service with price/time. This verifies image intake, not a newly generated website or booking completion.
+
+The initial browser check incorrectly used an exact-text loading locator that omitted the decorative star; that assertion timed out after the real request had already completed successfully. A separate read-only UI pass verified the saved completion, refresh and a second tab without resubmitting the prompt. Hosted loading screenshots are not claimed. The previous synthetic draft was restored through the owner controls, preserving canonical business/service hashes during restoration. The affected owner's draft was never edited by these checks.
+
+Screenshots and source reference stay in private local test evidence and are not committed. Safe metadata is in `verification.json` and `usage.json`. After this check the cumulative conservative allowance is CAD 39.216690 / 50, including CAD 6.384406 frozen local usage and 84 hosted calls. Unknown prior usage remains reserved. This is application accounting, not the reconciled provider invoice.

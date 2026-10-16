@@ -1,0 +1,23 @@
+{
+  "sourceCommit": "a160eb09451e773b4b5f1d08957e64e432b6398e",
+  "deploymentId": "dpl_tvUHJWecDiQzjBrUfruPfWH8VfPT",
+  "origin": "https://luster-ai-builder-test.vercel.app",
+  "fixture": "synthetic isolated salon, never the affected owner account",
+  "reference": "owner-provided reference screenshot",
+  "prompt": "Make exactly like this",
+  "operationId": "f89d1d1f-9d5a-4eb8-8cc3-6bd3c9514484",
+  "revision": 26,
+  "realProvider": true,
+  "uploadThroughOwnerControls": true,
+  "composerCleared": true,
+  "messageCompleted": true,
+  "readableContactsSaved": true,
+  "unreadablePoliciesFlagged": true,
+  "refreshResumed": true,
+  "secondTabResumed": true,
+  "websiteGenerationTested": false,
+  "progressScreenshotVerified": false,
+  "verificationCaveat": "Initial screenshot assertion used an exact text locator that did not account for the decorative star. The real request completed successfully; it was not resubmitted. Saved completion was verified in a separate read/resume pass. Website generation was not attempted because required booking information was absent from this reference.",
+  "syntheticDraftRestored": true,
+  "canonicalDataUnchangedDuringRestore": true
+}
