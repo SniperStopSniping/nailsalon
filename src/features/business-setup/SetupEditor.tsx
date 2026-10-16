@@ -213,6 +213,10 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
     } catch { /* Ignore unavailable or outdated browser storage. */ }
     call<Head>({ action: 'open' }).then(async (data) => {
       if (active) {
+        // Adopt the saved conversation before enabling navigation. The history
+        // request can be slower: initial hydration must not look like a reset
+        // on another device and send an owner's Preview click back to chat.
+        sessionStart.current = data.revision.document.sessionStartRevision ?? 1;
         setHead(data);
         await refresh();
       }

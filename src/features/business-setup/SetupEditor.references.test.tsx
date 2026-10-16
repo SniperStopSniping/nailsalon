@@ -99,6 +99,33 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('keeps Preview open when saved conversation history finishes loading after navigation', async () => {
+  revision = 12;
+  document.sessionStartRevision = 9;
+  const baseFetch = globalThis.fetch;
+  let releaseHistory!: () => void;
+  const history = new Promise<void>((resolve) => {
+    releaseHistory = resolve;
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.startsWith('/api/admin/business-setup?')) {
+      await history;
+    }
+    return baseFetch(url, options);
+  }));
+
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+  expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
+
+  await act(async () => releaseHistory());
+
+  expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('region', { name: 'Website preview' })).toBeVisible();
+});
+
 it('opens the first generated preview automatically and labels suggested booking details', async () => {
   const baseFetch = globalThis.fetch;
   vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
