@@ -120,8 +120,8 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
 test('AI migration pins accept the new packet and reject changed or already-shipped SQL', () => {
   const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
   const packet = run.match(/while read -r file expected_blob; do[\s\S]*?\nAI_SETUP_MIGRATIONS/)[0];
-  const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
-  assert.equal(files.length, 7);
+  const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z0-9_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
+  assert.equal(files.length, 9);
   const directory = mkdtempSync(path.join(tmpdir(), 'ai-migration-gate-'));
   const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
   const check = () => spawnSync('bash', ['-eu', '-c', `base="$(git rev-parse HEAD)"\n${packet}`], { cwd: directory }).status;
@@ -134,12 +134,16 @@ test('AI migration pins accept the new packet and reject changed or already-ship
     }
     git('add', 'migrations');
     assert.equal(check(), 0);
+    for (const file of files) {
+      const current = path.join(directory, file);
+      const source = readFileSync(current);
+      writeFileSync(current, `${source}\n-- unapproved change\n`);
+      assert.notEqual(check(), 0);
+      writeFileSync(current, source);
+    }
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic shipped packet');
     const first = path.join(directory, files[0]);
     const source = readFileSync(first);
-    writeFileSync(first, `${source}\n-- unapproved change\n`);
-    assert.notEqual(check(), 0);
-    writeFileSync(first, source);
-    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic shipped packet');
     writeFileSync(first, `${source}\n-- rewrite shipped SQL\n`);
     assert.notEqual(check(), 0);
   } finally {

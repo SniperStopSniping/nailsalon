@@ -26,9 +26,10 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-// 0104 only extends the setup turn status constraint; no FK contract changes.
-const FINAL_MIGRATION = '0104_setup_upload_reviews';
-const MIGRATION_COUNT = 104;
+// 0105/0106 retain spend and add preview shares under the protected workspace;
+// neither adds an incoming edge to the fixture's deletable parent tables.
+const FINAL_MIGRATION = '0106_setup_shared_previews_cap_80';
+const MIGRATION_COUNT = 106;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';

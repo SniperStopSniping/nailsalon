@@ -517,6 +517,9 @@ jobs:
               migrations/0102_custom_site_private_preview_images.sql) ;;
               migrations/0103_custom_site_asset_storage_choice.sql) ;;
               migrations/0104_setup_upload_reviews.sql) ;;
+              # Owner-approved cumulative trial ceilings and private preview shares.
+              migrations/0105_setup_ai_trial_cap_50.sql) ;;
+              migrations/0106_setup_shared_previews_cap_80.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -993,6 +996,8 @@ jobs:
           migrations/0102_custom_site_private_preview_images.sql e8a181f7f590b51c98b3b14bf896ee197bdd17d5
           migrations/0103_custom_site_asset_storage_choice.sql 2d9634222c474275a6e5c1f23e53da09bd1131dc
           migrations/0104_setup_upload_reviews.sql fc49a6d1425ddd9529eea23fabd7debfb3239dff
+          migrations/0105_setup_ai_trial_cap_50.sql a33718ba4e450fc52ea6aa8a920834c2fee33d98
+          migrations/0106_setup_shared_previews_cap_80.sql 194771119c8766649fb3a564d6d0540377a8afa8
           AI_SETUP_MIGRATIONS
 
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
@@ -1067,6 +1072,8 @@ jobs:
               0102_custom_site_private_preview_images) ;;
               0103_custom_site_asset_storage_choice) ;;
               0104_setup_upload_reviews) ;;
+              0105_setup_ai_trial_cap_50) ;;
+              0106_setup_shared_previews_cap_80) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
