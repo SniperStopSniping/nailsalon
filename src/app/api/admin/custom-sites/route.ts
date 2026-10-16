@@ -13,6 +13,7 @@ import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/ge
 import { editCustomMedia, mediaEditSchema } from '@/features/custom-sites/media-edit.server';
 import { customSiteRendererOrigin, setupCustomSitePayload } from '@/features/custom-sites/payload.server';
 import { isExplicitServicePriceEdit } from '@/features/custom-sites/price-edit';
+import { previewShareInput, revokeCustomPreview, shareCustomPreview } from '@/features/custom-sites/share.server';
 import { db } from '@/libs/DB';
 import { customSiteArtifactSchema as artifacts, customSiteAssetSchema as assets, customSiteGenerationSchema as jobs, setupAiCallSchema as calls } from '@/models/Schema';
 
@@ -22,6 +23,8 @@ export const maxDuration = 300;
 const headers = { 'Cache-Control': 'private, no-store' };
 const edit = { expectedRevision: z.number().int().positive(), operationId: z.string().uuid() };
 const requestSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('share'), input: previewShareInput }).strict(),
+  z.object({ action: z.literal('revoke_share'), token: previewShareInput.shape.token }).strict(),
   z.object({ action: z.literal('preferences'), input: z.object({ ...edit, values: designBriefSchema }).strict() }).strict(),
   z.object({ action: z.literal('edit_media'), input: mediaEditSchema }).strict(),
   z.object({ action: z.literal('generate'), input: customSiteGenerateSchema }).strict(),
@@ -118,6 +121,13 @@ export async function POST(request: Request) {
       return Response.json({ asset: await uploadCustomAsset(access.actor, file, form.get('role')) }, { headers });
     }
     const parsed = requestSchema.parse(JSON.parse(bytes.toString('utf8')));
+    if (parsed.action === 'share') {
+      return Response.json(await shareCustomPreview(access.actor, parsed.input), { headers });
+    }
+    if (parsed.action === 'revoke_share') {
+      await revokeCustomPreview(access.actor, parsed.token);
+      return Response.json({ revoked: true }, { headers });
+    }
     if (parsed.action === 'preferences') {
       return Response.json({ head: await editSetup(access.actor, { expectedRevision: parsed.input.expectedRevision, operationId: parsed.input.operationId, operations: [{ type: 'design_brief', values: parsed.input.values }] }) }, { headers });
     }

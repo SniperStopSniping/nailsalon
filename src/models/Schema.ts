@@ -5673,6 +5673,20 @@ export const businessSetupRevisionSchema = pgTable('business_setup_revision', {
   tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade'),
 }));
 
+export const businessSetupPreviewShareSchema = pgTable('business_setup_preview_share', {
+  tokenHash: text('token_hash').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  workspaceId: text('workspace_id').notNull(),
+  revision: integer('revision').notNull(),
+  actorId: text('actor_id').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade'),
+  revisionFk: foreignKey({ columns: [table.workspaceId, table.revision], foreignColumns: [businessSetupRevisionSchema.workspaceId, businessSetupRevisionSchema.revision] }).onDelete('cascade'),
+}));
+
 export const businessSetupApprovalSchema = pgTable('business_setup_approval', {
   id: text('id').primaryKey(),
   salonId: text('salon_id').notNull(),

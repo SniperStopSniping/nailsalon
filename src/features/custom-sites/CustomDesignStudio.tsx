@@ -60,6 +60,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     return () => observer.disconnect();
   }, [hasPreview]);
   const [previewSize, setPreviewSize] = useState<'desktop' | 'mobile'>('desktop');
+  const [share, setShare] = useState<{ path: string; token: string; revision: number } | null>(null);
   useEffect(() => {
     if (window.matchMedia('(max-width: 640px)').matches) {
       setPreviewSize('mobile');
@@ -222,7 +223,40 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
             <button type="button" aria-pressed={previewSize === 'desktop'} onClick={() => setPreviewSize('desktop')}>Desktop preview</button>
             <button type="button" aria-pressed={previewSize === 'mobile'} onClick={() => setPreviewSize('mobile')}>Mobile preview</button>
             <a href={`/admin/business-setup/design-preview/${encodeURIComponent(salonSlug)}?revision=${revision}`} target="_blank" rel="noreferrer">Open full preview</a>
+            <button
+              type="button"
+              disabled={disabled || Boolean(busy || pending)}
+              onClick={() => void action('Creating your preview link…', async () => {
+                const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');
+                const result = await post({ action: 'share', input: { expectedRevision: revision, token } });
+                setShare({ path: result.path, token, revision: result.revision });
+              })}
+            >
+              Share this preview
+            </button>
           </div>
+          {share && (
+            <div role="status">
+              <p>Anyone with this link can view this saved version for 30 days. Booking is disabled. Later changes won’t replace it.</p>
+              <a href={share.path} target="_blank" rel="noreferrer">
+                View shared preview · version
+                {share.revision}
+              </a>
+              {' '}
+              <button type="button" onClick={() => void navigator.clipboard.writeText(new URL(share.path, window.location.origin).href).then(() => setReply('Preview link copied.')).catch(() => setReply('Open the preview link and copy its address.'))}>Copy link</button>
+              {' '}
+              <button
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => void action('Removing shared access…', async () => {
+                  await post({ action: 'revoke_share', token: share.token });
+                  setShare(null);
+                })}
+              >
+                Remove link
+              </button>
+            </div>
+          )}
           <div ref={previewBox} className="studio-frame-wrap">
             <div style={{ width: previewSize === 'mobile' ? 390 : 1280, maxWidth: previewSize === 'mobile' ? '100%' : undefined, zoom: previewSize === 'desktop' ? Math.min(1, previewWidth / 1280) : 1, margin: 'auto' }}>
               {state.rendererOrigin ? <CustomWebsiteFrame key={`${state.head.revision.document.website.config.customFrontendId}-${state.head.revision.revision}`} payload={state.payload} rendererOrigin={state.rendererOrigin} /> : <p>Your website preview is not available right now. Your design is saved. Please try again before publishing.</p>}

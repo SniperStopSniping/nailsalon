@@ -736,6 +736,13 @@
       "when": 1792105694760,
       "tag": "0105_setup_ai_trial_cap_50",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1792105694761,
+      "tag": "0106_setup_shared_previews_cap_80",
+      "breakpoints": true
     }
   ]
 }

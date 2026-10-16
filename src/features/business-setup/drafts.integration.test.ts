@@ -16,6 +16,7 @@ import { ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.s
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
 import { editCustomMedia } from '@/features/custom-sites/media-edit.server';
 import { customSitePayload } from '@/features/custom-sites/payload.server';
+import { revokeCustomPreview, shareCustomPreview, sharedCustomPreview } from '@/features/custom-sites/share.server';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { synchronizeBookingPageLifecycle } from '@/libs/bookingPageLifecycle';
@@ -75,6 +76,62 @@ async function fixture() {
 }
 
 describe('isolated business setup persistence', () => {
+  it('shares an immutable public projection, preserves it after reset, and revokes it', async () => {
+    const actor = await fixture();
+    const source = await saveCustomSource(actor, { expectedRevision: 2, operationId: randomUUID(), source: editorialSource, assetIds: [] });
+    const revision = source.head.revision.revision;
+    const token = randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
+    const shared = await shareCustomPreview(actor, { expectedRevision: revision, token });
+
+    expect(shared.path).toBe(`/website-preview/${token}`);
+    expect(await shareCustomPreview(actor, { expectedRevision: revision, token })).toEqual(shared);
+
+    const preview = await sharedCustomPreview(token);
+
+    expect(preview?.data.preview).toBe(true);
+    expect(preview?.data.business.address).toBeNull();
+    expect(preview?.data.services[0]).toMatchObject({ id: 'setup_preview_draft_gel', priceCents: 6500, durationMinutes: 60 });
+
+    const reset = await resetSetupDraft(actor, { expectedRevision: revision, operationId: randomUUID() });
+
+    expect(reset.revision.document.website.config.customFrontendId).toBeUndefined();
+    expect(await sharedCustomPreview(token)).toEqual(preview);
+
+    const [row] = await database.select().from(schema.businessSetupPreviewShareSchema).where(eq(schema.businessSetupPreviewShareSchema.salonId, actor.salonId));
+
+    expect(row?.tokenHash).not.toContain(token);
+    expect(await sharedCustomPreview('forged')).toBeNull();
+
+    await revokeCustomPreview(actor, token);
+
+    expect(await sharedCustomPreview(token)).toBeNull();
+  });
+
+  it('enforces owner, tenant, current version, expiry, and address boundaries for sharing', async () => {
+    const actor = await fixture();
+    const other = await fixture();
+    const saved = await saveCustomSource(actor, { expectedRevision: 2, operationId: randomUUID(), source: editorialSource, assetIds: [] });
+    const revision = saved.head.revision.revision;
+    const token = () => randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
+
+    await expect(shareCustomPreview({ ...actor, salonId: other.salonId }, { expectedRevision: revision, token: token() })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(shareCustomPreview(actor, { expectedRevision: 2, token: token() })).rejects.toMatchObject({ code: 'STALE' });
+
+    const secret = token();
+    await shareCustomPreview(actor, { expectedRevision: revision, token: secret });
+    await revokeCustomPreview(other, secret);
+
+    expect(await sharedCustomPreview(secret)).not.toBeNull();
+
+    await database.update(schema.businessSetupPreviewShareSchema).set({ expiresAt: new Date(0) }).where(eq(schema.businessSetupPreviewShareSchema.salonId, actor.salonId));
+
+    expect(await sharedCustomPreview(secret)).toBeNull();
+
+    const address = await editSetup(actor, { expectedRevision: revision, operationId: randomUUID(), operations: [{ type: 'business', values: { locationDisplayMode: 'full_address' } }] });
+
+    await expect(shareCustomPreview(actor, { expectedRevision: address.revision.revision, token: token() })).rejects.toMatchObject({ code: 'INVALID' });
+  });
+
   it('keeps draft services, hours, privacy and publication out of live records', async () => {
     const actor = await fixture();
     const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
