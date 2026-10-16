@@ -1,7 +1,5 @@
 import 'server-only';
 
-import { randomUUID } from 'node:crypto';
-
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
@@ -9,14 +7,14 @@ import { runSetupModel, SETUP_AI_MODEL } from '@/features/business-setup/ai-tria
 import type { SetupDocument } from '@/features/business-setup/contracts';
 import { SetupError } from '@/features/business-setup/contracts';
 import type { SetupActor } from '@/features/business-setup/drafts.server';
-import { lockSetupSalon } from '@/features/business-setup/drafts.server';
 import type { ModelProviderRequest, OwnerAssistantModelProvider } from '@/libs/ai/provider';
 import { db } from '@/libs/DB';
 import sharp from '@/libs/safeSharp.server';
-import { customSiteAssetSchema as assets, setupAiCallSchema as calls } from '@/models/Schema';
+import { setupAiCallSchema as calls } from '@/models/Schema';
 
 import { assetDataUrl, ownedAssets } from './assets.server';
 import { canvaAreasSchema, comfortableCanvaAreas, compileCanvaDesign } from './canva';
+import { canvaWebsiteImage } from './canva-assets.server';
 import { canvaDataFingerprint, canvaServiceKey } from './canva-data.server';
 import type { CustomSiteGenerateInput, CustomSiteSource } from './contracts';
 import { customSiteDataFromSetup } from './setup-data';
@@ -41,29 +39,6 @@ const outputSchema = {
   additionalProperties: false,
 };
 
-/** Copies owned, authorized bytes unchanged; never promotes inspiration implicitly. */
-async function websiteImage(actor: SetupActor, original: typeof assets.$inferSelect) {
-  if (!original.mimeType.startsWith('image/')) {
-    throw new SetupError('INVALID', 'Export your Canva pages as PNG or JPG to keep the design unchanged. PDFs can still be used for an editable redesign.');
-  }
-  if (original.role !== 'reference') {
-    return original;
-  }
-  return db.transaction(async (tx) => {
-    await lockSetupSalon(tx, actor);
-    const [previous] = await tx.select().from(assets).where(and(eq(assets.salonId, actor.salonId), eq(assets.role, 'photo'), eq(assets.hash, original.hash)));
-    if (previous) {
-      return previous;
-    }
-    const current = await tx.select({ byteSize: assets.byteSize }).from(assets).where(eq(assets.salonId, actor.salonId));
-    if (current.length >= 24 || current.reduce((sum, row) => sum + row.byteSize, 0) + original.byteSize > 15000000) {
-      throw new SetupError('NOT_READY', 'Your image library is full. Remove unused uploads before adding another Canva design.');
-    }
-    const [copy] = await tx.insert(assets).values({ ...original, id: randomUUID(), actorId: actor.adminId, role: 'photo', name: `Canva · ${original.name}`.slice(0, 120), createdAt: new Date() }).returning();
-    return copy!;
-  });
-}
-
 export async function generateCanvaSource(actor: SetupActor, input: CustomSiteGenerateInput, document: SetupDocument, prior: CustomSiteSource | undefined, deadlineAt: number, provider?: OwnerAssistantModelProvider) {
   const referenceIds = document.designBrief?.referenceIds ?? [];
   if (referenceIds.some(id => !document.designBrief?.ownedReferenceIds.includes(id))) {
@@ -76,7 +51,7 @@ export async function generateCanvaSource(actor: SetupActor, input: CustomSiteGe
   const originals = await ownedAssets(db, actor.salonId, ids);
   const pages = [];
   for (const id of ids) {
-    const image = await websiteImage(actor, originals.find(asset => asset.id === id)!);
+    const image = await canvaWebsiteImage(actor, originals.find(asset => asset.id === id)!);
     const url = await assetDataUrl(image);
     const metadata = await sharp(Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'), { limitInputPixels: 40000000 }).metadata();
     if (!metadata.width || !metadata.height) {

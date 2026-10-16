@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from './route';
 
 vi.mock('server-only', () => ({}));
-const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn() }));
+const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn(), replaceCanva: vi.fn() }));
 vi.mock('@/features/business-setup/conversation.server', () => ({ runSetupConversation: state.business }));
 vi.mock('@/features/business-setup/access.server', () => ({ requireSetupOwner: state.access }));
 vi.mock('@/features/custom-sites/artifacts.server', () => ({ saveCustomSource: state.save }));
 vi.mock('@/features/custom-sites/generate.server', () => ({ generateCustomSite: state.generate }));
 vi.mock('@/features/custom-sites/media-edit.server', async original => ({ ...await original<any>(), editCustomMedia: state.editMedia }));
+vi.mock('@/features/custom-sites/canva-replace.server', async original => ({ ...await original<any>(), replaceCanvaPage: state.replaceCanva }));
 vi.mock('@/features/custom-sites/assets.server', () => ({ uploadCustomAsset: state.upload }));
 vi.mock('@/features/business-setup/drafts.server', () => ({ editSetup: state.edit }));
 function request(body: unknown, origin = 'http://localhost:3197') {
@@ -82,4 +83,16 @@ it('keeps owner photo and design-choice controls available with AI disabled and 
   expect((await POST(request({ action: 'edit_media', input: image }))).status).toBe(200);
   expect(state.editMedia).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, image);
   expect(state.generate).not.toHaveBeenCalled();
+});
+
+it('requires explicit same-design consent and scopes sharper artwork replacement without AI or publishing', async () => {
+  const input = { expectedRevision: 2, operationId: crypto.randomUUID(), pageAssetId: crypto.randomUUID(), replacementId: crypto.randomUUID(), sameDesignConfirmed: true };
+  state.replaceCanva.mockResolvedValue({ head: {} });
+
+  expect((await POST(request({ action: 'replace_canva_page', input: { ...input, sameDesignConfirmed: false } }))).status).toBe(400);
+  expect(state.replaceCanva).not.toHaveBeenCalled();
+  expect((await POST(request({ action: 'replace_canva_page', input }))).status).toBe(200);
+  expect(state.replaceCanva).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, input);
+  expect(state.generate).not.toHaveBeenCalled();
+  expect(state.business).not.toHaveBeenCalled();
 });

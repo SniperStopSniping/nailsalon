@@ -3,7 +3,10 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
+import { prepareCanvaUpload } from './canva-upload';
 import { CanvaAreaEditor } from './CanvaAreaEditor';
+import { CanvaArtworkQuality } from './CanvaArtworkQuality';
+import { CanvaUploadQuality } from './CanvaImageQuality';
 import type { CustomSitePayload, CustomSiteSource, DesignBrief } from './contracts';
 import { CustomTextEditor } from './CustomTextEditor';
 import { CustomWebsiteFrame } from './CustomWebsiteFrame';
@@ -34,6 +37,9 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
   const [showUpload, setShowUpload] = useState(false);
   const [showBrief, setShowBrief] = useState(false);
   const [canvaEditorOpen, setCanvaEditorOpen] = useState(false);
+  const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
+  const replacementUploads = useRef(new Map<File, DesignAsset>());
+  const replacementOperation = useRef<{ file: File; page: string; revision: number; id: string } | null>(null);
   useEffect(() => {
     if (entryMode === 'upload') {
       setShowUpload(true);
@@ -186,6 +192,29 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       setReply(replaceId ? 'Your draft now uses the replacement photo. Your published site is unchanged.' : 'Your photos are saved and selected for your next design.');
     });
   }
+  async function replaceArtwork(pageAssetId: string, file: File) {
+    await action('Checking and replacing your Canva image…', async () => {
+      let uploaded = replacementUploads.current.get(file);
+      if (!uploaded) {
+        const body = new FormData();
+        body.set('file', await prepareCanvaUpload(file));
+        body.set('role', 'reference');
+        body.set('rightsConfirmed', 'true');
+        const response = await fetch(endpoint, { method: 'POST', body });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error ?? 'Your sharper export could not be saved. Try again.');
+        }
+        uploaded = result.asset as DesignAsset;
+        replacementUploads.current.set(file, uploaded);
+      }
+      const previous = replacementOperation.current;
+      const operation = previous?.file === file && previous.page === pageAssetId && previous.revision === revision ? previous : { file, page: pageAssetId, revision, id: crypto.randomUUID() };
+      replacementOperation.current = operation;
+      await post({ action: 'replace_canva_page', input: { expectedRevision: revision, operationId: operation.id, pageAssetId, replacementId: uploaded.id, sameDesignConfirmed: true } });
+      setReply('Your new image is saved with the same links. Check the artwork and links before publishing. Your published website is unchanged.');
+    });
+  }
   const current = state?.history.find(item => item.id === artifactId);
   const previewIsCurrent = state?.head.revision.revision === revision && state?.head.revision.document.website.config.customFrontendId === artifactId;
   return (
@@ -219,6 +248,8 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
             {' '}
             · Saved as draft
           </p>
+          {state.payload.source.canva && <CanvaArtworkQuality key={`quality-${state.head.revision.document.website.config.customFrontendId}`} pages={state.payload.source.canva.pages} disabled={disabled || Boolean(busy || pending) || !previewIsCurrent} onReplace={replaceArtwork} />}
+          {state.payload.source.canva && reply && <p role="status">{reply}</p>}
           <details>
             <summary>{state.payload.source.limitations.length ? `Design notes · ${state.payload.source.limitations.length} differences to review` : 'About this design'}</summary>
             <p>{state.payload.source.analysis}</p>
@@ -316,6 +347,10 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
               const data = new FormData(event.currentTarget);
               void action('Checking and saving your upload…', async () => {
                 data.set('rightsConfirmed', data.get('rightsConfirmed') === 'on' ? 'true' : 'false');
+                const file = data.get('file');
+                if (brief.mode === 'keep_design' && file instanceof File) {
+                  data.set('file', await prepareCanvaUpload(file));
+                }
                 const response = await fetch(endpoint, { method: 'POST', body: data });
                 const result = await response.json();
                 if (!response.ok) {
@@ -339,9 +374,10 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                 </select>
               </label>
               <label>
-                PNG, JPG, WebP or PDF · up to 3 MB
-                <input type="file" name="file" accept="image/png,image/jpeg,image/webp,application/pdf" required />
+                {brief.mode === 'keep_design' ? 'Canva images · up to 20 MB · prepared automatically' : 'PNG, JPG, WebP or PDF · up to 3 MB'}
+                <input type="file" name="file" accept="image/png,image/jpeg,image/webp,application/pdf" required onChange={event => setReferenceFiles(Array.from(event.target.files ?? []))} />
               </label>
+              {brief.mode === 'keep_design' && referenceFiles.length > 0 && <CanvaUploadQuality files={referenceFiles} />}
               <label>
                 <input type="checkbox" name="rightsConfirmed" required />
                 I may use this file. Other businesses’ content is for inspiration only.

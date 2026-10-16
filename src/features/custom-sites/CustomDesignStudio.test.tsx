@@ -114,3 +114,46 @@ it('shows the saved artwork review when the parent draft arrives before its prev
   await waitFor(() => expect(screen.getByText('Artwork checked. Review and publish when you’re ready.')).toBeVisible());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Share this preview' })).toBeEnabled());
 });
+
+it('retries a sharper replacement with one uploaded asset and the same operation without AI generation', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {} disconnect() {}
+  });
+  const source = compileCanvaDesign({ version: 1, pages: [{ assetId: 'a0000000-0000-4000-8000-000000000001', width: 279, height: 1280, alt: 'Original export' }], areas: [], visibleText: '', notes: [], dataFingerprint: 'a'.repeat(64), ownerReviewed: false });
+  const writes: any[] = [];
+  let uploads = 0;
+  let attempts = 0;
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.body instanceof FormData) {
+      uploads++;
+
+      expect(options.body.get('rightsConfirmed')).toBe('true');
+
+      return { ok: true, json: async () => ({ asset: { id: 'b0000000-0000-4000-8000-000000000001', role: 'reference', name: 'sharper.png', mimeType: 'image/png' } }) };
+    }
+    if (options?.method === 'POST') {
+      writes.push(JSON.parse(String(options.body)));
+      attempts++;
+      if (attempts === 1) {
+        throw new Error('Connection interrupted. Your saved image is safe.');
+      }
+      return { ok: true, json: async () => ({ head: {} }) };
+    }
+    return { ok: true, json: async () => ({ head: { revision: { revision: 2, document: { website: { config: { customFrontendId: 'first' } } } } }, payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history: [], attempts: [], configured: false, rendererOrigin: null }) };
+  }));
+  render(<CustomDesignStudio salonSlug="test" revision={2} artifactId="first" disabled={false} aiEnabled={false} onSaved={async () => {}} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />);
+  await screen.findByRole('button', { name: 'Upload sharper image' });
+  fireEvent.change(screen.getByLabelText('Sharper Canva export'), { target: { files: [new File(['image'], 'sharper.png', { type: 'image/png' })] } });
+  fireEvent.click(screen.getByRole('checkbox', { name: /same design, text and layout/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Replace image & keep links' }));
+  await screen.findByRole('alert');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Replace image & keep links' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Replace image & keep links' }));
+  await screen.findByText('Your new image is saved with the same links. Check the artwork and links before publishing. Your published website is unchanged.');
+
+  expect(uploads).toBe(1);
+  expect(writes).toHaveLength(2);
+  expect(writes[0]).toEqual(writes[1]);
+  expect(writes[0]).toMatchObject({ action: 'replace_canva_page', input: { expectedRevision: 2, sameDesignConfirmed: true } });
+});

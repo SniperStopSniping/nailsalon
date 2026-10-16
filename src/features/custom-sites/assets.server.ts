@@ -8,7 +8,7 @@ import { PDFDocument } from 'pdf-lib';
 import { SetupError } from '@/features/business-setup/contracts';
 import type { SetupActor, SetupTransaction } from '@/features/business-setup/drafts.server';
 import { loadSetupHead, lockSetupSalon } from '@/features/business-setup/drafts.server';
-import { deleteOnboardingMediaFile, normalizeOnboardingImage, readOnboardingMediaFile, saveOnboardingMediaFile } from '@/features/onboarding-v1-integration/media-storage.server';
+import { deleteOnboardingMediaFile, normalizeOnboardingImage, OnboardingMediaStorageError, readOnboardingMediaFile, saveOnboardingMediaFile } from '@/features/onboarding-v1-integration/media-storage.server';
 import { db } from '@/libs/DB';
 import { customSiteAssetSchema as assets } from '@/models/Schema';
 
@@ -54,19 +54,28 @@ export async function uploadCustomAsset(actor: SetupActor, file: File, rawRole: 
     // Never rendered or offered as a public download. Bounded private reference
     // bytes avoid introducing a second public-media system for PDF input.
     pdfBase64 = bytes.toString('base64');
-  } else if (process.env.APP_ENV === 'preview' && process.env.CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES === 'true') {
-    // Isolated pilot only: bounded private bytes in the existing Preview DB.
-    // No production storage credentials, public upload URLs or ephemeral disk.
-    normalizedBytes = (await normalizeOnboardingImage(file)).normalized;
-    if (normalizedBytes.length > 750000) {
-      throw new SetupError('INVALID', 'This image is too detailed for the site. Try a smaller export.');
-    }
-    imageBase64 = normalizedBytes.toString('base64');
   } else {
-    stored = await saveOnboardingMediaFile({ file, role: role === 'reference' ? 'custom_design' : role === 'photo' ? 'gallery' : 'logo', salonId: actor.salonId, siteId: head.workspace.id, revisionId: id, stableItemId: id, uploadAttemptId: id });
-    if (stored.byteSize > 750000) {
-      await deleteOnboardingMediaFile(stored.storageKey, { salonId: actor.salonId });
-      throw new SetupError('INVALID', 'This image is too detailed for the site. Try a smaller export.');
+    try {
+      if (process.env.APP_ENV === 'preview' && process.env.CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES === 'true') {
+        // Isolated pilot only: bounded private bytes in the existing Preview DB.
+        // No production storage credentials, public upload URLs or ephemeral disk.
+        normalizedBytes = (await normalizeOnboardingImage(file, role === 'reference' ? { artwork: true, maxOutputBytes: 750000 } : undefined)).normalized;
+        if (normalizedBytes.length > 750000) {
+          throw new SetupError('INVALID', 'This image is too detailed for the site. Try a smaller export.');
+        }
+        imageBase64 = normalizedBytes.toString('base64');
+      } else {
+        stored = await saveOnboardingMediaFile({ file, role: role === 'reference' ? 'custom_design' : role === 'photo' ? 'gallery' : 'logo', salonId: actor.salonId, siteId: head.workspace.id, revisionId: id, stableItemId: id, uploadAttemptId: id, ...(role === 'reference' ? { imagePreparation: { artwork: true, maxOutputBytes: 750000 } } : {}) });
+        if (stored.byteSize > 750000) {
+          await deleteOnboardingMediaFile(stored.storageKey, { salonId: actor.salonId });
+          throw new SetupError('INVALID', 'This image is too detailed for the site. Try a smaller export.');
+        }
+      }
+    } catch (error) {
+      if (error instanceof OnboardingMediaStorageError && ['INVALID_IMAGE', 'UNSUPPORTED_IMAGE'].includes(error.code)) {
+        throw new SetupError('INVALID', error.message);
+      }
+      throw error;
     }
   }
   const storedBytes = stored ? await readOnboardingMediaFile(stored.storageKey, { salonId: actor.salonId }) : normalizedBytes ?? bytes;

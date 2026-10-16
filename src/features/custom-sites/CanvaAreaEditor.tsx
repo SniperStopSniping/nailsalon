@@ -10,6 +10,7 @@ import type { CustomDesignResizeHandle } from '../../../prototypes/site-builder-
 import { moveNormalizedRect, resizeNormalizedRect } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/geometry';
 import type { CanvaArea, CanvaDesign } from './canva';
 import { canvaDesignSchema, compileCanvaDesign } from './canva';
+import { canvaPageWidth } from './canva-quality';
 import type { CustomSitePayload, CustomSiteSource } from './contracts';
 
 function AreaPage({ page, index, areas, selected, endpoint, disabled, onSelect, onChange }: {
@@ -70,7 +71,7 @@ function AreaPage({ page, index, areas, selected, endpoint, disabled, onSelect, 
     cleanup.current = end;
   }
   return (
-    <div style={{ position: 'relative', width: '100%', maxWidth: page.width, margin: '12px auto' }}>
+    <div style={{ position: 'relative', width: '100%', maxWidth: canvaPageWidth(page), margin: '12px auto' }}>
       {/* The editor displays the same immutable, authorized asset as publication. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img

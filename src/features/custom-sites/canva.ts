@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { parseSafeHttpsUrl } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/actions';
 import { clampNormalizedRect, rectanglesHaveInteriorOverlap, validateNormalizedRect } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/geometry';
+import { canvaPageWidth } from './canva-quality';
 import type { CustomSiteSource } from './contracts';
 import type { WebsiteDetails } from './website-details';
 
@@ -97,15 +98,18 @@ export function compileCanvaDesign(raw: CanvaDesign, details?: WebsiteDetails): 
   }
   // A compressed phone screenshot should fill a phone, not become a narrow
   // column capped at its export's pixel width. Bytes and proportions stay intact.
-  const css = `.canva-site{margin:0 auto;max-width:${Math.max(600, ...design.pages.map(page => page.width))}px}.canva-page{position:relative;margin:0}.canva-page img{display:block;width:100%;height:auto}.canva-area{position:absolute;display:block;z-index:1;padding:0;border:0;background:transparent;color:transparent;text-decoration:none;cursor:pointer}.canva-area:focus-visible{outline:3px solid #8a3859;outline-offset:2px}.canva-area:disabled{cursor:default}[data-luster-canva-area][hidden]{display:none!important}.canva-accessible{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.canva-accessible:focus-within{position:static;width:auto;height:auto;overflow:visible;clip-path:none;padding:20px}img{max-width:100%}`;
+  const css = `.canva-site{margin:0 auto;width:100%;max-width:${Math.max(...design.pages.map(canvaPageWidth))}px}.canva-page{position:relative;margin:0 auto;width:100%}.canva-page img{display:block;width:100%;height:auto}.canva-area{position:absolute;display:block;z-index:1;padding:0;border:0;background:transparent;color:transparent;text-decoration:none;cursor:pointer}.canva-area:focus-visible{outline:3px solid #8a3859;outline-offset:2px}.canva-area:disabled{cursor:default}[data-luster-canva-area][hidden]{display:none!important}.canva-accessible{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.canva-accessible:focus-within{position:static;width:auto;height:auto;overflow:visible;clip-path:none;padding:20px}img{max-width:100%}`;
   const geometry: string[] = [];
-  const pages = design.pages.map((page, index) => `<section class="canva-page"><img src="asset:${page.assetId}" width="${page.width}" height="${page.height}" alt="${escape(page.alt)}">${design.areas.filter(area => area.page === index).map((area) => {
-    geometry.push(`#canva-${area.id}{left:${area.geometry.x}%;top:${area.geometry.y}%;width:${area.geometry.width}%;height:${area.geometry.height}%}`);
-    const contact = ['instagram', 'email', 'phone'].includes(area.action.type);
-    const tag = contact || area.action.type === 'website' ? 'a' : 'button';
-    const binding = contact ? ` data-luster-link="${area.action.type}"` : area.action.type === 'manage' ? ' data-luster-manage' : tag === 'button' ? ' data-luster-book' : '';
-    return `<${tag} id="canva-${area.id}" class="canva-area" data-luster-canva-area="${area.id}" aria-label="${escape(area.label)}"${binding}${tag === 'button' ? ' type="button"' : ''}>${escape(area.label)}</${tag}>`;
-  }).join('')}</section>`).join('');
+  const pages = design.pages.map((page, index) => {
+    geometry.push(`#luster-canva-page-${index}{max-width:${canvaPageWidth(page)}px}`);
+    return `<section id="luster-canva-page-${index}" class="canva-page"><img src="asset:${page.assetId}" width="${page.width}" height="${page.height}" alt="${escape(page.alt)}">${design.areas.filter(area => area.page === index).map((area) => {
+      geometry.push(`#canva-${area.id}{left:${area.geometry.x}%;top:${area.geometry.y}%;width:${area.geometry.width}%;height:${area.geometry.height}%}`);
+      const contact = ['instagram', 'email', 'phone'].includes(area.action.type);
+      const tag = contact || area.action.type === 'website' ? 'a' : 'button';
+      const binding = contact ? ` data-luster-link="${area.action.type}"` : area.action.type === 'manage' ? ' data-luster-manage' : tag === 'button' ? ' data-luster-book' : '';
+      return `<${tag} id="canva-${area.id}" class="canva-area" data-luster-canva-area="${area.id}" aria-label="${escape(area.label)}"${binding}${tag === 'button' ? ' type="button"' : ''}>${escape(area.label)}</${tag}>`;
+    }).join('')}</section>`;
+  }).join('');
   // An equivalent live menu/contact layer remains keyboard/screen-reader
   // accessible; focusing it reveals it without altering the exported artwork.
   const contactText = ['instagram', 'email', 'phone'].filter(key => details?.[key as keyof WebsiteDetails]).map(key => `<a data-luster-link="${key}"><span data-luster-field="details.${key}"></span></a>`).join('');

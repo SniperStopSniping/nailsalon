@@ -7,6 +7,7 @@ import sharp from 'sharp';
 import type { OnboardingMediaStorageError } from './media-storage.server';
 import {
   deleteOnboardingMediaFiles,
+  normalizeOnboardingImage,
   readOnboardingMediaFile,
   saveOnboardingMediaFile,
 } from './media-storage.server';
@@ -30,6 +31,49 @@ describe('development onboarding media storage', () => {
   afterEach(async () => {
     vi.unstubAllEnvs();
     await rm(mediaRoot, { force: true, recursive: true });
+  });
+
+  it('preserves original text edges and full tall-page dimensions with the artwork profile', async () => {
+    // Thin, high-contrast lines expose text-edge damage without depending on
+    // optional SVG/font decoders in the test environment.
+    const pixels = Buffer.alloc(1200 * 6000 * 3, 255);
+    for (let y = 10; y < 6000; y += 40) {
+      for (let x = 10; x < 1190; x++) {
+        const offset = (y * 1200 + x) * 3;
+        pixels[offset] = 138;
+        pixels[offset + 1] = 56;
+        pixels[offset + 2] = 89;
+      }
+    }
+    const input = await sharp(pixels, { raw: { width: 1200, height: 6000, channels: 3 } }).png().toBuffer();
+    const result = await normalizeOnboardingImage(new File([new Uint8Array(input)], 'canva.png', { type: 'image/png' }), { artwork: true, maxOutputBytes: 750000 });
+
+    expect(result.normalizedMetadata).toMatchObject({ width: 1200, height: 6000 });
+    expect(result.normalized.byteLength).toBeLessThanOrEqual(750000);
+
+    const rendered = await sharp(result.normalized).ensureAlpha().raw().toBuffer();
+    const original = await sharp(input).ensureAlpha().raw().toBuffer();
+
+    expect(rendered.equals(original)).toBe(true);
+  });
+
+  it('never manufactures resolution for a small image and retains MIME, pixel and byte validation', async () => {
+    const input = await sharp({ create: { width: 279, height: 1280, channels: 3, background: '#ecd1db' } }).png().toBuffer();
+    const file = new File([new Uint8Array(input)], 'small.png', { type: 'image/png' });
+
+    expect((await normalizeOnboardingImage(file, { artwork: true, maxOutputBytes: 750000 })).normalizedMetadata).toMatchObject({ width: 279, height: 1280 });
+    await expect(normalizeOnboardingImage(new File([new Uint8Array(input)], 'wrong.jpg', { type: 'image/jpeg' }), { artwork: true, maxOutputBytes: 750000 })).rejects.toMatchObject({ code: 'INVALID_IMAGE' });
+    await expect(normalizeOnboardingImage(file, { artwork: true, maxOutputBytes: 0 })).rejects.toMatchObject({ code: 'INVALID_IMAGE' });
+    await expect(normalizeOnboardingImage(file, { artwork: true, maxOutputBytes: 4000000 })).rejects.toMatchObject({ code: 'INVALID_IMAGE' });
+  });
+
+  it('uses the same artwork preparation in secure storage and strips metadata', async () => {
+    const input = await sharp({ create: { width: 1200, height: 4000, channels: 3, background: '#ecd1db' } }).withMetadata().png().toBuffer();
+    const stored = await saveOnboardingMediaFile({ file: new File([new Uint8Array(input)], 'canva.png', { type: 'image/png' }), role: 'custom_design', revisionId: 'canva_revision', salonId: owner.salonId, siteId: owner.siteId, stableItemId: 'page1', uploadAttemptId: 'sharper1', imagePreparation: { artwork: true, maxOutputBytes: 750000 } });
+    const saved = await readOnboardingMediaFile(stored.storageKey, owner);
+
+    expect(stored).toMatchObject({ width: 1200, height: 4000 });
+    expect((await sharp(saved).metadata()).exif).toBeUndefined();
   });
 
   it.each(['logo', 'cover'] as const)('normalizes, reads and deletes a tenant-owned %s outside the repository', async (role) => {

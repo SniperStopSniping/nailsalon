@@ -15,6 +15,7 @@ import * as customArtifacts from '@/features/custom-sites/artifacts.server';
 import { ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
 import { compileCanvaDesign } from '@/features/custom-sites/canva';
 import { canvaDataFingerprint, canvaServiceKey } from '@/features/custom-sites/canva-data.server';
+import { replaceCanvaPage } from '@/features/custom-sites/canva-replace.server';
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
 import { editCustomMedia } from '@/features/custom-sites/media-edit.server';
 import { customSitePayload } from '@/features/custom-sites/payload.server';
@@ -523,7 +524,7 @@ describe('private multimodal design references', () => {
   it('rejects invalid files and oversized token inputs before paid generation', async () => {
     const actor = await fixture();
 
-    await expect(uploadCustomAsset(actor, new File(['<svg onload="bad()"/>'], 'bad.png', { type: 'image/png' }), 'photo')).rejects.toThrow();
+    await expect(uploadCustomAsset(actor, new File(['<svg onload="bad()"/>'], 'bad.png', { type: 'image/png' }), 'photo')).rejects.toMatchObject({ code: 'INVALID' });
     await expect(uploadCustomAsset(actor, new File(['not a PDF'], 'bad.pdf', { type: 'application/pdf' }), 'reference')).rejects.toThrow();
 
     const pdf = await PDFDocument.create();
@@ -1621,6 +1622,87 @@ describe('AI clickable Canva artwork', () => {
     const input = { expectedRevision: head.revision.revision, operationId: randomUUID(), message: 'Keep this design and make everything clickable', referenceIds: [reference.id] };
     return { actor, reference, input };
   }
+
+  it('replaces a low-resolution page, preserves links and business data, clears review and safely replays a lost response', async () => {
+    const { actor, reference, input } = await prepared();
+    const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+    const checked = await reviewCanvaArtwork(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID() });
+    const before = checked.head.revision.document;
+    const original = checked.artifact.source.canva!;
+    const bytes = await sharp({ create: { width: 1200, height: 3600, channels: 3, background: '#ecd1db' } }).png().toBuffer();
+    const replacement = await uploadCustomAsset(actor, new File([new Uint8Array(bytes)], 'sharper-canva.png', { type: 'image/png' }), 'reference');
+    const edit = { expectedRevision: checked.head.revision.revision, operationId: randomUUID(), pageAssetId: original.pages[0]!.assetId, replacementId: replacement.id, sameDesignConfirmed: true as const };
+    const saved = await replaceCanvaPage(actor, edit);
+    const replay = await replaceCanvaPage(actor, edit);
+    const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, saved.artifactId));
+
+    expect(replay).toMatchObject({ artifactId: saved.artifactId, head: { revision: { revision: saved.head.revision.revision } } });
+    expect(artifact!.source.canva).toMatchObject({ ownerReviewed: false, pages: [{ width: 1200, height: 3600 }], areas: original.areas });
+    expect(artifact!.source.canva!.pages[0]!.assetId).not.toBe(original.pages[0]!.assetId);
+    expect(artifact!.assetIds).not.toContain(reference.id);
+    expect(saved.head.revision.document.designBrief?.referenceIds).toEqual([replacement.id]);
+    expect(saved.head.revision.document.designBrief?.ownedReferenceIds).toEqual([replacement.id]);
+    expect(saved.head.revision.document.services).toEqual(before.services);
+    expect(saved.head.revision.document.business).toEqual(before.business);
+    expect(saved.head.revision.document.hours).toEqual(before.hours);
+    expect(saved.head.revision.document.booking).toEqual(before.booking);
+    expect((await reviewSetup(actor)).blockers.join(' ')).toContain('Canva artwork');
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect(await database.select().from(schema.businessSetupApprovalSchema).where(eq(schema.businessSetupApprovalSchema.salonId, actor.salonId))).toHaveLength(0);
+
+    const [old] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, checked.artifact.id));
+
+    expect(old!.source).toEqual(checked.artifact.source);
+    expect((await ownedAssets(database as any, actor.salonId, [reference.id]))[0]!.id).toBe(reference.id);
+    expect((await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.operationId, edit.operationId)))).toHaveLength(1);
+  });
+
+  it('rejects different proportions, smaller exports, foreign images, missing consent and stale replacement writes', async () => {
+    const { actor, input } = await prepared();
+    const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+    const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, generated.artifactId));
+    const upload = async (owner: typeof actor, width: number, height: number) => {
+      const bytes = await sharp({ create: { width, height, channels: 3, background: '#ecd1db' } }).png().toBuffer();
+      return uploadCustomAsset(owner, new File([new Uint8Array(bytes)], 'new.png', { type: 'image/png' }), 'reference');
+    };
+    const edit = { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), pageAssetId: artifact!.source.canva!.pages[0]!.assetId, replacementId: (await upload(actor, 1200, 1200)).id, sameDesignConfirmed: true as const };
+
+    await expect(replaceCanvaPage(actor, edit)).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(replaceCanvaPage(actor, { ...edit, replacementId: (await upload(actor, 100, 300)).id })).rejects.toMatchObject({ code: 'INVALID' });
+
+    const other = await fixture();
+
+    await expect(replaceCanvaPage(actor, { ...edit, replacementId: (await upload(other, 1200, 3600)).id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(replaceCanvaPage({ ...actor, salonId: other.salonId }, edit)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    const valid = { ...edit, replacementId: (await upload(actor, 1200, 3600)).id };
+
+    await expect(replaceCanvaPage(actor, { ...valid, sameDesignConfirmed: false })).rejects.toThrow();
+
+    const updated = await editSetup(actor, { expectedRevision: edit.expectedRevision, operationId: randomUUID(), operations: [{ type: 'business', values: { name: 'Newer manual edit' } }] });
+
+    await expect(replaceCanvaPage(actor, valid)).rejects.toMatchObject({ code: 'STALE' });
+    expect(updated.revision.document.business.name).toBe('Newer manual edit');
+  });
+
+  it('keeps multipage artwork order when replacing the first page', async () => {
+    const { actor, reference, input } = await prepared();
+    const upload = async (width: number, height: number, name: string) => {
+      const bytes = await sharp({ create: { width, height, channels: 3, background: '#ecd1db' } }).png().toBuffer();
+      return uploadCustomAsset(actor, new File([new Uint8Array(bytes)], name, { type: 'image/png' }), 'reference');
+    };
+    const second = await upload(600, 600, 'second.png');
+    const head = await editSetup(actor, { expectedRevision: input.expectedRevision, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { mode: 'keep_design', fidelity: 'match', referenceIds: [reference.id, second.id], ownedReferenceIds: [reference.id, second.id], websiteAssetIds: [] } }] });
+    const generated = await generateCustomSite(actor, { ...input, expectedRevision: head.revision.revision }, { createResponse: vi.fn().mockResolvedValue(result({ ...answer(), altText: ['Page one', 'Page two'] })) });
+    const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, generated.artifactId));
+    const replacement = await upload(1200, 3600, 'first-sharp.png');
+    const saved = await replaceCanvaPage(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), pageAssetId: artifact!.source.canva!.pages[0]!.assetId, replacementId: replacement.id, sameDesignConfirmed: true });
+    const [final] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, saved.artifactId));
+
+    expect(saved.head.revision.document.designBrief?.referenceIds).toEqual([replacement.id, second.id]);
+    expect(final!.source.canva!.pages[1]).toEqual(artifact!.source.canva!.pages[1]);
+    expect(final!.source.canva!.areas).toEqual(artifact!.source.canva!.areas);
+  });
 
   it('uses AI for clickable positions, preserves exact saved image bytes, and requires owner artwork review', async () => {
     const { actor, reference, input } = await prepared();

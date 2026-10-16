@@ -40,6 +40,7 @@ export type SaveOnboardingMediaFileInput = {
   siteId: string;
   stableItemId: string;
   uploadAttemptId: string;
+  imagePreparation?: { artwork: true; maxOutputBytes: number };
 };
 
 export class OnboardingMediaStorageError extends Error {
@@ -136,7 +137,11 @@ const resolveStoragePath = (storageKey: string): string => {
 };
 
 /** Decode, validate and normalize image bytes before any storage adapter. */
-export async function normalizeOnboardingImage(file: File) {
+export async function normalizeOnboardingImage(file: File, preparation?: SaveOnboardingMediaFileInput['imagePreparation']) {
+  const outputLimit = preparation?.maxOutputBytes ?? MAX_BYTES;
+  if (!Number.isInteger(outputLimit) || outputLimit <= 0 || outputLimit > MAX_BYTES) {
+    throw new OnboardingMediaStorageError('INVALID_IMAGE', 'The image preparation limit is invalid.');
+  }
   if (!ALLOWED_TYPES.has(file.type)) {
     throw new OnboardingMediaStorageError(
       'UNSUPPORTED_IMAGE',
@@ -176,24 +181,42 @@ export async function normalizeOnboardingImage(file: File) {
       'The image contents do not match the selected file type.',
     );
   }
+  if (preparation?.artwork && (!metadata.width || !metadata.height || metadata.width > 40000 || metadata.height > 40000)) {
+    throw new OnboardingMediaStorageError('INVALID_IMAGE', 'This Canva page is too long or wide. Export it as separate pages before uploading.');
+  }
 
   let normalized: Buffer;
   let normalizedMetadata: Awaited<ReturnType<ReturnType<typeof sharp>['metadata']>>;
   try {
-    const settings = [
-      { maxEdge: undefined, quality: 88 },
-      { maxEdge: 2_560, quality: 82 },
-      { maxEdge: 2_048, quality: 76 },
-      { maxEdge: 1_600, quality: 70 },
-    ];
+    const settings = preparation?.artwork
+      ? [
+          // Preserve text edges and native pixels when the lossless export fits.
+          { width: undefined, maxEdge: undefined, quality: 100, lossless: true },
+          ...[96, 90, 84].map(quality => ({ width: undefined, maxEdge: undefined, quality, lossless: false })),
+          // A long Canva page needs width for legible text. Never squeeze the
+          // whole page into a short maximum-height thumbnail or upscale pixels.
+          ...[2400, 1920, 1600, 1200, 1000, 800, 600].map(width => ({ width, maxEdge: undefined, quality: 90, lossless: false })),
+        ]
+      : [
+          { width: undefined, maxEdge: undefined, quality: 88, lossless: false },
+          { width: undefined, maxEdge: 2_560, quality: 82, lossless: false },
+          { width: undefined, maxEdge: 2_048, quality: 76, lossless: false },
+          { width: undefined, maxEdge: 1_600, quality: 70, lossless: false },
+        ];
     normalized = Buffer.alloc(0);
-    for (const { maxEdge, quality } of settings) {
+    for (const { width, maxEdge, quality, lossless } of settings) {
+      const nativeWidth = metadata.orientation && metadata.orientation >= 5 ? metadata.height! : metadata.width!;
+      if (width && width >= nativeWidth) {
+        continue;
+      }
       const pipeline = sharp(input, { failOn: 'error', limitInputPixels: MAX_PIXELS }).rotate();
       if (maxEdge) {
         pipeline.resize({ width: maxEdge, height: maxEdge, fit: 'inside', withoutEnlargement: true });
+      } else if (width) {
+        pipeline.resize({ width, withoutEnlargement: true });
       }
-      normalized = await pipeline.webp({ quality }).toBuffer();
-      if (normalized.byteLength <= MAX_BYTES) {
+      normalized = await pipeline.webp({ quality, lossless }).toBuffer();
+      if (normalized.byteLength <= outputLimit) {
         break;
       }
     }
@@ -204,10 +227,10 @@ export async function normalizeOnboardingImage(file: File) {
       'This photo could not be prepared for your site.',
     );
   }
-  if (!normalizedMetadata.width || !normalizedMetadata.height || normalized.byteLength > MAX_BYTES) {
+  if (!normalizedMetadata.width || !normalizedMetadata.height || normalized.byteLength > outputLimit) {
     throw new OnboardingMediaStorageError(
       'INVALID_IMAGE',
-      'This photo has invalid dimensions or is too large after preparation.',
+      preparation?.artwork ? 'This design is too large after preparation. Export its pages separately as PNG images under 3 MB each.' : 'This photo has invalid dimensions or is too large after preparation.',
     );
   }
 
@@ -222,6 +245,7 @@ export const saveOnboardingMediaFile = async ({
   siteId,
   stableItemId,
   uploadAttemptId,
+  imagePreparation,
 }: SaveOnboardingMediaFileInput): Promise<StoredOnboardingMediaFile> => {
   assertSafeId(stableItemId, 'image item id');
   assertSafeId(revisionId, 'site revision id');
@@ -231,7 +255,7 @@ export const saveOnboardingMediaFile = async ({
   if (!ROLES.has(role)) {
     throw new OnboardingMediaStorageError('INVALID_MEDIA_OWNER', 'Invalid image role.');
   }
-  const { normalized, normalizedMetadata } = await normalizeOnboardingImage(file);
+  const { normalized, normalizedMetadata } = await normalizeOnboardingImage(file, imagePreparation);
 
   const fingerprint = createHash('sha256')
     // Revisions are append-only. Including the immutable revision identity

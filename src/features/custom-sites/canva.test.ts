@@ -42,10 +42,26 @@ describe('preserved Canva artwork', () => {
     input.pages[0]!.height = 1280;
     const source = compileCanvaDesign(input);
 
-    expect(source.css).toContain('.canva-site{margin:0 auto;max-width:600px}');
+    expect(source.css).toContain('.canva-site{margin:0 auto;width:100%;max-width:600px}');
     expect(source.css).toContain('width:100%;height:auto');
     expect(source.canva).toEqual(input);
     expect(source.html).toContain(`asset:${input.pages[0]!.assetId}`);
+    expect(source.css).toContain('left:10%;top:80%;width:80%;height:5%');
+  });
+
+  it('gives mixed portrait, square and landscape pages independent widths without changing positions', () => {
+    const input = design();
+    input.pages = [
+      { ...input.pages[0]!, width: 2400, height: 12000 },
+      { ...input.pages[0]!, assetId: randomUUID(), width: 1600, height: 1600 },
+      { ...input.pages[0]!, assetId: randomUUID(), width: 2400, height: 1200 },
+    ];
+    const source = compileCanvaDesign(input);
+
+    expect(source.css).toContain('#luster-canva-page-0{max-width:600px}');
+    expect(source.css).toContain('#luster-canva-page-1{max-width:800px}');
+    expect(source.css).toContain('#luster-canva-page-2{max-width:1200px}');
+    expect(source.canva).toEqual(input);
     expect(source.css).toContain('left:10%;top:80%;width:80%;height:5%');
   });
 

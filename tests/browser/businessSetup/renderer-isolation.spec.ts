@@ -99,6 +99,48 @@ test('broken Canva images have no clickable overlay', async ({ page }) => {
   await expect(page.frameLocator('iframe').locator('#canva-book')).toBeHidden();
 });
 
+test('mixed Canva export sizes fit independently with proportional images and aligned links', async ({ page }) => {
+  const sizes = [{ width: 279, height: 1280, cap: 600 }, { width: 1200, height: 6000, cap: 600 }, { width: 1600, height: 1600, cap: 800 }, { width: 2400, height: 1200, cap: 1200 }];
+  const input = payload('', true);
+  const pages = [];
+  for (const [index, size] of sizes.entries()) {
+    const id = `a0000000-0000-4000-8000-00000000000${index + 1}`;
+    const bytes = await sharp({ create: { width: size.width, height: size.height, channels: 3, background: '#ecd1db' } }).png().toBuffer();
+    input.images[id] = `data:image/png;base64,${bytes.toString('base64')}`;
+    pages.push({ assetId: id, width: size.width, height: size.height, alt: `Size test page ${index + 1}` });
+  }
+  input.source = compileCanvaDesign({ version: 1, pages, areas: pages.map((_, index) => ({ id: `book-${index}`, page: index, label: `Book page ${index + 1}`, geometry: { x: 10, y: 50, width: 80, height: 10 }, action: { type: 'book' as const } })), visibleText: '', notes: [], dataFingerprint: 'b'.repeat(64), ownerReviewed: false });
+  await page.route('http://localhost:3197/canva-sizes', route => route.fulfill({ contentType: 'text/html', body: '<html><body style="margin:0"><iframe style="border:0;width:100%;height:1000px" title="Probe" src="http://127.0.0.1:3198/renderer" sandbox="allow-scripts"></iframe></body></html>' }));
+  await page.goto('/canva-sizes');
+  await page.evaluate((payload) => {
+    const frame = document.querySelector('iframe')!;
+    window.addEventListener('message', (event) => {
+      if (event.source === frame.contentWindow && event.origin === 'null' && event.data?.type === 'renderer-ready') {
+        frame.contentWindow!.postMessage({ type: 'initialize', channel: 'canva-sizes', payload }, '*');
+      }
+    });
+  }, input);
+  const site = page.frameLocator('iframe');
+
+  await expect(site.locator('#canva-book-0')).toBeVisible();
+
+  for (const [index, size] of sizes.entries()) {
+    const metrics = await site.locator(`#luster-canva-page-${index}`).evaluate((element) => {
+      const image = element.querySelector('img')!;
+      const button = element.querySelector('button')!;
+      const r = element.getBoundingClientRect();
+      const b = button.getBoundingClientRect();
+      return { width: image.clientWidth, height: image.clientHeight, available: element.ownerDocument.documentElement.clientWidth, overflow: element.ownerDocument.documentElement.scrollWidth > element.ownerDocument.documentElement.clientWidth, left: (b.left - r.left) / r.width, top: (b.top - r.top) / r.height };
+    });
+
+    expect(metrics.width).toBe(Math.min(size.cap, metrics.available));
+    expect(metrics.height / metrics.width).toBeCloseTo(size.height / size.width, 2);
+    expect(metrics.overflow).toBe(false);
+    expect(metrics.left).toBeCloseTo(0.1, 2);
+    expect(metrics.top).toBeCloseTo(0.5, 2);
+  }
+});
+
 test('opaque renderer blocks network, persistent storage, forged booking and canonical data changes', async ({ page }) => {
   // A trusted parent harness drives the same standalone renderer. No database,
   // provider or outbound integration is involved in these hostile-source tests.

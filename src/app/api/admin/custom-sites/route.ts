@@ -8,6 +8,7 @@ import { runSetupConversation } from '@/features/business-setup/conversation.ser
 import { editSetup, loadSetupHead, lockSetupSalon, readSetupSnapshot } from '@/features/business-setup/drafts.server';
 import { reviewCanvaArtwork, saveCustomSource } from '@/features/custom-sites/artifacts.server';
 import { assetDataUrl, ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
+import { canvaReplaceSchema, replaceCanvaPage } from '@/features/custom-sites/canva-replace.server';
 import { customSiteGenerateSchema, customSiteSourceSchema, designBriefSchema } from '@/features/custom-sites/contracts';
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
 import { editCustomMedia, mediaEditSchema } from '@/features/custom-sites/media-edit.server';
@@ -28,6 +29,7 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('revoke_share'), token: previewShareInput.shape.token }).strict(),
   z.object({ action: z.literal('preferences'), input: z.object({ ...edit, values: designBriefSchema }).strict() }).strict(),
   z.object({ action: z.literal('edit_media'), input: mediaEditSchema }).strict(),
+  z.object({ action: z.literal('replace_canva_page'), input: canvaReplaceSchema }).strict(),
   z.object({ action: z.literal('generate'), input: customSiteGenerateSchema }).strict(),
   z.object({ action: z.literal('resume'), operationId: z.string().uuid() }).strict(),
   z.object({ action: z.literal('save'), input: z.object({ ...edit, source: customSiteSourceSchema, assetIds: z.array(z.string().uuid()).max(12) }).strict() }).strict(),
@@ -137,6 +139,9 @@ export async function POST(request: Request) {
     }
     if (parsed.action === 'edit_media') {
       return Response.json(await editCustomMedia(access.actor, parsed.input), { headers });
+    }
+    if (parsed.action === 'replace_canva_page') {
+      return Response.json(await replaceCanvaPage(access.actor, parsed.input), { headers });
     }
     if (parsed.action === 'generate') {
       if (!access.aiEnabled) {

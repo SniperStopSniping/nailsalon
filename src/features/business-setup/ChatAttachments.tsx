@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { CANVA_INPUT_BYTES, prepareCanvaUpload } from '@/features/custom-sites/canva-upload';
+import { CanvaUploadQuality } from '@/features/custom-sites/CanvaImageQuality';
 import type { DesignBrief } from '@/features/custom-sites/contracts';
 import type { DesignAsset } from '@/features/custom-sites/WebsitePhotoLibrary';
 
@@ -80,7 +82,11 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
       if (files.length + (isReference ? values.referenceIds : values.websiteAssetIds).length > 6) {
         throw new Error(`Choose up to six ${isReference ? 'references' : 'photos and logos'} in total. Remove an attached image to make room.`);
       }
-      if (files.some(file => file.size > 3000000 || !['image/png', 'image/jpeg', 'image/webp', ...(isReference ? ['application/pdf'] : [])].includes(file.type))) {
+      const canva = purpose === 'own' && keepDesign;
+      if (files.some(file => file.size > (canva ? CANVA_INPUT_BYTES : 3000000) || !['image/png', 'image/jpeg', 'image/webp', ...(isReference ? ['application/pdf'] : [])].includes(file.type))) {
+        if (canva) {
+          throw new Error('Choose PNG, JPG or WebP Canva exports under 20 MB. Luster prepares larger images for upload.');
+        }
         throw new Error('Use PNG, JPG or WebP files under 3 MB each. A design or menu can also be a PDF.');
       }
       for (const file of files) {
@@ -88,7 +94,7 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
           continue;
         }
         const data = new FormData();
-        data.set('file', file);
+        data.set('file', canva ? await prepareCanvaUpload(file) : file);
         data.set('role', isReference ? 'reference' : purpose);
         data.set('rightsConfirmed', 'true');
         const response = await fetch(endpoint, { method: 'POST', body: data });
@@ -168,7 +174,7 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
             <span>
               <strong>Keep my Canva design</strong>
               <br />
-              Keep the artwork exactly as exported. AI adds booking and contact links. Upload PNG or JPG pages in order.
+              Keep your design as an image. AI adds booking and contact links. Upload the original PNG or JPG pages in order.
             </span>
           </label>
         )}
@@ -188,7 +194,8 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
         />
         <button type="button" className="setup-pick-files" disabled={saving} onClick={() => fileInput.current?.click()}>{files.length ? `${files.length} file${files.length === 1 ? '' : 's'} selected · Change` : 'Choose files'}</button>
         {files.length > 0 && <ul className="setup-chosen-files">{files.map(file => <li key={`${file.name}-${file.lastModified}-${file.size}`}>{file.name}</li>)}</ul>}
-        <small>PNG, JPG, WebP or design PDF · up to 3 MB each</small>
+        {purpose === 'own' && keepDesign && files.length > 0 && <CanvaUploadQuality files={files} />}
+        <small>{purpose === 'own' && keepDesign ? 'Canva PNG, JPG or WebP · up to 20 MB each · prepared automatically for upload' : 'PNG, JPG, WebP or design PDF · up to 3 MB each'}</small>
         <label className="setup-attachment-permission">
           <input type="checkbox" checked={permission} disabled={saving} onChange={event => setPermission(event.target.checked)} />
           {purpose === 'inspiration' ? 'I may upload these files. Use the style, not another business’s photos or branding.' : 'These are my files, or I have permission to use them on my website.'}
