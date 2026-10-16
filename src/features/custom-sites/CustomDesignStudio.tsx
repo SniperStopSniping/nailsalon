@@ -268,12 +268,12 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       )}
       {state?.payload?.source.canva && (
         <CanvaAreaEditor
-          key={artifactId}
+          key={state.head.revision.document.website.config.customFrontendId}
           payload={state.payload}
           endpoint={endpoint}
           open={canvaEditorOpen}
           onOpenChange={setCanvaEditorOpen}
-          disabled={disabled || Boolean(busy || pending)}
+          disabled={disabled || Boolean(busy || pending) || state.head.revision.revision !== revision}
           onSave={source => void action('Saving clickable areas…', async () => {
             await post({ action: 'save', input: { expectedRevision: revision, operationId: crypto.randomUUID(), source, assetIds: current?.assetIds ?? [] } });
           })}
