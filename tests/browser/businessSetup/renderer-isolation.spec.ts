@@ -245,3 +245,34 @@ test('trusted contact links are clickable while public directions and complete p
 
   await popup.close();
 });
+
+test('email links accept normal addresses and reject oversized, malformed and injected contacts', async ({ page }) => {
+  await page.route('http://localhost:3197/renderer-email-safety', route => route.fulfill({ contentType: 'text/html', body: '<html><body><iframe title="Probe" src="http://127.0.0.1:3198/renderer" sandbox="allow-scripts"></iframe></body></html>' }));
+  const cases = [
+    { email: 'owner+bookings@studio.example.com', href: 'mailto:owner+bookings@studio.example.com' },
+    { email: `studio@${'.'.repeat(50000)}?bad`, href: null },
+    { email: 'studio@example.com?subject=unapproved', href: null },
+    { email: 'studio@@example.com', href: null },
+    { email: 'studio@example..com', href: null },
+    { email: 'studio@example', href: null },
+    { email: 'studio\u0000@example.com', href: null },
+  ];
+  for (const item of cases) {
+    await page.goto('/renderer-email-safety');
+    const input = payload('', true);
+    input.data.details = { locationDirections: null, instagram: null, email: item.email, phone: null, sections: [] };
+    input.source.html += '<a data-luster-link="email">Email contact</a>';
+    await page.evaluate((payload) => {
+      const frame = document.querySelector('iframe')!;
+      window.addEventListener('message', (event) => {
+        if (event.source === frame.contentWindow && event.origin === 'null' && event.data?.type === 'renderer-ready') {
+          frame.contentWindow!.postMessage({ type: 'initialize', channel: 'email-safety', payload }, '*');
+        }
+      });
+    }, input);
+    const site = page.frameLocator('iframe');
+
+    await expect(site.getByText('Synthetic isolated salon')).toBeVisible();
+    await expect(site.locator('[data-luster-link="email"]')).toHaveJSProperty('href', item.href ?? '');
+  }
+});

@@ -7,6 +7,22 @@
   let worker;
   const root = document.getElementById('site-root');
   const send = data => parent.postMessage({ channel, ...data }, PARENT_ORIGIN);
+  function emailHref(value) {
+    // Bound the work and parse the separators directly. Overlapping domain
+    // quantifiers can backtrack on hostile input; query/header injection is
+    // never a supported contact action.
+    if (typeof value !== 'string' || value.length > 254 || !/^[^\s?:#%]+$/.test(value)) {
+      return null;
+    }
+    if ([...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
+      return null;
+    }
+    const parts = value.split('@');
+    if (parts.length !== 2 || !parts[0] || !parts[1].includes('.') || parts[1].split('.').some(label => !label)) {
+      return null;
+    }
+    return `mailto:${value}`;
+  }
   addEventListener('message', async (event) => {
     if (initialized || event.source !== parent || event.origin !== PARENT_ORIGIN || event.data?.type !== 'initialize') {
       return;
@@ -60,9 +76,15 @@
       const kind = node.dataset.lusterLink;
       const value = details[kind];
       let href = null;
-      if (kind === 'instagram' && typeof value === 'string' && /^@?[a-z0-9._]{1,30}$/i.test(value)) href = `https://www.instagram.com/${value.replace(/^@/, '')}/`;
-      if (kind === 'email' && typeof value === 'string' && /^[^\s@?:#%]+@[^\s@?:#%]+\.[^\s@?:#%]+$/.test(value)) href = `mailto:${value}`;
-      if (kind === 'phone' && typeof value === 'string' && /^\+?[0-9 ()-]{7,30}$/.test(value)) href = `tel:${value.replace(/[^+0-9]/g, '')}`;
+      if (kind === 'instagram' && typeof value === 'string' && /^@?[\w.]{1,30}$/.test(value)) {
+        href = `https://www.instagram.com/${value.replace(/^@/, '')}/`;
+      }
+      if (kind === 'email') {
+        href = emailHref(value);
+      }
+      if (kind === 'phone' && typeof value === 'string' && /^\+?[0-9 ()-]{7,30}$/.test(value)) {
+        href = `tel:${value.replace(/[^+0-9]/g, '')}`;
+      }
       if (href) {
         node.href = href;
         node.target = '_blank';
@@ -96,13 +118,17 @@
     });
     root.querySelectorAll('img').forEach((node) => {
       const page = node.closest('.canva-page');
-      const toggle = (loaded) => page?.querySelectorAll('[data-luster-canva-area]').forEach(area => { area.hidden = !loaded; });
+      const toggle = loaded => page?.querySelectorAll('[data-luster-canva-area]').forEach((area) => {
+        area.hidden = !loaded;
+      });
       node.addEventListener('load', () => toggle(node.naturalWidth > 0));
       node.addEventListener('error', () => toggle(false));
       const image = images[node.getAttribute('src')?.replace(/^asset:/, '')];
       if (typeof image === 'string' && /^data:image\/(?:webp|png|jpeg);base64,/.test(image)) {
         node.src = image;
-        if (node.complete && node.naturalWidth > 0) toggle(true);
+        if (node.complete && node.naturalWidth > 0) {
+          toggle(true);
+        }
       } else {
         node.removeAttribute('src');
       }
@@ -112,7 +138,9 @@
         return;
       }
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest('[data-luster-canva-area][hidden]')) return;
+      if (target?.closest('[data-luster-canva-area][hidden]')) {
+        return;
+      }
       const book = target?.closest('[data-luster-book]');
       const manage = target?.closest('[data-luster-manage]');
       if (book || manage) {
