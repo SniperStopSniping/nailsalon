@@ -1612,6 +1612,8 @@ describe('AI clickable Canva artwork', () => {
     await shareCustomPreview(actor, { expectedRevision: checked.head.revision.revision, token });
 
     expect((await sharedCustomPreview(token))?.images).toHaveProperty(artifact!.source.canva!.pages[0]!.assetId);
+    expect((await sharedCustomPreview(token))?.source.canva?.visibleText).toBe('');
+    expect(checked.artifact.source.canva?.visibleText).toContain('Test Studio');
     expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
   });
 
@@ -1689,6 +1691,7 @@ describe('AI clickable Canva artwork', () => {
 
       expect(canvaDataFingerprint(data)).toBe(checked.artifact.source.canva!.dataFingerprint);
       expect(payload.artworkUnavailable).toBeUndefined();
+      expect(payload.source.canva?.visibleText).toBe('');
       expect(payload.serviceKeys?.[key]).toBe(data.services[0]!.id);
       expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(1);
 

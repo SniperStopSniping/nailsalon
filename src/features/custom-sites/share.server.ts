@@ -13,7 +13,7 @@ import { businessSetupPreviewShareSchema as shares, businessSetupRevisionSchema 
 
 import { assertCustomArtifact } from './artifacts.server';
 import { canvaDraftBlockers } from './canva-data.server';
-import { setupCustomSitePayload } from './payload.server';
+import { publicCustomSiteSource, setupCustomSitePayload } from './payload.server';
 
 // The browser generates 256 random bits once per request, retaining the token
 // across uncertain retries. Only its hash is stored. This is view-only access.
@@ -84,5 +84,6 @@ export async function sharedCustomPreview(token: string) {
   if (canvaDraftBlockers(document, artifact.source).length) {
     return null;
   }
-  return setupCustomSitePayload(row.share.salonId, document);
+  const payload = await setupCustomSitePayload(row.share.salonId, document);
+  return payload ? { ...payload, source: publicCustomSiteSource(payload.source) } : null;
 }

@@ -9,7 +9,7 @@ import { db } from '@/libs/DB';
 import { assertCustomArtifact } from './artifacts.server';
 import { assetDataUrl } from './assets.server';
 import { canvaDataFingerprint, canvaServiceKey } from './canva-data.server';
-import type { CustomSiteData, CustomSitePayload } from './contracts';
+import type { CustomSiteData, CustomSitePayload, CustomSiteSource } from './contracts';
 import { customSiteDataFromSetup } from './setup-data';
 import { customSourceImageIds } from './validate.server';
 
@@ -62,7 +62,12 @@ export async function customSitePayload(salonId: string, artifactId: string, dat
       }
     }
   }
-  return { source: artifact.source, data: { ...data, business: { ...data.business, hoursLabel } }, images, ...(artifact.source.canva ? { serviceKeys, canvaFactsChanged: artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data), canvaReviewRequired: !artifact.source.canva.ownerReviewed || artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data) } : {}) };
+  return { source: data.preview ? artifact.source : publicCustomSiteSource(artifact.source), data: { ...data, business: { ...data.business, hoursLabel } }, images, ...(artifact.source.canva ? { serviceKeys, canvaFactsChanged: artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data), canvaReviewRequired: !artifact.source.canva.ownerReviewed || artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data) } : {}) };
+}
+
+/** OCR and model critique are private editing evidence, not public site data. */
+export function publicCustomSiteSource(source: CustomSiteSource): CustomSiteSource {
+  return { ...source, analysis: '', limitations: [], ...(source.canva ? { canva: { ...source.canva, visibleText: '', notes: [] } } : {}) };
 }
 
 /** Shared by the owner studio and its full-page authenticated preview. */
