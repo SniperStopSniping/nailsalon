@@ -8,6 +8,39 @@ vi.mock('./CustomWebsiteFrame', () => ({ CustomWebsiteFrame: () => <div>Isolated
 
 afterEach(() => vi.unstubAllGlobals());
 
+it('requires separate preview consent and clears it for a later revision without reviewing artwork', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {} disconnect() {}
+  });
+  const requests: any[] = [];
+  const source = compileCanvaDesign({ version: 1, pages: [{ assetId: 'a0000000-0000-4000-8000-000000000001', width: 279, height: 1280, alt: 'Original artwork' }], areas: [], visibleText: '', notes: [], dataFingerprint: 'a'.repeat(64), ownerReviewed: false });
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      requests.push(JSON.parse(String(options.body)));
+      return { ok: true, json: async () => ({ path: '/website-preview/example', revision: 2 }) };
+    }
+    return { ok: true, json: async () => ({ head: { revision: { revision: 2, document: { website: { config: { customFrontendId: 'first' } } } } }, payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history: [], attempts: [], configured: true, rendererOrigin: null }) };
+  }));
+  const editor = (revision: number) => <CustomDesignStudio salonSlug="test" revision={revision} artifactId="first" disabled={false} aiEnabled onSaved={async () => {}} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />;
+  const view = render(editor(2));
+  const consent = await screen.findByRole('checkbox', { name: /Share this original image as a preview/ });
+
+  expect(screen.getByRole('button', { name: 'Share this preview' })).toBeDisabled();
+
+  fireEvent.click(consent);
+  fireEvent.click(screen.getByRole('button', { name: 'Share this preview' }));
+  await screen.findByRole('link', { name: /View shared preview/ });
+
+  expect(requests).toEqual([expect.objectContaining({ action: 'share', input: expect.objectContaining({ expectedRevision: 2, artworkPreviewAcknowledged: true }) })]);
+
+  view.rerender(editor(3));
+
+  await waitFor(() => expect(screen.getByRole('checkbox', { name: /Share this original image as a preview/ })).not.toBeChecked());
+
+  expect(screen.getByRole('button', { name: 'Share this preview' })).toBeDisabled();
+});
+
 it('shows the saved artwork review when the parent draft arrives before its preview payload', async () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true }));
   vi.stubGlobal('ResizeObserver', class {

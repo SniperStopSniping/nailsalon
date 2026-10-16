@@ -1655,6 +1655,47 @@ describe('AI clickable Canva artwork', () => {
     expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
   });
 
+  it('shares an explicitly acknowledged image preview without approving its business settings or publication', async () => {
+    const { actor, input } = await prepared();
+    const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+    const token = randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
+    const shareInput = { expectedRevision: generated.head.revision.revision, token, artworkPreviewAcknowledged: true };
+    await shareCustomPreview(actor, shareInput);
+
+    const preview = await sharedCustomPreview(token);
+
+    expect(preview?.source.canva?.ownerReviewed).toBe(false);
+    expect(preview?.source.canva?.visibleText).toBe('');
+    expect(preview?.data.preview).toBe(true);
+    expect((await reviewSetup(actor)).blockers.join(' ')).toContain('Canva artwork');
+    expect(await database.select().from(schema.businessSetupApprovalSchema).where(eq(schema.businessSetupApprovalSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect(await shareCustomPreview(actor, shareInput)).toMatchObject({ revision: shareInput.expectedRevision });
+
+    const changed = await editSetup(actor, { expectedRevision: shareInput.expectedRevision, operationId: randomUUID(), operations: [{ type: 'business', values: { name: 'Changed later' } }] });
+
+    await expect(shareCustomPreview(actor, { ...shareInput, expectedRevision: changed.revision.revision, token: token.split('').reverse().join('') })).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect((await sharedCustomPreview(token))?.data.business.name).toBe('Test Studio');
+
+    const other = await fixture();
+
+    await expect(shareCustomPreview({ ...actor, salonId: other.salonId }, shareInput)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('does not let preview consent expose a private address printed in the artwork', async () => {
+    const { actor, input } = await prepared();
+
+    await expect(generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result({ ...answer(), visibleText: '123 Private Street' })) })).rejects.toMatchObject({ code: 'INVALID' });
+    expect(await database.select().from(schema.businessSetupPreviewShareSchema).where(eq(schema.businessSetupPreviewShareSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
+  it('cannot override the public-address restriction with preview consent', async () => {
+    const { actor, input } = await prepared();
+    const head = await editSetup(actor, { expectedRevision: input.expectedRevision, operationId: randomUUID(), operations: [{ type: 'business', values: { locationDisplayMode: 'full_address' } }] });
+    const generated = await generateCustomSite(actor, { ...input, expectedRevision: head.revision.revision }, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+
+    await expect(shareCustomPreview(actor, { expectedRevision: generated.head.revision.revision, token: randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', ''), artworkPreviewAcknowledged: true })).rejects.toMatchObject({ code: 'INVALID' });
+  });
+
   it('does not promote another business inspiration or foreign tenant artwork', async () => {
     const { actor, input } = await prepared(false);
     const createResponse = vi.fn();

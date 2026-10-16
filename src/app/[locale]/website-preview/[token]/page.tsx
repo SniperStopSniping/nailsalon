@@ -16,6 +16,7 @@ export default async function SharedWebsitePreview(props: { params: Promise<{ to
   return (
     <main>
       <p style={{ padding: 10, textAlign: 'center', background: '#fcf7f4', fontSize: 13 }}>Website preview · Booking is disabled · Suggested details may change</p>
+      {payload.source.canva && !payload.source.canva.ownerReviewed && <p role="status" style={{ padding: 10, textAlign: 'center' }}>Original artwork preview. Printed policies have not been approved for bookings. This preview does not activate deposits or payments.</p>}
       <CustomWebsiteFrame payload={payload} rendererOrigin={origin} />
     </main>
   );

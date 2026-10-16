@@ -63,6 +63,8 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
   }, [hasPreview]);
   const [previewSize, setPreviewSize] = useState<'desktop' | 'mobile'>('desktop');
   const [share, setShare] = useState<{ path: string; token: string; revision: number } | null>(null);
+  const [artworkPreviewAcknowledged, setArtworkPreviewAcknowledged] = useState(false);
+  useEffect(() => setArtworkPreviewAcknowledged(false), [revision]);
   useEffect(() => {
     if (window.matchMedia('(max-width: 640px)').matches) {
       setPreviewSize('mobile');
@@ -185,6 +187,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     });
   }
   const current = state?.history.find(item => item.id === artifactId);
+  const previewIsCurrent = state?.head.revision.revision === revision && state?.head.revision.document.website.config.customFrontendId === artifactId;
   return (
     <div id="custom-design" className="custom-design-studio">
       {!artifactId && !entryMode && !state?.assets.length && (
@@ -221,16 +224,22 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
             <p>{state.payload.source.analysis}</p>
             {state.payload.source.limitations.length > 0 && <ul>{state.payload.source.limitations.map(item => <li key={item}>{item}</li>)}</ul>}
           </details>
+          {state.payload.source.canva && !state.payload.source.canva.ownerReviewed && (
+            <label>
+              <input type="checkbox" checked={artworkPreviewAcknowledged} disabled={disabled || Boolean(busy || pending) || !previewIsCurrent} onChange={event => setArtworkPreviewAcknowledged(event.target.checked)} />
+              Share this original image as a preview, including its printed contact details and location. Anyone with the link can view it. Booking stays disabled; this does not approve prices or policies for publication.
+            </label>
+          )}
           <div role="group" aria-label="Preview size">
             <button type="button" aria-pressed={previewSize === 'desktop'} onClick={() => setPreviewSize('desktop')}>Desktop preview</button>
             <button type="button" aria-pressed={previewSize === 'mobile'} onClick={() => setPreviewSize('mobile')}>Mobile preview</button>
             <a href={`/admin/business-setup/design-preview/${encodeURIComponent(salonSlug)}?revision=${revision}`} target="_blank" rel="noreferrer">Open full preview</a>
             <button
               type="button"
-              disabled={disabled || Boolean(busy || pending)}
+              disabled={disabled || Boolean(busy || pending) || !previewIsCurrent || Boolean(state.payload.source.canva && !state.payload.source.canva.ownerReviewed && !artworkPreviewAcknowledged)}
               onClick={() => void action('Creating your preview link…', async () => {
                 const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');
-                const result = await post({ action: 'share', input: { expectedRevision: revision, token } });
+                const result = await post({ action: 'share', input: { expectedRevision: revision, token, ...(artworkPreviewAcknowledged ? { artworkPreviewAcknowledged: true } : {}) } });
                 setShare({ path: result.path, token, revision: result.revision });
               })}
             >
