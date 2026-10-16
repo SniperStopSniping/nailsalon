@@ -30,6 +30,10 @@ export const canvaAreaSchema = z.object({
 export const canvaAreasSchema = z.array(canvaAreaSchema).max(40).superRefine((areas, context) => {
   const ids = new Set<string>();
   for (const [index, area] of areas.entries()) {
+    const destination = area.action.type === 'website' ? parseSafeHttpsUrl(area.action.url) : null;
+    if (destination && /\b(?:book|appointment|reserv|schedul)|acuityscheduling|calendly|booksy|fresha|vagaro/iu.test(`${area.id.replaceAll('_', ' ')} ${area.label} ${new URL(destination).hostname} ${new URL(destination).pathname.replace(/[-_/]/gu, ' ')}`)) {
+      context.addIssue({ code: 'custom', message: 'Connect appointment buttons to the Luster booking menu or a service, not another website.' });
+    }
     if (ids.has(area.id) || area.geometry.width * area.geometry.height > 7000 || areas.slice(0, index).some(other => other.page === area.page && rectanglesHaveInteriorOverlap(other.geometry, area.geometry))) {
       context.addIssue({ code: 'custom', message: 'Use separate, nonoverlapping clickable areas with unique names.' });
     }

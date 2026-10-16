@@ -1697,6 +1697,12 @@ describe('AI clickable Canva artwork', () => {
       expect(stale).toMatchObject({ artworkUnavailable: true, images: {} });
       expect(stale.source.canva).toBeUndefined();
       expect(JSON.stringify(stale)).not.toContain(checked.artifact.source.canva!.visibleText);
+
+      const privatePreview = await customSitePayload(actor.salonId, checked.artifact.id, { ...data, preview: true, services: data.services.map(service => ({ ...service, priceCents: 7200, priceLabel: '$72.00' })) });
+
+      expect(privatePreview.canvaFactsChanged).toBe(true);
+      expect(privatePreview.images).toHaveProperty(checked.artifact.source.canva!.pages[0]!.assetId);
+      expect(privatePreview.data.services[0]?.priceCents).toBe(7200);
     } finally {
       vi.unstubAllEnvs();
     }

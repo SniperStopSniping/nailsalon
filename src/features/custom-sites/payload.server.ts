@@ -62,7 +62,7 @@ export async function customSitePayload(salonId: string, artifactId: string, dat
       }
     }
   }
-  return { source: artifact.source, data: { ...data, business: { ...data.business, hoursLabel } }, images, ...(artifact.source.canva ? { serviceKeys, canvaReviewRequired: !artifact.source.canva.ownerReviewed || artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data) } : {}) };
+  return { source: artifact.source, data: { ...data, business: { ...data.business, hoursLabel } }, images, ...(artifact.source.canva ? { serviceKeys, canvaFactsChanged: artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data), canvaReviewRequired: !artifact.source.canva.ownerReviewed || artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data) } : {}) };
 }
 
 /** Shared by the owner studio and its full-page authenticated preview. */

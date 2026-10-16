@@ -14,6 +14,15 @@ const data: CustomSiteData = { business: { name: 'Canva Studio', city: 'Toronto'
 const design = (): CanvaDesign => ({ version: 1, pages: [{ assetId: randomUUID(), width: 600, height: 1800, alt: 'Original salon artwork' }], areas: [{ id: 'book', page: 0, label: 'Book Gel', geometry: { x: 10, y: 80, width: 80, height: 5 }, action: { type: 'service', serviceKey: canvaServiceKey(data.services[0]!) } }], visibleText: 'Original artwork', notes: [], ownerReviewed: false, dataFingerprint: canvaDataFingerprint(data) });
 
 describe('preserved Canva artwork', () => {
+  it('keeps appointment links in Luster while allowing explicit general website destinations', () => {
+    const input = design();
+    const area = { ...input.areas[0]!, id: 'website', label: 'Visit my website', action: { type: 'website' as const, url: 'https://example.com' } };
+
+    expect(canvaDesignSchema.safeParse({ ...input, areas: [area] }).success).toBe(true);
+    expect(canvaDesignSchema.safeParse({ ...input, areas: [{ ...area, label: 'Book an appointment' }] }).success).toBe(false);
+    expect(canvaDesignSchema.safeParse({ ...input, areas: [{ ...area, action: { type: 'website', url: 'https://example.com/appointments' } }] }).success).toBe(false);
+  });
+
   it('pads tiny links for mobile without moving artwork or covering other links', () => {
     const input = design();
     input.areas[0]!.geometry = { x: 10, y: 80, width: 10, height: 1 };
@@ -57,7 +66,7 @@ describe('preserved Canva artwork', () => {
     expect(canvaDesignSchema.safeParse({ ...input, areas: [{ ...input.areas[0], page: 1 }] }).success).toBe(false);
 
     for (const url of ['javascript:alert(1)', 'http://example.com', 'https://user:password@example.com', 'https://127.0.0.1']) {
-      expect(canvaDesignSchema.safeParse({ ...input, areas: [{ ...input.areas[0], action: { type: 'website', url } }] }).success).toBe(false);
+      expect(canvaDesignSchema.safeParse({ ...input, areas: [{ ...input.areas[0], label: 'Visit website', action: { type: 'website', url } }] }).success).toBe(false);
     }
   });
 

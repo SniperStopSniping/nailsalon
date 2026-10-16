@@ -40,4 +40,4 @@ export type CustomSiteData = {
   currency: string;
   preview: boolean;
 };
-export type CustomSitePayload = { source: CustomSiteSource; data: CustomSiteData; images: Record<string, string>; artworkUnavailable?: boolean; canvaReviewRequired?: boolean; serviceKeys?: Record<string, string> };
+export type CustomSitePayload = { source: CustomSiteSource; data: CustomSiteData; images: Record<string, string>; artworkUnavailable?: boolean; canvaReviewRequired?: boolean; canvaFactsChanged?: boolean; serviceKeys?: Record<string, string> };
