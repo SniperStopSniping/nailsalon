@@ -63,10 +63,19 @@ it('shows the saved artwork review when the parent draft arrives before its prev
   view.rerender(editor(2, 'first'));
   fireEvent.click(await screen.findByText('Check Canva links & artwork'));
   fireEvent.click(screen.getByRole('checkbox', { name: /I checked all printed/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Artwork is correct' }));
-  await waitFor(() => expect(pending).toBeGreaterThan(0));
   await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Artwork is correct' }));
+    for (let tick = 0; tick < 20; tick++) {
+      if (pending > 0) {
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    expect(pending).toBeGreaterThan(0);
+
     release();
+    await new Promise(resolve => setTimeout(resolve, 20));
   });
 
   await waitFor(() => expect(screen.getByText('Artwork checked. Review and publish when you’re ready.')).toBeVisible());

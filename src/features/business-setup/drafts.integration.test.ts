@@ -1606,6 +1606,7 @@ describe('AI clickable Canva artwork', () => {
     const checked = await reviewCanvaArtwork(actor, { expectedRevision: generated.head.revision.revision, operationId });
 
     expect(checked.artifact.source.canva?.ownerReviewed).toBe(true);
+    expect(checked.head.revision.document.designBrief?.websiteAssetIds).toEqual([]);
     expect((await reviewCanvaArtwork(actor, { expectedRevision: generated.head.revision.revision, operationId })).head.revision.revision).toBe(checked.head.revision.revision);
 
     await shareCustomPreview(actor, { expectedRevision: checked.head.revision.revision, token });

@@ -283,7 +283,7 @@ export async function editSetup(actor: SetupActor, input: unknown, origin: 'owne
       const { artifact, media } = await assertCustomArtifact(tx, salon.id, document.website.config.customFrontendId!);
       const used = customSourceImageIds(artifact.source.html);
       const referenceIds = media.filter(asset => asset.role === 'reference').map(asset => asset.id).slice(0, 6);
-      document.designBrief = { ...document.designBrief, mode: artifact.source.canva ? 'keep_design' : 'rebuild', referenceIds, ownedReferenceIds: artifact.source.canva ? referenceIds : document.designBrief.ownedReferenceIds.filter(id => referenceIds.includes(id)), websiteAssetIds: media.filter(asset => asset.role !== 'reference' && used.has(asset.id)).map(asset => asset.id).slice(0, 6) };
+      document.designBrief = { ...document.designBrief, mode: artifact.source.canva ? 'keep_design' : 'rebuild', referenceIds, ownedReferenceIds: artifact.source.canva ? referenceIds : document.designBrief.ownedReferenceIds.filter(id => referenceIds.includes(id)), websiteAssetIds: artifact.source.canva ? [] : media.filter(asset => asset.role !== 'reference' && used.has(asset.id)).map(asset => asset.id).slice(0, 6) };
     }
     const revision = head.workspace.headRevision + 1;
     await tx.insert(revisions).values({ salonId: salon.id, workspaceId: head.workspace.id, revision, operationId: edit.operationId, operationHash, document, actorId: actor.adminId, origin });
