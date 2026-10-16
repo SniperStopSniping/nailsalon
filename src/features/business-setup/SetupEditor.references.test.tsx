@@ -80,6 +80,25 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
+it('starts a new design from the main chat without resetting business data or publishing', async () => {
+  document.website.config.customFrontendId = 'ceec2235-6a4d-4cf2-b052-daf29b74b859';
+  const previous = structuredClone(document);
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.click(screen.getByRole('button', { name: /Start over/ }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Describe your new look' }), { target: { value: 'A new dark editorial design' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create new design' }));
+  await waitFor(() => expect(requests.some(request => request.action === 'generate' && request.input.startOver === true)).toBe(true));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+  expect(document.business).toEqual(previous.business);
+  expect(document.services).toEqual(previous.services);
+  expect(document.hours).toEqual(previous.hours);
+  expect(document.booking).toEqual(previous.booking);
+  expect(requests.some(request => ['publish', 'approve', 'start_editing'].includes(request.action))).toBe(false);
+  expect(screen.getByRole('region', { name: 'Website preview' })).toBeVisible();
+});
+
 async function attach(purpose = 'Inspiration') {
   fireEvent.click(await screen.findByRole('button', { name: 'Attach images or a PDF' }));
   const dialog = screen.getByRole('dialog');

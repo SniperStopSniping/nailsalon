@@ -242,6 +242,10 @@
 .setup-chat-first .setup-scope { margin: 0; font-size: 11px; }
 .setup-chat-first .setup-scope select { font-size: 11px; border: 0; padding: 6px; margin: 0; background: transparent; width: auto; }
 .setup-compose-note { text-align: center; font-size: 10px; color: var(--setup-muted); margin-top: 8px !important; }
+.setup-compose-footer { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0 12px; }
+.setup-chat-first button.setup-start-over { border: 0; background: transparent; color: var(--setup-accent); font-size: 12px; min-height: 44px; padding: 8px; }
+.setup-fresh-note { font-size: 12px; color: var(--setup-muted); }
+.setup-fresh-actions { display: flex; gap: 8px; margin-top: 20px; }
 .setup-thinking { font-size: 13px; color: var(--setup-muted); padding: 12px 0; }
 .setup-thinking span { color: #98677f; display: inline-block; margin-right: 7px; }
 .setup-back-chat { border: 0 !important; background: transparent !important; padding-left: 0 !important; margin-bottom: 18px; color: var(--setup-accent) !important; }

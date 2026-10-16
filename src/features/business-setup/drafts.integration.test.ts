@@ -16,6 +16,7 @@ import { ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.s
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
 import { editCustomMedia } from '@/features/custom-sites/media-edit.server';
 import { customSitePayload } from '@/features/custom-sites/payload.server';
+import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { synchronizeBookingPageLifecycle } from '@/libs/bookingPageLifecycle';
 import sharp from '@/libs/safeSharp.server';
@@ -552,6 +553,35 @@ describe('approved model costs', () => {
 
 describe('metered owner generation and automatic repair', () => {
   const response = (source: unknown, usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | null = { inputTokens: 2000, outputTokens: 1000, cachedInputTokens: 0 }) => ({ status: 'completed' as const, usage, items: [{ type: 'message' as const, text: JSON.stringify(source) }] });
+
+  it('starts with no previous source, preserves business setup and keeps the earlier design restorable', async () => {
+    const actor = await fixture();
+    const original = await saveCustomSource(actor, { source: editorialSource, assetIds: [], expectedRevision: 2, operationId: randomUUID() });
+    const createResponse = vi.fn().mockResolvedValue(response(darkSource));
+    const input = { expectedRevision: original.head.revision.revision, operationId: randomUUID(), message: 'A completely new dark design', referenceIds: [], startOver: true };
+    const generated = await generateCustomSite(actor, input, { createResponse });
+    const context = JSON.parse(createResponse.mock.calls[0]![0].input.find((item: any) => item.role === 'developer').content);
+
+    expect(context.previousSource).toBeNull();
+    expect(context.startOver).toBe(true);
+
+    for (const field of ['business', 'services', 'hours', 'booking'] as const) {
+      expect(generated.head.revision.document[field]).toEqual(original.head.revision.document[field]);
+    }
+    const replay = await generateCustomSite(actor, input, { createResponse });
+
+    expect(replay.artifactId).toBe(generated.artifactId);
+    expect(createResponse).toHaveBeenCalledTimes(1);
+
+    const restored = await editSetup(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'custom_frontend', artifactId: original.artifact.id }] });
+
+    expect(restored.revision.document.website.config.customFrontendId).toBe(original.artifact.id);
+    expect(restored.revision.document.services).toEqual(original.head.revision.document.services);
+
+    const [live] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect(resolveBookingPageConfig(live?.settings).live.customFrontendId).toBeUndefined();
+  });
 
   it('retains invalid first output and the automatic repair, then resumes without another call', async () => {
     const actor = await fixture();

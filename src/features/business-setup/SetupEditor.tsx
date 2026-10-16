@@ -10,6 +10,7 @@ import type { DesignAsset } from '@/features/custom-sites/WebsitePhotoLibrary';
 import { ChatAttachments } from './ChatAttachments';
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
 import { missingDesignDetails, WEEKDAYS } from './contracts';
+import { StartOverDesign } from './StartOverDesign';
 import { WebsiteDetailsEditor } from './WebsiteDetailsEditor';
 
 type Head = {
@@ -579,7 +580,26 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                 <button type="submit" aria-label="Send message" disabled={!aiEnabled || busy || !head || published || !text.trim()}>↑</button>
               </div>
             </form>
-            <p className="setup-compose-note">Only you can approve and publish changes.</p>
+            <div className="setup-compose-footer">
+              <p className="setup-compose-note">Only you can approve and publish changes.</p>
+              {head && draft && (
+                <StartOverDesign
+                  salonSlug={salonSlug}
+                  revision={head.revision.revision}
+                  brief={draft.designBrief ?? { fidelity: 'inspiration', referenceIds: selectedDesignAssets.filter(id => assets.some(asset => asset.id === id && asset.role === 'reference')), ownedReferenceIds: [], websiteAssetIds: selectedDesignAssets.filter(id => assets.some(asset => asset.id === id && asset.role !== 'reference')) }}
+                  disabled={!aiEnabled || busy || published}
+                  missingDetails={missingDesignDetails(draft)}
+                  onBusyChange={setBusy}
+                  onSaved={async (generated) => {
+                    setReview(null);
+                    await refresh();
+                    if (generated) {
+                      setTab('website');
+                    }
+                  }}
+                />
+              )}
+            </div>
           </div>
         </section>
         <section className="setup-preview" aria-label="Website preview" hidden={tab !== 'website'}>
