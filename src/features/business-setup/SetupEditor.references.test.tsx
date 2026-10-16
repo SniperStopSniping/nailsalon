@@ -515,3 +515,21 @@ it('keeps Canva artwork only with an explicit owner choice and does not generate
   expect(document.designBrief.ownedReferenceIds).toEqual([reference.id]);
   expect(requests.some(request => ['generate', 'message', 'publish'].includes(request.action))).toBe(false);
 });
+
+it('waits for saved work before enabling Preview and Details', async () => {
+  const normal = vi.mocked(fetch).getMockImplementation()!;
+  let resolve!: (response: Response) => void;
+  vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>((done) => {
+    resolve = done;
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+
+  expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Details' })).toBeDisabled();
+
+  vi.mocked(fetch).mockImplementation(normal);
+  await act(async () => resolve({ ok: true, json: async () => ({ data: head() }) } as Response));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled());
+
+  expect(screen.getByRole('button', { name: 'Details' })).toBeEnabled();
+});

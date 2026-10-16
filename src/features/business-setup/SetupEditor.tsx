@@ -386,8 +386,8 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
             <span className="setup-save-status" role="status">{busy ? 'Working…' : published ? 'Published' : head ? 'Saved as draft' : 'Opening your saved work…'}</span>
           </div>
           <nav className="setup-tools" aria-label="Website tools">
-            <button type="button" aria-pressed={tab === 'website'} onClick={() => setTab(tab === 'website' ? 'chat' : 'website')}>Preview</button>
-            <button type="button" aria-pressed={tab === 'setup'} onClick={() => setTab(tab === 'setup' ? 'chat' : 'setup')}>Details</button>
+            <button type="button" disabled={!head} aria-pressed={tab === 'website'} onClick={() => setTab(tab === 'website' ? 'chat' : 'website')}>Preview</button>
+            <button type="button" disabled={!head} aria-pressed={tab === 'setup'} onClick={() => setTab(tab === 'setup' ? 'chat' : 'setup')}>Details</button>
             {!published && head && head.revision.revision > 1 && (
               <button
                 type="button"
