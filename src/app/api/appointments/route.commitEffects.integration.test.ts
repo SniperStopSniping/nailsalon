@@ -21,6 +21,8 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { requireAdmin } from '@/libs/adminAuth';
+import { normalizePhone } from '@/libs/phone';
 import { zonedTimeToUtc } from '@/libs/timeZone';
 import * as schema from '@/models/Schema';
 
@@ -386,6 +388,103 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await client.close();
+});
+
+describe('blocked clients cannot create new bookings', () => {
+  async function blockedClient(phone: string, blocked = true) {
+    const id = `blocked_${phone}`;
+    await db.insert(schema.salonClientSchema).values({
+      id,
+      salonId: SALON_ID,
+      phone,
+      fullName: 'Blocked Client',
+      isBlocked: blocked,
+      blockedReason: 'Private owner note',
+    });
+    return id;
+  }
+
+  function booking(phone: string) {
+    return {
+      clientPhone: phone,
+      clientName: 'Booking Client',
+      clientEmail: 'changed@example.invalid',
+      startTime: at(futureDate(2), '10:00').toISOString(),
+    };
+  }
+
+  async function expectBlocked(response: Response) {
+    expect(response.status).toBe(403);
+
+    const body = await response.json();
+
+    expect(body.error.code).toBe('CLIENT_BOOKING_BLOCKED');
+    expect(JSON.stringify(body)).not.toContain('Private owner note');
+    expect(await db.select().from(schema.appointmentSchema)).toHaveLength(0);
+    expect(await db.select().from(schema.appointmentDepositSchema)).toHaveLength(0);
+    expect(timeline.entries).toEqual([]);
+    expect(deposits.createDepositCheckoutSession).not.toHaveBeenCalled();
+  }
+
+  it.each(['plain', 'country-code', 'formatted'])('rejects the %s phone form with a changed email', async (format) => {
+    const phone = freshPhone();
+    await blockedClient(phone);
+    const input = format === 'plain' ? phone : format === 'country-code' ? `+1${phone}` : `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6)}`;
+    // The public form normalizes formatting before sending the API contract.
+    await expectBlocked(await postBooking(booking(normalizePhone(input))));
+  });
+
+  it('rejects a signed-in client', async () => {
+    const phone = freshPhone();
+    await blockedClient(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+    await expectBlocked(await postBooking(booking(phone)));
+  });
+
+  it('honors the block through a historical phone alias', async () => {
+    const phone = freshPhone();
+    const alias = freshPhone();
+    const id = await blockedClient(phone);
+    await db.insert(schema.salonClientContactAliasSchema).values({ salonId: SALON_ID, salonClientId: id, kind: 'phone', normalizedValue: alias });
+    await expectBlocked(await postBooking(booking(alias)));
+  });
+
+  it('does not let an owner session bypass the block on the preview booking page', async () => {
+    const phone = freshPhone();
+    await blockedClient(phone);
+    vi.mocked(requireAdmin).mockResolvedValueOnce({ ok: true } as Awaited<ReturnType<typeof requireAdmin>>);
+    await expectBlocked(await postBooking(booking(phone)));
+  });
+
+  it('rechecks a block saved after identity preflight', async () => {
+    const phone = freshPhone();
+    const id = await blockedClient(phone, false);
+    deposits.getDepositPolicyForSalon.mockImplementationOnce(async () => {
+      await db.update(schema.salonClientSchema).set({ isBlocked: true }).where(eq(schema.salonClientSchema.id, id));
+      return { active: false, reason: 'disabled', amountCents: 2500, readinessStale: false, readinessAgeMs: null };
+    });
+    await expectBlocked(await postBooking(booking(phone)));
+  });
+
+  it('allows booking after the owner removes the block', async () => {
+    const phone = freshPhone();
+    const id = await blockedClient(phone);
+    await expectBlocked(await postBooking(booking(phone)));
+    await db.update(schema.salonClientSchema).set({ isBlocked: false }).where(eq(schema.salonClientSchema.id, id));
+    const response = await postBooking(booking(phone));
+
+    expect(response.status).toBe(201);
+  });
+
+  it('keeps blocks scoped to the salon', async () => {
+    const phone = freshPhone();
+    const otherSalonId = `other_${phone}`;
+    await db.insert(schema.salonSchema).values({ id: otherSalonId, name: 'Other salon', slug: otherSalonId, ownerEmail: 'other@example.invalid' });
+    await db.insert(schema.salonClientSchema).values({ id: `other_client_${phone}`, salonId: otherSalonId, phone, isBlocked: true });
+    const response = await postBooking(booking(phone));
+
+    expect(response.status).toBe(201);
+  });
 });
 
 describe('D4.5 — the effects straddle the idempotency cache write', () => {

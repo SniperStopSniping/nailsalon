@@ -1494,6 +1494,18 @@ describe('BookConfirmClient', () => {
       expected: 'Check that the phone number and email belong together for this booking.',
     },
     {
+      code: 'CLIENT_BOOKING_BLOCKED',
+      status: 403,
+      body: {
+        error: {
+          code: 'CLIENT_BOOKING_BLOCKED',
+          message: HOSTILE_SERVER_MESSAGE_FOR_TEST,
+        },
+        bookingAttemptOutcome: 'resolved_failure',
+      },
+      expected: 'Online booking is unavailable for these contact details. Please contact the salon.',
+    },
+    {
       code: 'EXISTING_APPOINTMENT',
       status: 409,
       body: {

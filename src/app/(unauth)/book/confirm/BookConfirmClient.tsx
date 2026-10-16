@@ -2845,6 +2845,7 @@ export function BookConfirmClient({
           VALIDATION_ERROR: 'Check your booking and contact details before confirming again.',
           INVALID_PHONE: 'Check your phone number before confirming again.',
           GUEST_CONTACT_REQUIRED: 'Enter your name, phone number and email before confirming.',
+          CLIENT_BOOKING_BLOCKED: 'Online booking is unavailable for these contact details. Please contact the salon.',
           SMS_CONSENT_INVALID: 'Review your reminder preference before confirming again.',
           INVALID_START_TIME: 'Choose a valid appointment time before confirming again.',
           INVALID_SELECTION: 'Review your selected services before confirming again.',

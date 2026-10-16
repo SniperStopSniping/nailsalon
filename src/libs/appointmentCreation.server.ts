@@ -515,6 +515,13 @@ class BookingClientConflictError extends Error {
   }
 }
 
+class ClientBookingBlockedError extends Error {
+  constructor() {
+    super('CLIENT_BOOKING_BLOCKED');
+    this.name = 'ClientBookingBlockedError';
+  }
+}
+
 class BookingDepositHoldActiveError extends Error {
   constructor(readonly holdExpiresAt: Date | null) {
     super('DEPOSIT_HOLD_ACTIVE');
@@ -3668,6 +3675,23 @@ async function createAppointmentFromRequestCore(
             clientId: expectedTerminalClientId,
           },
         );
+        // Read under the same terminal-client lock used by the owner's block
+        // action. Every contact alias and booking surface (including an owner
+        // testing the private preview) must honor the saved restriction.
+        // Existing appointments keep their authorized reschedule lifecycle.
+        if (!normalizedOriginalApptId) {
+          const [restriction] = await tx
+            .select({ isBlocked: salonClientSchema.isBlocked })
+            .from(salonClientSchema)
+            .where(and(
+              eq(salonClientSchema.salonId, salon.id),
+              eq(salonClientSchema.id, lockedClient.id),
+            ))
+            .limit(1);
+          if (restriction?.isBlocked) {
+            throw new ClientBookingBlockedError();
+          }
+        }
         const authoritativeIdentity
           = await resolveCanonicalSalonClientIdentityWithHandle(
             tx as LifecycleSqlHandle,
@@ -5631,6 +5655,14 @@ async function createAppointmentFromRequestCore(
     bookingSucceeded = true;
     return Response.json(response, { status: 201 });
   } catch (error) {
+    if (error instanceof ClientBookingBlockedError) {
+      return Response.json({
+        error: {
+          code: 'CLIENT_BOOKING_BLOCKED',
+          message: 'Online booking is unavailable for these contact details. Please contact the salon.',
+        },
+      } satisfies ErrorResponse, { status: 403 });
+    }
     if (error instanceof NextVisitOfferError) {
       return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
     }
