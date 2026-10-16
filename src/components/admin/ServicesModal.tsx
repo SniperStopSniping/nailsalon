@@ -238,6 +238,7 @@ type ServicesModalProps = {
   onClose: () => void;
   salonSlug: string | null;
   onOpenStaff?: () => void;
+  onOpenBookingRules?: () => void;
 };
 
 type ServiceCategory =
@@ -2230,8 +2231,10 @@ function AddOnEditDialog({
   );
 }
 
-export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModalProps) {
+export function ServicesModal({ onClose, salonSlug, onOpenStaff, onOpenBookingRules }: ServicesModalProps) {
   const [services, setServices] = useState<ServiceData[]>([]);
+  const [catalogDomainState, setCatalogDomainState] = useState<{ salonSlug: string; view: 'legacy' | 'l1' } | null>(null);
+  const catalogDomainEnabled = catalogDomainState?.salonSlug === salonSlug && catalogDomainState?.view === 'l1';
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState('all');
@@ -2351,6 +2354,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
 
       const result = await response.json();
       const fetchedServices = result.data?.services || [];
+      setCatalogDomainState({ salonSlug, view: result.data?.catalogDomainView === 'l1' ? 'l1' : 'legacy' });
 
       // Transform API data to component format
       const transformedServices: ServiceData[] = fetchedServices.map(
@@ -3196,7 +3200,13 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               role="tab"
               aria-selected={activeTab === 'approval'}
               data-testid="services-tab-approval"
-              onClick={() => selectTab('approval')}
+              onClick={() => {
+                if (!catalogDomainEnabled && onOpenBookingRules) {
+                  onOpenBookingRules();
+                  return;
+                }
+                selectTab('approval');
+              }}
               className={`min-h-11 rounded-full px-2 text-[13px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${activeTab === 'approval' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'}`}
             >
               Booking approval
@@ -3244,7 +3254,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                   activeTab === 'catalog' ? 'border-[var(--owner-accent)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
                 }`}
               >
-                Rules & options
+                {catalogDomainEnabled ? 'Rules & options' : 'Menu display'}
               </button>
             </div>
           )}
@@ -3644,10 +3654,20 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                       <button type="button" className="min-h-11 underline" onClick={() => void fetchServices()}>Try again</button>
                     </div>
                   )
-                : <BookingConfirmationPanel salonSlug={salonSlug} services={services} onRefresh={fetchServices} />}
+                : catalogDomainEnabled
+                  ? <BookingConfirmationPanel salonSlug={salonSlug} services={services} onRefresh={fetchServices} />
+                  : (
+                      <div className="space-y-3 p-4">
+                        <h3 className="text-lg font-semibold">Choose how bookings are confirmed</h3>
+                        <p className="text-sm leading-6 text-[var(--owner-muted)]">Use Booking Rules to automatically confirm new appointments or review each request first. This applies across your salon.</p>
+                        {onOpenBookingRules
+                          ? <Button type="button" variant="brand" onClick={onOpenBookingRules}>Open booking rules</Button>
+                          : <p className="text-sm text-[var(--owner-muted)]">Open More → Booking Rules &amp; Policies → Booking rules.</p>}
+                      </div>
+                    )}
           </div>
         )}
-        {activeTab === 'catalog' && (
+        {activeTab === 'catalog' && catalogDomainEnabled && (
           <CatalogConfigTab salonSlug={salonSlug} />
         )}
         {activeTab === 'menu' && (loading
