@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { CLOSED_HOURS } from './contracts';
@@ -92,7 +92,12 @@ beforeEach(() => {
   }));
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  // Dispose async studio loads and polling effects before restoring browser
+  // globals. Otherwise a child mount can race matchMedia teardown.
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 it('opens the first generated preview automatically and labels suggested booking details', async () => {
   const baseFetch = globalThis.fetch;
