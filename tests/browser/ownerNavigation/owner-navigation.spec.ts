@@ -427,9 +427,10 @@ test('Booking Rules saves notice without submitting currency or timezone on mobi
 });
 
 for (const width of [320, 1280]) {
-  test(`booking approval keeps the stored mode outside Advanced Settings at ${width}px`, async ({ page }, testInfo) => {
+  test(`enabled catalog booking approval keeps the stored mode outside Advanced Settings at ${width}px`, async ({ page }, testInfo) => {
     const { unexpected } = await mockInformationApi(page);
     await page.route('**/api/salon/services?*', route => route.fulfill({ json: { data: {
+      catalogDomainView: 'l1',
       services: [{ id: 'approval-fixture', name: 'Synthetic approval manicure', price: 55, durationMinutes: 45, category: 'manicure', isActive: true, confirmationMode: 'request_approval' }],
       activeTechnicianCount: 1,
     } } }));
@@ -452,6 +453,39 @@ for (const width of [320, 1280]) {
 
     await page.screenshot({ path: testInfo.outputPath(`booking-approval-${width}.png`), fullPage: true });
 
+    expect(unexpected).toEqual([]);
+  });
+}
+
+for (const width of [320, 1280]) {
+  test(`inactive service booking approval opens the working salon-wide rules at ${width}px`, async ({ page }) => {
+    const { writes, unexpected } = await mockBookingControls(page);
+    await page.route('**/api/salon/services?*', route => route.fulfill({ json: { data: {
+      services: [{ id: 'legacy-approval', name: 'BIAB Manicure', price: 65, durationMinutes: 60, category: 'manicure', isActive: true }],
+      activeTechnicianCount: 1,
+      catalogDomainView: 'legacy',
+    } } }));
+    await page.route('**/api/salon/services/from-templates?*', route => route.fulfill({ json: { data: { ownedTemplateKeys: [] } } }));
+    await page.route('**/api/salon/add-ons?*', route => route.fulfill({ json: { data: { addOns: [] } } }));
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/?app=services&salon=isla');
+
+    await expect(page.getByText('BIAB Manicure', { exact: true })).toBeVisible();
+
+    await page.getByRole('tab', { name: 'Booking approval', exact: true }).click();
+
+    await expect(page).toHaveURL(/app=booking-rules/);
+
+    await page.getByRole('button', { name: /^Booking rules/ }).click();
+
+    await expect(page.getByRole('radio', { name: 'Request approval', exact: true })).toHaveCount(0);
+
+    await page.getByLabel('Booking confirmation').selectOption('request_approval');
+    await page.getByRole('button', { name: 'Save booking rules', exact: true }).click();
+
+    await expect(page.getByText('Booking rules saved.')).toBeVisible();
+    expect(writes).toEqual([expect.objectContaining({ bookingConfig: expect.objectContaining({ confirmationMode: 'request_approval' }) })]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(unexpected).toEqual([]);
   });
 }

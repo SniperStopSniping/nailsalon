@@ -1,0 +1,289 @@
+diff --git a/src/app/(unauth)/book/time/BookTimeClient.test.tsx b/src/app/(unauth)/book/time/BookTimeClient.test.tsx
+index bc3f3f5b..eac02ca4 100644
+--- a/src/app/(unauth)/book/time/BookTimeClient.test.tsx
++++ b/src/app/(unauth)/book/time/BookTimeClient.test.tsx
+@@ -47,7 +47,7 @@ vi.mock('@/components/booking/BookingStepHeader', () => ({
+ }));
+ 
+ vi.mock('@/components/booking/BookingSummaryCard', () => ({
+-  BookingSummaryCard: () => <div data-testid="booking-summary-card" />,
++  BookingSummaryCard: ({ serviceNames }: { serviceNames: string }) => <div data-testid="booking-summary-card">{serviceNames}</div>,
+ }));
+ 
+ vi.mock('@/components/booking/BookingFloatingDock', () => ({
+@@ -656,10 +656,25 @@ describe('BookTimeClient', () => {
+       renderTimeStep(180);
+ 
+       expect(await screen.findByText(/Your service takes/)).toHaveTextContent(
+-        'Your service takes 3h plus 10 minutes of preparation time.',
++        'Your service takes 3h plus 10 minutes reserved by the salon.',
+       );
+       expect(screen.queryByText(/Times marked unavailable/)).not.toBeInTheDocument();
+     });
++
++    it('avoids repeating the sole service name for its extras while retaining quantities', () => {
++      mockAvailability(['13:45']);
++      render(<BookTimeClient services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]} addOns={[{ id: 'art', name: 'Nail Art', serviceName: 'Gel', quantity: 2, price: 10, duration: 10 }]} totalPrice={85} totalDuration={80} technician={null} bookingFlow={['service', 'time', 'confirm']} />);
++
++      expect(screen.getByTestId('booking-summary-card')).toHaveTextContent('Gel + Nail Art x2');
++      expect(screen.getByTestId('booking-summary-card')).not.toHaveTextContent('Gel: Nail Art');
++    });
++
++    it('keeps the service label on extras when several base services are booked', () => {
++      mockAvailability(['13:45']);
++      render(<BookTimeClient services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }, { id: 'srv_2', name: 'Pedicure', price: 50, duration: 60 }]} addOns={[{ id: 'art', name: 'Nail Art', serviceName: 'Gel', quantity: 1, price: 10, duration: 10 }]} totalPrice={125} totalDuration={130} technician={null} bookingFlow={['service', 'time', 'confirm']} />);
++
++      expect(screen.getByTestId('booking-summary-card')).toHaveTextContent('Gel + Pedicure + Gel: Nail Art');
++    });
+   });
+ 
+   describe('next available recovery', () => {
+diff --git a/src/app/(unauth)/book/time/BookTimeClient.tsx b/src/app/(unauth)/book/time/BookTimeClient.tsx
+index f2bf4ce3..82c538c4 100644
+--- a/src/app/(unauth)/book/time/BookTimeClient.tsx
++++ b/src/app/(unauth)/book/time/BookTimeClient.tsx
+@@ -357,9 +357,10 @@ export function BookTimeClient({
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, []); // Only run once on mount
+ 
++  const soleServiceName = services.length === 1 ? services[0]?.name : null;
+   const serviceNames = [
+     ...services.map(s => s.name),
+-    ...addOns.map(addOn => `${addOn.serviceName ? `${addOn.serviceName}: ` : ''}${addOn.name}${addOn.quantity > 1 ? ` x${addOn.quantity}` : ''}`),
++    ...addOns.map(addOn => `${addOn.serviceName && addOn.serviceName !== soleServiceName ? `${addOn.serviceName}: ` : ''}${addOn.name}${addOn.quantity > 1 ? ` x${addOn.quantity}` : ''}`),
+   ].join(' + ');
+ 
+   // "Today" is defined by the salon's timezone, not the visitor's device.
+@@ -1371,7 +1372,7 @@ export function BookTimeClient({
+                   Your service takes
+                   {' '}
+                   <strong>{totalDuration >= 60 ? `${Math.floor(totalDuration / 60)}h ${totalDuration % 60 ? `${totalDuration % 60}m` : ''}`.trim() : `${totalDuration}m`}</strong>
+-                  {availabilityBufferMinutes > 0 ? ` plus ${availabilityBufferMinutes} minutes of preparation time` : ''}
++                  {availabilityBufferMinutes > 0 ? ` plus ${availabilityBufferMinutes} minutes reserved by the salon` : ''}
+                   .
+                 </p>
+               </div>
+diff --git a/src/app/[locale]/admin/page.test.tsx b/src/app/[locale]/admin/page.test.tsx
+index 0b929879..44f4c738 100644
+--- a/src/app/[locale]/admin/page.test.tsx
++++ b/src/app/[locale]/admin/page.test.tsx
+@@ -1622,6 +1622,7 @@ describe('AdminDashboardPage', () => {
+       isOpen: boolean;
+       preselectedDate?: Date;
+       salonSlug?: string | null;
++      onSuccess?: () => void;
+     };
+ 
+     expect(openProps.isOpen).toBe(true);
+@@ -1631,6 +1632,16 @@ describe('AdminDashboardPage', () => {
+     expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+       showScheduleCalendar: false,
+     });
++    expect(screen.queryByTestId('appointment-saved-notice')).not.toBeInTheDocument();
++
++    act(() => openProps.onSuccess?.());
++
++    expect(await screen.findByTestId('appointment-saved-notice')).toHaveTextContent('Appointment saved');
++
++    fireEvent.click(screen.getByRole('button', { name: 'View calendar', exact: true }));
++
++    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin?salon=salon-b&app=schedule');
++    expect(screen.queryByTestId('appointment-saved-notice')).not.toBeInTheDocument();
+ 
+     // The calendar is now addressable, so "Schedule" pushes ?app=schedule and
+     // the URL effect opens it (AG-today-calendar-03). It is no longer opened
+diff --git a/src/app/[locale]/admin/page.tsx b/src/app/[locale]/admin/page.tsx
+index 28fd5af7..1f678f16 100644
+--- a/src/app/[locale]/admin/page.tsx
++++ b/src/app/[locale]/admin/page.tsx
+@@ -438,6 +438,8 @@ function AdminDashboardContent() {
+   const [newAppointmentDate, setNewAppointmentDate] = useState<Date | null>(
+     null,
+   );
++  // Scope the acknowledgement to the salon where the save completed.
++  const [appointmentSavedSalon, setAppointmentSavedSalon] = useState<string | null>(null);
+   // Explains a deep link to an app this salon cannot open (entitlement-gated).
+   const [blockedAppCanEnable, setBlockedAppCanEnable] = useState(false);
+   const [blockedAppNotice, setBlockedAppNotice] = useState<string | null>(null);
+@@ -1599,6 +1601,7 @@ function AdminDashboardContent() {
+       case 'new-appointment':
+         // The highest-intent action on Today creates, it does not browse:
+         // open the create form itself, on today's date.
++        setAppointmentSavedSalon(null);
+         setNewAppointmentDate(new Date());
+         break;
+       case 'walk-in':
+@@ -2045,6 +2048,26 @@ function AdminDashboardContent() {
+           </div>
+         )}
+ 
++        {appointmentSavedSalon !== null && appointmentSavedSalon === activeDashboardSalonSlug && (
++          <div role="status" data-testid="appointment-saved-notice" className="mx-4 mt-3 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-blush)] p-4 text-[var(--owner-ink)]">
++            <p className="text-sm font-semibold">Appointment saved</p>
++            <p className="mt-1 text-sm text-[var(--owner-muted)]">You can find it in your calendar, including bookings for another day.</p>
++            <div className="mt-2 flex flex-wrap gap-2">
++              <button
++                type="button"
++                className="owner-action owner-action--primary min-h-11"
++                onClick={() => {
++                  setAppointmentSavedSalon(null);
++                  handleWorkspaceTab('calendar');
++                }}
++              >
++                View calendar
++              </button>
++              <button type="button" className="owner-action min-h-11" aria-label="Dismiss appointment saved notice" onClick={() => setAppointmentSavedSalon(null)}>Dismiss</button>
++            </div>
++          </div>
++        )}
++
+         {/* Deep link to an app this salon cannot open */}
+         {blockedAppNotice && (
+           <div
+@@ -2291,6 +2314,7 @@ function AdminDashboardContent() {
+         isOpen={newAppointmentDate !== null}
+         onClose={() => setNewAppointmentDate(null)}
+         onSuccess={() => {
++          setAppointmentSavedSalon(activeDashboardSalonSlug);
+           void fetchData();
+         }}
+         preselectedDate={newAppointmentDate ?? undefined}
+diff --git a/src/components/admin/staff/StaffDetailPage.test.tsx b/src/components/admin/staff/StaffDetailPage.test.tsx
+index 09028aff..69972f98 100644
+--- a/src/components/admin/staff/StaffDetailPage.test.tsx
++++ b/src/components/admin/staff/StaffDetailPage.test.tsx
+@@ -1,5 +1,5 @@
+-import { fireEvent, render, screen } from '@testing-library/react';
+-import type React from 'react';
++import { act, fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
+ import { beforeEach, describe, expect, it, vi } from 'vitest';
+ 
+ import { StaffDetailPage } from './StaffDetailPage';
+@@ -29,7 +29,25 @@ vi.mock('./StaffStatusToggle', () => ({
+ vi.mock('./tabs/ClientsTab', () => ({ ClientsTab: () => null }));
+ vi.mock('./tabs/EarningsTab', () => ({ EarningsTab: () => null }));
+ vi.mock('./tabs/OverviewTab', () => ({ OverviewTab: () => null }));
+-vi.mock('./tabs/ServicesTab', () => ({ ServicesTab: () => null }));
++vi.mock('./tabs/ServicesTab', () => ({
++  ServicesTab: ({ onUpdate }: { onUpdate: () => void }) => {
++    const [saved, setSaved] = React.useState(false);
++    return (
++      <div>
++        <button
++          type="button"
++          onClick={() => {
++            setSaved(true);
++            onUpdate();
++          }}
++        >
++          Save technician services
++        </button>
++        {saved && <p role="status">Service list saved</p>}
++      </div>
++    );
++  },
++}));
+ vi.mock('./tabs/SettingsTab', () => ({ SettingsTab: () => null }));
+ vi.mock('./useTechnicianReviews', () => ({
+   useTechnicianReviews: () => ({ byTechnician: {} }),
+@@ -109,4 +127,25 @@ describe('StaffDetailPage schedule shortcut', () => {
+     expect(query.get('view')).toBe('working-hours');
+     expect(query.get('technician')).toBe('tech_9');
+   });
++
++  it('preserves the saved service list while technician details refresh', async () => {
++    render(<StaffDetailPage staffId="tech_9" salonSlug="studio" initialTab="services" onBack={vi.fn()} />);
++    const save = await screen.findByRole('button', { name: 'Save technician services' });
++    let resolveRefresh!: (value: unknown) => void;
++    fetchMock.mockImplementationOnce(() => new Promise((resolve) => {
++      resolveRefresh = resolve;
++    }));
++
++    fireEvent.click(save);
++
++    expect(screen.getByRole('status')).toHaveTextContent('Service list saved');
++    expect(screen.getByRole('button', { name: 'Save technician services' })).toBe(save);
++
++    await act(async () => {
++      resolveRefresh({ ok: true, json: async () => ({ data: { technician, stats: null, services: [] } }) });
++    });
++
++    expect(screen.getByRole('status')).toHaveTextContent('Service list saved');
++    expect(screen.getByRole('button', { name: 'Save technician services' })).toBe(save);
++  });
+ });
+diff --git a/src/components/admin/staff/StaffDetailPage.tsx b/src/components/admin/staff/StaffDetailPage.tsx
+index d1e182ce..b27960ab 100644
+--- a/src/components/admin/staff/StaffDetailPage.tsx
++++ b/src/components/admin/staff/StaffDetailPage.tsx
+@@ -131,13 +131,15 @@ export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate, initialT
+   }, [locale, router, salonSlug, search, staffId]);
+ 
+   // Fetch technician detail
+-  const fetchDetail = useCallback(async () => {
++  const fetchDetail = useCallback(async (showLoading = true) => {
+     if (!salonSlug || !staffId) {
+       return;
+     }
+ 
+     try {
+-      setLoading(true);
++      if (showLoading) {
++        setLoading(true);
++      }
+       setError(null);
+ 
+       const response = await fetch(
+@@ -158,7 +160,9 @@ export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate, initialT
+       console.error('Error fetching technician:', err);
+       setError('Failed to load staff details');
+     } finally {
+-      setLoading(false);
++      if (showLoading) {
++        setLoading(false);
++      }
+     }
+   }, [salonSlug, staffId]);
+ 
+@@ -466,7 +470,7 @@ export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate, initialT
+           <ServicesTab
+             salonSlug={salonSlug}
+             technicianId={staffId}
+-            onUpdate={fetchDetail}
++            onUpdate={() => void fetchDetail(false)}
+           />
+         )}
+         {activeTab === 'clients' && (
+diff --git a/src/libs/integrationHealth.sms.test.ts b/src/libs/integrationHealth.sms.test.ts
+index 368e4ec5..601dea54 100644
+--- a/src/libs/integrationHealth.sms.test.ts
++++ b/src/libs/integrationHealth.sms.test.ts
+@@ -96,7 +96,8 @@ describe('operational salon SMS health', () => {
+ 
+     expect(health).toMatchObject({ providerReady: false, manualAvailable: false, automaticEnabled: false, availableCredits: 42, blockingReason: 'GLOBAL_SMS_DISABLED' });
+     expect(health.detail).toContain('paused text delivery for all salons');
+-    expect(health.detail).toContain('included in every plan');
++    expect(health.detail).toContain('Texting uses SMS credits');
++    expect(health.detail).not.toMatch(/every plan|subscription/i);
+     expect(health.detail).not.toMatch(/upgrade|sender is not configured/i);
+ 
+     env.COMMUNICATIONS_SMS_ENABLED = 'true';
+diff --git a/src/libs/integrationHealth.ts b/src/libs/integrationHealth.ts
+index 32434d12..664b30ea 100644
+--- a/src/libs/integrationHealth.ts
++++ b/src/libs/integrationHealth.ts
+@@ -102,10 +102,10 @@ export async function getSalonSmsReadiness(salonId: string): Promise<SmsOperatio
+     if (!readiness.ready) {
+       blockingReason = readiness.reason;
+       detail = readiness.reason === 'GLOBAL_SMS_DISABLED'
+-        ? 'Luster has temporarily paused text delivery for all salons. Texting is included in every plan, and your SMS credits remain available.'
++        ? 'Luster has temporarily paused text delivery for all salons. Texting uses SMS credits, and your balance remains available.'
+         : readiness.reason === 'PILOT_NOT_ENABLED'
+-          ? 'Luster texting is in a controlled pilot. Your plan includes texting, but this salon is waiting for pilot access.'
+-          : 'Luster texting setup is incomplete. Contact support to finish setup. Texting is included in every plan.';
++          ? 'Luster texting is in a controlled pilot. Texting uses SMS credits, but this salon is waiting for pilot access.'
++          : 'Luster texting setup is incomplete. Contact support to finish setup. Texting uses SMS credits; no monthly booking subscription is required.';
+     }
+     const balance = await db.transaction(tx => computeAvailableBalance(tx, salonId, new Date()));
+     availableCredits = balance.available;

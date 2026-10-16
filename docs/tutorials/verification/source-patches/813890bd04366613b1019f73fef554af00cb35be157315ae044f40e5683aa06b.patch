@@ -1,0 +1,251 @@
+diff --git a/src/app/api/salon/services/route.test.ts b/src/app/api/salon/services/route.test.ts
+index b5efc55e..8b0338a8 100644
+--- a/src/app/api/salon/services/route.test.ts
++++ b/src/app/api/salon/services/route.test.ts
+@@ -313,6 +313,16 @@ describe('salon services route', () => {
+     expect(body.data.services[0].assignedTechnicianCount).toBe(1);
+     expect(body.data.services[1].assignedTechnicianCount).toBe(0);
+     expect(body.data.activeTechnicianCount).toBe(1);
++    expect(body.data.catalogDomainView).toBe('legacy');
++  });
++
++  it('reports catalog readiness from the authorized salon rather than client input', async () => {
++    requireAdminSalon.mockResolvedValueOnce({ salon: { id: 'enabled-salon', features: { catalog: { bookingModesV1: true } } }, error: null });
++    selectWhere.mockResolvedValue([]);
++    const response = await GET(new Request('http://localhost/api/salon/services?salonSlug=enabled-salon&catalogDomainView=legacy'));
++
++    expect((await response.json()).data.catalogDomainView).toBe('l1');
++    expect(getServicesBySalonIdIncludingInactive).toHaveBeenCalledWith('enabled-salon');
+   });
+ 
+   it('reports the technician assignment count on the create response', async () => {
+diff --git a/src/app/api/salon/services/route.ts b/src/app/api/salon/services/route.ts
+index 6892da56..859f5893 100644
+--- a/src/app/api/salon/services/route.ts
++++ b/src/app/api/salon/services/route.ts
+@@ -6,6 +6,7 @@ import { requireAdminSalon } from '@/libs/adminAuth';
+ import {
+   descriptionItemsToLegacyText,
+   normalizeDescriptionItems,
++  resolveCatalogDomainView,
+ } from '@/libs/bookingCatalog';
+ import { deriveBookingCategory } from '@/libs/bookingCategory';
+ import { db } from '@/libs/DB';
+@@ -24,6 +25,7 @@ import {
+   technicianServicesSchema,
+ } from '@/models/Schema';
+ import type { ServiceResponse } from '@/types/admin';
++import type { SalonFeatures } from '@/types/salonPolicy';
+ 
+ // Force dynamic rendering for this API route
+ export const dynamic = 'force-dynamic';
+@@ -193,6 +195,7 @@ export async function GET(request: Request): Promise<Response> {
+       data: {
+         services: formattedServices,
+         activeTechnicianCount: activeTechnicianIds.size,
++        catalogDomainView: resolveCatalogDomainView(salon.features as SalonFeatures | null),
+       },
+     });
+   } catch (error) {
+diff --git a/src/components/admin/AdminModalHost.tsx b/src/components/admin/AdminModalHost.tsx
+index ad569fa9..0ad7b58b 100644
+--- a/src/components/admin/AdminModalHost.tsx
++++ b/src/components/admin/AdminModalHost.tsx
+@@ -263,6 +263,7 @@ export function AdminModalHost({
+           onClose={onCloseModal}
+           salonSlug={activeSalonSlug}
+           onOpenStaff={onOpenApp ? () => onOpenApp('team') : undefined}
++          onOpenBookingRules={onOpenApp ? () => onOpenApp('booking-rules') : undefined}
+         />
+       </AppModal>
+ 
+diff --git a/src/components/admin/ServicesModal.catalogTab.test.tsx b/src/components/admin/ServicesModal.catalogTab.test.tsx
+index e4e2d5cf..2cf07aca 100644
+--- a/src/components/admin/ServicesModal.catalogTab.test.tsx
++++ b/src/components/admin/ServicesModal.catalogTab.test.tsx
+@@ -30,7 +30,7 @@ function jsonResponse(body: unknown, status = 200) {
+  * baseline `ServicesModal.test.tsx` already exercises for the existing
+  * tabs — this file adds coverage for the NEW "Catalog" tab only.
+  */
+-function mockLegacySalonRoutes() {
++function mockLegacySalonRoutes(catalogDomainView: 'legacy' | 'l1' = 'l1') {
+   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+     const url = String(input);
+     if (url.startsWith('/api/salon/add-on-groups')) {
+@@ -60,6 +60,7 @@ function mockLegacySalonRoutes() {
+     if (url.startsWith('/api/salon/services') && (!init?.method || init.method === 'GET')) {
+       return jsonResponse({
+         data: {
++          catalogDomainView,
+           services: [{
+             id: 'svc_legacy',
+             name: 'Classic Manicure',
+@@ -125,11 +126,27 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
+     expect(screen.queryByTestId('services-more-tabs')).not.toBeInTheDocument();
+   });
+ 
++  it('keeps inactive catalog rules hidden while preserving working menu display settings', async () => {
++    mockLegacySalonRoutes('legacy');
++    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
++    await screen.findByText('Classic Manicure');
++    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
++
++    expect(screen.getByTestId('services-tab-catalog')).toHaveTextContent('Menu display');
++
++    fireEvent.click(screen.getByTestId('services-tab-catalog'));
++
++    expect(screen.queryByTestId('catalog-config-tab')).not.toBeInTheDocument();
++    expect(screen.queryByTestId('catalog-section-rules')).not.toBeInTheDocument();
++    expect(screen.getByRole('button', { name: 'Save menu display' })).toBeInTheDocument();
++    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('catalog-rules'))).toBe(false);
++  });
++
+   it('legacy simplicity: the Catalog tab is fully opt-in — no catalog-config fetch happens until it is opened, and the everyday tabs are unaffected', async () => {
+     mockLegacySalonRoutes();
+     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+ 
+-    await screen.findByTestId('services-tab-menu');
++    await screen.findByText('Classic Manicure');
+     const catalogFetchesBeforeOpen = fetchMock.mock.calls.filter(([url]) => String(url).includes('add-on-groups') || String(url).includes('capabilities') || String(url).includes('catalog-rules')).length;
+ 
+     expect(catalogFetchesBeforeOpen).toBe(0);
+@@ -146,7 +163,7 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
+     mockLegacySalonRoutes();
+     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+ 
+-    await screen.findByTestId('services-tab-menu');
++    await screen.findByText('Classic Manicure');
+     fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
+     fireEvent.click(screen.getByTestId('services-tab-catalog'));
+     fireEvent.click(screen.getByTestId('catalog-section-groupServices'));
+diff --git a/src/components/admin/ServicesModal.test.tsx b/src/components/admin/ServicesModal.test.tsx
+index 816d9255..75384460 100644
+--- a/src/components/admin/ServicesModal.test.tsx
++++ b/src/components/admin/ServicesModal.test.tsx
+@@ -60,6 +60,7 @@ type MockRoutes = {
+   ownedTemplateKeys?: string[];
+   addOns?: unknown[];
+   activeTechnicianCount?: number;
++  catalogDomainView?: 'legacy' | 'l1';
+   templateAddResult?: Record<string, unknown>;
+   /** Non-2xx forces the service PATCH to fail with this status/message. */
+   patchFailure?: { status: number; message: string };
+@@ -84,7 +85,7 @@ type MockRoutes = {
+   imageDeleteFailure?: { status: number; message: string };
+ };
+ 
+-function mockRoutes({ services = [], merchandising = {}, bookingConfig = { introPriceDefaultLabel: 'Founding Client Price', firstVisitDiscountEnabled: true }, settingsGetStatus = 200, settingsGetResponse, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, reorderFailure, serviceAddOnsFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
++function mockRoutes({ services = [], merchandising = {}, bookingConfig = { introPriceDefaultLabel: 'Founding Client Price', firstVisitDiscountEnabled: true }, settingsGetStatus = 200, settingsGetResponse, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, catalogDomainView = 'legacy', templateAddResult, patchFailure, reorderFailure, serviceAddOnsFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
+   let addOnListCalls = 0;
+   let serviceListCalls = 0;
+   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+@@ -339,7 +340,7 @@ function mockRoutes({ services = [], merchandising = {}, bookingConfig = { intro
+           : services;
+ 
+       return new Response(
+-        JSON.stringify({ data: { services: servicePayload, activeTechnicianCount } }),
++        JSON.stringify({ data: { services: servicePayload, activeTechnicianCount, catalogDomainView } }),
+         { status: 200 },
+       );
+     }
+@@ -383,8 +384,20 @@ describe('ServicesModal', () => {
+     vi.stubGlobal('fetch', fetchMock);
+   });
+ 
++  it('opens the working salon-wide approval settings when service-level modes are inactive', async () => {
++    const openBookingRules = vi.fn();
++    mockRoutes({ services: [{ id: 'legacy-mode', name: 'Saved legacy treatment', price: 50, durationMinutes: 60, category: 'manicure', isActive: true, confirmationMode: 'request_approval' }] });
++    render(<ServicesModal onClose={vi.fn()} salonSlug="salon-a" onOpenBookingRules={openBookingRules} />);
++    await screen.findByText('Saved legacy treatment');
++    fireEvent.click(screen.getByRole('tab', { name: 'Booking approval' }));
++
++    expect(openBookingRules).toHaveBeenCalledOnce();
++    expect(screen.queryByTestId('catalog-confirmation-panel')).not.toBeInTheDocument();
++    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false);
++  });
++
+   it('shows booking approval as a primary choice and preserves the stored service mode', async () => {
+-    mockRoutes({ services: [{ id: 'synthetic-approval', name: 'Synthetic manicure', price: 50, durationMinutes: 60, category: 'manicure', isActive: true, confirmationMode: 'request_approval' }] });
++    mockRoutes({ catalogDomainView: 'l1', services: [{ id: 'synthetic-approval', name: 'Synthetic manicure', price: 50, durationMinutes: 60, category: 'manicure', isActive: true, confirmationMode: 'request_approval' }] });
+     render(<ServicesModal onClose={vi.fn()} salonSlug="salon-a" />);
+     await screen.findByText('Synthetic manicure');
+ 
+diff --git a/src/components/admin/ServicesModal.tsx b/src/components/admin/ServicesModal.tsx
+index 5640d5ec..c067bdfc 100644
+--- a/src/components/admin/ServicesModal.tsx
++++ b/src/components/admin/ServicesModal.tsx
+@@ -238,6 +238,7 @@ type ServicesModalProps = {
+   onClose: () => void;
+   salonSlug: string | null;
+   onOpenStaff?: () => void;
++  onOpenBookingRules?: () => void;
+ };
+ 
+ type ServiceCategory =
+@@ -2230,8 +2231,10 @@ function AddOnEditDialog({
+   );
+ }
+ 
+-export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModalProps) {
++export function ServicesModal({ onClose, salonSlug, onOpenStaff, onOpenBookingRules }: ServicesModalProps) {
+   const [services, setServices] = useState<ServiceData[]>([]);
++  const [catalogDomainState, setCatalogDomainState] = useState<{ salonSlug: string; view: 'legacy' | 'l1' } | null>(null);
++  const catalogDomainEnabled = catalogDomainState?.salonSlug === salonSlug && catalogDomainState?.view === 'l1';
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState<string | null>(null);
+   const [activeCategory, setActiveCategory] = useState('all');
+@@ -2351,6 +2354,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
+ 
+       const result = await response.json();
+       const fetchedServices = result.data?.services || [];
++      setCatalogDomainState({ salonSlug, view: result.data?.catalogDomainView === 'l1' ? 'l1' : 'legacy' });
+ 
+       // Transform API data to component format
+       const transformedServices: ServiceData[] = fetchedServices.map(
+@@ -3196,7 +3200,13 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
+               role="tab"
+               aria-selected={activeTab === 'approval'}
+               data-testid="services-tab-approval"
+-              onClick={() => selectTab('approval')}
++              onClick={() => {
++                if (!catalogDomainEnabled && onOpenBookingRules) {
++                  onOpenBookingRules();
++                  return;
++                }
++                selectTab('approval');
++              }}
+               className={`min-h-11 rounded-full px-2 text-[13px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${activeTab === 'approval' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'}`}
+             >
+               Booking approval
+@@ -3244,7 +3254,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
+                   activeTab === 'catalog' ? 'border-[var(--owner-accent)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
+                 }`}
+               >
+-                Rules & options
++                {catalogDomainEnabled ? 'Rules & options' : 'Menu display'}
+               </button>
+             </div>
+           )}
+@@ -3644,10 +3654,20 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
+                       <button type="button" className="min-h-11 underline" onClick={() => void fetchServices()}>Try again</button>
+                     </div>
+                   )
+-                : <BookingConfirmationPanel salonSlug={salonSlug} services={services} onRefresh={fetchServices} />}
++                : catalogDomainEnabled
++                  ? <BookingConfirmationPanel salonSlug={salonSlug} services={services} onRefresh={fetchServices} />
++                  : (
++                      <div className="space-y-3 p-4">
++                        <h3 className="text-lg font-semibold">Choose how bookings are confirmed</h3>
++                        <p className="text-sm leading-6 text-[var(--owner-muted)]">Use Booking Rules to automatically confirm new appointments or review each request first. This applies across your salon.</p>
++                        {onOpenBookingRules
++                          ? <Button type="button" variant="brand" onClick={onOpenBookingRules}>Open booking rules</Button>
++                          : <p className="text-sm text-[var(--owner-muted)]">Open More → Booking Rules &amp; Policies → Booking rules.</p>}
++                      </div>
++                    )}
+           </div>
+         )}
+-        {activeTab === 'catalog' && (
++        {activeTab === 'catalog' && catalogDomainEnabled && (
+           <CatalogConfigTab salonSlug={salonSlug} />
+         )}
+         {activeTab === 'menu' && (loading
