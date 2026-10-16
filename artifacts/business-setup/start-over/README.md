@@ -1,3 +1,5 @@
+> Superseded by [the full-reset correction](../full-reset/README.md). This document records the earlier design-only action, not the current Start over behavior.
+
 # Start over in owner chat
 
 Runtime commits: `69799755eff0d6f3e54a23a2eca72a0f28734b0f` and `2dc66fe5` (dialog spacing). Scope: isolated AI-builder preview; no production merge, deployment, migration or live salon changes.
