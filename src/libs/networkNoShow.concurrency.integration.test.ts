@@ -15,6 +15,8 @@ import {
   registerNetworkBookingInTx,
   suppressNetworkNoShowSubjectInTx,
 } from '@/libs/networkNoShow.server';
+import { requestNoShowReviewInTx } from '@/libs/networkNoShowReview.server';
+import { auditNoShowReportInTx } from '@/libs/noShowReporting.server';
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
@@ -259,6 +261,7 @@ suite('network no-show PostgreSQL serialization', () => {
   it('publishes concurrent early marks exactly once before the scheduled start', async () => {
     await pool.query('DELETE FROM network_no_show_event WHERE id=\'event\'');
     const markedAt = new Date('2030-06-15T13:00:00.000Z');
+    await db.transaction(tx => auditNoShowReportInTx(tx, { salonId: 'a', appointmentId: 'appt', previousStatus: 'confirmed', actorId: 'owner-one', actorRole: 'admin', report: { reason: 'confirmed_nonattendance' }, now: markedAt }));
     const results = await Promise.all(['owner-one', 'owner-two'].map(actorId => db.transaction(tx => recordNetworkNoShowInTx(tx, {
       salonId: 'a',
       appointmentId: 'appt',
@@ -275,5 +278,36 @@ suite('network no-show PostgreSQL serialization', () => {
     await expect(readNetworkNoShowRisk({ salonId: 'b', phone: '4165551000', email: 'x@example.com', handle: db, now: markedAt })).resolves.toEqual({ state: 'available', activeNoShowCount: 1, windowMonths: 12 });
   });
 
-  afterAll(() => process.stdout.write('NETWORK_NO_SHOW_POSTGRES_TESTS_EXECUTED=7 NETWORK_NO_SHOW_POSTGRES_TESTS_SKIPPED=0\n'));
+  afterAll(() => process.stdout.write('NETWORK_NO_SHOW_POSTGRES_TESTS_EXECUTED=8 NETWORK_NO_SHOW_POSTGRES_TESTS_SKIPPED=0\n'));
+
+  it('a committed customer review fences a waiting duplicate publisher', async () => {
+    const reviewer = await pool.connect();
+    const publisher = await pool.connect();
+    try {
+      // This suite reuses only the disposable database created above.
+      await pool.query('UPDATE appointment SET status=\'no_show\' WHERE id=\'appt\'');
+      await pool.query('UPDATE network_no_show_event SET state=\'active\', suppression_reason=null WHERE id=\'event\'');
+      await pool.query('DELETE FROM appointment_audit_log WHERE appointment_id=\'appt\'');
+      await reviewer.query('BEGIN');
+      await reviewer.query('SELECT id FROM appointment WHERE salon_id=\'a\' AND id=\'appt\' FOR UPDATE');
+      await requestNoShowReviewInTx(drizzle(reviewer, { schema }), { salonId: 'a', appointmentId: 'appt', reason: 'Customer disputes the recorded nonattendance.', now });
+      await publisher.query('BEGIN');
+      const publisherPid = (await publisher.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid;
+      const pending = recordNetworkNoShowInTx(drizzle(publisher, { schema }), { salonId: 'a', appointmentId: 'appt', actorId: 'stale-owner', actorRole: 'admin', now });
+      await waitForDatabaseLock(publisherPid);
+      await reviewer.query('COMMIT');
+
+      expect(await pending).toBe(false);
+
+      await publisher.query('COMMIT');
+
+      expect((await pool.query('SELECT state, suppression_reason FROM network_no_show_event WHERE id=\'event\'')).rows[0]).toEqual({ state: 'suppressed', suppression_reason: 'customer_review' });
+      expect(await readNetworkNoShowRisk({ salonId: 'b', phone: '4165551000', email: 'x@example.com', handle: db, now })).toMatchObject({ activeNoShowCount: 0 });
+    } finally {
+      await reviewer.query('ROLLBACK');
+      await publisher.query('ROLLBACK');
+      reviewer.release();
+      publisher.release();
+    }
+  });
 });

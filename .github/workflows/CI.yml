@@ -15,7 +15,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Service images use Docker's official ECR Public mirror with the same manifest
+# Service images use Google's Docker Hub cache with the same official manifest
 # digests as the last passing main run. See docs/ci-service-images.md.
 jobs:
   secret-scan:
@@ -140,7 +140,7 @@ jobs:
     timeout-minutes: 55
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_DB: luster_e2e_ci_disposable
           POSTGRES_USER: luster_e2e_ci
@@ -153,7 +153,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       redis:
-        image: public.ecr.aws/docker/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        image: mirror.gcr.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
         ports:
           - '127.0.0.1:6379:6379'
         options: >-
@@ -311,6 +311,8 @@ jobs:
               # Custom website builder: constrained JS/HTML parsers, PDF references
               # and private-suffix isolation; Acorn retains main's 8.18.0 version.
               ed0e8734ece6869797c94dfa57037955df0d02e5:433031ed9d0c705c548bc522e585e15d69648dba) ;;
+              # Same builder dependencies after main's 1.143.1 release bump.
+              7a219ff506106dca631528df8bf7877ca28c4b71:03917548fdcf78991dfd60a487783cfbdefa5ab0) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -1223,13 +1225,13 @@ jobs:
           retention-days: 7
 
   test-components:
-    # Keep the independent fixture suites within the existing job budget.
-    # Both groups are required through the unchanged aggregate check below.
+    # Split owner fixture suites to keep slow dependency installs within the job budget.
+    # Every group remains required through the unchanged aggregate check below.
     name: Component and onboarding browsers (${{ matrix.suite }})
     strategy:
       fail-fast: false
       matrix:
-        suite: [onboarding-owner, customer-booking]
+        suite: [onboarding-owner, owner-operations, customer-booking]
     needs: secret-scan
     runs-on: ubuntu-latest
     timeout-minutes: 55
@@ -1272,7 +1274,7 @@ jobs:
         uses: ./.github/actions/install-playwright
 
       - name: Install shared onboarding presentation dependencies
-        if: matrix.suite == 'customer-booking'
+        if: matrix.suite != 'onboarding-owner'
         working-directory: prototypes/site-builder-v2-booking-integration-lab
         run: npm ci
 
@@ -1328,47 +1330,47 @@ jobs:
         run: node node_modules/playwright/cli.js test --config tests/browser/dashboardStartup/playwright.config.ts --output=test-results/dashboard-startup-components
 
       - name: Verify owner forms and error recovery in mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerForms/playwright.config.ts --output=test-results/owner-forms-components
 
       - name: Verify Portfolio controls and failure recovery in mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerPortfolio/playwright.config.ts --output=test-results/owner-portfolio-components
 
       - name: Verify owner settings and payment presentation in mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerSecondary/playwright.config.ts --output=test-results/owner-secondary-components
 
       - name: Verify Luster owner entry screens in mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerEntry/playwright.config.ts --output=test-results/owner-entry
 
       - name: Verify simple website publishing in mobile and desktop browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/websitePublishing/playwright.config.ts --output=test-results/website-publishing
 
       - name: Verify owner account recovery in mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerAccountRecovery/playwright.config.ts --output=test-results/owner-account-recovery
 
       - name: Verify direct founding offer in mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/onboardingDirectOffer/playwright.config.ts --output=test-results/onboarding-direct-offer
 
       - name: Verify owner Marketing destinations in mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerMarketing/playwright.config.ts --output=test-results/owner-marketing-components
 
       - name: Verify Booking Page business information in mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerBusinessInformation/playwright.config.ts --output=test-results/owner-business-information-components
 
       - name: Verify Booking Page experience and flow in mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerBookingExperience/playwright.config.ts --output=test-results/owner-booking-experience-components
 
       - name: Verify Settings and Plan destinations in mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerSettingsPlan/playwright.config.ts --output=test-results/owner-settings-plan-components
 
       - name: Verify Next Visit settings and guest rebooking in mobile browsers
@@ -1394,19 +1396,19 @@ jobs:
         run: node node_modules/playwright/cli.js test --config tests/browser/appointmentWorkflow/playwright.config.ts --output=test-results/appointment-workflow-components
 
       - name: Verify owner client profiles in mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/clientProfile/playwright.config.ts --output=test-results/client-profile-components
 
       - name: Verify owner Calendar Clients and Services polish
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerCoreTabs/playwright.config.ts --output=test-results/owner-core-tabs-components
 
       - name: Verify SMS balances and top-up entry in desktop and mobile browsers
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/smsCredits/playwright.config.ts --output=test-results/sms-credit-components
 
       - name: Run storybook tests
-        if: matrix.suite == 'onboarding-owner'
+        if: matrix.suite == 'owner-operations'
         run: npm run test-storybook:ci
 
       - name: Verify onboarding desktop and phone geometry
@@ -1547,7 +1549,7 @@ jobs:
     # PostgreSQL service for this job.
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_DB: lifecycle_ci
           POSTGRES_USER: lifecycle_ci
@@ -1798,7 +1800,7 @@ jobs:
     # live server address is independently attested against Docker metadata.
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_DB: luster_e2e_ci_disposable
           POSTGRES_USER: luster_e2e_ci
@@ -2001,7 +2003,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_DB: comms_dispatch_ci
           POSTGRES_USER: comms_dispatch_ci
@@ -2035,7 +2037,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_DB: sms_credit_ci
           POSTGRES_USER: sms_credit_ci
@@ -2088,7 +2090,7 @@ jobs:
     # connection's database/user/application identity all match.
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_DB: booking_entitlement_ci
           POSTGRES_USER: booking_entitlement_ci
@@ -2152,7 +2154,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_DB: l1_catalog_ci
           POSTGRES_USER: l1_catalog_ci
@@ -2202,7 +2204,7 @@ jobs:
     # live server address is independently attested against Docker metadata.
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_DB: luster_e2e_ci_disposable
           POSTGRES_USER: luster_e2e_ci
@@ -2288,7 +2290,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_DB: network_no_show_disposable
           POSTGRES_USER: network_test
@@ -2327,7 +2329,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_DB: booking_recovery_disposable
           POSTGRES_USER: booking_recovery_test

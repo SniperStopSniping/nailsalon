@@ -600,7 +600,7 @@ describe('AppointmentQuickEditSheet', () => {
   });
 
   it('marks no-show through a confirmation dialog instead of window.confirm', async () => {
-    const onMarkNoShow = vi.fn(async () => {});
+    const onMarkNoShow = vi.fn(async () => 'shared' as const);
     const confirmSpy = vi.spyOn(window, 'confirm');
 
     render(
@@ -622,6 +622,7 @@ describe('AppointmentQuickEditSheet', () => {
 
     showDetails();
     fireEvent.click(screen.getByTestId('appointment-sheet-no-show'));
+    fireEvent.click(screen.getByRole('radio', { name: /Customer confirmed/ }));
     fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
 
     await waitFor(() => expect(onMarkNoShow).toHaveBeenCalledTimes(1));

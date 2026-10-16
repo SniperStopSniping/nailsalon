@@ -16,6 +16,8 @@ import {
 import { enqueueGoogleCalendarDeleteInTx } from '@/libs/integrationOutbox';
 import { recordNetworkNoShowInTx } from '@/libs/networkNoShow.server';
 import { setNetworkNoShowAuditActorInTx } from '@/libs/networkNoShowAudit.server';
+import { NoShowReportingError, noShowReportSchema, validateNoShowReport } from '@/libs/noShowReporting';
+import { auditNoShowReportInTx, noShowSharingInTx } from '@/libs/noShowReporting.server';
 import {
   getAppointmentServiceNames,
   getSalonById,
@@ -39,6 +41,7 @@ import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 const cancelAppointmentSchema = z.object({
   cancelReason: z.enum(APPOINTMENT_CANCELLATION_REASONS),
   notes: z.string().optional(),
+  noShowReport: noShowReportSchema.optional(),
 });
 
 const CANCELLABLE_STATUSES: string[] = ['pending', 'confirmed', 'in_progress'];
@@ -63,6 +66,7 @@ type ErrorResponse = {
 
 type SuccessResponse = {
   data: {
+    noShowSharing?: 'shared' | 'not_shared';
     appointment: {
       id: string;
       status: string;
@@ -252,6 +256,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     // authenticate against the old snapshot, but exactly one can transition the
     // row and therefore exactly one can restore rewards/refund points.
     let transition: CancellationTransition;
+    let noShowSharing: 'shared' | 'not_shared' = 'not_shared';
     let operationalClientPhone = appointment.clientPhone;
     if (alreadyCancelled) {
       if (resolvedStatus === 'no_show') {
@@ -269,6 +274,10 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           if (!lockedAppointment) {
             return { applied: false, conflictStatus: 'missing', cancelledAt: now };
           }
+          if (!isSameCancellation(lockedAppointment, resolvedStatus, validated.data.cancelReason)) {
+            return { applied: false, conflictStatus: lockedAppointment.status, cancelledAt: now };
+          }
+          noShowSharing = await noShowSharingInTx(tx, appointment.salonId, appointmentId, now);
           await forfeitAppointmentDepositInTx({
             tx,
             salonId: appointment.salonId,
@@ -342,6 +351,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
             validated.data.cancelReason,
           )) {
             if (resolvedStatus === 'no_show') {
+              noShowSharing = await noShowSharingInTx(tx, appointment.salonId, appointmentId, now);
               await forfeitAppointmentDepositInTx({
                 tx,
                 salonId: appointment.salonId,
@@ -387,6 +397,13 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
               cancelledAt: now,
             };
           }
+
+          if (resolvedStatus === 'no_show' && lockedAppointment.deletedAt) {
+            throw new NoShowReportingError('NO_SHOW_INVALID_STATE', 'A deleted appointment cannot be marked no-show.');
+          }
+          const noShowReport = resolvedStatus === 'no_show'
+            ? validateNoShowReport(lockedAppointment.startTime, validated.data.noShowReport, now)
+            : null;
 
           const pointsToRefund = pointsRedeemedFromNotes(
             lockedAppointment.notes,
@@ -449,15 +466,18 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
           if (resolvedStatus === 'no_show') {
             const networkActor = resolveAuditActor(access);
-            if (networkActor) {
-              await recordNetworkNoShowInTx(tx, {
-                salonId: appointment.salonId,
-                appointmentId,
-                actorId: networkActor.performedBy,
-                actorRole: networkActor.performedByRole,
-                now,
-              });
+            if (!networkActor || !noShowReport) {
+              throw new NoShowReportingError('NO_SHOW_ACTOR_REQUIRED', 'A signed-in salon manager must record the no-show.');
             }
+            await auditNoShowReportInTx(tx, { salonId: appointment.salonId, appointmentId, previousStatus: lockedAppointment.status, actorId: networkActor.performedBy, actorRole: networkActor.performedByRole, report: noShowReport, now });
+            await recordNetworkNoShowInTx(tx, {
+              salonId: appointment.salonId,
+              appointmentId,
+              actorId: networkActor.performedBy,
+              actorRole: networkActor.performedByRole,
+              now,
+            });
+            noShowSharing = await noShowSharingInTx(tx, appointment.salonId, appointmentId, now);
             await forfeitAppointmentDepositInTx({
               tx,
               salonId: appointment.salonId,
@@ -556,7 +576,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     // writes the row, so an idempotent retry does not duplicate the trail.
     // logAppointmentChange never throws: a failed audit write cannot undo a
     // committed cancellation.
-    const auditActor = transition.applied ? resolveAuditActor(access) : null;
+    const auditActor = transition.applied && resolvedStatus !== 'no_show' ? resolveAuditActor(access) : null;
     if (auditActor) {
       await logAppointmentChange({
         appointmentId,
@@ -656,6 +676,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     // 7. Return success response
     const response: SuccessResponse = {
       data: {
+        ...(resolvedStatus === 'no_show' ? { noShowSharing } : {}),
         appointment: {
           id: appointmentId,
           status: resolvedStatus,
@@ -667,6 +688,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     return Response.json(response);
   } catch (error) {
+    if (error instanceof NoShowReportingError) {
+      return Response.json({ error: { code: error.code, message: error.message } }, { status: 400 });
+    }
     if (error instanceof DepositForfeitureBlockedError) {
       return depositForfeitureBlockedResponse(error);
     }

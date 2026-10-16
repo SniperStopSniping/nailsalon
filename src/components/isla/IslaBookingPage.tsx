@@ -8,6 +8,7 @@ import { Fragment, type ReactNode, useState } from 'react';
 
 import { DialogShell } from '@/components/ui/dialog-shell';
 import type { BookingStep } from '@/libs/bookingFlow';
+import { buildGoogleMapsDirectionsUrl } from '@/libs/directions';
 import { formatInstagramHandle } from '@/libs/instagramHandle';
 import type { SalonContentPlace } from '@/libs/salonContent';
 import type { BookingExperience } from '@/types/salonPolicy';
@@ -272,6 +273,7 @@ export function IslaBookingPage({ place, children, continueBar, flow, manageHref
 function IslaVisitDetails({ place }: { place?: SalonContentPlace }) {
   const primary = place?.locations.find(location => location.isPrimary) ?? place?.locations[0];
   const address = place?.address?.address ?? primary?.address;
+  const directionsUrl = buildGoogleMapsDirectionsUrl(place?.address?.address ? place.address : primary);
   const entrance = address ? place?.entranceInstructions : null;
   const hours = formatIslaHours(place?.hours ?? primary?.hours ?? null);
   if (!address && hours.length === 0) {
@@ -283,7 +285,11 @@ function IslaVisitDetails({ place }: { place?: SalonContentPlace }) {
         <div className="isla-visit-location">
           <MapPin aria-hidden="true" />
           <div>
-            <p className="isla-visit-address">{address}</p>
+            <p className="isla-visit-address">
+              {directionsUrl
+                ? <a href={directionsUrl} target="_blank" rel="noopener noreferrer">{address}</a>
+                : address}
+            </p>
             {entrance && <p className="isla-visit-entrance">{entrance}</p>}
           </div>
         </div>

@@ -90,6 +90,7 @@ import type {
 } from '@/libs/catalogSubmissionReconciliation.server';
 import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
+import { CLIENT_BOOKING_BLOCKED_MESSAGE } from '@/libs/clientBookingRestriction';
 import {
   type CanonicalSalonClientIdentity,
   ClientLifecycleStabilizationError,
@@ -512,6 +513,13 @@ class BookingClientConflictError extends Error {
   constructor() {
     super('BOOKING_CLIENT_CONFLICT');
     this.name = 'BookingClientConflictError';
+  }
+}
+
+class ClientBookingBlockedError extends Error {
+  constructor() {
+    super('CLIENT_BOOKING_BLOCKED');
+    this.name = 'ClientBookingBlockedError';
   }
 }
 
@@ -3668,6 +3676,23 @@ async function createAppointmentFromRequestCore(
             clientId: expectedTerminalClientId,
           },
         );
+        // Read under the same terminal-client lock used by the owner's block
+        // action. Every contact alias and booking surface (including an owner
+        // testing the private preview) must honor the saved restriction.
+        // Existing appointments keep their authorized reschedule lifecycle.
+        if (!normalizedOriginalApptId) {
+          const [restriction] = await tx
+            .select({ isBlocked: salonClientSchema.isBlocked })
+            .from(salonClientSchema)
+            .where(and(
+              eq(salonClientSchema.salonId, salon.id),
+              eq(salonClientSchema.id, lockedClient.id),
+            ))
+            .limit(1);
+          if (restriction?.isBlocked) {
+            throw new ClientBookingBlockedError();
+          }
+        }
         const authoritativeIdentity
           = await resolveCanonicalSalonClientIdentityWithHandle(
             tx as LifecycleSqlHandle,
@@ -5631,6 +5656,14 @@ async function createAppointmentFromRequestCore(
     bookingSucceeded = true;
     return Response.json(response, { status: 201 });
   } catch (error) {
+    if (error instanceof ClientBookingBlockedError) {
+      return Response.json({
+        error: {
+          code: 'CLIENT_BOOKING_BLOCKED',
+          message: CLIENT_BOOKING_BLOCKED_MESSAGE,
+        },
+      } satisfies ErrorResponse, { status: 403 });
+    }
     if (error instanceof NextVisitOfferError) {
       return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
     }

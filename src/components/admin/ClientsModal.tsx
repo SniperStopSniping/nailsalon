@@ -46,6 +46,7 @@ import { Button } from '@/components/ui/button';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { ListSurface } from '@/components/ui/list-surface';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
+import { CLIENT_BOOKING_BLOCKED_REFERENCE } from '@/libs/clientBookingRestriction';
 import { notifyRetentionDataChanged } from '@/libs/dashboardEvents';
 import { formatMoney } from '@/libs/formatMoney';
 import { useSalon } from '@/providers/SalonProvider';
@@ -2368,6 +2369,9 @@ function ClientDetail({
                             {flagsState?.isBlocked && (
                               <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
                                 <div className="text-xs font-semibold uppercase text-red-800">Online booking blocked</div>
+                                <p className="mt-1 text-sm text-red-950">
+                                  {`Customer reference: code ${CLIENT_BOOKING_BLOCKED_REFERENCE}.`}
+                                </p>
                                 {flagsState.blockedReason && <p className="mt-1 text-sm text-red-950">{flagsState.blockedReason}</p>}
                               </div>
                             )}
@@ -2693,7 +2697,9 @@ function ClientDetail({
                                   <label className="flex items-center justify-between gap-3">
                                     <div>
                                       <div className="text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Block future booking</div>
-                                      <div className="text-[13px] text-[#6B7280]">Prevents the client from booking online.</div>
+                                      <div className="text-[13px] text-[#6B7280]">
+                                        {`Prevents online booking. The client sees code ${CLIENT_BOOKING_BLOCKED_REFERENCE} and is asked to contact the salon.`}
+                                      </div>
                                     </div>
                                     <input
                                       aria-label="Block future booking"

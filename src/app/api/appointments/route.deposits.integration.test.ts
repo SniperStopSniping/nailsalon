@@ -663,6 +663,31 @@ describe('28(g-A) — the two NULL-PARSE members of the skip set', () => {
  * really was collectable.
  */
 describe('28(g-iii) — stale stored row, live account healthy', () => {
+  it('rejects a blocked client before creating a deposit hold or checkout', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    const phone = freshPhone();
+    setClientSession(phone);
+    await db.insert(schema.salonClientSchema).values({
+      id: `blocked_deposit_${phone}`,
+      salonId: SALON_ID,
+      phone,
+      isBlocked: true,
+    });
+
+    const response = await postBooking({
+      startTime: at(futureDate(25), '15:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe('CLIENT_BOOKING_BLOCKED');
+    expect(await appointmentRows()).toHaveLength(0);
+    expect(await depositRows()).toHaveLength(0);
+    expect(deposits.createDepositCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it('201 WITH a deposit: hold created, both amounts persisted', async () => {
     seedPolicy({ active: false, reason: 'account_not_charge_ready', amountCents: 2500 }, ACTIVE_POLICY);
     seedChargeReady(true);

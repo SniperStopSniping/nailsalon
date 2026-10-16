@@ -12,10 +12,10 @@ import { parse } from 'yaml';
 const workflow = parse(readFileSync(new URL('../.github/workflows/CI.yml', import.meta.url), 'utf8'));
 const { jobs } = workflow;
 
-test('CI services use the reviewed digest-pinned Docker Official Images from ECR Public', () => {
+test('CI services use the reviewed digest-pinned Docker Official Images from the Google cache', () => {
   const approvedImages = {
-    postgres: 'public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',
-    redis: 'public.ecr.aws/docker/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499',
+    postgres: 'mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',
+    redis: 'mirror.gcr.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499',
   };
   const services = Object.values(jobs).flatMap(job => Object.entries(job.services ?? {}));
   assert.equal(services.filter(([name]) => name === 'postgres').length, 10);
@@ -97,6 +97,7 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     ['81033b57a45e03fa3fb84b35435d5c511c945dc6', '9c7d5702e010a55e897258fee728c517b20d0593'],
     ['2658646d2addf8fe450503e0366a1b30d3a37d16', '2b018033b1df3bbc21bfd1858b764a6fe2d14e64'],
     ['36b6eb8cc244742e3f00ca9e6371e83580bbd907', 'f30136fcafe073d34bb76a50cadeaf8d83c2a31b'],
+    ['7a219ff506106dca631528df8bf7877ca28c4b71', '03917548fdcf78991dfd60a487783cfbdefa5ab0'],
   ];
   for (const pair of monitoringPairs) {
     assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
@@ -225,7 +226,7 @@ test('the required component job runs onboarding tests with their package config
 
 test('all browser evidence runs exactly once across required independent groups', () => {
   const job = jobs['test-components'];
-  assert.deepEqual(job.strategy.matrix.suite, ['onboarding-owner', 'customer-booking']);
+  assert.deepEqual(job.strategy.matrix.suite, ['onboarding-owner', 'owner-operations', 'customer-booking']);
   assert.equal(job.strategy['fail-fast'], false);
   assert.equal(job['continue-on-error'], undefined);
   assert.equal(job['timeout-minutes'], 55);
@@ -242,6 +243,9 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify owner destinations and Hours in mobile browsers',
       'Verify owner dashboard polish and shared dialogs in mobile browsers',
       'Verify dashboard loading, recovery and salon context in mobile browsers',
+      'Verify onboarding desktop and phone geometry',
+    ],
+    'owner-operations': [
       'Verify owner forms and error recovery in mobile browsers',
       'Verify Portfolio controls and failure recovery in mobile browsers',
       'Verify owner settings and payment presentation in mobile browsers',
@@ -257,7 +261,6 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify owner Calendar Clients and Services polish',
       'Verify SMS balances and top-up entry in desktop and mobile browsers',
       'Run storybook tests',
-      'Verify onboarding desktop and phone geometry',
     ],
     'customer-booking': [
       'Verify Next Visit settings and guest rebooking in mobile browsers',
@@ -279,7 +282,7 @@ test('all browser evidence runs exactly once across required independent groups'
     }
   }
   const install = job.steps.find(step => step.name === 'Install shared onboarding presentation dependencies');
-  assert.equal(install.if, 'matrix.suite == \'customer-booking\'');
+  assert.equal(install.if, 'matrix.suite != \'onboarding-owner\'');
   assert.equal(install['working-directory'], 'prototypes/site-builder-v2-booking-integration-lab');
   assert.equal(install.run, 'npm ci');
   assert.ok(job.steps.indexOf(install) < job.steps.indexOf(evidence[0]));

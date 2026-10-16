@@ -351,6 +351,7 @@ function StaffAppointmentsContent() {
         onSaveEdits={actions.saveEdits}
         onMoveToNextAvailable={actions.moveToNextAvailable}
         onCancelAppointment={args => actions.cancelAppointment(args as CancelArgs)}
+        onMarkNoShow={actions.markNoShow}
         onMarkCompleted={() => actions.openCheckout()}
         onStartAppointment={actions.startAppointment}
         onViewReceipt={actions.openReceipt}

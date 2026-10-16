@@ -21,6 +21,8 @@ happens only in a new public/customer booking transaction, after the platform's
 prospective timestamp, with an appointment created before its scheduled start.
 Owner/staff-created bookings remain outside automatic collection/publication.
 
+The current 24-hour reporting and private customer review workflow is documented in [No-show reporting and customer review](./no-show-reporting-and-review.md).
+
 ## Product contract
 
 All salons automatically see a compact Booking Risk card when the platform is
@@ -48,8 +50,7 @@ binding attribution.
 
 Count only explicit recorded `no_show` events within 12 calendar months of the
 appointment end. Leap-day anniversary clamps to February 28. An authorized,
-explicit no-show mark counts immediately, including before the scheduled start
-or end. Reports later than seven days also count while the original twelve-month
+explicit no-show mark counts immediately from 24 elapsed hours before the scheduled start, with an explicit late-cancellation or confirmed-nonattendance reason required before start. Reports later than seven days also count while the original twelve-month
 history window remains open; reporting never extends that window.
 Cancellation/refund/completed visits do not add events. One appointment has one
 source event. Status corrections revoke
@@ -63,8 +64,8 @@ Existing pending marks from the previous timing policy are recovered by
 `/api/network-no-show/reconcile`, which runs every
 five minutes through Vercel and accepts only `CRON_SECRET` in either the
 `Authorization: Bearer` or `x-cron-secret` header. It considers the oldest
-eligible, still-current and unexpired no-shows first, without waiting for their end,
-and preserves the original mark actor and timestamp when an in-transaction
+eligible, still-current and unexpired no-shows first, without waiting for their end. A legacy future mark without valid confirmation evidence waits until start, and a disputed contribution remains suspended. Reconciliation
+preserves the original mark actor and timestamp when an in-transaction
 pending audit or appointment audit proves them. Older records without actor
 evidence are recovered only as an explicitly labelled system reconciliation;
 the job never attributes those to a person. The existing source trigger still

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, isNotNull, or } from 'drizzle-orm';
+import { and, count, desc, eq, isNotNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
@@ -57,6 +57,7 @@ export async function GET(request: Request): Promise<Response> {
     const [totalResult, rows] = await Promise.all([
       db.select({ total: count() }).from(appointmentSchema).leftJoin(networkNoShowEventSchema, joinEvent).where(where),
       db.select({
+        reviewState: sql<string | null>`(select a.new_value->>'noShowReview' from appointment_audit_log a where a.salon_id = ${appointmentSchema.salonId} and a.appointment_id = ${appointmentSchema.id} and a.new_value->>'noShowReview' is not null order by a.created_at desc, a.id desc limit 1)`,
         appointmentId: appointmentSchema.id,
         clientName: appointmentSchema.clientName,
         clientPhone: appointmentSchema.clientPhone,

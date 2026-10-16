@@ -192,8 +192,8 @@ test.describe('network no-show protection owner mobile @network-no-show-protecti
 
       const warning = page.getByTestId('booking-risk-warning');
 
-      await expect(warning).toContainText('Higher no-show risk');
-      await expect(warning).toContainText('1 recorded no-show on Luster in the last 12 months.');
+      await expect(warning).toContainText('Recorded No-Show History');
+      await expect(warning).toContainText('1 eligible no-show report from participating Luster salons within the past 12 months.');
       await expect(warning).toContainText('No-show protection: Warning only');
     } finally {
       await page.request.delete('/api/super-admin/impersonate');
@@ -211,7 +211,7 @@ test.describe('network no-show protection owner mobile @network-no-show-protecti
       });
 
       await expect(page.getByTestId('booking-risk-warning')).toContainText(
-        'No-show protection: Deposit required at 2 recorded no-shows',
+        'No-show protection: Deposit after 2 eligible no-shows, when payments and booking settings allow',
       );
     } finally {
       await page.request.delete('/api/super-admin/impersonate');

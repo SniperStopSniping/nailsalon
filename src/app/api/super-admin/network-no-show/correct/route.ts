@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireSuperAdmin } from '@/libs/adminAuth';
@@ -62,6 +62,10 @@ export async function POST(request: Request): Promise<Response> {
         .from(networkNoShowEventSchema)
         .where(and(eq(networkNoShowEventSchema.salonId, salonId), eq(networkNoShowEventSchema.appointmentId, appointmentId)))
         .limit(1);
+      // The source trigger revokes active events. Finalize an already-suspended
+      // customer review as revoked too; its source/subject locks are still held.
+      await tx.update(networkNoShowEventSchema).set({ state: 'revoked', revokedAt: new Date(), sourceRevision: sql`${networkNoShowEventSchema.sourceRevision} + 1` })
+        .where(and(eq(networkNoShowEventSchema.salonId, salonId), eq(networkNoShowEventSchema.appointmentId, appointmentId), eq(networkNoShowEventSchema.state, 'suppressed')));
       await tx.insert(appointmentAuditLogSchema).values({
         id: crypto.randomUUID(),
         appointmentId,

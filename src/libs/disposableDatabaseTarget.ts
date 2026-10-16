@@ -18,8 +18,8 @@ const APPROVED_LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);
 // Do not accept arbitrary registry prefixes, tags, or manifest digests.
 const APPROVED_POSTGRESQL_SERVICE_IMAGES = new Set([
   'postgres:16-alpine',
-  'public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',
   'mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',
+  'public.ecr.aws/docker/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',
 ]);
 const HOSTED_PROVIDER_SUFFIXES = [
   'aivencloud.com',

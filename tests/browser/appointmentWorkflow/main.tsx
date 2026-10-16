@@ -26,7 +26,7 @@ function appointmentDetail(status = 'confirmed') {
       locationId: 'loc_1',
       locationName: 'Studio',
       status,
-      startTime: '2026-09-19T15:00:00.000Z',
+      startTime: new URLSearchParams(window.location.search).has('prestart') ? '2030-06-15T19:00:00Z' : '2026-09-19T15:00:00.000Z',
       endTime: '2026-09-19T16:00:00.000Z',
       totalPrice: 3500,
       totalDurationMinutes: 60,
@@ -99,6 +99,7 @@ export function AppointmentWorkflowFixture() {
         }}
         onMarkNoShow={async () => {
           setStatus('no_show');
+          return 'shared';
         }}
       />
       <CheckoutSheet appointmentId="appt_browser_1" isOpen={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
