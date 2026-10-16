@@ -1,0 +1,32 @@
+{
+  "assets": [
+    {
+      "id": "atelier-ai-nails",
+      "path": "assets/atelier-ai-nails.png",
+      "sha256": "66e8c577f2e758340cc7e36a56fdb219a13b855d62783cf0837e0afa4dbdeb80",
+      "source": "Built-in image_gen tool",
+      "synthetic": true,
+      "depicts": "Fictional adult manicure demonstration, not customer work",
+      "approval": "User explicitly allowed AI nail photos in this conversation on 2026-09-30",
+      "publicationDisclosure": "Fictional demo salon. Nail imagery is AI-generated.",
+      "prompt": "Photorealistic landscape editorial photograph of adult hands on warm ivory linen; short almond sheer milky pink BIAB nails with delicate cream line art; no text/logos/watermarks/faces.",
+      "incrementalCost": "Tool did not expose a charge; no separately billed API image call made"
+    }
+  ],
+  "fonts": {
+    "dependency": "System-installed Verdana resolved by FFmpeg drawtext; explicit Verdana family for libass captions. Dependencies must be installed/licensed separately on each render machine.",
+    "redistributed": false,
+    "verification": "FFmpeg 9.0.2 verbose one-frame drawtext probe resolved System/Library/Fonts/Supplemental/Verdana.ttf; no font file included."
+  },
+  "existingSalonPhotosUsed": false,
+  "tutorialAnnotations": {
+    "paths": [
+      "graphics/hand-pointer.svg",
+      "graphics/click-ring.svg"
+    ],
+    "source": "Original vector drawings authored in the production tooling for the requested tutorial cursor.",
+    "thirdPartyAsset": false,
+    "fontDependency": false,
+    "generatedRasterCache": "Ignored work/annotation-cache; rebuildable from SVG with installed sharp."
+  }
+}

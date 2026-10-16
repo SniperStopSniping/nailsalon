@@ -51,6 +51,9 @@ const SAFE_ASSIGNMENT_FINGERPRINTS = new Set([
   'a3d99370d541e19211e415a5bc6cc3c53048b9f28ec7b6e9ec279a8fd92d7b73',
   // Scanner-test synthetic: exact path + SCANNER_FIXTURE_SECRET + exact value.
   '92dec48809ca0f418ab09d2ffa828b043936e8f94438385810e20014dea6bf56',
+  // Video verification manifest: exact SECRET_SCAN key + historical scan-count
+  // status prose. This is a report, not a credential; changed text still scans.
+  '57f7d5f22d99b927946a9b706e4d43ee06e9f6f0dc7e1009a1199c880dd72ba0',
 ]);
 
 const SAFE_URL_FINGERPRINTS = new Set([

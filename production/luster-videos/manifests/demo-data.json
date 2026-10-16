@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 2,
+  "purpose": "Isolated, fictional fixture specification for Luster video recording only.",
+  "timezone": "America/Toronto",
+  "idPrefix": "video-demo-",
+  "identityModel": {
+    "salonClient": "Each seeded client is a tenant-scoped salon_client row with a deterministic video-demo- ID and normalized reserved phone number.",
+    "legacyClient": "No legacy global client row is seeded. The real public booking flow creates or resolves customer identity through application logic.",
+    "heroContinuity": "Sarah Morgan has historical fixture visits only. Her future hero appointment is created through the real public flow and is never seeded or overwritten."
+  },
+  "salonDefaults": {
+    "name": "Atelier Nail Studio — Demo",
+    "address": "100 Demo Lane, Toronto, ON M5V 1A1",
+    "phone": "416-555-0100",
+    "theme": {
+      "themeKey": "premium-glass",
+      "supportedBy": "src/theme/themes.ts",
+      "bookingPageLayout": "Application default; this fixture does not seed an unverified custom booking-page layout."
+    },
+    "hours": {
+      "monday": { "open": "09:00", "close": "18:00" },
+      "tuesday": { "open": "09:00", "close": "18:00" },
+      "wednesday": { "open": "09:00", "close": "18:00" },
+      "thursday": { "open": "09:00", "close": "18:00" },
+      "friday": { "open": "09:00", "close": "18:00" },
+      "saturday": { "open": "10:00", "close": "16:00" },
+      "sunday": null
+    },
+    "booking": { "bufferMinutes": 15, "minimumNoticeMinutes": 60, "slotIntervalMinutes": 15 }
+  },
+  "salons": [
+    {
+      "id": "video-demo-salon-solo",
+      "slug": "atelier-nail-demo",
+      "configuration": "solo",
+      "freeSoloEnabled": true,
+      "bookingFlow": ["service", "time", "confirm"],
+      "location": { "id": "video-demo-solo-location-primary", "name": "Atelier Studio" },
+      "technicianSeedKeys": ["marie-dupont"]
+    },
+    {
+      "id": "video-demo-salon-team",
+      "slug": "atelier-nail-demo-salon",
+      "configuration": "three-technician",
+      "freeSoloEnabled": false,
+      "bookingFlow": ["service", "tech", "time", "confirm"],
+      "location": { "id": "video-demo-team-location-primary", "name": "Atelier Studio" },
+      "technicianSeedKeys": ["marie-dupont", "daniela-rossi", "jordan-lee"]
+    }
+  ],
+  "technicians": [
+    { "seedKey": "marie-dupont", "name": "Marie Dupont", "idTemplate": "video-demo-{configuration}-tech-marie-dupont", "specialties": ["BIAB", "Gel-X", "nail art"], "availableIn": ["solo", "three-technician"] },
+    { "seedKey": "daniela-rossi", "name": "Daniela Rossi", "idTemplate": "video-demo-{configuration}-tech-daniela-rossi", "specialties": ["BIAB", "Gel-X", "nail art"], "availableIn": ["three-technician"] },
+    { "seedKey": "jordan-lee", "name": "Jordan Lee", "idTemplate": "video-demo-{configuration}-tech-jordan-lee", "specialties": ["BIAB", "Gel-X", "nail art"], "availableIn": ["three-technician"] }
+  ],
+  "services": [
+    { "seedKey": "biab-overlay", "name": "BIAB Overlay", "category": "builder_gel", "priceCents": 6500, "durationMinutes": 75, "description": "A strengthening builder-gel overlay with a glossy, natural finish." },
+    { "seedKey": "gel-x-full-set", "name": "Gel-X Full Set", "category": "extensions", "priceCents": 8500, "durationMinutes": 105, "description": "Lightweight soft-gel extensions tailored to your preferred length and shape." },
+    { "seedKey": "structured-manicure", "name": "Structured Manicure", "category": "manicure", "priceCents": 4800, "durationMinutes": 60, "description": "Detailed cuticle care, gentle structure, and a polished gel finish." },
+    { "seedKey": "hard-gel-overlay", "name": "Hard Gel Overlay", "category": "builder_gel", "priceCents": 7200, "durationMinutes": 90, "description": "A durable hard-gel overlay for strength, shape, and lasting shine." },
+    { "seedKey": "gel-polish-manicure", "name": "Gel Polish Manicure", "category": "manicure", "priceCents": 4200, "durationMinutes": 50, "description": "Meticulous nail preparation finished with your choice of gel colour." },
+    { "seedKey": "classic-manicure", "name": "Classic Manicure", "category": "manicure", "priceCents": 3200, "durationMinutes": 40, "description": "A restorative manicure with shaping, cuticle care, and classic polish." },
+    { "seedKey": "gel-pedicure", "name": "Gel Pedicure", "category": "pedicure", "priceCents": 5500, "durationMinutes": 60, "description": "Relaxing foot care and a long-wearing gel pedicure finish." },
+    { "seedKey": "removal-and-care", "name": "Removal & Care", "category": "manicure", "priceCents": 2800, "durationMinutes": 35, "description": "Careful removal followed by conditioning treatment for healthy natural nails." }
+  ],
+  "technicianServiceAssignments": "Every technician available in a configuration is assigned every listed service.",
+  "addOns": [
+    {
+      "seedKey": "simple-nail-art",
+      "name": "Simple Nail Art",
+      "idTemplate": "video-demo-{configuration}-addon-simple-nail-art",
+      "category": "nail_art",
+      "priceCents": 1000,
+      "durationMinutes": 15,
+      "compatibleWith": [{ "serviceSeedKey": "biab-overlay", "selectionMode": "optional", "priceMode": "catalog_priced" }]
+    }
+  ],
+  "clients": [
+    { "seedKey": "sarah-morgan", "name": "Sarah Morgan", "phone": "4165550101", "email": "sarah.morgan@example.invalid", "idTemplate": "video-demo-{configuration}-client-sarah-morgan", "history": ["2026-07-08T15:00:00.000Z", "2026-08-19T16:30:00.000Z"], "initialNote": null },
+    { "seedKey": "lena-brooks", "name": "Lena Brooks", "phone": "4165550102", "email": "lena.brooks@example.invalid", "idTemplate": "video-demo-{configuration}-client-lena-brooks", "history": ["2026-07-03T15:00:00.000Z"], "followUpDueAt": "2026-07-30T16:00:00.000Z" },
+    { "seedKey": "maya-singh", "name": "Maya Singh", "phone": "4165550103", "email": "maya.singh@example.invalid", "idTemplate": "video-demo-{configuration}-client-maya-singh", "history": ["2026-07-04T16:00:00.000Z"] },
+    { "seedKey": "olivia-chen", "name": "Olivia Chen", "phone": "4165550104", "email": "olivia.chen@example.invalid", "idTemplate": "video-demo-{configuration}-client-olivia-chen", "history": ["2026-07-05T14:00:00.000Z"] },
+    { "seedKey": "zoe-martin", "name": "Zoe Martin", "phone": "4165550105", "email": "zoe.martin@example.invalid", "idTemplate": "video-demo-{configuration}-client-zoe-martin", "history": ["2026-07-06T15:00:00.000Z"] },
+    { "seedKey": "nina-patel", "name": "Nina Patel", "phone": "4165550106", "email": "nina.patel@example.invalid", "idTemplate": "video-demo-{configuration}-client-nina-patel", "history": ["2026-07-07T16:00:00.000Z"] },
+    { "seedKey": "ava-wilson", "name": "Ava Wilson", "phone": "4165550107", "email": "ava.wilson@example.invalid", "idTemplate": "video-demo-{configuration}-client-ava-wilson", "history": ["2026-07-08T14:00:00.000Z"] },
+    { "seedKey": "ella-thompson", "name": "Ella Thompson", "phone": "4165550108", "email": "ella.thompson@example.invalid", "idTemplate": "video-demo-{configuration}-client-ella-thompson", "history": ["2026-07-09T15:00:00.000Z"] },
+    { "seedKey": "claire-lewis", "name": "Claire Lewis", "phone": "4165550109", "email": "claire.lewis@example.invalid", "idTemplate": "video-demo-{configuration}-client-claire-lewis", "history": ["2026-07-10T16:00:00.000Z"] },
+    { "seedKey": "ruby-garcia", "name": "Ruby Garcia", "phone": "4165550110", "email": "ruby.garcia@example.invalid", "idTemplate": "video-demo-{configuration}-client-ruby-garcia", "history": ["2026-07-11T14:00:00.000Z"] }
+  ],
+  "history": {
+    "idTemplate": "video-demo-{configuration}-history-{clientSeedKey}-{visitNumber}",
+    "serviceSeedKey": "biab-overlay",
+    "status": "completed",
+    "priceCents": 6500,
+    "durationMinutes": 75,
+    "paymentStatus": "pending",
+    "technicianAssignment": "Solo visits use Marie; team visits rotate Marie, Daniela, Jordan by client and visit index."
+  },
+  "heroBooking": { "client": "Sarah Morgan", "baseService": "BIAB Overlay", "addOn": "Simple Nail Art", "createdBy": "real public booking flow at capture time", "notSeeded": true, "startingClientNote": null },
+  "photoAsset": {
+    "path": "public/video-assets/atelier-ai-nails.png",
+    "publicPath": "/video-assets/atelier-ai-nails.png",
+    "provenance": "Generated for this production with OpenAI image generation; authorized by the project owner for the Luster video package.",
+    "publicationApproved": true,
+    "storage": "Fixture-only local ignored asset; not cloud storage or a production upload."
+  },
+  "externalEffects": { "sms": "disabled", "email": "disabled", "deposits": "disabled", "googleCalendar": "not connected", "webhooks": "not configured" },
+  "fictionalDataNotice": "All names, telephone numbers, email addresses, services, prices, appointments, notes, and business details in this fixture are fictional. Displayed service prices are demo-salon prices, never Luster subscription prices."
+}

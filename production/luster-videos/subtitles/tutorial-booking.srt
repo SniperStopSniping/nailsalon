@@ -1,0 +1,64 @@
+1
+00:00:04,330 --> 00:00:08,350
+This is what your clients see when they
+open your booking page.
+
+2
+00:00:09,000 --> 00:00:13,350
+They can explore your services and
+choose the appointment they want.
+
+3
+00:00:13,860 --> 00:00:20,080
+Here, Sarah chooses BIAB Overlay and
+adds optional Simple Nail Art.
+
+4
+00:00:20,180 --> 00:00:21,750
+Then she taps Continue.
+
+5
+00:00:24,170 --> 00:00:27,210
+Next, she chooses an available date and
+time.
+
+6
+00:00:27,230 --> 00:00:29,150
+This studio has one technician.
+
+7
+00:00:31,180 --> 00:00:37,400
+The review screen shows the service,
+price, duration, time, and location.
+
+8
+00:00:37,900 --> 00:00:41,450
+She enters her name, email, and mobile
+number.
+
+9
+00:00:41,490 --> 00:00:43,650
+The required fields are clearly marked.
+
+10
+00:00:45,150 --> 00:00:47,420
+She reads the appointment agreement
+
+11
+00:00:47,420 --> 00:00:50,800
+and checks the required acknowledgment
+before continuing.
+
+12
+00:00:53,250 --> 00:00:57,400
+With the details reviewed, she taps
+Confirm appointment.
+
+13
+00:00:59,330 --> 00:01:02,940
+The confirmation screen shows that the
+booking is complete.
+
+14
+00:01:02,970 --> 00:01:04,450
+Her time is reserved.

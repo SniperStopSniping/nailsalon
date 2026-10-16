@@ -1,0 +1,50 @@
+[
+  {
+    "feature": "services",
+    "status": "verified",
+    "laterLibraryOnly": true,
+    "evidence": "Real BIAB Overlay + compatible Simple Nail Art selection and persisted booking"
+  },
+  {
+    "feature": "availability",
+    "status": "verified",
+    "laterLibraryOnly": true,
+    "evidence": "Real public slots; old slot restored and new slot unavailable after owner reschedule"
+  },
+  {
+    "feature": "integrations",
+    "status": "not yet assessed",
+    "laterLibraryOnly": true
+  },
+  {
+    "feature": "messages",
+    "status": "needs setup",
+    "laterLibraryOnly": true,
+    "evidence": "Provider delivery deliberately disabled; no send claims"
+  },
+  {
+    "feature": "payments",
+    "status": "not yet assessed",
+    "laterLibraryOnly": true
+  },
+  {
+    "feature": "team",
+    "status": "needs setup",
+    "laterLibraryOnly": true
+  },
+  {
+    "feature": "rewards",
+    "status": "not yet assessed",
+    "laterLibraryOnly": true
+  },
+  {
+    "feature": "reporting",
+    "status": "not yet assessed",
+    "laterLibraryOnly": true
+  },
+  {
+    "feature": "AI capabilities",
+    "status": "not yet assessed",
+    "laterLibraryOnly": true
+  }
+]

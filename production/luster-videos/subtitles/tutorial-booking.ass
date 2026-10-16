@@ -1,0 +1,26 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+Style: LusterCaptions,Verdana,48,&H00212429,&H000000FF,&H00E8F1F7,&H00000000,0,0,0,0,100,100,0,0,1,0,0,1,120,780,185,1
+
+[Events]
+Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+Dialogue: 0,0:00:04.33,0:00:08.35,LusterCaptions,,0,0,0,,This is what your clients see when they\Nopen your booking page.
+Dialogue: 0,0:00:09.00,0:00:13.35,LusterCaptions,,0,0,0,,They can explore your services and\Nchoose the appointment they want.
+Dialogue: 0,0:00:13.86,0:00:20.08,LusterCaptions,,0,0,0,,Here, Sarah chooses BIAB Overlay and\Nadds optional Simple Nail Art.
+Dialogue: 0,0:00:20.18,0:00:21.75,LusterCaptions,,0,0,0,,Then she taps Continue.
+Dialogue: 0,0:00:24.17,0:00:27.21,LusterCaptions,,0,0,0,,Next, she chooses an available date and\Ntime.
+Dialogue: 0,0:00:27.23,0:00:29.15,LusterCaptions,,0,0,0,,This studio has one technician.
+Dialogue: 0,0:00:31.18,0:00:37.40,LusterCaptions,,0,0,0,,The review screen shows the service,\Nprice, duration, time, and location.
+Dialogue: 0,0:00:37.90,0:00:41.45,LusterCaptions,,0,0,0,,She enters her name, email, and mobile\Nnumber.
+Dialogue: 0,0:00:41.49,0:00:43.65,LusterCaptions,,0,0,0,,The required fields are clearly marked.
+Dialogue: 0,0:00:45.15,0:00:47.42,LusterCaptions,,0,0,0,,She reads the appointment agreement
+Dialogue: 0,0:00:47.42,0:00:50.80,LusterCaptions,,0,0,0,,and checks the required acknowledgment\Nbefore continuing.
+Dialogue: 0,0:00:53.25,0:00:57.40,LusterCaptions,,0,0,0,,With the details reviewed, she taps\NConfirm appointment.
+Dialogue: 0,0:00:59.33,0:01:02.94,LusterCaptions,,0,0,0,,The confirmation screen shows that the\Nbooking is complete.
+Dialogue: 0,0:01:02.97,0:01:04.45,LusterCaptions,,0,0,0,,Her time is reserved.

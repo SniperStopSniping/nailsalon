@@ -1,0 +1,81 @@
+{
+  "video": "tutorial-booking",
+  "annotation": "Hand pointer and click pulse added in the edit to explain real recorded actions; not application UI.",
+  "recording": "recordings/tutorial-booking/f1488ebdc5ea5e73afc707c6f4c1a369.webm",
+  "coordinates": "Pixels in uncropped source; visible application occupies x0..390 and y0..844.",
+  "timingMethod": "Original capture action sequence plus visual inspection of 10fps control contact sheets. Manually aligned within approximately 0.1 second of visible press/result; original recording has no embedded cursor.",
+  "clockNote": "Wall-clock capture event marks diverge from encoded video time; do not treat marks plus scripted pauses as source time.",
+  "clicks": [
+    {
+      "scene": "service",
+      "sourceTime": 9.48,
+      "x": 102,
+      "y": 421,
+      "control": "Select BIAB Overlay"
+    },
+    {
+      "scene": "addon",
+      "sourceTime": 14.76,
+      "x": 324,
+      "y": 421,
+      "control": "Add Simple Nail Art"
+    },
+    {
+      "scene": "continue",
+      "sourceTime": 20.12,
+      "x": 318,
+      "y": 816,
+      "control": "Continue"
+    },
+    {
+      "scene": "date",
+      "sourceTime": 25.16,
+      "x": 146,
+      "y": 422,
+      "control": "Choose Friday, October 2"
+    },
+    {
+      "scene": "time",
+      "sourceTime": 28.88,
+      "x": 113,
+      "y": 238,
+      "control": "Choose 10:00 AM"
+    },
+    {
+      "scene": "agreement",
+      "sourceTime": 49.64,
+      "x": 44,
+      "y": 493,
+      "control": "Required appointment agreement"
+    },
+    {
+      "scene": "confirm",
+      "sourceTime": 55.88,
+      "x": 195,
+      "y": 605,
+      "control": "Confirm appointment \u00b7 $75.00"
+    }
+  ],
+  "evidence": "qa/cursor-review/*-timing.png (local frame contact sheets)",
+  "exclusions": [
+    "No click is shown in the introductory outcome preview.",
+    "No fabricated field clicks: original footage focuses text fields through keyboard entry.",
+    "No extra booking was created for the cursor revision."
+  ],
+  "futureCaptures": "capture-booking.mjs now records target coordinates and action intervals; synchronize these to encoded frames before editing.",
+  "reviewStatus": "Reviewed all seven click targets against exported press frames; service and checkbox pulse/fade inspected separately.",
+  "render": {
+    "path": "exports/tutorial-booking.captioned.mp4",
+    "durationSeconds": 66.1,
+    "fps": 30,
+    "dimensions": [
+      1920,
+      1080
+    ],
+    "sha256": "9be0fdaeb1d5c22aeb8ddaa814f96118f9baab4fbe765cb3441d44356fbb195d",
+    "fullDecode": "passed",
+    "finalNarration": "Corrected cached narration aligned and normalized"
+  },
+  "exportEvidence": "qa/final-frames/*.png and qa/reference-technical.json",
+  "framing": "Per-scene saved source crop and app_x override; hand mapping applies the same transform as the actual video."
+}

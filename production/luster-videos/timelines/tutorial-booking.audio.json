@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "timeline": "timelines/tutorial-booking.json",
+  "output": "narration/tutorial-booking-aligned.wav",
+  "duration_seconds": 66.1,
+  "sections": [
+    {
+      "id": "opening",
+      "start": 4.3
+    },
+    {
+      "id": "service",
+      "start": 8.95
+    },
+    {
+      "id": "extras",
+      "start": 13.75
+    },
+    {
+      "id": "time",
+      "start": 24.15
+    },
+    {
+      "id": "review",
+      "start": 31.15
+    },
+    {
+      "id": "details",
+      "start": 37.85
+    },
+    {
+      "id": "agreement",
+      "start": 45.1
+    },
+    {
+      "id": "confirm",
+      "start": 53.2
+    },
+    {
+      "id": "confirmation",
+      "start": 59.3
+    }
+  ],
+  "normalization": {
+    "integrated_lufs": -18,
+    "true_peak_dbtp": -1.5,
+    "loudness_range_lu": 7
+  },
+  "source_policy": "Use cached original TTS at natural speed; no paid calls on rebuild.",
+  "sections_config": "narration-scripts/tutorial-booking.sections.json"
+}
