@@ -1638,7 +1638,7 @@ describe('AdminDashboardPage', () => {
 
     expect(await screen.findByTestId('appointment-saved-notice')).toHaveTextContent('Appointment saved');
 
-    fireEvent.click(screen.getByRole('button', { name: 'View calendar', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: /^View calendar$/ }));
 
     expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin?salon=salon-b&app=schedule');
     expect(screen.queryByTestId('appointment-saved-notice')).not.toBeInTheDocument();
