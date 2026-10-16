@@ -8,7 +8,7 @@ import { SetupError } from '@/features/business-setup/contracts';
 import { customSiteSourceSchema } from './contracts';
 
 const TAGS = new Set('main section article aside header footer nav div span p h1 h2 h3 h4 h5 h6 strong em b i small br hr ul ol li dl dt dd figure figcaption blockquote button a img picture details summary template label time mark svg path circle ellipse rect line polyline polygon g title desc'.split(' '));
-const ATTRS = new Set('id class role title alt width height viewBox viewbox d fill stroke stroke-width stroke-linecap stroke-linejoin cx cy r rx ry x y x1 y1 x2 y2 points transform opacity tabindex hidden open type'.split(' '));
+const ATTRS = new Set('id class role title alt width height viewBox viewbox preserveAspectRatio preserveaspectratio d fill stroke stroke-width stroke-linecap stroke-linejoin cx cy r rx ry x y x1 y1 x2 y2 points transform opacity tabindex hidden open type'.split(' '));
 const FIELDS = new Set(['business.name', 'business.city', 'business.address', 'business.bio', 'business.hoursLabel', 'service.name', 'service.description', 'service.priceLabel', 'service.durationMinutes']);
 const IMAGE_HINTS: Record<string, readonly string[]> = { loading: ['lazy', 'eager'], decoding: ['async', 'sync', 'auto'], fetchpriority: ['high', 'low', 'auto'] };
 type SourceNode = { tagName?: string; attrs?: { name: string; value: string }[]; childNodes?: SourceNode[]; content?: SourceNode };
@@ -90,6 +90,9 @@ export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>,
         continue;
       }
       if (attr.name.startsWith('aria-') || ATTRS.has(attr.name)) {
+        if (attr.name.toLowerCase() === 'preserveaspectratio' && (node.tagName !== 'svg' || !/^(?:none|x(?:Min|Mid|Max)Y(?:Min|Mid|Max)(?:\s+(?:meet|slice))?)$/u.test(attr.value))) {
+          fail('Use a supported SVG aspect ratio value.');
+        }
         if (attr.name === 'id') {
           if (!/^[a-z][\w-]{0,70}$/iu.test(attr.value) || ids.has(attr.value)) {
             fail('Use unique, simple element identifiers.');

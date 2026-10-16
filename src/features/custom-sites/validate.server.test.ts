@@ -26,6 +26,14 @@ describe('custom frontend source validation', () => {
     expect(() => validateCustomSource({ ...source, html: `${source.html}<img src="asset:other" alt="Work">` }, new Set(['photo']))).toThrow();
   });
 
+  it.each(['none', 'xMidYMid', 'xMinYMax slice', 'xMaxYMin meet'])('keeps safe generated SVG proportions without a paid repair: %s', (value) => {
+    expect(validateCustomSource({ ...source, html: `${source.html}<svg viewBox="0 0 100 20" preserveAspectRatio="${value}"><path d="M0 0 L100 20"></path></svg>` }, new Set()).html).toContain(`preserveAspectRatio="${value}"`);
+  });
+
+  it.each(['url(https://evil.invalid)', 'javascript:alert(1)', 'xOtherYMid', 'none external'])('rejects unsupported SVG aspect ratio syntax: %s', (value) => {
+    expect(() => validateCustomSource({ ...source, html: `${source.html}<svg preserveAspectRatio="${value}"></svg>` }, new Set())).toThrow('SVG aspect ratio');
+  });
+
   it('permits bounded image loading hints without allowing new resource URLs', () => {
     const image = '<img src="asset:photo" alt="Work" loading="lazy" decoding="async" fetchpriority="high">';
 
