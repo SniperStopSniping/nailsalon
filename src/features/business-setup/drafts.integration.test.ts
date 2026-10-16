@@ -855,6 +855,23 @@ describe('own business upload review', () => {
     expect(() => uploadFactsToOperations({ ...nested, servicesJson: [{ ...nested.servicesJson[0], durationMinutes: 0 }] }, head.revision.document, randomUUID())).toThrow();
   });
 
+  it.each(['', 'Appointment lengths are not visible.', '["Appointment lengths are not visible."]'])('normalizes supported notes representation %j without changing extracted facts', async (notes) => {
+    const actor = await fixture();
+    const document = (await openSetup(actor)).revision.document;
+    const expectedNotes = notes ? ['Appointment lengths are not visible.'] : [];
+
+    expect(uploadFactsToOperations(facts({ notes }), document, 'same-operation'))
+      .toEqual(uploadFactsToOperations(facts({ notes: expectedNotes }), document, 'same-operation'));
+  });
+
+  it.each([null, {}, '[{"publish":true}]', '["broken"', 'x'.repeat(401), JSON.stringify(Array.from({ length: 16 }, () => 'note')), ' '.repeat(6501)].map((notes, index) => [index, notes]))('rejects invalid or oversized extraction notes (case %i)', async (_index, notes) => {
+    const actor = await fixture();
+    const document = (await openSetup(actor)).revision.document;
+
+    expect(() => uploadFactsToOperations(facts({ notes }), document, randomUUID())).toThrow();
+    expect((await openSetup(actor)).revision.document).toEqual(document);
+  });
+
   it('reads privately, retains a review across reloads, then applies once without touching live data', async () => {
     const actor = await fixture();
     const asset = await upload(actor);
@@ -1061,6 +1078,46 @@ describe('reading own images directly in conversation', () => {
     const saved = await editSetup(actor, { expectedRevision: head.revision.revision, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { fidelity: 'match', referenceIds: [asset.id], ownedReferenceIds: own ? [asset.id] : [], websiteAssetIds: [] } }] });
     return { actor, asset, revision: saved.revision.revision };
   }
+
+  it.each(['', 'Opening hours and appointment lengths are not visible.'])('continues an image-first conversation after reset when notes arrive as text %j', async (notes) => {
+    const { actor, asset, revision } = await attached();
+    const reset = await resetSetupDraft(actor, { expectedRevision: revision, operationId: randomUUID() });
+    const attachedHead = await editSetup(actor, { expectedRevision: reset.revision.revision, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { fidelity: 'match', referenceIds: [asset.id], ownedReferenceIds: [asset.id], websiteAssetIds: [] } }] });
+    const raw = { ...facts, hoursJson: JSON.parse(facts.hoursJson), servicesJson: JSON.parse(facts.servicesJson), notes };
+    const provider = model(answer({ uploadFactsJson: JSON.stringify(raw) }));
+    const input = { expectedRevision: attachedHead.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Make exactly like this', referenceIds: [asset.id] };
+    const result = await runSetupConversation(actor, input, provider);
+
+    expect(result.head.revision.document.business.name).toBe('Petal Nails');
+    expect(result.head.revision.document.website.config.customFrontendId).toBeUndefined();
+    expect(result.head.revision.document.services[0]).toMatchObject({ name: 'BIAB', priceCents: 6500, durationMinutes: null, confirmed: false });
+    expect(result.reply).toContain('How long is a BIAB appointment');
+    expect((await runSetupConversation(actor, input, provider)).head.revision.revision).toBe(result.head.revision.revision);
+    expect(provider.createResponse).toHaveBeenCalledTimes(1);
+
+    const [call] = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId));
+
+    expect(call!.validation).toBe('passed');
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
+  it('retains a useful failure reason after rejected extraction without logging private output or changing the draft', async () => {
+    const { actor, asset, revision } = await attached();
+    const before = (await openSetup(actor)).revision.document;
+    const operationId = randomUUID();
+    const provider = model(answer({ uploadFactsJson: JSON.stringify({ ...facts, notes: [{ publish: true }] }) }));
+
+    await expect(runSetupConversation(actor, { expectedRevision: revision, operationId, scope: 'website', message: 'Make exactly like this', referenceIds: [asset.id] }, provider)).rejects.toMatchObject({ code: 'NOT_READY', message: expect.stringContaining('could not read all the details') });
+
+    const [turn] = await database.select().from(schema.businessSetupTurnSchema).where(eq(schema.businessSetupTurnSchema.id, operationId));
+    const [call] = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId));
+
+    expect(turn).toMatchObject({ status: 'failed', reply: expect.stringContaining('Your image is saved.') });
+    expect(turn!.reply).not.toContain('42 Synthetic Lane');
+    expect(call!.validation).toBe('conversation_schema_invalid');
+    expect((await openSetup(actor)).revision.document).toEqual(before);
+    expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  });
 
   it('keeps readable policies and public contacts in the draft without changing live settings', async () => {
     const { actor, asset, revision } = await attached();

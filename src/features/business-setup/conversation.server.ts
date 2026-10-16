@@ -12,7 +12,7 @@ import { generateCustomSite } from '@/features/custom-sites/generate.server';
 import { isExplicitServicePriceEdit } from '@/features/custom-sites/price-edit';
 import type { ModelProviderInputItem, OwnerAssistantModelProvider } from '@/libs/ai/provider';
 import { db } from '@/libs/DB';
-import { businessSetupTurnSchema as turns, customSiteGenerationSchema as designs } from '@/models/Schema';
+import { businessSetupTurnSchema as turns, customSiteGenerationSchema as designs, setupAiCallSchema as calls } from '@/models/Schema';
 
 import { estimateSetupAiCost, runSetupModel, SETUP_AI_MODEL, setupAiConfigured } from './ai-trial.server';
 import { applySetupOperations, missingDesignDetails, SetupError, setupOperationSchema } from './contracts';
@@ -111,6 +111,8 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
     if (!admitted.history.length && admitted.turn.createdAt.getTime() < Date.now() - 60000) {
       throw new SetupError('NOT_READY', 'That attempt was interrupted. Your draft is safe; send a new message to retry.');
     }
+    let responseCallId: string | undefined;
+    let readingUpload = false;
     try {
       const document = { ...admitted.head.revision.document, business: { ...admitted.head.revision.document.business, exactAddress: admitted.head.revision.document.business.exactAddress ? '[saved privately]' : '' } };
       const references = await ownedAssets(db, actor.salonId, input.referenceIds ?? []);
@@ -128,12 +130,13 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       if (context.length > 40000) {
         throw new SetupError('NOT_READY', 'This setup is too large for one AI update. Use the manual controls for this change.');
       }
-      const { result } = await runSetupModel(actor, { operationId: input.operationId, ordinal: 0, expectedRevision: input.expectedRevision, request: { model: SETUP_AI_MODEL, input: [
+      const { result, callId } = await runSetupModel(actor, { operationId: input.operationId, ordinal: 0, expectedRevision: input.expectedRevision, request: { model: SETUP_AI_MODEL, input: [
         { role: 'system', content: PROMPT },
         { role: 'developer', content: context },
         ...admitted.history.flatMap(t => [{ role: 'user' as const, content: t.message }, ...(t.reply ? [{ role: 'assistant' as const, content: t.reply }] : [])]),
         { role: 'user', content: parts },
       ], tools: [], toolChoice: 'none', maxOutputTokens: readable.length ? 7000 : 3000, timeoutMs: readable.length ? 90000 : 40000, jsonMode: 'schema', jsonSchema: outputSchema, reasoningEffort: 'low' } }, providerOverride);
+      responseCallId = callId;
       const usage = result.usage;
       const costMicroUsd = estimateSetupAiCost(usage);
       await db.update(turns).set({ inputTokens: usage?.inputTokens ?? null, outputTokens: usage?.outputTokens ?? null, costMicroUsd }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
@@ -161,6 +164,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       reply = answer.reply;
       let extractedSummary = '';
       if (answer.uploadFactsJson) {
+        readingUpload = true;
         if (!readable.length) {
           throw new SetupError('INVALID', 'Is this your own business design, or just inspiration? Business details can only come from your own files.');
         }
@@ -198,12 +202,19 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
         designOperationId ??= randomUUID();
       }
       await db.update(turns).set({ operations, reply, designRequest, designOperationId, status: 'generated' }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
+      await db.update(calls).set({ validation: 'passed' }).where(and(eq(calls.id, responseCallId), eq(calls.salonId, actor.salonId)));
     } catch (error) {
-      await db.update(turns).set({ status: 'failed' }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
-      if (error instanceof SetupError) {
-        throw error;
+      const failure = error instanceof SetupError
+        ? error
+        : new SetupError('NOT_READY', readingUpload
+          ? 'I could not read all the details in that image reliably. Your image is saved. Try again, or tell me any missing details here.'
+          : 'AI could not finish that request. Your saved draft is safe. Try again or use the manual controls.');
+      await db.update(turns).set({ status: 'failed', reply: failure.message }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
+      if (responseCallId) {
+        const validation = error instanceof z.ZodError || error instanceof SyntaxError ? 'conversation_schema_invalid' : 'conversation_rejected';
+        await db.update(calls).set({ validation }).where(and(eq(calls.id, responseCallId), eq(calls.salonId, actor.salonId)));
       }
-      throw new SetupError('NOT_READY', 'AI could not finish that request. Your saved draft is safe. Try again or use the manual controls.');
+      throw failure;
     }
   }
   if (operations.length && operations.every(op => op.type === 'website_details' && Object.entries(op.values).every(([key, value]) => ['instagram', 'email', 'phone'].includes(key) && typeof value === 'string')) && admitted.head.revision.document.website.config.customFrontendId) {

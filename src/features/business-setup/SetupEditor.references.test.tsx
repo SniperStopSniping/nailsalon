@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { CLOSED_HOURS } from './contracts';
@@ -195,11 +195,15 @@ it('opens with one conversation and keeps preview and manual forms out of the de
   expect(screen.queryByRole('region', { name: 'Website preview' })).not.toBeInTheDocument();
   expect(requests.every(request => request.action === 'open')).toBe(true);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  });
 
   expect(screen.getByRole('region', { name: 'Business setup' })).toBeVisible();
 
-  fireEvent.click(screen.getByRole('button', { name: '← Back to chat' }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: '← Back to chat' }));
+  });
 
   expect(screen.getByRole('textbox', { name: 'Message Luster' })).toBeVisible();
 });
@@ -319,6 +323,43 @@ it('keeps the message available after a failed request and does not retry a paid
   expect(screen.getByText('My salon is called Aster.')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Retry message' })).toBeInTheDocument();
   expect(requests.filter(request => request.action === 'message')).toHaveLength(1);
+});
+
+it('shows the saved failure reason once when polling reconciles a failed message', async () => {
+  const baseFetch = globalThis.fetch;
+  const reason = 'I could not read all the details in that image reliably. Your image is saved. Try again, or tell me any missing details here.';
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'message') {
+      requests.push(request);
+      messages.push({ id: request.message.operationId, message: request.message.message, reply: reason, status: 'failed' });
+      return { ok: false, status: 409, json: async () => ({ error: { code: 'NOT_READY', message: reason } }) };
+    }
+    return baseFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Luster' }), { target: { value: 'Make exactly like this' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await screen.findByRole('alert');
+
+  expect(screen.getAllByText(reason)).toHaveLength(1);
+  expect(screen.queryByText('This attempt stopped. Your saved changes are safe.')).not.toBeInTheDocument();
+  expect(screen.queryByText('This request stopped. Your saved changes are safe.')).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveValue('');
+  expect(screen.getByRole('button', { name: 'Retry message' })).toBeEnabled();
+  expect(requests.filter(request => request.action === 'message')).toHaveLength(1);
+});
+
+it('retains a saved failure reason after refresh without displaying duplicate stopped notices', async () => {
+  messages = [{ id: crypto.randomUUID(), message: 'Make exactly like this', reply: 'This request would exceed the approved AI trial budget. Your saved draft is unchanged.', status: 'failed' }];
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+
+  await screen.findByText(messages[0].reply);
+
+  expect(screen.getAllByText(messages[0].reply)).toHaveLength(1);
+  expect(screen.queryByText('This request stopped. Your saved changes are safe.')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Retry message' })).toBeEnabled();
 });
 
 it('recovers the published state after a lost response without asking for approval again', async () => {

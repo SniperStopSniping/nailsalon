@@ -185,7 +185,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
         setActivity('');
         setError('');
       } else if (saved && ['failed', 'interrupted'].includes(saved.status)) {
-        saveSubmission({ ...current, status: 'failed', error: 'This attempt stopped. Your saved changes are safe.' });
+        saveSubmission({ ...current, status: 'failed', error: saved.reply || 'This attempt stopped. Your saved changes are safe.' });
         setPendingMessage(null);
         setActivity('');
       } else if (!saved && current.status === 'checking' && Date.now() - current.startedAt > 30000) {
@@ -439,7 +439,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               {messages.map(message => (
                 <div key={message.id}>
                   <p className="setup-owner">{message.message}</p>
-                  {message.reply && <p className="setup-assistant">{message.reply.replace(/\*\*([^*]+)\*\*/gu, '$1').replaceAll('not_shown', 'unclear')}</p>}
+                  {message.reply && !['failed', 'interrupted'].includes(message.status) && <p className="setup-assistant">{message.reply.replace(/\*\*([^*]+)\*\*/gu, '$1').replaceAll('not_shown', 'unclear')}</p>}
                   {message.status === 'pending' && (
                     <p role="status" className="setup-thinking">
                       <span aria-hidden="true">✦</span>
@@ -449,7 +449,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                   )}
                   {['failed', 'interrupted'].includes(message.status) && (
                     <div>
-                      {submission?.request.operationId !== message.id && <p>This request stopped. Your saved changes are safe.</p>}
+                      {submission?.request.operationId !== message.id && <p>{message.reply || 'This request stopped. Your saved changes are safe.'}</p>}
                       {submission?.request.operationId !== message.id && (
                         <button
                           type="button"
