@@ -17,5 +17,8 @@ export function requestsPreviewNow(message: string, hasReference = false): boole
 }
 
 export function requestsSampleDetails(message: string): boolean {
-  return requestsPreviewNow(message) && /\bmake\s+(?:it|something|stuff|things)\s+up\b|\b(?:sample|example|suggested|random|placeholder)\b/iu.test(message);
+  // Skip intake only for a standalone request to use suggestions. A mixed
+  // message may also supply a real name, location, hours or services; those
+  // answers must go through structured intake before design generation.
+  return requestsPreviewNow(message) && /^(?:please\s+)?(?:just\s+)?(?:make\s+(?:it|something|stuff|things)\s+up|(?:use|add|pick|choose)\s+(?:some\s+)?(?:sample|example|suggested|random|placeholder)\s+(?:details|information|prices|hours|services|booking details))(?:\s+(?:for\s+(?:the\s+)?(?:preview|now)|now|please))?[.!\s]*$/iu.test(message.trim());
 }

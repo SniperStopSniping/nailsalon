@@ -1138,6 +1138,18 @@ describe('reading own images directly in conversation', () => {
     return { actor, asset, revision: saved.revision.revision };
   }
 
+  it('captures explicit business answers before generating when the same message requests sample details', async () => {
+    const { actor, asset, revision } = await attached(true, false);
+    const provider = model({ reply: 'I am creating your draft with suggested booking details.', uploadFacts: null, designRequest: 'Follow the attached floral reference.', operationsJson: JSON.stringify([{ type: 'business', values: { name: 'Pink Lily Studio', city: 'Toronto', workMode: 'solo' } }]) });
+    const result = await runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'business_and_website', message: 'Create my website for Pink Lily Studio. I work solo in Toronto. Use suggested services and hours for now.', referenceIds: [asset.id] }, provider);
+
+    expect(result.head.revision.document.business).toMatchObject({ name: 'Pink Lily Studio', city: 'Toronto', workMode: 'solo' });
+    expect(result.head.revision.document.website.config.customFrontendId).toBeTruthy();
+    expect(result.head.revision.document.services[0]!.confirmed).toBe(false);
+    expect(JSON.parse(provider.createResponse.mock.calls[1]![0].input[1].content).business.name).toBe('Pink Lily Studio');
+    expect(provider.createResponse).toHaveBeenCalledTimes(2);
+  });
+
   it('creates a real editable first preview from just make it up without intake or extraction calls, and gates publication on review', async () => {
     const { actor, asset, revision } = await attached();
     const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 1200, outputTokens: 1800, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
