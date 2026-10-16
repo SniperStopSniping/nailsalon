@@ -19,7 +19,7 @@ Conversation validation records a safe status in the existing private call ledge
 - TypeScript, scoped ESLint and diff checks passed.
 - Deterministic tests use provider doubles. Replaying retained real-provider output is not a new model generation or proof of website visual fidelity.
 
-No production migration, production data change or merge is part of this fix. 
+No production migration, production data change or merge is part of this fix.
 
 ## Hosted verification
 
