@@ -60,9 +60,16 @@ export function comfortableCanvaAreas(areas: CanvaArea[], pages: { width: number
     const minimumHeight = minimumWidth * page.width / page.height;
     const width = Math.max(area.geometry.width, minimumWidth);
     const height = Math.max(area.geometry.height, minimumHeight);
-    const candidate = clampNormalizedRect({ x: area.geometry.x - (width - area.geometry.width) / 2, y: area.geometry.y - (height - area.geometry.height) / 2, width, height }).rect;
-    if (!result.some(other => other.id !== area.id && other.page === area.page && rectanglesHaveInteriorOverlap(candidate, other.geometry))) {
-      area.geometry = candidate;
+    const extraX = width - area.geometry.width;
+    const extraY = height - area.geometry.height;
+    // Adjacent contact lines may have no room for symmetric padding. Expand
+    // into free space on either side while still covering the original label.
+    for (const [horizontal, vertical] of [[0.5, 0.5], [0.5, 1], [0.5, 0], [1, 0.5], [0, 0.5], [1, 1], [0, 1], [1, 0], [0, 0]] as const) {
+      const candidate = clampNormalizedRect({ x: area.geometry.x - extraX * horizontal, y: area.geometry.y - extraY * vertical, width, height }).rect;
+      if (!result.some(other => other.id !== area.id && other.page === area.page && rectanglesHaveInteriorOverlap(candidate, other.geometry))) {
+        area.geometry = candidate;
+        break;
+      }
     }
   }
   return result;
@@ -72,6 +79,22 @@ const escape = (value: string) => value.replace(/[&<>"']/gu, c => ({ '&': '&amp;
 /** Trusted presentation compiler. AI supplies positions/actions, never artwork or code. */
 export function compileCanvaDesign(raw: CanvaDesign, details?: WebsiteDetails): CustomSiteSource {
   const design = canvaDesignSchema.parse(raw);
+  for (const area of design.areas) {
+    // Contact actions always use saved destinations. A generated label must
+    // not contradict that destination for keyboard/screen-reader customers.
+    if (area.action.type === 'email' && details?.email && area.label.includes('@') && !area.label.toLowerCase().includes(details.email.toLowerCase())) {
+      area.label = `Email ${details.email}`.slice(0, 200);
+    }
+    const handle = area.label.match(/@[\w.]+/u)?.[0];
+    if (area.action.type === 'instagram' && details?.instagram && handle && handle.toLowerCase().replace(/^@/u, '') !== details.instagram.toLowerCase().replace(/^@/u, '')) {
+      area.label = `Instagram @${details.instagram.replace(/^@/u, '')}`;
+    }
+    // On a public service-selection page, this label means the full menu,
+    // rather than searching for a customer's existing booking.
+    if (area.action.type === 'manage' && /^show\s+all\s+(?:appointments|services)$/iu.test(area.label.trim())) {
+      area.action = { type: 'book' };
+    }
+  }
   // A compressed phone screenshot should fill a phone, not become a narrow
   // column capped at its export's pixel width. Bytes and proportions stay intact.
   const css = `.canva-site{margin:0 auto;max-width:${Math.max(600, ...design.pages.map(page => page.width))}px}.canva-page{position:relative;margin:0}.canva-page img{display:block;width:100%;height:auto}.canva-area{position:absolute;display:block;z-index:1;padding:0;border:0;background:transparent;color:transparent;text-decoration:none;cursor:pointer}.canva-area:focus-visible{outline:3px solid #8a3859;outline-offset:2px}.canva-area:disabled{cursor:default}[data-luster-canva-area][hidden]{display:none!important}.canva-accessible{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.canva-accessible:focus-within{position:static;width:auto;height:auto;overflow:visible;clip-path:none;padding:20px}img{max-width:100%}`;

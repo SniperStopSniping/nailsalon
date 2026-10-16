@@ -14,6 +14,28 @@ const data: CustomSiteData = { business: { name: 'Canva Studio', city: 'Toronto'
 const design = (): CanvaDesign => ({ version: 1, pages: [{ assetId: randomUUID(), width: 600, height: 1800, alt: 'Original salon artwork' }], areas: [{ id: 'book', page: 0, label: 'Book Gel', geometry: { x: 10, y: 80, width: 80, height: 5 }, action: { type: 'service', serviceKey: canvaServiceKey(data.services[0]!) } }], visibleText: 'Original artwork', notes: [], ownerReviewed: false, dataFingerprint: canvaDataFingerprint(data) });
 
 describe('preserved Canva artwork', () => {
+  it('binds generated contact labels to saved contacts and routes Show all appointments to the menu', () => {
+    const input = design();
+    input.areas = [
+      { ...input.areas[0]!, id: 'email', label: 'Email wrong@example.com', geometry: { x: 10, y: 10, width: 80, height: 5 }, action: { type: 'email' } },
+      { ...input.areas[0]!, id: 'instagram', label: 'Instagram @wrong_studio', geometry: { x: 10, y: 20, width: 80, height: 5 }, action: { type: 'instagram' } },
+      { ...input.areas[0]!, id: 'all', label: 'Show All Appointments', geometry: { x: 10, y: 30, width: 80, height: 5 }, action: { type: 'manage' } },
+    ];
+    const source = compileCanvaDesign(input, { ...EMPTY_WEBSITE_DETAILS, email: 'studio@example.com', instagram: '@correct_studio' });
+
+    expect(source.canva?.areas.map(area => area.label)).toEqual(['Email studio@example.com', 'Instagram @correct_studio', 'Show All Appointments']);
+    expect(source.canva?.areas[2]!.action).toEqual({ type: 'book' });
+    expect(source.html).toContain('id="canva-all" class="canva-area" data-luster-canva-area="all" aria-label="Show All Appointments" data-luster-book');
+    expect(input.areas[0]!.label).toBe('Email wrong@example.com');
+    expect(input.areas[2]!.action.type).toBe('manage');
+
+    input.areas[0]!.label = 'Email the studio';
+    input.areas[2]!.label = 'Manage my existing appointment';
+
+    expect(compileCanvaDesign(input).canva?.areas[0]!.label).toBe('Email the studio');
+    expect(compileCanvaDesign(input).canva?.areas[2]!.action.type).toBe('manage');
+  });
+
   it('lets a narrow phone export fill a phone while preserving the image and link geometry', () => {
     const input = design();
     input.pages[0]!.width = 279;
@@ -45,9 +67,29 @@ describe('preserved Canva artwork', () => {
     expect(input.areas[0]!.geometry.height).toBe(1);
     expect(canvaDesignSchema.safeParse({ ...input, areas: padded }).success).toBe(true);
 
-    const crowded = [...input.areas, { ...input.areas[0]!, id: 'nearby', geometry: { x: 10, y: 81, width: 10, height: 1 } }];
+    const crowded = [...input.areas, { ...input.areas[0]!, id: 'above', geometry: { x: 0, y: 79, width: 100, height: 1 } }, { ...input.areas[0]!, id: 'below', geometry: { x: 0, y: 81, width: 100, height: 1 } }];
 
     expect(comfortableCanvaAreas(crowded, input.pages)[0]!.geometry).toEqual(input.areas[0]!.geometry);
+  });
+
+  it('grows nearby Instagram and email targets into free space without covering each other', () => {
+    const input = design();
+    input.pages[0] = { ...input.pages[0]!, width: 279, height: 1280 };
+    input.areas = [
+      { ...input.areas[0]!, id: 'instagram', geometry: { x: 17.2, y: 25.3, width: 60.9, height: 1.6 }, action: { type: 'instagram' } },
+      { ...input.areas[0]!, id: 'email', geometry: { x: 17.2, y: 27.7, width: 60.9, height: 1.6 }, action: { type: 'email' } },
+    ];
+    const areas = comfortableCanvaAreas(input.areas, input.pages);
+
+    for (const [index, area] of areas.entries()) {
+      const original = input.areas[index]!.geometry;
+
+      expect(area.geometry.height * 1280 / 100).toBeCloseTo(44);
+      expect(area.geometry.y).toBeLessThanOrEqual(original.y);
+      expect(area.geometry.y + area.geometry.height).toBeGreaterThanOrEqual(original.y + original.height);
+    }
+
+    expect(canvaDesignSchema.safeParse({ ...input, areas }).success).toBe(true);
   });
 
   it('compiles unchanged image identities and percentage links, with an equivalent live accessible menu', () => {

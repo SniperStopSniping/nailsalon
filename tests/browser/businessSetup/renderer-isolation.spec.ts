@@ -24,6 +24,7 @@ test('Canva artwork stays pixel-identical while contacts and canonical service a
   input.data.details = { locationDirections: null, instagram: '@canva_studio', email: null, phone: null, sections: [] };
   input.serviceKeys = { ['a'.repeat(64)]: 'canonical-service' };
   input.source = compileCanvaDesign({ version: 1, pages: [{ assetId, width: 300, height: 600, alt: 'Original export' }], areas: [
+    { id: 'all', page: 0, label: 'Show All Appointments', geometry: { x: 10, y: 40, width: 80, height: 10 }, action: { type: 'manage' } },
     { id: 'book', page: 0, label: 'Book Gel', geometry: { x: 10, y: 60, width: 80, height: 10 }, action: { type: 'service', serviceKey: 'a'.repeat(64) } },
     { id: 'instagram', page: 0, label: 'Open Instagram', geometry: { x: 10, y: 80, width: 80, height: 10 }, action: { type: 'instagram' } },
   ], visibleText: '', notes: [], dataFingerprint: 'b'.repeat(64), ownerReviewed: true }, input.data.details);
@@ -47,6 +48,8 @@ test('Canva artwork stays pixel-identical while contacts and canonical service a
 
   await expect(site.locator('#canva-book')).toBeVisible();
   await expect(site.locator('#canva-book')).toHaveAttribute('data-luster-book', 'canonical-service');
+  await expect(site.locator('#canva-all')).toHaveAttribute('data-luster-book', '');
+  await expect(site.locator('#canva-all')).not.toHaveAttribute('data-luster-manage');
 
   const size = await site.locator('.canva-page img').evaluate(image => ({ width: image.clientWidth, height: image.clientHeight, available: image.ownerDocument.documentElement.clientWidth }));
 
