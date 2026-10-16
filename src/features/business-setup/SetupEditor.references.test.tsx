@@ -94,6 +94,38 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
+it('opens the first generated preview automatically and labels suggested booking details', async () => {
+  const baseFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'message') {
+      document.website.config.customFrontendId = crypto.randomUUID();
+      document.hoursOrigin = 'suggested';
+    }
+    return baseFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Luster' }), { target: { value: 'Just make it up' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true'));
+
+  expect(screen.getByRole('region', { name: 'Website preview' })).toBeVisible();
+  expect(screen.getByText('This first look includes suggested booking details. Change them in chat or Details, then review them before publishing.')).toBeVisible();
+  expect(requests.some(request => ['approve', 'publish'].includes(request.action))).toBe(false);
+});
+
+it('lets the owner explicitly accept suggested hours without approving or publishing the whole draft', async () => {
+  document.hoursOrigin = 'suggested';
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Details' })));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Use these hours' })));
+
+  expect(requests.find(request => request.action === 'edit').edit.operations).toEqual([{ type: 'confirm_hours' }]);
+  expect(requests.some(request => ['approve', 'publish'].includes(request.action))).toBe(false);
+});
+
 it('fully resets the draft and chat, opens a new upload immediately, and can restore the previous draft', async () => {
   document.website.config.customFrontendId = 'ceec2235-6a4d-4cf2-b052-daf29b74b859';
   document.designBrief = { fidelity: 'match', referenceIds: [reference.id], ownedReferenceIds: [reference.id], websiteAssetIds: [] };

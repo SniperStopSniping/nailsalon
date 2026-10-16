@@ -74,6 +74,7 @@ export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salo
       locationDisplayMode: content.live.locationDisplayMode,
     },
     hours: salon.businessHours ?? structuredClone(CLOSED_HOURS),
+    ...(salon.businessHours ? { hoursOrigin: 'existing' as const } : {}),
     booking: resolveBookingConfigFromSettings(salon.settings),
     bookingPolicy: resolveBookingExperience(salon.settings).policy,
     services: services.filter(s => s.isActive).map(s => ({
@@ -303,7 +304,7 @@ export function setupChanges(before: unknown, after: unknown, path = ''): SetupC
   return [{ path, before: before ?? null, after: after ?? null }];
 }
 export function makeSetupReview(head: Awaited<ReturnType<typeof loadSetupHead>>): SetupReview {
-  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['sessionStartRevision', 'previousDraftRevision'].includes(change.path));
+  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['sessionStartRevision', 'previousDraftRevision', 'hoursOrigin'].includes(change.path));
   return {
     revision: head.revision.revision,
     hash: setupHash({ workspaceId: head.workspace.id, revision: head.revision.revision, baseline: head.workspace.baselineHash, document: head.revision.document }),

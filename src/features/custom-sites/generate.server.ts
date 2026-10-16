@@ -4,7 +4,7 @@ import { and, desc, eq } from 'drizzle-orm';
 
 import { selectDesignModel } from '@/features/business-setup/ai-models';
 import { runSetupModel } from '@/features/business-setup/ai-trial.server';
-import { missingDesignDetails, SetupError } from '@/features/business-setup/contracts';
+import { previewBusinessIdentity, SetupError } from '@/features/business-setup/contracts';
 import type { SetupActor } from '@/features/business-setup/drafts.server';
 import { editSetup, loadSetupHead, lockSetupSalon, setupHash } from '@/features/business-setup/drafts.server';
 import type { ModelProviderInputItem, ModelProviderRequest, OwnerAssistantModelProvider } from '@/libs/ai/provider';
@@ -60,9 +60,6 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
   if (!artifactId) {
     try {
       const document = admitted.head.revision.document;
-      if (missingDesignDetails(document).length) {
-        throw new SetupError('NOT_READY', 'First add your business name, area, opening hours and at least one service with a price and appointment length. Luster will use those saved details for your design.');
-      }
       const priorId = document.website.config.customFrontendId;
       const [prior] = priorId && !input.startOver ? await db.select().from(artifacts).where(and(eq(artifacts.salonId, actor.salonId), eq(artifacts.id, priorId))) : [];
       const brief = document.designBrief;
@@ -77,7 +74,7 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
         throw new SetupError('INVALID', 'Choose fewer references for this design.');
       }
       const media = await ownedAssets(db, actor.salonId, assetIds);
-      const context = JSON.stringify({ websiteDetails: document.website.content.websiteDetails, business: { name: document.business.name, city: document.business.city, address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio, hours: document.hours, timezone: document.booking.timezone }, booking: { currency: document.booking.currency, minimumNoticeMinutes: document.booking.minimumNoticeMinutes, bufferMinutes: document.booking.bufferMinutes, confirmationMode: document.booking.confirmationMode }, services: document.services.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, durationMinutes: s.durationMinutes, confirmed: s.confirmed })), previousSource: prior?.source ?? null, designBrief: brief ?? { fidelity: 'inspiration', ownedReferenceIds: [] }, assets: media.map(a => ({ id: a.id, role: a.role, name: a.name })), startOver: input.startOver });
+      const context = JSON.stringify({ websiteDetails: document.website.content.websiteDetails, business: { ...previewBusinessIdentity(document), address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio, hours: document.hours, timezone: document.booking.timezone }, booking: { currency: document.booking.currency, minimumNoticeMinutes: document.booking.minimumNoticeMinutes, bufferMinutes: document.booking.bufferMinutes, confirmationMode: document.booking.confirmationMode }, services: document.services.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, durationMinutes: s.durationMinutes, confirmed: s.confirmed })), previousSource: prior?.source ?? null, designBrief: brief ?? { fidelity: 'inspiration', ownedReferenceIds: [] }, assets: media.map(a => ({ id: a.id, role: a.role, name: a.name })), startOver: input.startOver });
       if (Buffer.byteLength(context + CUSTOM_SITE_PROMPT + input.message) > 140000) {
         throw new SetupError('INVALID', 'This design is too large for one generation. Simplify the saved source first.');
       }

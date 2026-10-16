@@ -3,7 +3,7 @@ import 'server-only';
 import { getDomain } from 'tldts';
 
 import type { SetupDocument } from '@/features/business-setup/contracts';
-import { WEEKDAYS } from '@/features/business-setup/contracts';
+import { previewBusinessIdentity, WEEKDAYS } from '@/features/business-setup/contracts';
 import { db } from '@/libs/DB';
 
 import { assertCustomArtifact } from './artifacts.server';
@@ -56,7 +56,7 @@ export function setupCustomSitePayload(salonId: string, document: SetupDocument)
     return null;
   }
   return customSitePayload(salonId, id, {
-    business: { name: document.business.name, city: document.business.city, address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio ?? '', hours: document.hours },
+    business: { ...previewBusinessIdentity(document), address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio ?? '', hours: document.hours },
     services: document.services.filter(s => s.priceCents !== null && s.durationMinutes !== null).map(s => ({ id: `setup_preview_${s.id}`, name: s.name, description: s.description, priceCents: s.priceCents!, priceLabel: new Intl.NumberFormat('en-CA', { style: 'currency', currency: document.booking.currency }).format(s.priceCents! / 100), durationMinutes: s.durationMinutes! })),
     details: document.website.content.websiteDetails,
     currency: document.booking.currency,

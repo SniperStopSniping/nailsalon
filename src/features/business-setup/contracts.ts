@@ -58,6 +58,8 @@ const uploadOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('service'), values: setupServiceSchema }).strict(),
 ]);
 export const setupOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('preview_defaults'), seed: z.string().uuid() }).strict(),
+  z.object({ type: z.literal('confirm_hours') }).strict(),
   websiteDetailsOperation,
   z.object({ type: z.literal('import_upload'), referenceIds: z.array(z.string().uuid()).min(1).max(6), operations: z.array(uploadOperationSchema).min(1).max(30) }).strict(),
   z.object({ type: z.literal('design_brief'), values: designBriefSchema }).strict(),
@@ -84,6 +86,8 @@ export type SetupDocument = {
   previousDraftRevision?: number;
   business: z.infer<typeof businessSchema>;
   hours: SetupHours;
+  /** Suggested hours are editable draft values, never approved opening hours. */
+  hoursOrigin?: 'existing' | 'owner' | 'assistant' | 'upload' | 'suggested';
   booking: z.infer<typeof bookingConfigSchema>;
   bookingPolicy?: ReturnType<typeof resolveBookingExperience>['policy'];
   services: SetupService[];
@@ -102,6 +106,17 @@ export function missingDesignDetails(draft: SetupDocument): string[] {
     !Object.values(draft.hours).some(Boolean) && 'opening hours',
     !draft.services.some(service => service.priceCents !== null && service.durationMinutes !== null) && 'a service with its price and appointment length',
   ].filter((item): item is string => Boolean(item));
+}
+export function previewBusinessIdentity(draft: SetupDocument) {
+  return {
+    name: !draft.business.name.trim() || ['Untitled business', 'My test business'].includes(draft.business.name) ? 'Your salon' : draft.business.name,
+    city: draft.business.city || 'Your area',
+  };
+}
+export function needsPreviewDefaults(draft: SetupDocument) {
+  return (!draft.hoursOrigin && !Object.values(draft.hours).some(Boolean))
+    || !draft.services.length
+    || draft.services.some(service => service.origin !== 'existing' && !service.confirmed && (service.priceCents === null || service.durationMinutes === null));
 }
 export type SetupChange = {
   path: string;
@@ -126,6 +141,29 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   for (const raw of operations) {
     const op = setupOperationSchema.parse(raw);
     switch (op.type) {
+      case 'preview_defaults': {
+        if (origin !== 'assistant') {
+          throw new SetupError('FORBIDDEN', 'Preview suggestions are prepared through the website conversation.');
+        }
+        if (!next.hoursOrigin && !Object.values(next.hours).some(Boolean)) {
+          next.hours = { monday: null, tuesday: { open: '10:00', close: '18:00' }, wednesday: { open: '10:00', close: '18:00' }, thursday: { open: '10:00', close: '18:00' }, friday: { open: '10:00', close: '18:00' }, saturday: { open: '10:00', close: '18:00' }, sunday: null };
+          next.hoursOrigin = 'suggested';
+        }
+        if (!next.services.length) {
+          next.services.push({ id: `draft_sample_${op.seed}`, name: 'Signature appointment', description: null, priceCents: 6500, durationMinutes: 60, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'manicure', bookingCategory: 'manicure', origin: 'assistant', confirmed: false });
+        } else {
+          next.services = next.services.map(service => service.origin !== 'existing' && !service.confirmed && (service.priceCents === null || service.durationMinutes === null)
+            ? { ...service, priceCents: service.priceCents ?? 6500, durationMinutes: service.durationMinutes ?? 60, origin: 'assistant', confirmed: false }
+            : service);
+        }
+        break;
+      }
+      case 'confirm_hours':
+        if (origin !== 'owner') {
+          throw new SetupError('FORBIDDEN', 'Only you can accept suggested opening hours.');
+        }
+        next.hoursOrigin = 'owner';
+        break;
       case 'import_upload':
         if (origin !== 'assistant') {
           throw new SetupError('FORBIDDEN', 'Upload details must be read through your conversation.');
@@ -151,6 +189,7 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
         break;
       case 'hours':
         next.hours = op.values;
+        next.hoursOrigin = next.hoursOrigin === 'suggested' && origin !== 'owner' ? 'suggested' : origin;
         break;
       case 'booking':
         next.booking = bookingConfigSchema.parse({ ...next.booking, ...op.values });
@@ -212,6 +251,9 @@ export function setupReadiness(draft: SetupDocument): string[] {
   }
   if (!Object.values(draft.hours).some(Boolean)) {
     blockers.push('Add at least one open day.');
+  }
+  if (draft.hoursOrigin === 'suggested') {
+    blockers.push('Review the suggested opening hours.');
   }
   if (!draft.services.length) {
     blockers.push('Add at least one service.');

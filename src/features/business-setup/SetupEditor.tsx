@@ -320,6 +320,9 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
       }
       setHead(current => current && current.revision.revision > result.head.revision.revision ? current : result.head);
       setReview(null);
+      if (!customFrontendId && result.head.revision.document.website.config.customFrontendId) {
+        setTab('website');
+      }
       // The response proves completion even if the subsequent history GET fails.
       setMessages(current => [...current.filter(m => m.id !== request.operationId), { id: request.operationId, message: request.message, reply: result.reply, status: 'completed' }]);
       saveSubmission(null);
@@ -669,6 +672,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               <span className="setup-eyebrow">YOUR VISION, TAKING SHAPE</span>
               <h2>{customFrontendId ? 'Your website draft' : 'From inspiration to your website'}</h2>
               <p>Private preview. Booking is disabled here.</p>
+              {draft && (draft.hoursOrigin === 'suggested' || draft.services.some(service => service.origin === 'assistant' && !service.confirmed)) && <p role="status">This first look includes suggested booking details. Change them in chat or Details, then review them before publishing.</p>}
             </div>
           </div>
           {head && (
@@ -783,6 +787,12 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                 <button type="submit" disabled={busy || published}>Save booking essentials</button>
               </form>
               <h3>Opening hours</h3>
+              {draft.hoursOrigin === 'suggested' && (
+                <div className="setup-notice">
+                  <p>These hours are suggestions for your first preview. Adjust them below, or accept them when you are ready.</p>
+                  <button type="button" disabled={busy || published} onClick={() => void run(() => edit([{ type: 'confirm_hours' }]))}>Use these hours</button>
+                </div>
+              )}
               <form
                 key={`hours-${head.revision.revision}`}
                 onSubmit={(e) => {

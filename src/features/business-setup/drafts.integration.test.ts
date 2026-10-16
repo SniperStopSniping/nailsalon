@@ -24,7 +24,7 @@ import * as schema from '@/models/Schema';
 
 import { darkSource, editorialSource } from '../../../tests/browser/businessSetup/custom-design-fixtures';
 import { estimateSetupAiCost, runSetupModel } from './ai-trial.server';
-import { CLOSED_HOURS } from './contracts';
+import { applySetupOperations, CLOSED_HOURS } from './contracts';
 import { runSetupConversation } from './conversation.server';
 import { approveSetup, editSetup, openSetup, resetSetupDraft, restartSetup, reviewSetup } from './drafts.server';
 import { editSharedSetupWebsite } from './manual-website.server';
@@ -256,6 +256,8 @@ describe('isolated business setup persistence', () => {
 
   it.each([
     [{ type: 'confirm_services', ids: ['draft_gel'] }],
+    [{ type: 'confirm_hours' }],
+    [{ type: 'preview_defaults', seed: '33700000-0000-4000-8000-000000000001' }],
     [{ type: 'business', values: { name: 'Unexpected business edit' } }],
     [{ type: 'publish', salonId: 'another-salon' }],
   ])('rejects model actions outside website-only scope or approval authority', async (operation) => {
@@ -1062,7 +1064,7 @@ describe('owned design matching and website photos', () => {
 describe('reading own images directly in conversation', () => {
   const facts = { businessName: 'Petal Nails', city: 'Toronto', address: '42 Synthetic Lane', homeBased: true, currency: 'CAD', hoursJson: JSON.stringify([{ day: 'tuesday', status: 'open', open: '10:00', close: '18:00' }]), servicesJson: JSON.stringify([{ name: 'BIAB', description: null, priceKind: 'fixed', priceCents: 6500, durationMinutes: null, kind: 'base', category: 'builder_gel', bookingCategory: 'manicure' }]), notes: [] };
   const answer = (values: Record<string, unknown> = {}) => ({ reply: 'How long is a BIAB appointment, and do you work on your own?', operationsJson: '[]', designRequest: null, uploadFactsJson: JSON.stringify(facts), ...values });
-  const model = (value: unknown) => ({ createResponse: vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 1200, outputTokens: 800, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(value) }] }) });
+  const model = (value: unknown, source = editorialSource) => ({ createResponse: vi.fn().mockResolvedValueOnce({ status: 'completed', usage: { inputTokens: 1200, outputTokens: 800, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(value) }] }).mockResolvedValue({ status: 'completed', usage: { inputTokens: 1200, outputTokens: 800, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(source) }] }) });
   async function attached(empty = true, own = true) {
     const actor = await fixture();
     if (empty) {
@@ -1079,6 +1081,156 @@ describe('reading own images directly in conversation', () => {
     return { actor, asset, revision: saved.revision.revision };
   }
 
+  it('creates a real editable first preview from just make it up without intake or extraction calls, and gates publication on review', async () => {
+    const { actor, asset, revision } = await attached();
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 1200, outputTokens: 1800, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
+    const provider = { createResponse };
+    const input = { expectedRevision: revision, operationId: randomUUID(), scope: 'website', message: 'Just make it up', referenceIds: [asset.id] };
+    const result = await runSetupConversation(actor, input, provider);
+    const draft = result.head.revision.document;
+
+    expect(createResponse).toHaveBeenCalledTimes(1);
+    expect(createResponse.mock.calls[0]![0].model).toBe('gpt-6.1-sol');
+    expect(JSON.parse(createResponse.mock.calls[0]![0].input[1].content).business).toMatchObject({ name: 'Your salon', city: 'Your area', address: null });
+    expect(draft.website.config.customFrontendId).toBeTruthy();
+    expect(draft.business).toMatchObject({ name: 'Untitled business', city: '', workMode: 'unknown', exactAddress: '', locationDisplayMode: 'city_only' });
+    expect(draft.hoursOrigin).toBe('suggested');
+    expect(draft.services).toHaveLength(1);
+    expect(draft.services[0]).toMatchObject({ name: 'Signature appointment', priceCents: 6500, durationMinutes: 60, confirmed: false, origin: 'assistant' });
+    expect((await openSetup(actor)).revision.document).toEqual(draft);
+    expect((await runSetupConversation(actor, input, provider)).head.revision.revision).toBe(result.head.revision.revision);
+    expect(createResponse).toHaveBeenCalledTimes(1);
+
+    const review = await reviewSetup(actor);
+
+    expect(review.blockers).toContain('Review the suggested opening hours.');
+    expect(review.blockers).toContain('Review the price and time for Signature appointment.');
+    expect(review.blockers).toContain('Confirm your business name.');
+    await expect(approveSetup(actor, review.revision, review.hash)).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+
+    const approvedDetails = await editSetup(actor, { expectedRevision: result.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'business', values: { name: 'New Studio', city: 'Toronto', workMode: 'solo' } }, { type: 'confirm_hours' }, { type: 'confirm_services', ids: [draft.services[0]!.id] }] });
+
+    expect((await reviewSetup(actor)).blockers).toEqual([]);
+    expect(approvedDetails.revision.document.website.config.customFrontendId).toBe(draft.website.config.customFrontendId);
+    expect(approvedDetails.revision.document.hoursOrigin).toBe('owner');
+    expect(approvedDetails.revision.document.services[0]!.confirmed).toBe(true);
+
+    const previous = { render: process.env.CUSTOM_SITE_RENDER_ORIGIN, app: process.env.NEXT_PUBLIC_APP_URL, verified: process.env.CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED };
+    vi.stubEnv('CUSTOM_SITE_RENDER_ORIGIN', 'https://renderer.example.net');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://luster.example.com');
+    vi.stubEnv('CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED', 'true');
+    try {
+      const ready = await reviewSetup(actor);
+      const approval = await approveSetup(actor, ready.revision, ready.hash);
+      const request = { approvalId: approval.id, revision: ready.revision, operationId: randomUUID() };
+      const published = await publishSetup(actor, request);
+
+      expect((await publishSetup(actor, request)).receipt.id).toBe(published.receipt.id);
+
+      const services = await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId));
+      const [staff] = await database.select().from(schema.technicianSchema).where(eq(schema.technicianSchema.salonId, actor.salonId));
+      const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+      expect(services).toHaveLength(1);
+      expect(services[0]).toMatchObject({ price: 6500, durationMinutes: 60 });
+      expect(published.receipt.serviceIds[draft.services[0]!.id]).toBe(services[0]!.id);
+      expect(staff!.weeklySchedule?.tuesday).toEqual({ start: '10:00', end: '18:00' });
+      expect(salon!.publicationStatus).toBe('published');
+    } finally {
+      vi.stubEnv('CUSTOM_SITE_RENDER_ORIGIN', previous.render);
+      vi.stubEnv('NEXT_PUBLIC_APP_URL', previous.app);
+      vi.stubEnv('CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED', previous.verified);
+    }
+  });
+
+  it.each([40, 200])('keeps the bounded trial usable after past attempts while retaining its turn cap (%i turns)', async (count) => {
+    const { actor, asset, revision } = await attached();
+    const head = await openSetup(actor);
+    await database.insert(schema.businessSetupTurnSchema).values(Array.from({ length: count }, () => ({ id: randomUUID(), salonId: actor.salonId, workspaceId: head.workspace.id, actorId: actor.adminId, expectedRevision: revision, requestHash: 'past-attempt', message: 'Earlier attempt', status: 'failed' as const, leaseExpiresAt: new Date(0) })));
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
+    const request = runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'website', message: 'Just make it up', referenceIds: [asset.id] }, { createResponse });
+    if (count === 200) {
+      await expect(request).rejects.toMatchObject({ code: 'NOT_READY' });
+      expect(createResponse).not.toHaveBeenCalled();
+    } else {
+      expect((await request).head.revision.document.website.config.customFrontendId).toBeTruthy();
+      expect(createResponse).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('does not invent operational changes for an existing published salon requesting a first custom preview', async () => {
+    const { actor, asset, revision } = await attached(false);
+    await database.update(schema.salonSchema).set({ publicationStatus: 'published' }).where(eq(schema.salonSchema.id, actor.salonId));
+    // Refresh the explicit baseline after this synthetic external-state change.
+    const { readSetupSnapshot } = await import('./drafts.server');
+    const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+    const snapshot = await readSetupSnapshot(database as any, salon!);
+    await database.update(schema.businessSetupWorkspaceSchema).set({ baselineHash: snapshot.hash }).where(eq(schema.businessSetupWorkspaceSchema.salonId, actor.salonId));
+    const before = (await openSetup(actor)).revision.document;
+    const provider = { createResponse: vi.fn().mockResolvedValue({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] }) };
+    const result = await runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'website', message: 'Use sample details for the preview', referenceIds: [asset.id] }, provider);
+
+    expect(result.head.revision.document.services).toEqual(before.services);
+    expect(result.head.revision.document.hours).toEqual(before.hours);
+    expect(result.head.revision.document.business).toEqual(before.business);
+  });
+
+  it('keeps explicitly closed hours and known service values when preparing a visual draft', async () => {
+    const { actor } = await attached();
+    const before = (await openSetup(actor)).revision.document;
+    const closed = applySetupOperations(before, [{ type: 'hours', values: CLOSED_HOURS }], 'owner');
+    const suggested = applySetupOperations(closed, [{ type: 'preview_defaults', seed: randomUUID() }], 'assistant');
+
+    expect(suggested.hours).toEqual(CLOSED_HOURS);
+    expect(suggested.hoursOrigin).toBe('owner');
+    expect(() => applySetupOperations(before, [{ type: 'preview_defaults', seed: randomUUID() }], 'owner')).toThrow('Preview suggestions');
+    expect(() => applySetupOperations(suggested, [{ type: 'confirm_hours' }], 'assistant')).toThrow('Only you');
+  });
+
+  it('uses structured image facts and makes the first website without asking for missing durations', async () => {
+    const { actor, asset, revision } = await attached();
+    const structured = { ...facts, hoursJson: JSON.parse(facts.hoursJson), servicesJson: JSON.parse(facts.servicesJson) };
+    const provider = model({ reply: 'Tell me the missing times first.', operationsJson: '[]', uploadFacts: structured, designRequest: null });
+    const result = await runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'website', message: 'Make exactly like this', referenceIds: [asset.id] }, provider);
+
+    expect(result.head.revision.document.website.config.customFrontendId).toBeTruthy();
+    expect(result.head.revision.document.services[0]).toMatchObject({ name: 'BIAB', priceCents: 6500, durationMinutes: 60, confirmed: false });
+    expect(result.reply).not.toContain('Tell me the missing times first');
+    expect(provider.createResponse.mock.calls[0]![0].jsonSchema.properties.uploadFacts.anyOf[1].properties.hoursJson.type).toBe('array');
+    expect(provider.createResponse).toHaveBeenCalledTimes(2);
+  });
+
+  it('still creates the requested private design when malformed extraction facts cannot be safely imported', async () => {
+    const { actor, asset, revision } = await attached();
+    const provider = model(answer({ uploadFactsJson: '{invalid nested JSON' }));
+    const result = await runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'website', message: 'Make exactly like this', referenceIds: [asset.id] }, provider);
+
+    expect(result.head.revision.document.website.config.customFrontendId).toBeTruthy();
+    expect(result.head.revision.document.business.name).toBe('Untitled business');
+    expect(result.reply).toContain('could not be read reliably');
+    expect(result.head.revision.document.services[0]!.confirmed).toBe(false);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
+  it('discards malformed intake output and continues only the authorized private design request', async () => {
+    const { actor, asset, revision } = await attached();
+    const createResponse = vi.fn().mockResolvedValueOnce({ status: 'completed', usage: null, items: [{ type: 'message', text: '{bad response JSON' }] }).mockResolvedValueOnce({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
+    const input = { expectedRevision: revision, operationId: randomUUID(), scope: 'website', message: 'Make exactly like this', referenceIds: [asset.id] };
+    const result = await runSetupConversation(actor, input, { createResponse });
+
+    expect(result.head.revision.document.website.config.customFrontendId).toBeTruthy();
+    expect(result.head.revision.document.business.name).toBe('Untitled business');
+    expect(result.head.revision.document.hoursOrigin).toBe('suggested');
+    expect(result.reply).toContain('Some details could not be saved');
+
+    const [call] = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId));
+
+    expect(call!.validation).toBe('conversation_schema_invalid_preview_continued');
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect(createResponse).toHaveBeenCalledTimes(2);
+  });
+
   it.each(['', 'Opening hours and appointment lengths are not visible.'])('continues an image-first conversation after reset when notes arrive as text %j', async (notes) => {
     const { actor, asset, revision } = await attached();
     const reset = await resetSetupDraft(actor, { expectedRevision: revision, operationId: randomUUID() });
@@ -1089,11 +1241,11 @@ describe('reading own images directly in conversation', () => {
     const result = await runSetupConversation(actor, input, provider);
 
     expect(result.head.revision.document.business.name).toBe('Petal Nails');
-    expect(result.head.revision.document.website.config.customFrontendId).toBeUndefined();
-    expect(result.head.revision.document.services[0]).toMatchObject({ name: 'BIAB', priceCents: 6500, durationMinutes: null, confirmed: false });
-    expect(result.reply).toContain('How long is a BIAB appointment');
+    expect(result.head.revision.document.website.config.customFrontendId).toBeTruthy();
+    expect(result.head.revision.document.services[0]).toMatchObject({ name: 'BIAB', priceCents: 6500, durationMinutes: 60, confirmed: false });
+    expect(result.reply).toContain('editable sample booking details');
     expect((await runSetupConversation(actor, input, provider)).head.revision.revision).toBe(result.head.revision.revision);
-    expect(provider.createResponse).toHaveBeenCalledTimes(1);
+    expect(provider.createResponse).toHaveBeenCalledTimes(2);
 
     const [call] = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId));
 
@@ -1107,7 +1259,7 @@ describe('reading own images directly in conversation', () => {
     const operationId = randomUUID();
     const provider = model(answer({ uploadFactsJson: JSON.stringify({ ...facts, notes: [{ publish: true }] }) }));
 
-    await expect(runSetupConversation(actor, { expectedRevision: revision, operationId, scope: 'website', message: 'Make exactly like this', referenceIds: [asset.id] }, provider)).rejects.toMatchObject({ code: 'NOT_READY', message: expect.stringContaining('could not read all the details') });
+    await expect(runSetupConversation(actor, { expectedRevision: revision, operationId, scope: 'website', message: 'Read all the details in this image', referenceIds: [asset.id] }, provider)).rejects.toMatchObject({ code: 'NOT_READY', message: expect.stringContaining('could not read all the details') });
 
     const [turn] = await database.select().from(schema.businessSetupTurnSchema).where(eq(schema.businessSetupTurnSchema.id, operationId));
     const [call] = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId));
@@ -1123,7 +1275,7 @@ describe('reading own images directly in conversation', () => {
     const { actor, asset, revision } = await attached();
     const websiteDetails = { locationDirections: 'Dixie and Countryside', instagram: '@dynastybeautyy', email: 'studio@example.com', phone: null, sections: [{ id: 'guests', title: 'Guests', text: 'Please come alone.' }, { id: 'deposit', title: 'Deposits', text: 'A deposit is required; contact me to arrange it.' }] };
     const provider = model(answer({ uploadFactsJson: JSON.stringify({ ...facts, websiteDetails }) }));
-    const result = await runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'website', message: 'Make my website from my design', referenceIds: [asset.id] }, provider);
+    const result = await runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'website', message: 'Read the details in my design', referenceIds: [asset.id] }, provider);
 
     expect(result.head.revision.document.website.content.websiteDetails).toEqual(websiteDetails);
 
@@ -1139,7 +1291,7 @@ describe('reading own images directly in conversation', () => {
     await expect(editSetup(actor, { expectedRevision: resumed.revision.revision, operationId: randomUUID(), operations: [{ type: 'website_details', values: { locationDirections: '42 Synthetic Lane' } }] })).rejects.toMatchObject({ code: 'INVALID' });
   });
 
-  it.each(['Just get all the info from my image', 'Read my menu and use what is already there', 'Make my website using the details in my design'])('acts on %s, saves unconfirmed facts atomically, and replays without duplicate services or calls', async (message) => {
+  it.each(['Just get all the info from my image', 'Read my menu and use what is already there', 'Read the business details in my design'])('acts on %s, saves unconfirmed facts atomically, and replays without duplicate services or calls', async (message) => {
     const { actor, asset, revision } = await attached();
     const provider = model(answer());
     const input = { expectedRevision: revision, operationId: randomUUID(), scope: 'business_and_website', message, referenceIds: [asset.id] };
@@ -1223,7 +1375,7 @@ describe('reading own images directly in conversation', () => {
   it('refuses stale extraction after a concurrent manual edit and does not retry the paid call', async () => {
     const { actor, asset, revision } = await attached();
     const provider = model(answer());
-    provider.createResponse.mockImplementationOnce(async () => {
+    provider.createResponse.mockReset().mockImplementationOnce(async () => {
       await editSetup(actor, { expectedRevision: revision, operationId: randomUUID(), operations: [{ type: 'business', values: { name: 'My newer name' } }] });
       return { status: 'completed', usage: { inputTokens: 1200, outputTokens: 800, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(answer()) }] };
     });

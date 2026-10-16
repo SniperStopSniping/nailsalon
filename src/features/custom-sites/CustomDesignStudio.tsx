@@ -388,11 +388,11 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
               <p>{selected.length ? `${selected.length} uploaded file(s) will be used for this request.` : 'Describe your idea, or select an uploaded image below.'}</p>
               {missingDetails.length > 0 && (
                 <div className="setup-notice">
-                  <p>{`Before creating your website, Luster needs ${missingDetails.join(', ')}. You can tell us in the conversation or read them from your own uploaded design.`}</p>
+                  <p>Your first design can be created now. Missing business and booking details can be added before publishing.</p>
                   <button type="button" onClick={onContinueConversation}>Continue with Luster</button>
                 </div>
               )}
-              <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim() || missingDetails.length > 0 || (brief.fidelity === 'match' && brief.referenceIds.length === 0)}>{busy.includes('writing your website') || pending ? 'Creating your website…' : 'Create my website'}</button>
+              <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim() || (brief.fidelity === 'match' && brief.referenceIds.length === 0)}>{busy.includes('writing your website') || pending ? 'Creating your website…' : 'Create my website'}</button>
             </form>
           )}
         </details>
