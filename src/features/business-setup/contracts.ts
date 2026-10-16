@@ -76,8 +76,12 @@ export const setupEditSchema = z.object({
   operationId: z.string().uuid(),
   operations: z.array(setupOperationSchema).min(1).max(50),
 }).strict();
+export const setupResetSchema = z.object({ expectedRevision: z.number().int().positive(), operationId: z.string().uuid() }).strict();
 export type SetupDocument = {
   schemaVersion: 1;
+  /** Owner-controlled conversation boundary; older revisions remain archived. */
+  sessionStartRevision?: number;
+  previousDraftRevision?: number;
   business: z.infer<typeof businessSchema>;
   hours: SetupHours;
   booking: z.infer<typeof bookingConfigSchema>;

@@ -102,7 +102,9 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
   const [studioBusy, setStudioBusy] = useState(false);
   const [submission, setSubmission] = useState<Submission | null>(null);
   const submissionRef = useRef<Submission | null>(null);
+  const sessionStart = useRef(1);
   const sendLock = useRef<string | null>(null);
+  const restoreAttempt = useRef<{ operationId: string; expectedRevision: number } | null>(null);
   const messageConnection = useRef<AbortController | null>(null);
   const busy = ownBusy || studioBusy || Boolean(submission && submission.status !== 'failed') || messages.some(m => m.status === 'pending');
   function saveSubmission(value: Submission | null) {
@@ -147,7 +149,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
     }
     return payload.data as T;
   }
-  async function refresh() {
+  async function refresh(): Promise<Head & { messages: Message[]; uploadReviews?: UploadReview[] }> {
     const response = await fetch(`/api/admin/business-setup?salonSlug=${encodeURIComponent(salonSlug)}`, { cache: 'no-store' });
     if (!response.ok) {
       throw new Error('Your saved setup could not be loaded. Please refresh.');
@@ -158,12 +160,24 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
         uploadReviews?: UploadReview[];
       };
     };
+    if (data.revision.revision < sessionStart.current) {
+      return refresh();
+    }
+    const newSession = data.revision.document.sessionStartRevision ?? 1;
+    if (newSession > sessionStart.current) {
+      setText('');
+      setReview(null);
+      setSelectedDesignAssets([]);
+      setAttachOpen(false);
+      setTab('chat');
+    }
+    sessionStart.current = newSession;
     setHead(current => current && current.revision.revision > data.revision.revision ? current : data);
     setMessages(current => data.messages.map(message => message.status === 'completed' ? message : current.find(old => old.id === message.id && old.status === 'completed') ?? message));
     const current = submissionRef.current;
     if (current) {
       const saved = data.messages.find(m => m.id === current.request.operationId);
-      if (saved?.status === 'completed') {
+      if (current.request.expectedRevision < newSession || saved?.status === 'completed') {
         messageConnection.current?.abort();
         sendLock.current = null;
         saveSubmission(null);
@@ -224,6 +238,38 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
       setBusy(false);
     }
   }
+  async function replaceSession(action: 'reset' | 'restore_previous', operationId: string, upload = false, expectedRevision = head?.revision.revision) {
+    if (!head) {
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const result = await call<Head>({ action, input: { expectedRevision, operationId } });
+      sessionStart.current = result.revision.document.sessionStartRevision ?? 1;
+      messageConnection.current?.abort();
+      sendLock.current = null;
+      saveSubmission(null);
+      setPendingMessage(null);
+      setActivity('');
+      setHead(result);
+      setMessages([]);
+      setText('');
+      setReview(null);
+      setUploadReviews([]);
+      setSelectedDesignAssets([]);
+      setStudioBusy(false);
+      setIncludeBusiness(!existingSalon);
+      setPublished(false);
+      setTab('chat');
+      await refresh();
+      restoreAttempt.current = null;
+      setAttachOpen(upload);
+      feed.current?.scrollTo?.({ top: 0 });
+    } finally {
+      setBusy(false);
+    }
+  }
   async function edit(operations: SetupOperation[]) {
     if (!head) {
       return;
@@ -267,7 +313,11 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
     setError('');
     try {
       const result = await call<{ head: Head; reply: string }>({ action: 'message', message: request }, connection.signal);
-      setHead(result.head);
+      if (request.expectedRevision < sessionStart.current) {
+        await refresh();
+        return;
+      }
+      setHead(current => current && current.revision.revision > result.head.revision.revision ? current : result.head);
       setReview(null);
       // The response proves completion even if the subsequent history GET fails.
       setMessages(current => [...current.filter(m => m.id !== request.operationId), { id: request.operationId, message: request.message, reply: result.reply, status: 'completed' }]);
@@ -365,9 +415,25 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                 <p>{customFrontendId ? 'Your ideas. A website that feels like you.' : 'A design you love. Your business, ready to book.'}</p>
               </div>
             )}
+            {draft?.previousDraftRevision && (
+              <p className="setup-reset-recovery">
+                Your earlier draft is saved.
+                {' '}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void run(async () => {
+                    restoreAttempt.current ??= { operationId: crypto.randomUUID(), expectedRevision: head!.revision.revision };
+                    await replaceSession('restore_previous', restoreAttempt.current.operationId, false, restoreAttempt.current.expectedRevision);
+                  })}
+                >
+                  Restore earlier draft
+                </button>
+              </p>
+            )}
             {!aiEnabled && <p role="status">AI is unavailable. You can still edit, review, and publish your saved setup using Details.</p>}
             <div className="setup-messages" role="log" aria-label="Messages" aria-live="polite">
-              <p className="setup-assistant">{existingSalon || customFrontendId ? 'I’ve loaded your saved website and business details. What would you like to change?' : draft && !['Untitled business', 'My test business'].includes(draft.business.name) ? `I have your saved details for ${draft.business.name}${draft.business.city ? ` in ${draft.business.city}` : ''}.${missing.length ? ` Next, tell me ${missing.slice(0, 2).join(' and ')}. Or attach a design that includes them.` : ' Tell me how you’d like your website to look, or attach a design you love.'}` : INTRO}</p>
+              <p className="setup-assistant">{draft?.sessionStartRevision && !customFrontendId ? 'You’re starting fresh. Upload your new design or describe your idea. If your image includes your business details, I can read them for you.' : existingSalon || customFrontendId ? 'I’ve loaded your saved website and business details. What would you like to change?' : draft && !['Untitled business', 'My test business'].includes(draft.business.name) ? `I have your saved details for ${draft.business.name}${draft.business.city ? ` in ${draft.business.city}` : ''}.${missing.length ? ` Next, tell me ${missing.slice(0, 2).join(' and ')}. Or attach a design that includes them.` : ' Tell me how you’d like your website to look, or attach a design you love.'}` : INTRO}</p>
               {messages.map(message => (
                 <div key={message.id}>
                   <p className="setup-owner">{message.message}</p>
@@ -528,11 +594,13 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
           <div className="setup-compose-area">
             {head && (
               <ChatAttachments
+                key={draft?.sessionStartRevision ?? 1}
                 salonSlug={salonSlug}
                 revision={head.revision.revision}
                 brief={draft?.designBrief}
                 assets={assets}
                 selected={selectedDesignAssets}
+                initialPurpose={draft?.sessionStartRevision ? 'own' : undefined}
                 open={attachOpen}
                 onClose={() => setAttachOpen(false)}
                 disabled={busy || published}
@@ -584,19 +652,9 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
               <p className="setup-compose-note">Only you can approve and publish changes.</p>
               {head && draft && (
                 <StartOverDesign
-                  salonSlug={salonSlug}
                   revision={head.revision.revision}
-                  brief={draft.designBrief ?? { fidelity: 'inspiration', referenceIds: selectedDesignAssets.filter(id => assets.some(asset => asset.id === id && asset.role === 'reference')), ownedReferenceIds: [], websiteAssetIds: selectedDesignAssets.filter(id => assets.some(asset => asset.id === id && asset.role !== 'reference')) }}
-                  disabled={!aiEnabled || busy || published}
-                  missingDetails={missingDesignDetails(draft)}
-                  onBusyChange={setBusy}
-                  onSaved={async (generated) => {
-                    setReview(null);
-                    await refresh();
-                    if (generated) {
-                      setTab('website');
-                    }
-                  }}
+                  disabled={busy}
+                  onReset={(upload, operationId, expectedRevision) => replaceSession('reset', operationId, upload, expectedRevision)}
                 />
               )}
             </div>
@@ -613,6 +671,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
           </div>
           {head && (
             <CustomDesignStudio
+              key={draft?.sessionStartRevision ?? 1}
               salonSlug={salonSlug}
               revision={head.revision.revision}
               artifactId={head.revision.document.website.config.customFrontendId}

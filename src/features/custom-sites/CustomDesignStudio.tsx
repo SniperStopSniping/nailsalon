@@ -102,8 +102,13 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       await onSaved();
     }
   }
+  function invalidateLoads() {
+    // A fresh conversation must not inherit images from an unmounted studio.
+    loadSequence.current++;
+  }
   useEffect(() => {
     void load().catch(e => setError(e.message));
+    return invalidateLoads;
   }, [endpoint, revision]); // eslint-disable-line react-hooks/exhaustive-deps
   const pending = state?.attempts.some(item => item.status === 'pending' && Date.now() - new Date(item.createdAt).getTime() < 300000);
   useEffect(() => {

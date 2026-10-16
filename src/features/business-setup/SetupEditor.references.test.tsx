@@ -13,6 +13,7 @@ let revision: number;
 let messages: any[];
 let reviews: any[];
 let published: boolean;
+let archived: any;
 const head = () => ({ workspace: { status: published ? 'published' : 'editing' }, revision: { revision, document }, messages, uploadReviews: reviews });
 
 beforeEach(() => {
@@ -30,6 +31,7 @@ beforeEach(() => {
   reviews = [];
   revision = 2;
   published = false;
+  archived = null;
   document = {
     business: { name: 'Studio', city: 'Toronto', exactAddress: '', workMode: 'solo', homeBased: true, locationDisplayMode: 'city_only' },
     hours: { ...CLOSED_HOURS, monday: { open: '09:00', close: '17:00' } },
@@ -48,6 +50,18 @@ beforeEach(() => {
     const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
     if (request) {
       requests.push(request);
+      if (request.action === 'reset') {
+        archived = structuredClone(document);
+        document = { ...document, business: { ...document.business, name: 'My test business', city: '', workMode: 'unknown' }, hours: structuredClone(CLOSED_HOURS), services: [], website: { config: {}, content: {} }, designBrief: { fidelity: 'inspiration', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: [] }, sessionStartRevision: revision + 1, previousDraftRevision: revision };
+        messages = [];
+        reviews = [];
+        revision++;
+        published = false;
+      }
+      if (request.action === 'restore_previous') {
+        document = { ...structuredClone(archived), sessionStartRevision: revision + 1, previousDraftRevision: revision };
+        revision++;
+      }
       if (request.action === 'preferences') {
         document.designBrief = request.input.values;
         revision++;
@@ -80,23 +94,37 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('starts a new design from the main chat without resetting business data or publishing', async () => {
+it('fully resets the draft and chat, opens a new upload immediately, and can restore the previous draft', async () => {
   document.website.config.customFrontendId = 'ceec2235-6a4d-4cf2-b052-daf29b74b859';
+  document.designBrief = { fidelity: 'match', referenceIds: [reference.id], ownedReferenceIds: [reference.id], websiteAssetIds: [] };
+  assets = [reference];
+  messages = [{ id: 'old-message', message: 'Old pink design please', reply: 'Old response', status: 'completed' }];
   const previous = structuredClone(document);
   render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
-  await screen.findByText('Saved as draft');
+  await screen.findByText('Old response');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Luster' }), { target: { value: 'Unsent old instruction' } });
   fireEvent.click(screen.getByRole('button', { name: /Start over/ }));
-  fireEvent.change(screen.getByRole('textbox', { name: 'Describe your new look' }), { target: { value: 'A new dark editorial design' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Create new design' }));
-  await waitFor(() => expect(requests.some(request => request.action === 'generate' && request.input.startOver === true)).toBe(true));
-  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  fireEvent.click(screen.getByRole('button', { name: 'Start fresh & upload image' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Add to your conversation' });
+
+  expect(within(dialog).getByRole('button', { name: /My design or menu/ })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.queryByText('Old response')).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveValue('');
+  expect(document.website.config.customFrontendId).toBeUndefined();
+  expect(document.designBrief.referenceIds).toEqual([]);
+  expect(document.services).toEqual([]);
+
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close attachments' }));
+
+  expect(screen.queryByRole('region', { name: 'Attached images' })).not.toBeInTheDocument();
+  expect(requests.some(request => ['generate', 'message', 'approve', 'publish'].includes(request.action))).toBe(false);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Restore earlier draft' }));
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveAttribute('placeholder', 'Ask Luster to change anything…'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Attach images or a PDF' })).toBeEnabled());
 
   expect(document.business).toEqual(previous.business);
   expect(document.services).toEqual(previous.services);
-  expect(document.hours).toEqual(previous.hours);
-  expect(document.booking).toEqual(previous.booking);
-  expect(requests.some(request => ['publish', 'approve', 'start_editing'].includes(request.action))).toBe(false);
-  expect(screen.getByRole('region', { name: 'Website preview' })).toBeVisible();
 });
 
 async function attach(purpose = 'Inspiration') {
@@ -109,6 +137,18 @@ async function attach(purpose = 'Inspiration') {
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Attach images or a PDF' })).toBeEnabled());
 }
+
+it('drops a cached earlier-session request after a reset on another device', async () => {
+  revision = 3;
+  document.sessionStartRevision = 3;
+  document.designBrief = { fidelity: 'inspiration', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: [] };
+  sessionStorage.setItem('luster-message:test', JSON.stringify({ request: { operationId: crypto.randomUUID(), message: 'Old pending design', expectedRevision: 2, scope: 'website', referenceIds: [] }, status: 'checking', startedAt: Date.now() }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await waitFor(() => expect(sessionStorage.getItem('luster-message:test')).toBeNull());
+
+  expect(screen.queryByText('Old pending design')).not.toBeInTheDocument();
+  expect(requests.some(request => request.action === 'message')).toBe(false);
+});
 
 it.each([false, true])('uploads directly in chat and uses the saved selection in the same composer (custom site: %s)', async (existingCustom) => {
   if (existingCustom) {

@@ -14,7 +14,7 @@ const PURPOSES: { value: Purpose; label: string; description: string }[] = [
 ];
 
 /** Uses the same saved brief and asset API as the manual website controls. */
-export function ChatAttachments({ salonSlug, revision, brief, assets, selected, open, onClose, disabled, onBusyChange, onSaved }: {
+export function ChatAttachments({ salonSlug, revision, brief, assets, selected, open, onClose, disabled, onBusyChange, onSaved, initialPurpose = 'inspiration' }: {
   salonSlug: string;
   revision: number;
   brief?: DesignBrief;
@@ -25,11 +25,12 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
   disabled: boolean;
   onBusyChange: (busy: boolean) => void;
   onSaved: () => Promise<void>;
+  initialPurpose?: Purpose;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
-  const [purpose, setPurpose] = useState<Purpose>('inspiration');
+  const [purpose, setPurpose] = useState<Purpose>(initialPurpose);
   const [permission, setPermission] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');

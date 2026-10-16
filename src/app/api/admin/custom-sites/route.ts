@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gte } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireSetupOwner } from '@/features/business-setup/access.server';
@@ -68,7 +68,7 @@ export async function GET(request: Request) {
     const document = head.revision.document;
     const history = await db.select({ id: artifacts.id, source: artifacts.source, createdAt: artifacts.createdAt, assetIds: artifacts.assetIds }).from(artifacts).where(eq(artifacts.salonId, access.actor.salonId)).orderBy(desc(artifacts.createdAt)).limit(30);
     const media = await db.select({ id: assets.id, name: assets.name, role: assets.role, mimeType: assets.mimeType }).from(assets).where(eq(assets.salonId, access.actor.salonId)).orderBy(desc(assets.createdAt));
-    const attempts = await db.select({ id: jobs.id, status: jobs.status, phase: jobs.phase, message: jobs.message, artifactId: jobs.artifactId, inputTokens: jobs.inputTokens, outputTokens: jobs.outputTokens, costMicroUsd: jobs.costMicroUsd, createdAt: jobs.createdAt }).from(jobs).where(eq(jobs.salonId, access.actor.salonId)).orderBy(desc(jobs.createdAt)).limit(30);
+    const attempts = await db.select({ id: jobs.id, status: jobs.status, phase: jobs.phase, message: jobs.message, artifactId: jobs.artifactId, inputTokens: jobs.inputTokens, outputTokens: jobs.outputTokens, costMicroUsd: jobs.costMicroUsd, createdAt: jobs.createdAt }).from(jobs).where(and(eq(jobs.salonId, access.actor.salonId), gte(jobs.expectedRevision, document.sessionStartRevision ?? 1))).orderBy(desc(jobs.createdAt)).limit(30);
     const recoverable = new Set((await db.select({ operationId: calls.operationId }).from(calls).where(and(eq(calls.salonId, access.actor.salonId), eq(calls.status, 'completed')))).map(call => call.operationId));
     const payload = await setupCustomSitePayload(access.actor.salonId, document);
     return Response.json({ head, payload, preferences: document.designBrief ?? null, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });

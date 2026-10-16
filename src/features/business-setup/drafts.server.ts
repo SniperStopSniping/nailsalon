@@ -12,10 +12,10 @@ import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
-import { addOnSchema, adminSalonMembershipSchema, businessSetupApprovalSchema as approvals, businessSetupRevisionSchema as revisions, businessSetupWorkspaceSchema as workspaces, salonLocationSchema, salonSchema, serviceAddOnSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
+import { addOnSchema, adminSalonMembershipSchema, businessSetupApprovalSchema as approvals, businessSetupPublicationSchema as publications, businessSetupRevisionSchema as revisions, businessSetupTurnSchema as turns, businessSetupWorkspaceSchema as workspaces, customSiteGenerationSchema as designs, salonLocationSchema, salonSchema, serviceAddOnSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
 
 import type { SetupChange, SetupDocument, SetupReview } from './contracts';
-import { applySetupOperations, CLOSED_HOURS, setupEditSchema, SetupError, setupReadiness } from './contracts';
+import { applySetupOperations, CLOSED_HOURS, setupEditSchema, SetupError, setupReadiness, setupResetSchema } from './contracts';
 
 export type SetupTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type SetupActor = {
@@ -140,6 +140,8 @@ export async function restartSetup(actor: SetupActor, expectedRevision: number) 
     }
     const snapshot = await readSetupSnapshot(tx, salon);
     const document = structuredClone(snapshot.document);
+    document.sessionStartRevision = head.revision.document.sessionStartRevision;
+    document.previousDraftRevision = head.revision.document.previousDraftRevision;
     document.website = { config: snapshot.page.draft, content: snapshot.content.draft };
     document.business.locationDisplayMode = document.website.content.locationDisplayMode;
     if (document.website.config.customFrontendId === head.revision.document.website.config.customFrontendId) {
@@ -148,6 +150,73 @@ export async function restartSetup(actor: SetupActor, expectedRevision: number) 
     const revision = head.revision.revision + 1;
     await tx.insert(revisions).values({ salonId: salon.id, workspaceId: head.workspace.id, revision, operationId: randomUUID(), operationHash: setupHash(document), document, actorId: actor.adminId, origin: 'existing' });
     await tx.update(workspaces).set({ status: 'editing', headRevision: revision, baselineHash: snapshot.hash, baseline: snapshot.document, updatedAt: new Date() }).where(eq(workspaces.id, head.workspace.id));
+    return loadSetupHead(tx, salon.id);
+  });
+}
+/** Full draft reset: no model call, deletion, live write or budget reset. */
+export async function resetSetupDraft(actor: SetupActor, raw: unknown, restore = false) {
+  const input = setupResetSchema.parse(raw);
+  return db.transaction(async (tx) => {
+    const salon = await lockSetupSalon(tx, actor);
+    const head = await loadSetupHead(tx, salon.id);
+    const operationHash = setupHash({ action: restore ? 'restore_previous' : 'reset', input });
+    const [replay] = await tx.select().from(revisions).where(and(eq(revisions.workspaceId, head.workspace.id), eq(revisions.operationId, input.operationId)));
+    if (replay) {
+      if (replay.operationHash !== operationHash) {
+        throw new SetupError('INVALID', 'This request was already used for different changes.');
+      }
+      return head;
+    }
+    if (head.revision.revision !== input.expectedRevision) {
+      throw new SetupError('STALE', 'Your saved work changed. Load the latest changes before starting over.');
+    }
+    const snapshot = await readSetupSnapshot(tx, salon);
+    if (head.workspace.status === 'editing' && snapshot.hash !== head.workspace.baselineHash) {
+      throw new SetupError('STALE', 'Your business settings changed elsewhere. Load the latest changes before starting over.');
+    }
+    const jobs = await tx.select().from(designs).where(eq(designs.salonId, salon.id));
+    const terminal = new Set(jobs.filter(job => ['completed', 'failed'].includes(job.status)).map(job => job.id));
+    const messages = await tx.select().from(turns).where(eq(turns.workspaceId, head.workspace.id));
+    if (jobs.some(job => job.status === 'pending' && job.createdAt.getTime() > Date.now() - 300000) || messages.some(turn => ['pending', 'generated'].includes(turn.status) && turn.leaseExpiresAt.getTime() > Date.now() && !(turn.designOperationId && terminal.has(turn.designOperationId)))) {
+      throw new SetupError('NOT_READY', 'Luster is still finishing your last request. Wait for it to finish before starting over.');
+    }
+    let document = structuredClone(snapshot.document);
+    if (restore) {
+      const previousRevision = head.revision.document.previousDraftRevision;
+      const [previous] = previousRevision ? await tx.select().from(revisions).where(and(eq(revisions.workspaceId, head.workspace.id), eq(revisions.salonId, salon.id), eq(revisions.revision, previousRevision))) : [];
+      if (!previous) {
+        throw new SetupError('NOT_FOUND', 'There is no earlier draft to restore.');
+      }
+      document = structuredClone(previous.document);
+      const [publication] = await tx.select().from(publications).where(and(eq(publications.workspaceId, head.workspace.id), eq(publications.salonId, salon.id), eq(publications.revision, previous.revision)));
+      if (publication) {
+        document.services = document.services.map(service => ({ ...service, id: publication.serviceIds[service.id] ?? service.id }));
+      }
+      // A restoration must not hide services created since the archived draft,
+      // or recreate temporary IDs that publication already mapped to live rows.
+      document.services = [...snapshot.document.services.filter(service => !document.services.some(saved => saved.id === service.id)), ...document.services];
+      if (document.website.config.customFrontendId) {
+        await assertCustomArtifact(tx, salon.id, document.website.config.customFrontendId);
+      }
+      if (document.designBrief) {
+        await ownedAssets(tx, salon.id, [...document.designBrief.referenceIds, ...document.designBrief.websiteAssetIds]);
+      }
+    } else {
+      // Read confirmed business values from live records, never the projected
+      // draft or an earlier uploaded business. Unpublished answers disappear.
+      document.website = { config: resolveBookingPageConfig(null).draft, content: resolveBookingPageContent(null).draft };
+      if (salon.publicationStatus !== 'published') {
+        document.business.locationDisplayMode = 'city_only';
+      }
+      document.website.content.locationDisplayMode = document.business.locationDisplayMode;
+      document.designBrief = { fidelity: 'inspiration', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: [] };
+    }
+    const revision = head.revision.revision + 1;
+    document.sessionStartRevision = revision;
+    document.previousDraftRevision = head.revision.revision;
+    await tx.insert(revisions).values({ salonId: salon.id, workspaceId: head.workspace.id, revision, operationId: input.operationId, operationHash, document, actorId: actor.adminId, origin: restore ? 'owner_restore' : 'owner_reset' });
+    const baselineHash = await projectSetupWebsite(tx, salon.id, document);
+    await tx.update(workspaces).set({ status: 'editing', headRevision: revision, baseline: snapshot.document, baselineHash, updatedAt: new Date() }).where(eq(workspaces.id, head.workspace.id));
     return loadSetupHead(tx, salon.id);
   });
 }
@@ -169,6 +238,9 @@ export async function editSetup(actor: SetupActor, input: unknown, origin: 'owne
   const apply = async (tx: SetupTransaction) => {
     const salon = await lockSetupSalon(tx, actor);
     const head = await loadSetupHead(tx, salon.id);
+    if (edit.expectedRevision < (head.revision.document.sessionStartRevision ?? 1)) {
+      throw new SetupError('STALE', 'You started over since this change. Your new draft is safe.');
+    }
     const operationHash = setupHash({ edit, origin });
     const [previous] = await tx.select().from(revisions).where(and(eq(revisions.workspaceId, head.workspace.id), eq(revisions.operationId, edit.operationId)));
     if (previous) {
@@ -231,7 +303,7 @@ export function setupChanges(before: unknown, after: unknown, path = ''): SetupC
   return [{ path, before: before ?? null, after: after ?? null }];
 }
 export function makeSetupReview(head: Awaited<ReturnType<typeof loadSetupHead>>): SetupReview {
-  const changes = setupChanges(head.workspace.baseline, head.revision.document);
+  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['sessionStartRevision', 'previousDraftRevision'].includes(change.path));
   return {
     revision: head.revision.revision,
     hash: setupHash({ workspaceId: head.workspace.id, revision: head.revision.revision, baseline: head.workspace.baselineHash, document: head.revision.document }),

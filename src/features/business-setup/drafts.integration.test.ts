@@ -26,7 +26,7 @@ import { darkSource, editorialSource } from '../../../tests/browser/businessSetu
 import { estimateSetupAiCost, runSetupModel } from './ai-trial.server';
 import { CLOSED_HOURS } from './contracts';
 import { runSetupConversation } from './conversation.server';
-import { approveSetup, editSetup, openSetup, restartSetup, reviewSetup } from './drafts.server';
+import { approveSetup, editSetup, openSetup, resetSetupDraft, restartSetup, reviewSetup } from './drafts.server';
 import { editSharedSetupWebsite } from './manual-website.server';
 import { setupPreviewBooking } from './preview-data.server';
 import { publishSetup } from './publish.server';
@@ -1177,5 +1177,115 @@ describe('reading own images directly in conversation', () => {
     expect((await openSetup(actor)).revision.document.business.name).toBe('My newer name');
     expect((await openSetup(actor)).revision.document.services).toHaveLength(0);
     expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('full owner draft reset', () => {
+  it('clears unfinished business answers and design, keeps immutable drafts and restores them without model/live writes', async () => {
+    const actor = await fixture();
+    const old = await saveCustomSource(actor, { source: editorialSource, assetIds: [], expectedRevision: 2, operationId: randomUUID() });
+    const beforeCalls = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId));
+    const input = { expectedRevision: old.head.revision.revision, operationId: randomUUID() };
+    const fresh = await resetSetupDraft(actor, input);
+
+    expect(fresh.workspace.status).toBe('editing');
+    expect(fresh.revision.document.business.name).toBe('Untitled business');
+    expect(fresh.revision.document.business.city).toBe('');
+    expect(fresh.revision.document.business.locationDisplayMode).toBe('city_only');
+    expect(fresh.revision.document.services).toEqual([]);
+    expect(fresh.revision.document.hours).toEqual(CLOSED_HOURS);
+    expect(fresh.revision.document.website.config.customFrontendId).toBeUndefined();
+    expect(fresh.revision.document.designBrief).toEqual({ fidelity: 'inspiration', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: [] });
+    expect(fresh.revision.document.sessionStartRevision).toBe(fresh.revision.revision);
+    expect(fresh.revision.document.previousDraftRevision).toBe(old.head.revision.revision);
+
+    const replay = await resetSetupDraft(actor, input);
+
+    expect(replay.revision.revision).toBe(fresh.revision.revision);
+
+    const restored = await resetSetupDraft(actor, { expectedRevision: fresh.revision.revision, operationId: randomUUID() }, true);
+
+    expect(restored.revision.document.website).toEqual(old.head.revision.document.website);
+    expect(restored.revision.document.business).toEqual(old.head.revision.document.business);
+    expect(restored.revision.document.services).toEqual(old.head.revision.document.services);
+    expect((await reviewSetup(actor)).changes.some(change => ['sessionStartRevision', 'previousDraftRevision'].includes(change.path))).toBe(false);
+    expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId))).toEqual(beforeCalls);
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toEqual([]);
+
+    const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect(salon).toMatchObject({ name: 'Untitled business', businessHours: null, onlineBookingEnabled: false, publicationStatus: 'draft' });
+  });
+
+  it('does not erase newer work on retry and refuses another tenant, stale reset, changed replay or archived edit', async () => {
+    const actor = await fixture();
+    const other = await fixture();
+    const input = { expectedRevision: 2, operationId: randomUUID() };
+
+    await expect(resetSetupDraft({ ...actor, salonId: other.salonId }, input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    const fresh = await resetSetupDraft(actor, input);
+    const newer = await editSetup(actor, { expectedRevision: fresh.revision.revision, operationId: randomUUID(), operations: [{ type: 'business', values: { name: 'New business after reset' } }] });
+
+    expect((await resetSetupDraft(actor, input)).revision.document.business.name).toBe('New business after reset');
+    await expect(resetSetupDraft(actor, { ...input, operationId: randomUUID() })).rejects.toMatchObject({ code: 'STALE' });
+    await expect(resetSetupDraft(actor, { ...input, expectedRevision: newer.revision.revision })).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'business', values: { name: 'Old tab' } }] })).rejects.toMatchObject({ code: 'STALE' });
+  });
+
+  it('excludes earlier messages from model context and rejects old message/design retries', async () => {
+    const actor = await fixture();
+    const response = { status: 'completed', usage: { inputTokens: 1000, outputTokens: 100, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ reply: 'Tell me your business name.', operationsJson: '[]', designRequest: null, uploadFactsJson: null }) }] };
+    const createResponse = vi.fn().mockResolvedValue(response);
+    const oldInput = { expectedRevision: 2, operationId: randomUUID(), message: 'OLD_DESIGN_CONTEXT_MUST_NOT_RETURN', scope: 'website' };
+    await runSetupConversation(actor, oldInput, { createResponse });
+    const before = await openSetup(actor);
+    const fresh = await resetSetupDraft(actor, { expectedRevision: before.revision.revision, operationId: randomUUID() });
+    createResponse.mockClear();
+    await runSetupConversation(actor, { expectedRevision: fresh.revision.revision, operationId: randomUUID(), message: 'Here is a completely different idea', scope: 'website' }, { createResponse });
+
+    expect(JSON.stringify(createResponse.mock.calls[0]![0].input)).not.toContain('OLD_DESIGN_CONTEXT_MUST_NOT_RETURN');
+    await expect(runSetupConversation(actor, oldInput, { createResponse })).rejects.toMatchObject({ code: 'STALE' });
+    await expect(generateCustomSite(actor, { expectedRevision: 2, operationId: randomUUID(), message: 'Old design', referenceIds: [] }, { createResponse })).rejects.toMatchObject({ code: 'STALE' });
+  });
+
+  it('rejects a reset while a request is still active', async () => {
+    const actor = await fixture();
+    const head = await openSetup(actor);
+    await database.insert(schema.businessSetupTurnSchema).values({ id: randomUUID(), salonId: actor.salonId, workspaceId: head.workspace.id, actorId: actor.adminId, expectedRevision: 2, requestHash: 'pending', message: 'Running request', status: 'pending', leaseExpiresAt: new Date(Date.now() + 60000) });
+
+    await expect(resetSetupDraft(actor, { expectedRevision: 2, operationId: randomUUID() })).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect((await openSetup(actor)).revision.revision).toBe(2);
+  });
+
+  it('keeps published business settings, service identities and the live website while starting a private new draft', async () => {
+    const actor = await fixture();
+    await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'confirm_services', ids: ['draft_gel'] }] });
+    const review = await reviewSetup(actor);
+    const approval = await approveSetup(actor, review.revision, review.hash);
+    await publishSetup(actor, { revision: review.revision, approvalId: approval.id, operationId: randomUUID() });
+    const published = await openSetup(actor);
+    const [before] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+    const liveServices = await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId));
+    const fresh = await resetSetupDraft(actor, { expectedRevision: published.revision.revision, operationId: randomUUID() });
+    const [after] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect(fresh.revision.document.business.name).toBe('Test Studio');
+    expect(fresh.revision.document.services.map(service => service.id)).toEqual(liveServices.map(service => service.id));
+    expect(resolveBookingPageConfig(after!.settings).live).toEqual(resolveBookingPageConfig(before!.settings).live);
+    expect(resolveBookingPageContent(after!.settings).live).toEqual(resolveBookingPageContent(before!.settings).live);
+    expect(after).toMatchObject({ name: before!.name, businessHours: before!.businessHours, publicationStatus: 'published', onlineBookingEnabled: true });
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toEqual(liveServices);
+    await expect(publishSetup(actor, { revision: review.revision, approvalId: approval.id, operationId: randomUUID() })).rejects.toThrow();
+
+    const restored = await resetSetupDraft(actor, { expectedRevision: fresh.revision.revision, operationId: randomUUID() }, true);
+
+    expect(restored.revision.document.services.map(service => service.id)).toEqual(liveServices.map(service => service.id));
+
+    const restoredReview = await reviewSetup(actor);
+    const restoredApproval = await approveSetup(actor, restoredReview.revision, restoredReview.hash);
+    await publishSetup(actor, { revision: restoredReview.revision, approvalId: restoredApproval.id, operationId: randomUUID() });
+
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(liveServices.length);
   });
 });

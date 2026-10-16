@@ -1,10 +1,10 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gte } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireSetupOwner } from '@/features/business-setup/access.server';
-import { setupEditSchema, SetupError } from '@/features/business-setup/contracts';
+import { setupEditSchema, SetupError, setupResetSchema } from '@/features/business-setup/contracts';
 import { runSetupConversation, setupMessageSchema } from '@/features/business-setup/conversation.server';
-import { approveSetup, editSetup, loadSetupHead, lockSetupSalon, openSetup, restartSetup, reviewSetup } from '@/features/business-setup/drafts.server';
+import { approveSetup, editSetup, loadSetupHead, lockSetupSalon, openSetup, resetSetupDraft, restartSetup, reviewSetup } from '@/features/business-setup/drafts.server';
 import { publishSetup } from '@/features/business-setup/publish.server';
 import { applyOwnUpload, dismissOwnUpload, readOwnUpload, readOwnUploadSchema } from '@/features/business-setup/read-upload.server';
 import { setupTimeline } from '@/features/business-setup/timeline';
@@ -18,6 +18,8 @@ const headers = { 'Cache-Control': 'private, no-store' };
 const base = { salonSlug: z.string().min(1).max(160) };
 const requestSchema = z.discriminatedUnion('action', [
   z.object({ ...base, action: z.literal('open') }).strict(),
+  z.object({ ...base, action: z.literal('reset'), input: setupResetSchema }).strict(),
+  z.object({ ...base, action: z.literal('restore_previous'), input: setupResetSchema }).strict(),
   z.object({ ...base, action: z.literal('read_upload'), input: readOwnUploadSchema }).strict(),
   z.object({ ...base, action: z.literal('apply_upload'), operationId: z.string().uuid() }).strict(),
   z.object({ ...base, action: z.literal('dismiss_upload'), operationId: z.string().uuid() }).strict(),
@@ -50,8 +52,9 @@ export async function GET(request: Request) {
     const data = await db.transaction(async (tx) => {
       await lockSetupSalon(tx, access.actor);
       const head = await loadSetupHead(tx, access.actor.salonId);
-      const turns = await tx.select({ id: businessSetupTurnSchema.id, message: businessSetupTurnSchema.message, reply: businessSetupTurnSchema.reply, status: businessSetupTurnSchema.status, createdAt: businessSetupTurnSchema.createdAt, leaseExpiresAt: businessSetupTurnSchema.leaseExpiresAt, designOperationId: businessSetupTurnSchema.designOperationId, operations: businessSetupTurnSchema.operations, expectedRevision: businessSetupTurnSchema.expectedRevision }).from(businessSetupTurnSchema).where(and(eq(businessSetupTurnSchema.salonId, access.actor.salonId), eq(businessSetupTurnSchema.workspaceId, head.workspace.id))).orderBy(desc(businessSetupTurnSchema.createdAt)).limit(40);
-      const designs = await tx.select({ id: customSiteGenerationSchema.id, message: customSiteGenerationSchema.message, status: customSiteGenerationSchema.status, createdAt: customSiteGenerationSchema.createdAt }).from(customSiteGenerationSchema).where(eq(customSiteGenerationSchema.salonId, access.actor.salonId)).orderBy(desc(customSiteGenerationSchema.createdAt)).limit(40);
+      const start = head.revision.document.sessionStartRevision ?? 1;
+      const turns = await tx.select({ id: businessSetupTurnSchema.id, message: businessSetupTurnSchema.message, reply: businessSetupTurnSchema.reply, status: businessSetupTurnSchema.status, createdAt: businessSetupTurnSchema.createdAt, leaseExpiresAt: businessSetupTurnSchema.leaseExpiresAt, designOperationId: businessSetupTurnSchema.designOperationId, operations: businessSetupTurnSchema.operations, expectedRevision: businessSetupTurnSchema.expectedRevision }).from(businessSetupTurnSchema).where(and(eq(businessSetupTurnSchema.salonId, access.actor.salonId), eq(businessSetupTurnSchema.workspaceId, head.workspace.id), gte(businessSetupTurnSchema.expectedRevision, start))).orderBy(desc(businessSetupTurnSchema.createdAt)).limit(40);
+      const designs = await tx.select({ id: customSiteGenerationSchema.id, message: customSiteGenerationSchema.message, status: customSiteGenerationSchema.status, createdAt: customSiteGenerationSchema.createdAt }).from(customSiteGenerationSchema).where(and(eq(customSiteGenerationSchema.salonId, access.actor.salonId), gte(customSiteGenerationSchema.expectedRevision, start))).orderBy(desc(customSiteGenerationSchema.createdAt)).limit(40);
       const messages = setupTimeline(turns, designs);
       return { ...head, messages, uploadReviews: turns.filter(turn => turn.status === 'upload_review').map(({ id, operations, reply, expectedRevision }) => ({ id, operations, notes: reply, expectedRevision })) };
     });
@@ -103,6 +106,10 @@ export async function POST(request: Request) {
   try {
     let data: unknown;
     switch (parsed.action) {
+      case 'reset':
+      case 'restore_previous':
+        data = await resetSetupDraft(access.actor, parsed.input, parsed.action === 'restore_previous');
+        break;
       case 'read_upload':
         if (!access.aiEnabled) {
           return Response.json({ error: { message: 'AI is unavailable. Your uploads are saved.' } }, { status: 503, headers });

@@ -54,6 +54,9 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
     // Browser-selected references are tenant checked before any paid model call.
     await ownedAssets(tx, actor.salonId, input.referenceIds ?? []);
     const head = await loadSetupHead(tx, actor.salonId);
+    if (input.expectedRevision < (head.revision.document.sessionStartRevision ?? 1)) {
+      throw new SetupError('STALE', 'You started over since this message. Send it in your new conversation instead.');
+    }
     const requestHash = setupHash(input);
     const [previous] = await tx.select().from(turns).where(eq(turns.id, input.operationId));
     if (previous) {
@@ -77,7 +80,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       throw new SetupError('NOT_READY', 'AI has reached its setup limit. Your saved setup is still editable manually.');
     }
     const [turn] = await tx.insert(turns).values({ id: input.operationId, salonId: actor.salonId, workspaceId: head.workspace.id, actorId: actor.adminId, expectedRevision: input.expectedRevision, requestHash, message: input.message, status: 'pending', leaseExpiresAt: new Date(deadlineAt) }).returning();
-    return { head, turn: turn!, history: history.slice(0, 8).reverse(), isNew: true };
+    return { head, turn: turn!, history: history.filter(turn => turn.expectedRevision >= (head.revision.document.sessionStartRevision ?? 1)).slice(0, 8).reverse(), isNew: true };
   });
   if (admitted.turn.status === 'completed') {
     return { reply: admitted.turn.reply, head: admitted.head, usage: { inputTokens: admitted.turn.inputTokens, outputTokens: admitted.turn.outputTokens, costMicroUsd: admitted.turn.costMicroUsd } };

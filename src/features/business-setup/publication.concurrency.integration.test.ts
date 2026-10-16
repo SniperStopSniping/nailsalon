@@ -13,7 +13,7 @@ import * as schema from '@/models/Schema';
 import { runSetupModel } from './ai-trial.server';
 import { CLOSED_HOURS } from './contracts';
 import { runSetupConversation } from './conversation.server';
-import { approveSetup, editSetup, openSetup, reviewSetup } from './drafts.server';
+import { approveSetup, editSetup, openSetup, resetSetupDraft, reviewSetup } from './drafts.server';
 import { publishSetup } from './publish.server';
 
 vi.mock('server-only', () => ({}));
@@ -170,5 +170,26 @@ describe.skipIf(!target)('AI trial global reservation on PostgreSQL', () => {
     } finally {
       await database.update(schema.setupAiBudgetSchema).set({ capMicroCad: 40000000 });
     }
+  });
+});
+
+describe.skipIf(!target)('full reset on attested disposable PostgreSQL', () => {
+  it('serializes duplicate reset requests into one archived boundary', async () => {
+    const { actor } = await fixture();
+    const input = { expectedRevision: 2, operationId: randomUUID() };
+    const results = await Promise.all([resetSetupDraft(actor, input), resetSetupDraft(actor, input)]);
+
+    expect(results[0].revision.revision).toBe(3);
+    expect(results[1].revision.revision).toBe(3);
+    expect(await database.select().from(schema.businessSetupRevisionSchema).where(eq(schema.businessSetupRevisionSchema.salonId, actor.salonId))).toHaveLength(3);
+  });
+
+  it('allows only one competing tab to reset the same draft', async () => {
+    const { actor } = await fixture();
+    const results = await Promise.allSettled([resetSetupDraft(actor, { expectedRevision: 2, operationId: randomUUID() }), resetSetupDraft(actor, { expectedRevision: 2, operationId: randomUUID() })]);
+
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find(result => result.status === 'rejected')).toMatchObject({ reason: { code: 'STALE' } });
+    expect((await openSetup(actor)).revision.document.sessionStartRevision).toBe(3);
   });
 });

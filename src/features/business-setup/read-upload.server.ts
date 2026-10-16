@@ -138,6 +138,9 @@ export async function readOwnUpload(actor: SetupActor, raw: unknown, providerOve
   const admitted = await db.transaction(async (tx) => {
     await lockSetupSalon(tx, actor);
     const head = await loadSetupHead(tx, actor.salonId);
+    if (input.expectedRevision < (head.revision.document.sessionStartRevision ?? 1)) {
+      throw new SetupError('STALE', 'This image belongs to your earlier draft. Attach it to the new conversation to use it again.');
+    }
     await ownedAssets(tx, actor.salonId, input.referenceIds);
     const [prior] = await tx.select().from(turns).where(eq(turns.id, input.operationId));
     if (prior) {
@@ -191,7 +194,7 @@ export async function applyOwnUpload(actor: SetupActor, operationId: string) {
     await lockSetupSalon(tx, actor);
     const head = await loadSetupHead(tx, actor.salonId);
     const [row] = await tx.select().from(turns).where(and(eq(turns.id, operationId), eq(turns.salonId, actor.salonId)));
-    if (!row || row.actorId !== actor.adminId || row.workspaceId !== head.workspace.id || !['upload_review', 'upload_applied'].includes(row.status) || !row.operations?.length) {
+    if (!row || row.actorId !== actor.adminId || row.workspaceId !== head.workspace.id || row.expectedRevision < (head.revision.document.sessionStartRevision ?? 1) || !['upload_review', 'upload_applied'].includes(row.status) || !row.operations?.length) {
       throw new SetupError('NOT_FOUND', 'This upload review is unavailable.');
     }
     // Apply and mark reviewed while holding the same salon lock. A concurrent

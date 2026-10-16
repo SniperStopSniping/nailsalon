@@ -29,6 +29,9 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
   const admitted = await db.transaction(async (tx) => {
     await lockSetupSalon(tx, actor);
     const head = await loadSetupHead(tx, actor.salonId);
+    if (input.expectedRevision < (head.revision.document.sessionStartRevision ?? 1)) {
+      throw new SetupError('STALE', 'This design request belongs to your earlier draft. Your new draft is safe.');
+    }
     const [previous] = await tx.select().from(jobs).where(eq(jobs.id, input.operationId));
     if (previous) {
       if (previous.salonId !== actor.salonId || previous.actorId !== actor.adminId || previous.requestHash !== setupHash(input)) {

@@ -246,6 +246,9 @@
 .setup-chat-first button.setup-start-over { border: 0; background: transparent; color: var(--setup-accent); font-size: 12px; min-height: 44px; padding: 8px; }
 .luster-setup .setup-fresh-note { font-size: 12px; color: var(--setup-muted); margin-top: 12px; }
 .setup-fresh-actions { display: flex; gap: 8px; margin-top: 20px; }
+.setup-reset-actions { display: grid; gap: 8px; margin-top: 20px; }
+.setup-reset-recovery { color: var(--setup-muted); font-size: 12px; margin-block: 12px !important; text-align: center; }
+.setup-reset-recovery button { border: 0; background: transparent; color: var(--setup-accent); font-size: 12px; padding: 8px; }
 .setup-thinking { font-size: 13px; color: var(--setup-muted); padding: 12px 0; }
 .setup-thinking span { color: #98677f; display: inline-block; margin-right: 7px; }
 .setup-back-chat { border: 0 !important; background: transparent !important; padding-left: 0 !important; margin-bottom: 18px; color: var(--setup-accent) !important; }
