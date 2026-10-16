@@ -52,6 +52,7 @@ test('Canva artwork stays pixel-identical while contacts and canonical service a
 
   expect(size.width).toBe(Math.min(600, size.available));
   expect(size.height / size.width).toBeCloseTo(2);
+
   // Verify native pixels separately from intentional responsive upscaling.
   // Only this synthetic parent test frame is resized; source/artwork is intact.
   await page.locator('iframe').evaluate(frame => frame.style.width = '300px');
