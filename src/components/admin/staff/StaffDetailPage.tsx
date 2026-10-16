@@ -131,13 +131,15 @@ export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate, initialT
   }, [locale, router, salonSlug, search, staffId]);
 
   // Fetch technician detail
-  const fetchDetail = useCallback(async () => {
+  const fetchDetail = useCallback(async (showLoading = true) => {
     if (!salonSlug || !staffId) {
       return;
     }
 
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       setError(null);
 
       const response = await fetch(
@@ -158,7 +160,9 @@ export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate, initialT
       console.error('Error fetching technician:', err);
       setError('Failed to load staff details');
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, [salonSlug, staffId]);
 
@@ -466,7 +470,7 @@ export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate, initialT
           <ServicesTab
             salonSlug={salonSlug}
             technicianId={staffId}
-            onUpdate={fetchDetail}
+            onUpdate={() => void fetchDetail(false)}
           />
         )}
         {activeTab === 'clients' && (

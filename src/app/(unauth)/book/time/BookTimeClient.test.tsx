@@ -47,7 +47,7 @@ vi.mock('@/components/booking/BookingStepHeader', () => ({
 }));
 
 vi.mock('@/components/booking/BookingSummaryCard', () => ({
-  BookingSummaryCard: () => <div data-testid="booking-summary-card" />,
+  BookingSummaryCard: ({ serviceNames }: { serviceNames: string }) => <div data-testid="booking-summary-card">{serviceNames}</div>,
 }));
 
 vi.mock('@/components/booking/BookingFloatingDock', () => ({
@@ -656,9 +656,24 @@ describe('BookTimeClient', () => {
       renderTimeStep(180);
 
       expect(await screen.findByText(/Your service takes/)).toHaveTextContent(
-        'Your service takes 3h plus 10 minutes of preparation time.',
+        'Your service takes 3h plus 10 minutes reserved by the salon.',
       );
       expect(screen.queryByText(/Times marked unavailable/)).not.toBeInTheDocument();
+    });
+
+    it('avoids repeating the sole service name for its extras while retaining quantities', () => {
+      mockAvailability(['13:45']);
+      render(<BookTimeClient services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]} addOns={[{ id: 'art', name: 'Nail Art', serviceName: 'Gel', quantity: 2, price: 10, duration: 10 }]} totalPrice={85} totalDuration={80} technician={null} bookingFlow={['service', 'time', 'confirm']} />);
+
+      expect(screen.getByTestId('booking-summary-card')).toHaveTextContent('Gel + Nail Art x2');
+      expect(screen.getByTestId('booking-summary-card')).not.toHaveTextContent('Gel: Nail Art');
+    });
+
+    it('keeps the service label on extras when several base services are booked', () => {
+      mockAvailability(['13:45']);
+      render(<BookTimeClient services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }, { id: 'srv_2', name: 'Pedicure', price: 50, duration: 60 }]} addOns={[{ id: 'art', name: 'Nail Art', serviceName: 'Gel', quantity: 1, price: 10, duration: 10 }]} totalPrice={125} totalDuration={130} technician={null} bookingFlow={['service', 'time', 'confirm']} />);
+
+      expect(screen.getByTestId('booking-summary-card')).toHaveTextContent('Gel + Pedicure + Gel: Nail Art');
     });
   });
 

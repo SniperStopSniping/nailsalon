@@ -341,15 +341,15 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                 <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" aria-hidden="true" />
                 <div className="text-[15px] text-amber-900">
                   <p className="font-medium">
-                    You have more photos than your current plan allows.
+                    Your saved photos exceed the current portfolio allowance.
                   </p>
                   <p className="mt-1 text-sm">
                     Nothing has been deleted. The first
                     {' '}
                     {data.usage.max}
                     {' '}
-                    photos in your order stay active — drag to choose which ones,
-                    or upgrade to make them all active again.
+                    photos in your saved order stay active. Contact support if
+                    you need help with your photo allowance.
                   </p>
                 </div>
               </div>
@@ -364,7 +364,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                 {' '}
                 {data.usage.max}
                 {' '}
-                portfolio photos on your current plan. Upgrade to add more of your work.
+                portfolio photos in your allowance. Remove a photo or contact support for help.
               </div>
             )}
 

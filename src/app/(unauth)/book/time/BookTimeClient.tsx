@@ -357,9 +357,10 @@ export function BookTimeClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
+  const soleServiceName = services.length === 1 ? services[0]?.name : null;
   const serviceNames = [
     ...services.map(s => s.name),
-    ...addOns.map(addOn => `${addOn.serviceName ? `${addOn.serviceName}: ` : ''}${addOn.name}${addOn.quantity > 1 ? ` x${addOn.quantity}` : ''}`),
+    ...addOns.map(addOn => `${addOn.serviceName && addOn.serviceName !== soleServiceName ? `${addOn.serviceName}: ` : ''}${addOn.name}${addOn.quantity > 1 ? ` x${addOn.quantity}` : ''}`),
   ].join(' + ');
 
   // "Today" is defined by the salon's timezone, not the visitor's device.
@@ -1371,7 +1372,7 @@ export function BookTimeClient({
                   Your service takes
                   {' '}
                   <strong>{totalDuration >= 60 ? `${Math.floor(totalDuration / 60)}h ${totalDuration % 60 ? `${totalDuration % 60}m` : ''}`.trim() : `${totalDuration}m`}</strong>
-                  {availabilityBufferMinutes > 0 ? ` plus ${availabilityBufferMinutes} minutes of preparation time` : ''}
+                  {availabilityBufferMinutes > 0 ? ` plus ${availabilityBufferMinutes} minutes reserved by the salon` : ''}
                   .
                 </p>
               </div>

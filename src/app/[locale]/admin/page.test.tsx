@@ -1622,6 +1622,7 @@ describe('AdminDashboardPage', () => {
       isOpen: boolean;
       preselectedDate?: Date;
       salonSlug?: string | null;
+      onSuccess?: () => void;
     };
 
     expect(openProps.isOpen).toBe(true);
@@ -1631,6 +1632,16 @@ describe('AdminDashboardPage', () => {
     expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({
       showScheduleCalendar: false,
     });
+    expect(screen.queryByTestId('appointment-saved-notice')).not.toBeInTheDocument();
+
+    act(() => openProps.onSuccess?.());
+
+    expect(await screen.findByTestId('appointment-saved-notice')).toHaveTextContent('Appointment saved');
+
+    fireEvent.click(screen.getByRole('button', { name: 'View calendar', exact: true }));
+
+    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin?salon=salon-b&app=schedule');
+    expect(screen.queryByTestId('appointment-saved-notice')).not.toBeInTheDocument();
 
     // The calendar is now addressable, so "Schedule" pushes ?app=schedule and
     // the URL effect opens it (AG-today-calendar-03). It is no longer opened
