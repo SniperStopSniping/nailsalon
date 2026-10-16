@@ -33,6 +33,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
   const [uploadSource, setUploadSource] = useState<'own' | 'inspiration'>('inspiration');
   const [showUpload, setShowUpload] = useState(false);
   const [showBrief, setShowBrief] = useState(false);
+  const [canvaEditorOpen, setCanvaEditorOpen] = useState(false);
   useEffect(() => {
     if (entryMode === 'upload') {
       setShowUpload(true);
@@ -270,6 +271,8 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           key={artifactId}
           payload={state.payload}
           endpoint={endpoint}
+          open={canvaEditorOpen}
+          onOpenChange={setCanvaEditorOpen}
           disabled={disabled || Boolean(busy || pending)}
           onSave={source => void action('Saving clickable areas…', async () => {
             await post({ action: 'save', input: { expectedRevision: revision, operationId: crypto.randomUUID(), source, assetIds: current?.assetIds ?? [] } });

@@ -89,7 +89,7 @@ function AreaPage({ page, index, areas, selected, endpoint, disabled, onSelect, 
   );
 }
 
-export function CanvaAreaEditor({ payload, endpoint, disabled, onSave, onReview }: { payload: CustomSitePayload; endpoint: string; disabled: boolean; onSave: (source: CustomSiteSource) => void; onReview: () => void }) {
+export function CanvaAreaEditor({ payload, endpoint, disabled, onSave, onReview, open, onOpenChange }: { payload: CustomSitePayload; endpoint: string; disabled: boolean; onSave: (source: CustomSiteSource) => void; onReview: () => void; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [design, setDesign] = useState(payload.source.canva!);
   const [selected, setSelected] = useState(design.areas[0]?.id ?? '');
   const [dirty, setDirty] = useState(false);
@@ -106,7 +106,7 @@ export function CanvaAreaEditor({ payload, endpoint, disabled, onSave, onReview 
     change(design.areas.map(item => item.id === selected ? { ...item, ...values } : item));
   }
   return (
-    <details className="studio-step">
+    <details className="studio-step" open={open} onToggle={event => onOpenChange(event.currentTarget.open)}>
       <summary>Check Canva links & artwork</summary>
       <p>Your artwork stays unchanged. Select a highlighted area to change its link. Drag it, use the arrow keys, or enter its position below. Changes to printed text or photos are made in Canva, then uploaded again.</p>
       {design.pages.map((page, index) => <AreaPage key={page.assetId} page={page} index={index} areas={design.areas} endpoint={endpoint} disabled={disabled} selected={selected} onSelect={setSelected} onChange={(id, geometry) => change(design.areas.map(item => item.id === id ? { ...item, geometry } : item))} />)}
