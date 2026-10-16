@@ -48,11 +48,20 @@ test('Canva artwork stays pixel-identical while contacts and canonical service a
   await expect(site.locator('#canva-book')).toBeVisible();
   await expect(site.locator('#canva-book')).toHaveAttribute('data-luster-book', 'canonical-service');
 
+  const size = await site.locator('.canva-page img').evaluate(image => ({ width: image.clientWidth, height: image.clientHeight, available: image.ownerDocument.documentElement.clientWidth }));
+
+  expect(size.width).toBe(Math.min(600, size.available));
+  expect(size.height / size.width).toBeCloseTo(2);
+  // Verify native pixels separately from intentional responsive upscaling.
+  // Only this synthetic parent test frame is resized; source/artwork is intact.
+  await page.locator('iframe').evaluate(frame => frame.style.width = '300px');
+
   const rendered = await site.locator('.canva-page img').screenshot({ scale: 'css' });
 
   expect((await sharp(rendered).metadata()).width).toBe(300);
   expect((await sharp(rendered).removeAlpha().raw().toBuffer()).equals(await sharp(bytes).raw().toBuffer())).toBe(true);
 
+  await page.locator('iframe').evaluate(frame => frame.style.width = '100%');
   await site.locator('#canva-book').click();
 
   await expect.poll(() => page.evaluate(() => (window as unknown as { probeMessages: unknown[] }).probeMessages)).toContainEqual({ channel: 'canva-test', type: 'preview-booking' });
