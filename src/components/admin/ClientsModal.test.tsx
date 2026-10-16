@@ -1532,6 +1532,9 @@ describe('ClientsModal', () => {
     fireEvent.change(screen.getByLabelText('Problem client reason'), { target: { value: 'Aggressive behavior' } });
 
     fireEvent.click(screen.getByLabelText('Block future booking'));
+
+    expect(screen.getByText('Prevents online booking. The client sees code 060 and is asked to contact the salon.')).toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText('Blocked booking reason'), { target: { value: 'Repeated no-shows' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Save status' }));
