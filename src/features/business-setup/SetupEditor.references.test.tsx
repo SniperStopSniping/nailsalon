@@ -138,6 +138,21 @@ async function attach(purpose = 'Inspiration') {
   await waitFor(() => expect(screen.getByRole('button', { name: 'Attach images or a PDF' })).toBeEnabled());
 }
 
+it('lets an owner send a new design image without typing an extra prompt, and never sends on upload alone', async () => {
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  await attach('My design or menu');
+
+  expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveValue('');
+  expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled();
+  expect(requests.some(request => request.action === 'message')).toBe(false);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await screen.findByText('Saved your request.');
+
+  expect(requests.find(request => request.action === 'message').message).toMatchObject({ message: 'Create my website from this design.', referenceIds: [reference.id] });
+});
+
 it('drops a cached earlier-session request after a reset on another device', async () => {
   revision = 3;
   document.sessionStartRevision = 3;

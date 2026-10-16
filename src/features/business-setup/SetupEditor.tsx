@@ -282,6 +282,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
   const pending = draft?.services.filter(s => !s.confirmed) ?? [];
   const missing = draft ? missingDesignDetails(draft) : [];
   const requestAssets = draft?.designBrief ? [...draft.designBrief.referenceIds, ...draft.designBrief.websiteAssetIds] : selectedDesignAssets;
+  const canSendImage = !customFrontendId && messages.length === 0 && Boolean(draft?.designBrief?.referenceIds.length);
   const hasPendingMessage = messages.some(message => message.status === 'pending');
   const lastReply = messages.at(-1)?.reply;
   useEffect(() => {
@@ -343,10 +344,11 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
     }
   }
   async function sendMessage() {
-    if (!head || busy || sendLock.current || published || !text.trim()) {
+    const message = text.trim() || (canSendImage ? 'Create my website from this design.' : '');
+    if (!head || busy || sendLock.current || published || !message) {
       return;
     }
-    const request: MessageRequest = { message: text.trim(), operationId: crypto.randomUUID(), expectedRevision: head.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: requestAssets };
+    const request: MessageRequest = { message, operationId: crypto.randomUUID(), expectedRevision: head.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: requestAssets };
     setText('');
     await submitRequest(request);
   }
@@ -624,7 +626,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                 value={text}
                 onChange={event => setText(event.target.value)}
                 maxLength={4000}
-                placeholder={customFrontendId ? 'Ask Luster to change anything…' : 'Describe your idea, or ask anything…'}
+                placeholder={customFrontendId ? 'Ask Luster to change anything…' : canSendImage ? 'Send your image, or add a message…' : 'Describe your idea, or ask anything…'}
                 rows={2}
                 disabled={published}
                 onKeyDown={(event) => {
@@ -645,7 +647,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                     </select>
                   </label>
                 )}
-                <button type="submit" aria-label="Send message" disabled={!aiEnabled || busy || !head || published || !text.trim()}>↑</button>
+                <button type="submit" aria-label="Send message" disabled={!aiEnabled || busy || !head || published || (!text.trim() && !canSendImage)}>↑</button>
               </div>
             </form>
             <div className="setup-compose-footer">
