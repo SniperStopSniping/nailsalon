@@ -111,6 +111,7 @@ it('opens the first generated preview automatically and labels suggested booking
   await waitFor(() => expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true'));
 
   expect(screen.getByRole('region', { name: 'Website preview' })).toBeVisible();
+  expect(screen.getByRole('combobox', { name: 'What can Luster change?' })).toHaveValue('all');
   expect(screen.getByText('This first look includes suggested booking details. Change them in chat or Details, then review them before publishing.')).toBeVisible();
   expect(requests.some(request => ['approve', 'publish'].includes(request.action))).toBe(false);
 });

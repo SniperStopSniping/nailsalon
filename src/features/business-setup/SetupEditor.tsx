@@ -131,10 +131,10 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
   const [activity, setActivity] = useState('');
   const customFrontendId = head?.revision.document.website.config.customFrontendId;
   useEffect(() => {
-    if (customFrontendId) {
+    if (customFrontendId && existingSalon) {
       setIncludeBusiness(false);
     }
-  }, [customFrontendId]);
+  }, [customFrontendId, existingSalon]);
   async function call<T>(body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
     const response = await fetch('/api/admin/business-setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ salonSlug, ...body }), signal });
     const payload = await response.json().catch(() => null) as {
