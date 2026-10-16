@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { CanvaDesign } from './canva';
-import { canvaDesignSchema, compileCanvaDesign } from './canva';
+import { canvaDesignSchema, comfortableCanvaAreas, compileCanvaDesign } from './canva';
 import { canvaDataFingerprint, canvaServiceKey, canvaTargetBlockers } from './canva-data.server';
 import type { CustomSiteData } from './contracts';
 import { validateCustomSource } from './validate.server';
@@ -14,6 +14,20 @@ const data: CustomSiteData = { business: { name: 'Canva Studio', city: 'Toronto'
 const design = (): CanvaDesign => ({ version: 1, pages: [{ assetId: randomUUID(), width: 600, height: 1800, alt: 'Original salon artwork' }], areas: [{ id: 'book', page: 0, label: 'Book Gel', geometry: { x: 10, y: 80, width: 80, height: 5 }, action: { type: 'service', serviceKey: canvaServiceKey(data.services[0]!) } }], visibleText: 'Original artwork', notes: [], ownerReviewed: false, dataFingerprint: canvaDataFingerprint(data) });
 
 describe('preserved Canva artwork', () => {
+  it('pads tiny links for mobile without moving artwork or covering other links', () => {
+    const input = design();
+    input.areas[0]!.geometry = { x: 10, y: 80, width: 10, height: 1 };
+    const padded = comfortableCanvaAreas(input.areas, input.pages);
+
+    expect(padded[0]!.geometry.height * 1800 * 360 / 600 / 100).toBeCloseTo(44);
+    expect(input.areas[0]!.geometry.height).toBe(1);
+    expect(canvaDesignSchema.safeParse({ ...input, areas: padded }).success).toBe(true);
+
+    const crowded = [...input.areas, { ...input.areas[0]!, id: 'nearby', geometry: { x: 10, y: 81, width: 10, height: 1 } }];
+
+    expect(comfortableCanvaAreas(crowded, input.pages)[0]!.geometry).toEqual(input.areas[0]!.geometry);
+  });
+
   it('compiles unchanged image identities and percentage links, with an equivalent live accessible menu', () => {
     const input = design();
     const source = compileCanvaDesign(input, data.details);

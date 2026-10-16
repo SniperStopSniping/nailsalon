@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { parseSafeHttpsUrl } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/actions';
-import { rectanglesHaveInteriorOverlap, validateNormalizedRect } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/geometry';
+import { clampNormalizedRect, rectanglesHaveInteriorOverlap, validateNormalizedRect } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/geometry';
 import type { CustomSiteSource } from './contracts';
 import type { WebsiteDetails } from './website-details';
 
@@ -47,6 +47,22 @@ export const canvaDesignSchema = z.object({
 }).strict().refine(value => value.areas.every(area => area.page < value.pages.length), 'Choose an existing page for each clickable area.');
 export type CanvaDesign = z.infer<typeof canvaDesignSchema>;
 export type CanvaArea = z.infer<typeof canvaAreaSchema>;
+/** Enlarge invisible touch targets, never artwork or overlapping neighbours. */
+export function comfortableCanvaAreas(areas: CanvaArea[], pages: { width: number; height: number }[]) {
+  const result = structuredClone(areas);
+  for (const area of result) {
+    const page = pages[area.page]!;
+    const minimumWidth = 44 / Math.min(360, page.width) * 100;
+    const minimumHeight = minimumWidth * page.width / page.height;
+    const width = Math.max(area.geometry.width, minimumWidth);
+    const height = Math.max(area.geometry.height, minimumHeight);
+    const candidate = clampNormalizedRect({ x: area.geometry.x - (width - area.geometry.width) / 2, y: area.geometry.y - (height - area.geometry.height) / 2, width, height }).rect;
+    if (!result.some(other => other.id !== area.id && other.page === area.page && rectanglesHaveInteriorOverlap(candidate, other.geometry))) {
+      area.geometry = candidate;
+    }
+  }
+  return result;
+}
 const escape = (value: string) => value.replace(/[&<>"']/gu, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' })[c]!);
 
 /** Trusted presentation compiler. AI supplies positions/actions, never artwork or code. */
