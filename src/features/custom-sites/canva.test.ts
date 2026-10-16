@@ -14,6 +14,19 @@ const data: CustomSiteData = { business: { name: 'Canva Studio', city: 'Toronto'
 const design = (): CanvaDesign => ({ version: 1, pages: [{ assetId: randomUUID(), width: 600, height: 1800, alt: 'Original salon artwork' }], areas: [{ id: 'book', page: 0, label: 'Book Gel', geometry: { x: 10, y: 80, width: 80, height: 5 }, action: { type: 'service', serviceKey: canvaServiceKey(data.services[0]!) } }], visibleText: 'Original artwork', notes: [], ownerReviewed: false, dataFingerprint: canvaDataFingerprint(data) });
 
 describe('preserved Canva artwork', () => {
+  it('lets a narrow phone export fill a phone while preserving the image and link geometry', () => {
+    const input = design();
+    input.pages[0]!.width = 279;
+    input.pages[0]!.height = 1280;
+    const source = compileCanvaDesign(input);
+
+    expect(source.css).toContain('.canva-site{margin:0 auto;max-width:600px}');
+    expect(source.css).toContain('width:100%;height:auto');
+    expect(source.canva).toEqual(input);
+    expect(source.html).toContain(`asset:${input.pages[0]!.assetId}`);
+    expect(source.css).toContain('left:10%;top:80%;width:80%;height:5%');
+  });
+
   it('keeps appointment links in Luster while allowing explicit general website destinations', () => {
     const input = design();
     const area = { ...input.areas[0]!, id: 'website', label: 'Visit my website', action: { type: 'website' as const, url: 'https://example.com' } };

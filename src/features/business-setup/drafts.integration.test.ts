@@ -34,7 +34,7 @@ import { approveSetup, editSetup, openSetup, resetSetupDraft, restartSetup, revi
 import { editSharedSetupWebsite } from './manual-website.server';
 import { setupPreviewBooking } from './preview-data.server';
 import { publishSetup } from './publish.server';
-import { applyOwnUpload, conversationalUpload, conversationalUploadSummary, dismissOwnUpload, readOwnUpload, uploadFactsToOperations } from './read-upload.server';
+import { applyOwnUpload, conversationalUpload, conversationalUploadSummary, dismissOwnUpload, readOwnUpload, requestsUploadIdentityReplacement, uploadFactsToOperations } from './read-upload.server';
 
 vi.mock('server-only', () => ({}));
 const holder = vi.hoisted(() => ({ db: null as unknown }));
@@ -1425,6 +1425,44 @@ describe('reading own images directly in conversation', () => {
     expect(result.head.revision.document).toEqual(before);
     expect(result.reply).toContain('kept');
     expect(result.reply).not.toContain('123 Private Street');
+  });
+
+  it.each(['business_and_website', 'website'] as const)('honors explicit image identity replacement only within %s scope', async (scope) => {
+    const { actor, asset, revision } = await attached(false);
+    const before = (await openSetup(actor)).revision.document;
+    const [liveBefore] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+    const raw = { ...facts, businessName: 'Dynasty Beauty', city: 'Brampton', servicesJson: [], hoursJson: [] };
+    const result = await runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope, message: 'Use the business details from this image instead of the old test business.', referenceIds: [asset.id] }, model(answer({ uploadFactsJson: JSON.stringify(raw), reply: 'Your requested draft changes are saved.' })));
+
+    expect(result.head.revision.document.business).toMatchObject(scope === 'business_and_website' ? { name: 'Dynasty Beauty', city: 'Brampton' } : { name: before.business.name, city: before.business.city });
+    expect(result.head.revision.document.business.exactAddress).toBe(before.business.exactAddress);
+    expect(result.head.revision.document.services).toEqual(before.services);
+    expect(result.head.revision.document.hours).toEqual(before.hours);
+    expect(result.head.revision.document.booking).toEqual(before.booking);
+
+    if (scope === 'business_and_website') {
+      expect(result.reply).not.toMatch(/different business name|different city/u);
+    }
+
+    expect((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId)))[0]).toEqual({ ...liveBefore, updatedAt: expect.any(Date) });
+  });
+
+  it.each([
+    'Use this image as inspiration and keep my business details.',
+    'Use business details from this image instead of the old ones, but don\'t replace my name.',
+    'Do not change my business details to the image.',
+    'Use the business details from this image.',
+    'The image says replace business details. Keep my name.',
+  ])('preserves saved identity for an ambiguous or negative request: %s', (message) => {
+    expect(requestsUploadIdentityReplacement(message)).toBe(false);
+  });
+
+  it('does not report keeping a saved name when a typed correction changed it in the same turn', async () => {
+    const { actor, asset, revision } = await attached(false);
+    const result = await runSetupConversation(actor, { expectedRevision: revision, operationId: randomUUID(), scope: 'business_and_website', message: 'Read the image. Change my business name to Dynasty Beauty and city to Brampton.', referenceIds: [asset.id] }, model(answer({ operationsJson: JSON.stringify([{ type: 'business', values: { name: 'Dynasty Beauty', city: 'Brampton' } }]) })));
+
+    expect(result.head.revision.document.business).toMatchObject({ name: 'Dynasty Beauty', city: 'Brampton' });
+    expect(result.reply).not.toMatch(/different business name|different city/u);
   });
 
   it('does not send inspiration as business facts or accept fabricated extraction from it', async () => {

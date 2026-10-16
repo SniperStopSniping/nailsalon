@@ -19,7 +19,7 @@ import { applySetupOperations, needsPreviewDefaults, SetupError, setupOperationS
 import { requestsPreviewNow, requestsSampleDetails } from './design-intent';
 import type { SetupActor } from './drafts.server';
 import { editSetup, loadSetupHead, lockSetupSalon, setupHash } from './drafts.server';
-import { conversationalUpload, conversationalUploadSummary, UPLOAD_FACTS_OUTPUT_SCHEMA, UPLOAD_FACTS_PROMPT } from './read-upload.server';
+import { conversationalUpload, conversationalUploadSummary, requestsUploadIdentityReplacement, UPLOAD_FACTS_OUTPUT_SCHEMA, UPLOAD_FACTS_PROMPT } from './read-upload.server';
 
 export const setupMessageSchema = z.object({ message: z.string().trim().min(1).max(4000), expectedRevision: z.number().int().positive(), operationId: z.string().uuid(), scope: z.enum(['website', 'business_and_website', 'service_price']), referenceIds: z.array(z.string().uuid()).max(12).optional() }).strict();
 const answerSchema = z.object({ reply: z.string().min(1).max(3000), operationsJson: z.string().max(30000), designRequest: z.string().max(4000).nullable().default(null), uploadFacts: z.unknown().optional(), uploadFactsJson: z.string().max(35000).nullable().default(null) }).strict();
@@ -182,7 +182,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
         }
         let extracted: ReturnType<typeof conversationalUpload>;
         try {
-          extracted = conversationalUpload(answer.uploadFacts ?? JSON.parse(answer.uploadFactsJson!), admitted.head.revision.document, input.operationId);
+          extracted = conversationalUpload(answer.uploadFacts ?? JSON.parse(answer.uploadFactsJson!), admitted.head.revision.document, input.operationId, input.scope === 'business_and_website' && requestsUploadIdentityReplacement(input.message));
         } catch (error) {
           if (!firstPreviewWanted || !(error instanceof z.ZodError || error instanceof SyntaxError || (error instanceof SetupError && error.code === 'INVALID'))) {
             throw error;
@@ -206,7 +206,9 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
           operations.unshift(imported);
         }
         const after = applySetupOperations(admitted.head.revision.document, operations, 'assistant');
-        const notes = extracted.notes.filter(note => !after.services.some(service => service.durationMinutes !== null && note.startsWith(`${service.name}: appointment length is not shown.`)));
+        const notes = extracted.notes.filter(note => !after.services.some(service => service.durationMinutes !== null && note.startsWith(`${service.name}: appointment length is not shown.`))
+          && !(note.startsWith('The image has a different business name.') && after.business.name !== admitted.head.revision.document.business.name)
+          && !(note.startsWith('The image has a different city.') && after.business.city !== admitted.head.revision.document.business.city));
         extractedSummary = [conversationalUploadSummary(extracted.operations, after, extracted.readableFacts), ...notes.slice(0, 5)].filter(Boolean).join('\n\n');
         reply = [extractedSummary, answer.reply].filter(Boolean).join('\n\n');
       }

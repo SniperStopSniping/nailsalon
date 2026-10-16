@@ -255,11 +255,19 @@ export async function dismissOwnUpload(actor: SetupActor, operationId: string) {
   });
 }
 
-/**
- * Conversation imports fill gaps. Conflicting saved facts need an explicit
- * correction in chat, not an OCR overwrite. No extra accept button is needed.
- */
-export function conversationalUpload(raw: unknown, document: SetupDocument, operationId: string) {
+/** Interpret the owner's typed instruction, never text found in an upload. */
+export function requestsUploadIdentityReplacement(message: string) {
+  const text = message.toLowerCase().replaceAll('’', '\'');
+  if (!/\b(?:image|upload|design)\b/u.test(text) || /\b(?:don't|do not|never)\s+(?:replace|overwrite|change)\b|\bkeep\s+(?:my|our|the|existing|saved|current)\s+(?:business\s+)?(?:details|name|city)\b/u.test(text)) {
+    return false;
+  }
+  const identity = 'business (?:details|info(?:rmation)?|name)|salon (?:details|info(?:rmation)?)|name and (?:city|location)';
+  return new RegExp(`\\b(?:replace|overwrite)\\b[^.!?\\n]{1,90}\\b(?:${identity})\\b[^.!?\\n]{1,90}\\b(?:image|upload|design)\\b`, 'u').test(text)
+    || new RegExp(`\\b(?:use|take|read)\\b[^.!?\\n]{1,90}\\b(?:${identity})\\b[^.!?\\n]{1,80}\\b(?:image|upload|design)\\b[^.!?\\n]{1,60}\\b(?:instead|replace|old|previous)\\b`, 'u').test(text);
+}
+
+/** Fill gaps; explicit replacement applies only to name/city, never booking rules. */
+export function conversationalUpload(raw: unknown, document: SetupDocument, operationId: string, replaceIdentity = false) {
   const proposal = uploadFactsToOperations(raw, document, operationId);
   const notes = [...proposal.notes];
   const operations: SetupOperation[] = [];
@@ -272,7 +280,7 @@ export function conversationalUpload(raw: unknown, document: SetupDocument, oper
         if (current === value) {
           continue;
         }
-        if (key === 'locationDisplayMode' || current === '' || (key === 'name' && emptyName) || (key === 'homeBased' && emptyName)) {
+        if ((replaceIdentity && ['name', 'city'].includes(key)) || key === 'locationDisplayMode' || current === '' || (key === 'name' && emptyName) || (key === 'homeBased' && emptyName)) {
           values[key] = value;
         } else {
           // Never repeat an existing or extracted private address in the chat.
