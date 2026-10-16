@@ -417,6 +417,8 @@ it('recovers the published state after a lost response without asking for approv
   fireEvent.click(await screen.findByRole('button', { name: 'Reload saved changes' }));
   await screen.findByRole('button', { name: 'Make more changes' });
 
+  expect(screen.getByRole('link', { name: 'Open your booking website' })).toHaveAttribute('href', '/en/test/book/service?publishedWebsite=1');
+
   expect(screen.queryByRole('button', { name: 'Approve and publish' })).not.toBeInTheDocument();
   expect(requests.filter(request => request.action === 'publish')).toHaveLength(1);
 });

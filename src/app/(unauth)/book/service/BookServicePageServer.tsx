@@ -50,6 +50,7 @@ const NEW_CLIENT_PROMO_END_DATE = '2026-04-30';
 export type BookServicePageProps = {
   searchParams: {
     nativeBooking?: string;
+    publishedWebsite?: string;
     locationId?: string;
     salonSlug?: string;
     campaign?: string;
@@ -115,7 +116,7 @@ export async function renderBookServicePage({
     id: salon.id,
     publicationStatus: salon.publicationStatus,
     freeSoloEnabled: salon.freeSoloEnabled,
-  });
+  }, { publishedView: !requireOwnerDraftPreview && searchParams.publishedWebsite === '1' });
   if (requireOwnerDraftPreview
     && (!previewGate.allowed || !previewGate.isPreviewingDraftConfig)) {
     notFound();
@@ -461,7 +462,7 @@ export async function renderBookServicePage({
     // Refresh the isolated document when either immutable source or canonical
     // service/business data changes during a client navigation.
     if (!payload.artworkUnavailable) {
-      return <CustomWebsiteFrame key={JSON.stringify([activeBookingPageSide.customFrontendId, payload.data])} payload={payload} rendererOrigin={rendererOrigin} bookingPath={`${base}/book/service`} managePath={`${base}/find-booking`} />;
+      return <CustomWebsiteFrame key={JSON.stringify([activeBookingPageSide.customFrontendId, payload.data])} payload={payload} rendererOrigin={rendererOrigin} bookingPath={`${base}/book/service?publishedWebsite=1`} managePath={`${base}/find-booking`} />;
     }
   }
   const bookingContent = (

@@ -592,7 +592,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
                 >
                   Make more changes
                 </button>
-                <a href={`/${locale}/${encodeURIComponent(salonSlug)}/book/service`}>Open your booking website</a>
+                <a href={`/${locale}/${encodeURIComponent(salonSlug)}/book/service?publishedWebsite=1`}>Open your booking website</a>
               </section>
             )}
           </div>
