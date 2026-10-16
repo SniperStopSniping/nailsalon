@@ -93,7 +93,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
   if (admitted.turn.status === 'failed') {
     throw new SetupError('NOT_READY', 'That AI attempt did not finish. Send a new message to retry; your saved draft is safe.');
   }
-  if (!admitted.turn.operations && input.scope !== 'service_price' && requestsContactRepair(input.message)) {
+  if (!admitted.turn.operations && admitted.head.revision.document.designBrief?.mode !== 'keep_design' && input.scope !== 'service_price' && requestsContactRepair(input.message)) {
     try {
       const head = await repairDraftContacts(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId, required: input.message });
       const reply = 'Your contact details are connected in the saved draft. Instagram opens the profile, email opens a message, and phone opens a call wherever those details are available. Nothing is published.';
@@ -110,7 +110,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
   let designRequest = admitted.turn.designRequest;
   let designOperationId = admitted.turn.designOperationId;
   const firstPreviewWanted = input.scope !== 'service_price' && !admitted.head.revision.document.website.config.customFrontendId && requestsPreviewNow(input.message, Boolean(input.referenceIds?.length || admitted.head.revision.document.designBrief?.referenceIds.length));
-  if (!operations && firstPreviewWanted && requestsSampleDetails(input.message)) {
+  if (!operations && firstPreviewWanted && requestsSampleDetails(input.message) && admitted.head.revision.document.designBrief?.mode !== 'keep_design') {
     operations = admitted.newBusiness && needsPreviewDefaults(admitted.head.revision.document) ? [{ type: 'preview_defaults', seed: input.operationId }] : [];
     reply = 'I’m creating your first website draft now. Missing booking details will use editable suggestions for you to review before publishing.';
     designRequest = `Create the first website draft from the selected references and saved business details. Preserve the reference composition and include all saved contact and policy details. Use the suggested service menu and hours in the draft. ${input.message}`;
@@ -256,7 +256,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       }
     }
   }
-  if (operations.length && operations.every(op => op.type === 'website_details' && Object.entries(op.values).every(([key, value]) => ['instagram', 'email', 'phone'].includes(key) && typeof value === 'string')) && admitted.head.revision.document.website.config.customFrontendId) {
+  if (admitted.head.revision.document.designBrief?.mode !== 'keep_design' && operations.length && operations.every(op => op.type === 'website_details' && Object.entries(op.values).every(([key, value]) => ['instagram', 'email', 'phone'].includes(key) && typeof value === 'string')) && admitted.head.revision.document.website.config.customFrontendId) {
     try {
       const head = await repairDraftContacts(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId }, operations);
       reply = 'Your contact details and clickable links are updated in the saved draft. Your design is preserved. Nothing is published.';

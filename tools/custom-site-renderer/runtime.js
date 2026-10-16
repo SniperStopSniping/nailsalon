@@ -71,10 +71,38 @@
         node.removeAttribute('href');
       }
     });
+    root.querySelectorAll('[data-luster-canva-area]').forEach((node) => {
+      const area = source.canva?.areas.find(area => area.id === node.dataset.lusterCanvaArea);
+      node.hidden = true;
+      if (area?.action.type === 'service') {
+        const id = payload.serviceKeys?.[area.action.serviceKey];
+        if (id && data.services.some(service => service.id === id)) {
+          node.dataset.lusterBook = id;
+        } else {
+          node.disabled = true;
+          node.removeAttribute('data-luster-book');
+        }
+      }
+      if (area?.action.type === 'website') {
+        try {
+          const url = new URL(area.action.url);
+          if (url.protocol === 'https:' && !url.username && !url.password) {
+            node.href = url.href;
+            node.target = '_blank';
+            node.rel = 'noopener noreferrer';
+          }
+        } catch { /* invalid links stay inert */ }
+      }
+    });
     root.querySelectorAll('img').forEach((node) => {
+      const page = node.closest('.canva-page');
+      const toggle = (loaded) => page?.querySelectorAll('[data-luster-canva-area]').forEach(area => { area.hidden = !loaded; });
+      node.addEventListener('load', () => toggle(node.naturalWidth > 0));
+      node.addEventListener('error', () => toggle(false));
       const image = images[node.getAttribute('src')?.replace(/^asset:/, '')];
       if (typeof image === 'string' && /^data:image\/(?:webp|png|jpeg);base64,/.test(image)) {
         node.src = image;
+        if (node.complete && node.naturalWidth > 0) toggle(true);
       } else {
         node.removeAttribute('src');
       }
@@ -84,6 +112,7 @@
         return;
       }
       const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[data-luster-canva-area][hidden]')) return;
       const book = target?.closest('[data-luster-book]');
       const manage = target?.closest('[data-luster-manage]');
       if (book || manage) {

@@ -6,6 +6,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 
 import { assertCustomArtifact } from '@/features/custom-sites/artifacts.server';
 import { ownedAssets } from '@/features/custom-sites/assets.server';
+import { canvaDraftBlockers } from '@/features/custom-sites/canva-data.server';
 import { customSourceImageIds } from '@/features/custom-sites/validate.server';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig.shared';
 import { resolveBookingExperience } from '@/libs/bookingExperience';
@@ -282,7 +283,7 @@ export async function editSetup(actor: SetupActor, input: unknown, origin: 'owne
       const { artifact, media } = await assertCustomArtifact(tx, salon.id, document.website.config.customFrontendId!);
       const used = customSourceImageIds(artifact.source.html);
       const referenceIds = media.filter(asset => asset.role === 'reference').map(asset => asset.id).slice(0, 6);
-      document.designBrief = { ...document.designBrief, referenceIds, ownedReferenceIds: document.designBrief.ownedReferenceIds.filter(id => referenceIds.includes(id)), websiteAssetIds: media.filter(asset => asset.role !== 'reference' && used.has(asset.id)).map(asset => asset.id).slice(0, 6) };
+      document.designBrief = { ...document.designBrief, mode: artifact.source.canva ? 'keep_design' : 'rebuild', referenceIds, ownedReferenceIds: artifact.source.canva ? referenceIds : document.designBrief.ownedReferenceIds.filter(id => referenceIds.includes(id)), websiteAssetIds: media.filter(asset => asset.role !== 'reference' && used.has(asset.id)).map(asset => asset.id).slice(0, 6) };
     }
     const revision = head.workspace.headRevision + 1;
     await tx.insert(revisions).values({ salonId: salon.id, workspaceId: head.workspace.id, revision, operationId: edit.operationId, operationHash, document, actorId: actor.adminId, origin });
@@ -319,14 +320,23 @@ export async function reviewSetup(actor: SetupActor) {
     if ((await readSetupSnapshot(tx, salon)).hash !== head.workspace.baselineHash) {
       throw new SetupError('STALE', 'Your business settings changed elsewhere. Review the newer changes first.');
     }
-    return makeSetupReview(head);
+    return reviewSetupHead(tx, head);
   });
+}
+export async function reviewSetupHead(tx: SetupTransaction, head: Awaited<ReturnType<typeof loadSetupHead>>) {
+  const review = makeSetupReview(head);
+  const id = head.revision.document.website.config.customFrontendId;
+  if (id) {
+    const { artifact } = await assertCustomArtifact(tx, head.workspace.salonId, id);
+    review.blockers.push(...canvaDraftBlockers(head.revision.document, artifact.source));
+  }
+  return review;
 }
 export async function approveSetup(actor: SetupActor, revision: number, manifestHash: string) {
   return db.transaction(async (tx) => {
     const salon = await lockSetupSalon(tx, actor);
     const head = await loadSetupHead(tx, salon.id);
-    const review = makeSetupReview(head);
+    const review = await reviewSetupHead(tx, head);
     if (head.workspace.status !== 'editing' || revision !== review.revision || manifestHash !== review.hash || (await readSetupSnapshot(tx, salon)).hash !== head.workspace.baselineHash) {
       throw new SetupError('STALE', 'Your setup changed. Review the latest version before approving.');
     }

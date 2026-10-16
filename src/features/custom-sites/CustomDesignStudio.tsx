@@ -3,6 +3,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
+import { CanvaAreaEditor } from './CanvaAreaEditor';
 import type { CustomSitePayload, CustomSiteSource, DesignBrief } from './contracts';
 import { CustomTextEditor } from './CustomTextEditor';
 import { CustomWebsiteFrame } from './CustomWebsiteFrame';
@@ -264,6 +265,20 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           </div>
         </div>
       )}
+      {state?.payload?.source.canva && (
+        <CanvaAreaEditor
+          key={artifactId}
+          payload={state.payload}
+          endpoint={endpoint}
+          disabled={disabled || Boolean(busy || pending)}
+          onSave={source => void action('Saving clickable areas…', async () => {
+            await post({ action: 'save', input: { expectedRevision: revision, operationId: crypto.randomUUID(), source, assetIds: current?.assetIds ?? [] } });
+          })}
+          onReview={() => void action('Saving your artwork check…', async () => {
+            await post({ action: 'review_canva', input: { expectedRevision: revision, operationId: crypto.randomUUID() } });
+          })}
+        />
+      )}
       {!compact && (
         <details className="studio-step" open={showUpload} onToggle={event => setShowUpload(event.currentTarget.open)}>
           <summary>
@@ -331,106 +346,112 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           </section>
         </details>
       )}
-      <details className="studio-media-controls">
-        <summary>Photos & design settings</summary>
-        {reply && <p role="status" className="setup-notice">{reply}</p>}
-        {state && (
-          <WebsitePhotoLibrary
-            assets={state.assets.filter(asset => asset.role !== 'reference')}
-            selected={brief.websiteAssetIds}
-            displayed={Object.keys(state.payload?.images ?? {})}
-            endpoint={endpoint}
-            disabled={disabled || Boolean(busy) || pending === true}
-            onUpload={uploadFiles}
-            onSelect={(id, checked) => changeBrief({ ...brief, websiteAssetIds: checked ? [...brief.websiteAssetIds, id] : brief.websiteAssetIds.filter(item => item !== id) })}
-            onEdit={(assetId, replacementId) => action('Updating your draft photo…', async () => {
-              await post({ action: 'edit_media', input: { expectedRevision: revision, operationId: crypto.randomUUID(), assetId, replacementId } });
-              setReply('Photo removed from this draft. Earlier versions and your published website are unchanged.');
-            })}
-          />
-        )}
-        {state?.assets.some(asset => asset.role === 'reference') && (
-          <fieldset className="studio-assets">
-            <legend>Your design references</legend>
-            {state.assets.filter(asset => asset.role === 'reference').map(asset => (
-              <div key={asset.id} className="studio-reference-card">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={brief.referenceIds.includes(asset.id)}
-                    disabled={disabled || Boolean(busy) || (!brief.referenceIds.includes(asset.id) && brief.referenceIds.length >= 6)}
-                    onChange={(event) => {
-                      const ids = event.target.checked ? [...brief.referenceIds, asset.id] : brief.referenceIds.filter(id => id !== asset.id);
-                      changeBrief({ ...brief, referenceIds: ids, ownedReferenceIds: brief.ownedReferenceIds.filter(id => ids.includes(id)) });
-                    }}
-                  />
-                  {asset.name}
-                  {' '}
-                  · Design reference
-                </label>
-                {asset.mimeType.startsWith('image/') && <img src={`${endpoint}&asset=${asset.id}`} alt={`${asset.name} reference`} /> /* eslint-disable-line @next/next/no-img-element */}
-                {brief.referenceIds.includes(asset.id) && (
+      {!state?.payload?.source.canva && (
+        <details className="studio-media-controls">
+          <summary>Photos & design settings</summary>
+          {reply && <p role="status" className="setup-notice">{reply}</p>}
+          {state && (
+            <WebsitePhotoLibrary
+              assets={state.assets.filter(asset => asset.role !== 'reference')}
+              selected={brief.websiteAssetIds}
+              displayed={Object.keys(state.payload?.images ?? {})}
+              endpoint={endpoint}
+              disabled={disabled || Boolean(busy) || pending === true}
+              onUpload={uploadFiles}
+              onSelect={(id, checked) => changeBrief({ ...brief, websiteAssetIds: checked ? [...brief.websiteAssetIds, id] : brief.websiteAssetIds.filter(item => item !== id) })}
+              onEdit={(assetId, replacementId) => action('Updating your draft photo…', async () => {
+                await post({ action: 'edit_media', input: { expectedRevision: revision, operationId: crypto.randomUUID(), assetId, replacementId } });
+                setReply('Photo removed from this draft. Earlier versions and your published website are unchanged.');
+              })}
+            />
+          )}
+          {state?.assets.some(asset => asset.role === 'reference') && (
+            <fieldset className="studio-assets">
+              <legend>Your design references</legend>
+              {state.assets.filter(asset => asset.role === 'reference').map(asset => (
+                <div key={asset.id} className="studio-reference-card">
                   <label>
-                    <input type="checkbox" checked={brief.ownedReferenceIds.includes(asset.id)} disabled={disabled || Boolean(busy)} onChange={event => changeBrief({ ...brief, ownedReferenceIds: event.target.checked ? [...brief.ownedReferenceIds, asset.id] : brief.ownedReferenceIds.filter(id => id !== asset.id) })} />
+                    <input
+                      type="checkbox"
+                      checked={brief.referenceIds.includes(asset.id)}
+                      disabled={disabled || Boolean(busy) || (!brief.referenceIds.includes(asset.id) && brief.referenceIds.length >= 6)}
+                      onChange={(event) => {
+                        const ids = event.target.checked ? [...brief.referenceIds, asset.id] : brief.referenceIds.filter(id => id !== asset.id);
+                        changeBrief({ ...brief, referenceIds: ids, ownedReferenceIds: brief.ownedReferenceIds.filter(id => ids.includes(id)) });
+                      }}
+                    />
+                    {asset.name}
                     {' '}
-                    This is my own design; I may reuse its branding and artwork.
+                    · Design reference
+                  </label>
+                  {asset.mimeType.startsWith('image/') && <img src={`${endpoint}&asset=${asset.id}`} alt={`${asset.name} reference`} /> /* eslint-disable-line @next/next/no-img-element */}
+                  {brief.referenceIds.includes(asset.id) && (
+                    <label>
+                      <input type="checkbox" checked={brief.ownedReferenceIds.includes(asset.id)} disabled={disabled || Boolean(busy)} onChange={event => changeBrief({ ...brief, ownedReferenceIds: event.target.checked ? [...brief.ownedReferenceIds, asset.id] : brief.ownedReferenceIds.filter(id => id !== asset.id) })} />
+                      {' '}
+                      This is my own design; I may reuse its branding and artwork.
+                    </label>
+                  )}
+                </div>
+              ))}
+            </fieldset>
+          )}
+          <details className="studio-step" open={showBrief} onToggle={event => setShowBrief(event.currentTarget.open)}>
+            <summary>
+              Your design direction
+              <span>Tell us what you like</span>
+            </summary>
+            <fieldset className="studio-fidelity" disabled={disabled || Boolean(busy) || pending === true}>
+              <legend>How should Luster use your design?</legend>
+              <button type="button" aria-pressed={brief.fidelity === 'match'} onClick={() => changeBrief({ ...brief, fidelity: 'match', mode: 'rebuild' })}>
+                <strong>Match my design closely</strong>
+                <span>Keep its layout, proportions and details. Make it responsive and interactive.</span>
+              </button>
+              <button type="button" aria-pressed={brief.fidelity === 'inspiration'} onClick={() => changeBrief({ ...brief, fidelity: 'inspiration', mode: 'rebuild' })}>
+                <strong>Use it as inspiration</strong>
+                <span>Keep the feeling, with freedom to create something new.</span>
+              </button>
+              <button type="button" aria-pressed={brief.mode === 'keep_design'} disabled={!brief.referenceIds.length || brief.referenceIds.some(id => !brief.ownedReferenceIds.includes(id))} onClick={() => changeBrief({ ...brief, fidelity: 'match', mode: 'keep_design' })}>
+                <strong>Keep my Canva design</strong>
+                <span>Keep the original artwork. Add clickable booking and contact areas.</span>
+              </button>
+              <p>Your original Canva artwork can be recreated as editable website elements. Upload the original photos and logo for the closest match. Unavailable fonts or interactions will be explained in the result.</p>
+              {brief.fidelity === 'match' && brief.referenceIds.length === 0 && <p role="status">Upload or select a design to match before creating your website.</p>}
+            </fieldset>
+            {!compact && (
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                void action('Studying your references and writing your website…', async () => {
+                  const result = await post({ action: 'generate', input: { expectedRevision: revision, operationId: crypto.randomUUID(), message, referenceIds: selected, startOver } });
+                  setReply(result.reply ?? 'Your new design is saved as a draft. Review it before publishing.');
+                  setMessage('');
+                  setStartOver(false);
+                });
+              }}
+              >
+                <label>
+                  What do you like about your references, or what should change?
+                  <textarea id="custom-design-brief" value={message} onChange={event => setMessage(event.target.value)} maxLength={4000} rows={4} required placeholder="Something warm and elegant. Cream backgrounds, bold photography and a little personality…" />
+                </label>
+                {artifactId && (
+                  <label>
+                    <input type="checkbox" checked={startOver} onChange={event => setStartOver(event.target.checked)} />
+                    Start over with an entirely new design
                   </label>
                 )}
-              </div>
-            ))}
-          </fieldset>
-        )}
-        <details className="studio-step" open={showBrief} onToggle={event => setShowBrief(event.currentTarget.open)}>
-          <summary>
-            Your design direction
-            <span>Tell us what you like</span>
-          </summary>
-          <fieldset className="studio-fidelity" disabled={disabled || Boolean(busy) || pending === true}>
-            <legend>How should Luster use your design?</legend>
-            <button type="button" aria-pressed={brief.fidelity === 'match'} onClick={() => changeBrief({ ...brief, fidelity: 'match' })}>
-              <strong>Match my design closely</strong>
-              <span>Keep its layout, proportions and details. Make it responsive and interactive.</span>
-            </button>
-            <button type="button" aria-pressed={brief.fidelity === 'inspiration'} onClick={() => changeBrief({ ...brief, fidelity: 'inspiration' })}>
-              <strong>Use it as inspiration</strong>
-              <span>Keep the feeling, with freedom to create something new.</span>
-            </button>
-            <p>Your original Canva artwork can be recreated as editable website elements. Upload the original photos and logo for the closest match. Unavailable fonts or interactions will be explained in the result.</p>
-            {brief.fidelity === 'match' && brief.referenceIds.length === 0 && <p role="status">Upload or select a design to match before creating your website.</p>}
-          </fieldset>
-          {!compact && (
-            <form onSubmit={(event) => {
-              event.preventDefault();
-              void action('Studying your references and writing your website…', async () => {
-                const result = await post({ action: 'generate', input: { expectedRevision: revision, operationId: crypto.randomUUID(), message, referenceIds: selected, startOver } });
-                setReply(result.reply ?? 'Your new design is saved as a draft. Review it before publishing.');
-                setMessage('');
-                setStartOver(false);
-              });
-            }}
-            >
-              <label>
-                What do you like about your references, or what should change?
-                <textarea id="custom-design-brief" value={message} onChange={event => setMessage(event.target.value)} maxLength={4000} rows={4} required placeholder="Something warm and elegant. Cream backgrounds, bold photography and a little personality…" />
-              </label>
-              {artifactId && (
-                <label>
-                  <input type="checkbox" checked={startOver} onChange={event => setStartOver(event.target.checked)} />
-                  Start over with an entirely new design
-                </label>
-              )}
-              <p>{selected.length ? `${selected.length} uploaded file(s) will be used for this request.` : 'Describe your idea, or select an uploaded image below.'}</p>
-              {missingDetails.length > 0 && (
-                <div className="setup-notice">
-                  <p>Your first design can be created now. Missing business and booking details can be added before publishing.</p>
-                  <button type="button" onClick={onContinueConversation}>Continue with Luster</button>
-                </div>
-              )}
-              <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim() || (brief.fidelity === 'match' && brief.referenceIds.length === 0)}>{busy.includes('writing your website') || pending ? 'Creating your website…' : 'Create my website'}</button>
-            </form>
-          )}
+                <p>{selected.length ? `${selected.length} uploaded file(s) will be used for this request.` : 'Describe your idea, or select an uploaded image below.'}</p>
+                {missingDetails.length > 0 && (
+                  <div className="setup-notice">
+                    <p>Your first design can be created now. Missing business and booking details can be added before publishing.</p>
+                    <button type="button" onClick={onContinueConversation}>Continue with Luster</button>
+                  </div>
+                )}
+                <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim() || (brief.fidelity === 'match' && brief.referenceIds.length === 0)}>{busy.includes('writing your website') || pending ? 'Creating your website…' : 'Create my website'}</button>
+              </form>
+            )}
+          </details>
         </details>
-      </details>
+      )}
       {state?.attempts.length
         ? (
             <details>
@@ -462,32 +483,34 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
         : null}
       {state?.payload && (
         <>
-          <details>
-            <summary>Edit website source</summary>
-            <p>HTML, CSS and interactions stay editable. Saving creates a new draft version.</p>
-            {source && <CustomTextEditor source={source} onChange={setSource} />}
-            {source && (
-              <form onSubmit={(event) => {
-                event.preventDefault();
-                void action('Validating and saving your design…', async () => {
-                  await post({ action: 'save', input: { expectedRevision: revision, operationId: crypto.randomUUID(), source, assetIds: current?.assetIds ?? [] } });
-                });
-              }}
-              >
-                <label>
-                  Design name
-                  <input value={source.title} onChange={event => setSource({ ...source, title: event.target.value })} maxLength={100} />
-                </label>
-                {(['html', 'css', 'javascript'] as const).map(file => (
-                  <label key={file}>
-                    {file === 'javascript' ? 'Visual interactions (isolated worker)' : file.toUpperCase()}
-                    <textarea aria-label={file === 'javascript' ? 'Visual interactions (isolated worker)' : file.toUpperCase()} spellCheck={false} value={source[file]} onChange={event => setSource({ ...source, [file]: event.target.value })} rows={12} />
+          {!state.payload.source.canva && (
+            <details>
+              <summary>Edit website source</summary>
+              <p>HTML, CSS and interactions stay editable. Saving creates a new draft version.</p>
+              {source && <CustomTextEditor source={source} onChange={setSource} />}
+              {source && (
+                <form onSubmit={(event) => {
+                  event.preventDefault();
+                  void action('Validating and saving your design…', async () => {
+                    await post({ action: 'save', input: { expectedRevision: revision, operationId: crypto.randomUUID(), source, assetIds: current?.assetIds ?? [] } });
+                  });
+                }}
+                >
+                  <label>
+                    Design name
+                    <input value={source.title} onChange={event => setSource({ ...source, title: event.target.value })} maxLength={100} />
                   </label>
-                ))}
-                <button type="submit" disabled={disabled || Boolean(busy)}>Save design changes</button>
-              </form>
-            )}
-          </details>
+                  {(['html', 'css', 'javascript'] as const).map(file => (
+                    <label key={file}>
+                      {file === 'javascript' ? 'Visual interactions (isolated worker)' : file.toUpperCase()}
+                      <textarea aria-label={file === 'javascript' ? 'Visual interactions (isolated worker)' : file.toUpperCase()} spellCheck={false} value={source[file]} onChange={event => setSource({ ...source, [file]: event.target.value })} rows={12} />
+                    </label>
+                  ))}
+                  <button type="submit" disabled={disabled || Boolean(busy)}>Save design changes</button>
+                </form>
+              )}
+            </details>
+          )}
           <details>
             <summary>Previous designs</summary>
             {state.history.map(item => (

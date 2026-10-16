@@ -12,6 +12,7 @@ import { db } from '@/libs/DB';
 import { businessSetupPreviewShareSchema as shares, businessSetupRevisionSchema as revisions } from '@/models/Schema';
 
 import { assertCustomArtifact } from './artifacts.server';
+import { canvaDraftBlockers } from './canva-data.server';
 import { setupCustomSitePayload } from './payload.server';
 
 // The browser generates 256 random bits once per request, retaining the token
@@ -44,7 +45,11 @@ export async function shareCustomPreview(actor: SetupActor, raw: unknown) {
     if (document.business.locationDisplayMode === 'full_address') {
       throw new SetupError('INVALID', 'Hide your full address in Details before sharing a draft preview.');
     }
-    await assertCustomArtifact(tx, actor.salonId, id);
+    const { artifact } = await assertCustomArtifact(tx, actor.salonId, id);
+    const blockers = canvaDraftBlockers(document, artifact.source);
+    if (blockers.length) {
+      throw new SetupError('NOT_READY', blockers.join(' '));
+    }
     const expiresAt = new Date(Date.now() + 30 * 86400000);
     await tx.insert(shares).values({ tokenHash: hash(input.token), salonId: actor.salonId, workspaceId: head.workspace.id, revision: input.expectedRevision, actorId: actor.adminId, expiresAt });
     return { path: `/website-preview/${input.token}`, revision: input.expectedRevision, expiresAt };
@@ -71,5 +76,13 @@ export async function sharedCustomPreview(token: string) {
   // operations, transcripts, approvals, exact address, tokens or provider data.
   const document = structuredClone(row.document);
   document.business.exactAddress = '';
+  const id = document.website.config.customFrontendId;
+  if (!id) {
+    return null;
+  }
+  const { artifact } = await assertCustomArtifact(db, row.share.salonId, id);
+  if (canvaDraftBlockers(document, artifact.source).length) {
+    return null;
+  }
   return setupCustomSitePayload(row.share.salonId, document);
 }

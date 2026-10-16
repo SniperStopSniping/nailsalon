@@ -31,6 +31,7 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
   const fileInput = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [purpose, setPurpose] = useState<Purpose>(initialPurpose);
+  const [keepDesign, setKeepDesign] = useState(brief?.mode === 'keep_design');
   const [permission, setPermission] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -73,6 +74,9 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
     }
     await change(async () => {
       const isReference = purpose === 'own' || purpose === 'inspiration';
+      if (purpose === 'own' && keepDesign && files.some(file => !file.type.startsWith('image/'))) {
+        throw new Error('Export your Canva pages as PNG or JPG to keep the artwork unchanged. PDFs can be used for an editable redesign.');
+      }
       if (files.length + (isReference ? values.referenceIds : values.websiteAssetIds).length > 6) {
         throw new Error(`Choose up to six ${isReference ? 'references' : 'photos and logos'} in total. Remove an attached image to make room.`);
       }
@@ -98,6 +102,7 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
       await save({
         ...values,
         fidelity: purpose === 'own' ? 'match' : values.fidelity,
+        mode: purpose === 'own' ? keepDesign ? 'keep_design' : 'rebuild' : purpose === 'inspiration' ? 'rebuild' : values.mode,
         referenceIds: isReference ? [...new Set([...values.referenceIds, ...ids])] : values.referenceIds,
         ownedReferenceIds: purpose === 'own' ? [...new Set([...values.ownedReferenceIds, ...ids])] : values.ownedReferenceIds,
         websiteAssetIds: isReference ? values.websiteAssetIds : [...new Set([...values.websiteAssetIds, ...ids])],
@@ -157,12 +162,22 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
             </button>
           ))}
         </div>
+        {purpose === 'own' && (
+          <label className="setup-attachment-permission">
+            <input type="checkbox" checked={keepDesign} disabled={saving} onChange={event => setKeepDesign(event.target.checked)} />
+            <span>
+              <strong>Keep my Canva design</strong>
+              <br />
+              Keep the artwork exactly as exported. AI adds booking and contact links. Upload PNG or JPG pages in order.
+            </span>
+          </label>
+        )}
         <input
           ref={fileInput}
           id="setup-attachment-file"
           className="setup-sr-only"
           type="file"
-          accept={`image/png,image/jpeg,image/webp${purpose === 'own' || purpose === 'inspiration' ? ',application/pdf' : ''}`}
+          accept={`image/png,image/jpeg,image/webp${purpose === 'inspiration' || (purpose === 'own' && !keepDesign) ? ',application/pdf' : ''}`}
           multiple
           disabled={saving}
           onChange={(event) => {

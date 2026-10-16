@@ -14,7 +14,7 @@ import { auditLogSchema, businessSetupApprovalSchema as approvals, businessSetup
 
 import { SetupError, WEEKDAYS } from './contracts';
 import type { SetupActor } from './drafts.server';
-import { loadSetupHead, lockSetupSalon, makeSetupReview, readSetupSnapshot, stableJson } from './drafts.server';
+import { loadSetupHead, lockSetupSalon, readSetupSnapshot, reviewSetupHead, stableJson } from './drafts.server';
 
 const requestSchema = z.object({ approvalId: z.string().uuid(), operationId: z.string().uuid(), revision: z.number().int().positive() }).strict();
 /** Only called by the trusted approval UI; deliberately absent from model tools. */
@@ -32,7 +32,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
     if (!receipt) {
       const head = await loadSetupHead(tx, salon.id);
       customArtifactId = head.revision.document.website.config.customFrontendId;
-      const review = makeSetupReview(head);
+      const review = await reviewSetupHead(tx, head);
       const [approval] = await tx.select().from(approvals).where(and(eq(approvals.id, input.approvalId), eq(approvals.salonId, salon.id), eq(approvals.workspaceId, head.workspace.id)));
       if (!approval || approval.actorId !== actor.adminId || approval.expiresAt.getTime() <= Date.now() || approval.revision !== input.revision || approval.manifestHash !== review.hash || head.workspace.status !== 'editing' || review.revision !== input.revision) {
         throw new SetupError('APPROVAL_REQUIRED', 'Review and approve the latest changes before publishing.');
@@ -68,7 +68,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       return already;
     }
     const head = await loadSetupHead(tx, salon.id);
-    const review = makeSetupReview(head);
+    const review = await reviewSetupHead(tx, head);
     const [approval] = await tx.select().from(approvals).where(and(eq(approvals.id, input.approvalId), eq(approvals.salonId, salon.id), eq(approvals.workspaceId, head.workspace.id)));
     if (!approval || approval.actorId !== actor.adminId || approval.expiresAt.getTime() <= Date.now() || approval.revision !== input.revision || approval.manifestHash !== review.hash || head.workspace.status !== 'editing' || review.revision !== input.revision) {
       throw new SetupError('APPROVAL_REQUIRED', 'Review and approve the latest changes before publishing.');

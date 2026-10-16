@@ -28,6 +28,9 @@ export async function editCustomMedia(actor: SetupActor, raw: unknown) {
     return base.document;
   });
   const { artifact, media } = await assertCustomArtifact(db, actor.salonId, base.website.config.customFrontendId!);
+  if (artifact.source.canva) {
+    throw new SetupError('INVALID', 'Update the artwork in Canva, upload the new export, then check its clickable areas.');
+  }
   if (!media.some(asset => asset.id === input.assetId && asset.role !== 'reference')) {
     throw new SetupError('INVALID', 'That photo is not part of this design.');
   }

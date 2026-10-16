@@ -453,13 +453,16 @@ export async function renderBookServicePage({
       business: { name: salon.name, city: salon.city ?? '', address: activeBookingPageContentSide.locationDisplayMode === 'full_address' ? salon.address : null, bio: activeBookingPageContentSide.bio ?? '', hours: salon.businessHours ?? {} },
       services: bookingServices.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, priceLabel: s.priceDisplayText || new Intl.NumberFormat('en-CA', { style: 'currency', currency: bookingConfig.currency }).format(s.priceCents / 100), durationMinutes: s.durationMinutes })),
       details: activeBookingPageContentSide.websiteDetails,
+      bookingRules: { timezone: bookingConfig.timezone, minimumNoticeMinutes: bookingConfig.minimumNoticeMinutes, bufferMinutes: bookingConfig.bufferMinutes, confirmationMode: bookingConfig.confirmationMode, policy: bookingExperience.policy },
       currency: bookingConfig.currency,
       preview: false,
     });
     const base = `/${params?.locale ?? 'en'}/${encodeURIComponent(salon.slug)}`;
     // Refresh the isolated document when either immutable source or canonical
     // service/business data changes during a client navigation.
-    return <CustomWebsiteFrame key={JSON.stringify([activeBookingPageSide.customFrontendId, payload.data])} payload={payload} rendererOrigin={rendererOrigin} bookingPath={`${base}/book/service`} managePath={`${base}/find-booking`} />;
+    if (!payload.artworkUnavailable) {
+      return <CustomWebsiteFrame key={JSON.stringify([activeBookingPageSide.customFrontendId, payload.data])} payload={payload} rendererOrigin={rendererOrigin} bookingPath={`${base}/book/service`} managePath={`${base}/find-booking`} />;
+    }
   }
   const bookingContent = (
     <BookServiceClient

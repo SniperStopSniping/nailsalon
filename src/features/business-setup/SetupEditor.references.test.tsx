@@ -170,7 +170,7 @@ async function attach(purpose = 'Inspiration') {
   const dialog = screen.getByRole('dialog');
   fireEvent.click(within(dialog).getByRole('button', { name: new RegExp(purpose) }));
   fireEvent.change(dialog.querySelector('input[type=file]')!, { target: { files: [new File(['image'], 'my-reference.png', { type: 'image/png' })] } });
-  fireEvent.click(within(dialog).getByRole('checkbox'));
+  fireEvent.click(within(dialog).getByRole('checkbox', { name: /These are my files|I may upload/ }));
   fireEvent.click(within(dialog).getByRole('button', { name: 'Add to chat' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Attach images or a PDF' })).toBeEnabled());
@@ -498,4 +498,20 @@ it('polls a still-running operation after disconnect and loads its result withou
   expect(requests.filter(request => request.action === 'message')).toHaveLength(1);
   expect(screen.queryByRole('button', { name: 'Retry message' })).not.toBeInTheDocument();
   expect(sessionStorage.getItem('luster-message:test')).toBeNull();
+});
+
+it('keeps Canva artwork only with an explicit owner choice and does not generate on upload', async () => {
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.click(await screen.findByRole('button', { name: 'Attach images or a PDF' }));
+  const dialog = screen.getByRole('dialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: /My design or menu/ }));
+  fireEvent.click(within(dialog).getByRole('checkbox', { name: /Keep my Canva design/ }));
+  fireEvent.change(dialog.querySelector('input[type=file]')!, { target: { files: [new File(['image'], 'my-canva.png', { type: 'image/png' })] } });
+  fireEvent.click(within(dialog).getByRole('checkbox', { name: /These are my files/ }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Add to chat' }));
+  await waitFor(() => expect(document.designBrief?.mode).toBe('keep_design'));
+
+  expect(document.designBrief.ownedReferenceIds).toEqual([reference.id]);
+  expect(requests.some(request => ['generate', 'message', 'publish'].includes(request.action))).toBe(false);
 });

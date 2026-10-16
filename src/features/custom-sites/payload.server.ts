@@ -3,12 +3,14 @@ import 'server-only';
 import { getDomain } from 'tldts';
 
 import type { SetupDocument } from '@/features/business-setup/contracts';
-import { previewBusinessIdentity, WEEKDAYS } from '@/features/business-setup/contracts';
+import { WEEKDAYS } from '@/features/business-setup/contracts';
 import { db } from '@/libs/DB';
 
 import { assertCustomArtifact } from './artifacts.server';
 import { assetDataUrl } from './assets.server';
+import { canvaDataFingerprint, canvaServiceKey } from './canva-data.server';
 import type { CustomSiteData, CustomSitePayload } from './contracts';
+import { customSiteDataFromSetup } from './setup-data';
 import { customSourceImageIds } from './validate.server';
 
 /** No same-origin fallback: missing isolation leaves the existing booking flow available. */
@@ -37,6 +39,11 @@ export function customSiteRendererOrigin() {
 }
 export async function customSitePayload(salonId: string, artifactId: string, data: CustomSiteData): Promise<CustomSitePayload> {
   const { artifact, media } = await assertCustomArtifact(db, salonId, artifactId);
+  if (artifact.source.canva && !data.preview && (!artifact.source.canva.ownerReviewed || artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data))) {
+    // Never serialize stale raster text/bytes, including an address the owner
+    // subsequently hid. The public page falls back to original live booking.
+    return { source: { title: 'Booking', html: '<main></main>', css: '', javascript: '', analysis: '', limitations: [] }, data, images: {}, artworkUnavailable: true };
+  }
   const images: Record<string, string> = {};
   const used = customSourceImageIds(artifact.source.html);
   for (const asset of media.filter(a => a.role !== 'reference' && used.has(a.id))) {
@@ -46,7 +53,16 @@ export async function customSitePayload(salonId: string, artifactId: string, dat
     const hours = data.business.hours[day];
     return `${day[0]!.toUpperCase()}${day.slice(1)}: ${hours ? `${hours.open}–${hours.close}` : 'Closed'}`;
   }).join(' · ');
-  return { source: artifact.source, data: { ...data, business: { ...data.business, hoursLabel } }, images };
+  const serviceKeys: Record<string, string> = {};
+  if (artifact.source.canva) {
+    for (const service of data.services) {
+      const key = canvaServiceKey(service);
+      if (data.services.filter(item => canvaServiceKey(item) === key).length === 1) {
+        serviceKeys[key] = service.id;
+      }
+    }
+  }
+  return { source: artifact.source, data: { ...data, business: { ...data.business, hoursLabel } }, images, ...(artifact.source.canva ? { serviceKeys, canvaReviewRequired: !artifact.source.canva.ownerReviewed || artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data) } : {}) };
 }
 
 /** Shared by the owner studio and its full-page authenticated preview. */
@@ -55,11 +71,5 @@ export function setupCustomSitePayload(salonId: string, document: SetupDocument)
   if (!id) {
     return null;
   }
-  return customSitePayload(salonId, id, {
-    business: { ...previewBusinessIdentity(document), address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio ?? '', hours: document.hours },
-    services: document.services.filter(s => s.priceCents !== null && s.durationMinutes !== null).map(s => ({ id: `setup_preview_${s.id}`, name: s.name, description: s.description, priceCents: s.priceCents!, priceLabel: new Intl.NumberFormat('en-CA', { style: 'currency', currency: document.booking.currency }).format(s.priceCents! / 100), durationMinutes: s.durationMinutes! })),
-    details: document.website.content.websiteDetails,
-    currency: document.booking.currency,
-    preview: true,
-  });
+  return customSitePayload(salonId, id, customSiteDataFromSetup(document));
 }

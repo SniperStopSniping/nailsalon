@@ -6,7 +6,7 @@ import { setupAiConfigured } from '@/features/business-setup/ai-trial.server';
 import { SetupError } from '@/features/business-setup/contracts';
 import { runSetupConversation } from '@/features/business-setup/conversation.server';
 import { editSetup, loadSetupHead, lockSetupSalon, readSetupSnapshot } from '@/features/business-setup/drafts.server';
-import { saveCustomSource } from '@/features/custom-sites/artifacts.server';
+import { reviewCanvaArtwork, saveCustomSource } from '@/features/custom-sites/artifacts.server';
 import { assetDataUrl, ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
 import { customSiteGenerateSchema, customSiteSourceSchema, designBriefSchema } from '@/features/custom-sites/contracts';
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
@@ -23,6 +23,7 @@ export const maxDuration = 300;
 const headers = { 'Cache-Control': 'private, no-store' };
 const edit = { expectedRevision: z.number().int().positive(), operationId: z.string().uuid() };
 const requestSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('review_canva'), input: z.object(edit).strict() }).strict(),
   z.object({ action: z.literal('share'), input: previewShareInput }).strict(),
   z.object({ action: z.literal('revoke_share'), token: previewShareInput.shape.token }).strict(),
   z.object({ action: z.literal('preferences'), input: z.object({ ...edit, values: designBriefSchema }).strict() }).strict(),
@@ -121,6 +122,9 @@ export async function POST(request: Request) {
       return Response.json({ asset: await uploadCustomAsset(access.actor, file, form.get('role')) }, { headers });
     }
     const parsed = requestSchema.parse(JSON.parse(bytes.toString('utf8')));
+    if (parsed.action === 'review_canva') {
+      return Response.json(await reviewCanvaArtwork(access.actor, parsed.input), { headers });
+    }
     if (parsed.action === 'share') {
       return Response.json(await shareCustomPreview(access.actor, parsed.input), { headers });
     }

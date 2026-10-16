@@ -1,0 +1,17 @@
+# Preserve an owner's Canva artwork and add links
+
+The chat attachment dialog now has an explicit **Keep my Canva design** choice for owner-authorized PNG/JPG/WebP exports. Existing editable custom frontend generation remains available. Multi-page exports are stacked in upload order. PDFs remain reference inputs for editable redesign; preserved PDF rendering is not supported in this checkpoint.
+
+The configured vision model identifies percentage-based clickable rectangles, accessible labels and constrained destinations. It cannot write frontend code, approve artwork, publish, change prices or create appointments through this action. One bounded, metered repair is allowed; both outputs remain in the private usage ledger. Completed responses are retained for recovery without another provider call. The trusted compiler displays the existing normalized upload bytes unchanged and adds transparent link areas. Ordinary upload WebP preparation still applies; this does not promise byte-identical source PNG storage.
+
+Booking areas open the original Luster flow. Individual services resolve only through current tenant-scoped service identities. Contact areas use saved, validated Instagram/email/phone values. Explicit external website links require public HTTPS destinations without credentials or custom ports. Owners can move/resize areas with pointer or keyboard, edit destinations and labels, and save a new revision without a model call. Printed artwork is edited in Canva and re-uploaded; it is not falsely presented as editable HTML text.
+
+An owner must check the artwork's fixed text, prices, policies, hours, contacts and address before sharing or publishing. This is separate from exact-revision approval/publication. AI and ordinary source saves cannot confer that acknowledgment. Changes to relevant business facts invalidate it. Public rendering suppresses outdated artwork and falls back to Luster's ordinary live booking page, without serializing the stale image/source. Known hidden addresses extracted from artwork are rejected. As OCR cannot guarantee reading every pixel, the explicit owner privacy/artwork check remains required.
+
+No new database schema, booking engine, provider, payment or messaging integration was introduced. The same draft, immutable source/asset history, owner authorization, approval hash, publication receipt and original scheduling flow are reused. Existing revision restoration and full reset remain available.
+
+## Verification
+
+Disposable PGlite integration tests cover vision-result application, unchanged saved asset hashes, private draft isolation, owner-only artwork acknowledgment, safe sharing, malicious geometry/source rejection, inspiration/tenant rejection, one repair, retry deduplication, hidden addresses, exact publication, canonical service mapping and suppression after price changes. Unit tests cover compiler/bounds/overlap/URLs/fact fingerprints/ambiguous targets. Owner component tests cover the new explicit upload choice. Renderer browser tests cover unchanged rendered pixels, contact links, canonical service areas, preview booking denial and broken-image overlay suppression, alongside existing malicious-code isolation tests, on desktop Chromium, mobile Chromium and mobile WebKit.
+
+Hosted real-provider and customer booking evidence will be recorded separately after deploying the committed change to the isolated test aliases. No production deployment, migration or merge is part of this work.

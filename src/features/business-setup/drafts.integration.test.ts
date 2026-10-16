@@ -10,12 +10,15 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { PDFDocument } from 'pdf-lib';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { saveCustomSource } from '@/features/custom-sites/artifacts.server';
+import { reviewCanvaArtwork, saveCustomSource } from '@/features/custom-sites/artifacts.server';
 import * as customArtifacts from '@/features/custom-sites/artifacts.server';
 import { ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
+import { compileCanvaDesign } from '@/features/custom-sites/canva';
+import { canvaDataFingerprint, canvaServiceKey } from '@/features/custom-sites/canva-data.server';
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
 import { editCustomMedia } from '@/features/custom-sites/media-edit.server';
 import { customSitePayload } from '@/features/custom-sites/payload.server';
+import { customSiteDataFromSetup } from '@/features/custom-sites/setup-data';
 import { revokeCustomPreview, shareCustomPreview, sharedCustomPreview } from '@/features/custom-sites/share.server';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
@@ -1566,5 +1569,135 @@ describe('full owner draft reset', () => {
     await publishSetup(actor, { revision: restoredReview.revision, approvalId: restoredApproval.id, operationId: randomUUID() });
 
     expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(liveServices.length);
+  });
+});
+
+describe('AI clickable Canva artwork', () => {
+  const answer = (areas: unknown[] = [{ id: 'booking', page: 0, label: 'Book an appointment', geometry: { x: 10, y: 75, width: 80, height: 10 }, action: { type: 'book' } }]) => ({ areas, visibleText: 'Test Studio. Toronto.', altText: ['Test Studio booking design'], notes: [] });
+  const result = (value: unknown) => ({ status: 'completed' as const, usage: { inputTokens: 1000, outputTokens: 500, cachedInputTokens: 0 }, items: [{ type: 'message' as const, text: JSON.stringify(value) }] });
+  async function prepared(owned = true) {
+    const actor = await fixture();
+    const bytes = await sharp({ create: { width: 300, height: 900, channels: 3, background: '#ecd1db' } }).png().toBuffer();
+    const reference = await uploadCustomAsset(actor, new File([new Uint8Array(bytes)], 'original-canva.png', { type: 'image/png' }), 'reference');
+    const head = await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { mode: 'keep_design', fidelity: 'match', referenceIds: [reference.id], ownedReferenceIds: owned ? [reference.id] : [], websiteAssetIds: [] } }] });
+    const input = { expectedRevision: head.revision.revision, operationId: randomUUID(), message: 'Keep this design and make everything clickable', referenceIds: [reference.id] };
+    return { actor, reference, input };
+  }
+
+  it('uses AI for clickable positions, preserves exact saved image bytes, and requires owner artwork review', async () => {
+    const { actor, reference, input } = await prepared();
+    const createResponse = vi.fn().mockResolvedValue(result(answer()));
+    const generated = await generateCustomSite(actor, input, { createResponse });
+    const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, generated.artifactId));
+    const media = await ownedAssets(database as any, actor.salonId, [reference.id, artifact!.source.canva!.pages[0]!.assetId]);
+
+    expect(media[0]!.hash).toBe(media[1]!.hash);
+    expect(artifact!.source.canva).toMatchObject({ ownerReviewed: false, pages: [{ width: 300, height: 900 }] });
+    expect(artifact!.source.javascript).toBe('');
+    expect(createResponse.mock.calls[0]![0].model).toBe('gpt-6-luna');
+    expect(JSON.stringify(createResponse.mock.calls[0]![0].input)).toContain('input_image');
+    expect((await reviewSetup(actor)).blockers.join(' ')).toContain('Canva artwork');
+
+    const token = randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
+
+    await expect(shareCustomPreview(actor, { expectedRevision: generated.head.revision.revision, token })).rejects.toMatchObject({ code: 'NOT_READY' });
+
+    const operationId = randomUUID();
+    const checked = await reviewCanvaArtwork(actor, { expectedRevision: generated.head.revision.revision, operationId });
+
+    expect(checked.artifact.source.canva?.ownerReviewed).toBe(true);
+    expect((await reviewCanvaArtwork(actor, { expectedRevision: generated.head.revision.revision, operationId })).head.revision.revision).toBe(checked.head.revision.revision);
+
+    await shareCustomPreview(actor, { expectedRevision: checked.head.revision.revision, token });
+
+    expect((await sharedCustomPreview(token))?.images).toHaveProperty(artifact!.source.canva!.pages[0]!.assetId);
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
+  it('does not promote another business inspiration or foreign tenant artwork', async () => {
+    const { actor, input } = await prepared(false);
+    const createResponse = vi.fn();
+
+    await expect(generateCustomSite(actor, input, { createResponse })).rejects.toMatchObject({ code: 'INVALID' });
+    expect(createResponse).not.toHaveBeenCalled();
+
+    const other = await fixture();
+
+    await expect(generateCustomSite({ ...actor, salonId: other.salonId }, input, { createResponse })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('saves new link revisions without changing images, clears approval, and refuses arbitrary code', async () => {
+    const { actor, input } = await prepared();
+    const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+    const checked = await reviewCanvaArtwork(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID() });
+    const design = checked.artifact.source.canva!;
+    const edited = compileCanvaDesign({ ...design, areas: design.areas.map(area => ({ ...area, label: 'Choose my appointment' })) }, checked.head.revision.document.website.content.websiteDetails);
+    const saved = await saveCustomSource(actor, { source: edited, assetIds: checked.artifact.assetIds, expectedRevision: checked.head.revision.revision, operationId: randomUUID() });
+
+    expect(saved.artifact.source.canva?.ownerReviewed).toBe(false);
+    expect(saved.artifact.source.canva?.pages).toEqual(design.pages);
+    await expect(saveCustomSource(actor, { source: { ...saved.artifact.source, javascript: 'fetch("https://bad.example")' }, assetIds: saved.artifact.assetIds, expectedRevision: saved.head.revision.revision, operationId: randomUUID() })).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(editCustomMedia(actor, { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), assetId: design.pages[0]!.assetId, replacementId: null })).rejects.toMatchObject({ code: 'INVALID' });
+  });
+
+  it('validates and repairs AI regions once, replays without duplicate calls or promoted assets', async () => {
+    const { actor, input } = await prepared();
+    const createResponse = vi.fn().mockResolvedValueOnce(result(answer([{ ...answer().areas[0] as object, geometry: { x: 99, y: 0, width: 50, height: 10 } }]))).mockResolvedValue(result(answer()));
+    const generated = await generateCustomSite(actor, input, { createResponse });
+    const replay = await generateCustomSite(actor, input, { createResponse });
+
+    expect(replay.artifactId).toBe(generated.artifactId);
+    expect(createResponse).toHaveBeenCalledTimes(2);
+    expect((await ownedAssets(database as any, actor.salonId, (await database.select().from(schema.customSiteAssetSchema).where(eq(schema.customSiteAssetSchema.salonId, actor.salonId))).map(asset => asset.id))).filter(asset => asset.role === 'photo')).toHaveLength(1);
+    expect((await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId))).map(call => call.validation)).toEqual(['canva_areas_invalid', 'passed']);
+  });
+
+  it('blocks hidden addresses read from artwork even with different whitespace', async () => {
+    const { actor, input } = await prepared();
+    const response = { ...answer(), visibleText: 'Test Studio, 123 PRIVATE\nSTREET' };
+
+    await expect(generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(response)) })).rejects.toMatchObject({ code: 'INVALID' });
+    expect((await openSetup(actor)).revision.document.website.config.customFrontendId).toBeUndefined();
+  });
+
+  it('publishes exact reviewed artwork idempotently with canonical service bindings and suppresses stale printed prices', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example.com');
+    vi.stubEnv('CUSTOM_SITE_RENDER_ORIGIN', 'https://renderer.example.net');
+    vi.stubEnv('CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED', 'true');
+    try {
+      const { actor, input } = await prepared();
+      const document = (await openSetup(actor)).revision.document;
+      const key = canvaServiceKey(customSiteDataFromSetup(document).services[0]!);
+      const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer([{ ...answer().areas[0] as object, action: { type: 'service', serviceKey: key } }]))) });
+      const confirmed = await editSetup(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'confirm_services', ids: ['draft_gel'] }] });
+      const checked = await reviewCanvaArtwork(actor, { expectedRevision: confirmed.revision.revision, operationId: randomUUID() });
+      const review = await reviewSetup(actor);
+
+      expect(review.blockers).toEqual([]);
+
+      const approval = await approveSetup(actor, review.revision, review.hash);
+      const publishInput = { revision: review.revision, approvalId: approval.id, operationId: randomUUID() };
+      const first = await publishSetup(actor, publishInput);
+      const replay = await publishSetup(actor, publishInput);
+
+      expect(replay.receipt.id).toBe(first.receipt.id);
+
+      const live = await openSetup(actor);
+      const data = { ...customSiteDataFromSetup(live.revision.document), preview: false };
+      const payload = await customSitePayload(actor.salonId, checked.artifact.id, data);
+
+      expect(canvaDataFingerprint(data)).toBe(checked.artifact.source.canva!.dataFingerprint);
+      expect(payload.artworkUnavailable).toBeUndefined();
+      expect(payload.serviceKeys?.[key]).toBe(data.services[0]!.id);
+      expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(1);
+
+      const stale = await customSitePayload(actor.salonId, checked.artifact.id, { ...data, services: data.services.map(service => ({ ...service, priceCents: 7200 })) });
+
+      expect(stale).toMatchObject({ artworkUnavailable: true, images: {} });
+      expect(stale.source.canva).toBeUndefined();
+      expect(JSON.stringify(stale)).not.toContain(checked.artifact.source.canva!.visibleText);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

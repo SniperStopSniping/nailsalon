@@ -107,6 +107,9 @@ export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>,
       if (attr.name === 'data-luster-link' && node.tagName === 'a' && ['instagram', 'email', 'phone'].includes(attr.value)) {
         continue;
       }
+      if (attr.name === 'data-luster-canva-area' && ['a', 'button'].includes(node.tagName ?? '') && source.canva?.areas.some(area => area.id === attr.value)) {
+        continue;
+      }
       if (attr.name === 'href' && /^#[\w-]*$/u.test(attr.value)) {
         continue;
       }
