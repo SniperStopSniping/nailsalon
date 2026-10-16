@@ -1,3 +1,15 @@
+# [1.143.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.50...v1.143.0) (2026-10-16)
+
+
+### Bug Fixes
+
+* **booking:** enforce blocked clients before appointment creation ([#457](https://github.com/SniperStopSniping/nailsalon/issues/457)) ([1563582](https://github.com/SniperStopSniping/nailsalon/commit/1563582cbbffc00f1ca9dd0f500f24712984f7d1))
+
+
+### Features
+
+* **no-show:** require confirmed early reports and support customer review ([#449](https://github.com/SniperStopSniping/nailsalon/issues/449)) ([ad28e32](https://github.com/SniperStopSniping/nailsalon/commit/ad28e325b646b19dea481aec83d3d6d5ff5dbac5)), closes [#450](https://github.com/SniperStopSniping/nailsalon/issues/450) [#451](https://github.com/SniperStopSniping/nailsalon/issues/451) [#450](https://github.com/SniperStopSniping/nailsalon/issues/450) [#452](https://github.com/SniperStopSniping/nailsalon/issues/452) [#452](https://github.com/SniperStopSniping/nailsalon/issues/452) [#453](https://github.com/SniperStopSniping/nailsalon/issues/453) [#454](https://github.com/SniperStopSniping/nailsalon/issues/454) [#453](https://github.com/SniperStopSniping/nailsalon/issues/453) [#454](https://github.com/SniperStopSniping/nailsalon/issues/454)
+
 ## [1.142.50](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.49...v1.142.50) (2026-10-14)
 
 
