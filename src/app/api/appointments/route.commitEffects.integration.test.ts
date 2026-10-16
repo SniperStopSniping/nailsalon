@@ -419,6 +419,7 @@ describe('blocked clients cannot create new bookings', () => {
     const body = await response.json();
 
     expect(body.error.code).toBe('CLIENT_BOOKING_BLOCKED');
+    expect(body.error.message).toBe('We couldn\'t complete your booking. Please contact the salon and quote code 060.');
     expect(JSON.stringify(body)).not.toContain('Private owner note');
     expect(await db.select().from(schema.appointmentSchema)).toHaveLength(0);
     expect(await db.select().from(schema.appointmentDepositSchema)).toHaveLength(0);

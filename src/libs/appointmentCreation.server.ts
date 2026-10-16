@@ -90,6 +90,7 @@ import type {
 } from '@/libs/catalogSubmissionReconciliation.server';
 import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
+import { CLIENT_BOOKING_BLOCKED_MESSAGE } from '@/libs/clientBookingRestriction';
 import {
   type CanonicalSalonClientIdentity,
   ClientLifecycleStabilizationError,
@@ -5659,7 +5660,7 @@ async function createAppointmentFromRequestCore(
       return Response.json({
         error: {
           code: 'CLIENT_BOOKING_BLOCKED',
-          message: 'Online booking is unavailable for these contact details. Please contact the salon.',
+          message: CLIENT_BOOKING_BLOCKED_MESSAGE,
         },
       } satisfies ErrorResponse, { status: 403 });
     }

@@ -32,6 +32,7 @@ import type { BookingBasket } from '@/libs/bookingParams';
 import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
 import { BOOKING_SMS_SEPARATED_WORDING_VERSION } from '@/libs/bookingSmsConsent';
 import { computeCheckoutTotals, type ResolvedTaxConfig } from '@/libs/checkoutTotals';
+import { CLIENT_BOOKING_BLOCKED_MESSAGE } from '@/libs/clientBookingRestriction';
 import type { CustomerBookingStatus } from '@/libs/customerAssistant/bookingOperationContracts';
 import { canStartAnotherBooking, startAnotherBooking } from '@/libs/customerAssistant/newBooking.client';
 import { captureNextBookingGuard } from '@/libs/customerAssistant/nextBookingGuard.client';
@@ -1461,8 +1462,12 @@ const ConfirmContent = ({
               className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
             >
               {bookingError}
-              {' '}
-              {isSubmitting ? 'Your details are saved while we check the original booking.' : 'Your details below are saved — you can try again.'}
+              {bookingError !== CLIENT_BOOKING_BLOCKED_MESSAGE && (
+                <>
+                  {' '}
+                  {isSubmitting ? 'Your details are saved while we check the original booking.' : 'Your details below are saved — you can try again.'}
+                </>
+              )}
             </div>
           )}
 
@@ -2845,7 +2850,7 @@ export function BookConfirmClient({
           VALIDATION_ERROR: 'Check your booking and contact details before confirming again.',
           INVALID_PHONE: 'Check your phone number before confirming again.',
           GUEST_CONTACT_REQUIRED: 'Enter your name, phone number and email before confirming.',
-          CLIENT_BOOKING_BLOCKED: 'Online booking is unavailable for these contact details. Please contact the salon.',
+          CLIENT_BOOKING_BLOCKED: CLIENT_BOOKING_BLOCKED_MESSAGE,
           SMS_CONSENT_INVALID: 'Review your reminder preference before confirming again.',
           INVALID_START_TIME: 'Choose a valid appointment time before confirming again.',
           INVALID_SELECTION: 'Review your selected services before confirming again.',

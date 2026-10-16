@@ -1503,7 +1503,7 @@ describe('BookConfirmClient', () => {
         },
         bookingAttemptOutcome: 'resolved_failure',
       },
-      expected: 'Online booking is unavailable for these contact details. Please contact the salon.',
+      expected: 'We couldn\'t complete your booking. Please contact the salon and quote code 060.',
     },
     {
       code: 'EXISTING_APPOINTMENT',
@@ -1550,7 +1550,7 @@ describe('BookConfirmClient', () => {
       },
       expected: SMART_FIT_STALE_FALLBACK_MESSAGE_FOR_TEST,
     },
-  ])('maps recognized $code failures to client-owned copy', async ({ status, body, expected }) => {
+  ])('maps recognized $code failures to client-owned copy', async ({ code, status, body, expected }) => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(body), { status }));
 
@@ -1558,6 +1558,12 @@ describe('BookConfirmClient', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     expect(await screen.findByText(expected, { exact: false })).toBeInTheDocument();
+
+    if (code === 'CLIENT_BOOKING_BLOCKED') {
+      expect(screen.getByRole('alert')).toHaveTextContent(expected);
+      expect(screen.getByRole('alert')).not.toHaveTextContent(/blocked|contact details|try again/i);
+    }
+
     expect(document.body).not.toHaveTextContent(HOSTILE_SERVER_MESSAGE_FOR_TEST);
     expect(document.body).not.toHaveTextContent('SQLSTATE 23505');
     expect(document.body).not.toHaveTextContent('/api/appointments');
