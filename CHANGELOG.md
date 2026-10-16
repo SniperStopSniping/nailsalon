@@ -1,3 +1,11 @@
+## [1.143.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.143.0...v1.143.1) (2026-10-16)
+
+
+### Bug Fixes
+
+* **booking:** show discreet code 060 for blocked clients ([#458](https://github.com/SniperStopSniping/nailsalon/issues/458)) ([e4a3ebb](https://github.com/SniperStopSniping/nailsalon/commit/e4a3ebb0b498e01fb0afcd1430e090e14e078f18))
+* link Isla booking address to Google Maps ([#459](https://github.com/SniperStopSniping/nailsalon/issues/459)) ([a763c8a](https://github.com/SniperStopSniping/nailsalon/commit/a763c8a89f680a40f6d7004be834de448b0210a2))
+
 # [1.143.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.142.50...v1.143.0) (2026-10-16)
 
 
