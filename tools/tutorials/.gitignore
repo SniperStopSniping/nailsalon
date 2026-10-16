@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+# One-off recovery helpers stay with the local recording evidence.
+restore-verified-review.mjs
+verify-review-capture.mjs
+verify-guest-capture.mjs

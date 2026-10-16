@@ -1,0 +1,8 @@
+{
+  "id": "sms-topups",
+  "status": "blocked_provider_sandbox",
+  "reason": "BILLING_TOPUPS_ENABLED=false and no functional Stripe sandbox account. UI explicitly says text purchases are currently unavailable. No purchase filmed.",
+  "requiredAction": "Provide an isolated Stripe test-mode top-up checkout and webhook fixture; verify exactly-once credit fulfillment before recording.",
+  "verifiedAt": "2026-10-16T05:06:44.817203+00:00",
+  "safeEnvironment": "http://localhost:3149; outbound providers disabled"
+}

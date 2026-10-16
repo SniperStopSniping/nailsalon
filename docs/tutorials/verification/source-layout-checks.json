@@ -1,0 +1,1409 @@
+[
+  {
+    "id": "online-booking",
+    "sourcePatchSha256": null,
+    "compiledBuildId": null,
+    "sourceVerification": "baseline_SHA_only_build_metadata_not_captured",
+    "rawFramesVerified": 338,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 13,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "manual-appointment",
+    "sourcePatchSha256": null,
+    "compiledBuildId": null,
+    "sourceVerification": "baseline_SHA_only_build_metadata_not_captured",
+    "rawFramesVerified": 277,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 12,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "calendar",
+    "sourcePatchSha256": null,
+    "compiledBuildId": null,
+    "sourceVerification": "baseline_SHA_only_build_metadata_not_captured",
+    "rawFramesVerified": 126,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 4,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "reschedule",
+    "sourcePatchSha256": null,
+    "compiledBuildId": null,
+    "sourceVerification": "baseline_SHA_only_build_metadata_not_captured",
+    "rawFramesVerified": 160,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 7,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "cancel-appointment",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 203,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 6,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "checkout",
+    "sourcePatchSha256": null,
+    "compiledBuildId": null,
+    "sourceVerification": "baseline_SHA_only_build_metadata_not_captured",
+    "rawFramesVerified": 208,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 10,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "blocked-time",
+    "sourcePatchSha256": null,
+    "compiledBuildId": null,
+    "sourceVerification": "baseline_SHA_only_build_metadata_not_captured",
+    "rawFramesVerified": 210,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 8,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "client-history",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 87,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 3,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "add-client",
+    "sourcePatchSha256": null,
+    "compiledBuildId": null,
+    "sourceVerification": "baseline_SHA_only_build_metadata_not_captured",
+    "rawFramesVerified": 160,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 6,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "client-notes",
+    "sourcePatchSha256": null,
+    "compiledBuildId": null,
+    "sourceVerification": "baseline_SHA_only_build_metadata_not_captured",
+    "rawFramesVerified": 135,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "staff-schedule",
+    "sourcePatchSha256": "95ead6ae7f94249548d2957339334b80e2ad3b32ceb127992a9d1e5e483c8766",
+    "compiledBuildId": "UoHwHP_kMBuQm91fAjxKS",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 129,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 6,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "staff-assignment",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 122,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 6,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "service-library",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 142,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 4,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "add-ons",
+    "sourcePatchSha256": null,
+    "compiledBuildId": null,
+    "sourceVerification": "baseline_SHA_only_build_metadata_not_captured",
+    "rawFramesVerified": 242,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 8,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "booking-approval",
+    "sourcePatchSha256": "813890bd04366613b1019f73fef554af00cb35be157315ae044f40e5683aa06b",
+    "compiledBuildId": "tAmIjnDYtPWd7YgNtkGTU",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 126,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "booking-rules",
+    "sourcePatchSha256": "95ead6ae7f94249548d2957339334b80e2ad3b32ceb127992a9d1e5e483c8766",
+    "compiledBuildId": "UoHwHP_kMBuQm91fAjxKS",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 150,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 6,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "business-hours",
+    "sourcePatchSha256": "95ead6ae7f94249548d2957339334b80e2ad3b32ceb127992a9d1e5e483c8766",
+    "compiledBuildId": "UoHwHP_kMBuQm91fAjxKS",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 122,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 4,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "business-information",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 146,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 6,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "address-privacy",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 126,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "booking-style",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 190,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 7,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "portfolio",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 127,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "no-show",
+    "sourcePatchSha256": "95ead6ae7f94249548d2957339334b80e2ad3b32ceb127992a9d1e5e483c8766",
+    "compiledBuildId": "UoHwHP_kMBuQm91fAjxKS",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 139,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "no-show-correction",
+    "sourcePatchSha256": "95ead6ae7f94249548d2957339334b80e2ad3b32ceb127992a9d1e5e483c8766",
+    "compiledBuildId": "UoHwHP_kMBuQm91fAjxKS",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 151,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "shared-alert",
+    "sourcePatchSha256": "95ead6ae7f94249548d2957339334b80e2ad3b32ceb127992a9d1e5e483c8766",
+    "compiledBuildId": "UoHwHP_kMBuQm91fAjxKS",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 77,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 2,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "deposit-protection",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 81,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 3,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "reminders",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 104,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 6,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "rebooking-reminders",
+    "sourcePatchSha256": "95ead6ae7f94249548d2957339334b80e2ad3b32ceb127992a9d1e5e483c8766",
+    "compiledBuildId": "UoHwHP_kMBuQm91fAjxKS",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 170,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 7,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "review-requests",
+    "sourcePatchSha256": "95ead6ae7f94249548d2957339334b80e2ad3b32ceb127992a9d1e5e483c8766",
+    "compiledBuildId": "UoHwHP_kMBuQm91fAjxKS",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 185,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 7,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "owner-notifications",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 132,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "client-contact",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 125,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 4,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "followups",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 86,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 4,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "sms-credits",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 72,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 3,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "smart-fit",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 169,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 7,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "first-visit",
+    "sourcePatchSha256": "813890bd04366613b1019f73fef554af00cb35be157315ae044f40e5683aa06b",
+    "compiledBuildId": "tAmIjnDYtPWd7YgNtkGTU",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 110,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "next-visit",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 215,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 8,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "payment-records",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 132,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 4,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "tax-settings",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 179,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 6,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "etransfer",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 169,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 6,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "analytics",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 137,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 3,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "booking-policy",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 166,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "guest-manage",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 207,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 12,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "guest-rebook",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 160,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 7,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "deposit-setup",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 133,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "walkin",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 177,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 7,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "staff-earnings",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 120,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "client-preferences",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 124,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "client-flags",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 134,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "client-archive",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 145,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 6,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "message-history",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 84,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 4,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "workspace-tour",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 169,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 8,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "multi-salon",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 183,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 3,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "add-service",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 227,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 9,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "choose-service-addons",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 284,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 8,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "booking-publish",
+    "sourcePatchSha256": "d9f61b998925562b5e1e28994d3c91ff3b35c50de5ad8b280e9326f7cf2b6cff",
+    "compiledBuildId": "_wV9Owg1cdaSHFc3mPIZt",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 74,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 4,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "sms-starter",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 62,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 2,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "no-show-review",
+    "sourcePatchSha256": null,
+    "compiledBuildId": null,
+    "sourceVerification": "baseline_SHA_only_build_metadata_not_captured",
+    "rawFramesVerified": 200,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 7,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "layout-menu",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 125,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 6,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "winback-settings",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 138,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "staff-profile",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 187,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 8,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "review-preferences",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 119,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 4,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "owner-account",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 118,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "saved-setup",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 120,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "luster-resources",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 81,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 3,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "booking-request",
+    "sourcePatchSha256": "813890bd04366613b1019f73fef554af00cb35be157315ae044f40e5683aa06b",
+    "compiledBuildId": "tAmIjnDYtPWd7YgNtkGTU",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 114,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 5,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "campaign-results",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 112,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 3,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "integration-status",
+    "sourcePatchSha256": "3549e57c4ec070ff2b3a0b7780e37431e72edffa752754a8fcbc78de90581ed1",
+    "compiledBuildId": "MmJuyB_CddUozcQbLkx8r",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 83,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 3,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  },
+  {
+    "id": "smart-fit-booking",
+    "sourcePatchSha256": "813890bd04366613b1019f73fef554af00cb35be157315ae044f40e5683aa06b",
+    "compiledBuildId": "tAmIjnDYtPWd7YgNtkGTU",
+    "sourceVerification": "compiled_build_and_patch",
+    "rawFramesVerified": 298,
+    "viewport": [
+      390,
+      844
+    ],
+    "pageScaleFactor": 1,
+    "fixedPhoneScreen": [
+      249,
+      479,
+      582,
+      1259
+    ],
+    "synchronizedTaps": 12,
+    "instructionGeometry": "passed",
+    "captureAndSavedEvidence": "passed"
+  }
+]

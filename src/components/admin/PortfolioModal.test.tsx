@@ -62,6 +62,19 @@ describe('PortfolioModal destructive confirmation', () => {
     expect(screen.getByRole('region', { name: 'Batch tagging' })).toBeInTheDocument();
   });
 
+  it('preserves over-allowance photos without promising a subscription upgrade or unavailable drag controls', async () => {
+    fetchMock.mockResolvedValue(Response.json({
+      ...portfolioPayload,
+      usage: { ...portfolioPayload.usage, stored: 11, remaining: 0, overAllowance: true },
+    }));
+    render(<PortfolioModal onClose={vi.fn()} />);
+
+    expect(await screen.findByText('Your saved photos exceed the current portfolio allowance.')).toBeInTheDocument();
+    expect(screen.getByText(/Nothing has been deleted/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: portfolioPayload.photos[0]!.altText })).toBeInTheDocument();
+    expect(screen.queryByText(/upgrade|drag to choose|current plan/i)).not.toBeInTheDocument();
+  });
+
   it('does not delete on invocation or cancel and executes the existing delete exactly once on confirm', async () => {
     const user = userEvent.setup();
     render(<PortfolioModal onClose={vi.fn()} />);

@@ -4849,21 +4849,22 @@ export function SettingsModal({
                             </p>
                             <ol className="list-decimal space-y-1 pl-5">
                               <li>
-                                Choose a deposit amount and turn on Require a
-                                deposit. We confirm your setup before any
-                                client is asked to pay.
+                                Choose a deposit amount and save it. You can
+                                prepare the amount before connecting payments.
                               </li>
                               <li>
                                 Your own payment account has to be connected, so
                                 the deposit can be charged and paid out to you.
                                 Connect it from &ldquo;Payments&rdquo; in the
-                                Integrations app.
+                                Integrations app, then turn on Require a deposit
+                                and save. We check that it can accept charges.
                               </li>
                             </ol>
                             <p>
-                              Until both are done, what you set here is stored
-                              and waits. No client is asked for a deposit and no
-                              card is charged.
+                              A saved amount does not enable collection. Require
+                              a deposit cannot be switched on until your payment
+                              account is connected and ready. No card is charged
+                              by saving these settings.
                             </p>
                           </div>
                         )}
@@ -4887,7 +4888,7 @@ export function SettingsModal({
                             <p className="text-sm text-[var(--owner-muted)]">
                               {depositPolicy?.active
                                 ? 'Clients are asked for this deposit as they book.'
-                                : 'Records that you want a deposit. Clients are only asked for one once the steps above are done.'}
+                                : 'Connect a payment account that can accept charges before switching this on.'}
                             </p>
                           </div>
                           <input

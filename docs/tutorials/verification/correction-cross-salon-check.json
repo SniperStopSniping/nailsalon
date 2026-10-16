@@ -1,0 +1,10 @@
+{
+  "risk": {
+    "state": "available",
+    "activeNoShowCount": 0,
+    "windowMonths": 12,
+    "protection": "warn_only"
+  },
+  "actor": "Development owner authorized at second synthetic salon",
+  "checkedAt": "2026-10-16T05:06:46.651Z"
+}

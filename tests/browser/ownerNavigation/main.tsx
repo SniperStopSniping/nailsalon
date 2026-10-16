@@ -89,7 +89,7 @@ export function OwnerNavigationFixture() {
   if (app === 'services') {
     return (
       <main className="owner-workspace-theme mx-auto min-h-screen max-w-md bg-stone-50">
-        <ServicesModal onClose={close} salonSlug="isla" />
+        <ServicesModal onClose={close} salonSlug="isla" onOpenBookingRules={() => openApp('booking-rules')} />
       </main>
     );
   }

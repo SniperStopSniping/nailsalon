@@ -1,0 +1,11 @@
+{
+  "appointmentId": "video-library-confirmed-nonattendance-5",
+  "corrected": true,
+  "secondSalonRisk": {
+    "state": "available",
+    "activeNoShowCount": 0,
+    "windowMonths": 12,
+    "protection": "warn_only"
+  },
+  "checkedAt": "2026-10-16T05:55:15.843Z"
+}

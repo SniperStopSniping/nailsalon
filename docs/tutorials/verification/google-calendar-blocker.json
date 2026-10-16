@@ -1,0 +1,8 @@
+{
+  "id": "google-calendar",
+  "status": "blocked_provider_sandbox",
+  "reason": "Google Calendar is disabled in this isolated runtime; no Google OAuth or synthetic calendar is connected. Actual UI: Not available yet.",
+  "requiredAction": "Enable a nonproduction Google Calendar sandbox and authorize a synthetic calendar; then record actual connect, sync and disconnect.",
+  "verifiedAt": "2026-10-16T05:06:44.816580+00:00",
+  "safeEnvironment": "http://localhost:3149; outbound providers disabled"
+}

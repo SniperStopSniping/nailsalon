@@ -2664,11 +2664,11 @@ function ClientDetail({
                                 <div className="mb-4 rounded-[14px] border border-neutral-100 bg-neutral-50 p-3">
                                   <label className="flex items-center justify-between gap-3">
                                     <div>
-                                      <div className="text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Problem client flag</div>
-                                      <div className="text-[13px] text-[#6B7280]">Marks the client for internal visibility.</div>
+                                      <div className="text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Important client flag</div>
+                                      <div className="text-[13px] text-[#6B7280]">Only your salon sees this flag.</div>
                                     </div>
                                     <input
-                                      aria-label="Problem client flag"
+                                      aria-label="Important client flag"
                                       type="checkbox"
                                       checked={problemClientDraft}
                                       onChange={event => setProblemClientDraft(event.target.checked)}
@@ -2677,7 +2677,7 @@ function ClientDetail({
                                   </label>
                                   {(problemClientDraft || problemClientReasonDraft) && (
                                     <textarea
-                                      aria-label="Problem client reason"
+                                      aria-label="Private flag note"
                                       value={problemClientReasonDraft}
                                       onChange={event => setProblemClientReasonDraft(event.target.value)}
                                       rows={3}

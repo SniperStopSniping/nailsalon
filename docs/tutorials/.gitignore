@@ -1,0 +1,27 @@
+# Generated footage and private/synthetic runtime read-backs stay local.
+/videos/
+/recordings/
+/thumbnails/
+/versions/
+/Luster-Mobile-Tutorial-Library-Review.zip
+/assets/*
+!/assets/fonts/
+!/assets/service-typography/
+!/assets/hand-pointer-up.png
+!/assets/hand-pointer-down.png
+/assets/service-typography/*
+!/assets/service-typography/base.png
+!/assets/service-typography/mask.png
+/verification/*
+!/verification/source-patches/
+!/verification/library-export-checks.json
+!/verification/source-layout-checks.json
+!/verification/gallery-checks.json
+!/verification/visual-review-method.json
+!/verification/opening-wait-trims.json
+!/verification/package-checks.json
+!/verification/ci-summary.json
+!/verification/checkout-final-check.json
+!/verification/correction-cross-salon-check.json
+!/verification/rehearsal-report-correction.json
+!/verification/*-blocker.json

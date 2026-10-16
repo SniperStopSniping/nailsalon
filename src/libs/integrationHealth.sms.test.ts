@@ -96,7 +96,8 @@ describe('operational salon SMS health', () => {
 
     expect(health).toMatchObject({ providerReady: false, manualAvailable: false, automaticEnabled: false, availableCredits: 42, blockingReason: 'GLOBAL_SMS_DISABLED' });
     expect(health.detail).toContain('paused text delivery for all salons');
-    expect(health.detail).toContain('included in every plan');
+    expect(health.detail).toContain('Texting uses SMS credits');
+    expect(health.detail).not.toMatch(/every plan|subscription/i);
     expect(health.detail).not.toMatch(/upgrade|sender is not configured/i);
 
     env.COMMUNICATIONS_SMS_ENABLED = 'true';

@@ -438,6 +438,8 @@ function AdminDashboardContent() {
   const [newAppointmentDate, setNewAppointmentDate] = useState<Date | null>(
     null,
   );
+  // Scope the acknowledgement to the salon where the save completed.
+  const [appointmentSavedSalon, setAppointmentSavedSalon] = useState<string | null>(null);
   // Explains a deep link to an app this salon cannot open (entitlement-gated).
   const [blockedAppCanEnable, setBlockedAppCanEnable] = useState(false);
   const [blockedAppNotice, setBlockedAppNotice] = useState<string | null>(null);
@@ -1599,6 +1601,7 @@ function AdminDashboardContent() {
       case 'new-appointment':
         // The highest-intent action on Today creates, it does not browse:
         // open the create form itself, on today's date.
+        setAppointmentSavedSalon(null);
         setNewAppointmentDate(new Date());
         break;
       case 'walk-in':
@@ -2045,6 +2048,26 @@ function AdminDashboardContent() {
           </div>
         )}
 
+        {appointmentSavedSalon !== null && appointmentSavedSalon === activeDashboardSalonSlug && (
+          <div role="status" data-testid="appointment-saved-notice" className="mx-4 mt-3 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-blush)] p-4 text-[var(--owner-ink)]">
+            <p className="text-sm font-semibold">Appointment saved</p>
+            <p className="mt-1 text-sm text-[var(--owner-muted)]">You can find it in your calendar, including bookings for another day.</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="owner-action owner-action--primary min-h-11"
+                onClick={() => {
+                  setAppointmentSavedSalon(null);
+                  handleWorkspaceTab('calendar');
+                }}
+              >
+                View calendar
+              </button>
+              <button type="button" className="owner-action min-h-11" aria-label="Dismiss appointment saved notice" onClick={() => setAppointmentSavedSalon(null)}>Dismiss</button>
+            </div>
+          </div>
+        )}
+
         {/* Deep link to an app this salon cannot open */}
         {blockedAppNotice && (
           <div
@@ -2291,6 +2314,7 @@ function AdminDashboardContent() {
         isOpen={newAppointmentDate !== null}
         onClose={() => setNewAppointmentDate(null)}
         onSuccess={() => {
+          setAppointmentSavedSalon(activeDashboardSalonSlug);
           void fetchData();
         }}
         preselectedDate={newAppointmentDate ?? undefined}

@@ -1,0 +1,8 @@
+{
+  "id": "deposit-refund",
+  "status": "blocked_provider_sandbox",
+  "reason": "No connected charge-ready Stripe account or deposited synthetic booking. A refund would be fabricated; none filmed.",
+  "requiredAction": "Prepare Stripe test-mode connected-account charges and a synthetic paid deposit with an isolated webhook endpoint; then record actual refund ledger result.",
+  "verifiedAt": "2026-10-16T05:06:44.817033+00:00",
+  "safeEnvironment": "http://localhost:3149; outbound providers disabled"
+}

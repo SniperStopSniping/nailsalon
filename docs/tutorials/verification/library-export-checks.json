@@ -1,0 +1,873 @@
+[
+  {
+    "id": "online-booking",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 34.033333,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "b58ed16745d6918dc1e5b38a833fa7a28f0e86aa48417da5e29a3a42304c70a4",
+    "samples": 39
+  },
+  {
+    "id": "manual-appointment",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 25.2,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "37be4d92b4a886ecc84fa57c08438a522b61c79e4ec9cab34b1a14bd42233f15",
+    "samples": 31
+  },
+  {
+    "id": "calendar",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "874ddfb12fc9b74f70b8bce0fe9a07ceba2fb4a4b4fbc7f5526bca97dabbf399",
+    "samples": 17
+  },
+  {
+    "id": "reschedule",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "51c4a1b1894668d89d8538188013c76ea3f976f8337187b1e5ee417dd6c3be52",
+    "samples": 20
+  },
+  {
+    "id": "cancel-appointment",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "221dee6153d88d459481f4e0b6d9696e19b573bbcd03e7e511d9d608828f8de5",
+    "samples": 19
+  },
+  {
+    "id": "checkout",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 25.2,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "9db215ee68f357502c2a03efc0c756322955edcdfe3d6d5e6c6ec1dc70804813",
+    "samples": 29
+  },
+  {
+    "id": "blocked-time",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 21.3,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "46c57d40afa6b4c8602e97e1f5fb5a85a5ae32895760f7985349ec60e1fac5bc",
+    "samples": 23
+  },
+  {
+    "id": "client-history",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "194e47c5fa3317ecfa0dacf365ff10090232e3b75c299d72562dc1b7c48b46d7",
+    "samples": 16
+  },
+  {
+    "id": "add-client",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 17.2,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "63df15428ae93d1b5c8047da27a0e258a36cd944c754ba5f5c0389990f6b7a68",
+    "samples": 19
+  },
+  {
+    "id": "client-notes",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "64ae887d34ae6412745d28c5b805b3fa11d16675117fb70737388495b930ca9c",
+    "samples": 18
+  },
+  {
+    "id": "staff-schedule",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "7031e8f79caa86455947e493b72e29c9cfe6b4770785223e77369de5ca0d3736",
+    "samples": 19
+  },
+  {
+    "id": "staff-assignment",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "d8e7b3ef008564ecbb8ffa9cc572a8b417dbd91428a273d3ec3eec25e4cfe95c",
+    "samples": 19
+  },
+  {
+    "id": "service-library",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "14c0e74cb203cdd9ea5111e2fe4e13dc091732f76265b53b5405b4362a60716d",
+    "samples": 17
+  },
+  {
+    "id": "add-ons",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 21.3,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "fc5c1e09e22b752b9744caabd417b9b4aa3d9cf540d715247b6caeeadbe88644",
+    "samples": 23
+  },
+  {
+    "id": "booking-approval",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "5be03d3fff9ef0bff39417d1c3d15e90c3d2d1fe59baa7c99eda0ca7f608a39c",
+    "samples": 18
+  },
+  {
+    "id": "booking-rules",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "ad09070228666ec6df3816fc2d3776cb0a8db394126ca79d0d99d3eeccc61699",
+    "samples": 19
+  },
+  {
+    "id": "business-hours",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "8d8b2b4e6cbbd6cdb03f61f9e1300ae71100e41474c1f69fedc57e14d7a91b6a",
+    "samples": 17
+  },
+  {
+    "id": "business-information",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "2f716bf0e45e3011645220b0063c08ce64616525695bcb24a0a43012388fc5e3",
+    "samples": 19
+  },
+  {
+    "id": "address-privacy",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "e960b036a28d7344828235f6b57fc04129e02a931b4675906ca0d2a55ac743ba",
+    "samples": 18
+  },
+  {
+    "id": "booking-style",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 25.2,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "1a2e240a70dc3210cee95bb45529372b3b4991b9b97de94a54418836f9580026",
+    "samples": 26
+  },
+  {
+    "id": "portfolio",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "b7a1ba996d1b0ec0f524dfd22339778365d25274d1f772b7f2112d95ac87a30e",
+    "samples": 18
+  },
+  {
+    "id": "no-show",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 21.0,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "480291dd62d1a6807e9ebad274e38ec64b7158f3de20ab4492e8bd7de2cdb5ea",
+    "samples": 20
+  },
+  {
+    "id": "no-show-correction",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "4a27fc1100b2e532d7fe909c15aed79c6ad25116ee9697328e0dcfe3059c2a23",
+    "samples": 18
+  },
+  {
+    "id": "shared-alert",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "a40a11308632d7dc1a8b36389c4dc57f6b8d1325e38f630ffbfcf616b6f3d05c",
+    "samples": 15
+  },
+  {
+    "id": "deposit-protection",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "994047b06540607fa55aa1d9793ff4e51a5fc1a5d101b89a81fd9bc0abb0e9b7",
+    "samples": 16
+  },
+  {
+    "id": "reminders",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "ff7ca5e3dbe362a9bae7a46212d1eedf447c78a07230b4edc1cf89607be265bf",
+    "samples": 19
+  },
+  {
+    "id": "rebooking-reminders",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 21.0,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "ccdfea5ab96de7ba868531b7b89ba8b3234848a4cbba4d33c1a2cb8acef2514a",
+    "samples": 22
+  },
+  {
+    "id": "review-requests",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 21.0,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "68a29ac7bc689e5589bbebb58adb39afc6a988568ee79084ccfca261b279d369",
+    "samples": 22
+  },
+  {
+    "id": "owner-notifications",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "d54bbbf5dcd36bd8e38d17a3b34154e327805e7547ebed697317ae9fcdb483f2",
+    "samples": 18
+  },
+  {
+    "id": "client-contact",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "8b28a9341e4fcc17cd17f86bd92167128dd32fade7536e0144ac56a31e70afa1",
+    "samples": 17
+  },
+  {
+    "id": "followups",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "27e350be992fb340408879e1475a060d6d5664d2409a11dcf0b748f25516f8f0",
+    "samples": 17
+  },
+  {
+    "id": "sms-credits",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "698b03838584420b62472dbc1a5c473c30962990f33642484872fa0979fa31b9",
+    "samples": 16
+  },
+  {
+    "id": "smart-fit",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "f2b2d3e2ff29d5b6e062ac1687627d709528df4a6e2ca326349486b991bdbc90",
+    "samples": 20
+  },
+  {
+    "id": "first-visit",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "1505b0152219d0d4e5416f967910c6dcea09685dd4297d7fc9d4164263d6ebbd",
+    "samples": 18
+  },
+  {
+    "id": "next-visit",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "73937dc63b1f87c0cd41d5bb955f635da505aa5321a9c9e985b81e9d82e304f3",
+    "samples": 21
+  },
+  {
+    "id": "payment-records",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "a8501f29305ac90d7cc850e46cc41e1d17021337968dc275e39022a9f84b9dac",
+    "samples": 17
+  },
+  {
+    "id": "tax-settings",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "918807c12f59e5627db2fcecfdc768a6f1e739c692c260ed9b4a27ccae870e47",
+    "samples": 19
+  },
+  {
+    "id": "etransfer",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "8a36229f5329c03fe8d9ed8ab80af58a56b507a56971742c285f562425ed37d4",
+    "samples": 19
+  },
+  {
+    "id": "analytics",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "ab1104403e6a0cf80e7eb4a97de179b64ae83d367ad91d77d5d7d0a72902b4f5",
+    "samples": 16
+  },
+  {
+    "id": "booking-policy",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "7b1600f40c95ef054370f7a100394918781df476767d90db24caf225ce7496a2",
+    "samples": 18
+  },
+  {
+    "id": "guest-manage",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 25.2,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "ba438025af956b776181a4966151af6be2e31f793c5d6fe0576eb52da82fe01e",
+    "samples": 31
+  },
+  {
+    "id": "guest-rebook",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "40e11adeceba73ce77a4a663cada3029d3730f959ca7eb4b54b5d8b291cddeba",
+    "samples": 20
+  },
+  {
+    "id": "deposit-setup",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "60c2a05400182b6eee3946007db4d1c607541ace4faae72380066490da0e6135",
+    "samples": 18
+  },
+  {
+    "id": "walkin",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 21.0,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "8bf6a2b1a9548b0624d91a51e586702dcd781e67aa47b091679b006c3bc6d295",
+    "samples": 22
+  },
+  {
+    "id": "staff-earnings",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "4ea8e22a19a499c8c271ce80c5fe8e9aed7f1d860fb21f64969fff09027a7ec4",
+    "samples": 18
+  },
+  {
+    "id": "client-preferences",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 21.0,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "1d405377c13be55e70100a91e774d85f0e27b758bdddc24b9bcb44697731c9f2",
+    "samples": 20
+  },
+  {
+    "id": "client-flags",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "2dbfc5eed134f8d2572646ed15d9f63b2c03eb6ccfecad5c9aa16f2f7fd80a9b",
+    "samples": 18
+  },
+  {
+    "id": "client-archive",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "0a4ba2d073502fe6494f4f38543d2ed007f1eb40cbd1dd03669e9aa67d00b08a",
+    "samples": 19
+  },
+  {
+    "id": "message-history",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "2af7f14b4b6a7fd9d002786d3fe24eea529f32d4fdf4f886c71e6b4652c27c7e",
+    "samples": 17
+  },
+  {
+    "id": "workspace-tour",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 25.2,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "a51fadb5a90c46b09bd1e7a989b54831df35f73d62220c2b0d7877fad22d4f0d",
+    "samples": 27
+  },
+  {
+    "id": "multi-salon",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "36a72c78c657aceeb69036c3a850abe2d415a648d77e23200342a0fbad4ed481",
+    "samples": 16
+  },
+  {
+    "id": "add-service",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 29.4,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "1dc8425258d42fedc22cf09d5c0fc6d2d782842997aa382bf409cfe31288ac94",
+    "samples": 31
+  },
+  {
+    "id": "choose-service-addons",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 21.0,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "d5bdf65a070b9bf42d0c94e4a6433705f5cd068215bbb9e3e569c3b7c2268a3e",
+    "samples": 23
+  },
+  {
+    "id": "booking-publish",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "241d8da62ef620364a0f755445eed702db218c590c82c5ccd1326da2ab0f0e6a",
+    "samples": 17
+  },
+  {
+    "id": "sms-starter",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "c3ebfed1926fa610230e92a72c12f37bb6d1bb7d4752a708729461214e08e3cf",
+    "samples": 15
+  },
+  {
+    "id": "no-show-review",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 22.033333,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "a7aa7e3fc793eb9d435c9a6839671c1206ee5553a1262cee758c60ba0e1faae1",
+    "samples": 24
+  },
+  {
+    "id": "layout-menu",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "574671db9d02cc575021ccaa2620044b787dc3aea021c2f6148ef98cf6f58c92",
+    "samples": 19
+  },
+  {
+    "id": "winback-settings",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "f13c7d6d7d946626b3c61ef96efa46c1518ca807c08802de1a98faef410ed2b9",
+    "samples": 18
+  },
+  {
+    "id": "staff-profile",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 17.233333,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "e8edfcd30ca5eb9869ca158c0d7d8fa7ec088890cd1574f30cd9e0d8457ea6dd",
+    "samples": 22
+  },
+  {
+    "id": "review-preferences",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "81932df9d23ab6984bba2aed2bcc10c3a70a2017fedae4f6902de57da11564be",
+    "samples": 17
+  },
+  {
+    "id": "owner-account",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "f1e5b18e6c325c06c31fd0716aa7c10a17c331faad01860511c8cf6477576c9d",
+    "samples": 18
+  },
+  {
+    "id": "saved-setup",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "b181965bc40a9e870401c128b6f1149fcab605a6081ca4cad7b61a779146758a",
+    "samples": 18
+  },
+  {
+    "id": "luster-resources",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "1182eb967f91b1b37ca2e4072aa4db8f94277004d30eda6c62d4f37221f5c4b1",
+    "samples": 16
+  },
+  {
+    "id": "booking-request",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "77ec1cb187b86386b0def663490914349e6706eaefdd5e7cf6463faf5db61306",
+    "samples": 18
+  },
+  {
+    "id": "campaign-results",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "1378fc1091de8bf4899ef06c1e84c9b939fc23d600373f24d320780da57442dd",
+    "samples": 16
+  },
+  {
+    "id": "integration-status",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 16.8,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "01c572d640aa83bf4bd168b2f78f17c8405f252088d1c6d17f18be45c2dc35f7",
+    "samples": 16
+  },
+  {
+    "id": "smart-fit-booking",
+    "dimensions": [
+      1080,
+      1920
+    ],
+    "fps": 30,
+    "duration": 29.833333,
+    "fullDecode": "passed",
+    "thumbnail": "passed",
+    "sha256": "34598254a0834d5933af37ef8b10e8167898a82742a898a4fab107b116f468b6",
+    "samples": 35
+  }
+]

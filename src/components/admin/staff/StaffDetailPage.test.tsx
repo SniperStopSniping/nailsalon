@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import type React from 'react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { StaffDetailPage } from './StaffDetailPage';
@@ -29,7 +29,25 @@ vi.mock('./StaffStatusToggle', () => ({
 vi.mock('./tabs/ClientsTab', () => ({ ClientsTab: () => null }));
 vi.mock('./tabs/EarningsTab', () => ({ EarningsTab: () => null }));
 vi.mock('./tabs/OverviewTab', () => ({ OverviewTab: () => null }));
-vi.mock('./tabs/ServicesTab', () => ({ ServicesTab: () => null }));
+vi.mock('./tabs/ServicesTab', () => ({
+  ServicesTab: ({ onUpdate }: { onUpdate: () => void }) => {
+    const [saved, setSaved] = React.useState(false);
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={() => {
+            setSaved(true);
+            onUpdate();
+          }}
+        >
+          Save technician services
+        </button>
+        {saved && <p role="status">Service list saved</p>}
+      </div>
+    );
+  },
+}));
 vi.mock('./tabs/SettingsTab', () => ({ SettingsTab: () => null }));
 vi.mock('./useTechnicianReviews', () => ({
   useTechnicianReviews: () => ({ byTechnician: {} }),
@@ -108,5 +126,26 @@ describe('StaffDetailPage schedule shortcut', () => {
     expect(query.get('app')).toBe('hours');
     expect(query.get('view')).toBe('working-hours');
     expect(query.get('technician')).toBe('tech_9');
+  });
+
+  it('preserves the saved service list while technician details refresh', async () => {
+    render(<StaffDetailPage staffId="tech_9" salonSlug="studio" initialTab="services" onBack={vi.fn()} />);
+    const save = await screen.findByRole('button', { name: 'Save technician services' });
+    let resolveRefresh!: (value: unknown) => void;
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveRefresh = resolve;
+    }));
+
+    fireEvent.click(save);
+
+    expect(screen.getByRole('status')).toHaveTextContent('Service list saved');
+    expect(screen.getByRole('button', { name: 'Save technician services' })).toBe(save);
+
+    await act(async () => {
+      resolveRefresh({ ok: true, json: async () => ({ data: { technician, stats: null, services: [] } }) });
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent('Service list saved');
+    expect(screen.getByRole('button', { name: 'Save technician services' })).toBe(save);
   });
 });
