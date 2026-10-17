@@ -20,11 +20,10 @@ import {
 } from 'react';
 import { flushSync } from 'react-dom';
 
-import { CUSTOMER_SITE_BODY_FONT_ROLES } from '../../../../../src/libs/customerSitePresentation';
+import { CUSTOMER_SITE_BODY_FONT_ROLES, getCustomerSitePresentationCssVariables } from '../../../../../src/libs/customerSitePresentation';
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import type { SiteBuilderDocument } from '../../model/types';
 import { Dialog } from '../../ui/Dialog';
-import { useMediaQuery } from '../../ui/StarterChooser';
 import {
   CollapsibleFormCard,
   NativeSwitch,
@@ -2060,11 +2059,14 @@ export function SiteStyleScreen({
   onKeepCurrent?: () => void;
 }) {
   const feedback = useFeedback();
-  const isShortPhone = useMediaQuery('(max-width: 479px) and (max-height: 700px)');
-  const [openShortPhoneChoice, setOpenShortPhoneChoice]
-    = useState<'palette' | 'style' | null>(null);
+  const [coloursOpen, setColoursOpen] = useState(false);
+  const [fontsOpen, setFontsOpen] = useState(false);
   const confirmedStyleAtEntry = useRef(state.recipe.stylePreset);
   const confirmedPaletteAtEntry = useRef(state.recipe.palettePreset);
+  const miniatureImage = state.profile.coverPhoto ?? state.profile.profilePhoto;
+  const miniatureAssetIds = useMemo(() => miniatureImage?.storageId ? [miniatureImage.storageId] : [], [miniatureImage?.storageId]);
+  const miniatureAssets = useCustomDesignAssetMap(miniatureAssetIds);
+  const miniatureImageUrl = resolveOnboardingImageUrl(miniatureImage, miniatureAssets);
   const selectedStyle = SITE_STYLE_PRESETS.find(preset =>
     preset.id === state.recipe.stylePreset) ?? SITE_STYLE_PRESETS[0];
   const selectedPalette = SITE_PALETTE_PRESETS.find(preset =>
@@ -2077,63 +2079,41 @@ export function SiteStyleScreen({
   return (
     <div className="onboarding-screen onboarding-screen--style" data-screen="site_style">
       <div className="onboarding-screen__form">
-        <ScreenHeading id="site_style" status="Step 5 — Style & colours" />
+        <ScreenHeading id="site_style" status="Style & colours" />
         <section className="onboarding-style-choice" aria-labelledby="website-style-heading">
           <div className="onboarding-choice-heading">
             <Sparkles aria-hidden="true" size={20} />
             <div>
-              <h2 id="website-style-heading">Choose your website style</h2>
-              <p>Pick the overall look and feel of your site.</p>
+              <h2 id="website-style-heading">Website style</h2>
+              <p>Changes shapes and headings. Your colours stay the same.</p>
             </div>
-          </div>
-          <div className="onboarding-look-choice-summary" hidden={!isShortPhone}>
-            <span>
-              <Check aria-hidden="true" size={15} />
-              {' '}
-              {selectedStyle?.label}
-            </span>
-            <button
-              aria-controls="onboarding-style-options"
-              aria-expanded={openShortPhoneChoice === 'style'}
-              type="button"
-              onClick={() => setOpenShortPhoneChoice(current =>
-                current === 'style' ? null : 'style')}
-            >
-              {openShortPhoneChoice === 'style' ? 'Done' : 'Change'}
-              <span className="visually-hidden"> website style</span>
-            </button>
           </div>
           <div
             aria-label="Site style presets"
             className="onboarding-style-grid"
-            hidden={isShortPhone && openShortPhoneChoice !== 'style'}
             id="onboarding-style-options"
             role="group"
           >
             {SITE_STYLE_PRESETS.map((preset) => {
-              const roles = ONBOARDING_STYLE_ROLES[preset.id];
               const isCurrentStyle = preset.id === confirmedStyleAtEntry.current;
               const isSelectedStyle = preset.id === state.recipe.stylePreset;
               const isPreviewingStyle = isSelectedStyle;
               return (
                 <button
+                  aria-describedby={`onboarding-style-description-${preset.id}`}
+                  aria-label={`${preset.label} website style`}
                   aria-pressed={state.recipe.stylePreset === preset.id}
-                  className="onboarding-style-card"
+                  className="onboarding-style-card onboarding-style-card--look"
                   data-current={isCurrentStyle ? 'true' : 'false'}
                   data-previewing={isPreviewingStyle ? 'true' : 'false'}
                   data-selected={state.recipe.stylePreset === preset.id ? 'true' : 'false'}
                   key={preset.id}
-                  style={{
-                    '--swatch-accent': roles.accent,
-                    '--swatch-body-font': roles.bodyFont,
-                    '--swatch-button-radius': roles.buttonRadius,
-                    '--swatch-ground': roles.ground,
-                    '--swatch-heading-font': roles.headingFont,
-                    '--swatch-ink': roles.ink,
-                    '--swatch-line': roles.line,
-                    '--swatch-secondary': roles.secondaryAccent,
-                    '--swatch-surface': roles.surface,
-                  } as CSSProperties}
+                  style={getCustomerSitePresentationCssVariables({
+                    bodyFont: state.recipe.bodyFont,
+                    headingFont: state.recipe.headingFont,
+                    palettePreset: state.recipe.palettePreset,
+                    stylePreset: preset.id,
+                  }) as CSSProperties}
                   type="button"
                   onClick={() => {
                     feedback.send({ kind: 'selection' });
@@ -2143,26 +2123,21 @@ export function SiteStyleScreen({
                     }));
                   }}
                 >
-                  <span className="onboarding-style-swatch" aria-hidden="true">
-                    <i>Aa</i>
-                    <i>Beautiful nails, made for you.</i>
-                    <i>Book now</i>
-                    <b>
-                      <em />
-                      <em />
-                      <em />
-                      <em />
-                    </b>
+                  <span className="onboarding-style-miniature" aria-hidden="true">
+                    {miniatureImageUrl ? <img alt="" className="onboarding-style-miniature__photo" data-media-role={state.profile.coverPhoto ? 'cover' : 'profile'} decoding="async" height={42} loading="lazy" src={miniatureImageUrl} width={160} /> : null}
+                    <span className="onboarding-style-miniature__name">{state.profile.businessName.trim() || 'Your nail studio'}</span>
+                    <span className="onboarding-style-miniature__card">Explore services</span>
+                    <span className="onboarding-style-miniature__button">Book now</span>
                   </span>
                   <strong>{preset.label}</strong>
-                  <small>{preset.description}</small>
+                  <small id={`onboarding-style-description-${preset.id}`}>{preset.description}</small>
                   {isSelectedStyle
                     ? (
                         <span className="onboarding-style-card__statuses">
                           <em className="is-previewing">
                             <Check aria-hidden="true" size={14} />
                             {' '}
-                            Previewing
+                            Selected
                           </em>
                         </span>
                       )
@@ -2171,18 +2146,21 @@ export function SiteStyleScreen({
               );
             })}
           </div>
+          <button className="onboarding-full-preview-button" type="button" onClick={onFullPreview}>Preview my site</button>
         </section>
         <section className="onboarding-palette-section" aria-labelledby="onboarding-palette-heading">
           <div className="onboarding-palette-section__heading">
             <div className="onboarding-choice-heading">
               <Palette aria-hidden="true" size={22} />
               <div>
-                <p className="onboarding-palette-section__eyebrow">Next, make it yours</p>
-                <h2 id="onboarding-palette-heading">Choose your colours</h2>
-                <p>Choose a colour palette for your website. Your layout and style stay the same.</p>
+                <h2 id="onboarding-palette-heading">
+                  Make it yours
+                  <small>Optional</small>
+                </h2>
+                <p>Change your background, text and button colours. Your shapes and fonts stay the same.</p>
               </div>
             </div>
-            <div className="onboarding-look-choice-summary" hidden={!isShortPhone}>
+            <div className="onboarding-look-choice-summary">
               <span className="onboarding-palette-summary">
                 <span aria-hidden="true" className="onboarding-palette-summary__swatches">
                   {(['ground', 'surface', 'accent', 'secondaryAccent', 'ink'] as const).map(role => (
@@ -2192,21 +2170,20 @@ export function SiteStyleScreen({
                 <span>{selectedPalette.label}</span>
               </span>
               <button
-                aria-label={openShortPhoneChoice === 'palette' ? 'Done choosing website colours' : 'Choose website colours'}
+                aria-label={coloursOpen ? 'Close website colours' : 'Change website colours'}
                 aria-controls="onboarding-palette-options"
-                aria-expanded={openShortPhoneChoice === 'palette'}
+                aria-expanded={coloursOpen}
                 type="button"
-                onClick={() => setOpenShortPhoneChoice(current =>
-                  current === 'palette' ? null : 'palette')}
+                onClick={() => setColoursOpen(current => !current)}
               >
-                {openShortPhoneChoice === 'palette' ? 'Done' : 'Choose colours'}
+                {coloursOpen ? 'Close colours' : 'Change colours'}
               </button>
             </div>
           </div>
           <div
             aria-label="Website colour palettes"
             className="onboarding-palette-grid"
-            hidden={isShortPhone && openShortPhoneChoice !== 'palette'}
+            hidden={!coloursOpen}
             id="onboarding-palette-options"
             role="group"
           >
@@ -2270,102 +2247,110 @@ export function SiteStyleScreen({
             })}
           </div>
         </section>
-        <section className="onboarding-font-section" aria-labelledby="onboarding-font-heading">
-          <div className="onboarding-choice-heading">
-            <Type aria-hidden="true" size={22} />
-            <div>
-              <p className="onboarding-palette-section__eyebrow">Make it feel like yours</p>
-              <h2 id="onboarding-font-heading">Choose your fonts</h2>
-              <p>Pick a display font for headings and a readable font for the details.</p>
+        <CollapsibleFormCard
+          id="onboarding-fonts"
+          open={fontsOpen}
+          status="optional"
+          summary={`${selectedHeadingFontOption.label} + ${selectedBodyFontOption.label}`}
+          title="Change fonts"
+          onToggle={() => setFontsOpen(current => !current)}
+        >
+          <section className="onboarding-font-section" aria-labelledby="onboarding-font-heading">
+            <div className="onboarding-choice-heading">
+              <Type aria-hidden="true" size={22} />
+              <div>
+                <h2 id="onboarding-font-heading">Choose your fonts</h2>
+                <p>Your look already includes a font pair. You can change the lettering here without changing colours or shapes.</p>
+              </div>
             </div>
-          </div>
-          <div className="onboarding-font-choice" aria-labelledby="onboarding-heading-font-heading">
-            <div>
-              <h3 id="onboarding-heading-font-heading">Heading font</h3>
-              <p>Used for your salon name and section headings.</p>
-            </div>
-            <div aria-label="Heading font choices" className="onboarding-font-grid" role="group">
-              {HEADING_FONT_OPTIONS.map((font) => {
-                const isSelected = selectedHeadingFont === font.id;
-                return (
-                  <button
-                    aria-label={`${font.label} heading font`}
-                    aria-pressed={isSelected}
-                    className="onboarding-font-card"
-                    data-selected={isSelected ? 'true' : 'false'}
-                    key={font.id}
-                    style={{ '--font-choice-family': ONBOARDING_STYLE_ROLES[font.id].headingFont } as CSSProperties}
-                    type="button"
-                    onClick={() => {
-                      feedback.send({ kind: 'selection' });
-                      onUpdate(current => ({
+            <div className="onboarding-font-choice" aria-labelledby="onboarding-heading-font-heading">
+              <div>
+                <h3 id="onboarding-heading-font-heading">Heading font</h3>
+                <p>Used for your salon name and section headings.</p>
+              </div>
+              <div aria-label="Heading font choices" className="onboarding-font-grid" role="group">
+                {HEADING_FONT_OPTIONS.map((font) => {
+                  const isSelected = selectedHeadingFont === font.id;
+                  return (
+                    <button
+                      aria-label={`${font.label} heading font`}
+                      aria-pressed={isSelected}
+                      className="onboarding-font-card"
+                      data-selected={isSelected ? 'true' : 'false'}
+                      key={font.id}
+                      style={{ '--font-choice-family': ONBOARDING_STYLE_ROLES[font.id].headingFont } as CSSProperties}
+                      type="button"
+                      onClick={() => {
+                        feedback.send({ kind: 'selection' });
+                        onUpdate(current => ({
+                          ...current,
+                          recipe: {
+                            ...current.recipe,
+                            headingFont: font.id,
+                          },
+                        }));
+                      }}
+                    >
+                      <strong>{font.label}</strong>
+                      <span>{state.profile.businessName.trim() || 'Your nail studio'}</span>
+                      {font.id === state.recipe.stylePreset ? <small>Style default</small> : null}
+                    </button>
+                  );
+                })}
+              </div>
+              {state.recipe.headingFont
+                ? (
+                    <button
+                      className="onboarding-font-reset"
+                      type="button"
+                      onClick={() => onUpdate(current => ({
                         ...current,
-                        recipe: {
-                          ...current.recipe,
-                          headingFont: font.id === current.recipe.stylePreset ? undefined : font.id,
-                        },
-                      }));
-                    }}
-                  >
-                    <strong>{font.label}</strong>
-                    <span>Beautiful nails</span>
-                    {font.id === state.recipe.stylePreset ? <small>Style default</small> : null}
-                  </button>
-                );
-              })}
+                        recipe: { ...current.recipe, headingFont: undefined },
+                      }))}
+                    >
+                      Follow
+                      {' '}
+                      {selectedStyle?.label ?? 'your'}
+                      {' '}
+                      style font
+                    </button>
+                  )
+                : null}
             </div>
-            {state.recipe.headingFont
-              ? (
-                  <button
-                    className="onboarding-font-reset"
-                    type="button"
-                    onClick={() => onUpdate(current => ({
-                      ...current,
-                      recipe: { ...current.recipe, headingFont: undefined },
-                    }))}
-                  >
-                    Follow
-                    {' '}
-                    {selectedStyle?.label ?? 'your'}
-                    {' '}
-                    style font
-                  </button>
-                )
-              : null}
-          </div>
-          <div className="onboarding-font-choice" aria-labelledby="onboarding-body-font-heading">
-            <div>
-              <h3 id="onboarding-body-font-heading">Body font</h3>
-              <p>Used for service details, descriptions, and booking information.</p>
+            <div className="onboarding-font-choice" aria-labelledby="onboarding-body-font-heading">
+              <div>
+                <h3 id="onboarding-body-font-heading">Body font</h3>
+                <p>Used for service details, descriptions, and booking information.</p>
+              </div>
+              <div aria-label="Body font choices" className="onboarding-body-font-grid" role="group">
+                {BODY_FONT_OPTIONS.map((font) => {
+                  const isSelected = selectedBodyFont === font.id;
+                  return (
+                    <button
+                      aria-label={`${font.label} body font`}
+                      aria-pressed={isSelected}
+                      className="onboarding-font-card onboarding-font-card--body"
+                      data-selected={isSelected ? 'true' : 'false'}
+                      key={font.id}
+                      style={{ '--font-choice-family': CUSTOMER_SITE_BODY_FONT_ROLES[font.id] } as CSSProperties}
+                      type="button"
+                      onClick={() => {
+                        feedback.send({ kind: 'selection' });
+                        onUpdate(current => ({
+                          ...current,
+                          recipe: { ...current.recipe, bodyFont: font.id },
+                        }));
+                      }}
+                    >
+                      <strong>{font.label}</strong>
+                      <span>{font.sample}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div aria-label="Body font choices" className="onboarding-body-font-grid" role="group">
-              {BODY_FONT_OPTIONS.map((font) => {
-                const isSelected = selectedBodyFont === font.id;
-                return (
-                  <button
-                    aria-label={`${font.label} body font`}
-                    aria-pressed={isSelected}
-                    className="onboarding-font-card onboarding-font-card--body"
-                    data-selected={isSelected ? 'true' : 'false'}
-                    key={font.id}
-                    style={{ '--font-choice-family': CUSTOMER_SITE_BODY_FONT_ROLES[font.id] } as CSSProperties}
-                    type="button"
-                    onClick={() => {
-                      feedback.send({ kind: 'selection' });
-                      onUpdate(current => ({
-                        ...current,
-                        recipe: { ...current.recipe, bodyFont: font.id },
-                      }));
-                    }}
-                  >
-                    <strong>{font.label}</strong>
-                    <span>{font.sample}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </section>
+          </section>
+        </CollapsibleFormCard>
       </div>
       <aside className="onboarding-screen__preview onboarding-look-preview">
         <div className="onboarding-choice-heading">
