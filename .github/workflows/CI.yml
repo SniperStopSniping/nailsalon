@@ -313,6 +313,9 @@ jobs:
               ed0e8734ece6869797c94dfa57037955df0d02e5:433031ed9d0c705c548bc522e585e15d69648dba) ;;
               # Same builder dependencies after main's 1.143.1 release bump.
               7a219ff506106dca631528df8bf7877ca28c4b71:03917548fdcf78991dfd60a487783cfbdefa5ab0) ;;
+              # Identical reviewed builder dependency graph after main's 1.143.2
+              # release bump. Both manifests differ only in version fields.
+              021dfc548a7955ac279af6576c880b87ff36d87a:99e31ce606948ad4d522d0f3da2ec9d372b0db7d) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -522,6 +525,7 @@ jobs:
               # Owner-approved cumulative trial ceilings and private preview shares.
               migrations/0105_setup_ai_trial_cap_50.sql) ;;
               migrations/0106_setup_shared_previews_cap_80.sql) ;;
+              migrations/0107_ai_credit_wallet.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -1000,6 +1004,7 @@ jobs:
           migrations/0104_setup_upload_reviews.sql fc49a6d1425ddd9529eea23fabd7debfb3239dff
           migrations/0105_setup_ai_trial_cap_50.sql a33718ba4e450fc52ea6aa8a920834c2fee33d98
           migrations/0106_setup_shared_previews_cap_80.sql 194771119c8766649fb3a564d6d0540377a8afa8
+          migrations/0107_ai_credit_wallet.sql 13880d46e7d80e563177b6956f9dba0f2be21eff
           AI_SETUP_MIGRATIONS
 
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
@@ -1076,6 +1081,7 @@ jobs:
               0104_setup_upload_reviews) ;;
               0105_setup_ai_trial_cap_50) ;;
               0106_setup_shared_previews_cap_80) ;;
+              0107_ai_credit_wallet) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1173,6 +1179,17 @@ jobs:
 
       - name: Run unit tests
         run: npm run test -- --coverage
+
+      - name: Verify prepaid AI wallet concurrency on disposable PostgreSQL
+        env:
+          CONCURRENCY_TEST_DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+          AI_CREDIT_CONCURRENCY_REQUIRED: 'true'
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism src/features/ai-credits/wallet.concurrency.integration.test.ts --reporter=json --outputFile=ai-credit-concurrency.json
+          node -e 'const r=require("./ai-credit-concurrency.json"); if(!r.success || r.numPassedTests!==4 || r.numTotalTests!==4 || r.numPendingTests!==0) process.exit(1)'
 
       # Coverage is still collected on PRs. Only trusted main executes the
       # provider upload step with its repository credential.

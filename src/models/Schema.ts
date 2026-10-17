@@ -5807,3 +5807,76 @@ export const setupAiCallSchema = pgTable('setup_ai_call', {
   validation: text('validation').notNull().default('unchecked'),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
 }, table => ({ requestKey: uniqueIndex('setup_ai_call_request_key').on(table.operationId, table.ordinal) }));
+
+// Paid AI credits are independent of SMS credits and the operator's trial budget.
+export const aiCreditAccountSchema = pgTable('ai_credit_account', {
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  planEnv: text('plan_env').$type<'dev' | 'test' | 'prod'>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({ pk: primaryKey({ columns: [table.salonId, table.planEnv] }) }));
+
+export const aiCreditPurchaseSchema = pgTable('ai_credit_purchase', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  planEnv: text('plan_env').$type<'dev' | 'test' | 'prod'>().notNull(),
+  actorId: text('actor_id').notNull(),
+  operationId: text('operation_id').notNull(),
+  packKey: text('pack_key').$type<import('../features/ai-credits/catalog').AiCreditPackKey>().notNull(),
+  amountCents: integer('amount_cents').notNull(),
+  creditMicroCad: bigint('credit_micro_cad', { mode: 'number' }).notNull(),
+  currency: text('currency').notNull().default('cad'),
+  stripePriceId: text('stripe_price_id').notNull(),
+  stripeCustomerId: text('stripe_customer_id').notNull(),
+  stripeSessionId: text('stripe_session_id').unique(),
+  stripePaymentIntentId: text('stripe_payment_intent_id').unique(),
+  paidAmountCents: integer('paid_amount_cents'),
+  taxCents: integer('tax_cents').notNull().default(0),
+  status: text('status').$type<'creating' | 'checkout_created' | 'paid' | 'expired' | 'failed'>().notNull(),
+  refundedCents: integer('refunded_cents').notNull().default(0),
+  reversedMicroCad: bigint('reversed_micro_cad', { mode: 'number' }).notNull().default(0),
+  disputed: boolean('disputed').notNull().default(false),
+  disputeId: text('dispute_id'),
+  disputeResolution: text('dispute_resolution').$type<'won' | 'lost'>(),
+  adjustmentVersion: integer('adjustment_version').notNull().default(0),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+  paidAt: timestamp('paid_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  operationKey: uniqueIndex('ai_credit_purchase_operation').on(table.salonId, table.planEnv, table.operationId),
+  tenantKey: uniqueIndex('ai_credit_purchase_tenant').on(table.salonId, table.planEnv, table.id),
+  active: uniqueIndex('ai_credit_purchase_active').on(table.salonId, table.planEnv).where(sql`${table.status} in ('creating','checkout_created')`),
+  accountFk: foreignKey({ columns: [table.salonId, table.planEnv], foreignColumns: [aiCreditAccountSchema.salonId, aiCreditAccountSchema.planEnv] }).onDelete('cascade'),
+}));
+
+export const aiCreditLedgerSchema = pgTable('ai_credit_ledger', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  planEnv: text('plan_env').$type<'dev' | 'test' | 'prod'>().notNull(),
+  entryKey: text('entry_key').notNull(),
+  kind: text('kind').$type<'purchase' | 'usage' | 'reversal' | 'recovery'>().notNull(),
+  amountMicroCad: bigint('amount_micro_cad', { mode: 'number' }).notNull(),
+  purchaseId: text('purchase_id'),
+  operationId: text('operation_id'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({
+  entryKey: uniqueIndex('ai_credit_ledger_entry').on(table.salonId, table.planEnv, table.entryKey),
+  accountFk: foreignKey({ columns: [table.salonId, table.planEnv], foreignColumns: [aiCreditAccountSchema.salonId, aiCreditAccountSchema.planEnv] }).onDelete('cascade'),
+  purchaseFk: foreignKey({ columns: [table.salonId, table.planEnv, table.purchaseId], foreignColumns: [aiCreditPurchaseSchema.salonId, aiCreditPurchaseSchema.planEnv, aiCreditPurchaseSchema.id] }),
+}));
+
+export const aiCreditReservationSchema = pgTable('ai_credit_reservation', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  planEnv: text('plan_env').$type<'dev' | 'test' | 'prod'>().notNull(),
+  operationId: text('operation_id').notNull(),
+  requestHash: text('request_hash').notNull(),
+  actorId: text('actor_id').notNull(),
+  reservedMicroCad: bigint('reserved_micro_cad', { mode: 'number' }).notNull(),
+  settledMicroCad: bigint('settled_micro_cad', { mode: 'number' }).notNull().default(0),
+  status: text('status').$type<'held' | 'settled' | 'released'>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  operationKey: uniqueIndex('ai_credit_reservation_operation').on(table.salonId, table.planEnv, table.operationId),
+  accountFk: foreignKey({ columns: [table.salonId, table.planEnv], foreignColumns: [aiCreditAccountSchema.salonId, aiCreditAccountSchema.planEnv] }).onDelete('cascade'),
+}));

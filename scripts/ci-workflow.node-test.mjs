@@ -98,6 +98,7 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     ['2658646d2addf8fe450503e0366a1b30d3a37d16', '2b018033b1df3bbc21bfd1858b764a6fe2d14e64'],
     ['36b6eb8cc244742e3f00ca9e6371e83580bbd907', 'f30136fcafe073d34bb76a50cadeaf8d83c2a31b'],
     ['7a219ff506106dca631528df8bf7877ca28c4b71', '03917548fdcf78991dfd60a487783cfbdefa5ab0'],
+    ['021dfc548a7955ac279af6576c880b87ff36d87a', '99e31ce606948ad4d522d0f3da2ec9d372b0db7d'],
   ];
   for (const pair of monitoringPairs) {
     assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
@@ -122,7 +123,7 @@ test('AI migration pins accept the new packet and reject changed or already-ship
   const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
   const packet = run.match(/while read -r file expected_blob; do[\s\S]*?\nAI_SETUP_MIGRATIONS/)[0];
   const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z0-9_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
-  assert.equal(files.length, 9);
+  assert.equal(files.length, 10);
   const directory = mkdtempSync(path.join(tmpdir(), 'ai-migration-gate-'));
   const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
   const check = () => spawnSync('bash', ['-eu', '-c', `base="$(git rev-parse HEAD)"\n${packet}`], { cwd: directory }).status;
@@ -150,6 +151,20 @@ test('AI migration pins accept the new packet and reject changed or already-ship
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('prepaid AI wallet races are required on the existing isolated PostgreSQL service', () => {
+  const job = jobs['test-core'];
+  const step = job.steps.find(candidate => candidate.name === 'Verify prepaid AI wallet concurrency on disposable PostgreSQL');
+  assert.equal(job.env.LUSTER_DISPOSABLE_DATABASE, 'true');
+  assert.equal(step.env.AI_CREDIT_CONCURRENCY_REQUIRED, 'true');
+  assert.equal(step.env.LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID, '${{ job.services.postgres.id }}');
+  assert.equal(step.env.LUSTER_DISPOSABLE_POSTGRES_NETWORK, '${{ job.services.postgres.network }}');
+  assert.match(step.env.CONCURRENCY_TEST_DATABASE_URL, /@127\.0\.0\.1:55432\/luster_e2e_ci_disposable\?application_name=luster-e2e-ci-disposable$/);
+  assert.match(step.run, /set -euo pipefail/);
+  assert.match(step.run, /wallet\.concurrency\.integration\.test\.ts/);
+  assert.match(step.run, /numPassedTests!==4/);
+  assert.match(step.run, /numPendingTests!==0/);
 });
 
 test('the required Node 24 job exercises the installed patched SMS and image dependencies', () => {
