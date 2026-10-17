@@ -8,9 +8,74 @@ import { createDanielaFixtureState } from '../fixtures';
 import { SITE_PALETTE_BY_ID } from '../model/palettes';
 import type { OnboardingLabState } from '../model/types';
 import { QUICK_BOOK_MEDIA_LAYOUTS } from '../quick-book/media-layouts';
-import { QuickBookLayoutScreen } from './DesignScreens';
+import { QuickBookLayoutScreen, SiteStyleScreen } from './DesignScreens';
 
 vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({ useCustomDesignAssetMap: () => new Map() }));
+
+describe('SiteStyleScreen optional customisation', () => {
+  it('lets an owner use a look without opening colours or fonts', async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    const onFullPreview = vi.fn();
+    const fixture = createDanielaFixtureState();
+    const view = render(<SiteStyleScreen document={null} onBack={vi.fn()} onContinue={onContinue} onFullPreview={onFullPreview} onUpdate={vi.fn()} state={fixture} />);
+
+    expect(screen.getByRole('group', { name: 'Site style presets' }).querySelectorAll('button')).toHaveLength(6);
+    expect(screen.queryByRole('group', { name: 'Heading font choices' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Website colour palettes' })).not.toBeInTheDocument();
+
+    const groundColours = [...view.container.querySelectorAll<HTMLElement>('.onboarding-style-card')]
+      .map(card => card.style.getPropertyValue('--n5-bg-page'));
+
+    expect(new Set(groundColours)).toEqual(new Set([SITE_PALETTE_BY_ID[fixture.recipe.palettePreset].roles.ground]));
+
+    await user.click(screen.getByRole('button', { name: 'Preview my site' }));
+
+    expect(onFullPreview).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole('button', { name: 'Use this look' }));
+
+    expect(onContinue).toHaveBeenCalledOnce();
+  });
+
+  it('preserves a deliberately chosen default font when switching looks and reopening controls', async () => {
+    const user = userEvent.setup();
+    const fixture = createDanielaFixtureState();
+    fixture.recipe.stylePreset = 'modern';
+    fixture.recipe.headingFont = undefined;
+    fixture.recipe.bodyFont = 'nunito';
+    let latest = fixture;
+    function Harness() {
+      const [state, setState] = useState(fixture);
+      latest = state;
+      return <SiteStyleScreen document={null} onBack={vi.fn()} onContinue={vi.fn()} onFullPreview={vi.fn()} onUpdate={update => setState(update)} state={state} />;
+    }
+    const view = render(<Harness />);
+
+    await user.click(screen.getByRole('button', { name: /^Change fonts/u }));
+    await user.click(screen.getByRole('button', { name: 'Outfit heading font' }));
+    await user.click(screen.getByRole('button', { name: /^Change fonts/u }));
+    await user.click(screen.getByRole('button', { name: 'Bold website style' }));
+
+    expect(latest.recipe).toMatchObject({ stylePreset: 'bold', headingFont: 'modern', bodyFont: 'nunito', palettePreset: fixture.recipe.palettePreset });
+    expect(latest.profile).toEqual(fixture.profile);
+    expect(screen.getByRole('button', { name: /^Change fonts/u })).toHaveTextContent('Outfit + Nunito');
+
+    for (const card of view.container.querySelectorAll<HTMLElement>('.onboarding-style-card')) {
+      expect(card.style.getPropertyValue('--customer-site-heading-font')).toContain('Outfit');
+    }
+
+    await user.click(screen.getByRole('button', { name: /^Change fonts/u }));
+
+    expect(screen.getByRole('button', { name: 'Outfit heading font' })).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Follow Bold style font' }));
+
+    expect(latest.recipe.headingFont).toBeUndefined();
+    expect(latest.recipe.bodyFont).toBe('nunito');
+    expect(latest.profile).toEqual(fixture.profile);
+  });
+});
 
 describe('QuickBookLayoutScreen media catalog', () => {
   it('offers all 24 designs with actual data and preserves saved choices and media', async () => {

@@ -53,7 +53,7 @@ describe('centralized onboarding metadata', () => {
       'Start simple or with a full website. You can add or change pages and sections anytime.',
     );
     expect(SCREEN_METADATA.business.heading).toBe('Let’s start with your business');
-    expect(SCREEN_METADATA.site_style.heading).toBe('Make it feel like yours');
+    expect(SCREEN_METADATA.site_style.heading).toBe('Choose your look');
     expect(SCREEN_METADATA.final_preview).toMatchObject({
       primaryAction: 'Finish setup',
       secondaryAction: 'Change setup',
