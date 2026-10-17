@@ -98,6 +98,24 @@ describe('request shape', () => {
     expect(JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string).store).toBe(false);
   });
 
+  it('pins Standard pricing only when a caller requests it and requires the matching returned tier for usage', async () => {
+    const usage = { input_tokens: 100, output_tokens: 20 };
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'completed', output: [], service_tier: 'default', usage }));
+
+    expect((await provider().createResponse({ ...REQUEST, serviceTier: 'default' })).usage).toMatchObject({ inputTokens: 100, outputTokens: 20 });
+    expect(JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string).service_tier).toBe('default');
+
+    for (const service_tier of [undefined, 'priority']) {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'completed', output: [], service_tier, usage }));
+
+      expect((await provider().createResponse({ ...REQUEST, serviceTier: 'default' })).usage).toBeNull();
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'completed', output: [], usage }));
+    await provider().createResponse(REQUEST);
+
+    expect(JSON.parse((fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string).service_tier).toBeUndefined();
+  });
+
   it('sends a strict json_schema format in schema mode', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ status: 'completed', output: [] }));
 

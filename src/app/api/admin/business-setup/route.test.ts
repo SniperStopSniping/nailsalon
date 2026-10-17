@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AiCreditError } from '@/features/ai-credits/wallet.server';
 import { readOwnUploadSchema } from '@/features/business-setup/read-upload.server';
 
 import { POST } from './route';
 
 vi.mock('server-only', () => ({}));
-const state = vi.hoisted(() => ({ access: vi.fn(), open: vi.fn(), edit: vi.fn(), approve: vi.fn(), publish: vi.fn(), message: vi.fn(), readUpload: vi.fn(), applyUpload: vi.fn(), dismissUpload: vi.fn(), reset: vi.fn() }));
+const state = vi.hoisted(() => ({ access: vi.fn(), open: vi.fn(), edit: vi.fn(), approve: vi.fn(), publish: vi.fn(), message: vi.fn(), readUpload: vi.fn(), applyUpload: vi.fn(), dismissUpload: vi.fn(), reset: vi.fn(), meter: vi.fn() }));
+vi.mock('@/features/ai-credits/request-metering.server', () => ({ runWithAiCredits: state.meter }));
 vi.mock('@/features/business-setup/access.server', () => ({ requireSetupOwner: state.access }));
 vi.mock('@/features/business-setup/drafts.server', () => ({ resetSetupDraft: state.reset, openSetup: state.open, editSetup: state.edit, approveSetup: state.approve, restartSetup: vi.fn(), reviewSetup: vi.fn(), loadSetupHead: vi.fn(), lockSetupSalon: vi.fn() }));
 vi.mock('@/features/business-setup/read-upload.server', async original => ({ ...await original<typeof import('@/features/business-setup/read-upload.server')>(), readOwnUpload: state.readUpload, applyOwnUpload: state.applyUpload, dismissOwnUpload: state.dismissUpload }));
@@ -18,9 +20,25 @@ function request(body: unknown, origin = 'http://localhost:3197') {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.meter.mockImplementation(async (_actor, _kind, _input, _limit, work) => work());
   state.access.mockResolvedValue({ actor: { salonId: 'authorized-salon', adminId: 'owner' }, salon: {}, aiEnabled: false });
   state.open.mockResolvedValue({ revision: { revision: 1 } });
   vi.stubEnv('BUSINESS_SETUP_PUBLISH_ENABLED', 'false');
+});
+
+it('passes the displayed credit cap with the server-authorized actor and maps insufficient funds before model work', async () => {
+  state.access.mockResolvedValue({ actor: { salonId: 'authorized-salon', adminId: 'owner' }, aiEnabled: true });
+  const message = { message: 'Create my website', expectedRevision: 1, operationId: crypto.randomUUID(), scope: 'website', referenceIds: [] };
+
+  expect((await POST(request({ action: 'message', salonSlug: 'browser-slug', message, acceptedCreditLimitMicroCad: 2_000_000 }))).status).toBe(200);
+  expect(state.meter).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'owner' }, 'conversation', message, 2_000_000, expect.any(Function));
+
+  state.meter.mockRejectedValueOnce(new AiCreditError('INSUFFICIENT_CREDITS', 'Add AI credits to continue.'));
+  state.message.mockClear();
+
+  expect((await POST(request({ action: 'message', salonSlug: 'salon', message, acceptedCreditLimitMicroCad: 2_000_000 }))).status).toBe(402);
+  expect(state.message).not.toHaveBeenCalled();
+  expect((await POST(request({ action: 'message', salonSlug: 'salon', message, acceptedCreditLimitMicroCad: 50_000_000 }))).status).toBe(400);
 });
 
 describe('setup request boundary', () => {

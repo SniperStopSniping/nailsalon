@@ -7,6 +7,8 @@ export const AI_CREDIT_PACKS = {
 
 export type AiCreditPackKey = keyof typeof AI_CREDIT_PACKS;
 export type AiCreditPlanEnv = 'dev' | 'test' | 'prod';
+/** Displayed before sending, never silently raised by the model or a retry. */
+export const AI_REQUEST_CREDIT_LIMIT = 2_000_000;
 
 export function isAiCreditPackKey(value: string): value is AiCreditPackKey {
   return Object.hasOwn(AI_CREDIT_PACKS, value);

@@ -526,6 +526,7 @@ jobs:
               migrations/0105_setup_ai_trial_cap_50.sql) ;;
               migrations/0106_setup_shared_previews_cap_80.sql) ;;
               migrations/0107_ai_credit_wallet.sql) ;;
+              migrations/0108_ai_request_metering.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -1005,6 +1006,7 @@ jobs:
           migrations/0105_setup_ai_trial_cap_50.sql a33718ba4e450fc52ea6aa8a920834c2fee33d98
           migrations/0106_setup_shared_previews_cap_80.sql 194771119c8766649fb3a564d6d0540377a8afa8
           migrations/0107_ai_credit_wallet.sql 13880d46e7d80e563177b6956f9dba0f2be21eff
+          migrations/0108_ai_request_metering.sql 9dc64ff20e3994236a174817fe6cdd6f19276ab1
           AI_SETUP_MIGRATIONS
 
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
@@ -1082,6 +1084,7 @@ jobs:
               0105_setup_ai_trial_cap_50) ;;
               0106_setup_shared_previews_cap_80) ;;
               0107_ai_credit_wallet) ;;
+              0108_ai_request_metering) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1189,7 +1192,7 @@ jobs:
         run: |
           set -euo pipefail
           npx vitest run --no-file-parallelism src/features/ai-credits/wallet.concurrency.integration.test.ts --reporter=json --outputFile=ai-credit-concurrency.json
-          node -e 'const r=require("./ai-credit-concurrency.json"); if(!r.success || r.numPassedTests!==4 || r.numTotalTests!==4 || r.numPendingTests!==0) process.exit(1)'
+          node -e 'const r=require("./ai-credit-concurrency.json"); if(!r.success || r.numPassedTests!==7 || r.numTotalTests!==7 || r.numPendingTests!==0) process.exit(1)'
 
       # Coverage is still collected on PRs. Only trusted main executes the
       # provider upload step with its repository credential.

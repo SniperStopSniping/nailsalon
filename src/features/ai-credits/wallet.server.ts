@@ -258,6 +258,9 @@ export async function settleAiCredits(actor: SetupActor, input: { planEnv: AiCre
     if (!hold || hold.actorId !== actor.adminId) {
       throw new AiCreditError('NOT_FOUND', 'This AI request is unavailable.');
     }
+    if (hold.requestKind !== null) {
+      throw new AiCreditError('INVALID', 'Metered AI work must be resolved from its saved result.');
+    }
     if (input.actualMicroCad > hold.reservedMicroCad) {
       throw new AiCreditError('INVALID', 'AI usage exceeded the amount agreed for this request.');
     }

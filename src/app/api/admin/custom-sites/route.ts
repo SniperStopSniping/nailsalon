@@ -1,6 +1,9 @@
 import { and, desc, eq, gte } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { AI_REQUEST_CREDIT_LIMIT } from '@/features/ai-credits/catalog';
+import { runWithAiCredits } from '@/features/ai-credits/request-metering.server';
+import { AiCreditError } from '@/features/ai-credits/wallet.server';
 import { requireSetupOwner } from '@/features/business-setup/access.server';
 import { setupAiConfigured } from '@/features/business-setup/ai-trial.server';
 import { SetupError } from '@/features/business-setup/contracts';
@@ -30,12 +33,15 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('preferences'), input: z.object({ ...edit, values: designBriefSchema }).strict() }).strict(),
   z.object({ action: z.literal('edit_media'), input: mediaEditSchema }).strict(),
   z.object({ action: z.literal('replace_canva_page'), input: canvaReplaceSchema }).strict(),
-  z.object({ action: z.literal('generate'), input: customSiteGenerateSchema }).strict(),
+  z.object({ action: z.literal('generate'), input: customSiteGenerateSchema, acceptedCreditLimitMicroCad: z.literal(AI_REQUEST_CREDIT_LIMIT).optional() }).strict(),
   z.object({ action: z.literal('resume'), operationId: z.string().uuid() }).strict(),
   z.object({ action: z.literal('save'), input: z.object({ ...edit, source: customSiteSourceSchema, assetIds: z.array(z.string().uuid()).max(12) }).strict() }).strict(),
   z.object({ action: z.literal('restore'), input: z.object({ ...edit, artifactId: z.string().uuid() }).strict() }).strict(),
 ]);
 function errorResponse(error: unknown) {
+  if (error instanceof AiCreditError) {
+    return Response.json({ error: error.message, code: error.code }, { status: error.code === 'INSUFFICIENT_CREDITS' ? 402 : error.code === 'NOT_CONFIGURED' ? 503 : error.code === 'INVALID' ? 400 : 409, headers });
+  }
   const status = error instanceof SetupError ? error.code === 'FORBIDDEN' ? 403 : error.code === 'INVALID' ? 400 : 409 : error instanceof z.ZodError ? 400 : 503;
   return Response.json({ error: error instanceof SetupError ? error.message : 'The design could not be saved. Your previous version is safe.' }, { status, headers });
 }
@@ -147,10 +153,10 @@ export async function POST(request: Request) {
       if (!access.aiEnabled) {
         return Response.json({ error: 'AI is unavailable. Your saved website remains editable.' }, { status: 503, headers });
       }
-      if (isExplicitServicePriceEdit(parsed.input.message)) {
-        return Response.json(await runSetupConversation(access.actor, { message: parsed.input.message, operationId: parsed.input.operationId, expectedRevision: parsed.input.expectedRevision, scope: 'service_price' }), { headers });
-      }
-      return Response.json(await generateCustomSite(access.actor, parsed.input), { headers });
+      const result = await runWithAiCredits(access.actor, 'design', parsed.input, parsed.acceptedCreditLimitMicroCad, async () => isExplicitServicePriceEdit(parsed.input.message)
+        ? await runSetupConversation(access.actor, { message: parsed.input.message, operationId: parsed.input.operationId, expectedRevision: parsed.input.expectedRevision, scope: 'service_price' })
+        : await generateCustomSite(access.actor, parsed.input));
+      return Response.json(result, { headers });
     }
     if (parsed.action === 'save') {
       return Response.json(await saveCustomSource(access.actor, parsed.input), { headers });

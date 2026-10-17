@@ -4,6 +4,7 @@ import './setup.css';
 import { useEffect, useRef, useState } from 'react';
 
 import { AiCreditsMenu } from '@/features/ai-credits/AiCreditsMenu';
+import { AI_REQUEST_CREDIT_LIMIT, formatAiCredits } from '@/features/ai-credits/catalog';
 import { AI_CREDITS_CHANGED } from '@/features/ai-credits/client';
 import { designBriefSchema } from '@/features/custom-sites/contracts';
 import { CustomDesignStudio } from '@/features/custom-sites/CustomDesignStudio';
@@ -139,7 +140,18 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
     }
   }, [customFrontendId, existingSalon]);
   async function call<T>(body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
-    const response = await fetch('/api/admin/business-setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ salonSlug, ...body }), signal });
+    const metered = creditsEnabled && ['message', 'read_upload'].includes(String(body.action));
+    if (metered) {
+      body = { ...body, acceptedCreditLimitMicroCad: AI_REQUEST_CREDIT_LIMIT };
+    }
+    let response: Response;
+    try {
+      response = await fetch('/api/admin/business-setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ salonSlug, ...body }), signal });
+    } finally {
+      if (metered) {
+        window.dispatchEvent(new Event(AI_CREDITS_CHANGED));
+      }
+    }
     const payload = await response.json().catch(() => null) as {
       data?: T;
       error?: {
@@ -149,9 +161,6 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
     } | null;
     if (!response.ok || !payload || !('data' in payload)) {
       throw Object.assign(new Error(payload?.error?.message ?? 'We could not save this step. Please try again.'), { status: response.status, code: payload?.error?.code });
-    }
-    if (creditsEnabled && ['message', 'read_upload'].includes(String(body.action))) {
-      window.dispatchEvent(new Event(AI_CREDITS_CHANGED));
     }
     return payload.data as T;
   }
@@ -665,7 +674,19 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
               </div>
             </form>
             <div className="setup-compose-footer">
-              <p className="setup-compose-note">Only you can approve and publish changes.</p>
+              <p className="setup-compose-note">
+                Only you can approve and publish changes.
+                {creditsEnabled && (
+                  <span>
+                    {' '}
+                    AI requests use up to
+                    {' '}
+                    {formatAiCredits(AI_REQUEST_CREDIT_LIMIT)}
+                    {' '}
+                    in credits. Only actual usage is charged.
+                  </span>
+                )}
+              </p>
               {head && draft && (
                 <StartOverDesign
                   revision={head.revision.revision}
@@ -688,6 +709,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
           </div>
           {head && (
             <CustomDesignStudio
+              creditsEnabled={creditsEnabled}
               key={draft?.sessionStartRevision ?? 1}
               salonSlug={salonSlug}
               revision={head.revision.revision}

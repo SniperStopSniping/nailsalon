@@ -6,7 +6,10 @@ import { CustomDesignStudio } from './CustomDesignStudio';
 
 vi.mock('./CustomWebsiteFrame', () => ({ CustomWebsiteFrame: () => <div>Isolated artwork preview</div> }));
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  sessionStorage.clear();
+});
 
 it('requires separate preview consent and clears it for a later revision without reviewing artwork', async () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true }));
@@ -156,4 +159,38 @@ it('retries a sharper replacement with one uploaded asset and the same operation
   expect(writes).toHaveLength(2);
   expect(writes[0]).toEqual(writes[1]);
   expect(writes[0]).toMatchObject({ action: 'replace_canva_page', input: { expectedRevision: 2, sameDesignConfirmed: true } });
+});
+
+it('clears a paid design prompt while loading and recovers the exact request after a lost response and refresh', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  const requests: any[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      requests.push(JSON.parse(String(options.body)));
+      if (requests.length === 1) {
+        throw new TypeError('Connection lost');
+      }
+      return Response.json({ reply: 'Your design is saved.' });
+    }
+    return Response.json({ head: { revision: { revision: 1, document: { website: { config: {} } } } }, payload: null, assets: [], history: [], attempts: [], configured: true, rendererOrigin: null });
+  }));
+  const editor = () => <CustomDesignStudio salonSlug="metered" revision={1} disabled={false} aiEnabled creditsEnabled onSaved={async () => {}} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} />;
+  const first = render(editor());
+  const prompt = await screen.findByLabelText('What do you like about your references, or what should change?');
+  fireEvent.change(prompt, { target: { value: 'Create an original editorial design.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create my website' }));
+  await screen.findByRole('alert');
+
+  expect(prompt).toHaveValue('');
+  expect(prompt).toBeDisabled();
+  expect(requests[0]).toMatchObject({ action: 'generate', acceptedCreditLimitMicroCad: 2_000_000, input: { message: 'Create an original editorial design.', expectedRevision: 1 } });
+
+  first.unmount();
+  render(editor());
+  fireEvent.click(await screen.findByRole('button', { name: 'Check my request' }));
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Check my request' })).not.toBeInTheDocument());
+
+  expect(requests).toHaveLength(2);
+  expect(requests[1]).toEqual(requests[0]);
+  expect(sessionStorage.getItem('luster-design-request:metered')).toBeNull();
 });

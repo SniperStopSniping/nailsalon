@@ -35,6 +35,7 @@ beforeEach(() => {
   vi.stubEnv('APP_ENV', 'preview');
   vi.stubEnv('VERCEL_ENV', 'preview');
   vi.stubEnv('AI_CREDITS_ENABLED', 'true');
+  vi.stubEnv('AI_CREDIT_METERING_ENABLED', 'true');
   vi.stubEnv('AI_CREDIT_PURCHASES_ENABLED', 'true');
   vi.stubEnv('AI_CREDIT_STRIPE_PRICE_IDS', JSON.stringify({ env: 'test', packs: { ai_10_cad_v1: 'price_aifixture10', ai_20_cad_v1: 'price_aifixture20', ai_50_cad_v1: 'price_aifixture50' } }));
   provider.price.mockResolvedValue({ active: true, type: 'one_time', currency: 'cad', unit_amount: 1000, livemode: false });

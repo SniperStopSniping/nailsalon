@@ -3,11 +3,14 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
+import { AI_REQUEST_CREDIT_LIMIT, formatAiCredits } from '@/features/ai-credits/catalog';
+import { AI_CREDITS_CHANGED } from '@/features/ai-credits/client';
+
 import { prepareCanvaUpload } from './canva-upload';
 import { CanvaAreaEditor } from './CanvaAreaEditor';
 import { CanvaArtworkQuality } from './CanvaArtworkQuality';
 import { CanvaUploadQuality } from './CanvaImageQuality';
-import type { CustomSitePayload, CustomSiteSource, DesignBrief } from './contracts';
+import { type CustomSiteGenerateInput, customSiteGenerateSchema, type CustomSitePayload, type CustomSiteSource, type DesignBrief } from './contracts';
 import { CustomTextEditor } from './CustomTextEditor';
 import { CustomWebsiteFrame } from './CustomWebsiteFrame';
 import { GenerationEvidence } from './GenerationEvidence';
@@ -24,10 +27,25 @@ type State = {
   history: { id: string; title: string; createdAt: string; assetIds: string[] }[];
   attempts: { id: string; message: string; status: string; phase: string; recoverable: boolean; createdAt: string; artifactId: string | null; inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null }[];
 };
-export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation, entryMode, onReadBusinessDetails, onBusyChange, compact = false, onAssetsChange }: { compact?: boolean; onAssetsChange?: (assets: DesignAsset[]) => void; salonSlug: string; revision: number; artifactId?: string; disabled: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void; entryMode?: 'upload' | 'describe' | null; onBusyChange?: (busy: boolean) => void; onReadBusinessDetails?: (ids: string[]) => Promise<void> }) {
+export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation, entryMode, onReadBusinessDetails, onBusyChange, compact = false, onAssetsChange, creditsEnabled = false }: { creditsEnabled?: boolean; compact?: boolean; onAssetsChange?: (assets: DesignAsset[]) => void; salonSlug: string; revision: number; artifactId?: string; disabled: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void; entryMode?: 'upload' | 'describe' | null; onBusyChange?: (busy: boolean) => void; onReadBusinessDetails?: (ids: string[]) => Promise<void> }) {
   const [state, setState] = useState<State | null>(null);
   const [source, setSource] = useState<CustomSiteSource | null>(null);
   const [message, setMessage] = useState('');
+  const [generationRequest, setGenerationRequest] = useState<CustomSiteGenerateInput | null>(null);
+  const generationRequestRef = useRef<CustomSiteGenerateInput | null>(null);
+  const generating = useRef(false);
+  const generationStorageKey = `luster-design-request:${salonSlug}`;
+  function saveGenerationRequest(input: CustomSiteGenerateInput | null) {
+    generationRequestRef.current = input;
+    setGenerationRequest(input);
+    try {
+      if (input) {
+        sessionStorage.setItem(generationStorageKey, JSON.stringify(input));
+      } else {
+        sessionStorage.removeItem(generationStorageKey);
+      }
+    } catch { /* The server also retains requests that reached it. */ }
+  }
   const initializedSelection = useRef(false);
   const [startOver, setStartOver] = useState(false);
   const [busy, setBusy] = useState('');
@@ -96,6 +114,12 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     }
     if (!initializedSelection.current) {
       initializedSelection.current = true;
+      try {
+        const saved = customSiteGenerateSchema.safeParse(JSON.parse(sessionStorage.getItem(generationStorageKey) ?? 'null'));
+        if (saved.success) {
+          saveGenerationRequest(saved.data);
+        }
+      } catch { /* Private browsing can disable session storage. */ }
       // Unused uploads survive refresh/device changes in the private asset store.
       // Restore them visibly; consumed references are not silently reattached.
       const used = new Set((data.history as State['history']).flatMap(item => item.assetIds));
@@ -103,11 +127,22 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       if (!data.preferences) {
         setSelected([...new Set([...unused.map(asset => asset.id), ...Object.keys(data.payload?.images ?? {})])]);
       }
-      if (unused.length) {
+      if (unused.length && !generationRequestRef.current) {
         setMessage('Create my website from the selected inspiration, but make it even better.');
         setShowUpload(true);
         setShowBrief(true);
       }
+    }
+    const request = generationRequestRef.current;
+    const receipt = request && (data.attempts as State['attempts']).find(attempt => attempt.id === request.operationId);
+    if (receipt?.status === 'completed') {
+      saveGenerationRequest(null);
+      setReply('Your new design is saved as a draft. Review it before publishing.');
+      setStartOver(false);
+      setError('');
+    } else if (receipt?.status === 'failed') {
+      saveGenerationRequest(null);
+      setMessage(current => current || request!.message);
     }
     if (data.head.revision.revision !== revision) {
       await onSaved();
@@ -151,12 +186,50 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     }
   }
   async function post(body: unknown) {
-    const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const metered = creditsEnabled && typeof body === 'object' && body !== null && 'action' in body && body.action === 'generate';
+    if (metered) {
+      body = { ...body as Record<string, unknown>, acceptedCreditLimitMicroCad: AI_REQUEST_CREDIT_LIMIT };
+    }
+    let response: Response;
+    try {
+      response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    } finally {
+      if (metered) {
+        window.dispatchEvent(new Event(AI_CREDITS_CHANGED));
+      }
+    }
     const result = await response.json();
     if (!response.ok) {
-      throw new Error(result.error ?? 'The design could not be saved.');
+      throw Object.assign(new Error(result.error ?? 'The design could not be saved.'), { code: result.code, status: response.status });
     }
     return result;
+  }
+  async function submitGeneration(input: CustomSiteGenerateInput) {
+    if (generating.current) {
+      return;
+    }
+    generating.current = true;
+    saveGenerationRequest(input);
+    setMessage('');
+    try {
+      await action('Studying your references and writing your website…', async () => {
+        let result;
+        try {
+          result = await post({ action: 'generate', input });
+        } catch (error) {
+          if (error && typeof error === 'object' && 'code' in error && ['INVALID', 'INSUFFICIENT_CREDITS', 'NOT_CONFIGURED', 'STALE'].includes(String(error.code))) {
+            saveGenerationRequest(null);
+            setMessage(current => current || input.message);
+          }
+          throw error;
+        }
+        saveGenerationRequest(null);
+        setReply(result.reply ?? 'Your new design is saved as a draft. Review it before publishing.');
+        setStartOver(false);
+      });
+    } finally {
+      generating.current = false;
+    }
   }
   const brief: DesignBrief = state?.preferences ?? { fidelity: 'inspiration', referenceIds: selected.filter(id => state?.assets.some(asset => asset.id === id && asset.role === 'reference')), ownedReferenceIds: [], websiteAssetIds: [...new Set([...selected.filter(id => state?.assets.some(asset => asset.id === id && asset.role !== 'reference')), ...Object.keys(state?.payload?.images ?? {})])].slice(0, 6) };
   async function saveBrief(values: DesignBrief) {
@@ -469,17 +542,15 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
             {!compact && (
               <form onSubmit={(event) => {
                 event.preventDefault();
-                void action('Studying your references and writing your website…', async () => {
-                  const result = await post({ action: 'generate', input: { expectedRevision: revision, operationId: crypto.randomUUID(), message, referenceIds: selected, startOver } });
-                  setReply(result.reply ?? 'Your new design is saved as a draft. Review it before publishing.');
-                  setMessage('');
-                  setStartOver(false);
-                });
+                if (generationRequestRef.current) {
+                  return;
+                }
+                void submitGeneration({ expectedRevision: revision, operationId: crypto.randomUUID(), message, referenceIds: selected, startOver });
               }}
               >
                 <label>
                   What do you like about your references, or what should change?
-                  <textarea id="custom-design-brief" value={message} onChange={event => setMessage(event.target.value)} maxLength={4000} rows={4} required placeholder="Something warm and elegant. Cream backgrounds, bold photography and a little personality…" />
+                  <textarea id="custom-design-brief" value={message} disabled={Boolean(generationRequest)} onChange={event => setMessage(event.target.value)} maxLength={4000} rows={4} required placeholder="Something warm and elegant. Cream backgrounds, bold photography and a little personality…" />
                 </label>
                 {artifactId && (
                   <label>
@@ -488,13 +559,29 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                   </label>
                 )}
                 <p>{selected.length ? `${selected.length} uploaded file(s) will be used for this request.` : 'Describe your idea, or select an uploaded image below.'}</p>
+                {creditsEnabled && (
+                  <p>
+                    Uses up to
+                    {' '}
+                    {formatAiCredits(AI_REQUEST_CREDIT_LIMIT)}
+                    {' '}
+                    in AI credits. Only actual usage is charged.
+                  </p>
+                )}
                 {missingDetails.length > 0 && (
                   <div className="setup-notice">
                     <p>Your first design can be created now. Missing business and booking details can be added before publishing.</p>
                     <button type="button" onClick={onContinueConversation}>Continue with Luster</button>
                   </div>
                 )}
-                <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy) || pending || !message.trim() || (brief.fidelity === 'match' && brief.referenceIds.length === 0)}>{busy.includes('writing your website') || pending ? 'Creating your website…' : 'Create my website'}</button>
+                <button type="submit" disabled={disabled || !aiEnabled || !state?.configured || Boolean(busy || generationRequest) || pending || !message.trim() || (brief.fidelity === 'match' && brief.referenceIds.length === 0)}>{busy.includes('writing your website') || pending ? 'Creating your website…' : 'Create my website'}</button>
+                {generationRequest && (
+                  <div role="status">
+                    <p>{generationRequest.message}</p>
+                    <p>{busy || pending ? 'Creating your website. Your request is saved here.' : 'Your request is saved. Check it before starting another design.'}</p>
+                    <button type="button" disabled={disabled || !aiEnabled || Boolean(busy) || pending} onClick={() => void submitGeneration(generationRequest)}>Check my request</button>
+                  </div>
+                )}
               </form>
             )}
           </details>
@@ -523,7 +610,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                       Check and apply saved result without generating again
                     </button>
                   )}
-                  <GenerationEvidence endpoint={endpoint} operationId={attempt.id} />
+                  {!creditsEnabled && <GenerationEvidence endpoint={endpoint} operationId={attempt.id} />}
                 </div>
               ))}
             </details>

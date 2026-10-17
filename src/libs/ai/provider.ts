@@ -35,6 +35,8 @@ export type ModelProviderTool = {
 
 export type ModelProviderRequest = {
   model: string;
+  /** Pin Standard pricing for metered work rather than inheriting project defaults. */
+  serviceTier?: 'default';
   input: ModelProviderInputItem[];
   tools: ModelProviderTool[];
   maxOutputTokens: number;

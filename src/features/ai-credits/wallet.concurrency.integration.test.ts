@@ -5,11 +5,17 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { runSetupConversation } from '@/features/business-setup/conversation.server';
+import { openSetup } from '@/features/business-setup/drafts.server';
+import type { ModelProviderResponse } from '@/libs/ai/provider';
 import { attestDisposableDatabaseSession, requireDisposableDatabaseTarget, resolveDisposableDatabaseServerExpectation } from '@/libs/disposableDatabaseTarget';
 import * as schema from '@/models/Schema';
 
+import { AI_REQUEST_CREDIT_LIMIT } from './catalog';
+import { currentAiCreditExecution } from './context.server';
+import { reconcileAiCreditRequests, runWithAiCredits } from './request-metering.server';
 import { aiCreditOverview, type AiCreditPaymentEvidence, beginAiCreditPurchase, fulfillAiCreditPurchase, reserveAiCredits, reverseAiCreditPurchase, settleAiCredits } from './wallet.server';
 
 vi.mock('server-only', () => ({}));
@@ -43,6 +49,97 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await pool?.end();
+});
+
+describe.skipIf(!target)('metered owner requests on attested PostgreSQL', () => {
+  beforeEach(() => {
+    vi.stubEnv('APP_ENV', 'preview');
+    vi.stubEnv('VERCEL_ENV', 'preview');
+    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_fixture');
+    vi.stubEnv('AI_CREDITS_ENABLED', 'true');
+    vi.stubEnv('AI_CREDIT_METERING_ENABLED', 'true');
+    vi.stubEnv('AI_CREDIT_USD_TO_CAD_MILLIONTHS', '1400000');
+    vi.stubEnv('AI_CREDIT_PRICING_VERSION', 'concurrency-v1');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const result = (): ModelProviderResponse => ({ status: 'completed', usage: { inputTokens: 100, cachedInputTokens: 0, outputTokens: 50 }, items: [{ type: 'message', text: JSON.stringify({ reply: 'Saved in your draft.', operationsJson: JSON.stringify([{ type: 'business', values: { name: 'Metered new name' } }]), designRequest: null, uploadFacts: null }) }] });
+  async function meteredFixture() {
+    const f = await fixture();
+    await fulfillAiCreditPurchase(f.evidence);
+    await openSetup(f.actor);
+    const input = { operationId: randomUUID(), expectedRevision: 1, scope: 'business_and_website' as const, message: 'Change my business name to Metered new name.', referenceIds: [] };
+    const model = { countInputTokens: vi.fn(async () => 1000), createResponse: vi.fn(async () => result()) };
+    const execute = () => runWithAiCredits(f.actor, 'conversation', input, AI_REQUEST_CREDIT_LIMIT, () => runSetupConversation(f.actor, input, model));
+    return { ...f, input, model, execute };
+  }
+
+  it('does not refund or rerun a duplicate request while its original provider call is active', async () => {
+    const f = await meteredFixture();
+    let complete!: (value: ModelProviderResponse) => void;
+    f.model.createResponse.mockImplementationOnce(() => new Promise<ModelProviderResponse>((resolve) => {
+      complete = resolve;
+    }));
+    const running = f.execute();
+    await vi.waitFor(() => expect(f.model.createResponse).toHaveBeenCalledTimes(1));
+
+    await expect(f.execute()).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ availableMicroCad: 8_000_000, reservedMicroCad: 2_000_000 });
+
+    complete(result());
+    await running;
+    await f.execute();
+
+    expect(f.model.createResponse).toHaveBeenCalledTimes(1);
+    expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 9_999_902, reservedMicroCad: 0 });
+  });
+
+  it('keeps simultaneous salons and their asynchronous provider contexts separate', async () => {
+    const first = await meteredFixture();
+    const second = await meteredFixture();
+    for (const f of [first, second]) {
+      f.model.createResponse.mockImplementation(async () => {
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        expect(currentAiCreditExecution()?.salonId).toBe(f.actor.salonId);
+
+        return result();
+      });
+    }
+    await Promise.all([first.execute(), second.execute()]);
+    const evidence = await database.select().from(schema.setupAiCallSchema);
+    for (const f of [first, second]) {
+      expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 9_999_902, reservedMicroCad: 0 });
+      expect(evidence.filter(call => call.salonId === f.actor.salonId)).toHaveLength(1);
+    }
+
+    expect(currentAiCreditExecution()).toBeUndefined();
+  });
+
+  it('recovers a saved draft after PostgreSQL rejects its settlement, charging only once', async () => {
+    const f = await meteredFixture();
+    const name = `ai_settlement_failure_${randomUUID().replaceAll('-', '')}`;
+    await pool.query(`CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.salon_id = '${f.actor.salonId}' AND NEW.kind = 'usage' THEN RAISE EXCEPTION 'synthetic settlement failure'; END IF; RETURN NEW; END $$`);
+    await pool.query(`CREATE TRIGGER ${name} BEFORE INSERT ON ai_credit_ledger FOR EACH ROW EXECUTE FUNCTION ${name}()`);
+    try {
+      await expect(f.execute()).rejects.toThrow();
+
+      expect((await openSetup(f.actor)).revision.document.business.name).toBe('Metered new name');
+      expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ reservedMicroCad: AI_REQUEST_CREDIT_LIMIT });
+    } finally {
+      await pool.query(`DROP TRIGGER ${name} ON ai_credit_ledger`);
+      await pool.query(`DROP FUNCTION ${name}()`);
+    }
+    await reconcileAiCreditRequests(f.actor, 'test');
+    await f.execute();
+
+    expect(f.model.createResponse).toHaveBeenCalledTimes(1);
+    expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 9_999_902, reservedMicroCad: 0 });
+    expect((await database.select().from(schema.aiCreditLedgerSchema).where(eq(schema.aiCreditLedgerSchema.salonId, f.actor.salonId))).filter(row => row.kind === 'usage')).toHaveLength(1);
+  });
 });
 
 async function fixture() {

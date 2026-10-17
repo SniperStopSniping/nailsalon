@@ -123,7 +123,7 @@ test('AI migration pins accept the new packet and reject changed or already-ship
   const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
   const packet = run.match(/while read -r file expected_blob; do[\s\S]*?\nAI_SETUP_MIGRATIONS/)[0];
   const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z0-9_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
-  assert.equal(files.length, 10);
+  assert.equal(files.length, 11);
   const directory = mkdtempSync(path.join(tmpdir(), 'ai-migration-gate-'));
   const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
   const check = () => spawnSync('bash', ['-eu', '-c', `base="$(git rev-parse HEAD)"\n${packet}`], { cwd: directory }).status;
@@ -163,7 +163,7 @@ test('prepaid AI wallet races are required on the existing isolated PostgreSQL s
   assert.match(step.env.CONCURRENCY_TEST_DATABASE_URL, /@127\.0\.0\.1:55432\/luster_e2e_ci_disposable\?application_name=luster-e2e-ci-disposable$/);
   assert.match(step.run, /set -euo pipefail/);
   assert.match(step.run, /wallet\.concurrency\.integration\.test\.ts/);
-  assert.match(step.run, /numPassedTests!==4/);
+  assert.match(step.run, /numPassedTests!==7/);
   assert.match(step.run, /numPendingTests!==0/);
 });
 

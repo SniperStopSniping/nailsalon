@@ -750,6 +750,13 @@
       "when": 1792267728000,
       "tag": "0107_ai_credit_wallet",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1792270500000,
+      "tag": "0108_ai_request_metering",
+      "breakpoints": true
     }
   ]
 }

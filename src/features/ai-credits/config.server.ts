@@ -13,7 +13,11 @@ export function aiCreditsEnabled() {
 }
 
 export function aiCreditPurchasesEnabled() {
-  return aiCreditsEnabled() && process.env.AI_CREDIT_PURCHASES_ENABLED === 'true';
+  return aiCreditMeteringEnabled() && process.env.AI_CREDIT_PURCHASES_ENABLED === 'true';
+}
+
+export function aiCreditMeteringEnabled() {
+  return aiCreditsEnabled() && process.env.AI_CREDIT_METERING_ENABLED === 'true';
 }
 
 export function aiCreditPlanEnv(): AiCreditPlanEnv {

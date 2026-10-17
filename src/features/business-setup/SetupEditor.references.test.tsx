@@ -576,3 +576,17 @@ it('offers the server-gated credit balance inside the builder without starting a
   expect(screen.getByText(/Credit purchases are not available yet/)).toBeInTheDocument();
   expect(requests.some(request => ['checkout', 'generate', 'message', 'publish'].includes(request.action))).toBe(false);
 });
+
+it('shows the paid request limit before sending and includes it with the same saved-draft chat action', async () => {
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled creditsEnabled />);
+  await screen.findByRole('button', { name: 'AI credits · $10.00' });
+
+  expect(screen.getByText(/AI requests use up to \$2\.00 in credits/)).toBeVisible();
+
+  fireEvent.change(screen.getByRole('textbox', { name: /Message Luster/ }), { target: { value: 'Make the heading larger.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(requests.some(request => request.action === 'message')).toBe(true));
+
+  expect(requests.find(request => request.action === 'message')).toMatchObject({ acceptedCreditLimitMicroCad: 2_000_000, message: { expectedRevision: 2, message: 'Make the heading larger.' } });
+  expect(screen.getByRole('textbox', { name: /Message Luster/ })).toHaveValue('');
+});

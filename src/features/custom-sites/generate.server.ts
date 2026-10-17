@@ -1,7 +1,8 @@
 import 'server-only';
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gt } from 'drizzle-orm';
 
+import { aiCreditsEnabled } from '@/features/ai-credits/config.server';
 import { selectDesignModel } from '@/features/business-setup/ai-models';
 import { runSetupModel } from '@/features/business-setup/ai-trial.server';
 import { previewBusinessIdentity, SetupError } from '@/features/business-setup/contracts';
@@ -43,11 +44,12 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
     if (head.workspace.status !== 'editing' || head.revision.revision !== input.expectedRevision) {
       throw new SetupError('STALE', 'Reload the latest saved changes before generating.');
     }
-    const history = await tx.select().from(jobs).where(eq(jobs.salonId, actor.salonId)).orderBy(desc(jobs.createdAt));
-    if (history.some(j => j.status === 'pending' && j.createdAt.getTime() > Date.now() - 300000)) {
+    const history = await tx.select({ id: jobs.id }).from(jobs).where(eq(jobs.salonId, actor.salonId)).orderBy(desc(jobs.createdAt)).limit(30);
+    const [pending] = await tx.select({ id: jobs.id }).from(jobs).where(and(eq(jobs.salonId, actor.salonId), eq(jobs.status, 'pending'), gt(jobs.createdAt, new Date(Date.now() - 300000)))).limit(1);
+    if (pending) {
       throw new SetupError('NOT_READY', 'Your design is still being generated. Reload to see the result.');
     }
-    if (history.length >= 30) {
+    if (!aiCreditsEnabled() && history.length >= 30) {
       throw new SetupError('NOT_READY', 'This design trial has reached its usage limit. Saved designs remain editable.');
     }
     await ownedAssets(tx, actor.salonId, input.referenceIds);

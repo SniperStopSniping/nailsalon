@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from './route';
 
 vi.mock('server-only', () => ({}));
-const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn(), replaceCanva: vi.fn() }));
+const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn(), replaceCanva: vi.fn(), meter: vi.fn() }));
+vi.mock('@/features/ai-credits/request-metering.server', () => ({ runWithAiCredits: state.meter }));
 vi.mock('@/features/business-setup/conversation.server', () => ({ runSetupConversation: state.business }));
 vi.mock('@/features/business-setup/access.server', () => ({ requireSetupOwner: state.access }));
 vi.mock('@/features/custom-sites/artifacts.server', () => ({ saveCustomSource: state.save }));
@@ -18,8 +19,23 @@ function request(body: unknown, origin = 'http://localhost:3197') {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.meter.mockImplementation(async (_actor, _kind, _input, _limit, work) => work());
   state.access.mockResolvedValue({ actor: { salonId: 'authorized-salon', adminId: 'real-owner' }, aiEnabled: false });
   state.edit.mockResolvedValue({ revision: 2 });
+});
+
+it('binds custom generation to the authorized owner and exact public credit cap', async () => {
+  state.access.mockResolvedValue({ actor: { salonId: 'authorized-salon', adminId: 'real-owner' }, aiEnabled: true });
+  state.generate.mockResolvedValue({ head: {} });
+  const input = { expectedRevision: 1, operationId: crypto.randomUUID(), message: 'Create an original editorial design.', referenceIds: [], startOver: false };
+
+  expect((await POST(request({ action: 'generate', input, acceptedCreditLimitMicroCad: 2_000_000 }))).status).toBe(200);
+  expect(state.meter).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, 'design', input, 2_000_000, expect.any(Function));
+
+  state.generate.mockClear();
+
+  expect((await POST(request({ action: 'generate', input, acceptedCreditLimitMicroCad: 50_000_000 }))).status).toBe(400);
+  expect(state.generate).not.toHaveBeenCalled();
 });
 
 describe('custom website owner boundary', () => {

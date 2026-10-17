@@ -1,8 +1,9 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { aiCreditsEnabled } from '@/features/ai-credits/config.server';
 import { assetDataUrl, ownedAssets } from '@/features/custom-sites/assets.server';
 import { websiteDetailsSchema } from '@/features/custom-sites/website-details';
 import type { ModelProviderInputItem, OwnerAssistantModelProvider } from '@/libs/ai/provider';
@@ -188,8 +189,9 @@ export async function readOwnUpload(actor: SetupActor, raw: unknown, providerOve
     if (head.workspace.status !== 'editing' || head.revision.revision !== input.expectedRevision) {
       throw new SetupError('STALE', 'Your saved details changed. Reload before reading the image.');
     }
-    const history = await tx.select().from(turns).where(eq(turns.workspaceId, head.workspace.id));
-    if (history.length >= 200 || history.some(t => t.status === 'pending' && t.leaseExpiresAt.getTime() > Date.now())) {
+    const history = await tx.select({ id: turns.id }).from(turns).where(eq(turns.workspaceId, head.workspace.id)).limit(200);
+    const [pending] = await tx.select({ id: turns.id }).from(turns).where(and(eq(turns.workspaceId, head.workspace.id), eq(turns.status, 'pending'), gt(turns.leaseExpiresAt, new Date()))).limit(1);
+    if ((!aiCreditsEnabled() && history.length >= 200) || pending) {
       throw new SetupError('NOT_READY', 'Another request is running or this trial has reached its limit. Your upload is saved.');
     }
     const [turn] = await tx.insert(turns).values({ id: input.operationId, salonId: actor.salonId, workspaceId: head.workspace.id, actorId: actor.adminId, expectedRevision: input.expectedRevision, requestHash: setupHash(input), message: 'Read the business details in my own uploaded design or menu.', status: 'pending', leaseExpiresAt: new Date(Date.now() + 120000) }).returning();

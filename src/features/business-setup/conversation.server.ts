@@ -2,9 +2,10 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { aiCreditsEnabled } from '@/features/ai-credits/config.server';
 import { assetDataUrl, ownedAssets } from '@/features/custom-sites/assets.server';
 import { repairDraftContacts } from '@/features/custom-sites/contact-edit.server';
 import { requestsContactRepair } from '@/features/custom-sites/contacts.server';
@@ -72,14 +73,15 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       throw new SetupError('STALE', 'Your setup changed. Reload your saved changes first.');
     }
     const history = await tx.select().from(turns).where(eq(turns.workspaceId, head.workspace.id)).orderBy(desc(turns.createdAt)).limit(200);
-    const designHistory = await tx.select({ id: designs.id, status: designs.status }).from(designs).where(eq(designs.salonId, actor.salonId));
+    const active = await tx.select({ designOperationId: turns.designOperationId }).from(turns).where(and(eq(turns.workspaceId, head.workspace.id), inArray(turns.status, ['pending', 'generated']), gt(turns.leaseExpiresAt, new Date()))).limit(20);
+    const designHistory = await tx.select({ id: designs.id, status: designs.status }).from(designs).where(and(eq(designs.salonId, actor.salonId), inArray(designs.id, active.flatMap(turn => turn.designOperationId ? [turn.designOperationId] : []))));
     const terminalDesigns = new Set(designHistory.filter(d => ['completed', 'failed'].includes(d.status)).map(d => d.id));
-    if (history.some(t => ['pending', 'generated'].includes(t.status) && t.leaseExpiresAt.getTime() > Date.now() && !(t.designOperationId && terminalDesigns.has(t.designOperationId)))) {
+    if (active.some(t => !(t.designOperationId && terminalDesigns.has(t.designOperationId)))) {
       throw new SetupError('NOT_READY', 'Your previous message is still being processed.');
     }
     // A bounded first-release budget, separate from billing/SMS credits. Unknown
     // usage retains the reservation, never becomes a zero-cost measurement.
-    if (history.length >= 200 && !requestsContactRepair(input.message)) {
+    if (!aiCreditsEnabled() && history.length >= 200 && !requestsContactRepair(input.message)) {
       throw new SetupError('NOT_READY', 'AI has reached its setup limit. Your saved setup is still editable manually.');
     }
     const [turn] = await tx.insert(turns).values({ id: input.operationId, salonId: actor.salonId, workspaceId: head.workspace.id, actorId: actor.adminId, expectedRevision: input.expectedRevision, requestHash, message: input.message, status: 'pending', leaseExpiresAt: new Date(deadlineAt) }).returning();

@@ -297,7 +297,7 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
                     </span>
                     <strong>
                       {item.amountMicroCad > 0 ? '+' : '−'}
-                      {formatAiCredits(Math.abs(item.amountMicroCad))}
+                      {Math.abs(item.amountMicroCad) > 0 && Math.abs(item.amountMicroCad) < 10_000 ? 'less than $0.01' : formatAiCredits(Math.abs(item.amountMicroCad))}
                     </strong>
                   </li>
                 ))}

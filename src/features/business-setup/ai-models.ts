@@ -1,4 +1,9 @@
-/** Standard API rates in micro-USD per token, verified 2026-10-15. */
+/**
+ * Standard API rates in micro-USD per token, verified 2026-10-17.
+ * https://developers.openai.com/api/docs/models/gpt-6-luna
+ * https://developers.openai.com/api/docs/models/gpt-6.1-sol
+ * Setup requests explicitly pin service_tier=default in the provider adapter.
+ */
 export const SETUP_AI_MODEL = 'gpt-6-luna';
 export const DESIGN_AI_MODEL = 'gpt-6.1-sol';
 export const APPROVED_TRIAL_CAP_CAD = 80;

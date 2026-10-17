@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { AI_CREDIT_PACKS, isAiCreditPackKey } from '@/features/ai-credits/catalog';
 import { cancelAiCreditCheckout, createAiCreditCheckout, reconcileAiCreditSession } from '@/features/ai-credits/checkout.server';
 import { aiCreditPlanEnv, aiCreditPurchasesEnabled, aiCreditsEnabled } from '@/features/ai-credits/config.server';
+import { reconcileAiCreditRequests } from '@/features/ai-credits/request-metering.server';
 import { AiCreditError, aiCreditOverview } from '@/features/ai-credits/wallet.server';
 import { SetupError } from '@/features/business-setup/contracts';
 import { requireAdminSalonForSlug, requireRealSalonOwner } from '@/libs/adminAuth';
@@ -57,7 +58,9 @@ export async function GET(request: Request) {
     if (access.response) {
       return access.response;
     }
-    return Response.json({ data: await aiCreditOverview(access.actor, aiCreditPlanEnv()), packs: Object.values(AI_CREDIT_PACKS), purchasesEnabled: aiCreditPurchasesEnabled() }, { headers });
+    const planEnv = aiCreditPlanEnv();
+    await reconcileAiCreditRequests(access.actor, planEnv);
+    return Response.json({ data: await aiCreditOverview(access.actor, planEnv), packs: Object.values(AI_CREDIT_PACKS), purchasesEnabled: aiCreditPurchasesEnabled() }, { headers });
   } catch (error) {
     return failure(error);
   }

@@ -156,6 +156,9 @@ function buildBody(request: ModelProviderRequest): Record<string, unknown> {
     reasoning: { effort: request.reasoningEffort ?? 'low' },
     max_output_tokens: request.maxOutputTokens,
   };
+  if (request.serviceTier) {
+    body.service_tier = request.serviceTier;
+  }
 
   // Stateless use with reasoning: ask for encrypted reasoning content so the
   // reasoning items can be echoed back with the tool outputs (the API's
@@ -254,7 +257,12 @@ export function createOpenAiResponsesProvider(options: {
         signal?.removeEventListener('abort', abortOuter);
       }
 
-      const usage = parseUsage(payload);
+      // Metered callers freeze Standard rates. An unconfirmed/different tier
+      // cannot be charged as though it used those rates; retain unknown usage
+      // so the application releases the customer hold and bounds retries.
+      const tierConfirmed = !request.serviceTier
+        || (payload !== null && typeof payload === 'object' && 'service_tier' in payload && payload.service_tier === request.serviceTier);
+      const usage = tierConfirmed ? parseUsage(payload) : null;
       const parsed = responseSchema.safeParse(payload);
       if (!parsed.success) {
         throw new ModelProviderError('provider_error', response.status, usage);

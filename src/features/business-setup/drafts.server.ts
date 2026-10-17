@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { and, asc, eq, sql } from 'drizzle-orm';
 
+import { assertAiCreditExecution } from '@/features/ai-credits/context.server';
 import { assertCustomArtifact } from '@/features/custom-sites/artifacts.server';
 import { ownedAssets } from '@/features/custom-sites/assets.server';
 import { canvaDraftBlockers } from '@/features/custom-sites/canva-data.server';
@@ -239,6 +240,9 @@ export async function editSetup(actor: SetupActor, input: unknown, origin: 'owne
   const edit = setupEditSchema.parse(input);
   const apply = async (tx: SetupTransaction) => {
     const salon = await lockSetupSalon(tx, actor);
+    if (origin === 'assistant') {
+      await assertAiCreditExecution(tx, actor);
+    }
     const head = await loadSetupHead(tx, salon.id);
     if (edit.expectedRevision < (head.revision.document.sessionStartRevision ?? 1)) {
       throw new SetupError('STALE', 'You started over since this change. Your new draft is safe.');

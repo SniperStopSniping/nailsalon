@@ -67,6 +67,14 @@ it('shows the balance, fixed packs and feature scope without charging or startin
   expect(calls).toEqual([]);
 });
 
+it('shows a tiny measured charge without pretending it was zero', async () => {
+  wallet.data.history = [{ id: 'tiny', kind: 'usage', amountMicroCad: -98, createdAt: '2026-10-17T12:00:00Z' }];
+  await open();
+  fireEvent.click(screen.getByText('Credit history'));
+
+  expect(screen.getByText('−less than $0.01')).toBeInTheDocument();
+});
+
 it('opens only a server-provided Stripe checkout without passing client amounts or credentials', async () => {
   await open();
   fireEvent.click(screen.getByRole('button', { name: '$10.00 CAD · one-time Start here' }));

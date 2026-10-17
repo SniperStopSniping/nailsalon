@@ -5788,7 +5788,10 @@ export const setupAiBudgetSchema = pgTable('setup_ai_budget', {
 });
 export const setupAiCallSchema = pgTable('setup_ai_call', {
   id: text('id').primaryKey(),
-  budgetId: text('budget_id').notNull().references(() => setupAiBudgetSchema.id),
+  budgetId: text('budget_id').references(() => setupAiBudgetSchema.id),
+  creditReservationId: text('credit_reservation_id'),
+  creditReservedMicroCad: bigint('credit_reserved_micro_cad', { mode: 'number' }).notNull().default(0),
+  creditCostMicroCad: bigint('credit_cost_micro_cad', { mode: 'number' }),
   salonId: text('salon_id').notNull(),
   actorId: text('actor_id').notNull(),
   operationId: text('operation_id').notNull(),
@@ -5876,6 +5879,13 @@ export const aiCreditReservationSchema = pgTable('ai_credit_reservation', {
   status: text('status').$type<'held' | 'settled' | 'released'>().notNull(),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
   resolvedAt: timestamp('resolved_at', { mode: 'date', withTimezone: true }),
+  requestKind: text('request_kind').$type<import('../features/ai-credits/pricing').AiCreditRequestKind>(),
+  expectedRevision: integer('expected_revision'),
+  acceptedLimitMicroCad: bigint('accepted_limit_micro_cad', { mode: 'number' }),
+  pricing: jsonb('pricing').$type<import('../features/ai-credits/pricing').AiCreditPricingSnapshot>(),
+  executionToken: text('execution_token'),
+  leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date', withTimezone: true }),
+  resolution: text('resolution').$type<'completed' | 'platform_failure' | 'unknown_usage' | 'capped_usage'>(),
 }, table => ({
   operationKey: uniqueIndex('ai_credit_reservation_operation').on(table.salonId, table.planEnv, table.operationId),
   accountFk: foreignKey({ columns: [table.salonId, table.planEnv], foreignColumns: [aiCreditAccountSchema.salonId, aiCreditAccountSchema.planEnv] }).onDelete('cascade'),

@@ -1,6 +1,9 @@
 import { and, desc, eq, gte } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { AI_REQUEST_CREDIT_LIMIT } from '@/features/ai-credits/catalog';
+import { runWithAiCredits } from '@/features/ai-credits/request-metering.server';
+import { AiCreditError } from '@/features/ai-credits/wallet.server';
 import { requireSetupOwner } from '@/features/business-setup/access.server';
 import { setupEditSchema, SetupError, setupResetSchema } from '@/features/business-setup/contracts';
 import { runSetupConversation, setupMessageSchema } from '@/features/business-setup/conversation.server';
@@ -20,17 +23,20 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ ...base, action: z.literal('open') }).strict(),
   z.object({ ...base, action: z.literal('reset'), input: setupResetSchema }).strict(),
   z.object({ ...base, action: z.literal('restore_previous'), input: setupResetSchema }).strict(),
-  z.object({ ...base, action: z.literal('read_upload'), input: readOwnUploadSchema }).strict(),
+  z.object({ ...base, action: z.literal('read_upload'), input: readOwnUploadSchema, acceptedCreditLimitMicroCad: z.literal(AI_REQUEST_CREDIT_LIMIT).optional() }).strict(),
   z.object({ ...base, action: z.literal('apply_upload'), operationId: z.string().uuid() }).strict(),
   z.object({ ...base, action: z.literal('dismiss_upload'), operationId: z.string().uuid() }).strict(),
   z.object({ ...base, action: z.literal('start_editing'), expectedRevision: z.number().int().positive() }).strict(),
-  z.object({ ...base, action: z.literal('message'), message: setupMessageSchema }).strict(),
+  z.object({ ...base, action: z.literal('message'), message: setupMessageSchema, acceptedCreditLimitMicroCad: z.literal(AI_REQUEST_CREDIT_LIMIT).optional() }).strict(),
   z.object({ ...base, action: z.literal('edit'), edit: setupEditSchema }).strict(),
   z.object({ ...base, action: z.literal('review') }).strict(),
   z.object({ ...base, action: z.literal('approve'), revision: z.number().int().positive(), hash: z.string().regex(/^[a-f0-9]{64}$/u) }).strict(),
   z.object({ ...base, action: z.literal('publish'), approvalId: z.string().uuid(), revision: z.number().int().positive(), operationId: z.string().uuid() }).strict(),
 ]);
 function errorResponse(error: unknown) {
+  if (error instanceof AiCreditError) {
+    return Response.json({ error: { code: error.code, message: error.message } }, { status: error.code === 'INSUFFICIENT_CREDITS' ? 402 : error.code === 'NOT_CONFIGURED' ? 503 : error.code === 'INVALID' ? 400 : 409, headers });
+  }
   if (error instanceof SetupError) {
     return Response.json({ error: { code: error.code, message: error.message } }, { status: error.code === 'FORBIDDEN' ? 403 : error.code === 'NOT_FOUND' ? 404 : error.code === 'INVALID' ? 400 : 409, headers });
   }
@@ -114,7 +120,7 @@ export async function POST(request: Request) {
         if (!access.aiEnabled) {
           return Response.json({ error: { message: 'AI is unavailable. Your uploads are saved.' } }, { status: 503, headers });
         }
-        data = await readOwnUpload(access.actor, parsed.input);
+        data = await runWithAiCredits(access.actor, 'extract', parsed.input, parsed.acceptedCreditLimitMicroCad, () => readOwnUpload(access.actor, parsed.input));
         break;
       case 'dismiss_upload':
         data = await dismissOwnUpload(access.actor, parsed.operationId);
@@ -126,7 +132,7 @@ export async function POST(request: Request) {
         if (!access.aiEnabled) {
           return Response.json({ error: { message: 'AI is unavailable. Your saved setup is still editable below.' } }, { status: 503, headers });
         }
-        data = await runSetupConversation(access.actor, parsed.message);
+        data = await runWithAiCredits(access.actor, 'conversation', parsed.message, parsed.acceptedCreditLimitMicroCad, () => runSetupConversation(access.actor, parsed.message));
         break;
       case 'start_editing':
         data = await restartSetup(access.actor, parsed.expectedRevision);

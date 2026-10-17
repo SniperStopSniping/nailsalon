@@ -14,6 +14,7 @@ beforeEach(() => {
   vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_fixture');
   vi.stubEnv('AI_CREDITS_ENABLED', '');
   vi.stubEnv('AI_CREDIT_PURCHASES_ENABLED', '');
+  vi.stubEnv('AI_CREDIT_METERING_ENABLED', '');
   vi.stubEnv('AI_CREDIT_STRIPE_PRICE_IDS', JSON.stringify({ env: 'test', packs }));
   vi.stubEnv('AI_CREDIT_USD_TO_CAD_MILLIONTHS', '1400000');
   vi.stubEnv('AI_CREDIT_PRICING_VERSION', 'cad-policy-v1');
@@ -33,6 +34,10 @@ it('keeps wallet and checkout dark by default and can stop new purchases separat
   expect(aiCreditPurchasesEnabled()).toBe(false);
 
   vi.stubEnv('AI_CREDIT_PURCHASES_ENABLED', 'true');
+
+  expect(aiCreditPurchasesEnabled()).toBe(false);
+
+  vi.stubEnv('AI_CREDIT_METERING_ENABLED', 'true');
 
   expect(aiCreditPurchasesEnabled()).toBe(true);
 });
