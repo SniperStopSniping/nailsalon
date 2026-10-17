@@ -67,6 +67,15 @@ it('shows the balance, fixed packs and feature scope without charging or startin
   expect(calls).toEqual([]);
 });
 
+it('offers the credit choice before an unfunded owner tries a paid request, without starting checkout', async () => {
+  wallet.data.availableMicroCad = 0;
+  render(<AiCreditsMenu salonSlug="synthetic" locale="en" onNavigate={navigate} promptWhenEmpty />);
+  await screen.findByRole('dialog', { name: 'Bring your ideas to life.' });
+
+  expect(calls).toEqual([]);
+  expect(navigate).not.toHaveBeenCalled();
+});
+
 it('shows a tiny measured charge without pretending it was zero', async () => {
   wallet.data.history = [{ id: 'tiny', kind: 'usage', amountMicroCad: -98, createdAt: '2026-10-17T12:00:00Z' }];
   await open();

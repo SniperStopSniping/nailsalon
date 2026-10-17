@@ -1,6 +1,6 @@
 'use client';
 
-import { SignIn, useClerk } from '@clerk/nextjs';
+import { SignIn, SignUp, useClerk } from '@clerk/nextjs';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { resolveOnboardingOrganization } from '@/features/onboarding-v1-integration/client';
@@ -43,6 +43,8 @@ const RESOLUTION_FAILED_MESSAGE
 export type OwnerSignInCardProps = {
   dashboardUrl: string;
   createSalonUrl?: string;
+  mode?: 'sign-in' | 'sign-up';
+  signInUrl?: string;
 };
 
 /**
@@ -59,7 +61,7 @@ export type OwnerSignInCardProps = {
  * `POST /api/onboarding/v1/organization`, then `setActive` — and continues to
  * the workspace, so the owner sees a status message instead of a form.
  */
-export function OwnerSignInCard({ dashboardUrl, createSalonUrl }: OwnerSignInCardProps) {
+export function OwnerSignInCard({ dashboardUrl, createSalonUrl, mode = 'sign-in', signInUrl }: OwnerSignInCardProps) {
   const clerk = useClerk();
   const [pendingTask, setPendingTask] = useState<PendingSessionTask | null>(null);
   const [phase, setPhase] = useState<'failed' | 'resolving'>('resolving');
@@ -114,20 +116,24 @@ export function OwnerSignInCard({ dashboardUrl, createSalonUrl }: OwnerSignInCar
     setRetryCount(count => count + 1);
   }, []);
 
-  const signInCard = (
-    <SignIn
-      appearance={{
-        ...lusterOwnerSignInAppearance,
-        elements: {
-          ...lusterOwnerSignInAppearance.elements,
-          ...(createSalonUrl ? { footerAction__signIn: 'luster-auth-create' } : {}),
-        },
-      }}
-      signUpUrl={createSalonUrl}
-      fallbackRedirectUrl={dashboardUrl}
-      routing="hash"
-    />
-  );
+  const signInCard = mode === 'sign-up'
+    ? (
+        <SignUp appearance={lusterOwnerSignInAppearance} signInUrl={signInUrl} forceRedirectUrl={dashboardUrl} routing="hash" />
+      )
+    : (
+        <SignIn
+          appearance={{
+            ...lusterOwnerSignInAppearance,
+            elements: {
+              ...lusterOwnerSignInAppearance.elements,
+              ...(createSalonUrl ? { footerAction__signIn: 'luster-auth-create' } : {}),
+            },
+          }}
+          signUpUrl={createSalonUrl}
+          fallbackRedirectUrl={dashboardUrl}
+          routing="hash"
+        />
+      );
 
   if (!needsOrganization) {
     return signInCard;

@@ -11,6 +11,7 @@ const RESERVED_PUBLIC_SEGMENTS = new Set([
   'admin-login',
   'admin-onboarding',
   'ai-website-test',
+  'ai-website',
   'appointments',
   'book',
   'booking-disabled',

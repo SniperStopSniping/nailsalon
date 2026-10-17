@@ -357,7 +357,7 @@ function mapAnalyticsModuleStatus(
 
 // Main component that uses useSearchParams (must be wrapped in Suspense)
 function AdminDashboardContent() {
-  const { onboardingV1IntegrationEnabled } = useOwnerAdminFeatureFlags();
+  const { onboardingV1IntegrationEnabled, aiBusinessSetupEnabled } = useOwnerAdminFeatureFlags();
   const clerk = useClerk();
   const { getToken, isLoaded: clerkLoaded, isSignedIn, sessionId } = useAuth();
   const router = useRouter();
@@ -1564,6 +1564,10 @@ function AdminDashboardContent() {
       router.push(
         `/${locale}/admin/luster${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
       );
+    } else if (appId === 'luster-ai') {
+      if (aiBusinessSetupEnabled && activeDashboardSalonSlug && activeDashboardSalon?.role === 'owner') {
+        router.push(`/${locale}/admin/business-setup?salon=${encodeURIComponent(activeDashboardSalonSlug)}`);
+      }
     } else if (appId === 'booking-page') {
       // Every resolution of the onboarding handoff opened the same hub, so the
       // tile never needs to wait for it. The Booking Page hub resolves the
@@ -2103,6 +2107,7 @@ function AdminDashboardContent() {
                 data-testid="owner-more-workspace"
               >
                 <AppGrid
+                  aiBusinessSetupEnabled={Boolean(aiBusinessSetupEnabled && activeDashboardSalonSlug && activeDashboardSalon?.role === 'owner')}
                   salonSlug={activeDashboardSalonSlug ?? undefined}
                   salonId={activeDashboardSalon?.id}
                   onOpenCredits={view => openAppViaUrl('plan-usage', view)}

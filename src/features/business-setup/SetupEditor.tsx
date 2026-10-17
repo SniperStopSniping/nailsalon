@@ -423,7 +423,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
           </nav>
         </div>
       </header>
-      {creditsEnabled && <aside className="setup-credit-strip" aria-label="AI credit balance"><AiCreditsMenu salonSlug={salonSlug} locale={locale} /></aside>}
+      {creditsEnabled && <aside className="setup-credit-strip" aria-label="AI credit balance"><AiCreditsMenu salonSlug={salonSlug} locale={locale} promptWhenEmpty /></aside>}
       {error && (
         <div className="setup-error" role="alert">
           {error}

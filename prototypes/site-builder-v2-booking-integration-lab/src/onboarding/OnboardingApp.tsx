@@ -137,6 +137,7 @@ type OnboardingAppProps = {
   forceReview?: boolean;
   lab: LabDocumentController;
   integration?: {
+    onBuildAi?: () => void;
     checkSiteSlugAvailability?: (
       slug: string,
       signal?: AbortSignal,
@@ -1514,6 +1515,7 @@ export function OnboardingApp({
             logoUrl={starterLogoUrl ?? undefined}
             onBack={goBack}
             onChooseStarter={selectStarter}
+            onBuildAi={integration?.onBuildAi}
             ownerName={onboarding.state.profile.ownerName}
             reducedMotion={onboarding.state.reviewOptions.reducedMotion}
             selectedStarter={lab.document?.originStarter ?? onboarding.state.recipe.starter}

@@ -12,7 +12,7 @@ const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu;
 const historyLabels = { purchase: 'Credits added', usage: 'AI changes', reversal: 'Payment adjustment', recovery: 'Credits returned' };
 const navigateToCheckout = (url: string) => window.location.assign(url);
 
-export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToCheckout }: { salonSlug: string; locale: string; onNavigate?: (url: string) => void }) {
+export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToCheckout, promptWhenEmpty = false }: { salonSlug: string; locale: string; onNavigate?: (url: string) => void; promptWhenEmpty?: boolean }) {
   const [open, setOpen] = useState(false);
   const [wallet, setWallet] = useState<AiCreditsOverview | null>(null);
   const [working, setWorking] = useState(false);
@@ -117,7 +117,10 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
     if (query.has('credits')) {
       setOpen(true);
     }
-    void load(request.signal).then(() => {
+    void load(request.signal).then((value) => {
+      if (!request.signal.aborted && promptWhenEmpty && value.data.availableMicroCad === 0 && value.data.reservedMicroCad === 0) {
+        setOpen(true);
+      }
       if (!request.signal.aborted && purchaseId && uuid.test(purchaseId)) {
         void checkPayment(purchaseId, true);
       }
@@ -137,7 +140,7 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
       window.removeEventListener(AI_CREDITS_CHANGED, refresh);
       window.removeEventListener('focus', refresh);
     };
-  }, [checkPayment, load, storageKey]);
+  }, [checkPayment, load, storageKey, promptWhenEmpty]);
 
   async function buy(packKey: AiCreditPackKey) {
     if (lock.current) {

@@ -34,6 +34,8 @@ const isProtectedRoute = createRouteMatcher([
 ]);
 
 const isPublicClerkRoute = createRouteMatcher([
+  '/ai-website(.*)',
+  '/:locale/ai-website(.*)',
   '/ai-website-test(.*)',
   '/:locale/ai-website-test(.*)',
   '/join(.*)',
@@ -159,6 +161,7 @@ export default async function middleware(
       || firstPublicSegment === 'onboarding'
       || firstPublicSegment === 'onboarding-v1'
       || firstPublicSegment === 'ai-website-test'
+      || firstPublicSegment === 'ai-website'
       || firstPublicSegment === 'owner-sign-in'
       || firstPublicSegment === 'owner-sign-up'
       || firstPublicSegment === 'owner'

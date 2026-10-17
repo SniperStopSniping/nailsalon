@@ -2,6 +2,7 @@ import 'server-only';
 
 import { eq } from 'drizzle-orm';
 
+import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
 import { requireAdminSalonForSlug, requireRealSalonOwner } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { businessSetupWorkspaceSchema } from '@/models/Schema';
@@ -12,9 +13,15 @@ export function setupPreviewTrialEnabled() {
 export function businessSetupEnabled() {
   return process.env.BUSINESS_SETUP_AI_ENABLED === 'true';
 }
+/** Separate enrollment switch; existing pilots and saved drafts keep their routes. */
+export function businessSetupSelfServeEnabled() {
+  return businessSetupEnabled() && process.env.BUSINESS_SETUP_SELF_SERVE_ENABLED === 'true'
+    && process.env.AI_CREDITS_ENABLED === 'true' && process.env.AI_CREDIT_METERING_ENABLED === 'true'
+    && isOnboardingV1IntegrationEnabled();
+}
 export function setupAiAvailableForSalon(salonId: string) {
   const allowlist = (process.env.BUSINESS_SETUP_SALON_ALLOWLIST ?? '').split(',').map(v => v.trim()).filter(Boolean);
-  return businessSetupEnabled() && (allowlist.includes(salonId) || (setupPreviewTrialEnabled() && /^ai_trial_[a-f0-9]{32}$/u.test(salonId)));
+  return businessSetupEnabled() && (businessSetupSelfServeEnabled() || allowlist.includes(salonId) || (setupPreviewTrialEnabled() && /^ai_trial_[a-f0-9]{32}$/u.test(salonId)));
 }
 export async function requireSetupOwner(salonSlug: string) {
   const { salon, error } = await requireAdminSalonForSlug(salonSlug, { persistActiveSalon: false });

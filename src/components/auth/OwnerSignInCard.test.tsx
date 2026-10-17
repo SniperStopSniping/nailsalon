@@ -14,9 +14,14 @@ const mocks = vi.hoisted(() => ({
   },
   resolveOrganization: vi.fn(),
   signIn: vi.fn(),
+  signUp: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs', () => ({
+  SignUp: (props: Record<string, unknown>) => {
+    mocks.signUp(props);
+    return <div>Save your Luster account</div>;
+  },
   SignIn: (props: Record<string, unknown>) => {
     mocks.signIn(props);
 
@@ -52,6 +57,15 @@ beforeEach(() => {
 });
 
 describe('OwnerSignInCard branding', () => {
+  it('keeps AI signup on the requested builder return and resolves the same organization task', async () => {
+    mocks.clerk.session = pendingOrganizationSession;
+    render(<OwnerSignInCard mode="sign-up" dashboardUrl="/en/ai-website" signInUrl="/en/ai-website?account=sign-in" />);
+
+    expect(mocks.signUp).toHaveBeenCalledWith(expect.objectContaining({ forceRedirectUrl: '/en/ai-website', signInUrl: '/en/ai-website?account=sign-in', routing: 'hash' }));
+
+    await waitFor(() => expect(mocks.clerk.setActive).toHaveBeenCalledWith({ organization: 'org_1', redirectUrl: '/en/ai-website', session: 'sess_pending' }));
+  });
+
   it('uses the supplied salon builder link when self-service onboarding is enabled', () => {
     render(<OwnerSignInCard dashboardUrl="/en/admin" createSalonUrl="/en/onboarding-v1" />);
 

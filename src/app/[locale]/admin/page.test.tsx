@@ -63,7 +63,7 @@ const {
       },
     },
     clerkStatusHandlers,
-    ownerAdminFeatureFlags: { onboardingV1IntegrationEnabled: true },
+    ownerAdminFeatureFlags: { onboardingV1IntegrationEnabled: true, aiBusinessSetupEnabled: false },
   };
 });
 
@@ -260,6 +260,7 @@ beforeEach(() => {
   Object.assign(clerkAuth, { isLoaded: true, isSignedIn: false, sessionId: null });
   clerkGetToken.mockReset();
   ownerAdminFeatureFlags.onboardingV1IntegrationEnabled = true;
+  ownerAdminFeatureFlags.aiBusinessSetupEnabled = false;
   searchParamGet.mockImplementation(
     (key: string) => (key === 'salon' ? 'salon-b' : null),
   );
@@ -1395,6 +1396,7 @@ describe('AdminDashboardPage', () => {
   });
 
   it('opens the Booking Page hub on the first tap when the More tab is entered directly', async () => {
+    ownerAdminFeatureFlags.aiBusinessSetupEnabled = true;
     searchParamGet.mockImplementation((key: string) => {
       if (key === 'salon') {
         return 'salon-b';
@@ -1453,6 +1455,11 @@ describe('AdminDashboardPage', () => {
     act(() => appGridProps.onAppTap?.('booking-page'));
 
     expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/website?salon=salon-b');
+    expect(appGridSpy.mock.calls.at(-1)?.[0]).toMatchObject({ aiBusinessSetupEnabled: true });
+
+    act(() => appGridProps.onAppTap?.('luster-ai'));
+
+    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/business-setup?salon=salon-b');
     expect(screen.queryByText(/Checking your saved website/i)).not.toBeInTheDocument();
   });
 
