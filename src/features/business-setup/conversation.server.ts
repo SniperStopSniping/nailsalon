@@ -223,7 +223,9 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       const proposed = applySetupOperations(admitted.head.revision.document, operations, 'assistant');
       designRequest = answer.designRequest || (firstPreviewWanted ? input.message : null);
       if (firstDesign && designRequest) {
-        const suggested = proposed.hoursOrigin === 'suggested' || proposed.services.some(service => service.origin === 'assistant' && !service.confirmed);
+        // Chat-supplied values are applied by the assistant too. That does not
+        // make the owner's stated prices/hours invented sample information.
+        const suggested = operations.some(operation => operation.type === 'preview_defaults') || proposed.hoursOrigin === 'suggested' || proposed.services.some(service => service.id.startsWith('draft_sample_'));
         reply = [extractedSummary, suggested
           ? 'I’m creating your first website draft with editable sample booking details. You can change the services, prices, times and hours after seeing it; they need your review before publishing.'
           : 'I’m creating your first website draft from your saved details. You can change it before publishing.'].filter(Boolean).join('\n\n');

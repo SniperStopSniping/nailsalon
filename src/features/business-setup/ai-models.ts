@@ -22,6 +22,7 @@ export function selectDesignModel(message: string, hasPreviousSource: boolean): 
     return DESIGN_AI_MODEL;
   }
   return /\b(?:instagram|clickable|link|heading|font|colou?r|background|spacing|padding|margin|typo|button|larger|smaller|bigger)\b/iu.test(message)
+    || /\bservices\s+(?:above|before|below|after)\s+(?:the\s+)?gallery\b|\bmobile\b.{1,35}\bless crowded\b/iu.test(message)
     ? SETUP_AI_MODEL
     : DESIGN_AI_MODEL;
 }

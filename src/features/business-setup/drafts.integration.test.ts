@@ -1244,6 +1244,22 @@ describe('reading own images directly in conversation', () => {
     expect(provider.createResponse).toHaveBeenCalledTimes(2);
   });
 
+  it('does not call complete chat-supplied service details invented samples while still requiring their review', async () => {
+    const { actor, asset } = await attached(false, false);
+    const before = (await openSetup(actor)).revision;
+    const { origin: _origin, confirmed: _confirmed, ...service } = before.document.services[0]!;
+    const supplied = await editSetup(actor, { expectedRevision: before.revision, operationId: randomUUID(), operations: [{ type: 'service', values: service }] }, 'assistant');
+    const provider = model(answer({ uploadFactsJson: null, designRequest: 'Make the website from the reference.' }));
+    const result = await runSetupConversation(actor, { expectedRevision: supplied.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Make my website look like this.', referenceIds: [asset.id] }, provider);
+
+    expect(result.reply).toContain('from your saved details');
+    expect(result.reply).not.toContain('sample booking');
+    expect(result.head.revision.document.services).toEqual(supplied.revision.document.services);
+    expect(result.head.revision.document.services[0]!.confirmed).toBe(false);
+    expect((await reviewSetup(actor)).blockers).toContain('Review the price and time for Gel manicure.');
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
   it('creates a real editable first preview from just make it up without intake or extraction calls, and gates publication on review', async () => {
     const { actor, asset, revision } = await attached();
     const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 1200, outputTokens: 1800, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
