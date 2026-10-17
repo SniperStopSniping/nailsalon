@@ -349,9 +349,11 @@ it('keeps publication explicit and bound to the review, then offers continuing f
 it('does not upload a file or grant rights before permission is checked', async () => {
   render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
   await screen.findByText('Saved as draft');
-  fireEvent.click(screen.getByRole('button', { name: 'Attach images or a PDF' }));
+  // Opening attachments mounts the studio and starts an async asset load.
+  // Let that load settle before this negative upload assertion ends the test.
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Attach images or a PDF' })));
   const dialog = screen.getByRole('dialog');
-  fireEvent.change(dialog.querySelector('input[type=file]')!, { target: { files: [new File(['image'], 'my-reference.png', { type: 'image/png' })] } });
+  await act(async () => fireEvent.change(dialog.querySelector('input[type=file]')!, { target: { files: [new File(['image'], 'my-reference.png', { type: 'image/png' })] } }));
 
   expect(within(dialog).getByRole('button', { name: 'Add to chat' })).toBeDisabled();
   expect(requests.some(request => request.action === 'upload')).toBe(false);
