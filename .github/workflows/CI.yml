@@ -1331,6 +1331,10 @@ jobs:
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerAssistant/playwright.config.ts --output=test-results/owner-assistant-components
 
+      - name: Verify AI credit purchase interface and recovery in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
+        run: node node_modules/playwright/cli.js test --config tests/browser/aiCredits/playwright.config.ts --output=test-results/ai-credit-components
+
       - name: Verify platform policy labels and navigation
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/platformPolicy/playwright.config.ts --output=test-results/platform-policy-components

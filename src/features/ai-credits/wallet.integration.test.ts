@@ -66,6 +66,22 @@ describe('separate prepaid AI wallet', () => {
     expect(await aiCreditOverview(actor, 'test')).toMatchObject({ availableMicroCad: 0 });
   });
 
+  it('exposes a resumable purchase only inside its salon and distinguishes the initiating owner', async () => {
+    const actor = await owner();
+    const p = await purchase(actor);
+    const second = await owner();
+    await database.insert(schema.adminSalonMembershipSchema).values({ salonId: actor.salonId, adminId: second.adminId, role: 'owner' });
+
+    expect(await aiCreditOverview(actor, 'test')).toMatchObject({ pendingPurchase: { id: p.row.id, packKey: p.row.packKey, canManage: true } });
+    expect(await aiCreditOverview({ salonId: actor.salonId, adminId: second.adminId }, 'test')).toMatchObject({ pendingPurchase: { id: p.row.id, packKey: p.row.packKey, canManage: false } });
+    expect(await aiCreditOverview(second, 'test')).toMatchObject({ pendingPurchase: null });
+    expect(await aiCreditOverview(actor, 'prod')).toMatchObject({ pendingPurchase: null });
+
+    await fulfillAiCreditPurchase(p.evidence);
+
+    expect(await aiCreditOverview(actor, 'test')).toMatchObject({ pendingPurchase: null });
+  });
+
   it('fulfills a paid purchase once even when the webhook arrives before session attachment', async () => {
     const actor = await owner();
     const p = await purchase(actor);

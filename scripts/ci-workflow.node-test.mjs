@@ -254,6 +254,7 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify review automation settings in mobile browsers',
       'Verify dark customer assistant proposal shell in mobile browsers',
       'Verify owner assistant reload recovery and account isolation',
+      'Verify AI credit purchase interface and recovery in mobile browsers',
       'Verify platform policy labels and navigation',
       'Verify owner destinations and Hours in mobile browsers',
       'Verify owner dashboard polish and shared dialogs in mobile browsers',

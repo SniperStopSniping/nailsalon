@@ -46,7 +46,9 @@ export async function aiCreditOverview(actor: SetupActor, planEnv: AiCreditPlanE
     const balance = await readAiCreditBalance(tx, actor.salonId, planEnv);
     const history = await tx.select({ id: ledger.id, kind: ledger.kind, amountMicroCad: ledger.amountMicroCad, createdAt: ledger.createdAt })
       .from(ledger).where(and(eq(ledger.salonId, actor.salonId), eq(ledger.planEnv, planEnv))).orderBy(sql`${ledger.createdAt} DESC`, sql`${ledger.id} DESC`).limit(30);
-    return { ...balance, currency: 'cad' as const, history };
+    const [pending] = await tx.select({ id: purchases.id, packKey: purchases.packKey, actorId: purchases.actorId }).from(purchases).where(and(eq(purchases.salonId, actor.salonId), eq(purchases.planEnv, planEnv), inArray(purchases.status, ['creating', 'checkout_created']))).limit(1);
+    const pendingPurchase = pending ? { id: pending.id, packKey: pending.packKey, canManage: pending.actorId === actor.adminId } : null;
+    return { ...balance, currency: 'cad' as const, history, pendingPurchase };
   });
 }
 

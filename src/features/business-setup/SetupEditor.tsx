@@ -3,6 +3,8 @@ import './setup.css';
 
 import { useEffect, useRef, useState } from 'react';
 
+import { AiCreditsMenu } from '@/features/ai-credits/AiCreditsMenu';
+import { AI_CREDITS_CHANGED } from '@/features/ai-credits/client';
 import { designBriefSchema } from '@/features/custom-sites/contracts';
 import { CustomDesignStudio } from '@/features/custom-sites/CustomDesignStudio';
 import type { DesignAsset } from '@/features/custom-sites/WebsitePhotoLibrary';
@@ -88,11 +90,12 @@ function designReviewValue(value: unknown): string {
   }
   return value === 'match' ? 'Match my design closely' : value === 'inspiration' ? 'Use it as inspiration' : reviewValue(value);
 }
-export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
+export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, creditsEnabled = false }: {
   salonSlug: string;
   locale: string;
   existingSalon: boolean;
   aiEnabled: boolean;
+  creditsEnabled?: boolean;
 }) {
   const [head, setHead] = useState<Head | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -146,6 +149,9 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
     } | null;
     if (!response.ok || !payload || !('data' in payload)) {
       throw Object.assign(new Error(payload?.error?.message ?? 'We could not save this step. Please try again.'), { status: response.status, code: payload?.error?.code });
+    }
+    if (creditsEnabled && ['message', 'read_upload'].includes(String(body.action))) {
+      window.dispatchEvent(new Event(AI_CREDITS_CHANGED));
     }
     return payload.data as T;
   }
@@ -408,6 +414,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled }: {
           </nav>
         </div>
       </header>
+      {creditsEnabled && <aside className="setup-credit-strip" aria-label="AI credit balance"><AiCreditsMenu salonSlug={salonSlug} locale={locale} /></aside>}
       {error && (
         <div className="setup-error" role="alert">
           {error}

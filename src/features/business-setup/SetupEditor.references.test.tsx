@@ -40,6 +40,9 @@ beforeEach(() => {
     website: { config: {}, content: {} },
   };
   vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.startsWith('/api/admin/ai-credits')) {
+      return { ok: true, json: async () => ({ purchasesEnabled: false, data: { availableMicroCad: 10_000_000, reservedMicroCad: 0, debtMicroCad: 0, pendingPurchase: null, history: [] } }) };
+    }
     const custom = url.startsWith('/api/admin/custom-sites');
     if (options?.body instanceof FormData) {
       const asset = { ...reference, role: String(options.body.get('role')) };
@@ -563,4 +566,13 @@ it('waits for saved work before enabling Preview and Details', async () => {
   await waitFor(() => expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled());
 
   expect(screen.getByRole('button', { name: 'Details' })).toBeEnabled();
+});
+
+it('offers the server-gated credit balance inside the builder without starting a payment or AI request', async () => {
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled creditsEnabled />);
+  fireEvent.click(await screen.findByRole('button', { name: 'AI credits · $10.00' }));
+  await screen.findByRole('dialog', { name: 'Bring your ideas to life.' });
+
+  expect(screen.getByText(/Credit purchases are not available yet/)).toBeInTheDocument();
+  expect(requests.some(request => ['checkout', 'generate', 'message', 'publish'].includes(request.action))).toBe(false);
 });

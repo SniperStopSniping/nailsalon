@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 
+import { aiCreditsEnabled } from '@/features/ai-credits/config.server';
 import { requireSetupOwner } from '@/features/business-setup/access.server';
 import { SetupEditor } from '@/features/business-setup/SetupEditor';
 
@@ -22,5 +23,5 @@ export default async function BusinessSetupPage(props: {
   if (access.response) {
     notFound();
   }
-  return <SetupEditor key={access.salon.id} salonSlug={access.salon.slug} locale={locale} aiEnabled={access.aiEnabled} existingSalon={access.salon.publicationStatus === 'published'} />;
+  return <SetupEditor key={access.salon.id} salonSlug={access.salon.slug} locale={locale} aiEnabled={access.aiEnabled} creditsEnabled={aiCreditsEnabled()} existingSalon={access.salon.publicationStatus === 'published'} />;
 }

@@ -305,3 +305,35 @@
 @keyframes setup-working-pulse { 0%, 100% { opacity: .4; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.1); } }
 .setup-thinking span { animation: setup-working-pulse 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .setup-thinking span { animation: none; } }
+
+.setup-credit-strip { display: flex; justify-content: flex-end; max-width: 1600px; width: 100%; margin: 0 auto; padding: 0 22px 8px; }
+.luster-setup .setup-credit-trigger { border: 0; background: transparent; color: var(--setup-accent); font-size: 12px; min-height: 36px; }
+.luster-ai-credits { color: #30272b; font: 14px/1.6 var(--font-outfit), sans-serif; }
+.luster-ai-credits p { margin: 12px 0; }
+.ai-credit-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ai-credit-heading h2 { font-family: Georgia, serif; font-size: 27px; line-height: 1.1; margin: 7px 0 12px; }
+.ai-credit-eyebrow { color: #78445a; letter-spacing: .2em; font-size: 10px; font-weight: 700; }
+.luster-ai-credits button { min-height: 44px; border: 1px solid #d8c8d0; border-radius: 12px; padding: 10px 14px; font: inherit; background: #fff; color: #653c4e; }
+.luster-ai-credits button:disabled { opacity: .55; cursor: wait; }
+.luster-ai-credits button:focus-visible, .luster-ai-credits summary:focus-visible { outline: 3px solid #78445a; outline-offset: 3px; }
+.ai-credit-heading > button { border: 0; padding: 4px 12px; font-size: 24px; }
+.ai-credit-balance { background: #f5eef1; border-radius: 16px; padding: 20px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 18px 0; }
+.ai-credit-balance > span:first-child { width: 100%; color: #66565d; }
+.ai-credit-balance > strong { font-size: 36px; line-height: 1.15; font-weight: 500; }
+.ai-credit-balance > span:last-child { color: #66565d; font-size: 12px; }
+.ai-credit-packs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 22px 0 16px; }
+.ai-credit-packs > button { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 16px 6px; border-color: #b58c9e; }
+.ai-credit-packs > button:first-child { border-color: #78445a; background: #fbf6f8; }
+.ai-credit-packs strong { font-size: clamp(17px, 5vw, 23px); font-weight: 500; }
+.ai-credit-packs span { font-size: 10px; }
+.ai-credit-small { font-size: 12px; color: #66565d; }
+.ai-credit-pending { border: 1px solid #d8c8d0; padding: 12px; border-radius: 12px; }
+.ai-credit-pending > button { margin: 5px 5px 5px 0; font-size: 12px; }
+.luster-ai-credits [role=alert] { color: #8c294c; background: #fff0f4; padding: 12px; border-radius: 10px; }
+.luster-ai-credits [role=status] { color: #653c4e; }
+.luster-ai-credits details { border-top: 1px solid #e6dce1; margin-top: 22px; padding-top: 14px; }
+.luster-ai-credits summary { cursor: pointer; min-height: 44px; }
+.luster-ai-credits ul { margin: 0; padding: 0; list-style: none; }
+.luster-ai-credits li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f0e9ed; }
+.luster-ai-credits li small { display: block; color: #66565d; font-size: 10px; }
+@media (max-width: 480px) { .setup-credit-strip { padding: 0 14px 4px; } .ai-credit-heading h2 { font-size: 24px; } }
