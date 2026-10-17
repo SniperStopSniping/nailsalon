@@ -1423,7 +1423,7 @@ jobs:
 
       - name: Verify manual Your Design upload and clickable links
         if: matrix.suite == 'onboarding-owner'
-        timeout-minutes: 5
+        timeout-minutes: 8
         working-directory: prototypes/site-builder-v2-booking-integration-lab
         env:
           LUSTER_LAB_PORT: '4199'

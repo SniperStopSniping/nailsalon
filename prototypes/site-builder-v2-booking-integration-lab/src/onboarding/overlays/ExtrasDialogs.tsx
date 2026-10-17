@@ -8,6 +8,8 @@ import {
 } from '../../custom-design/integration/CustomDesignAssetProvider';
 import { CustomDesignImageManager } from '../../custom-design/integration/CustomDesignImageManager';
 import { AccessibilityDialog } from '../../custom-design/integration/CustomDesignOwnerEditor';
+import { DESIGN_DISPLAY_CHOICES } from '../../custom-design/integration/design-presentation';
+import { DesignBackgroundSwatches } from '../../custom-design/integration/DesignBackgroundSwatches';
 import { DesignExportHelp } from '../../custom-design/integration/DesignExportHelp';
 import { HotspotEditor } from '../../custom-design/integration/HotspotEditor';
 import type {
@@ -16,6 +18,7 @@ import type {
 } from '../../custom-design/integration/ui-types';
 import { formatCustomDesignUploadSummary } from '../../custom-design/integration/upload-summary';
 import { normalizeCustomDesignHexColor } from '../../custom-design/model/settings';
+import type { CustomDesignBackground } from '../../custom-design/model/types';
 import type { CustomDesignSectionInstance, SiteBuilderDocument } from '../../model';
 import {
   getCustomDesignInternalTargets,
@@ -1133,6 +1136,19 @@ export function CanvaDialog({
     ?? { status: 'loading' as const }
     : { status: 'loading' as const };
 
+  const applyBackground = (background: CustomDesignBackground) => {
+    if (!section || !controller) {
+      return;
+    }
+    const result = controller.updateSettings(section.id, settings => ({ ...settings, background }));
+    if (!result.success || !result.section) {
+      setError(result.failure?.message ?? 'The background could not be saved. Try again.');
+      return;
+    }
+    setError('');
+    syncCanvaDraft(onUpdate, result.section, displayMode, placement);
+  };
+
   useEffect(() => {
     if (!open) {
       wasOpenRef.current = false;
@@ -1477,13 +1493,17 @@ export function CanvaDialog({
               )
             : null}
           <details className="onboarding-your-design-options">
-            <summary>Display & placement</summary>
+            <summary>Size & background</summary>
+            <p className="custom-design-image-size-tip">Your design keeps its original shape. Choose how much space it uses, then preview it on a phone and a larger screen.</p>
             <fieldset className="onboarding-layout-choice">
-              <legend>Display</legend>
-              {(['poster', 'contained', 'full_width'] as CanvaDisplayMode[]).map(mode => (
+              <legend>Size</legend>
+              {DESIGN_DISPLAY_CHOICES.map(([mode, label, description]) => (
                 <label key={mode}>
-                  <input checked={displayMode === mode} name="canva-display" type="radio" value={mode} onChange={() => setDisplayMode(mode)} />
-                  <span>{mode === 'full_width' ? 'Full width' : `${mode[0]?.toUpperCase()}${mode.slice(1)}`}</span>
+                  <input aria-label={label} checked={displayMode === mode} name="canva-display" type="radio" value={mode} onChange={() => setDisplayMode(mode)} />
+                  <span className="custom-design-display-copy">
+                    <strong>{label}</strong>
+                    <small>{description}</small>
+                  </span>
                 </label>
               ))}
             </fieldset>
@@ -1491,65 +1511,37 @@ export function CanvaDialog({
               ? (
                   <fieldset className="onboarding-layout-choice">
                     <legend>Background</legend>
-                    <label>
-                      <input
-                        checked={section.settings.background.mode === 'site'}
-                        name="canva-background"
-                        type="radio"
-                        onChange={() => {
-                          const result = controller.updateSettings(section.id, settings => ({
-                            ...settings,
-                            background: { mode: 'site' },
-                          }));
-                          if (result.success && result.section) {
-                            syncCanvaDraft(onUpdate, result.section, displayMode, placement);
-                          }
-                        }}
-                      />
-                      <span>Match site</span>
-                    </label>
-                    <label>
-                      <input
-                        checked={section.settings.background.mode === 'custom'}
-                        name="canva-background"
-                        type="radio"
-                        onChange={() => {
-                          const color = normalizeCustomDesignHexColor(backgroundColor);
-                          if (!color) {
-                            return;
-                          }
-                          const result = controller.updateSettings(section.id, settings => ({
-                            ...settings,
-                            background: { color, mode: 'custom' },
-                          }));
-                          if (result.success && result.section) {
-                            syncCanvaDraft(onUpdate, result.section, displayMode, placement);
-                          }
-                        }}
-                      />
-                      <span>Custom colour</span>
-                    </label>
-                    <label>
-                      <span className="visually-hidden">Custom background colour</span>
+                    <p className="custom-design-image-size-tip">Colour fills the space around your design and any transparent areas. Your artwork stays unchanged.</p>
+                    <DesignBackgroundSwatches
+                      disabled={pending}
+                      selectedColor={section.settings.background.mode === 'custom' ? section.settings.background.color : undefined}
+                      onChange={(color) => {
+                        setBackgroundColor(color);
+                        applyBackground({ color, mode: 'custom' });
+                      }}
+                    />
+                    <button
+                      aria-pressed={section.settings.background.mode === 'site'}
+                      className="custom-design-background-site"
+                      disabled={pending}
+                      type="button"
+                      onClick={() => applyBackground({ mode: 'site' })}
+                    >
+                      Match website
+                    </button>
+                    <label className="custom-design-background-picker">
                       <input
                         aria-label="Custom background colour"
+                        disabled={pending}
                         type="color"
                         value={normalizeCustomDesignHexColor(backgroundColor) ?? '#FFF8F5'}
                         onChange={(event) => {
                           const color = event.target.value.toUpperCase();
                           setBackgroundColor(color);
-                          if (section.settings.background.mode !== 'custom') {
-                            return;
-                          }
-                          const result = controller.updateSettings(section.id, settings => ({
-                            ...settings,
-                            background: { color, mode: 'custom' },
-                          }));
-                          if (result.success && result.section) {
-                            syncCanvaDraft(onUpdate, result.section, displayMode, placement);
-                          }
+                          applyBackground({ color, mode: 'custom' });
                         }}
                       />
+                      <span>Pick a colour</span>
                     </label>
                   </fieldset>
                 )

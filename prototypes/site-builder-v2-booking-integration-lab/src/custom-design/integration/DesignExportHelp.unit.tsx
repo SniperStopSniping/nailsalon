@@ -43,4 +43,20 @@ describe('DesignExportHelp', () => {
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
+
+  it('explains unusually wide and long images without requiring a different shape', async () => {
+    render(<DesignExportHelp images={[{ ...image(2400), height: 300 }, { ...image(1200), height: 9000 }]} />);
+
+    expect(screen.getByText(/Wide artwork stays in proportion/)).toBeVisible();
+    expect(screen.getByText(/long design will scroll naturally/)).toBeVisible();
+
+    await userEvent.click(screen.getByText('Get a sharp Canva export'));
+
+    const sizes = screen.getByRole('table', { name: 'Suggested image sizes' });
+
+    expect(sizes).toBeVisible();
+    expect(sizes).toHaveTextContent('1,200 × 1,800 px');
+    expect(sizes).toHaveTextContent('1,920 × 1,080 px');
+    expect(screen.getByText(/There is no required shape/)).toBeVisible();
+  });
 });

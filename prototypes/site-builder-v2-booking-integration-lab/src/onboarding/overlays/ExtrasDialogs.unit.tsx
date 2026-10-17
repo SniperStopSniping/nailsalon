@@ -985,6 +985,21 @@ describe('optional Gallery and Canva surfaces', () => {
     expect(currentSection.settings.images[0]?.accessibleSummary).toBe('My salon Instagram is @my.studio.');
     expect(currentSection.settings.images[0]?.interactiveAreas).toHaveLength(1);
 
+    const originalAreas = structuredClone(currentSection.settings.images[0]?.interactiveAreas);
+    await user.click(screen.getByText('Size & background'));
+    fireEvent.change(screen.getByLabelText('Custom background colour'), { target: { value: '#a6c98f' } });
+
+    expect(currentSection.settings.background).toEqual({ mode: 'custom', color: '#A6C98F' });
+
+    await user.click(screen.getByRole('button', { name: 'Match website' }));
+
+    expect(currentSection.settings.background).toEqual({ mode: 'site' });
+
+    await user.click(screen.getByRole('button', { name: 'Use cream background' }));
+
+    expect(currentSection.settings.background).toEqual({ mode: 'custom', color: '#FFF8F0' });
+    expect(currentSection.settings.images[0]?.interactiveAreas).toEqual(originalAreas);
+
     await user.click(screen.getByRole('button', { name: 'Preview website' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent('Could not save. Try again.');
@@ -1358,7 +1373,7 @@ describe('optional Gallery and Canva surfaces', () => {
 
     expect(screen.getByLabelText('Choose more images')).toBeEnabled();
 
-    await user.click(screen.getByText('Display & placement'));
+    await user.click(screen.getByText('Size & background'));
     await user.click(screen.getByRole('radio', { name: 'Full width' }));
     await user.click(screen.getByRole('button', { name: 'Save Canva design' }));
 

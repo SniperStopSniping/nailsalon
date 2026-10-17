@@ -591,6 +591,114 @@
   }
 }
 
+/* Owner sizing controls never change the customer image or its link geometry. */
+.custom-design-image-size-tip {
+  color: var(--onboarding-muted, var(--final-muted, #786a6d));
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.custom-design-display-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.custom-design-display-copy small {
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.custom-design-background-swatches {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.custom-design-background-swatches button,
+.custom-design-background-site {
+  align-items: center;
+  background: var(--onboarding-surface, var(--final-surface, #fff));
+  border: 1px solid var(--onboarding-line, var(--final-line, #ddd3ce));
+  border-radius: 10px;
+  color: var(--onboarding-ink, var(--final-ink, #321425));
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: 8px;
+  min-block-size: 44px;
+  min-inline-size: 0;
+  padding: 8px 10px;
+}
+
+.custom-design-background-swatches button[aria-pressed='true'],
+.custom-design-background-site[aria-pressed='true'] {
+  border-color: var(--onboarding-accent, var(--final-accent, #8f3852));
+  outline: 1px solid var(--onboarding-accent, var(--final-accent, #8f3852));
+}
+
+.custom-design-background-swatches button:focus-visible,
+.custom-design-background-site:focus-visible {
+  outline: 3px solid var(--onboarding-accent, var(--final-accent, #8f3852));
+  outline-offset: 3px;
+}
+
+.custom-design-background-swatches button:disabled,
+.custom-design-background-site:disabled { cursor: wait; opacity: 0.6; }
+
+.onboarding-your-design-options .custom-design-background-picker input[type='color'] {
+  background: transparent;
+  block-size: 32px;
+  border: 0;
+  flex: 0 0 40px;
+  inline-size: 40px;
+  min-inline-size: 0;
+  padding: 0;
+}
+
+.custom-design-background-swatch {
+  block-size: 22px;
+  border: 1px solid #9f979b;
+  border-radius: 50%;
+  flex: 0 0 22px;
+  inline-size: 22px;
+}
+
+.onboarding-your-design-options .custom-design-image-size-tip,
+.onboarding-your-design-options .custom-design-background-swatches {
+  grid-column: 1 / -1;
+}
+
+.custom-design-export-help table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  inline-size: 100%;
+  line-height: 1.5;
+  margin-block: 10px;
+  overflow-wrap: anywhere;
+}
+
+.custom-design-export-help caption {
+  font-weight: 700;
+  padding-block-end: 8px;
+  text-align: start;
+}
+
+.custom-design-export-help th,
+.custom-design-export-help td {
+  border-bottom: 1px solid var(--onboarding-line, var(--final-line, #ddd3ce));
+  padding: 8px 6px;
+  text-align: start;
+  vertical-align: top;
+}
+
+@media (max-width: 520px) {
+  .onboarding-your-design-options .onboarding-layout-choice { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* Owner-only Phase 2 integration surfaces. Customer rendering above remains
    exclusively on --site-* tokens and does not inherit the editor token set. */
 .custom-design-owner-card-header,

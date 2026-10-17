@@ -22,6 +22,8 @@ import {
 } from './ActionEditor';
 import { CustomDesignImageManager } from './CustomDesignImageManager';
 import { CustomDesignReadinessPanel } from './CustomDesignReadinessPanel';
+import { DESIGN_DISPLAY_CHOICES } from './design-presentation';
+import { DesignBackgroundSwatches } from './DesignBackgroundSwatches';
 import type {
   CustomDesignAccessibilityUpdate,
   CustomDesignInternalPageOption,
@@ -359,15 +361,12 @@ export function CustomDesignOwnerEditor({
       />
 
       <section className="custom-design-owner-settings-group">
-        <h3>Display</h3>
+        <h3>Size</h3>
         <div className="custom-design-owner-choice-grid">
-          {([
-            ['poster', 'Poster', 'Full width on phones and centred on larger screens.'],
-            ['contained', 'Contained', 'Keeps comfortable page margins around your design.'],
-            ['full_width', 'Full width', 'Fills the full customer-site width from edge to edge.'],
-          ] as const).map(([value, label, description]) => (
+          {DESIGN_DISPLAY_CHOICES.map(([value, label, description]) => (
             <label key={value}>
               <input
+                aria-label={label}
                 checked={settings.displayMode === value}
                 name="custom-design-display"
                 type="radio"
@@ -407,6 +406,14 @@ export function CustomDesignOwnerEditor({
 
       <section className="custom-design-owner-settings-group">
         <h3>Background</h3>
+        <p className="custom-design-image-size-tip">Colour fills the space around your design and any transparent areas. Your artwork stays unchanged.</p>
+        <DesignBackgroundSwatches
+          selectedColor={settings.background.mode === 'custom' ? settings.background.color : undefined}
+          onChange={(color) => {
+            setCustomColor(color);
+            onUpdateBackground({ mode: 'custom', color });
+          }}
+        />
         <div className="custom-design-owner-inline-choices">
           <label>
             <input
