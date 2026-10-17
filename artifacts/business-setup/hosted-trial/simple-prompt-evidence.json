@@ -1,0 +1,21 @@
+{
+  "testedAt": "2026-10-15T15:15:53.684Z",
+  "prompt": "Create a website looking like this, but a little bit better.",
+  "startOver": true,
+  "previousSourceProvided": false,
+  "sameReferenceAndOwnedPhotos": true,
+  "referenceIds": [
+    "8cef7f51-906f-454e-b439-74de0a694754",
+    "04d1e378-e971-432c-abc6-956f9bcd884e",
+    "db598ec9-49e1-4a6e-93c1-be5183608db6"
+  ],
+  "artifactId": "e06ab233-7826-475a-8b5c-9ec040bdc0f3",
+  "revision": 13,
+  "businessUnchanged": true,
+  "servicesUnchanged": true,
+  "hoursUnchanged": true,
+  "bookingRulesUnchanged": true,
+  "published": false,
+  "manualSourceIntervention": false,
+  "seconds": 78.608
+}

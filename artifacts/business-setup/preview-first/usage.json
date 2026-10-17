@@ -1,0 +1,105 @@
+{
+  "checkedAt": "2026-10-16T03:29:06.740Z",
+  "requests": [
+    {
+      "label": "reference",
+      "operationId": "e54717e5-f6c8-4049-a0d0-4fb8eebee91e",
+      "calls": [
+        {
+          "ordinal": 0,
+          "operation_id": "e54717e5-f6c8-4049-a0d0-4fb8eebee91e",
+          "provider": "openai",
+          "model": "gpt-6-luna",
+          "status": "completed",
+          "validation": "passed",
+          "input_tokens": 6086,
+          "output_tokens": 956,
+          "cost_micro_usd": 1239,
+          "charged_micro_cad": 2478,
+          "elapsed_ms": 10634,
+          "retained_output_characters": 2319
+        },
+        {
+          "ordinal": 0,
+          "operation_id": "b2beb828-aaf6-4425-ba36-5fc0d1718b0c",
+          "provider": "openai",
+          "model": "gpt-6.1-sol",
+          "status": "completed",
+          "validation": "Display prices through service.priceLabel, never as copied price text.",
+          "input_tokens": 5177,
+          "output_tokens": 5750,
+          "cost_micro_usd": 70441,
+          "charged_micro_cad": 140882,
+          "elapsed_ms": 91726,
+          "retained_output_characters": 18183
+        },
+        {
+          "ordinal": 1,
+          "operation_id": "b2beb828-aaf6-4425-ba36-5fc0d1718b0c",
+          "provider": "openai",
+          "model": "gpt-6.1-sol",
+          "status": "completed",
+          "validation": "passed",
+          "input_tokens": 10800,
+          "output_tokens": 5478,
+          "cost_micro_usd": 69361,
+          "charged_micro_cad": 138722,
+          "elapsed_ms": 66200,
+          "retained_output_characters": 17399
+        }
+      ],
+      "estimatedUsd": 0.141041,
+      "conservativeAllowanceCad": 0.282082
+    },
+    {
+      "label": "suggestions",
+      "operationId": "2e436fe0-045e-4950-8c26-2b3a505bdf11",
+      "calls": [
+        {
+          "ordinal": 0,
+          "operation_id": "4792416a-f73b-49f0-b6d9-a05fb62c5081",
+          "provider": "openai",
+          "model": "gpt-6.1-sol",
+          "status": "completed",
+          "validation": "passed",
+          "input_tokens": 4773,
+          "output_tokens": 4615,
+          "cost_micro_usd": 58081,
+          "charged_micro_cad": 116162,
+          "elapsed_ms": 70228,
+          "retained_output_characters": 15546
+        }
+      ],
+      "estimatedUsd": 0.058081,
+      "conservativeAllowanceCad": 0.116162
+    },
+    {
+      "label": "price-edit",
+      "operationId": "adcd0ac6-dace-4da3-81ad-89b2ea3d7982",
+      "calls": [
+        {
+          "ordinal": 0,
+          "operation_id": "adcd0ac6-dace-4da3-81ad-89b2ea3d7982",
+          "provider": "openai",
+          "model": "gpt-6-luna",
+          "status": "completed",
+          "validation": "passed",
+          "input_tokens": 6343,
+          "output_tokens": 182,
+          "cost_micro_usd": 884,
+          "charged_micro_cad": 1768,
+          "elapsed_ms": 3712,
+          "retained_output_characters": 524
+        }
+      ],
+      "estimatedUsd": 0.000884,
+      "conservativeAllowanceCad": 0.001768
+    }
+  ],
+  "trialEstimatedUsd": 0.200006,
+  "trialConservativeCad": 0.400012,
+  "combinedConservativeCad": 39.630204,
+  "approvedCapCad": 50,
+  "hostedCalls": 96,
+  "invoiceReconciled": false
+}

@@ -1,0 +1,29 @@
+{
+  "testedAt": "2026-10-15T17:54:50.425Z",
+  "environment": "isolated Preview",
+  "beforeRevision": 16,
+  "realProvider": true,
+  "message": "Keep this design and all the photos. Make the main booking button a little more rounded, and give it more breathing room on mobile. Leave everything else as it is.",
+  "operationId": "ef54d2be-c266-4a3f-aab3-ce43640991a9",
+  "revision": 17,
+  "artifactId": "f171d670-aae1-4786-8685-253444241c0e",
+  "elapsedMs": 54123,
+  "calls": [
+    {
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "inputTokens": 11751,
+      "outputTokens": 3564,
+      "costMicroUsd": 325080,
+      "elapsedMs": 51218,
+      "validation": "passed",
+      "ordinal": 0
+    }
+  ],
+  "businessServicesHoursBookingUnchanged": true,
+  "published": false,
+  "manualSourceEdits": false,
+  "refreshResumes": true,
+  "desktopAndMobile": true,
+  "publicationNotRequested": true
+}

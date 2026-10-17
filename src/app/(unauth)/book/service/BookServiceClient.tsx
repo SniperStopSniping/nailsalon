@@ -1485,7 +1485,7 @@ export function BookServiceClient({
           ref={continueButtonRef}
           onClick={handleContinue}
           data-testid="service-continue-button"
-          disabled={l1Blocked}
+          disabled={!isHydrated || l1Blocked}
           className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none max-[360px]:min-h-[44px] max-[360px]:w-full max-[360px]:justify-center max-[360px]:px-[12px] sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
             hasBookingBrandColor
               ? 'text-[var(--booking-brand-foreground)]'

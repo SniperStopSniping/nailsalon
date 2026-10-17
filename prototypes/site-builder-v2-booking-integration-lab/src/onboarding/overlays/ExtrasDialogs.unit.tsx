@@ -874,6 +874,147 @@ describe('optional Gallery and Canva surfaces', () => {
     expect(latestState.gallery.images.map(({ fileName }) => fileName)).toEqual(['keep.png']);
   });
 
+  it('keeps an upload in setup, saves a manually placed link, and previews only after a successful save', async () => {
+    const user = userEvent.setup();
+    const initialState = createDanielaFixtureState();
+    initialState.recipe.starter = 'your_design';
+    const initialDocument = initializeStarter('your_design');
+    const page = initialDocument.pages.find(candidate => candidate.sections.some(section => section.sectionType === 'custom_design'))!;
+    let currentSection = page.sections.find((section): section is CustomDesignSectionInstance => section.sectionType === 'custom_design')!;
+    initialState.canva.customDesignSectionId = currentSection.id;
+    const originalProfile = structuredClone(initialState.profile);
+    let latest = initialState;
+    const artwork = {
+      altText: 'My salon artwork',
+      aspectRatio: 279 / 1280,
+      assetId: 'my-artwork',
+      decorative: false,
+      fileName: 'my-canva.png',
+      fileSize: 100,
+      height: 1280,
+      id: 'my-page',
+      interactiveAreas: [],
+      mimeType: 'image/png' as const,
+      width: 279,
+    };
+    const onClose = vi.fn();
+    const onPreview = vi.fn();
+    const onAdd = vi.fn();
+    const saveSettings = vi.fn()
+      .mockImplementationOnce(() => ({ success: false, section: currentSection, failure: { message: 'Could not save. Try again.' } }))
+      .mockImplementation(() => ({ success: true, section: currentSection }));
+
+    function Harness() {
+      const [state, setState] = useState(initialState);
+      const [document, setDocument] = useState(initialDocument);
+      const replaceSection = () => setDocument(current => ({
+        ...current,
+        pages: current.pages.map(candidate => ({
+          ...candidate,
+          sections: candidate.sections.map(section => section.id === currentSection.id ? currentSection : section),
+        })),
+      }));
+      onAdd.mockImplementation(async () => {
+        currentSection = { ...currentSection, settings: { ...currentSection.settings, images: [artwork] } };
+        replaceSection();
+        return { addedCount: 1, addedImages: [{ assetId: artwork.assetId, fileName: artwork.fileName, id: artwork.id, mimeType: artwork.mimeType }], failures: [], sectionId: currentSection.id, status: 'committed' };
+      });
+      const controller = {
+        available: true,
+        saveSettings,
+        updateSettings: (_: string, update: (settings: CustomDesignSectionInstance['settings']) => CustomDesignSectionInstance['settings']) => {
+          currentSection = { ...currentSection, settings: update(currentSection.settings) };
+          replaceSection();
+          return { success: true, section: currentSection };
+        },
+      } as unknown as CanvaIntegrationController;
+      return (
+        <CanvaDialog
+          available
+          controller={controller}
+          document={document}
+          onAdd={onAdd}
+          onClose={onClose}
+          onPreview={onPreview}
+          onUpdate={transform => setState((current) => {
+            latest = transform(current);
+            return latest;
+          })}
+          open
+          state={state}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    expect(screen.getByRole('list', { name: 'Your Design steps' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Save Canva design' })).not.toBeInTheDocument();
+
+    const file = new File(['image'], artwork.fileName, { type: 'image/png' });
+    await user.upload(screen.getByLabelText('Choose images'), file);
+    const addLinks = await screen.findByRole('button', { name: 'Add clickable links' });
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onAdd).toHaveBeenCalledOnce();
+    expect(screen.getByRole('radio', { name: 'Full width', hidden: true })).not.toBeVisible();
+
+    await user.click(addLinks);
+    await user.click(screen.getByRole('button', { name: 'Instagram' }));
+    await user.type(screen.getByRole('textbox', { name: 'Instagram username' }), '@my.studio');
+    await user.click(screen.getByRole('button', { name: 'Place button on design' }));
+    await user.click(screen.getByRole('button', { name: 'Place in centre' }));
+
+    expect(screen.getByRole('checkbox', { name: 'Show as a raised button' })).not.toBeChecked();
+
+    await user.click(within(screen.getByRole('dialog', { name: 'Make your design clickable' })).getByRole('button', { name: 'Done' }));
+
+    expect(currentSection.settings.images[0]).toMatchObject({ ...artwork, interactiveAreas: [expect.objectContaining({ action: { type: 'instagram', destination: { username: 'my.studio' } }, labelConfirmed: true, reviewStatus: 'approved' })] });
+    expect(currentSection.settings.images[0]?.interactiveAreas[0]?.appearance).toBeUndefined();
+    expect(screen.getByRole('heading', { name: '1 link added' })).toBeVisible();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit clickable links' })).toHaveFocus());
+    await user.click(screen.getByRole('button', { name: 'Accessibility' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close Accessibility' })).toHaveFocus());
+    await user.type(screen.getByLabelText('Accessible text version'), 'My salon Instagram is @my.studio.');
+
+    expect(screen.getByLabelText('Accessible text version')).toHaveValue('My salon Instagram is @my.studio.');
+
+    await user.click(screen.getByRole('button', { name: 'Save accessibility' }));
+
+    expect(currentSection.settings.images[0]?.accessibleSummary).toBe('My salon Instagram is @my.studio.');
+    expect(currentSection.settings.images[0]?.interactiveAreas).toHaveLength(1);
+
+    const originalAreas = structuredClone(currentSection.settings.images[0]?.interactiveAreas);
+    await user.click(screen.getByText('Size & background'));
+    fireEvent.change(screen.getByLabelText('Custom background colour'), { target: { value: '#a6c98f' } });
+
+    expect(currentSection.settings.background).toEqual({ mode: 'custom', color: '#A6C98F' });
+
+    await user.click(screen.getByRole('button', { name: 'Match website' }));
+
+    expect(currentSection.settings.background).toEqual({ mode: 'site' });
+
+    await user.click(screen.getByRole('button', { name: 'Use cream background' }));
+
+    expect(currentSection.settings.background).toEqual({ mode: 'custom', color: '#FFF8F0' });
+    expect(currentSection.settings.images[0]?.interactiveAreas).toEqual(originalAreas);
+
+    await user.click(screen.getByRole('button', { name: 'Preview website' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not save. Try again.');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onPreview).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Preview website' }));
+
+    expect(saveSettings).toHaveBeenCalledTimes(2);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onPreview).toHaveBeenCalledOnce();
+    expect(onAdd).toHaveBeenCalledOnce();
+    expect(latest.profile).toEqual(originalProfile);
+  });
+
   it('passes confirmed Canva files, display, and placement through the real integration seam', async () => {
     const user = userEvent.setup();
     const state = createDanielaFixtureState();
@@ -896,6 +1037,7 @@ describe('optional Gallery and Canva surfaces', () => {
         available
         onAdd={onAdd}
         onClose={onClose}
+        onPreview={vi.fn()}
         open
         state={state}
       />,
@@ -1231,6 +1373,7 @@ describe('optional Gallery and Canva surfaces', () => {
 
     expect(screen.getByLabelText('Choose more images')).toBeEnabled();
 
+    await user.click(screen.getByText('Size & background'));
     await user.click(screen.getByRole('radio', { name: 'Full width' }));
     await user.click(screen.getByRole('button', { name: 'Save Canva design' }));
 
@@ -1317,7 +1460,7 @@ describe('optional Gallery and Canva surfaces', () => {
 
     await user.click(screen.getByRole('radio', { name: 'Full width' }));
     await user.click(screen.getByRole('button', { name: 'Move page 1 down' }));
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getByRole('button', { name: 'Back to setup' }));
 
     const warning = screen.getByRole('dialog', { name: 'Save this page order?' });
 

@@ -1,7 +1,9 @@
 /* eslint-disable no-template-curly-in-string -- GitHub expressions are literal workflow contracts. */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { BaseSequencer } from 'vitest/node';
@@ -95,6 +97,7 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     ['81033b57a45e03fa3fb84b35435d5c511c945dc6', '9c7d5702e010a55e897258fee728c517b20d0593'],
     ['2658646d2addf8fe450503e0366a1b30d3a37d16', '2b018033b1df3bbc21bfd1858b764a6fe2d14e64'],
     ['36b6eb8cc244742e3f00ca9e6371e83580bbd907', 'f30136fcafe073d34bb76a50cadeaf8d83c2a31b'],
+    ['7a219ff506106dca631528df8bf7877ca28c4b71', '03917548fdcf78991dfd60a487783cfbdefa5ab0'],
   ];
   for (const pair of monitoringPairs) {
     assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
@@ -113,6 +116,40 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     }
   }
   assert.notEqual(run('0'.repeat(40), '0'.repeat(40)), 0);
+});
+
+test('AI migration pins accept the new packet and reject changed or already-shipped SQL', () => {
+  const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
+  const packet = run.match(/while read -r file expected_blob; do[\s\S]*?\nAI_SETUP_MIGRATIONS/)[0];
+  const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z0-9_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
+  assert.equal(files.length, 9);
+  const directory = mkdtempSync(path.join(tmpdir(), 'ai-migration-gate-'));
+  const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
+  const check = () => spawnSync('bash', ['-eu', '-c', `base="$(git rev-parse HEAD)"\n${packet}`], { cwd: directory }).status;
+  try {
+    git('init', '-q');
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-qm', 'test base');
+    mkdirSync(path.join(directory, 'migrations'));
+    for (const file of files) {
+      writeFileSync(path.join(directory, file), readFileSync(new URL(`../${file}`, import.meta.url)));
+    }
+    git('add', 'migrations');
+    assert.equal(check(), 0);
+    for (const file of files) {
+      const current = path.join(directory, file);
+      const source = readFileSync(current);
+      writeFileSync(current, `${source}\n-- unapproved change\n`);
+      assert.notEqual(check(), 0);
+      writeFileSync(current, source);
+    }
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic shipped packet');
+    const first = path.join(directory, files[0]);
+    const source = readFileSync(first);
+    writeFileSync(first, `${source}\n-- rewrite shipped SQL\n`);
+    assert.notEqual(check(), 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('the required Node 24 job exercises the installed patched SMS and image dependencies', () => {
@@ -207,6 +244,7 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify owner dashboard polish and shared dialogs in mobile browsers',
       'Verify dashboard loading, recovery and salon context in mobile browsers',
       'Verify onboarding desktop and phone geometry',
+      'Verify manual Your Design upload and clickable links',
     ],
     'owner-operations': [
       'Verify owner forms and error recovery in mobile browsers',

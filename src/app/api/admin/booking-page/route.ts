@@ -27,6 +27,8 @@ import { and, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { resolvePublicQuickBookProfile } from '@/app/(unauth)/book/service/quickBookProfile';
+import { SetupError } from '@/features/business-setup/contracts';
+import { editSharedSetupWebsite, getSetupEditingRevision, hasEditingSetup } from '@/features/business-setup/manual-website.server';
 import type { AdminWithSalons } from '@/libs/adminAuth';
 import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
@@ -61,6 +63,7 @@ import { onboardingSiteSchema } from '@/models/Schema';
 export const dynamic = 'force-dynamic';
 
 const patchBodySchema = z.object({
+  expectedSetupRevision: z.number().int().positive().optional(),
   config: bookingPageDraftPatchSchema.optional(),
   content: bookingPageContentPatchSchema.optional(),
   builderOperation: bookingPageBuilderOperationSchema.optional(),
@@ -243,6 +246,7 @@ export async function GET(request: Request): Promise<Response> {
   return Response.json({
     ...(savedDetails ? { savedDetails } : {}),
     presentationPreview,
+    setupRevision: await getSetupEditingRevision(salon.id),
     config: previewConfig,
     content: previewContent,
     // Phase A (draft/publish split): lets the owner Booking Page surface
@@ -289,6 +293,19 @@ export async function PATCH(request: Request): Promise<Response> {
 
   if (!configPatch && !contentPatch && !builderOperation) {
     return Response.json({ error: 'No fields to update' }, { status: 400 });
+  }
+
+  let sharedSetupWrite = false;
+  try {
+    sharedSetupWrite = await editSharedSetupWebsite({ salonId: salon.id, adminId: admin.id, patch: validated.data, expectedRevision: validated.data.expectedSetupRevision });
+  } catch (error) {
+    if (error instanceof SetupError) {
+      return Response.json({ error: error.message, code: error.code }, { status: error.code === 'FORBIDDEN' ? 403 : 409 });
+    }
+    throw error;
+  }
+  if (sharedSetupWrite) {
+    return Response.json(await resolveFreshState(salon.id));
   }
 
   if (builderOperation) {
@@ -391,6 +408,9 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const { action } = validated.data;
+  if (await hasEditingSetup(salon.id)) {
+    return Response.json({ error: 'Review your website and business setup together before publishing or discarding changes.', code: 'SETUP_REVIEW_REQUIRED', reviewPath: `/admin/business-setup?salon=${encodeURIComponent(salon.slug)}` }, { status: 409 });
+  }
 
   const synchronizedSettings = await synchronizeBookingPageLifecycle(salon.id, action);
   if (!synchronizedSettings) {
@@ -431,6 +451,7 @@ async function resolveFreshState(salonId: string) {
   const salon = await getSalonById(salonId);
 
   return {
+    setupRevision: await getSetupEditingRevision(salonId),
     config: resolveBookingPageConfig(salon?.settings ?? null),
     content: resolveBookingPageContent(salon?.settings ?? null),
     salon: { publicationStatus: salon?.publicationStatus ?? 'published' },

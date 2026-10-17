@@ -185,6 +185,26 @@ export function createOpenAiResponsesProvider(options: {
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
 
   return {
+    async countInputTokens(request: ModelProviderRequest): Promise<number> {
+      const full = buildBody(request);
+      const body = { model: full.model, input: full.input, tools: full.tools, tool_choice: full.tool_choice, reasoning: full.reasoning, text: full.text };
+      try {
+        const response = await fetch(`${baseUrl}/v1/responses/input_tokens`, { method: 'POST', headers: { 'Authorization': `Bearer ${options.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(20000) });
+        if (!response.ok) {
+          throw new ModelProviderError('provider_error', response.status);
+        }
+        const parsed = z.object({ object: z.literal('response.input_tokens'), input_tokens: countSchema }).safeParse(await response.json());
+        if (!parsed.success) {
+          throw new ModelProviderError('provider_error', response.status);
+        }
+        return parsed.data.input_tokens;
+      } catch (e) {
+        if (e instanceof ModelProviderError) {
+          throw e;
+        }
+        throw new ModelProviderError('provider_error');
+      }
+    },
     async createResponse(request: ModelProviderRequest, signal?: AbortSignal): Promise<ModelProviderResponse> {
       const controller = new AbortController();
       const abortOuter = () => controller.abort();
@@ -247,6 +267,17 @@ export function createOpenAiResponsesProvider(options: {
           : parsed.data.status === 'completed' ? 'completed' : 'failed';
       return {
         items: status === 'completed' ? parseItems(parsed.data.output, usage) : [],
+        ...(status === 'incomplete'
+          ? { partialText: parsed.data.output.flatMap((item) => {
+              const partial = z.object({ type: z.literal('message'), content: z.array(z.unknown()) }).safeParse(item);
+              return partial.success
+                ? partial.data.content.flatMap((part) => {
+                  const text = outputTextPartSchema.safeParse(part);
+                  return text.success ? [text.data.text] : [];
+                })
+                : [];
+            }).join('').slice(0, 200000) }
+          : {}),
         usage,
         // Anything other than completed/incomplete (failed, cancelled, queued)
         // is a provider-side failure, not a malformed answer.

@@ -34,6 +34,8 @@ const isProtectedRoute = createRouteMatcher([
 ]);
 
 const isPublicClerkRoute = createRouteMatcher([
+  '/ai-website-test(.*)',
+  '/:locale/ai-website-test(.*)',
   '/join(.*)',
   '/:locale/join(.*)',
 ]);
@@ -89,6 +91,11 @@ export default async function middleware(
     request.nextUrl.searchParams.get('salonSlug'),
   );
   const finalizeResponse = (response: NextResponse) => {
+    if (/^\/(?:[a-z]{2}\/)?website-preview\//u.test(request.nextUrl.pathname)) {
+      response.headers.set('Referrer-Policy', 'no-referrer');
+      response.headers.set('Cache-Control', 'private, no-store');
+      response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    }
     if (requestedSalonSlug) {
       const proto = request.headers.get('x-forwarded-proto');
       const secure = proto
@@ -151,6 +158,7 @@ export default async function middleware(
       || firstPublicSegment === 'super-admin'
       || firstPublicSegment === 'onboarding'
       || firstPublicSegment === 'onboarding-v1'
+      || firstPublicSegment === 'ai-website-test'
       || firstPublicSegment === 'owner-sign-in'
       || firstPublicSegment === 'owner-sign-up'
       || firstPublicSegment === 'owner'

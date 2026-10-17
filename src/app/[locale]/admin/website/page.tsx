@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 
 import { BookingPageHub } from '@/components/admin/BookingPageHub';
+import { setupAiAvailableForSalon } from '@/features/business-setup/access.server';
 import { getOnboardingSiteHandoff } from '@/features/onboarding-v1-integration/admin-handoff.server';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
 import { getAdminSession, requireAdmin } from '@/libs/adminAuth';
@@ -45,7 +46,7 @@ export default async function WebsiteHubPage({ params, searchParams }: {
     })
     : null;
 
-  return (
+  const hub = (
     <BookingPageHub
       canPublish={canEditSetup || admin.isSuperAdmin}
       hasDraftChanges={hasUnpublishedBookingPageChanges(config, content)}
@@ -67,4 +68,16 @@ export default async function WebsiteHubPage({ params, searchParams }: {
       setupUrl={handoff?.site.setupAvailable ? handoff.site.setupUrl : null}
     />
   );
+  return canEditSetup && (setupAiAvailableForSalon(salon.id) || config.draft.customFrontendId || config.live.customFrontendId)
+    ? (
+        <>
+          <div className="p-6">
+            <h2>{config.draft.customFrontendId || config.live.customFrontendId ? 'Custom website' : 'Build with AI'}</h2>
+            <p>Use your saved business details and your inspiration to create a custom website. Review every change before publishing.</p>
+            <a href={`/${locale}/admin/business-setup?salon=${encodeURIComponent(salon.slug)}#custom-design`}>Edit with AI or edit the design manually</a>
+          </div>
+          {hub}
+        </>
+      )
+    : hub;
 }
