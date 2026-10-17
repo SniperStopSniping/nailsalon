@@ -58,26 +58,24 @@ for (const [width, height] of sizes) {
       await page.getByRole('button', { name: 'Apply to selected days', exact: true }).click();
       await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
 
-      await expect(page.getByRole('heading', { name: 'Make it feel like yours' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Choose your look' })).toBeVisible();
 
-      const colours = page.getByRole('region', { name: 'Choose your colours' });
+      const colours = page.getByRole('region', { name: /Make it yours/u });
       await colours.scrollIntoViewIfNeeded();
 
-      await expect(colours.getByText('Next, make it yours')).toBeVisible();
+      await expect(colours.getByText('Optional')).toBeVisible();
       await expect(colours).toHaveCSS('border-top-width', '1px');
       await expect(colours).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 
-      if (height <= 700) {
-        const choose = colours.getByRole('button', { name: 'Choose website colours' });
+      const choose = colours.getByRole('button', { name: 'Change website colours' });
 
-        await expect(choose).toBeVisible();
-        expect((await choose.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-        await expect(colours.locator('.onboarding-palette-summary__swatches i')).toHaveCount(5);
+      await expect(choose).toBeVisible();
+      expect((await choose.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await expect(colours.locator('.onboarding-palette-summary__swatches i')).toHaveCount(5);
 
-        await test.info().attach('colours-collapsed', { body: await colours.screenshot({ path: `/tmp/luster-owner-colours-${width}-collapsed.png` }), contentType: 'image/png' });
+      await test.info().attach('colours-collapsed', { body: await colours.screenshot({ path: `/tmp/luster-owner-colours-${width}-collapsed.png` }), contentType: 'image/png' });
 
-        await choose.click();
-      }
+      await choose.click();
 
       await expect.poll(async () => {
         const state = await storedState(page);
@@ -102,9 +100,7 @@ for (const [width, height] of sizes) {
 
       await page.reload();
 
-      if (height <= 700) {
-        await page.getByRole('button', { name: 'Choose website colours' }).click();
-      }
+      await page.getByRole('button', { name: 'Change website colours' }).click();
 
       await expect(page.getByRole('button', { name: /Sage & Stone/ })).toHaveAttribute('aria-pressed', 'true');
     });

@@ -21,7 +21,7 @@ type BookingStepHeaderProps = {
 
 const playfairDisplay = Playfair_Display({
   subsets: ['latin'],
-  weight: ['400', '500'],
+  // Match the shared site's variable face instead of fetching fixed weights.
   display: 'swap',
   // Only editorial salon names use this face; other booking steps keep their
   // selected salon typography without downloading an unused display font.

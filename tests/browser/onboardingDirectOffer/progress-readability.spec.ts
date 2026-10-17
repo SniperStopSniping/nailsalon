@@ -18,7 +18,7 @@ for (const viewport of viewports) {
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto(`/?startup=1&resume=site_style${fonts === 'shared' ? '&productFonts=1' : ''}`);
 
-      await expect(page.getByRole('heading', { name: 'Make it feel like yours' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Choose your look' })).toBeVisible();
 
       await page.evaluate(() => document.fonts.ready);
 

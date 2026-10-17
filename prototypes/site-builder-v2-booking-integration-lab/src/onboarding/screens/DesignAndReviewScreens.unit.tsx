@@ -276,7 +276,7 @@ describe('SiteStyleScreen', () => {
     );
   });
 
-  it('progressively discloses style and colour choices on short phones', async () => {
+  it('shows ready-made looks and keeps colour customisation optional on short phones', async () => {
     useShortPhoneViewport();
     const user = userEvent.setup();
     const initial = createDanielaFixtureState();
@@ -297,34 +297,31 @@ describe('SiteStyleScreen', () => {
 
     render(<Harness />);
 
-    expect(screen.queryByRole('group', { name: 'Site style presets' })).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Website colour palettes' }))
       .not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Change website style' }));
     const styles = screen.getByRole('group', { name: 'Site style presets' });
 
     expect(within(styles).getAllByRole('button')).toHaveLength(6);
 
     await user.click(within(styles).getByRole('button', { name: /Luxury/u }));
-    await user.click(screen.getByRole('button', { name: 'Done website style' }));
 
-    expect(screen.queryByRole('group', { name: 'Site style presets' })).not.toBeInTheDocument();
+    expect(styles).toBeVisible();
 
-    const coloursSection = screen.getByRole('region', { name: 'Choose your colours' });
+    const coloursSection = screen.getByRole('region', { name: /Make it yours/u });
 
-    expect(within(coloursSection).getByText('Next, make it yours')).toBeVisible();
+    expect(within(coloursSection).getByText('Optional')).toBeVisible();
     expect(coloursSection.querySelectorAll('.onboarding-palette-summary__swatches i')).toHaveLength(5);
     expect(within(coloursSection).queryByText('✓')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Choose website colours' }));
+    await user.click(screen.getByRole('button', { name: 'Change website colours' }));
     const palettes = screen.getByRole('group', { name: 'Website colour palettes' });
 
     expect(within(palettes).getAllByRole('button')).toHaveLength(8);
 
     await user.click(within(palettes).getByRole('button', { name: /Black & Champagne/u }));
 
-    expect(screen.getByRole('button', { name: 'Done choosing website colours' }))
+    expect(screen.getByRole('button', { name: 'Close website colours' }))
       .toHaveAttribute('aria-expanded', 'true');
   });
 
@@ -403,7 +400,10 @@ describe('SiteStyleScreen', () => {
 
     expect(ownerSurface).toBeInTheDocument();
     expect(ownerSurface).not.toHaveAttribute('data-style-preset');
-    expect(screen.getAllByText('Previewing')).toHaveLength(2);
+    expect(within(screen.getByRole('group', { name: 'Site style presets' })).getByText('Selected')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Change website colours' }));
+
     expect(within(screen.getByRole('group', { name: 'Website colour palettes' }))
       .getAllByRole('button')).toHaveLength(8);
     expect(screen.getByRole('region', { name: 'Live personalized style preview' })).toBeVisible();
@@ -472,6 +472,7 @@ describe('SiteStyleScreen', () => {
     render(<Harness />);
 
     const preview = screen.getByRole('region', { name: 'Live personalized style preview' });
+    await user.click(screen.getByRole('button', { name: /^Change fonts/u }));
     const headingFonts = screen.getByRole('group', { name: 'Heading font choices' });
     const bodyFonts = screen.getByRole('group', { name: 'Body font choices' });
 
@@ -521,7 +522,7 @@ describe('SiteStyleScreen', () => {
 
     expect(within(screen.getByRole('group', { name: 'Site style presets' }))
       .getByRole('button', { name: /Modern/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText('Choose a style and colours for your site. You can change them anytime.')).toBeVisible();
+    expect(screen.getByText('Pick a ready-made look and you’re ready to continue. Colours and fonts are optional, and you can change them later.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Keep current style' }))
       .not.toBeInTheDocument();
 

@@ -7,12 +7,12 @@ export type SiteStylePreset = {
 };
 
 export const SITE_STYLE_PRESETS: readonly SiteStylePreset[] = [
-  { description: 'Clean, warm and polished with rounded details.', id: 'modern', label: 'Modern' },
-  { description: 'Magazine-inspired type with crisp lines and an elevated feel.', id: 'editorial', label: 'Editorial' },
-  { description: 'Blush tones, softer shapes and a calm feminine feel.', id: 'soft', label: 'Soft' },
-  { description: 'Simple neutrals, clean lines and less decoration.', id: 'minimal', label: 'Minimal' },
-  { description: 'High-contrast colours, stronger type and statement details.', id: 'bold', label: 'Bold' },
-  { description: 'Dark tones, refined typography and gold-inspired accents.', id: 'luxury', label: 'Luxury' },
+  { description: 'Rounded cards and clean headings.', id: 'modern', label: 'Modern' },
+  { description: 'Crisp edges and refined headings.', id: 'editorial', label: 'Editorial' },
+  { description: 'Soft cards and pill-shaped buttons.', id: 'soft', label: 'Soft' },
+  { description: 'Simple shapes and quiet headings.', id: 'minimal', label: 'Minimal' },
+  { description: 'Square cards and strong headings.', id: 'bold', label: 'Bold' },
+  { description: 'Refined headings and subtle corners.', id: 'luxury', label: 'Luxury' },
 ] as const;
 
 export const getSiteStyleLabel = (id: SiteStylePresetId): string =>

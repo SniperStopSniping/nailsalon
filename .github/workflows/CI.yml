@@ -1281,7 +1281,8 @@ jobs:
       - name: Verify onboarding confirmation and booking notice
         if: matrix.suite == 'onboarding-owner'
         working-directory: prototypes/site-builder-v2-booking-integration-lab
-        timeout-minutes: 10
+        # The full lab suite and both device/browser matrices share this step.
+        timeout-minutes: 15
         run: |
           npm ci
           npm run typecheck
