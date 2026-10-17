@@ -417,7 +417,7 @@ describe('HotspotEditor bounded session', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Place button here' }), { clientX: 80, clientY: 150, detail: 1 });
 
-    expect(screen.getByRole('checkbox', { name: 'Show as a raised button' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Show as a raised button' })).not.toBeChecked();
     expect(screen.getByRole('button', {
       name: 'Move clickable area: Instagram @Klawsby_Ke',
     }).parentElement).toHaveStyle({ left: '60%', top: '69%' });

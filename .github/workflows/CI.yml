@@ -1421,6 +1421,15 @@ jobs:
           LUSTER_CAPTURE_EVIDENCE: '0'
         run: npx playwright test --config playwright.config.ts tests/e2e/onboarding-desktop-layout.spec.ts tests/e2e/founding-offer.spec.ts tests/e2e/owner-chrome-polish.spec.ts --project=chromium --output=../../test-results/onboarding-desktop
 
+      - name: Verify manual Your Design upload and clickable links
+        if: matrix.suite == 'onboarding-owner'
+        timeout-minutes: 5
+        working-directory: prototypes/site-builder-v2-booking-integration-lab
+        env:
+          LUSTER_LAB_PORT: '4199'
+          LUSTER_LAB_URL: http://127.0.0.1:4199
+        run: npx playwright test --config playwright.your-design.config.ts --output=../../test-results/your-design
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

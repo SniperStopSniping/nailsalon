@@ -244,6 +244,7 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify owner dashboard polish and shared dialogs in mobile browsers',
       'Verify dashboard loading, recovery and salon context in mobile browsers',
       'Verify onboarding desktop and phone geometry',
+      'Verify manual Your Design upload and clickable links',
     ],
     'owner-operations': [
       'Verify owner forms and error recovery in mobile browsers',

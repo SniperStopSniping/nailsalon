@@ -1104,7 +1104,115 @@
 .custom-design-owner-hotspot-stage-wrap {
   background: #ede7e2;
   border-radius: 12px;
+  max-block-size: min(58dvh, 560px);
+  overscroll-behavior: contain;
   padding: 10px;
+}
+
+.custom-design-export-help {
+  color: var(--final-muted, #786a6d);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.custom-design-export-help > p {
+  background: var(--final-ground, #fffaf7);
+  border-radius: 10px;
+  margin-block: 0 10px;
+  padding: 12px;
+}
+
+.custom-design-export-help summary,
+.onboarding-your-design-options > summary {
+  cursor: pointer;
+  font-weight: 700;
+  min-block-size: 44px;
+  padding-block: 12px;
+}
+
+.custom-design-export-help summary:focus-visible,
+.onboarding-your-design-options > summary:focus-visible {
+  outline: 3px solid var(--final-accent, #8f3852);
+  outline-offset: 2px;
+}
+
+.onboarding-your-design-steps {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.onboarding-your-design-steps li {
+  align-items: center;
+  color: var(--final-muted, #786a6d);
+  display: flex;
+  font-size: 0.75rem;
+  gap: 6px;
+}
+
+.onboarding-your-design-steps li > span {
+  align-items: center;
+  background: var(--final-ground, #fffaf7);
+  border: 1px solid var(--final-line, #ddd3ce);
+  border-radius: 50%;
+  block-size: 26px;
+  display: flex;
+  flex: 0 0 26px;
+  justify-content: center;
+}
+
+.onboarding-your-design-steps [aria-current='step'],
+.onboarding-your-design-steps [data-complete='true'] {
+  color: var(--final-accent, #8f3852);
+  font-weight: 750;
+}
+
+.onboarding-your-design-next {
+  align-items: start;
+  background: color-mix(in srgb, var(--final-accent, #8f3852) 6%, white);
+  border: 1px solid var(--final-line, #ddd3ce);
+  border-radius: 16px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  padding: 16px;
+}
+
+.onboarding-your-design-next h3,
+.onboarding-your-design-next p {
+  margin: 0;
+}
+
+.onboarding-your-design-next p {
+  font-size: 0.84rem;
+  line-height: 1.5;
+  margin-block-start: 6px;
+}
+
+.onboarding-your-design-next > button,
+.onboarding-your-design-next > p {
+  grid-column: 1 / -1;
+}
+
+.onboarding-your-design-options {
+  border-block-start: 1px solid var(--final-line, #ddd3ce);
+}
+
+.onboarding-your-design-options > fieldset {
+  margin-block: 12px;
+}
+
+.onboarding-your-design > .custom-design-owner-settings-group {
+  border: 0;
+  padding: 0;
+}
+
+.onboarding-your-design .custom-design-owner-upload {
+  margin: 0;
+  padding: 24px 16px;
 }
 
 .custom-design-owner-hotspot-stage {

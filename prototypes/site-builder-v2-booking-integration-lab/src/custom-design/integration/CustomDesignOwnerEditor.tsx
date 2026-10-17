@@ -49,7 +49,7 @@ type AccessibilityDialogProps = {
   onSave: (update: CustomDesignAccessibilityUpdate) => void;
 };
 
-function AccessibilityDialog({ image, onCancel, onSave }: AccessibilityDialogProps) {
+export function AccessibilityDialog({ image, onCancel, onSave }: AccessibilityDialogProps) {
   const [decorative, setDecorative] = useState(image.decorative);
   const [altText, setAltText] = useState(image.altText);
   const [accessibleSummary, setAccessibleSummary] = useState(

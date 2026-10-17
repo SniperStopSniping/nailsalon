@@ -120,7 +120,7 @@ const STARTER_CHOICE_COPY: Record<OriginStarter, StarterChoiceCopy> = {
   },
   your_design: {
     cta: 'Start with Your Design',
-    description: 'Use your Canva design, AI artwork, or your own image.',
+    description: 'Upload your design and add booking and contact links yourself. No AI needed.',
     id: 'your_design',
     includesLabel: 'Includes',
     title: 'Your Design',

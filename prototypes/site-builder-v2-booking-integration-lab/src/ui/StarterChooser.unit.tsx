@@ -28,7 +28,7 @@ const EXPECTED_STARTERS: ReadonlyArray<{
   },
   {
     cta: 'Start with Your Design',
-    description: 'Use your Canva design, AI artwork, or your own image.',
+    description: 'Upload your design and add booking and contact links yourself. No AI needed.',
     id: 'your_design',
     included: 'Your Design · Services & Booking · Visit & Contact',
     includesLabel: 'Includes',

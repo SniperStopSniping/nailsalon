@@ -1,4 +1,4 @@
-import { FileImage, Images, LoaderCircle } from 'lucide-react';
+import { Check, FileImage, Images, Link2, LoaderCircle } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import {
@@ -7,6 +7,8 @@ import {
   useCustomDesignAssetRepository,
 } from '../../custom-design/integration/CustomDesignAssetProvider';
 import { CustomDesignImageManager } from '../../custom-design/integration/CustomDesignImageManager';
+import { AccessibilityDialog } from '../../custom-design/integration/CustomDesignOwnerEditor';
+import { DesignExportHelp } from '../../custom-design/integration/DesignExportHelp';
 import { HotspotEditor } from '../../custom-design/integration/HotspotEditor';
 import type {
   CustomDesignUploadFailure,
@@ -662,6 +664,7 @@ type CanvaDialogProps = {
   document?: SiteBuilderDocument | null;
   onAdd: (files: readonly File[], displayMode: CanvaDisplayMode, placement: CanvaPlacement) => Promise<CanvaIntegrationResult>;
   onClose: () => void;
+  onPreview?: () => void;
   onUpdate?: OnboardingStateUpdater;
   open: boolean;
   state: OnboardingLabState;
@@ -824,6 +827,7 @@ type CanvaManagerProps = {
   onOrderCommitted: (section: CustomDesignSectionInstance) => void;
   onRequestRemoveAll: () => void;
   onEditAreas: (imageItemId: string) => void;
+  onEditAccessibility: (imageItemId: string) => void;
   onUpload: (files: readonly File[]) => void;
   onUpdate?: OnboardingStateUpdater;
   persistedPlacement: CanvaPlacement;
@@ -840,6 +844,7 @@ function CanvaManager({
   onOrderCommitted,
   onRequestRemoveAll,
   onEditAreas,
+  onEditAccessibility,
   onUpload,
   onUpdate,
   persistedPlacement,
@@ -908,6 +913,7 @@ function CanvaManager({
         applyManagerResult(controller.reorderImages(section.id, ids));
       }}
       onEditAreas={onEditAreas}
+      onOpenAccessibility={onEditAccessibility}
       onImageOrderDraftChange={onImageOrderDraftChange}
       onRemoveImage={(imageId) => {
         if (section.settings.images.length === 1) {
@@ -1056,6 +1062,7 @@ export function CanvaDialog({
   document,
   onAdd,
   onClose,
+  onPreview,
   onUpdate,
   open,
   state,
@@ -1093,6 +1100,7 @@ export function CanvaDialog({
       : undefined
   ));
   const [hotspotImageItemId, setHotspotImageItemId] = useState<string | null>(null);
+  const [accessibilityImageItemId, setAccessibilityImageItemId] = useState<string | null>(null);
   const uploadStatusRef = useRef<CanvaFeedbackStatus | undefined>(uploadStatus);
   const setUploadStatus = (status: CanvaFeedbackStatus | undefined) => {
     uploadStatusRef.current = status;
@@ -1106,6 +1114,10 @@ export function CanvaDialog({
     ? locateOnboardingCustomDesign(document, state.canva.customDesignSectionId)
     : null;
   const section = located?.pageId ? located.section : null;
+  const images = section?.settings.images ?? [];
+  const linkCount = images.reduce((count, image) => count + image.interactiveAreas.length, 0);
+  const hasDesign = images.length > 0;
+  const accessibilityImage = images.find(image => image.id === accessibilityImageItemId) ?? null;
   const internalTargets = useMemo(
     () => document ? getCustomDesignInternalTargets(document) : [],
     [document],
@@ -1130,6 +1142,8 @@ export function CanvaDialog({
       return;
     }
     wasOpenRef.current = true;
+    setHotspotImageItemId(null);
+    setAccessibilityImageItemId(null);
     setDisplayMode(section?.settings.displayMode ?? state.canva.displayMode);
     setPlacement(state.canva.placement);
     setBackgroundColor(section?.settings.background.mode === 'custom'
@@ -1324,7 +1338,7 @@ export function CanvaDialog({
     }
   };
 
-  const submit = async () => {
+  const submit = async (preview = false) => {
     if (section && controller) {
       setPending(true);
       if (!saveOrder()) {
@@ -1343,21 +1357,36 @@ export function CanvaDialog({
       }
       syncCanvaDraft(onUpdate, result.section, displayMode, placement);
       onClose();
+      if (preview) {
+        onPreview?.();
+      }
       return;
     }
     if (files.length === 0) {
       setError('Choose at least one PNG, JPG, or WebP Canva page.');
       return;
     }
-    await runUpload(files, true);
+    // Stay beside the uploaded artwork so owners can add links immediately.
+    // Legacy callers without the connected editor retain their upload handoff.
+    await runUpload(files, !controller);
   };
 
   return (
     <>
-      <Dialog description="Your uploaded design is added as a section you can move or edit later." onClose={requestClose} open={open} title="Upload a Canva design" variant="bottom-sheet">
-        <div aria-busy={pending} className="onboarding-subflow">
-          <FileImage aria-hidden="true" size={28} />
-          {state.recipe.wantsCanvaFromWelcome
+      <Dialog closeDisabled={pending} description="Keep your artwork exactly as it is. Choose what clients can tap, then try your website." onClose={requestClose} open={open} title="Upload a Canva design" variant="bottom-sheet">
+        <div aria-busy={pending} className="onboarding-subflow onboarding-your-design">
+          <ol aria-label="Your Design steps" className="onboarding-your-design-steps">
+            {['Upload design', 'Add links', 'Preview'].map((label, index) => {
+              const currentStep = !hasDesign ? 0 : linkCount === 0 ? 1 : 2;
+              return (
+                <li aria-current={index === currentStep ? 'step' : undefined} data-complete={index < currentStep ? 'true' : 'false'} key={label}>
+                  <span aria-hidden="true">{index < currentStep ? <Check size={14} /> : index + 1}</span>
+                  {label}
+                </li>
+              );
+            })}
+          </ol>
+          {state.recipe.wantsCanvaFromWelcome && state.recipe.starter !== 'your_design'
             ? (
                 <div className="onboarding-prototype-state">
                   <strong>Recommended for you</strong>
@@ -1365,7 +1394,22 @@ export function CanvaDialog({
                 </div>
               )
             : null}
-          <p>Choose exported PNG, JPG or WebP artwork. You can upload up to 10 pages.</p>
+          <p>{hasDesign ? 'Your design is saved in this setup. Add links over its printed buttons, text or icons.' : 'Upload your Canva export or any design image. You can add up to 10 pages and make them clickable yourself.'}</p>
+          {!section || !controller ? <DesignExportHelp images={[]} /> : null}
+          {hasDesign && controller
+            ? (
+                <section aria-label="Make your design clickable" className="onboarding-your-design-next">
+                  <Link2 aria-hidden="true" size={22} />
+                  <div>
+                    <h3>{linkCount > 0 ? `${linkCount} ${linkCount === 1 ? 'link' : 'links'} added` : 'What should clients be able to tap?'}</h3>
+                    <p>Connect booking, Instagram, email, calls or directions. Your artwork stays the same.</p>
+                  </div>
+                  {images.length === 1
+                    ? <button className="is-primary" disabled={pending} type="button" onClick={() => setHotspotImageItemId(images[0]?.id ?? null)}>{linkCount > 0 ? 'Edit clickable links' : 'Add clickable links'}</button>
+                    : <p>Choose a page below to add its links.</p>}
+                </section>
+              )
+            : null}
           {section && controller
             ? (
                 <CanvaManager
@@ -1375,6 +1419,7 @@ export function CanvaDialog({
                   onOrderCommitted={acceptCommittedOrder}
                   onRequestRemoveAll={() => setRemoveAllPending(true)}
                   onEditAreas={setHotspotImageItemId}
+                  onEditAccessibility={setAccessibilityImageItemId}
                   onUpload={(selectedFiles) => {
                     void runUpload(selectedFiles);
                   }}
@@ -1431,93 +1476,96 @@ export function CanvaDialog({
                 </ul>
               )
             : null}
-          <fieldset className="onboarding-layout-choice">
-            <legend>Display</legend>
-            {(['poster', 'contained', 'full_width'] as CanvaDisplayMode[]).map(mode => (
-              <label key={mode}>
-                <input checked={displayMode === mode} name="canva-display" type="radio" value={mode} onChange={() => setDisplayMode(mode)} />
-                <span>{mode === 'full_width' ? 'Full width' : `${mode[0]?.toUpperCase()}${mode.slice(1)}`}</span>
+          <details className="onboarding-your-design-options">
+            <summary>Display & placement</summary>
+            <fieldset className="onboarding-layout-choice">
+              <legend>Display</legend>
+              {(['poster', 'contained', 'full_width'] as CanvaDisplayMode[]).map(mode => (
+                <label key={mode}>
+                  <input checked={displayMode === mode} name="canva-display" type="radio" value={mode} onChange={() => setDisplayMode(mode)} />
+                  <span>{mode === 'full_width' ? 'Full width' : `${mode[0]?.toUpperCase()}${mode.slice(1)}`}</span>
+                </label>
+              ))}
+            </fieldset>
+            {section && controller
+              ? (
+                  <fieldset className="onboarding-layout-choice">
+                    <legend>Background</legend>
+                    <label>
+                      <input
+                        checked={section.settings.background.mode === 'site'}
+                        name="canva-background"
+                        type="radio"
+                        onChange={() => {
+                          const result = controller.updateSettings(section.id, settings => ({
+                            ...settings,
+                            background: { mode: 'site' },
+                          }));
+                          if (result.success && result.section) {
+                            syncCanvaDraft(onUpdate, result.section, displayMode, placement);
+                          }
+                        }}
+                      />
+                      <span>Match site</span>
+                    </label>
+                    <label>
+                      <input
+                        checked={section.settings.background.mode === 'custom'}
+                        name="canva-background"
+                        type="radio"
+                        onChange={() => {
+                          const color = normalizeCustomDesignHexColor(backgroundColor);
+                          if (!color) {
+                            return;
+                          }
+                          const result = controller.updateSettings(section.id, settings => ({
+                            ...settings,
+                            background: { color, mode: 'custom' },
+                          }));
+                          if (result.success && result.section) {
+                            syncCanvaDraft(onUpdate, result.section, displayMode, placement);
+                          }
+                        }}
+                      />
+                      <span>Custom colour</span>
+                    </label>
+                    <label>
+                      <span className="visually-hidden">Custom background colour</span>
+                      <input
+                        aria-label="Custom background colour"
+                        type="color"
+                        value={normalizeCustomDesignHexColor(backgroundColor) ?? '#FFF8F5'}
+                        onChange={(event) => {
+                          const color = event.target.value.toUpperCase();
+                          setBackgroundColor(color);
+                          if (section.settings.background.mode !== 'custom') {
+                            return;
+                          }
+                          const result = controller.updateSettings(section.id, settings => ({
+                            ...settings,
+                            background: { color, mode: 'custom' },
+                          }));
+                          if (result.success && result.section) {
+                            syncCanvaDraft(onUpdate, result.section, displayMode, placement);
+                          }
+                        }}
+                      />
+                    </label>
+                  </fieldset>
+                )
+              : null}
+            <fieldset className="onboarding-layout-choice">
+              <legend>Placement</legend>
+              <label>
+                <input checked={placement === 'before_booking'} name="canva-placement" type="radio" value="before_booking" onChange={() => setPlacement('before_booking')} />
+                <span>Before Booking</span>
               </label>
-            ))}
-          </fieldset>
-          {section && controller
-            ? (
-                <fieldset className="onboarding-layout-choice">
-                  <legend>Background</legend>
-                  <label>
-                    <input
-                      checked={section.settings.background.mode === 'site'}
-                      name="canva-background"
-                      type="radio"
-                      onChange={() => {
-                        const result = controller.updateSettings(section.id, settings => ({
-                          ...settings,
-                          background: { mode: 'site' },
-                        }));
-                        if (result.success && result.section) {
-                          syncCanvaDraft(onUpdate, result.section, displayMode, placement);
-                        }
-                      }}
-                    />
-                    <span>Match site</span>
-                  </label>
-                  <label>
-                    <input
-                      checked={section.settings.background.mode === 'custom'}
-                      name="canva-background"
-                      type="radio"
-                      onChange={() => {
-                        const color = normalizeCustomDesignHexColor(backgroundColor);
-                        if (!color) {
-                          return;
-                        }
-                        const result = controller.updateSettings(section.id, settings => ({
-                          ...settings,
-                          background: { color, mode: 'custom' },
-                        }));
-                        if (result.success && result.section) {
-                          syncCanvaDraft(onUpdate, result.section, displayMode, placement);
-                        }
-                      }}
-                    />
-                    <span>Custom colour</span>
-                  </label>
-                  <label>
-                    <span className="visually-hidden">Custom background colour</span>
-                    <input
-                      aria-label="Custom background colour"
-                      type="color"
-                      value={normalizeCustomDesignHexColor(backgroundColor) ?? '#FFF8F5'}
-                      onChange={(event) => {
-                        const color = event.target.value.toUpperCase();
-                        setBackgroundColor(color);
-                        if (section.settings.background.mode !== 'custom') {
-                          return;
-                        }
-                        const result = controller.updateSettings(section.id, settings => ({
-                          ...settings,
-                          background: { color, mode: 'custom' },
-                        }));
-                        if (result.success && result.section) {
-                          syncCanvaDraft(onUpdate, result.section, displayMode, placement);
-                        }
-                      }}
-                    />
-                  </label>
-                </fieldset>
-              )
-            : null}
-          <fieldset className="onboarding-layout-choice">
-            <legend>Placement</legend>
-            <label>
-              <input checked={placement === 'before_booking'} name="canva-placement" type="radio" value="before_booking" onChange={() => setPlacement('before_booking')} />
-              <span>Before Booking</span>
-            </label>
-            <label>
-              <input checked={placement === 'after_booking'} name="canva-placement" type="radio" value="after_booking" onChange={() => setPlacement('after_booking')} />
-              <span>After Booking</span>
-            </label>
-          </fieldset>
+              <label>
+                <input checked={placement === 'after_booking'} name="canva-placement" type="radio" value="after_booking" onChange={() => setPlacement('after_booking')} />
+                <span>After Booking</span>
+              </label>
+            </fieldset>
+          </details>
           {!available ? <p className="onboarding-inline-error" role="alert">{CANVA_UPLOADS_UNAVAILABLE_MESSAGE}</p> : null}
           {removeAllPending && section && controller
             ? (
@@ -1589,28 +1637,71 @@ export function CanvaDialog({
             : null}
           <p aria-live="polite" className="visually-hidden" role="status">{pending ? 'Saving Canva pages.' : ''}</p>
           <footer className="onboarding-overlay-actions">
-            <button type="button" onClick={requestClose}>Cancel</button>
-            <button
-              className="is-primary"
-              disabled={!available || pending}
-              type="button"
-              onClick={() => {
-                void submit();
-              }}
-            >
-              {pending
-                ? (
-                    <>
-                      <LoaderCircle aria-hidden="true" className="is-spinning" size={17} />
-                      {' '}
-                      Saving Canva pages…
-                    </>
-                  )
-                : section ? 'Save Canva design' : 'Add Canva design'}
-            </button>
+            <button disabled={pending} type="button" onClick={requestClose}>{hasDesign ? 'Back to setup' : 'Cancel'}</button>
+            {!section || hasDesign
+              ? (
+                  <button
+                    className="is-primary"
+                    disabled={!available || pending}
+                    type="button"
+                    onClick={() => {
+                      void submit();
+                    }}
+                  >
+                    {pending
+                      ? (
+                          <>
+                            <LoaderCircle aria-hidden="true" className="is-spinning" size={17} />
+                            {' '}
+                            Saving Canva pages…
+                          </>
+                        )
+                      : section ? 'Save Canva design' : 'Add Canva design'}
+                  </button>
+                )
+              : null}
+            {hasDesign && onPreview
+              ? (
+                  <button
+                    className="is-primary"
+                    disabled={pending}
+                    type="button"
+                    onClick={() => {
+                      void submit(true);
+                    }}
+                  >
+                    Preview website
+                  </button>
+                )
+              : null}
           </footer>
         </div>
       </Dialog>
+      {open && accessibilityImage
+        ? (
+            <AccessibilityDialog
+              key={accessibilityImage.id}
+              image={accessibilityImage}
+              onCancel={() => setAccessibilityImageItemId(null)}
+              onSave={(update) => {
+                if (!section || !controller) {
+                  return;
+                }
+                const result = controller.updateSettings(section.id, settings => ({
+                  ...settings,
+                  images: settings.images.map(image => image.id === accessibilityImage.id ? { ...image, ...update } : image),
+                }));
+                if (result.success && result.section) {
+                  syncCanvaDraft(onUpdate, result.section, result.section.settings.displayMode, placement);
+                  setAccessibilityImageItemId(null);
+                } else {
+                  setAccessibilityImageItemId(null);
+                  setError(result.failure?.message ?? 'The text version could not be saved. Try again.');
+                }
+              }}
+            />
+          )
+        : null}
       <HotspotEditor
         asset={hotspotAsset}
         image={hotspotImage}
