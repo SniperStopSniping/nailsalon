@@ -1,3 +1,10 @@
+## [1.143.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.143.1...v1.143.2) (2026-10-17)
+
+
+### Bug Fixes
+
+* **onboarding:** make website looks clear and customisation optional ([#460](https://github.com/SniperStopSniping/nailsalon/issues/460)) ([d53feff](https://github.com/SniperStopSniping/nailsalon/commit/d53fefffacfcc32a1bd8c77816137d38dd39ebd5))
+
 ## [1.143.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.143.0...v1.143.1) (2026-10-16)
 
 
