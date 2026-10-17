@@ -8,6 +8,7 @@ import { assetDataUrl, ownedAssets } from '@/features/custom-sites/assets.server
 import { websiteDetailsSchema } from '@/features/custom-sites/website-details';
 import type { ModelProviderInputItem, OwnerAssistantModelProvider } from '@/libs/ai/provider';
 import { db } from '@/libs/DB';
+import { formatMoney } from '@/libs/formatMoney';
 import { businessSetupTurnSchema as turns } from '@/models/Schema';
 import { BOOKING_CATEGORIES, SERVICE_CATEGORIES } from '@/models/serviceCatalogTypes';
 
@@ -156,13 +157,16 @@ export function uploadFactsToOperations(raw: unknown, document: SetupDocument, o
     const existing = matches[0];
     // Missing/ambiguous facts never replace known existing values. New values
     // remain null and block publication until the owner resolves them.
-    if (service.priceKind !== 'fixed') {
-      notes.push(`${service.name}: the price is ${service.priceKind === 'unknown' ? 'missing or unclear' : `a ${service.priceKind} price`}. Choose a fixed bookable price before publishing.`);
+    if (service.priceKind === 'from' && service.priceCents !== null) {
+      notes.push(`${service.name}: a starting price was read. Review the base booking price and its “From” wording before publishing.`);
+    } else if (service.priceKind !== 'fixed') {
+      notes.push(`${service.name}: the price is ${service.priceKind === 'unknown' ? 'missing or unclear' : `a ${service.priceKind} price`}. Confirm the base booking price before publishing.`);
     }
     if (service.durationMinutes === null) {
       notes.push(`${service.name}: appointment length is not shown. ${existing?.durationMinutes ? 'Kept your saved appointment length.' : 'Please add it before publishing.'}`);
     }
-    operations.push({ type: 'service', values: { id: existing?.id ?? `draft_upload_${operationId}_${index}`, name: service.name, description: service.description ?? existing?.description ?? null, priceCents: service.priceKind === 'fixed' && service.priceCents !== null ? service.priceCents : existing?.priceCents ?? null, durationMinutes: service.durationMinutes ?? existing?.durationMinutes ?? null, preparationBufferMinutes: existing?.preparationBufferMinutes ?? 0, cleanupBufferMinutes: existing?.cleanupBufferMinutes ?? 0, category: existing?.category ?? service.category, bookingCategory: existing?.bookingCategory ?? service.bookingCategory } });
+    const readablePrice = (service.priceKind === 'fixed' || service.priceKind === 'from') && service.priceCents !== null;
+    operations.push({ type: 'service', values: { id: existing?.id ?? `draft_upload_${operationId}_${index}`, name: service.name, description: service.description ?? existing?.description ?? null, priceCents: readablePrice ? service.priceCents : existing?.priceCents ?? null, priceDisplayText: readablePrice ? service.priceKind === 'from' ? `From ${formatMoney(service.priceCents!, facts.currency ?? document.booking.currency)}` : null : existing?.priceDisplayText ?? null, durationMinutes: service.durationMinutes ?? existing?.durationMinutes ?? null, preparationBufferMinutes: existing?.preparationBufferMinutes ?? 0, cleanupBufferMinutes: existing?.cleanupBufferMinutes ?? 0, category: existing?.category ?? service.category, bookingCategory: existing?.bookingCategory ?? service.bookingCategory } });
   }
   // Domain validation also guarantees address visibility and booking policies
   // cannot be activated by extraction, even if an upload contains instructions.
@@ -308,8 +312,17 @@ export function conversationalUpload(raw: unknown, document: SetupDocument, oper
         continue;
       }
       const values = { ...operation.values };
+      const preserveSaved = existing.confirmed || existing.origin === 'existing' || existing.origin === 'owner';
+      // The saved price and its wording are one owner-confirmed decision.
+      // Do not keep a saved amount but attach a conflicting upload's label.
+      if (preserveSaved && existing.priceCents !== null && (values.priceCents !== existing.priceCents || values.priceDisplayText !== existing.priceDisplayText)) {
+        if (values.priceDisplayText !== existing.priceDisplayText) {
+          notes.push(`${existing.name}: the image has different price wording. I kept your saved wording; tell me if you want to change it.`);
+        }
+        values.priceDisplayText = existing.priceDisplayText;
+      }
       for (const key of ['priceCents', 'durationMinutes', 'description'] as const) {
-        if (existing[key] !== null && values[key] !== existing[key]) {
+        if (preserveSaved && existing[key] !== null && values[key] !== existing[key]) {
           notes.push(`${existing.name}: the image differs from your saved ${key === 'priceCents' ? 'price' : key === 'durationMinutes' ? 'appointment length' : 'description'}. I kept the saved value; tell me if you want to change it.`);
           Object.assign(values, { [key]: existing[key] });
         }

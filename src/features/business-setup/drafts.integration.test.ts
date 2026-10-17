@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { PDFDocument } from 'pdf-lib';
@@ -29,7 +29,7 @@ import * as schema from '@/models/Schema';
 
 import { darkSource, editorialSource } from '../../../tests/browser/businessSetup/custom-design-fixtures';
 import { estimateSetupAiCost, runSetupModel } from './ai-trial.server';
-import { applySetupOperations, CLOSED_HOURS } from './contracts';
+import { applySetupOperations, CLOSED_HOURS, setupReadiness, setupServiceSchema } from './contracts';
 import { runSetupConversation } from './conversation.server';
 import { approveSetup, editSetup, openSetup, resetSetupDraft, restartSetup, reviewSetup } from './drafts.server';
 import { editSharedSetupWebsite } from './manual-website.server';
@@ -80,6 +80,49 @@ async function fixture() {
 }
 
 describe('isolated business setup persistence', () => {
+  it('preserves stored price labels on old drafts without rewriting their immutable JSON', async () => {
+    const actor = { salonId: randomUUID(), adminId: randomUUID() };
+    await database.insert(schema.adminUserSchema).values({ id: actor.adminId });
+    await database.insert(schema.salonSchema).values({ id: actor.salonId, name: 'Legacy Studio', city: 'Toronto', slug: actor.salonId, publicationStatus: 'published' });
+    await database.insert(schema.adminSalonMembershipSchema).values({ ...actor, role: 'owner' });
+    const serviceId = randomUUID();
+    await database.insert(schema.serviceSchema).values({ id: serviceId, salonId: actor.salonId, name: 'BIAB', price: 6500, priceDisplayText: 'From $65', durationMinutes: 60, category: 'builder_gel' });
+    const head = await openSetup(actor);
+    const legacy = structuredClone(head.revision.document);
+    delete legacy.servicePricingVersion;
+    legacy.services = legacy.services.map(({ priceDisplayText: _label, ...service }) => ({ ...service, priceCents: 7500 }));
+    const savedRevision = and(eq(schema.businessSetupRevisionSchema.workspaceId, head.workspace.id), eq(schema.businessSetupRevisionSchema.revision, head.revision.revision));
+    await database.update(schema.businessSetupRevisionSchema).set({ document: legacy }).where(savedRevision);
+    const loaded = await openSetup(actor);
+
+    expect(loaded.revision.document.services[0]).toMatchObject({ priceCents: 7500, priceDisplayText: 'From $75.00' });
+    expect(customSiteDataFromSetup(loaded.revision.document).services[0]?.priceLabel).toBe('From $75.00');
+    expect((await database.select().from(schema.businessSetupRevisionSchema).where(savedRevision))[0]!.document).toEqual(legacy);
+    expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.id, serviceId)))[0]).toMatchObject({ price: 6500, priceDisplayText: 'From $65' });
+  });
+
+  it('blocks an inherited range label after a price change until it is explicitly corrected', async () => {
+    const actor = await fixture();
+    const head = await openSetup(actor);
+    const { origin: _origin, confirmed: _confirmed, ...fields } = head.revision.document.services[0]!;
+    const range = await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'service', values: { ...fields, priceDisplayText: '$65–$85' } }] });
+    const changed = await editSetup(actor, { expectedRevision: range.revision.revision, operationId: randomUUID(), operations: [{ type: 'service', values: { ...fields, priceCents: 7500, priceDisplayText: '$65–$85' } }] }, 'assistant');
+    const confirmed = await editSetup(actor, { expectedRevision: changed.revision.revision, operationId: randomUUID(), operations: [{ type: 'confirm_services', ids: [fields.id] }] });
+    const review = await reviewSetup(actor);
+
+    expect(review.blockers).toContain('Update or clear the price wording for Gel manicure; its booking price changed.');
+    expect(customSiteDataFromSetup(confirmed.revision.document).services[0]?.priceLabel).toBe('Price wording needs review');
+    await expect(approveSetup(actor, review.revision, review.hash)).rejects.toMatchObject({ code: 'NOT_READY' });
+
+    expect(setupServiceSchema.safeParse({ ...fields, priceLabelNeedsReview: false }).success).toBe(false);
+
+    const corrected = await editSetup(actor, { expectedRevision: confirmed.revision.revision, operationId: randomUUID(), operations: [{ type: 'service', values: { ...fields, priceCents: 7500, priceDisplayText: 'From $75.00' } }] });
+
+    expect(setupReadiness(corrected.revision.document)).toEqual([]);
+    expect((await reviewSetup(actor)).changes.find(change => change.path === 'services')?.after).toEqual(corrected.revision.document.services);
+    expect(() => applySetupOperations(corrected.revision.document, [{ type: 'service', values: { ...fields, priceDisplayText: 'Visit 123 Private Street' } }], 'assistant')).toThrow('Keep your private street address');
+  });
+
   it('shares an immutable public projection, preserves it after reset, and revokes it', async () => {
     const actor = await fixture();
     const source = await saveCustomSource(actor, { expectedRevision: 2, operationId: randomUUID(), source: editorialSource, assetIds: [] });
@@ -928,6 +971,25 @@ describe('private defaults for new drafts', () => {
 
 describe('own business upload review', () => {
   const facts = (values: Record<string, unknown> = {}) => ({ businessName: 'Read Studio', city: 'Toronto', address: '42 Synthetic Lane', currency: 'CAD', hoursJson: JSON.stringify([{ day: 'tuesday', status: 'open', open: '10:00', close: '18:00' }]), servicesJson: JSON.stringify([{ name: 'Gel manicure', description: null, priceKind: 'fixed', priceCents: 7000, durationMinutes: null, kind: 'base', category: 'manicure', bookingCategory: 'manicure' }, { name: 'BIAB', description: null, priceKind: 'from', priceCents: 6500, durationMinutes: null, kind: 'base', category: 'builder_gel', bookingCategory: 'manicure' }]), notes: [], ...values });
+
+  it('uses prices read from an own menu in place of unconfirmed AI recommendations', async () => {
+    const actor = await fixture();
+    const head = await openSetup(actor);
+    const { origin: _origin, confirmed: _confirmed, ...fields } = head.revision.document.services[0]!;
+    const suggested = applySetupOperations(head.revision.document, [{ type: 'service', values: { ...fields, priceCents: 6000 } }], 'assistant');
+    const read = conversationalUpload(facts(), suggested, randomUUID());
+    const after = applySetupOperations(suggested, read.operations, 'upload');
+
+    expect(after.services[0]).toMatchObject({ priceCents: 7000, confirmed: false, origin: 'upload' });
+    expect(read.notes).not.toContainEqual(expect.stringMatching(/Gel manicure.*kept the saved value/iu));
+
+    const protectedRead = conversationalUpload(facts(), head.revision.document, randomUUID());
+    const protectedAfter = applySetupOperations(head.revision.document, protectedRead.operations, 'upload');
+
+    expect(protectedAfter.services[0]?.priceCents).toBe(6500);
+    expect(protectedRead.notes).toContainEqual(expect.stringMatching(/Gel manicure.*kept the saved value/iu));
+  });
+
   async function upload(actor: { salonId: string; adminId: string }) {
     const png = await sharp({ create: { width: 100, height: 100, channels: 3, background: '#ffffff' } }).png().toBuffer();
     return uploadCustomAsset(actor, new File([new Uint8Array(png)], 'synthetic-menu.png', { type: 'image/png' }), 'reference');
@@ -980,7 +1042,7 @@ describe('own business upload review', () => {
     expect((await applyOwnUpload(actor, review.id)).revision.revision).toBe(applied.revision.revision);
     expect(applied.revision.document.services).toHaveLength(2);
     expect(applied.revision.document.services[0]).toMatchObject({ id: 'draft_gel', priceCents: 7000, durationMinutes: 60, cleanupBufferMinutes: 10, confirmed: false, origin: 'upload' });
-    expect(applied.revision.document.services[1]).toMatchObject({ name: 'BIAB', priceCents: null, durationMinutes: null, confirmed: false });
+    expect(applied.revision.document.services[1]).toMatchObject({ name: 'BIAB', priceCents: 6500, priceDisplayText: 'From $65.00', durationMinutes: null, confirmed: false });
     expect(applied.revision.document.business).toMatchObject({ name: 'Read Studio', exactAddress: '42 Synthetic Lane', locationDisplayMode: 'city_only' });
     expect(applied.revision.document.hours.monday).toEqual({ open: '09:00', close: '17:00' });
     expect(applied.revision.document.hours.tuesday).toEqual({ open: '10:00', close: '18:00' });

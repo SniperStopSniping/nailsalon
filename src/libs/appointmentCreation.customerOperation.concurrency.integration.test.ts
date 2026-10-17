@@ -293,8 +293,8 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     __setDepositStripeClientForTests({ checkout: { sessions: provider } });
     provider.create.mockRejectedValue(new Error('Unexpected provider request'));
     await database.update(schema.salonSchema).set({ settings: SETTINGS, features: null, businessHours: null, onlineBookingEnabled: true, city: null, address: null }).where(eq(schema.salonSchema.id, SALON));
-    await database.update(schema.serviceSchema).set({ price: 6500, durationMinutes: 60, confirmationMode: null, selectionMode: null }).where(eq(schema.serviceSchema.id, SERVICE));
-    await database.update(schema.serviceSchema).set({ price: 6500, durationMinutes: 60, confirmationMode: null, selectionMode: null }).where(eq(schema.serviceSchema.id, SERVICE_TWO));
+    await database.update(schema.serviceSchema).set({ price: 6500, priceDisplayText: null, durationMinutes: 60, confirmationMode: null, selectionMode: null }).where(eq(schema.serviceSchema.id, SERVICE));
+    await database.update(schema.serviceSchema).set({ price: 6500, priceDisplayText: null, durationMinutes: 60, confirmationMode: null, selectionMode: null }).where(eq(schema.serviceSchema.id, SERVICE_TWO));
     await database.update(schema.addOnSchema).set({ priceCents: 500, durationMinutes: 10 }).where(eq(schema.addOnSchema.id, ADDON));
     await database.update(schema.serviceAddOnSchema).set({ priceMode: 'catalog_priced' }).where(eq(schema.serviceAddOnSchema.id, 'synthetic-creator-addon-binding'));
     await database.delete(schema.salonStripeAccountSchema).where(eq(schema.salonStripeAccountSchema.salonId, SALON));
@@ -319,7 +319,7 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
   afterAll(async () => {
     await pool?.end();
 
-    expect(executed).toBe(55);
+    expect(executed).toBe(56);
 
     process.stdout.write(`CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=${executed} CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0\n`);
   });
@@ -353,6 +353,65 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
       expect((await closed.json()).error.code).toBe('OUTSIDE_SCHEDULE');
     } finally {
       await database.update(schema.technicianSchema).set({ weeklySchedule: ALL_WEEK }).where(eq(schema.technicianSchema.id, TECH));
+    }
+  });
+
+  it('publishes a reviewed starting price and books it without changing an earlier appointment snapshot', async () => {
+    const { openSetup, editSetup, reviewSetup, approveSetup } = await import('@/features/business-setup/drafts.server');
+    const { publishSetup } = await import('@/features/business-setup/publish.server');
+    const { customSiteDataFromSetup } = await import('@/features/custom-sites/setup-data');
+    const actor = { salonId: SALON, adminId: randomUUID() };
+    await database.insert(schema.adminUserSchema).values({ id: actor.adminId });
+    await database.insert(schema.adminSalonMembershipSchema).values({ ...actor, role: 'owner' });
+    await database.update(schema.serviceSchema).set({ priceDisplayText: 'From $65.00' }).where(eq(schema.serviceSchema.id, SERVICE));
+    try {
+      expect((await createOrdinaryBrowserBooking()).status).toBe(201);
+
+      const [original] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+      const originalLines = await database.select().from(schema.appointmentServicesSchema).where(eq(schema.appointmentServicesSchema.appointmentId, original!.id));
+
+      expect(originalLines[0]).toMatchObject({ priceDisplayTextSnapshot: 'From $65.00', priceCentsSnapshot: 6500 });
+
+      const head = await openSetup(actor);
+      const saved = head.revision.document.services.find(service => service.id === SERVICE)!;
+      const { origin: _origin, confirmed: _confirmed, priceLabelNeedsReview: _priceLabelNeedsReview, ...fields } = saved;
+      const changed = await editSetup(actor, { expectedRevision: head.revision.revision, operationId: randomUUID(), operations: [{ type: 'service', values: { ...fields, priceCents: 7500 } }] }, 'assistant');
+
+      expect(customSiteDataFromSetup(changed.revision.document).services.find(service => service.id === `setup_preview_${SERVICE}`)?.priceLabel).toBe('From $75.00');
+      expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.id, SERVICE)))[0]).toMatchObject({ price: 6500, priceDisplayText: 'From $65.00' });
+
+      const confirmed = await editSetup(actor, { expectedRevision: changed.revision.revision, operationId: randomUUID(), operations: [
+        { type: 'business', values: { city: 'Toronto', workMode: 'solo' } },
+        { type: 'hours', values: Object.fromEntries(Object.keys(ALL_WEEK).map(day => [day, { open: '09:00', close: '17:00' }])) },
+        { type: 'confirm_services', ids: [SERVICE] },
+      ] });
+      const review = await reviewSetup(actor);
+
+      expect(review.revision).toBe(confirmed.revision.revision);
+      expect(review.blockers).toEqual([]);
+
+      const approval = await approveSetup(actor, review.revision, review.hash);
+      const publication = { revision: review.revision, approvalId: approval.id, operationId: randomUUID() };
+      const first = await publishSetup(actor, publication);
+
+      expect((await publishSetup(actor, publication)).receipt.id).toBe(first.receipt.id);
+      expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.id, SERVICE)))[0]).toMatchObject({ price: 7500, priceDisplayText: 'From $75.00' });
+      expect(await database.select().from(schema.appointmentServicesSchema).where(eq(schema.appointmentServicesSchema.appointmentId, original!.id))).toEqual(originalLines);
+      expect((await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, original!.id)))[0]).toEqual(original);
+
+      const response = await createOrdinaryBrowserBooking('2099-09-08T15:00:00.000Z', contact('2'), { expectedTotalCents: 7500 });
+
+      expect(response.status, JSON.stringify(await response.clone().json())).toBe(201);
+
+      const appointments = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+      const next = appointments.find(appointment => appointment.id !== original!.id)!;
+
+      expect(next).toMatchObject({ totalPrice: 7500, totalDurationMinutes: 60 });
+      expect((await database.select().from(schema.appointmentServicesSchema).where(eq(schema.appointmentServicesSchema.appointmentId, next.id)))[0]).toMatchObject({ priceDisplayTextSnapshot: 'From $75.00', priceCentsSnapshot: 7500 });
+    } finally {
+      await database.delete(schema.businessSetupWorkspaceSchema).where(eq(schema.businessSetupWorkspaceSchema.salonId, SALON));
+      await database.delete(schema.salonLocationSchema).where(eq(schema.salonLocationSchema.salonId, SALON));
+      await database.delete(schema.adminUserSchema).where(eq(schema.adminUserSchema.id, actor.adminId));
     }
   });
 

@@ -8,7 +8,7 @@ import { db } from '@/libs/DB';
 
 import { assertCustomArtifact } from './artifacts.server';
 import { assetDataUrl } from './assets.server';
-import { canvaDataFingerprint, canvaServiceKey } from './canva-data.server';
+import { canvaFactsMatch, canvaServiceKey } from './canva-data.server';
 import type { CustomSiteData, CustomSitePayload, CustomSiteSource } from './contracts';
 import { customSiteDataFromSetup } from './setup-data';
 import { customSourceImageIds } from './validate.server';
@@ -39,7 +39,7 @@ export function customSiteRendererOrigin() {
 }
 export async function customSitePayload(salonId: string, artifactId: string, data: CustomSiteData): Promise<CustomSitePayload> {
   const { artifact, media } = await assertCustomArtifact(db, salonId, artifactId);
-  if (artifact.source.canva && !data.preview && (!artifact.source.canva.ownerReviewed || artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data))) {
+  if (artifact.source.canva && !data.preview && (!artifact.source.canva.ownerReviewed || !canvaFactsMatch(artifact.source, data))) {
     // Never serialize stale raster text/bytes, including an address the owner
     // subsequently hid. The public page falls back to original live booking.
     return { source: { title: 'Booking', html: '<main></main>', css: '', javascript: '', analysis: '', limitations: [] }, data, images: {}, artworkUnavailable: true };
@@ -62,7 +62,7 @@ export async function customSitePayload(salonId: string, artifactId: string, dat
       }
     }
   }
-  return { source: data.preview ? artifact.source : publicCustomSiteSource(artifact.source), data: { ...data, business: { ...data.business, hoursLabel } }, images, ...(artifact.source.canva ? { serviceKeys, canvaFactsChanged: artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data), canvaReviewRequired: !artifact.source.canva.ownerReviewed || artifact.source.canva.dataFingerprint !== canvaDataFingerprint(data) } : {}) };
+  return { source: data.preview ? artifact.source : publicCustomSiteSource(artifact.source), data: { ...data, business: { ...data.business, hoursLabel } }, images, ...(artifact.source.canva ? { serviceKeys, canvaFactsChanged: !canvaFactsMatch(artifact.source, data, true), canvaReviewRequired: !artifact.source.canva.ownerReviewed || !canvaFactsMatch(artifact.source, data, true) } : {}) };
 }
 
 /** OCR and model critique are private editing evidence, not public site data. */

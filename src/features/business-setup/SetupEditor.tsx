@@ -15,6 +15,7 @@ import { BookingPolicyEditor } from './BookingPolicyEditor';
 import { ChatAttachments } from './ChatAttachments';
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
 import { missingDesignDetails, WEEKDAYS } from './contracts';
+import { updateSetupServicePricing } from './service-pricing';
 import { StartOverDesign } from './StartOverDesign';
 import { TEAM_BOOKING_IMPACT, teamReviewValue } from './team-summary';
 import { TeamBookingSummary } from './TeamBookingSummary';
@@ -87,7 +88,7 @@ function reviewValue(value: unknown): string {
     return value.map((item) => {
       if (item && typeof item === 'object' && 'priceCents' in item) {
         const service = item as SetupService;
-        return `${service.name}: ${service.priceCents === null ? 'price needed' : (service.priceCents / 100).toFixed(2)}, ${service.durationMinutes ?? '?'} minutes, ${service.preparationBufferMinutes} minutes preparation, ${service.cleanupBufferMinutes} minutes cleanup`;
+        return `${service.name}: ${service.priceCents === null ? 'price needed' : (service.priceCents / 100).toFixed(2)}${service.priceDisplayText ? ` (displayed as ${service.priceDisplayText})` : ''}${service.priceLabelNeedsReview ? ' · price wording needs review' : ''}, ${service.durationMinutes ?? '?'} minutes, ${service.preparationBufferMinutes} minutes preparation, ${service.cleanupBufferMinutes} minutes cleanup`;
       }
       return reviewValue(item);
     }).join('; ');
@@ -907,8 +908,10 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
                   onSubmit={(e) => {
                     e.preventDefault();
                     const form = new FormData(e.currentTarget);
-                    const { origin: _origin, confirmed: _confirmed, ...values } = service;
-                    void run(() => edit([{ type: 'service', values: { ...values, name: String(form.get('name')), priceCents: Math.round(Number(form.get('price')) * 100), durationMinutes: Number(form.get('duration')) } }]));
+                    const { origin: _origin, confirmed: _confirmed, priceLabelNeedsReview: _priceLabelNeedsReview, ...values } = service;
+                    const proposed = { ...values, name: String(form.get('name')), priceCents: Math.round(Number(form.get('price')) * 100), priceDisplayText: String(form.get('priceDisplayText')).trim() || null, durationMinutes: Number(form.get('duration')) };
+                    const pricing = updateSetupServicePricing(service, proposed, draft.booking.currency);
+                    void run(() => edit([{ type: 'service', values: { ...proposed, priceDisplayText: pricing.priceDisplayText } }]));
                   }}
                 >
                   <label>
@@ -925,6 +928,15 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
                       <input name="duration" type="number" min="5" max="480" defaultValue={service.durationMinutes ?? ''} required />
                     </label>
                   </div>
+                  <details>
+                    <summary>Price wording</summary>
+                    <label>
+                      Price label (optional)
+                      <input name="priceDisplayText" maxLength={240} defaultValue={service.priceDisplayText ?? ''} placeholder="For example: From $65" />
+                    </label>
+                    <small>Leave empty to display the booking price. A starting price can say “From”.</small>
+                  </details>
+                  {service.priceLabelNeedsReview && <p role="alert">Your booking price changed. Update or clear the old price wording before publishing.</p>}
                   <small>
                     {service.confirmed ? 'Reviewed' : service.origin === 'upload' ? 'Read from your upload · needs review' : service.origin === 'assistant' ? 'AI proposal · needs review' : 'Needs your review'}
                     {' '}

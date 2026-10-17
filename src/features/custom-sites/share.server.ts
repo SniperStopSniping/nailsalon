@@ -13,7 +13,7 @@ import { db } from '@/libs/DB';
 import { businessSetupPreviewShareSchema as shares, businessSetupRevisionSchema as revisions } from '@/models/Schema';
 
 import { assertCustomArtifact } from './artifacts.server';
-import { canvaDataFingerprint, canvaTargetBlockers } from './canva-data.server';
+import { canvaFactsMatch, canvaTargetBlockers } from './canva-data.server';
 import type { CustomSiteSource } from './contracts';
 import { publicCustomSiteSource, setupCustomSitePayload } from './payload.server';
 import { customSiteDataFromSetup } from './setup-data';
@@ -30,7 +30,7 @@ function artworkSharingBlockers(document: SetupDocument, source: CustomSiteSourc
   const data = customSiteDataFromSetup(document);
   return [
     ...canvaTargetBlockers(source, data),
-    ...(source.canva.dataFingerprint !== canvaDataFingerprint(data) ? ['Your booking details changed. Update the artwork before sharing this preview.'] : []),
+    ...(!canvaFactsMatch(source, data, true) ? ['Your booking details changed. Update the artwork before sharing this preview.'] : []),
     ...(!source.canva.ownerReviewed && !acknowledged ? ['Confirm you want to share the original artwork as a preview. This does not approve it for publication.'] : []),
     ...(document.business.exactAddress && JSON.stringify(source).toLowerCase().includes(document.business.exactAddress.toLowerCase()) ? ['Remove your private service address from the artwork before sharing.'] : []),
   ];

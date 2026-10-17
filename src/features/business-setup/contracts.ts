@@ -11,6 +11,7 @@ import { CUSTOMER_SITE_PALETTE_PRESETS, CUSTOMER_SITE_STYLE_PRESETS } from '@/li
 import { BOOKING_CATEGORIES, SERVICE_CATEGORIES } from '@/models/serviceCatalogTypes';
 
 import { resolveSetupPolicy } from './booking-policy';
+import { updateSetupServicePricing } from './service-pricing';
 
 export const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/u);
@@ -32,6 +33,7 @@ export const setupServiceSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().max(2000).nullable(),
   priceCents: z.number().int().min(0).max(100000000).nullable(),
+  priceDisplayText: z.string().trim().max(240).nullable().optional(),
   durationMinutes: z.number().int().min(5).max(480).nullable(),
   preparationBufferMinutes: z.number().int().min(0).max(120),
   cleanupBufferMinutes: z.number().int().min(0).max(120),
@@ -41,6 +43,8 @@ export const setupServiceSchema = z.object({
 export type SetupService = z.infer<typeof setupServiceSchema> & {
   origin: 'existing' | 'owner' | 'assistant' | 'upload';
   confirmed: boolean;
+  /** Internal safety marker, never accepted from a model or browser operation. */
+  priceLabelNeedsReview?: boolean;
 };
 export const setupStaffSchema = z.object({
   id,
@@ -108,6 +112,7 @@ export type SetupDocument = {
   bookingPolicy?: ReturnType<typeof resolveBookingExperience>['policy'];
   bookingPolicyEdited?: boolean;
   services: SetupService[];
+  servicePricingVersion?: 1;
   /** Absent on older saved revisions; hydrate from the verified baseline before editing. */
   staff?: SetupStaff[];
   staffUsesExplicitAssignments?: boolean;
@@ -251,7 +256,7 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
         if (!previous && !op.values.id.startsWith('draft_')) {
           throw new SetupError('INVALID', 'New services need a draft identity.');
         }
-        const service: SetupService = { ...op.values, origin, confirmed: origin === 'owner' };
+        const service: SetupService = { ...op.values, ...updateSetupServicePricing(previous, op.values, next.booking.currency), origin, confirmed: origin === 'owner' };
         if (previous) {
           next.services = next.services.map(s => s.id === service.id ? service : s);
         } else {
@@ -304,7 +309,7 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   return next;
 }
 export function assertSetupAddressPrivacy(document: SetupDocument) {
-  const publicText = JSON.stringify({ details: document.website.content.websiteDetails, bio: document.website.content.bio, specialtyLine: document.website.content.specialtyLine, policy: document.bookingPolicy?.enabled ? document.bookingPolicy : null });
+  const publicText = JSON.stringify({ details: document.website.content.websiteDetails, bio: document.website.content.bio, specialtyLine: document.website.content.specialtyLine, services: document.services.map(service => ({ name: service.name, description: service.description, priceDisplayText: service.priceDisplayText })), policy: document.bookingPolicy?.enabled ? document.bookingPolicy : null });
   if (document.business.locationDisplayMode !== 'full_address' && document.business.exactAddress.trim().length >= 5 && publicText.toLowerCase().includes(document.business.exactAddress.trim().toLowerCase())) {
     throw new SetupError('INVALID', 'Keep your private street address out of public website details and booking wording. Use a nearby intersection or area instead.');
   }
@@ -330,6 +335,9 @@ export function setupReadiness(draft: SetupDocument): string[] {
     blockers.push('Add at least one service.');
   }
   for (const service of draft.services) {
+    if (service.priceLabelNeedsReview) {
+      blockers.push(`Update or clear the price wording for ${service.name}; its booking price changed.`);
+    }
     if (service.priceCents === null || service.durationMinutes === null) {
       blockers.push(`Add the missing price or time for ${service.name}.`);
     }

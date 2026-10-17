@@ -12,7 +12,7 @@ import { customSiteArtifactSchema as artifacts } from '@/models/Schema';
 
 import { ownedAssets } from './assets.server';
 import { compileCanvaDesign } from './canva';
-import { canvaDataFingerprint, canvaTargetBlockers } from './canva-data.server';
+import { canvaDataFingerprint, canvaPriceLabelsFingerprint, canvaTargetBlockers } from './canva-data.server';
 import type { CustomSiteSource } from './contracts';
 import { customSiteDataFromSetup } from './setup-data';
 import { validateCustomSource } from './validate.server';
@@ -98,6 +98,6 @@ export async function reviewCanvaArtwork(actor: SetupActor, input: { expectedRev
   if (blockers.length) {
     throw new SetupError('NOT_READY', blockers.join(' '));
   }
-  const source = retained ? retained.source : compileCanvaDesign({ ...current.artifact.source.canva, ownerReviewed: true, dataFingerprint: canvaDataFingerprint(data) }, data.details);
+  const source = retained ? retained.source : compileCanvaDesign({ ...current.artifact.source.canva, ownerReviewed: true, dataFingerprint: canvaDataFingerprint(data), priceLabelsFingerprint: canvaPriceLabelsFingerprint(data) }, data.details);
   return saveCustomSource(actor, { ...input, source, assetIds: current.artifact.assetIds }, 'owner', true);
 }

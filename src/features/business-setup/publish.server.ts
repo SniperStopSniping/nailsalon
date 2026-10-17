@@ -127,6 +127,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
         name: service.name,
         description: service.description,
         price: service.priceCents,
+        ...(service.priceDisplayText !== undefined ? { priceDisplayText: service.priceDisplayText } : {}),
         durationMinutes: service.durationMinutes,
         preparationBufferMinutes: service.preparationBufferMinutes,
         cleanupBufferMinutes: service.cleanupBufferMinutes,

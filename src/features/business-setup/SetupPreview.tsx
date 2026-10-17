@@ -13,6 +13,7 @@ import type { SetupDocument } from './contracts';
 import { WEEKDAYS } from './contracts';
 import type { readSetupSnapshot } from './drafts.server';
 import { setupPreviewBooking } from './preview-data.server';
+import { setupServicePriceLabel } from './service-pricing';
 import { TeamBookingSummary } from './TeamBookingSummary';
 /** Read-only adapter into production components. No canonical rows are written. */
 export async function SetupPreview({ salon: liveSalon, document, snapshot }: {
@@ -39,7 +40,7 @@ export async function SetupPreview({ salon: liveSalon, document, snapshot }: {
     descriptionItems: [],
     durationMinutes: s.durationMinutes!,
     priceCents: s.priceCents!,
-    priceDisplayText: null,
+    priceDisplayText: s.priceDisplayText || s.priceLabelNeedsReview ? setupServicePriceLabel(s, document.booking.currency) : null,
     category: s.category,
     bookingCategory: s.bookingCategory,
     templateKey: null,

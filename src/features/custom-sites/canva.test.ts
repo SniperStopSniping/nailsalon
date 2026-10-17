@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { CanvaDesign } from './canva';
 import { canvaDesignSchema, comfortableCanvaAreas, compileCanvaDesign } from './canva';
-import { canvaDataFingerprint, canvaServiceKey, canvaTargetBlockers } from './canva-data.server';
+import { canvaDataFingerprint, canvaFactsMatch, canvaPriceLabelsFingerprint, canvaServiceKey, canvaTargetBlockers } from './canva-data.server';
 import type { CustomSiteData } from './contracts';
 import { validateCustomSource } from './validate.server';
 import { EMPTY_WEBSITE_DETAILS } from './website-details';
@@ -14,6 +14,27 @@ const data: CustomSiteData = { business: { name: 'Canva Studio', city: 'Toronto'
 const design = (): CanvaDesign => ({ version: 1, pages: [{ assetId: randomUUID(), width: 600, height: 1800, alt: 'Original salon artwork' }], areas: [{ id: 'book', page: 0, label: 'Book Gel', geometry: { x: 10, y: 80, width: 80, height: 5 }, action: { type: 'service', serviceKey: canvaServiceKey(data.services[0]!) } }], visibleText: 'Original artwork', notes: [], ownerReviewed: false, dataFingerprint: canvaDataFingerprint(data) });
 
 describe('preserved Canva artwork', () => {
+  it('keeps legacy public artwork available but requires price-wording review before another publication', () => {
+    const source = compileCanvaDesign({ ...design(), ownerReviewed: true });
+
+    expect(canvaFactsMatch(source, data)).toBe(true);
+    expect(canvaFactsMatch(source, data, true)).toBe(false);
+  });
+
+  it('invalidates newly reviewed artwork when only the displayed price wording changes', () => {
+    const source = compileCanvaDesign({ ...design(), ownerReviewed: true, priceLabelsFingerprint: canvaPriceLabelsFingerprint(data) });
+    const changed = { ...data, services: data.services.map(service => ({ ...service, priceLabel: 'From $65.00' })) };
+
+    expect(canvaDataFingerprint(changed)).toBe(canvaDataFingerprint(data));
+    expect(canvaFactsMatch(source, data, true)).toBe(true);
+    expect(canvaFactsMatch(source, changed)).toBe(false);
+    expect(canvaServiceKey(changed.services[0]!)).toBe(canvaServiceKey(data.services[0]!));
+  });
+
+  it('retains the same price-wording approval across draft-to-live service identity mapping', () => {
+    expect(canvaPriceLabelsFingerprint({ ...data, services: data.services.map(service => ({ ...service, id: 'canonical-service' })) })).toBe(canvaPriceLabelsFingerprint(data));
+  });
+
   it('binds generated contact labels to saved contacts and routes Show all appointments to the menu', () => {
     const input = design();
     input.areas = [

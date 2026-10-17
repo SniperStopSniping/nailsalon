@@ -48,6 +48,8 @@ export const canvaDesignSchema = z.object({
   visibleText: z.string().max(16000),
   notes: z.array(z.string().max(500)).max(12),
   dataFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+  /** Added without invalidating already-published legacy artwork. */
+  priceLabelsFingerprint: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
   ownerReviewed: z.boolean(),
 }).strict().refine(value => value.areas.every(area => area.page < value.pages.length), 'Choose an existing page for each clickable area.');
 export type CanvaDesign = z.infer<typeof canvaDesignSchema>;

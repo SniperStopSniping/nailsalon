@@ -15,7 +15,7 @@ import { setupAiCallSchema as calls } from '@/models/Schema';
 import { assetDataUrl, ownedAssets } from './assets.server';
 import { canvaAreasSchema, comfortableCanvaAreas, compileCanvaDesign } from './canva';
 import { canvaWebsiteImage } from './canva-assets.server';
-import { canvaDataFingerprint, canvaServiceKey } from './canva-data.server';
+import { canvaDataFingerprint, canvaPriceLabelsFingerprint, canvaServiceKey } from './canva-data.server';
 import type { CustomSiteGenerateInput, CustomSiteSource } from './contracts';
 import { customSiteDataFromSetup } from './setup-data';
 
@@ -78,7 +78,7 @@ export async function generateCanvaSource(actor: SetupActor, input: CustomSiteGe
       if (answer.altText.length !== pages.length || answer.areas.some(({ page, action }) => page >= pages.length || (action.type === 'service' && services.filter(service => service.key === action.serviceKey).length !== 1))) {
         throw new Error('unavailable page or service');
       }
-      const source = compileCanvaDesign({ version: 1, pages: pages.map((page, index) => ({ assetId: page.image.id, width: page.width, height: page.height, alt: answer.altText[index]! })), areas: comfortableCanvaAreas(answer.areas, pages), notes: answer.notes, visibleText: answer.visibleText, ownerReviewed: false, dataFingerprint: canvaDataFingerprint(data) }, data.details);
+      const source = compileCanvaDesign({ version: 1, pages: pages.map((page, index) => ({ assetId: page.image.id, width: page.width, height: page.height, alt: answer.altText[index]! })), areas: comfortableCanvaAreas(answer.areas, pages), notes: answer.notes, visibleText: answer.visibleText, ownerReviewed: false, dataFingerprint: canvaDataFingerprint(data), priceLabelsFingerprint: canvaPriceLabelsFingerprint(data) }, data.details);
       if (!retained) {
         await db.update(calls).set({ validation: 'passed' }).where(eq(calls.id, callId));
       }

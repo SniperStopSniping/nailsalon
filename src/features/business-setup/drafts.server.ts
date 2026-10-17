@@ -21,6 +21,7 @@ import { hydrateSetupPolicy, setupPolicyInput } from './booking-policy';
 import type { SetupChange, SetupDocument, SetupReview } from './contracts';
 import { applySetupOperations, CLOSED_HOURS, setupEditSchema, SetupError, setupReadiness, setupResetSchema } from './contracts';
 import { publishedSetupIdentities } from './publication-identities.server';
+import { hydrateSetupServicePricing } from './service-pricing';
 import { setupStaffFromSnapshot } from './staff';
 
 export type SetupTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -94,6 +95,7 @@ export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salo
       name: s.name,
       description: s.description,
       priceCents: s.price,
+      priceDisplayText: s.priceDisplayText,
       durationMinutes: s.durationMinutes,
       preparationBufferMinutes: s.preparationBufferMinutes,
       cleanupBufferMinutes: s.cleanupBufferMinutes,
@@ -102,6 +104,7 @@ export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salo
       origin: 'existing',
       confirmed: true,
     })),
+    servicePricingVersion: 1,
     website: { config: page.live, content: content.live },
   };
     // The hash includes untouched fields too: a stale setup must not erase newer
@@ -118,7 +121,7 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
   if (!revision) {
     throw new SetupError('NOT_FOUND', 'The saved draft is unavailable.');
   }
-  if (revision.document.staff === undefined || workspace.baseline.staff === undefined || revision.document.bookingPolicy?.acknowledgment === undefined || workspace.baseline.bookingPolicy?.acknowledgment === undefined) {
+  if (revision.document.staff === undefined || workspace.baseline.staff === undefined || revision.document.bookingPolicy?.acknowledgment === undefined || workspace.baseline.bookingPolicy?.acknowledgment === undefined || revision.document.servicePricingVersion !== 1 || workspace.baseline.servicePricingVersion !== 1) {
     const [salon] = await tx.select().from(salonSchema).where(eq(salonSchema.id, salonId));
     if (!salon) {
       throw new SetupError('NOT_FOUND', 'This business is unavailable.');
@@ -127,8 +130,8 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
     // Read adapter for pre-team JSON revisions. Immutable historical rows and
     // approvals are untouched; every write still checks the original baseline.
     const policy = (saved: SetupDocument['bookingPolicy']) => hydrateSetupPolicy(saved, current.document.bookingPolicy);
-    const baseline = { ...workspace.baseline, bookingPolicy: policy(workspace.baseline.bookingPolicy), staff: workspace.baseline.staff ?? current.document.staff, staffUsesExplicitAssignments: workspace.baseline.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments };
-    return { workspace: { ...workspace, baseline }, revision: { ...revision, document: { ...revision.document, bookingPolicy: policy(revision.document.bookingPolicy), staff: revision.document.staff ?? current.document.staff, staffUsesExplicitAssignments: revision.document.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments } } };
+    const baseline = hydrateSetupServicePricing({ ...workspace.baseline, bookingPolicy: policy(workspace.baseline.bookingPolicy), staff: workspace.baseline.staff ?? current.document.staff, staffUsesExplicitAssignments: workspace.baseline.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, current.document);
+    return { workspace: { ...workspace, baseline }, revision: { ...revision, document: hydrateSetupServicePricing({ ...revision.document, bookingPolicy: policy(revision.document.bookingPolicy), staff: revision.document.staff ?? current.document.staff, staffUsesExplicitAssignments: revision.document.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, baseline) } };
   }
   return { workspace, revision };
 }
@@ -217,6 +220,7 @@ export async function resetSetupDraft(actor: SetupActor, raw: unknown, restore =
       document = structuredClone(previous.document);
       const resolveIdentity = await publishedSetupIdentities(tx, salon.id, [...document.services.map(service => service.id), ...(document.staff?.flatMap(person => [person.id, ...person.serviceIds]) ?? [])], { workspaceId: head.workspace.id, namespace: document.identityNamespace, legacyRevision: previous.revision, restoring: true });
       document.services = document.services.map(service => ({ ...service, id: resolveIdentity('services', service.id) ?? service.id }));
+      document = hydrateSetupServicePricing(document, snapshot.document);
       // A restoration must not hide services created since the archived draft,
       // or recreate temporary IDs that publication already mapped to live rows.
       document.services = [...snapshot.document.services.filter(service => !document.services.some(saved => saved.id === service.id)), ...document.services];
@@ -347,7 +351,7 @@ export function setupChanges(before: unknown, after: unknown, path = ''): SetupC
   return [{ path, before: before ?? null, after: after ?? null }];
 }
 export function makeSetupReview(head: Awaited<ReturnType<typeof loadSetupHead>>): SetupReview {
-  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['bookingPolicyEdited', 'identityNamespace', 'sessionStartRevision', 'previousDraftRevision', 'hoursOrigin', 'staffUsesExplicitAssignments', 'staffEdited', 'bookingPolicy.version'].includes(change.path));
+  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['bookingPolicyEdited', 'identityNamespace', 'sessionStartRevision', 'previousDraftRevision', 'hoursOrigin', 'staffUsesExplicitAssignments', 'staffEdited', 'bookingPolicy.version', 'servicePricingVersion'].includes(change.path));
   return {
     revision: head.revision.revision,
     hash: setupHash({ workspaceId: head.workspace.id, revision: head.revision.revision, baseline: head.workspace.baselineHash, document: head.revision.document }),
