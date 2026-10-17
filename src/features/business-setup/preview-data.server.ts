@@ -2,7 +2,7 @@ import 'server-only';
 
 import { computeDaySlots } from '@/libs/availability/engine.server';
 import { resolvePublicTechnicianCapabilityMode } from '@/libs/publicTechnicianCompatibility';
-import { getDateKeyInTimeZone } from '@/libs/timeZone';
+import { addDaysToDateKey, getDateKeyInTimeZone } from '@/libs/timeZone';
 import { resolveWeeklySchedule } from '@/libs/weeklySchedule';
 
 import type { SetupDocument } from './contracts';
@@ -38,8 +38,9 @@ export function setupPreviewBooking(document: SetupDocument, snapshot: Pick<Snap
   const service = document.services.find(s => s.durationMinutes !== null && s.priceCents !== null);
   const examples: { date: string; times: string[] }[] = [];
   if (service) {
+    const today = getDateKeyInTimeZone(now, document.booking.timezone);
     for (let offset = 1; offset <= 7; offset += 1) {
-      const date = getDateKeyInTimeZone(new Date(now.getTime() + offset * 86400000), document.booking.timezone);
+      const date = addDaysToDateKey(today, offset);
       const result = computeDaySlots({ date, technicians, requestedServices: [service], capabilityMode: resolvePublicTechnicianCapabilityMode(technicians, [service]), bookingPolicy: { appointmentsByTechnician: new Map(), overridesByTechnician: new Map(), timeOffTechnicianIds: new Set(), blockedSlotsByTechnician: new Map() }, googleBusyWindows: [], hoursCeiling: { locationId: null, businessHours: document.hours, source: 'salon' }, effectiveLocationId: null, visibleDurationMinutes: service.durationMinutes! + service.preparationBufferMinutes + service.cleanupBufferMinutes, bufferMinutes: document.booking.bufferMinutes, slotIntervalMinutes: document.booking.slotIntervalMinutes, minimumNoticeMinutes: document.booking.minimumNoticeMinutes, timeZone: document.booking.timezone, now, excludedAppointmentId: null });
       const times = result.slots.filter(slot => slot.availability === 'available').map(slot => slot.time);
       if (times.length) {

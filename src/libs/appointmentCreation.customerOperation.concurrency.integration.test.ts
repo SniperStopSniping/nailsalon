@@ -319,7 +319,7 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
   afterAll(async () => {
     await pool?.end();
 
-    expect(executed).toBe(49);
+    expect(executed).toBe(55);
 
     process.stdout.write(`CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=${executed} CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0\n`);
   });
@@ -332,6 +332,90 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     const [appointment] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
 
     expect(appointment).toMatchObject({ technicianId: TECH, totalPrice: 6500, totalDurationMinutes: 60 });
+  });
+
+  it('books Vancouver Monday evening using its local day and hours through the ordinary browser path', async () => {
+    await database.update(schema.salonSchema).set({ settings: { ...SETTINGS, booking: { ...SETTINGS.booking, timezone: 'America/Vancouver' } }, businessHours: { ...CLOSED_WEEK, monday: { open: '20:00', close: '23:00' } } }).where(eq(schema.salonSchema.id, SALON));
+    await database.update(schema.technicianSchema).set({ weeklySchedule: { ...CLOSED_WEEK, monday: { start: '20:00', end: '23:00' } } }).where(eq(schema.technicianSchema.id, TECH));
+    try {
+      const response = await createOrdinaryBrowserBooking('2099-09-01T05:00:00.000Z');
+
+      expect(response.status, JSON.stringify(await response.clone().json())).toBe(201);
+
+      const [appointment] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+
+      expect(appointment).toMatchObject({ technicianId: TECH, totalPrice: 6500, totalDurationMinutes: 60 });
+      expect(appointment!.startTime.toISOString()).toBe('2099-09-01T05:00:00.000Z');
+
+      const closed = await createOrdinaryBrowserBooking('2099-09-01T23:00:00.000Z', contact('2'));
+
+      expect(closed.status).toBe(400);
+      expect((await closed.json()).error.code).toBe('OUTSIDE_SCHEDULE');
+    } finally {
+      await database.update(schema.technicianSchema).set({ weeklySchedule: ALL_WEEK }).where(eq(schema.technicianSchema.id, TECH));
+    }
+  });
+
+  it('commits the reviewed anonymous booking in Vancouver without shifting its calendar date', async () => {
+    await database.update(schema.salonSchema).set({ settings: { ...SETTINGS, booking: { ...SETTINGS.booking, timezone: 'America/Vancouver' } }, businessHours: { ...CLOSED_WEEK, monday: { open: '20:00', close: '23:00' } } }).where(eq(schema.salonSchema.id, SALON));
+    await database.update(schema.technicianSchema).set({ weeklySchedule: { ...CLOSED_WEEK, monday: { start: '20:00', end: '23:00' } } }).where(eq(schema.technicianSchema.id, TECH));
+    try {
+      const value = material();
+      value.startTime = '2099-09-01T05:00:00.000Z';
+      value.preference = { date: '2099-08-31', earliest: '20:00', latest: '23:00' };
+      value.review.date = '2099-08-31';
+      value.review.time = '22:00';
+      value.review.timeZone = 'America/Vancouver';
+      const response = await create(await prepare(contact(), value));
+
+      expect(response.status, JSON.stringify(await response.clone().json())).toBe(201);
+
+      const [appointment] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+
+      expect(appointment!.startTime.toISOString()).toBe(value.startTime);
+      expect(appointment).toMatchObject({ totalPrice: 6500, totalDurationMinutes: 60 });
+    } finally {
+      await database.update(schema.technicianSchema).set({ weeklySchedule: ALL_WEEK }).where(eq(schema.technicianSchema.id, TECH));
+    }
+  });
+
+  it.each(['recurring break', 'specific-date break', 'whole-day time off'])('enforces %s on the Tokyo calendar day and books after it is removed', async (kind) => {
+    const id = `synthetic-timezone-${kind.replaceAll(' ', '-')}`;
+    await database.update(schema.salonSchema).set({ settings: { ...SETTINGS, booking: { ...SETTINGS.booking, timezone: 'Asia/Tokyo' } }, businessHours: { ...CLOSED_WEEK, wednesday: { open: '09:00', close: '18:00' } } }).where(eq(schema.salonSchema.id, SALON));
+    await database.update(schema.technicianSchema).set({ weeklySchedule: { ...CLOSED_WEEK, wednesday: { start: '09:00', end: '18:00' } } }).where(eq(schema.technicianSchema.id, TECH));
+    const remove = async () => {
+      await database.delete(schema.technicianBlockedSlotSchema).where(eq(schema.technicianBlockedSlotSchema.id, id));
+      await database.delete(schema.technicianTimeOffSchema).where(eq(schema.technicianTimeOffSchema.id, id));
+    };
+    try {
+      if (kind === 'whole-day time off') {
+        await database.insert(schema.technicianTimeOffSchema).values({ id, salonId: SALON, technicianId: TECH, startDate: new Date('2099-09-02T00:00:00Z'), endDate: new Date('2099-09-02T00:00:00Z') });
+      } else {
+        await database.insert(schema.technicianBlockedSlotSchema).values({ id, salonId: SALON, technicianId: TECH, startTime: '09:00', endTime: '10:00', isRecurring: kind === 'recurring break', dayOfWeek: kind === 'recurring break' ? 3 : null, specificDate: kind === 'specific-date break' ? new Date('2099-09-02T00:00:00Z') : null });
+      }
+      const blocked = await createOrdinaryBrowserBooking('2099-09-02T00:30:00.000Z');
+
+      expect(blocked.status, JSON.stringify(await blocked.clone().json())).toBe(400);
+      expect((await blocked.json()).error.code).toBe('OUTSIDE_SCHEDULE');
+      expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toEqual([]);
+
+      await remove();
+      const response = await createOrdinaryBrowserBooking('2099-09-02T00:30:00.000Z');
+
+      expect(response.status, JSON.stringify(await response.clone().json())).toBe(201);
+    } finally {
+      await remove();
+      await database.update(schema.technicianSchema).set({ weeklySchedule: ALL_WEEK }).where(eq(schema.technicianSchema.id, TECH));
+    }
+  });
+
+  it('rejects a skipped spring-forward wall time instead of booking another time', async () => {
+    await database.update(schema.salonSchema).set({ settings: { ...SETTINGS, booking: { ...SETTINGS.booking, timezone: 'America/Vancouver' } } }).where(eq(schema.salonSchema.id, SALON));
+    const response = await createOrdinaryBrowserBooking('2099-03-08T10:30:00.000Z', contact(), { appointmentDate: '2099-03-08', appointmentTime: '02:30' });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe('INVALID_START_TIME');
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toEqual([]);
   });
 
   it('reviews existing appointments, publishes hours safely, and books through the original browser backend', async () => {

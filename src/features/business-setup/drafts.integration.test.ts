@@ -343,6 +343,33 @@ describe('isolated business setup persistence', () => {
 
     expect(setupPreviewBooking(closed, { staff: [], assignments: [] }).examples).toEqual([]);
   });
+
+  it('uses the proposed Tokyo timezone in the private preview while live settings stay unchanged', async () => {
+    const actor = await fixture();
+    const liveBefore = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+    await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [
+      { type: 'booking', values: { timezone: 'Asia/Tokyo' } },
+      { type: 'hours', values: { ...CLOSED_HOURS, wednesday: { open: '09:00', close: '17:00' } } },
+    ] });
+    const head = await openSetup(actor);
+    const preview = setupPreviewBooking(head.revision.document, { staff: [], assignments: [] }, new Date('2026-10-19T12:00:00Z'));
+
+    expect(preview.examples[0]).toMatchObject({ date: '2026-10-21', times: ['9:00', '9:15', '9:30', '9:45'] });
+    // The setup's row lock/mirror advances updatedAt, not live configuration.
+    expect(await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId))).toEqual(liveBefore.map(row => ({ ...row, updatedAt: expect.any(Date) })));
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, actor.salonId))).toEqual([]);
+  });
+
+  it('includes the next local calendar day in preview across spring-forward at late evening', async () => {
+    const actor = await fixture();
+    const head = await openSetup(actor);
+    const document = { ...head.revision.document, booking: { ...head.revision.document.booking, timezone: 'America/Vancouver' }, hours: { ...CLOSED_HOURS, sunday: { open: '09:00', close: '17:00' } } };
+    const preview = setupPreviewBooking(document, { staff: [], assignments: [] }, new Date('2026-03-08T07:30:00Z'));
+
+    // Saturday 23:30 PST + 24 elapsed hours is already Monday 00:30 PDT.
+    expect(preview.examples[0]?.date).toBe('2026-03-08');
+    expect(preview.examples[0]?.times).toContain('9:00');
+  });
 });
 
 describe('custom frontend shared draft integration', () => {

@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatTimeInTimeZone, getDateKeyInTimeZone, getZonedDayBounds, zonedTimeToUtc } from './timeZone';
+import { formatTimeInTimeZone, getDateKeyInTimeZone, getZonedDayBounds, isZonedTimeMatch, zonedTimeToUtc } from './timeZone';
 
 describe('timeZone helpers', () => {
+  it.each(['America/Toronto', 'America/Vancouver'])('detects nonexistent spring-forward times in %s', (timeZone) => {
+    const input = { date: '2026-03-08', time: '2:30', timeZone };
+
+    expect(isZonedTimeMatch(zonedTimeToUtc(input), input)).toBe(false);
+
+    const valid = { ...input, time: '3:30' };
+
+    expect(isZonedTimeMatch(zonedTimeToUtc(valid), valid)).toBe(true);
+  });
+
+  it('keeps the repeated fall-back hour as a valid, deterministic instant', () => {
+    const input = { date: '2026-11-01', time: '1:30', timeZone: 'America/Vancouver' };
+
+    expect(isZonedTimeMatch(zonedTimeToUtc(input), input)).toBe(true);
+    expect(getZonedDayBounds(input.date, input.timeZone).endOfDay.getTime() - getZonedDayBounds(input.date, input.timeZone).startOfDay.getTime() + 1).toBe(25 * 60 * 60 * 1000);
+  });
+
   it('converts Toronto wall-clock appointment times to UTC instants', () => {
     expect(zonedTimeToUtc({
       date: '2026-03-13',

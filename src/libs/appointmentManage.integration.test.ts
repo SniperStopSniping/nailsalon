@@ -356,6 +356,22 @@ afterAll(async () => {
 });
 
 describe('real appointment management mutations', () => {
+  it('moves an appointment using Vancouver hours while preserving booked price and service duration', async () => {
+    await db.update(schema.salonSchema).set({ settings: { ...DEFAULT_SALON_SETTINGS, booking: { ...DEFAULT_SALON_SETTINGS.booking, timezone: 'America/Vancouver' } } }).where(eq(schema.salonSchema.id, SALON_ID));
+    const before = await appointment();
+    const nextStart = new Date('2027-01-05T04:00:00Z'); // Monday 20:00 Vancouver; Toronto 23:00 is outside the saved hours.
+    await mutate({ startTime: nextStart });
+    const after = await appointment();
+
+    expect(after.startTime).toEqual(nextStart);
+    expect(after.totalPrice).toBe(before.totalPrice);
+    expect(after.totalDurationMinutes).toBe(before.totalDurationMinutes);
+
+    await expectManageError(mutate({ startTime: new Date('2027-01-04T15:00:00Z') }), 'APPOINTMENT_CONFLICT'); // Vancouver 07:00.
+
+    expect((await appointment()).startTime).toEqual(nextStart);
+  });
+
   it('returns a canonical added-tax estimate with deposit credit for every owner/staff consumer', async () => {
     await db.update(schema.appointmentSchema).set({
       paymentStatus: 'pending',

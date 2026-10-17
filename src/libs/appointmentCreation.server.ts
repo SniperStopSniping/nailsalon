@@ -49,7 +49,6 @@ import {
 import { type BookingBasket, validateBookingBasket } from '@/libs/bookingParams';
 import {
   canTechnicianTakeAppointment,
-  getTorontoDateString,
   loadBookingPolicy,
   type LoadedBookingPolicy,
   resolveBookingHoursCeiling,
@@ -227,7 +226,7 @@ import {
   buildBookingTaxSnapshot,
   resolveTaxConfig,
 } from '@/libs/taxConfig';
-import { getDateKeyInTimeZone, getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
+import { getDateKeyInTimeZone, getZonedDayBounds, isZonedTimeMatch, zonedTimeToUtc } from '@/libs/timeZone';
 import {
   type Appointment,
   APPOINTMENT_STATUSES,
@@ -1334,6 +1333,13 @@ async function createAppointmentFromRequestCore(
         timeZone: bookingConfig.timezone,
       })
       : rawParsedStartTime;
+    if (requestedDate && requestedTime && !isZonedTimeMatch(parsedStartTime, {
+      date: requestedDate,
+      time: requestedTime,
+      timeZone: bookingConfig.timezone,
+    })) {
+      return Response.json({ error: { code: 'INVALID_START_TIME', message: 'That time is unavailable on this date. Please choose another time.' } } satisfies ErrorResponse, { status: 400 });
+    }
     const canonicalStartTime = parsedStartTime.toISOString();
 
     let actorRole: 'guest' | 'client' | 'staff' | 'admin' = 'guest';
@@ -2536,7 +2542,7 @@ async function createAppointmentFromRequestCore(
       );
     }
 
-    const bookingDate = getTorontoDateString(startTime);
+    const bookingDate = getDateKeyInTimeZone(startTime, bookingConfig.timezone);
     const { startOfDay: bookingStartOfDay, endOfDay: bookingEndOfDay } = getZonedDayBounds(
       bookingDate,
       bookingConfig.timezone,
@@ -2689,6 +2695,7 @@ async function createAppointmentFromRequestCore(
     const pickAnyAvailableTechnician = (policy: LoadedBookingPolicy) => {
       const isAvailable = (tech: (typeof candidateTechnicians)[number]): boolean => {
         const decision = canTechnicianTakeAppointment({
+          timeZone: bookingConfig.timezone,
           startTime,
           endTime: blockedEndTime,
           weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
@@ -2740,6 +2747,7 @@ async function createAppointmentFromRequestCore(
       const decision = bypassAvailabilityGate
         ? null
         : canTechnicianTakeAppointment({
+          timeZone: bookingConfig.timezone,
           startTime,
           endTime: blockedEndTime,
           weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
@@ -2924,6 +2932,7 @@ async function createAppointmentFromRequestCore(
 
     if (!bypassAvailabilityGate) {
       const finalDecision = canTechnicianTakeAppointment({
+        timeZone: bookingConfig.timezone,
         startTime,
         endTime: blockedEndTime,
         weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
@@ -3866,6 +3875,7 @@ async function createAppointmentFromRequestCore(
         now: configuration.capturedAt,
       });
       const decision = canTechnicianTakeAppointment({
+        timeZone: bookingConfig.timezone,
         startTime,
         endTime: blockedEndTime,
         weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
