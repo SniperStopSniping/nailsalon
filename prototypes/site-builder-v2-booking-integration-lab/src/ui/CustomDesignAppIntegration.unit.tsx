@@ -447,7 +447,7 @@ describe('Custom Design universal App integration', () => {
     const customDesign = await addCustomDesign(user);
     const settings = await screen.findByRole('dialog', { name: 'Custom Design' });
 
-    await user.click(within(settings).getByRole('radio', { name: 'Wide & centred', exact: true }));
+    await user.click(within(settings).getByRole('radio', { name: 'Wide & centred' }));
     await user.click(within(settings).getByRole('button', { name: 'Close Custom Design' }));
     const actions = await screen.findByRole('group', { name: 'Custom Design actions' });
     await user.click(within(actions).getByRole('button', { name: 'Hide' }));
@@ -554,7 +554,7 @@ describe('Custom Design universal App integration', () => {
     render(<App />);
     let settings = await openStoredCustomDesignSettings(user);
     await settleBuilderAssetEffects();
-    await user.click(within(settings).getByRole('radio', { name: 'Wide & centred', exact: true }));
+    await user.click(within(settings).getByRole('radio', { name: 'Wide & centred' }));
     await waitFor(() => {
       expect(getStoredCustomDesign(readStoredDocument()).settings.displayMode)
         .toBe('contained');
