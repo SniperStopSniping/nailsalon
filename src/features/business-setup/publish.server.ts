@@ -12,7 +12,8 @@ import { assertWebsiteDetailsCoverage } from '@/features/custom-sites/website-co
 import { db } from '@/libs/DB';
 import { auditLogSchema, businessSetupApprovalSchema as approvals, businessSetupPublicationSchema as publications, businessSetupWorkspaceSchema as workspaces, salonLocationSchema, salonSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
 
-import { SetupError, WEEKDAYS } from './contracts';
+import { setupPolicyInput } from './booking-policy';
+import { assertSetupAddressPrivacy, SetupError, WEEKDAYS } from './contracts';
 import type { SetupActor } from './drafts.server';
 import { loadSetupHead, lockSetupSalon, readSetupSnapshot, reviewSetupHead, stableJson } from './drafts.server';
 import { publishedSetupIdentities } from './publication-identities.server';
@@ -86,6 +87,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       throw new SetupError('STALE', 'Your business changed elsewhere. Review those changes before publishing.');
     }
     const draft = head.revision.document;
+    assertSetupAddressPrivacy(draft);
     if (draft.website.config.customFrontendId) {
       if (!customSiteRendererOrigin()) {
         throw new SetupError('NOT_READY', 'Your website preview is not available yet. Please try again before publishing.');
@@ -98,11 +100,6 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
     }
     if (salon.publicationStatus === 'published' && (draft.booking.currency !== current.document.booking.currency || draft.booking.timezone !== current.document.booking.timezone)) {
       throw new SetupError('INVALID', 'Currency and time zone changes need a separate review for an existing business.');
-    }
-    // Until appointment-impact review is available, do not widen this initial
-    // solo checkpoint into existing-salon schedule changes.
-    if (salon.publicationStatus === 'published' && stableJson(draft.hours) !== stableJson(current.document.hours)) {
-      throw new SetupError('NOT_READY', 'Changes to existing business hours need an appointment-impact review.');
     }
     const serviceIds: Record<string, string> = {};
     const resolveIdentity = await publishedSetupIdentities(tx, salon.id, [...draft.services.map(service => service.id), ...(draft.staff?.map(person => person.id) ?? [])], { workspaceId: head.workspace.id, namespace: draft.identityNamespace, legacyRevision: head.revision.revision });
@@ -173,6 +170,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       ...(salon.settings ?? {}),
       sharedProfile: { ...(salon.settings?.sharedProfile ?? {}), ...(draft.business.homeBased ? { businessType: 'home_based' as const } : current.document.business.homeBased ? { businessType: 'independent_salon' as const } : {}) },
       booking: draft.booking,
+      ...(draft.bookingPolicyEdited ? { bookingExperience: { ...(salon.settings?.bookingExperience ?? {}), policy: setupPolicyInput(draft.bookingPolicy) } } : {}),
       bookingPage: { ...current.page, draft: draft.website.config, live: draft.website.config, livePresetBase: current.page.draftPresetBase },
       bookingPageContent: { ...current.content, draft: draft.website.content, live: draft.website.content },
     };
@@ -184,7 +182,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       businessHours: draft.hours,
       settings,
       publicationStatus: 'published',
-      onlineBookingEnabled: true,
+      onlineBookingEnabled: salon.publicationStatus === 'published' ? salon.onlineBookingEnabled : true,
       publishedAt: salon.publishedAt ?? publishedAt,
       slugLockedAt: salon.slugLockedAt ?? publishedAt,
     }).where(eq(salonSchema.id, salon.id));

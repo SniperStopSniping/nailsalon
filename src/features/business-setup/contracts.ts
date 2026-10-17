@@ -4,10 +4,13 @@ import { designBriefSchema } from '@/features/custom-sites/contracts';
 import { websiteDetailsSchema } from '@/features/custom-sites/website-details';
 import { bookingConfigSchema } from '@/libs/bookingConfig.shared';
 import type { resolveBookingExperience } from '@/libs/bookingExperience';
+import { bookingPolicyUpdateSchema } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import type { BookingPageContentSide } from '@/libs/bookingPageContent';
 import { CUSTOMER_SITE_PALETTE_PRESETS, CUSTOMER_SITE_STYLE_PRESETS } from '@/libs/customerSitePresentation';
 import { BOOKING_CATEGORIES, SERVICE_CATEGORIES } from '@/models/serviceCatalogTypes';
+
+import { resolveSetupPolicy } from './booking-policy';
 
 export const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/u);
@@ -67,6 +70,7 @@ const uploadOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('service'), values: setupServiceSchema }).strict(),
 ]);
 export const setupOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('booking_policy'), values: bookingPolicyUpdateSchema.shape.policy }).strict(),
   z.object({ type: z.literal('staff'), values: setupStaffSchema }).strict(),
   z.object({ type: z.literal('preview_defaults'), seed: z.string().uuid() }).strict(),
   z.object({ type: z.literal('confirm_hours') }).strict(),
@@ -102,6 +106,7 @@ export type SetupDocument = {
   hoursOrigin?: 'existing' | 'owner' | 'assistant' | 'upload' | 'suggested';
   booking: z.infer<typeof bookingConfigSchema>;
   bookingPolicy?: ReturnType<typeof resolveBookingExperience>['policy'];
+  bookingPolicyEdited?: boolean;
   services: SetupService[];
   /** Absent on older saved revisions; hydrate from the verified baseline before editing. */
   staff?: SetupStaff[];
@@ -144,6 +149,12 @@ export type SetupReview = {
   hash: string;
   changes: SetupChange[];
   blockers: string[];
+  appointmentImpact?: {
+    upcomingCount: number;
+    outsideHoursCount: number;
+    staffAffectedCount: number;
+    fingerprint: string;
+  };
 };
 export class SetupError extends Error {
   constructor(readonly code: 'NOT_FOUND' | 'FORBIDDEN' | 'STALE' | 'INVALID' | 'NOT_READY' | 'APPROVAL_REQUIRED', message: string) {
@@ -157,6 +168,13 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   for (const raw of operations) {
     const op = setupOperationSchema.parse(raw);
     switch (op.type) {
+      case 'booking_policy':
+        if (origin === 'upload') {
+          throw new SetupError('FORBIDDEN', 'Discuss booking requirements before changing the appointment agreement.');
+        }
+        next.bookingPolicy = resolveSetupPolicy(op.values, next.bookingPolicy);
+        next.bookingPolicyEdited = true;
+        break;
       case 'staff': {
         if (origin === 'upload') {
           throw new SetupError('FORBIDDEN', 'Confirm team details in your conversation or the team controls.');
@@ -282,10 +300,14 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   if (next.staff?.some(person => person.serviceIds.some(serviceId => !next.services.some(service => service.id === serviceId)))) {
     throw new SetupError('INVALID', 'A team member’s selected service is not in this business draft.');
   }
-  if (next.business.locationDisplayMode !== 'full_address' && next.business.exactAddress.trim().length >= 5 && JSON.stringify(next.website.content.websiteDetails ?? {}).toLowerCase().includes(next.business.exactAddress.trim().toLowerCase())) {
-    throw new SetupError('INVALID', 'Keep your private street address out of public website details. Use a nearby intersection or area instead.');
-  }
+  assertSetupAddressPrivacy(next);
   return next;
+}
+export function assertSetupAddressPrivacy(document: SetupDocument) {
+  const publicText = JSON.stringify({ details: document.website.content.websiteDetails, bio: document.website.content.bio, specialtyLine: document.website.content.specialtyLine, policy: document.bookingPolicy?.enabled ? document.bookingPolicy : null });
+  if (document.business.locationDisplayMode !== 'full_address' && document.business.exactAddress.trim().length >= 5 && publicText.toLowerCase().includes(document.business.exactAddress.trim().toLowerCase())) {
+    throw new SetupError('INVALID', 'Keep your private street address out of public website details and booking wording. Use a nearby intersection or area instead.');
+  }
 }
 export function setupReadiness(draft: SetupDocument): string[] {
   const blockers: string[] = [];

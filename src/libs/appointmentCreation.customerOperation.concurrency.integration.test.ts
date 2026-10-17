@@ -120,6 +120,8 @@ const SECRET = 'synthetic-customer-creator-signing-key-no-provider';
 const L1_FEATURES = { catalog: { variantsV1: true, addOnGroupsV1: false, bookingModesV1: false } };
 const SETTINGS = { bookingExperience: { policy: { enabled: false } }, booking: { timezone: 'America/Toronto', slotIntervalMinutes: 15, bufferMinutes: 0 } };
 const START = '2099-09-01T15:00:00.000Z';
+const ALL_WEEK = Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day, { start: '00:00', end: '23:45' }]));
+const CLOSED_WEEK = { monday: null, tuesday: null, wednesday: null, thursday: null, friday: null, saturday: null, sunday: null };
 const contact = (lastDigit = '1') => ({ name: 'Synthetic Customer', email: `synthetic${lastDigit}@example.invalid`, phone: `416555010${lastDigit}` });
 let pool: pg.Pool;
 let database: ReturnType<typeof drizzle<typeof schema>>;
@@ -186,6 +188,10 @@ async function create(prepared: Awaited<ReturnType<typeof prepare>>, executionGu
     catalogAcknowledgment: value.catalogAcknowledgment,
   }) });
   return createAppointmentFromRequest(request, { kind: 'anonymous_customer', salon: { id: SALON, slug: SALON }, contact: prepared.person, operation: { ...prepared.reference, secret: SECRET }, ...(executionGuard ? { executionGuard } : {}), ...(value.nextVisitOffer ? { nextVisitOffer: value.nextVisitOffer } : {}) });
+}
+
+function createOrdinaryBrowserBooking(startTime = START, person = contact(), extra: Record<string, unknown> = {}) {
+  return createAppointmentFromRequest(new Request('https://app.luster.test/api/appointments', { method: 'POST', headers: { 'content-type': 'application/json', 'Idempotency-Key': randomUUID() }, body: JSON.stringify({ salonSlug: SALON, serviceIds: [SERVICE], technicianId: TECH, startTime, clientName: person.name, clientPhone: person.phone, clientEmail: person.email, expectedTotalCents: 6500, ...extra }) }));
 }
 
 function specificTechnicianMaterial(technicianId = TECH, technicianName = 'Synthetic Technician') {
@@ -286,7 +292,7 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     requireClientApiSession.mockResolvedValue({ ok: false });
     __setDepositStripeClientForTests({ checkout: { sessions: provider } });
     provider.create.mockRejectedValue(new Error('Unexpected provider request'));
-    await database.update(schema.salonSchema).set({ settings: SETTINGS, features: null, businessHours: null }).where(eq(schema.salonSchema.id, SALON));
+    await database.update(schema.salonSchema).set({ settings: SETTINGS, features: null, businessHours: null, onlineBookingEnabled: true, city: null, address: null }).where(eq(schema.salonSchema.id, SALON));
     await database.update(schema.serviceSchema).set({ price: 6500, durationMinutes: 60, confirmationMode: null, selectionMode: null }).where(eq(schema.serviceSchema.id, SERVICE));
     await database.update(schema.serviceSchema).set({ price: 6500, durationMinutes: 60, confirmationMode: null, selectionMode: null }).where(eq(schema.serviceSchema.id, SERVICE_TWO));
     await database.update(schema.addOnSchema).set({ priceCents: 500, durationMinutes: 10 }).where(eq(schema.addOnSchema.id, ADDON));
@@ -313,9 +319,124 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
   afterAll(async () => {
     await pool?.end();
 
-    expect(executed).toBe(43);
+    expect(executed).toBe(49);
 
     process.stdout.write(`CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=${executed} CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0\n`);
+  });
+
+  it('completes the ordinary browser booking path with the canonical service and staff', async () => {
+    const response = await createOrdinaryBrowserBooking();
+
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(201);
+
+    const [appointment] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+
+    expect(appointment).toMatchObject({ technicianId: TECH, totalPrice: 6500, totalDurationMinutes: 60 });
+  });
+
+  it('reviews existing appointments, publishes hours safely, and books through the original browser backend', async () => {
+    const { openSetup, editSetup, reviewSetup, approveSetup, restartSetup } = await import('@/features/business-setup/drafts.server');
+    const { publishSetup } = await import('@/features/business-setup/publish.server');
+    const { CLOSED_HOURS } = await import('@/features/business-setup/contracts');
+    const actor = { salonId: SALON, adminId: randomUUID() };
+    await database.insert(schema.adminUserSchema).values({ id: actor.adminId });
+    await database.insert(schema.adminSalonMembershipSchema).values({ ...actor, role: 'owner' });
+    try {
+      expect((await createOrdinaryBrowserBooking()).status).toBe(201);
+
+      const original = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+      const bookedService = await database.select().from(schema.appointmentServicesSchema).where(eq(schema.appointmentServicesSchema.appointmentId, original[0]!.id));
+      const head = await openSetup(actor);
+      const saved = await editSetup(actor, { expectedRevision: head.revision.revision, operationId: randomUUID(), operations: [{ type: 'business', values: { city: 'Toronto' } }, { type: 'hours', values: { ...CLOSED_HOURS, monday: { open: '09:00', close: '17:00' } } }] });
+
+      expect((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, SALON)))[0]?.businessHours).toBeNull();
+
+      const review = await reviewSetup(actor);
+
+      expect(review.blockers).toEqual([]);
+      expect(review.appointmentImpact).toMatchObject({ upcomingCount: 1, outsideHoursCount: 1 });
+      await expect(approveSetup(actor, review.revision, review.hash)).rejects.toMatchObject({ code: 'APPROVAL_REQUIRED' });
+
+      const approval = await approveSetup(actor, review.revision, review.hash, true);
+      const input = { revision: saved.revision.revision, approvalId: approval.id, operationId: randomUUID() };
+      const first = await publishSetup(actor, input);
+
+      expect((await publishSetup(actor, input)).receipt.id).toBe(first.receipt.id);
+      expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toEqual(original);
+      expect(await database.select().from(schema.appointmentServicesSchema).where(eq(schema.appointmentServicesSchema.appointmentId, original[0]!.id))).toEqual(bookedService);
+
+      const closed = await createOrdinaryBrowserBooking('2099-09-08T15:00:00.000Z', contact('2'));
+
+      expect(closed.status, JSON.stringify(await closed.clone().json())).toBe(400);
+      expect((await closed.json()).error.code).toBe('OUTSIDE_SCHEDULE');
+
+      const reopened = await restartSetup(actor, input.revision);
+      await editSetup(actor, { expectedRevision: reopened.revision.revision, operationId: randomUUID(), operations: [{ type: 'hours', values: Object.fromEntries(Object.keys(ALL_WEEK).map(day => [day, { open: '09:00', close: '17:00' }])) }] });
+      const nextReview = await reviewSetup(actor);
+
+      expect(nextReview.appointmentImpact?.outsideHoursCount).toBe(0);
+
+      const nextApproval = await approveSetup(actor, nextReview.revision, nextReview.hash);
+      await publishSetup(actor, { revision: nextReview.revision, approvalId: nextApproval.id, operationId: randomUUID() });
+      const response = await createOrdinaryBrowserBooking('2099-09-08T15:00:00.000Z', contact('2'));
+
+      expect(response.status, JSON.stringify(await response.clone().json())).toBe(201);
+      expect((await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, original[0]!.id)))[0]).toEqual(original[0]);
+
+      const { setupPolicyInput } = await import('@/features/business-setup/booking-policy');
+      const { resolveBookingExperience } = await import('@/libs/bookingExperience');
+      const policyHead = await restartSetup(actor, nextReview.revision);
+      await editSetup(actor, { expectedRevision: policyHead.revision.revision, operationId: randomUUID(), operations: [{ type: 'booking_policy', values: { ...setupPolicyInput(policyHead.revision.document.bookingPolicy), enabled: true, text: 'Please arrive on time. Contact us if your plans change.', acknowledgment: { required: true, text: 'I agree to this booking policy.' } } }] });
+
+      expect(resolveBookingExperience((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, SALON)))[0]?.settings).policy.enabled).toBe(false);
+
+      const policyReview = await reviewSetup(actor);
+      const policyApproval = await approveSetup(actor, policyReview.revision, policyReview.hash);
+      await publishSetup(actor, { revision: policyReview.revision, approvalId: policyApproval.id, operationId: randomUUID() });
+      const needsAcceptance = await createOrdinaryBrowserBooking('2099-09-15T15:00:00.000Z', contact('3'));
+
+      expect(needsAcceptance.status).toBe(400);
+
+      const disclosure = await needsAcceptance.json();
+
+      expect(disclosure.error).toBe('BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED');
+      expect(disclosure.bookingPolicy.text).toBe('Please arrive on time. Contact us if your plans change.');
+
+      const accepted = await createOrdinaryBrowserBooking('2099-09-15T15:00:00.000Z', contact('3'), { bookingPolicyAcknowledgment: { accepted: true, version: disclosure.bookingPolicy.version, attemptId: randomUUID() } });
+
+      expect(accepted.status, JSON.stringify(await accepted.clone().json())).toBe(201);
+      expect((await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, original[0]!.id)))[0]).toEqual(original[0]);
+    } finally {
+      await database.delete(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+      await database.delete(schema.businessSetupWorkspaceSchema).where(eq(schema.businessSetupWorkspaceSchema.salonId, SALON));
+      await database.delete(schema.salonLocationSchema).where(eq(schema.salonLocationSchema.salonId, SALON));
+      await database.delete(schema.adminUserSchema).where(eq(schema.adminUserSchema.id, actor.adminId));
+    }
+  });
+
+  it.each([
+    ['business hours', async () => database.update(schema.salonSchema).set({ businessHours: CLOSED_WEEK }).where(eq(schema.salonSchema.id, SALON)), 'TIME_CONFLICT'],
+    ['staff schedule', async () => database.update(schema.technicianSchema).set({ weeklySchedule: Object.fromEntries(Object.keys(ALL_WEEK).map(day => [day, null])), workDays: null, startTime: null, endTime: null }).where(eq(schema.technicianSchema.id, TECH)), 'TIME_CONFLICT'],
+    ['staff eligibility', async () => database.update(schema.technicianServicesSchema).set({ enabled: false }).where(eq(schema.technicianServicesSchema.technicianId, TECH)), 'TIME_CONFLICT'],
+    ['service price', async () => database.update(schema.serviceSchema).set({ price: 7200 }).where(eq(schema.serviceSchema.id, SERVICE)), 'CUSTOMER_BOOKING_REVIEW_CHANGED'],
+  ] as const)('rechecks changed %s between browser preflight and the original booking commit', async (_name, change, code) => {
+    const originalTransaction = database.transaction.bind(database);
+    const interception = vi.spyOn(database, 'transaction').mockImplementationOnce(async (callback, config) => {
+      await change();
+      return originalTransaction(callback, config);
+    });
+    try {
+      const response = await createOrdinaryBrowserBooking();
+
+      expect(interception).toHaveBeenCalled();
+      expect(response.status, JSON.stringify(await response.clone().json())).toBe(409);
+      expect((await response.json()).error.code).toBe(code);
+      expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+    } finally {
+      interception.mockRestore();
+      await database.update(schema.technicianSchema).set({ weeklySchedule: ALL_WEEK }).where(eq(schema.technicianSchema.id, TECH));
+      await database.update(schema.technicianServicesSchema).set({ enabled: true }).where(eq(schema.technicianServicesSchema.technicianId, TECH));
+    }
   });
 
   async function nextVisitMaterial() {

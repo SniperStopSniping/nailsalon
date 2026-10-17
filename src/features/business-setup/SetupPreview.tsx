@@ -8,6 +8,7 @@ import { resolveServiceCardImage } from '@/libs/serviceImage';
 import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
 import type { Salon } from '@/models/Schema';
 
+import { setupPolicyInput } from './booking-policy';
 import type { SetupDocument } from './contracts';
 import { WEEKDAYS } from './contracts';
 import type { readSetupSnapshot } from './drafts.server';
@@ -24,6 +25,7 @@ export async function SetupPreview({ salon: liveSalon, document, snapshot }: {
     ...(liveSalon.settings ?? {}),
     sharedProfile: { ...(liveSalon.settings?.sharedProfile ?? {}), ...(document.business.homeBased ? { businessType: 'home_based' as const } : {}) },
     booking: document.booking,
+    ...(document.bookingPolicyEdited ? { bookingExperience: { ...(liveSalon.settings?.bookingExperience ?? {}), policy: setupPolicyInput(document.bookingPolicy) } } : {}),
     bookingPage: { version: 1 as const, live: document.website.config, draft: document.website.config },
     bookingPageContent: { version: 1 as const, live: document.website.content, draft: document.website.content },
   };

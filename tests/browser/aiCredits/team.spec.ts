@@ -25,7 +25,7 @@ test('owner team controls save, resume, preview and review on desktop and phones
       revision++;
     }
     if (body?.action === 'review') {
-      return route.fulfill({ json: { data: { revision, hash: 'synthetic-exact-team-review', changes: [{ path: 'staff', before: baseline.staff, after: draft.staff }], blockers: setupReadiness(draft) } } });
+      return route.fulfill({ json: { data: { revision, hash: 'synthetic-exact-team-review', changes: [{ path: 'staff', before: baseline.staff, after: draft.staff }], blockers: setupReadiness(draft), appointmentImpact: { upcomingCount: 2, outsideHoursCount: 1, staffAffectedCount: 2, fingerprint: 'synthetic-calendar' } } } });
     }
     await route.fulfill({ json: { data: head() } });
   });
@@ -55,9 +55,13 @@ test('owner team controls save, resume, preview and review on desktop and phones
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   const review = page.getByRole('region', { name: 'Review your changes' });
 
-  await expect(review.getByText(/Team schedules and service choices affect new bookings after publishing/)).toBeVisible();
+  await expect(review.getByText(/New bookings will use your approved settings/)).toBeVisible();
   await expect(review.getByText(/Alex: accepting bookings; Gel manicure; monday: 09:00–17:00/)).toBeVisible();
   await expect(review.getByText(/Alex Smith: accepting bookings; Gel manicure; monday: 11:00–17:00/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Approve and publish' })).toBeDisabled();
+
+  await review.getByRole('checkbox', { name: /I understand these existing appointments/ }).check();
+
   await expect(page.getByRole('button', { name: 'Approve and publish' })).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(requests.filter(request => ['approve', 'publish'].includes(request.action))).toEqual([]);

@@ -14,8 +14,10 @@ import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
-import { addOnSchema, adminSalonMembershipSchema, businessSetupApprovalSchema as approvals, businessSetupRevisionSchema as revisions, businessSetupTurnSchema as turns, businessSetupWorkspaceSchema as workspaces, customSiteGenerationSchema as designs, salonLocationSchema, salonSchema, serviceAddOnSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
+import { addOnSchema, adminSalonMembershipSchema, auditLogSchema, businessSetupApprovalSchema as approvals, businessSetupRevisionSchema as revisions, businessSetupTurnSchema as turns, businessSetupWorkspaceSchema as workspaces, customSiteGenerationSchema as designs, salonLocationSchema, salonSchema, serviceAddOnSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
 
+import { setupAppointmentImpact } from './appointment-impact.server';
+import { hydrateSetupPolicy, setupPolicyInput } from './booking-policy';
 import type { SetupChange, SetupDocument, SetupReview } from './contracts';
 import { applySetupOperations, CLOSED_HOURS, setupEditSchema, SetupError, setupReadiness, setupResetSchema } from './contracts';
 import { publishedSetupIdentities } from './publication-identities.server';
@@ -84,7 +86,7 @@ export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salo
     hours: salon.businessHours ?? structuredClone(CLOSED_HOURS),
     ...(salon.businessHours ? { hoursOrigin: 'existing' as const } : {}),
     booking: resolveBookingConfigFromSettings(salon.settings),
-    bookingPolicy: resolveBookingExperience(salon.settings).policy,
+    bookingPolicy: resolveBookingExperience(salon.settings, { includeAcknowledgmentConfiguration: true }).policy,
     staff: setupStaffFromSnapshot(staff, assignments).map(person => ({ ...person, serviceIds: person.serviceIds.filter(id => services.some(service => service.id === id && service.isActive)) })),
     staffUsesExplicitAssignments: staff.some(person => person.isActive && assignments.some(assignment => assignment.technicianId === person.id)),
     services: services.filter(s => s.isActive).map(s => ({
@@ -116,7 +118,7 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
   if (!revision) {
     throw new SetupError('NOT_FOUND', 'The saved draft is unavailable.');
   }
-  if (revision.document.staff === undefined || workspace.baseline.staff === undefined) {
+  if (revision.document.staff === undefined || workspace.baseline.staff === undefined || revision.document.bookingPolicy?.acknowledgment === undefined || workspace.baseline.bookingPolicy?.acknowledgment === undefined) {
     const [salon] = await tx.select().from(salonSchema).where(eq(salonSchema.id, salonId));
     if (!salon) {
       throw new SetupError('NOT_FOUND', 'This business is unavailable.');
@@ -124,8 +126,9 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
     const current = await readSetupSnapshot(tx, salon);
     // Read adapter for pre-team JSON revisions. Immutable historical rows and
     // approvals are untouched; every write still checks the original baseline.
-    const baseline = { ...workspace.baseline, staff: workspace.baseline.staff ?? current.document.staff, staffUsesExplicitAssignments: workspace.baseline.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments };
-    return { workspace: { ...workspace, baseline }, revision: { ...revision, document: { ...revision.document, staff: revision.document.staff ?? current.document.staff, staffUsesExplicitAssignments: revision.document.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments } } };
+    const policy = (saved: SetupDocument['bookingPolicy']) => hydrateSetupPolicy(saved, current.document.bookingPolicy);
+    const baseline = { ...workspace.baseline, bookingPolicy: policy(workspace.baseline.bookingPolicy), staff: workspace.baseline.staff ?? current.document.staff, staffUsesExplicitAssignments: workspace.baseline.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments };
+    return { workspace: { ...workspace, baseline }, revision: { ...revision, document: { ...revision.document, bookingPolicy: policy(revision.document.bookingPolicy), staff: revision.document.staff ?? current.document.staff, staffUsesExplicitAssignments: revision.document.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments } } };
   }
   return { workspace, revision };
 }
@@ -221,6 +224,8 @@ export async function resetSetupDraft(actor: SetupActor, raw: unknown, restore =
       document.staff = [...(snapshot.document.staff ?? []).filter(person => !document.staff?.some(saved => saved.id === person.id)), ...(document.staff ?? [])];
       document.staffUsesExplicitAssignments = snapshot.document.staffUsesExplicitAssignments;
       document.staffEdited = stableJson(document.staff) !== stableJson(snapshot.document.staff);
+      document.bookingPolicy = hydrateSetupPolicy(document.bookingPolicy, snapshot.document.bookingPolicy);
+      document.bookingPolicyEdited = Boolean(document.bookingPolicy && stableJson(setupPolicyInput(document.bookingPolicy)) !== stableJson(setupPolicyInput(snapshot.document.bookingPolicy)));
       if (document.website.config.customFrontendId) {
         await assertCustomArtifact(tx, salon.id, document.website.config.customFrontendId);
       }
@@ -342,7 +347,7 @@ export function setupChanges(before: unknown, after: unknown, path = ''): SetupC
   return [{ path, before: before ?? null, after: after ?? null }];
 }
 export function makeSetupReview(head: Awaited<ReturnType<typeof loadSetupHead>>): SetupReview {
-  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['identityNamespace', 'sessionStartRevision', 'previousDraftRevision', 'hoursOrigin', 'staffUsesExplicitAssignments', 'staffEdited'].includes(change.path));
+  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['bookingPolicyEdited', 'identityNamespace', 'sessionStartRevision', 'previousDraftRevision', 'hoursOrigin', 'staffUsesExplicitAssignments', 'staffEdited', 'bookingPolicy.version'].includes(change.path));
   return {
     revision: head.revision.revision,
     hash: setupHash({ workspaceId: head.workspace.id, revision: head.revision.revision, baseline: head.workspace.baselineHash, document: head.revision.document }),
@@ -364,8 +369,14 @@ export async function reviewSetupHead(tx: SetupTransaction, head: Awaited<Return
   const review = makeSetupReview(head);
   if (head.workspace.baseline.business && head.workspace.status === 'editing') {
     const [salon] = await tx.select({ publicationStatus: salonSchema.publicationStatus }).from(salonSchema).where(eq(salonSchema.id, head.workspace.salonId));
-    if (salon?.publicationStatus === 'published' && stableJson(head.revision.document.hours) !== stableJson(head.workspace.baseline.hours)) {
-      review.blockers.push('Changes to existing business hours need an appointment-impact review. Your saved hours will stay as they are.');
+    if (salon?.publicationStatus === 'published') {
+      if (head.revision.document.booking.currency !== head.workspace.baseline.booking.currency || head.revision.document.booking.timezone !== head.workspace.baseline.booking.timezone) {
+        review.blockers.push('Currency and time zone changes need a separate review for an existing business.');
+      }
+      review.appointmentImpact = await setupAppointmentImpact(tx, head.workspace.salonId, head.workspace.baseline, head.revision.document);
+      if (review.appointmentImpact) {
+        review.hash = setupHash({ draftHash: review.hash, appointmentFingerprint: review.appointmentImpact.fingerprint });
+      }
     }
   }
   const id = head.revision.document.website.config.customFrontendId;
@@ -375,7 +386,7 @@ export async function reviewSetupHead(tx: SetupTransaction, head: Awaited<Return
   }
   return review;
 }
-export async function approveSetup(actor: SetupActor, revision: number, manifestHash: string) {
+export async function approveSetup(actor: SetupActor, revision: number, manifestHash: string, acknowledgeAppointments = false) {
   return db.transaction(async (tx) => {
     const salon = await lockSetupSalon(tx, actor);
     const head = await loadSetupHead(tx, salon.id);
@@ -386,7 +397,13 @@ export async function approveSetup(actor: SetupActor, revision: number, manifest
     if (review.blockers.length) {
       throw new SetupError('NOT_READY', review.blockers.join(' '));
     }
+    if (review.appointmentImpact && (review.appointmentImpact.outsideHoursCount > 0 || review.appointmentImpact.staffAffectedCount > 0) && acknowledgeAppointments !== true) {
+      throw new SetupError('APPROVAL_REQUIRED', 'Confirm that your existing appointments will stay as booked before approving these changes.');
+    }
     const [approval] = await tx.insert(approvals).values({ id: randomUUID(), salonId: salon.id, workspaceId: head.workspace.id, revision, manifestHash, actorId: actor.adminId, expiresAt: new Date(Date.now() + 30 * 60000) }).returning();
+    if (review.appointmentImpact) {
+      await tx.insert(auditLogSchema).values({ id: randomUUID(), salonId: salon.id, actorType: 'admin', actorId: actor.adminId, action: 'settings_updated', entityType: 'business_setup_approval', entityId: approval!.id, metadata: { revision, appointmentImpact: review.appointmentImpact, acknowledgedExistingAppointments: acknowledgeAppointments } });
+    }
     return approval!;
   });
 }

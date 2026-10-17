@@ -30,7 +30,7 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ ...base, action: z.literal('message'), message: setupMessageSchema, acceptedCreditLimitMicroCad: z.literal(AI_REQUEST_CREDIT_LIMIT).optional() }).strict(),
   z.object({ ...base, action: z.literal('edit'), edit: setupEditSchema }).strict(),
   z.object({ ...base, action: z.literal('review') }).strict(),
-  z.object({ ...base, action: z.literal('approve'), revision: z.number().int().positive(), hash: z.string().regex(/^[a-f0-9]{64}$/u) }).strict(),
+  z.object({ ...base, action: z.literal('approve'), revision: z.number().int().positive(), hash: z.string().regex(/^[a-f0-9]{64}$/u), acknowledgeAppointments: z.boolean().optional() }).strict(),
   z.object({ ...base, action: z.literal('publish'), approvalId: z.string().uuid(), revision: z.number().int().positive(), operationId: z.string().uuid() }).strict(),
 ]);
 function errorResponse(error: unknown) {
@@ -147,7 +147,7 @@ export async function POST(request: Request) {
         data = await reviewSetup(access.actor);
         break;
       case 'approve':
-        data = await approveSetup(access.actor, parsed.revision, parsed.hash);
+        data = await approveSetup(access.actor, parsed.revision, parsed.hash, parsed.acknowledgeAppointments ?? false);
         break;
       case 'publish':
         if (process.env.BUSINESS_SETUP_PUBLISH_ENABLED !== 'true') {

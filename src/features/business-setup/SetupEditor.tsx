@@ -10,6 +10,8 @@ import { designBriefSchema } from '@/features/custom-sites/contracts';
 import { CustomDesignStudio } from '@/features/custom-sites/CustomDesignStudio';
 import type { DesignAsset } from '@/features/custom-sites/WebsitePhotoLibrary';
 
+import { AppointmentImpactReview } from './AppointmentImpactReview';
+import { BookingPolicyEditor } from './BookingPolicyEditor';
 import { ChatAttachments } from './ChatAttachments';
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
 import { missingDesignDetails, WEEKDAYS } from './contracts';
@@ -62,6 +64,17 @@ const LABELS: Record<string, string> = {
   'booking.timezone': 'Time zone',
   'booking.minimumNoticeMinutes': 'Minimum booking notice (minutes)',
   'booking.bufferMinutes': 'Booking buffer (minutes)',
+  'booking.slotIntervalMinutes': 'Time between appointment choices (minutes)',
+  'booking.confirmationMode': 'Appointment confirmation',
+  'bookingPolicy.enabled': 'Booking agreement enabled',
+  'bookingPolicy.title': 'Booking agreement title',
+  'bookingPolicy.text': 'Booking agreement wording',
+  'bookingPolicy.showOnServicePage': 'Agreement on the service page',
+  'bookingPolicy.showBeforeConfirmation': 'Agreement before confirmation',
+  'bookingPolicy.showAfterConfirmation': 'Agreement after confirmation',
+  'bookingPolicy.showInConfirmationEmail': 'Agreement in future confirmation emails',
+  'bookingPolicy.acknowledgment.required': 'Customers must accept the agreement',
+  'bookingPolicy.acknowledgment.text': 'Acceptance checkbox wording',
 };
 function reviewValue(value: unknown): string {
   if (value === null || value === undefined || value === '') {
@@ -106,6 +119,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
   const [tab, setTab] = useState<'chat' | 'website' | 'setup' | 'review'>('chat');
+  const [acknowledgedImpactHash, setAcknowledgedImpactHash] = useState<string | null>(null);
   const [ownBusy, setBusy] = useState(false);
   const [studioBusy, setStudioBusy] = useState(false);
   const [submission, setSubmission] = useState<Submission | null>(null);
@@ -802,7 +816,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
                 onSubmit={(e) => {
                   e.preventDefault();
                   const form = new FormData(e.currentTarget);
-                  void run(() => edit([{ type: 'booking', values: { currency: String(form.get('currency')) as 'CAD' | 'USD', timezone: String(form.get('timezone')), minimumNoticeMinutes: Number(form.get('notice')), bufferMinutes: Number(form.get('buffer')) } }]));
+                  void run(() => edit([{ type: 'booking', values: { currency: String(form.get('currency')) as 'CAD' | 'USD', timezone: String(form.get('timezone')), minimumNoticeMinutes: Number(form.get('notice')), bufferMinutes: Number(form.get('buffer')), slotIntervalMinutes: Number(form.get('interval')) as 5 | 10 | 15 | 30, confirmationMode: String(form.get('confirmation')) as 'instant' | 'request_approval' } }]));
                 }}
               >
                 <label>
@@ -824,8 +838,25 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
                   Extra booking buffer (minutes)
                   <input name="buffer" type="number" min="0" max="60" defaultValue={draft.booking.bufferMinutes} required />
                 </label>
+                <label>
+                  Appointment time choices
+                  <select name="interval" defaultValue={draft.booking.slotIntervalMinutes ?? 15}>
+                    <option value="5">Every 5 minutes</option>
+                    <option value="10">Every 10 minutes</option>
+                    <option value="15">Every 15 minutes</option>
+                    <option value="30">Every 30 minutes</option>
+                  </select>
+                </label>
+                <label>
+                  Confirmation
+                  <select name="confirmation" defaultValue={draft.booking.confirmationMode ?? 'instant'}>
+                    <option value="instant">Confirm automatically</option>
+                    <option value="request_approval">Ask me to approve appointment requests</option>
+                  </select>
+                </label>
                 <button type="submit" disabled={busy || published}>Save booking essentials</button>
               </form>
+              <BookingPolicyEditor key={`policy-${head.revision.revision}`} value={draft.bookingPolicy} disabled={busy || published} onSave={values => void run(() => edit([{ type: 'booking_policy', values }]))} />
               <h3>Opening hours</h3>
               {draft.hoursOrigin === 'suggested' && (
                 <div className="setup-notice">
@@ -939,7 +970,8 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
               </div>
             )}
             <p>These are the exact changes that will become live. Existing appointments keep their saved prices and times.</p>
-            {review.changes.some(change => change.path === 'staff') && <p role="note">{TEAM_BOOKING_IMPACT}</p>}
+            {review.appointmentImpact && <AppointmentImpactReview impact={review.appointmentImpact} acknowledged={acknowledgedImpactHash === review.hash} onAcknowledge={value => setAcknowledgedImpactHash(value ? review.hash : null)} />}
+            {!review.appointmentImpact && review.changes.some(change => change.path === 'staff') && <p role="note">{TEAM_BOOKING_IMPACT}</p>}
             {review.changes.map(change => (
               <div key={change.path}>
                 <h3>{LABELS[change.path] ?? (change.path.startsWith('hours.') ? `Opening hours · ${change.path.split('.')[1]}` : change.path.startsWith('website.') ? 'Website appearance or content' : 'Booking setting')}</h3>
@@ -963,11 +995,11 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
             )}
             <button
               type="button"
-              disabled={busy || review.blockers.length > 0}
+              disabled={busy || review.blockers.length > 0 || Boolean(review.appointmentImpact && (review.appointmentImpact.outsideHoursCount > 0 || review.appointmentImpact.staffAffectedCount > 0) && acknowledgedImpactHash !== review.hash)}
               onClick={() => void run(async () => {
                 const approval = await call<{
                   id: string;
-                }>({ action: 'approve', revision: review.revision, hash: review.hash });
+                }>({ action: 'approve', revision: review.revision, hash: review.hash, ...(review.appointmentImpact ? { acknowledgeAppointments: acknowledgedImpactHash === review.hash } : {}) });
                 await call({ action: 'publish', approvalId: approval.id, revision: review.revision, operationId: crypto.randomUUID() });
                 setPublished(true);
                 setTab('chat');

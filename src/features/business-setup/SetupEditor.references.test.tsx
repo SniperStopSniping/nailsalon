@@ -577,6 +577,35 @@ it('offers the server-gated credit balance inside the builder without starting a
   expect(requests.some(request => ['checkout', 'generate', 'message', 'publish'].includes(request.action))).toBe(false);
 });
 
+it('requires a fresh acknowledgment when the reviewed appointment impact changes', async () => {
+  const normal = globalThis.fetch;
+  let hash = 'first-calendar-review';
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'review') {
+      return { ok: true, json: async () => ({ data: { revision, hash, changes: [], blockers: [], appointmentImpact: { upcomingCount: 2, outsideHoursCount: 1, staffAffectedCount: 0, fingerprint: hash } } }) } as Response;
+    }
+    return normal(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+  const approve = await screen.findByRole('button', { name: 'Approve and publish' });
+
+  expect(approve).toBeDisabled();
+
+  fireEvent.click(screen.getByRole('checkbox', { name: /I understand these existing appointments/ }));
+
+  expect(approve).toBeEnabled();
+
+  fireEvent.click(screen.getByRole('button', { name: /Back to chat/ }));
+  hash = 'new-calendar-review';
+  fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Approve and publish' })).toBeDisabled());
+
+  expect(requests.some(request => ['approve', 'publish'].includes(request.action))).toBe(false);
+});
+
 it('shows the paid request limit before sending and includes it with the same saved-draft chat action', async () => {
   render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled creditsEnabled />);
   await screen.findByRole('button', { name: 'AI credits · $10.00' });

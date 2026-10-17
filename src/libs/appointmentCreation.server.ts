@@ -169,6 +169,7 @@ import {
   registerPublicBookingAttempt,
 } from '@/libs/publicBookingAttempt.server';
 import { checkPublicBookingAttemptRateLimit } from '@/libs/publicBookingAttemptRateLimit';
+import { assertCurrentPublicBookingAvailability } from '@/libs/publicBookingCommitAvailability.server';
 import {
   checkPublicBookingRateLimit,
   getPublicBookingClientIp,
@@ -4066,6 +4067,13 @@ async function createAppointmentFromRequestCore(
               if (access.kind === 'anonymous_customer') {
                 const configuration = await lockAndResolveRequiredBookingPolicyInTx(tx);
                 await revalidateAnonymousMaterialInTx(tx, salonClient, configuration);
+              }
+              if (isNewPublicBooking && access.kind !== 'anonymous_customer') {
+                const configuration = await lockAndResolveRequiredBookingPolicyInTx(tx);
+                if (!technician) {
+                  throw new CustomerBookingOperationError('slot_unavailable');
+                }
+                await assertCurrentPublicBookingAvailability(tx, { salonId: salon.id, technicianId: technician.id, locationId: validatedLocationId, services, strictServiceAssignments: Boolean(normalizedBaseServiceId || normalizedBookingBasket), expectedBooking: bookingConfig, currentBooking: resolveBookingConfigFromSettings(configuration.settings), startTime, blockedEndTime, date: bookingDate, startOfDay: bookingStartOfDay, endOfDay: bookingEndOfDay, now: configuration.capturedAt });
               }
               if (access.kind === 'anonymous_customer') {
                 await access.executionGuard?.(tx);

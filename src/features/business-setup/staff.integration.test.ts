@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type BookingSelectionReadContext, validatePublicBookingSelection } from '@/libs/bookingQuote';
 import * as schema from '@/models/Schema';
 
+import { setupPolicyInput } from './booking-policy';
 import { applySetupOperations, CLOSED_HOURS, setupReadiness, type SetupStaff } from './contracts';
 import { runSetupConversation } from './conversation.server';
 import { approveSetup, editSetup, openSetup, readSetupSnapshot, resetSetupDraft, restartSetup, reviewSetup } from './drafts.server';
@@ -62,7 +63,7 @@ async function publish(actor: Awaited<ReturnType<typeof fixture>>) {
 
   expect(review.blockers).toEqual([]);
 
-  const approval = await approveSetup(actor, review.revision, review.hash);
+  const approval = await approveSetup(actor, review.revision, review.hash, true);
   const input = { revision: review.revision, approvalId: approval.id, operationId: randomUUID() };
   return { input, result: await publishSetup(actor, input) };
 }
@@ -214,18 +215,26 @@ describe('owner-reviewed team setup and original booking contracts', () => {
     delete legacy.staff;
     delete legacy.staffUsesExplicitAssignments;
     delete legacy.identityNamespace;
+    if (legacy.bookingPolicy) {
+      delete legacy.bookingPolicy.acknowledgment;
+    }
     const [workspace] = await database.select().from(schema.businessSetupWorkspaceSchema).where(eq(schema.businessSetupWorkspaceSchema.salonId, actor.salonId));
     const legacyBaseline = structuredClone(workspace!.baseline);
     delete legacyBaseline.staff;
     delete legacyBaseline.staffUsesExplicitAssignments;
+    if (legacyBaseline.bookingPolicy) {
+      delete legacyBaseline.bookingPolicy.acknowledgment;
+    }
     await database.update(schema.businessSetupRevisionSchema).set({ document: legacy }).where(and(eq(schema.businessSetupRevisionSchema.salonId, actor.salonId), eq(schema.businessSetupRevisionSchema.revision, 2)));
     await database.update(schema.businessSetupWorkspaceSchema).set({ baseline: legacyBaseline }).where(eq(schema.businessSetupWorkspaceSchema.salonId, actor.salonId));
 
     expect((await openSetup(actor)).revision.document.staff).toEqual([]);
+    expect((await openSetup(actor)).revision.document.bookingPolicy?.acknowledgment).toEqual((await snapshot(actor)).document.bookingPolicy?.acknowledgment);
 
     const [stored] = await database.select().from(schema.businessSetupRevisionSchema).where(and(eq(schema.businessSetupRevisionSchema.salonId, actor.salonId), eq(schema.businessSetupRevisionSchema.revision, 2)));
 
     expect(stored?.document.staff).toBeUndefined();
+    expect(stored?.document.bookingPolicy?.acknowledgment).toBeUndefined();
 
     await database.insert(schema.technicianSchema).values({ id: randomUUID(), salonId: actor.salonId, name: 'Manually added' });
 
@@ -257,5 +266,76 @@ describe('owner-reviewed team setup and original booking contracts', () => {
     const renamed = await editSetup(actor, { expectedRevision: saved.revision.revision, operationId: randomUUID(), operations: [{ type: 'staff', values: { ...person, name: 'Alex Smith', hours: null } }] });
 
     expect(renamed.revision.document.staff?.find(item => item.id === person.id)).toMatchObject({ name: 'Alex Smith', hours: proposedHours });
+  });
+
+  it('invalidates reviewed and approved calendar impacts when new appointments arrive', async () => {
+    const actor = await fixture();
+    await team(actor);
+    const first = await publish(actor);
+    const reopened = await restartSetup(actor, first.input.revision);
+    await editSetup(actor, { expectedRevision: reopened.revision.revision, operationId: randomUUID(), operations: [{ type: 'hours', values: { ...hours, monday: null } }] });
+    const before = await reviewSetup(actor);
+
+    expect(before.appointmentImpact).toMatchObject({ upcomingCount: 0, outsideHoursCount: 0 });
+
+    const customerId = randomUUID();
+    await database.insert(schema.salonClientSchema).values({ id: customerId, salonId: actor.salonId, phone: '4165550198', fullName: 'Private synthetic customer' });
+    const create = (technicianId: string, startTime: string) => database.insert(schema.appointmentSchema).values({ id: randomUUID(), salonId: actor.salonId, technicianId, salonClientId: customerId, clientPhone: '4165550198', startTime: new Date(startTime), endTime: new Date(new Date(startTime).getTime() + 3600000), totalPrice: 6500, totalDurationMinutes: 60 });
+    await create(first.result.receipt.staffIds[alex.id]!, '2099-09-07T14:00:00Z');
+
+    await expect(approveSetup(actor, before.revision, before.hash, true)).rejects.toMatchObject({ code: 'STALE' });
+
+    const review = await reviewSetup(actor);
+
+    expect(review.appointmentImpact).toMatchObject({ upcomingCount: 1, outsideHoursCount: 1 });
+    expect(JSON.stringify(review)).not.toContain('Private synthetic customer');
+    await expect(approveSetup(actor, review.revision, review.hash)).rejects.toMatchObject({ code: 'APPROVAL_REQUIRED' });
+
+    const approval = await approveSetup(actor, review.revision, review.hash, true);
+    await create(first.result.receipt.staffIds[sam.id]!, '2099-09-08T18:00:00Z');
+
+    await expect(publishSetup(actor, { approvalId: approval.id, operationId: randomUUID(), revision: review.revision })).rejects.toMatchObject({ code: 'APPROVAL_REQUIRED' });
+
+    const fresh = await reviewSetup(actor);
+
+    expect(fresh.appointmentImpact).toMatchObject({ upcomingCount: 2, outsideHoursCount: 1 });
+
+    await publish(actor);
+
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, actor.salonId))).toHaveLength(2);
+  });
+
+  it('prepares a booking agreement through chat, preserves it during a price edit and enforces website-only scope', async () => {
+    const actor = await fixture();
+    const initial = await openSetup(actor);
+    const livePolicy = (await snapshot(actor)).document.bookingPolicy;
+    const values = { ...setupPolicyInput(initial.revision.document.bookingPolicy), enabled: true, text: 'Please arrive on time.', acknowledgment: { required: true, text: 'I agree to this booking policy.' } };
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 100, cachedInputTokens: 0, outputTokens: 100 }, items: [{ type: 'message', text: JSON.stringify({ reply: 'The agreement is in your draft for review.', operationsJson: JSON.stringify([{ type: 'booking_policy', values }]), designRequest: null }) }] });
+    const edited = await runSetupConversation(actor, { expectedRevision: 2, operationId: randomUUID(), scope: 'business_and_website', message: 'Ask customers to agree to arrive on time before confirming.' }, { createResponse });
+
+    expect(edited.head.revision.document.bookingPolicy).toMatchObject({ text: 'Please arrive on time.', acknowledgment: { required: true } });
+    expect((await snapshot(actor)).document.bookingPolicy).toEqual(livePolicy);
+
+    const nextRevision = edited.head.revision.revision;
+
+    await expect(runSetupConversation(actor, { expectedRevision: nextRevision, operationId: randomUUID(), scope: 'website', message: 'Make the background cream.' }, { createResponse })).rejects.toMatchObject({ code: 'INVALID' });
+
+    createResponse.mockResolvedValue({ status: 'completed', usage: { inputTokens: 100, cachedInputTokens: 0, outputTokens: 100 }, items: [{ type: 'message', text: JSON.stringify({ reply: 'The proposed gel price is updated.', operationsJson: JSON.stringify([{ type: 'service', values: { ...gel, priceCents: 7000 } }]), designRequest: null }) }] });
+    const price = await runSetupConversation(actor, { expectedRevision: nextRevision, operationId: randomUUID(), scope: 'service_price', message: 'Change Gel manicure to $70 CAD.' }, { createResponse });
+
+    expect(price.head.revision.document.bookingPolicy).toEqual(edited.head.revision.document.bookingPolicy);
+    expect(price.head.revision.document.services.find(service => service.id === gel.id)?.priceCents).toBe(7000);
+  });
+
+  it('preserves disabled online bookings when an existing owner publishes a website edit', async () => {
+    const actor = await fixture();
+    await team(actor);
+    const first = await publish(actor);
+    await database.update(schema.salonSchema).set({ onlineBookingEnabled: false }).where(eq(schema.salonSchema.id, actor.salonId));
+    const head = await restartSetup(actor, first.input.revision);
+    await editSetup(actor, { expectedRevision: head.revision.revision, operationId: randomUUID(), operations: [{ type: 'copy', bio: 'A new welcome for our website.', specialtyLine: '' }] });
+    await publish(actor);
+
+    expect((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId)))[0]?.onlineBookingEnabled).toBe(false);
   });
 });
