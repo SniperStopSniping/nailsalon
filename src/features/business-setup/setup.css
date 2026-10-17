@@ -124,6 +124,9 @@
 .setup-service { padding: 16px; margin-block: 12px; border: 1px solid var(--setup-line); border-radius: 14px; }
 .setup-service-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .setup-service small { display: block; font-size: 11px; margin: 8px 0; color: var(--setup-muted); }
+.setup-team-summary { padding: 14px 16px; margin-block: 16px; border: 1px solid var(--setup-line); border-radius: 14px; font-size: 13px; }
+.setup-team-summary summary { cursor: pointer; font-weight: 600; }
+.setup-team-summary p { margin-top: 12px; overflow-wrap: anywhere; }
 .setup-review-action { position: sticky; bottom: 0; padding: 16px; text-align: center; background: #fbf8f5ed; backdrop-filter: blur(8px); z-index: 5; margin-top: 16px; }
 .setup-review-action button { min-width: 240px; }
 .setup-review { max-width: 900px; margin: 24px auto; }

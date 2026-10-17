@@ -12,6 +12,7 @@ import type { SetupDocument } from './contracts';
 import { WEEKDAYS } from './contracts';
 import type { readSetupSnapshot } from './drafts.server';
 import { setupPreviewBooking } from './preview-data.server';
+import { TeamBookingSummary } from './TeamBookingSummary';
 /** Read-only adapter into production components. No canonical rows are written. */
 export async function SetupPreview({ salon: liveSalon, document, snapshot }: {
   salon: Salon;
@@ -68,6 +69,7 @@ export async function SetupPreview({ salon: liveSalon, document, snapshot }: {
   return (
     <>
       <div className="bg-amber-50 p-3 text-center text-sm text-amber-950">Private draft preview. Booking is disabled here. Availability examples are simulated.</div>
+      <TeamBookingSummary document={document} />
       <details className="bg-white p-4 text-sm">
         <summary>Proposed booking setup</summary>
         <p>

@@ -14,10 +14,12 @@ import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
-import { addOnSchema, adminSalonMembershipSchema, businessSetupApprovalSchema as approvals, businessSetupPublicationSchema as publications, businessSetupRevisionSchema as revisions, businessSetupTurnSchema as turns, businessSetupWorkspaceSchema as workspaces, customSiteGenerationSchema as designs, salonLocationSchema, salonSchema, serviceAddOnSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
+import { addOnSchema, adminSalonMembershipSchema, businessSetupApprovalSchema as approvals, businessSetupRevisionSchema as revisions, businessSetupTurnSchema as turns, businessSetupWorkspaceSchema as workspaces, customSiteGenerationSchema as designs, salonLocationSchema, salonSchema, serviceAddOnSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
 
 import type { SetupChange, SetupDocument, SetupReview } from './contracts';
 import { applySetupOperations, CLOSED_HOURS, setupEditSchema, SetupError, setupReadiness, setupResetSchema } from './contracts';
+import { publishedSetupIdentities } from './publication-identities.server';
+import { setupStaffFromSnapshot } from './staff';
 
 export type SetupTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type SetupActor = {
@@ -55,13 +57,17 @@ export async function lockSetupSalon(tx: SetupTransaction, actor: SetupActor) {
   }
   return salon;
 }
-export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salonSchema.$inferSelect) {
-  const services = await tx.select().from(serviceSchema).where(eq(serviceSchema.salonId, salon.id)).orderBy(asc(serviceSchema.id));
-  const locations = await tx.select().from(salonLocationSchema).where(eq(salonLocationSchema.salonId, salon.id)).orderBy(asc(salonLocationSchema.id));
-  const staff = await tx.select().from(technicianSchema).where(eq(technicianSchema.salonId, salon.id)).orderBy(asc(technicianSchema.id));
+export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salonSchema.$inferSelect, lockRows = false) {
+  const servicesQuery = tx.select().from(serviceSchema).where(eq(serviceSchema.salonId, salon.id)).orderBy(asc(serviceSchema.id));
+  const services = await (lockRows ? servicesQuery.for('update') : servicesQuery);
+  const locationsQuery = tx.select().from(salonLocationSchema).where(eq(salonLocationSchema.salonId, salon.id)).orderBy(asc(salonLocationSchema.id));
+  const locations = await (lockRows ? locationsQuery.for('update') : locationsQuery);
+  const staffQuery = tx.select().from(technicianSchema).where(eq(technicianSchema.salonId, salon.id)).orderBy(asc(technicianSchema.id));
+  const staff = await (lockRows ? staffQuery.for('update') : staffQuery);
   const addOns = await tx.select().from(addOnSchema).where(eq(addOnSchema.salonId, salon.id)).orderBy(asc(addOnSchema.id));
   const addOnLinks = await tx.select().from(serviceAddOnSchema).where(eq(serviceAddOnSchema.salonId, salon.id)).orderBy(asc(serviceAddOnSchema.id));
-  const assignments = await tx.select({ serviceId: technicianServicesSchema.serviceId, technicianId: technicianServicesSchema.technicianId, enabled: technicianServicesSchema.enabled, priority: technicianServicesSchema.priority }).from(technicianServicesSchema).innerJoin(serviceSchema, eq(serviceSchema.id, technicianServicesSchema.serviceId)).where(eq(serviceSchema.salonId, salon.id)).orderBy(asc(technicianServicesSchema.serviceId), asc(technicianServicesSchema.technicianId));
+  const assignmentsQuery = tx.select({ serviceId: technicianServicesSchema.serviceId, technicianId: technicianServicesSchema.technicianId, enabled: technicianServicesSchema.enabled, priority: technicianServicesSchema.priority }).from(technicianServicesSchema).innerJoin(serviceSchema, eq(serviceSchema.id, technicianServicesSchema.serviceId)).where(eq(serviceSchema.salonId, salon.id)).orderBy(asc(technicianServicesSchema.serviceId), asc(technicianServicesSchema.technicianId));
+  const assignments = await (lockRows ? assignmentsQuery.for('update', { of: technicianServicesSchema }) : assignmentsQuery);
   const location = locations.find(l => l.isPrimary);
   const page = resolveBookingPageConfig(salon.settings);
   const content = resolveBookingPageContent(salon.settings);
@@ -79,6 +85,8 @@ export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salo
     ...(salon.businessHours ? { hoursOrigin: 'existing' as const } : {}),
     booking: resolveBookingConfigFromSettings(salon.settings),
     bookingPolicy: resolveBookingExperience(salon.settings).policy,
+    staff: setupStaffFromSnapshot(staff, assignments).map(person => ({ ...person, serviceIds: person.serviceIds.filter(id => services.some(service => service.id === id && service.isActive)) })),
+    staffUsesExplicitAssignments: staff.some(person => person.isActive && assignments.some(assignment => assignment.technicianId === person.id)),
     services: services.filter(s => s.isActive).map(s => ({
       id: s.id,
       name: s.name,
@@ -108,6 +116,17 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
   if (!revision) {
     throw new SetupError('NOT_FOUND', 'The saved draft is unavailable.');
   }
+  if (revision.document.staff === undefined || workspace.baseline.staff === undefined) {
+    const [salon] = await tx.select().from(salonSchema).where(eq(salonSchema.id, salonId));
+    if (!salon) {
+      throw new SetupError('NOT_FOUND', 'This business is unavailable.');
+    }
+    const current = await readSetupSnapshot(tx, salon);
+    // Read adapter for pre-team JSON revisions. Immutable historical rows and
+    // approvals are untouched; every write still checks the original baseline.
+    const baseline = { ...workspace.baseline, staff: workspace.baseline.staff ?? current.document.staff, staffUsesExplicitAssignments: workspace.baseline.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments };
+    return { workspace: { ...workspace, baseline }, revision: { ...revision, document: { ...revision.document, staff: revision.document.staff ?? current.document.staff, staffUsesExplicitAssignments: revision.document.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments } } };
+  }
   return { workspace, revision };
 }
 export async function openSetup(actor: SetupActor) {
@@ -120,6 +139,7 @@ export async function openSetup(actor: SetupActor) {
     const snapshot = await readSetupSnapshot(tx, salon);
     const id = randomUUID();
     const draft = structuredClone(snapshot.document);
+    draft.identityNamespace = randomUUID();
     draft.website = { config: snapshot.page.draft, content: snapshot.content.draft };
     // Legacy public-page defaults are not an owner's choice to expose a new
     // address. Preserve explicit choices and existing published presentations.
@@ -143,6 +163,7 @@ export async function restartSetup(actor: SetupActor, expectedRevision: number) 
     }
     const snapshot = await readSetupSnapshot(tx, salon);
     const document = structuredClone(snapshot.document);
+    document.identityNamespace = randomUUID();
     document.sessionStartRevision = head.revision.document.sessionStartRevision;
     document.previousDraftRevision = head.revision.document.previousDraftRevision;
     document.website = { config: snapshot.page.draft, content: snapshot.content.draft };
@@ -191,13 +212,15 @@ export async function resetSetupDraft(actor: SetupActor, raw: unknown, restore =
         throw new SetupError('NOT_FOUND', 'There is no earlier draft to restore.');
       }
       document = structuredClone(previous.document);
-      const [publication] = await tx.select().from(publications).where(and(eq(publications.workspaceId, head.workspace.id), eq(publications.salonId, salon.id), eq(publications.revision, previous.revision)));
-      if (publication) {
-        document.services = document.services.map(service => ({ ...service, id: publication.serviceIds[service.id] ?? service.id }));
-      }
+      const resolveIdentity = await publishedSetupIdentities(tx, salon.id, [...document.services.map(service => service.id), ...(document.staff?.flatMap(person => [person.id, ...person.serviceIds]) ?? [])], { workspaceId: head.workspace.id, namespace: document.identityNamespace, legacyRevision: previous.revision, restoring: true });
+      document.services = document.services.map(service => ({ ...service, id: resolveIdentity('services', service.id) ?? service.id }));
       // A restoration must not hide services created since the archived draft,
       // or recreate temporary IDs that publication already mapped to live rows.
       document.services = [...snapshot.document.services.filter(service => !document.services.some(saved => saved.id === service.id)), ...document.services];
+      document.staff = document.staff?.map(person => ({ ...person, id: resolveIdentity('staff', person.id) ?? person.id, serviceIds: person.serviceIds.map(id => resolveIdentity('services', id) ?? id) })) ?? snapshot.document.staff;
+      document.staff = [...(snapshot.document.staff ?? []).filter(person => !document.staff?.some(saved => saved.id === person.id)), ...(document.staff ?? [])];
+      document.staffUsesExplicitAssignments = snapshot.document.staffUsesExplicitAssignments;
+      document.staffEdited = stableJson(document.staff) !== stableJson(snapshot.document.staff);
       if (document.website.config.customFrontendId) {
         await assertCustomArtifact(tx, salon.id, document.website.config.customFrontendId);
       }
@@ -205,6 +228,7 @@ export async function resetSetupDraft(actor: SetupActor, raw: unknown, restore =
         await ownedAssets(tx, salon.id, [...document.designBrief.referenceIds, ...document.designBrief.websiteAssetIds]);
       }
     } else {
+      document.identityNamespace = randomUUID();
       // Read confirmed business values from live records, never the projected
       // draft or an earlier uploaded business. Unpublished answers disappear.
       document.website = { config: resolveBookingPageConfig(null).draft, content: resolveBookingPageContent(null).draft };
@@ -280,7 +304,16 @@ export async function editSetup(actor: SetupActor, input: unknown, origin: 'owne
         await assertCustomArtifact(tx, salon.id, op.artifactId);
       }
     }
-    const document = applySetupOperations(head.revision.document, edit.operations, origin);
+    const editing = { ...head.revision.document, staff: head.revision.document.staff ?? snapshot.document.staff, staffUsesExplicitAssignments: head.revision.document.staffUsesExplicitAssignments ?? snapshot.document.staffUsesExplicitAssignments };
+    const operations = edit.operations.map((operation) => {
+      if (operation.type !== 'staff') {
+        return operation;
+      }
+      const current = snapshot.document.staff?.find(person => person.id === operation.values.id);
+      const proposed = editing.staff?.find(person => person.id === operation.values.id);
+      return { ...operation, values: { ...operation.values, hours: operation.values.hours ?? proposed?.hours ?? null, serviceIds: current && operation.values.assignmentMode === 'preserve' ? current.serviceIds : operation.values.serviceIds } };
+    });
+    const document = applySetupOperations(editing, operations, origin);
     // Restoring an earlier source also restores its photo selection. Otherwise a
     // later AI edit could resurrect the selection from a different design.
     if (origin === 'owner' && document.designBrief && !edit.operations.some(op => op.type === 'design_brief') && edit.operations.some(op => op.type === 'custom_frontend')) {
@@ -309,7 +342,7 @@ export function setupChanges(before: unknown, after: unknown, path = ''): SetupC
   return [{ path, before: before ?? null, after: after ?? null }];
 }
 export function makeSetupReview(head: Awaited<ReturnType<typeof loadSetupHead>>): SetupReview {
-  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['sessionStartRevision', 'previousDraftRevision', 'hoursOrigin'].includes(change.path));
+  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['identityNamespace', 'sessionStartRevision', 'previousDraftRevision', 'hoursOrigin', 'staffUsesExplicitAssignments', 'staffEdited'].includes(change.path));
   return {
     revision: head.revision.revision,
     hash: setupHash({ workspaceId: head.workspace.id, revision: head.revision.revision, baseline: head.workspace.baselineHash, document: head.revision.document }),
@@ -329,6 +362,12 @@ export async function reviewSetup(actor: SetupActor) {
 }
 export async function reviewSetupHead(tx: SetupTransaction, head: Awaited<ReturnType<typeof loadSetupHead>>) {
   const review = makeSetupReview(head);
+  if (head.workspace.baseline.business && head.workspace.status === 'editing') {
+    const [salon] = await tx.select({ publicationStatus: salonSchema.publicationStatus }).from(salonSchema).where(eq(salonSchema.id, head.workspace.salonId));
+    if (salon?.publicationStatus === 'published' && stableJson(head.revision.document.hours) !== stableJson(head.workspace.baseline.hours)) {
+      review.blockers.push('Changes to existing business hours need an appointment-impact review. Your saved hours will stay as they are.');
+    }
+  }
   const id = head.revision.document.website.config.customFrontendId;
   if (id) {
     const { artifact } = await assertCustomArtifact(tx, head.workspace.salonId, id);

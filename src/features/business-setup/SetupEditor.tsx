@@ -14,6 +14,9 @@ import { ChatAttachments } from './ChatAttachments';
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
 import { missingDesignDetails, WEEKDAYS } from './contracts';
 import { StartOverDesign } from './StartOverDesign';
+import { TEAM_BOOKING_IMPACT, teamReviewValue } from './team-summary';
+import { TeamBookingSummary } from './TeamBookingSummary';
+import { TeamEditor } from './TeamEditor';
 import { WebsiteDetailsEditor } from './WebsiteDetailsEditor';
 
 type Head = {
@@ -52,6 +55,7 @@ const LABELS: Record<string, string> = {
   'business.workMode': 'Solo or team',
   'business.locationDisplayMode': 'Public address visibility',
   'services': 'Service menu',
+  'staff': 'Team schedules and service assignments',
   'website.content.websiteDetails': 'Public contact details, directions and website policies',
   'website.config.customFrontendId': 'Website design (see Preview)',
   'booking.currency': 'Currency',
@@ -708,6 +712,9 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
             </div>
           </div>
           {head && (
+            <TeamBookingSummary document={head.revision.document} />
+          )}
+          {head && (
             <CustomDesignStudio
               creditsEnabled={creditsEnabled}
               key={draft?.sessionStartRevision ?? 1}
@@ -904,6 +911,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
                 </form>
               ))}
               <button type="button" disabled={busy || published} onClick={() => void run(() => edit([{ type: 'service', values: { id: `draft_${crypto.randomUUID()}`, name: 'New service', description: null, priceCents: null, durationMinutes: null, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'manicure', bookingCategory: 'manicure' } }]))}>Add a service</button>
+              {(draft.business.workMode === 'team' || Boolean(draft.staff?.length)) && <TeamEditor staff={draft.staff ?? []} services={draft.services} hours={draft.hours} revision={head.revision.revision} disabled={busy || published} onSave={person => void run(() => edit([{ type: 'staff', values: person }]))} />}
               <h3>Design direction</h3>
               <div className="setup-quick-replies">{([{ label: 'Clean and minimal', style: 'minimal', palette: 'monochrome' }, { label: 'Soft and welcoming', style: 'soft', palette: 'blush_cocoa' }, { label: 'Dark and luxurious', style: 'luxury', palette: 'black_champagne' }] as const).map(choice => <button type="button" key={choice.label} disabled={busy || published} onClick={() => void run(() => edit([{ type: 'design', style: choice.style, palette: choice.palette, layout: 'editorial' }]))}>{choice.label}</button>)}</div>
             </>
@@ -931,18 +939,19 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
               </div>
             )}
             <p>These are the exact changes that will become live. Existing appointments keep their saved prices and times.</p>
+            {review.changes.some(change => change.path === 'staff') && <p role="note">{TEAM_BOOKING_IMPACT}</p>}
             {review.changes.map(change => (
               <div key={change.path}>
                 <h3>{LABELS[change.path] ?? (change.path.startsWith('hours.') ? `Opening hours · ${change.path.split('.')[1]}` : change.path.startsWith('website.') ? 'Website appearance or content' : 'Booking setting')}</h3>
                 <p>
                   <strong>Before:</strong>
                   {' '}
-                  {change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') ? designReviewValue(change.before) : reviewValue(change.before)}
+                  {change.path === 'staff' ? teamReviewValue(change.before, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') ? designReviewValue(change.before) : reviewValue(change.before)}
                 </p>
                 <p>
                   <strong>After:</strong>
                   {' '}
-                  {change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') ? designReviewValue(change.after) : reviewValue(change.after)}
+                  {change.path === 'staff' ? teamReviewValue(change.after, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') ? designReviewValue(change.after) : reviewValue(change.after)}
                 </p>
               </div>
             ))}

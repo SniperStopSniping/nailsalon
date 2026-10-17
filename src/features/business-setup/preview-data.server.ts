@@ -3,10 +3,12 @@ import 'server-only';
 import { computeDaySlots } from '@/libs/availability/engine.server';
 import { resolvePublicTechnicianCapabilityMode } from '@/libs/publicTechnicianCompatibility';
 import { getDateKeyInTimeZone } from '@/libs/timeZone';
+import { resolveWeeklySchedule } from '@/libs/weeklySchedule';
 
 import type { SetupDocument } from './contracts';
 import { WEEKDAYS } from './contracts';
 import type { readSetupSnapshot } from './drafts.server';
+import { setupStaffFromSnapshot, setupStaffSchedule } from './staff';
 
 type Snapshot = Awaited<ReturnType<typeof readSetupSnapshot>>;
 /**
@@ -14,19 +16,23 @@ type Snapshot = Awaited<ReturnType<typeof readSetupSnapshot>>;
  * fetching calendar integrations. Results are explicitly simulated.
  */
 export function setupPreviewBooking(document: SetupDocument, snapshot: Pick<Snapshot, 'staff' | 'assignments'>, now = new Date()) {
-  const technicians = snapshot.staff.filter(t => t.isActive).map(t => ({
-    id: t.id,
-    name: t.name,
-    imageUrl: t.avatarUrl,
-    rating: t.rating ? Number(t.rating) : null,
-    reviewCount: t.reviewCount ?? 0,
-    weeklySchedule: t.weeklySchedule,
-    primaryLocationId: t.primaryLocationId,
-    specialties: t.specialties,
-    enabledServiceIds: snapshot.assignments.filter(a => a.technicianId === t.id && a.enabled).map(a => a.serviceId),
-    serviceIds: snapshot.assignments.filter(a => a.technicianId === t.id).map(a => a.serviceId),
-  }));
-  if (!snapshot.staff.length && document.business.workMode === 'solo') {
+  const proposed = document.staff ?? setupStaffFromSnapshot(snapshot.staff, snapshot.assignments);
+  const technicians = proposed.filter(person => person.isActive).map((person) => {
+    const t = snapshot.staff.find(t => t.id === person.id);
+    return ({
+      id: person.id,
+      name: person.name,
+      imageUrl: t?.avatarUrl ?? null,
+      rating: t?.rating ? Number(t.rating) : null,
+      reviewCount: t?.reviewCount ?? 0,
+      weeklySchedule: setupStaffSchedule(person) ?? (t ? resolveWeeklySchedule(t) : null),
+      primaryLocationId: t?.primaryLocationId ?? null,
+      specialties: t?.specialties ?? [],
+      enabledServiceIds: person.serviceIds,
+      serviceIds: person.assignmentMode === 'explicit' ? document.services.map(service => service.id) : [],
+    });
+  });
+  if (!proposed.length && document.business.workMode === 'solo') {
     technicians.push({ id: 'setup_preview_owner', name: document.business.name, imageUrl: null, rating: null, reviewCount: 0, specialties: [], primaryLocationId: null, weeklySchedule: Object.fromEntries(WEEKDAYS.map(day => [day, document.hours[day] ? { start: document.hours[day]!.open, end: document.hours[day]!.close } : null])), enabledServiceIds: document.services.map(s => s.id), serviceIds: document.services.map(s => s.id) });
   }
   const service = document.services.find(s => s.durationMinutes !== null && s.priceCents !== null);

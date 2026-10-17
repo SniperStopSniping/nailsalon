@@ -13,7 +13,7 @@ import * as schema from '@/models/Schema';
 import { runSetupModel } from './ai-trial.server';
 import { CLOSED_HOURS } from './contracts';
 import { runSetupConversation } from './conversation.server';
-import { approveSetup, editSetup, openSetup, resetSetupDraft, reviewSetup } from './drafts.server';
+import { approveSetup, editSetup, openSetup, resetSetupDraft, restartSetup, reviewSetup } from './drafts.server';
 import { publishSetup } from './publish.server';
 
 vi.mock('server-only', () => ({}));
@@ -27,6 +27,9 @@ vi.mock('@/features/onboarding-v1-integration/canonical-profile-media-lifecycle.
   completeCanonicalProfileMediaPromotion: vi.fn(),
 }));
 const raw = process.env.CONCURRENCY_TEST_DATABASE_URL;
+if (process.env.AI_SETUP_PUBLICATION_CONCURRENCY_REQUIRED === 'true' && !raw) {
+  throw new Error('An attested disposable database is required for setup publication concurrency tests.');
+}
 const target = raw ? requireDisposableDatabaseTarget({ ...process.env, DATABASE_URL: raw }) : null;
 let pool: Pool;
 let database: ReturnType<typeof drizzle<typeof schema>>;
@@ -67,6 +70,17 @@ async function fixture() {
   return { actor, input: { approvalId: approval.id, operationId: randomUUID(), revision: review.revision } };
 }
 
+async function teamFixture() {
+  const { actor } = await fixture();
+  await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [
+    { type: 'business', values: { workMode: 'team' } },
+    ...['Alex', 'Sam'].map(name => ({ type: 'staff', values: { id: `draft_${name}`, name, isActive: true, hours: { ...CLOSED_HOURS, monday: { open: '09:00', close: '17:00' } }, serviceIds: ['draft_service'], assignmentMode: 'explicit' } })),
+  ] });
+  const review = await reviewSetup(actor);
+  const approval = await approveSetup(actor, review.revision, review.hash);
+  return { actor, input: { approvalId: approval.id, operationId: randomUUID(), revision: review.revision } };
+}
+
 describe.skipIf(!target)('setup publication on attested disposable PostgreSQL', () => {
   it('accepts a fresh owner conversation when PostgreSQL uses a non-UTC timezone', async () => {
     const connection = await pool.connect();
@@ -99,6 +113,46 @@ describe.skipIf(!target)('setup publication on attested disposable PostgreSQL', 
     expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(1);
   });
 
+  it('serializes duplicate team publication into one mapping without duplicate staff', async () => {
+    const { actor, input } = await teamFixture();
+    const results = await Promise.all([publishSetup(actor, input), publishSetup(actor, input)]);
+
+    expect(results[0]!.receipt).toEqual(results[1]!.receipt);
+    expect(Object.keys(results[0]!.receipt.staffIds).sort()).toEqual(['draft_Alex', 'draft_Sam']);
+    expect(await database.select().from(schema.technicianSchema).where(eq(schema.technicianSchema.salonId, actor.salonId))).toHaveLength(2);
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(1);
+  });
+
+  it('waits for an older manual staff route and rejects its newer data instead of overwriting it', async () => {
+    const { actor, input } = await teamFixture();
+    const first = await publishSetup(actor, input);
+    const reopened = await restartSetup(actor, input.revision);
+    const person = reopened.revision.document.staff!.find(person => person.id === first.receipt.staffIds.draft_Alex)!;
+    await editSetup(actor, { expectedRevision: reopened.revision.revision, operationId: randomUUID(), operations: [{ type: 'staff', values: { ...person, name: 'Proposed name' } }] });
+    const review = await reviewSetup(actor);
+    const approval = await approveSetup(actor, review.revision, review.hash);
+    const connection = await pool.connect();
+    try {
+      await connection.query('BEGIN');
+      // Deliberately no salon lock: this matches older manual staff writers.
+      await connection.query('UPDATE technician SET name = $1 WHERE id = $2', ['Newer manual name', person.id]);
+      const pending = publishSetup(actor, { revision: review.revision, approvalId: approval.id, operationId: randomUUID() }).then(value => ({ value }), error => ({ error }));
+      await vi.waitFor(async () => {
+        const waiting = await pool.query('SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = \'Lock\'');
+
+        expect(waiting.rows[0].count).toBeGreaterThan(0);
+      });
+      await connection.query('COMMIT');
+
+      expect(await pending).toMatchObject({ error: { code: 'STALE' } });
+      expect((await database.select().from(schema.technicianSchema).where(eq(schema.technicianSchema.id, person.id)))[0]?.name).toBe('Newer manual name');
+      expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(1);
+    } finally {
+      await connection.query('ROLLBACK');
+      connection.release();
+    }
+  });
+
   it('waits for a manual salon update and rejects the stale approval', async () => {
     const { actor, input } = await fixture();
     const connection = await pool.connect();
@@ -119,6 +173,8 @@ describe.skipIf(!target)('setup publication on attested disposable PostgreSQL', 
 
       expect(await settled).toMatchObject({ error: { code: 'STALE' } });
       expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+
+      expect(await database.select().from(schema.technicianSchema).where(eq(schema.technicianSchema.salonId, actor.salonId))).toHaveLength(0);
     } finally {
       await connection.query('ROLLBACK');
       connection.release();

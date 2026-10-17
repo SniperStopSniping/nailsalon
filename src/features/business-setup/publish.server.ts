@@ -15,6 +15,8 @@ import { auditLogSchema, businessSetupApprovalSchema as approvals, businessSetup
 import { SetupError, WEEKDAYS } from './contracts';
 import type { SetupActor } from './drafts.server';
 import { loadSetupHead, lockSetupSalon, readSetupSnapshot, reviewSetupHead, stableJson } from './drafts.server';
+import { publishedSetupIdentities } from './publication-identities.server';
+import { publishSetupStaff } from './staff-publication.server';
 
 const requestSchema = z.object({ approvalId: z.string().uuid(), operationId: z.string().uuid(), revision: z.number().int().positive() }).strict();
 /** Only called by the trusted approval UI; deliberately absent from model tools. */
@@ -76,7 +78,10 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
     if (review.blockers.length) {
       throw new SetupError('NOT_READY', review.blockers.join(' '));
     }
-    const current = await readSetupSnapshot(tx, salon);
+    // Older manual staff/catalog routes may not lock the salon. Lock the rows
+    // we can change before comparing the baseline, so we observe their commits
+    // instead of overwriting a newer schedule or assignment after the check.
+    const current = await readSetupSnapshot(tx, salon, true);
     if (current.hash !== head.workspace.baselineHash) {
       throw new SetupError('STALE', 'Your business changed elsewhere. Review those changes before publishing.');
     }
@@ -100,13 +105,25 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       throw new SetupError('NOT_READY', 'Changes to existing business hours need an appointment-impact review.');
     }
     const serviceIds: Record<string, string> = {};
+    const resolveIdentity = await publishedSetupIdentities(tx, salon.id, [...draft.services.map(service => service.id), ...(draft.staff?.map(person => person.id) ?? [])], { workspaceId: head.workspace.id, namespace: draft.identityNamespace, legacyRevision: head.revision.revision });
+    const usedServiceIds = new Set<string>();
     for (const service of draft.services) {
       if (service.priceCents === null || service.durationMinutes === null || !service.confirmed) {
         throw new SetupError('NOT_READY', 'Review all service prices and times first.');
       }
-      const baselineService = current.document.services.find(s => s.id === service.id);
+      const recordId = resolveIdentity('services', service.id);
+      const baselineService = current.document.services.find(s => s.id === recordId);
+      if (recordId && !baselineService) {
+        throw new SetupError('INVALID', 'A previously saved service is no longer active. Review your current menu instead.');
+      }
+      if (recordId && usedServiceIds.has(recordId)) {
+        throw new SetupError('INVALID', 'This draft contains the same saved service twice. Review the menu before publishing.');
+      }
+      if (recordId) {
+        usedServiceIds.add(recordId);
+      }
       if (baselineService && stableJson(baselineService) === stableJson(service)) {
-        serviceIds[service.id] = service.id;
+        serviceIds[service.id] = baselineService.id;
         continue;
       }
       const values = {
@@ -119,7 +136,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
         category: service.category,
         bookingCategory: service.bookingCategory,
       };
-      if (!baselineService && service.id.startsWith('draft_')) {
+      if (!baselineService && service.id.startsWith('draft_') && !recordId) {
         const id = randomUUID();
         await tx.insert(serviceSchema).values({ id, salonId: salon.id, ...values });
         serviceIds[service.id] = id;
@@ -127,7 +144,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
         if (!baselineService) {
           throw new SetupError('INVALID', 'A service does not belong to this business draft.');
         }
-        const [updated] = await tx.update(serviceSchema).set(values).where(and(eq(serviceSchema.id, service.id), eq(serviceSchema.salonId, salon.id))).returning();
+        const [updated] = await tx.update(serviceSchema).set(values).where(and(eq(serviceSchema.id, baselineService.id), eq(serviceSchema.salonId, salon.id))).returning();
         if (!updated) {
           throw new SetupError('STALE', 'A service changed elsewhere. Reload your setup.');
         }
@@ -140,10 +157,11 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
     } else if (stableJson(draft.business) !== stableJson(current.document.business) || stableJson(draft.hours) !== stableJson(current.document.hours)) {
       await tx.update(salonLocationSchema).set({ address: draft.business.exactAddress || null, city: draft.business.city, businessHours: draft.hours }).where(and(eq(salonLocationSchema.id, location.id), eq(salonLocationSchema.salonId, salon.id)));
     }
-    if (!current.staff.length && draft.business.workMode !== 'solo') {
+    const staffIds = await publishSetupStaff(tx, salon.id, current, draft, serviceIds, location!.id, resolveIdentity);
+    if (!current.staff.length && !draft.staff?.length && draft.business.workMode !== 'solo') {
       throw new SetupError('NOT_READY', 'Add your team and service assignments before publishing this setup.');
     }
-    if (!current.staff.length) {
+    if (!current.staff.length && !draft.staff?.length) {
       const technicianId = randomUUID();
       const weeklySchedule = Object.fromEntries(WEEKDAYS.map(day => [day, draft.hours[day] ? { start: draft.hours[day]!.open, end: draft.hours[day]!.close } : null]));
       await tx.insert(technicianSchema).values({ id: technicianId, salonId: salon.id, name: salon.ownerName || draft.business.name, weeklySchedule, primaryLocationId: location!.id, onboardingStatus: 'completed' });
@@ -170,7 +188,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       publishedAt: salon.publishedAt ?? publishedAt,
       slugLockedAt: salon.slugLockedAt ?? publishedAt,
     }).where(eq(salonSchema.id, salon.id));
-    const [created] = await tx.insert(publications).values({ id: randomUUID(), salonId: salon.id, workspaceId: head.workspace.id, revision: review.revision, operationId: input.operationId, approvalId: approval.id, actorId: actor.adminId, serviceIds, publishedAt, mediaFinalized: true }).returning();
+    const [created] = await tx.insert(publications).values({ id: randomUUID(), salonId: salon.id, workspaceId: head.workspace.id, revision: review.revision, operationId: input.operationId, approvalId: approval.id, actorId: actor.adminId, serviceIds, staffIds, publishedAt, mediaFinalized: true }).returning();
     await tx.insert(auditLogSchema).values({ id: randomUUID(), salonId: salon.id, actorType: 'admin', actorId: actor.adminId, action: 'settings_updated', entityType: 'business_setup_publication', entityId: created!.id, metadata: { revision: review.revision, changedFields: review.changes.map(c => c.path) } });
     await tx.update(workspaces).set({ status: 'published', updatedAt: publishedAt }).where(eq(workspaces.id, head.workspace.id));
     return created!;

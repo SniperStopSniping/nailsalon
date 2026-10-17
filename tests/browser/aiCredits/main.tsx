@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { AiCreditsMenu } from '@/features/ai-credits/AiCreditsMenu';
+import { SetupEditor } from '@/features/business-setup/SetupEditor';
 
 export function Review() {
   const [redirect, setRedirect] = useState('');
@@ -36,4 +37,4 @@ export function Review() {
     </main>
   );
 }
-createRoot(document.getElementById('root')!).render(<Review />);
+createRoot(document.getElementById('root')!).render(new URLSearchParams(location.search).has('builder') ? <SetupEditor salonSlug="synthetic" locale="en" existingSalon aiEnabled /> : <Review />);

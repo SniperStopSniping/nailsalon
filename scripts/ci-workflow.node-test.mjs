@@ -12,6 +12,15 @@ import { parse } from 'yaml';
 const workflow = parse(readFileSync(new URL('../.github/workflows/CI.yml', import.meta.url), 'utf8'));
 const { jobs } = workflow;
 
+test('AI setup publication races require an attested database and all nine cases', () => {
+  const step = jobs['test-core'].steps.find(step => step.name === 'Verify AI setup publication concurrency on disposable PostgreSQL');
+  assert.equal(step.env.AI_SETUP_PUBLICATION_CONCURRENCY_REQUIRED, 'true');
+  assert.match(step.env.CONCURRENCY_TEST_DATABASE_URL, /@127\.0\.0\.1:55432\/luster_e2e_ci_disposable\?application_name=luster-e2e-ci-disposable$/);
+  assert.match(step.run, /publication\.concurrency\.integration\.test\.ts/);
+  assert.match(step.run, /numPassedTests!==9/);
+  assert.match(step.run, /numPendingTests!==0/);
+});
+
 test('AI new-owner enrollment races require an attested database and zero skipped cases', () => {
   const step = jobs['test-core'].steps.find(step => step.name === 'Verify AI owner entry concurrency on disposable PostgreSQL');
   assert.equal(step.env.AI_ENTRY_CONCURRENCY_REQUIRED, 'true');
@@ -132,7 +141,7 @@ test('AI migration pins accept the new packet and reject changed or already-ship
   const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
   const packet = run.match(/while read -r file expected_blob; do[\s\S]*?\nAI_SETUP_MIGRATIONS/)[0];
   const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z0-9_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
-  assert.equal(files.length, 11);
+  assert.equal(files.length, 12);
   const directory = mkdtempSync(path.join(tmpdir(), 'ai-migration-gate-'));
   const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
   const check = () => spawnSync('bash', ['-eu', '-c', `base="$(git rev-parse HEAD)"\n${packet}`], { cwd: directory }).status;

@@ -39,6 +39,15 @@ export type SetupService = z.infer<typeof setupServiceSchema> & {
   origin: 'existing' | 'owner' | 'assistant' | 'upload';
   confirmed: boolean;
 };
+export const setupStaffSchema = z.object({
+  id,
+  name: z.string().trim().min(1).max(120),
+  isActive: z.boolean(),
+  hours: hoursSchema.nullable(),
+  serviceIds: z.array(id).max(200).refine(ids => new Set(ids).size === ids.length, 'Choose each service only once.'),
+  assignmentMode: z.enum(['preserve', 'explicit']),
+}).strict();
+export type SetupStaff = z.infer<typeof setupStaffSchema>;
 export const businessSchema = z.object({
   name: z.string().trim().min(1).max(120),
   city: z.string().trim().max(120),
@@ -58,6 +67,7 @@ const uploadOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('service'), values: setupServiceSchema }).strict(),
 ]);
 export const setupOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('staff'), values: setupStaffSchema }).strict(),
   z.object({ type: z.literal('preview_defaults'), seed: z.string().uuid() }).strict(),
   z.object({ type: z.literal('confirm_hours') }).strict(),
   websiteDetailsOperation,
@@ -84,6 +94,8 @@ export type SetupDocument = {
   /** Owner-controlled conversation boundary; older revisions remain archived. */
   sessionStartRevision?: number;
   previousDraftRevision?: number;
+  /** Stable identity lineage across resets/restores, renewed for a new setup. */
+  identityNamespace?: string;
   business: z.infer<typeof businessSchema>;
   hours: SetupHours;
   /** Suggested hours are editable draft values, never approved opening hours. */
@@ -91,6 +103,10 @@ export type SetupDocument = {
   booking: z.infer<typeof bookingConfigSchema>;
   bookingPolicy?: ReturnType<typeof resolveBookingExperience>['policy'];
   services: SetupService[];
+  /** Absent on older saved revisions; hydrate from the verified baseline before editing. */
+  staff?: SetupStaff[];
+  staffUsesExplicitAssignments?: boolean;
+  staffEdited?: boolean;
   designBrief?: z.infer<typeof designBriefSchema>;
   website: {
     config: BookingPageConfigSide;
@@ -141,6 +157,24 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   for (const raw of operations) {
     const op = setupOperationSchema.parse(raw);
     switch (op.type) {
+      case 'staff': {
+        if (origin === 'upload') {
+          throw new SetupError('FORBIDDEN', 'Confirm team details in your conversation or the team controls.');
+        }
+        const previous = next.staff?.find(person => person.id === op.values.id);
+        if (!previous && !op.values.id.startsWith('draft_')) {
+          throw new SetupError('INVALID', 'New team members need a draft identity.');
+        }
+        if (!previous && op.values.assignmentMode !== 'explicit') {
+          throw new SetupError('INVALID', 'Choose services for a new team member.');
+        }
+        next.staff = previous ? next.staff!.map(person => person.id === previous.id ? op.values : person) : [...next.staff ?? [], op.values];
+        next.staffEdited = true;
+        if (next.staff.length > 50) {
+          throw new SetupError('INVALID', 'This team is too large for one setup.');
+        }
+        break;
+      }
       case 'preview_defaults': {
         if (origin !== 'assistant') {
           throw new SetupError('FORBIDDEN', 'Preview suggestions are prepared through the website conversation.');
@@ -204,6 +238,18 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
           next.services = next.services.map(s => s.id === service.id ? service : s);
         } else {
           next.services.push(service);
+          if (next.staff?.length) {
+            next.staffEdited = true;
+          }
+          const active = next.staff?.filter(person => person.isActive) ?? [];
+          if (next.business.workMode === 'solo' && active.length === 1) {
+            if (active[0]!.assignmentMode === 'preserve') {
+              active[0]!.serviceIds = next.services.map(service => service.id);
+            } else {
+              active[0]!.serviceIds.push(service.id);
+            }
+            active[0]!.assignmentMode = 'explicit';
+          }
         }
         if (next.services.length > 200) {
           throw new SetupError('INVALID', 'This menu is too large. Please split the update.');
@@ -232,6 +278,9 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
         next.website.content = { ...next.website.content, bio: op.bio, specialtyLine: op.specialtyLine };
         break;
     }
+  }
+  if (next.staff?.some(person => person.serviceIds.some(serviceId => !next.services.some(service => service.id === serviceId)))) {
+    throw new SetupError('INVALID', 'A team member’s selected service is not in this business draft.');
   }
   if (next.business.locationDisplayMode !== 'full_address' && next.business.exactAddress.trim().length >= 5 && JSON.stringify(next.website.content.websiteDetails ?? {}).toLowerCase().includes(next.business.exactAddress.trim().toLowerCase())) {
     throw new SetupError('INVALID', 'Keep your private street address out of public website details. Use a nearby intersection or area instead.');
@@ -264,6 +313,34 @@ export function setupReadiness(draft: SetupDocument): string[] {
     }
     if (!service.confirmed) {
       blockers.push(`Review the price and time for ${service.name}.`);
+    }
+  }
+  if (draft.business.workMode === 'team' && !draft.staff?.some(person => person.isActive)) {
+    blockers.push('Add your team before publishing.');
+  }
+  if (draft.staffEdited && draft.staff?.length) {
+    if (!draft.staff.some(person => person.isActive)) {
+      blockers.push('Enable bookings for at least one team member.');
+    }
+    for (const person of draft.staff.filter(person => person.isActive)) {
+      if (person.name === 'New team member') {
+        blockers.push('Confirm each team member’s name.');
+      }
+      if ((person.id.startsWith('draft_') && !person.hours) || (person.hours && !Object.values(person.hours).some(Boolean))) {
+        blockers.push(`Add working hours for ${person.name}, or turn off their bookings.`);
+      }
+    }
+    if (draft.staffUsesExplicitAssignments === false && draft.staff.some(person => person.isActive && person.assignmentMode === 'explicit')) {
+      for (const person of draft.staff.filter(person => person.isActive && person.assignmentMode === 'preserve')) {
+        blockers.push(`Review ${person.name}’s service assignments before changing the team’s booking eligibility.`);
+      }
+    }
+    if (draft.staff.some(person => person.assignmentMode === 'explicit')) {
+      for (const service of draft.services) {
+        if (!draft.staff.some(person => person.isActive && person.serviceIds.includes(service.id))) {
+          blockers.push(`Choose an active team member who can perform ${service.name}.`);
+        }
+      }
     }
   }
   return blockers;
