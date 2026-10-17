@@ -124,7 +124,7 @@ for (const [width, height] of sizes) {
     await page.getByRole('dialog', { name: 'Edit Sunday', exact: true }).getByRole('button', { name: 'Save Sunday', exact: true }).click();
     await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
 
-    await expect(page.getByRole('heading', { name: 'Make it feel like yours' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Choose your look' })).toBeVisible();
 
     const styleHeight = await page.evaluate(() => document.documentElement.scrollHeight);
     await noOverflow(page);

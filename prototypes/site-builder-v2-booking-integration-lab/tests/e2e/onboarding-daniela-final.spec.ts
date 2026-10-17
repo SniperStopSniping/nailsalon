@@ -1107,7 +1107,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await page.setViewportSize({ height: 800, width: 1180 });
     await openAuditFresh(page);
     await chooseStartingPoint(page, 'Quick Book');
-    await applyFixture(page, 'Policies Off', 'Make it feel like yours');
+    await applyFixture(page, 'Policies Off', 'Choose your look');
 
     const styles = [
       ['Modern', 'modern', '28-style-modern'],
