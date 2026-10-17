@@ -1376,7 +1376,7 @@ export function CanvaDialog({
       <Dialog closeDisabled={pending} description="Keep your artwork exactly as it is. Choose what clients can tap, then try your website." onClose={requestClose} open={open} title="Upload a Canva design" variant="bottom-sheet">
         <div aria-busy={pending} className="onboarding-subflow onboarding-your-design">
           <ol aria-label="Your Design steps" className="onboarding-your-design-steps">
-            {['Upload design', 'Add links', 'Preview'].map((label, index) => {
+            {['Upload', 'Add links', 'Preview'].map((label, index) => {
               const currentStep = !hasDesign ? 0 : linkCount === 0 ? 1 : 2;
               return (
                 <li aria-current={index === currentStep ? 'step' : undefined} data-complete={index < currentStep ? 'true' : 'false'} key={label}>
@@ -1394,7 +1394,7 @@ export function CanvaDialog({
                 </div>
               )
             : null}
-          <p>{hasDesign ? 'Your design is saved in this setup. Add links over its printed buttons, text or icons.' : 'Upload your Canva export or any design image. You can add up to 10 pages and make them clickable yourself.'}</p>
+          <p>{hasDesign ? 'Your artwork stays exactly as uploaded.' : 'Upload your Canva export or any design image. You can add up to 10 pages and make them clickable yourself.'}</p>
           {!section || !controller ? <DesignExportHelp images={[]} /> : null}
           {hasDesign && controller
             ? (
@@ -1402,7 +1402,7 @@ export function CanvaDialog({
                   <Link2 aria-hidden="true" size={22} />
                   <div>
                     <h3>{linkCount > 0 ? `${linkCount} ${linkCount === 1 ? 'link' : 'links'} added` : 'What should clients be able to tap?'}</h3>
-                    <p>Connect booking, Instagram, email, calls or directions. Your artwork stays the same.</p>
+                    <p>{linkCount > 0 ? 'Add more links, or preview your website.' : 'Add booking, Instagram, email, calls or directions.'}</p>
                   </div>
                   {images.length === 1
                     ? <button className="is-primary" disabled={pending} type="button" onClick={() => setHotspotImageItemId(images[0]?.id ?? null)}>{linkCount > 0 ? 'Edit clickable links' : 'Add clickable links'}</button>
@@ -1637,8 +1637,20 @@ export function CanvaDialog({
             : null}
           <p aria-live="polite" className="visually-hidden" role="status">{pending ? 'Saving Canva pages.' : ''}</p>
           <footer className="onboarding-overlay-actions">
-            <button disabled={pending} type="button" onClick={requestClose}>{hasDesign ? 'Back to setup' : 'Cancel'}</button>
-            {!section || hasDesign
+            <button
+              disabled={pending}
+              type="button"
+              onClick={() => {
+                if (hasDesign && onPreview) {
+                  void submit();
+                } else {
+                  requestClose();
+                }
+              }}
+            >
+              {hasDesign && onPreview ? 'Done' : hasDesign ? 'Back to setup' : 'Cancel'}
+            </button>
+            {(!section || hasDesign) && !(hasDesign && onPreview)
               ? (
                   <button
                     className="is-primary"

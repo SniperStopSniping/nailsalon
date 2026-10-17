@@ -967,14 +967,19 @@ describe('optional Gallery and Canva surfaces', () => {
 
     expect(screen.getByRole('checkbox', { name: 'Show as a raised button' })).not.toBeChecked();
 
-    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Make your design clickable' })).getByRole('button', { name: 'Done' }));
 
     expect(currentSection.settings.images[0]).toMatchObject({ ...artwork, interactiveAreas: [expect.objectContaining({ action: { type: 'instagram', destination: { username: 'my.studio' } }, labelConfirmed: true, reviewStatus: 'approved' })] });
     expect(currentSection.settings.images[0]?.interactiveAreas[0]?.appearance).toBeUndefined();
     expect(screen.getByRole('heading', { name: '1 link added' })).toBeVisible();
 
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit clickable links' })).toHaveFocus());
     await user.click(screen.getByRole('button', { name: 'Accessibility' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close Accessibility' })).toHaveFocus());
     await user.type(screen.getByLabelText('Accessible text version'), 'My salon Instagram is @my.studio.');
+
+    expect(screen.getByLabelText('Accessible text version')).toHaveValue('My salon Instagram is @my.studio.');
+
     await user.click(screen.getByRole('button', { name: 'Save accessibility' }));
 
     expect(currentSection.settings.images[0]?.accessibleSummary).toBe('My salon Instagram is @my.studio.');
@@ -1017,6 +1022,7 @@ describe('optional Gallery and Canva surfaces', () => {
         available
         onAdd={onAdd}
         onClose={onClose}
+        onPreview={vi.fn()}
         open
         state={state}
       />,

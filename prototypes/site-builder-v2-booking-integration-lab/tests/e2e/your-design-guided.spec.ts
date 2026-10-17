@@ -52,6 +52,8 @@ test('uploads an original, adds booking/contact links by hand, previews and resu
   await links.getByRole('button', { name: 'Done', exact: true }).click();
 
   await expect(upload.getByRole('heading', { name: '2 links added' })).toBeVisible();
+  await expect(upload.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+  await expect(upload.getByRole('button', { name: 'Save Canva design' })).toHaveCount(0);
 
   await page.screenshot({ path: testInfo.outputPath('01-guided-upload.png') });
   await upload.getByRole('button', { name: 'Preview website' }).click();
@@ -90,6 +92,11 @@ test('uploads an original, adds booking/contact links by hand, previews and resu
 
   await expect(upload.getByRole('heading', { name: '2 links added' })).toBeVisible();
   await expect(upload.getByText('my-design.webp', { exact: true })).toBeVisible();
+
+  await upload.getByRole('button', { name: 'Done', exact: true }).click();
+
+  await expect(upload).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit design & links' })).toBeVisible();
   expect(apiRequests).toEqual([]);
   await expect(page.locator('body')).toHaveJSProperty('scrollWidth', await page.locator('body').evaluate(element => element.clientWidth));
 });
