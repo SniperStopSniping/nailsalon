@@ -132,11 +132,11 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     supportingCopy: 'Answer a few questions and Luster will organize the wording for you.',
   },
   site_style: {
-    heading: 'Make it feel like yours',
+    heading: 'Choose your look',
     primaryAction: 'Use this look',
     stage: 'design',
     status: 'essential',
-    supportingCopy: 'Choose a style and colours for your site. You can change them anytime.',
+    supportingCopy: 'Pick a ready-made look and you’re ready to continue. Colours and fonts are optional, and you can change them later.',
   },
   save_progress: {
     heading: 'Your site is coming together ✨',
