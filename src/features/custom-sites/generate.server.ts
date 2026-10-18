@@ -14,7 +14,7 @@ import { db } from '@/libs/DB';
 import { customSiteArtifactSchema as artifacts, customSiteGenerationSchema as jobs, setupAiCallSchema as calls } from '@/models/Schema';
 
 import { storeCustomArtifact } from './artifacts.server';
-import { assetDataUrl, ownedAssets } from './assets.server';
+import { assertWebsiteAssetBudget, assetDataUrl, ownedAssets } from './assets.server';
 import { generateCanvaSource } from './canva-generate.server';
 import { bindWebsiteContacts } from './contacts.server';
 import { customSiteGenerateSchema, customSiteSourceSchema } from './contracts';
@@ -85,6 +85,9 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
           throw new SetupError('INVALID', 'Choose fewer references for this design.');
         }
         const media = await ownedAssets(db, actor.salonId, assetIds);
+        // Reject oversized legacy selections before token counting/reservation,
+        // provider calls or paid repair, rather than after generating a design.
+        assertWebsiteAssetBudget(media);
         const context = JSON.stringify({ websiteDetails: document.website.content.websiteDetails, business: { ...previewBusinessIdentity(document), address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio, hours: document.hours, timezone: document.booking.timezone }, booking: { currency: document.booking.currency, minimumNoticeMinutes: document.booking.minimumNoticeMinutes, bufferMinutes: document.booking.bufferMinutes, confirmationMode: document.booking.confirmationMode }, services: document.services.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, durationMinutes: s.durationMinutes, confirmed: s.confirmed })), previousSource: prior?.source ?? null, designBrief: brief ?? { fidelity: 'inspiration', ownedReferenceIds: [] }, assets: media.map(a => ({ id: a.id, role: a.role, name: a.name })), startOver: input.startOver });
         if (Buffer.byteLength(context + CUSTOM_SITE_PROMPT + input.message) > 140000) {
           throw new SetupError('INVALID', 'This design is too large for one generation. Simplify the saved source first.');

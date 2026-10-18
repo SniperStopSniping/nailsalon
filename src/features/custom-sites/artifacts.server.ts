@@ -10,7 +10,7 @@ import { editSetup, loadSetupHead, lockSetupSalon, setupHash } from '@/features/
 import { db } from '@/libs/DB';
 import { customSiteArtifactSchema as artifacts } from '@/models/Schema';
 
-import { ownedAssets } from './assets.server';
+import { assertWebsiteAssetBudget, ownedAssets } from './assets.server';
 import { compileCanvaDesign } from './canva';
 import { canvaDataFingerprint, canvaPriceLabelsFingerprint, canvaTargetBlockers } from './canva-data.server';
 import type { CustomSiteSource } from './contracts';
@@ -23,9 +23,7 @@ export async function assertCustomArtifact(tx: SetupTransaction | typeof db, sal
     throw new SetupError('INVALID', 'This saved design is unavailable.');
   }
   const media = await ownedAssets(tx, salonId, artifact.assetIds);
-  if (media.filter(a => a.role !== 'reference').reduce((sum, a) => sum + a.byteSize, 0) > 2000000) {
-    throw new SetupError('INVALID', 'Choose fewer website photos to keep this design fast.');
-  }
+  assertWebsiteAssetBudget(media);
   validateCustomSource(artifact.source, new Set(media.filter(a => a.role !== 'reference' && a.mimeType.startsWith('image/')).map(a => a.id)));
   return { artifact, media };
 }
@@ -59,9 +57,7 @@ export async function storeCustomArtifact(actor: SetupActor, input: { source: Cu
     if (business.exactAddress && business.locationDisplayMode !== 'full_address' && JSON.stringify(source).toLowerCase().includes(business.exactAddress.toLowerCase())) {
       throw new SetupError('INVALID', 'This design includes your private service address. Remove it or review your address visibility first.');
     }
-    if (media.filter(a => a.role !== 'reference').reduce((sum, a) => sum + a.byteSize, 0) > 2000000) {
-      throw new SetupError('INVALID', 'Choose fewer website photos to keep this design fast.');
-    }
+    assertWebsiteAssetBudget(media);
     const [artifact] = await tx.insert(artifacts).values({ id: randomUUID(), salonId: actor.salonId, actorId: actor.adminId, source, sourceHash: setupHash(source), assetIds: input.assetIds, parentId: head.revision.document.website.config.customFrontendId ?? null, operationId: input.operationId }).returning();
     return artifact!;
   });

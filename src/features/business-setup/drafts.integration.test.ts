@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { reviewCanvaArtwork, saveCustomSource } from '@/features/custom-sites/artifacts.server';
 import * as customArtifacts from '@/features/custom-sites/artifacts.server';
-import { ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
+import { assetDataUrl, MAX_WEBSITE_IMAGE_BYTES, ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
 import type { CanvaArea } from '@/features/custom-sites/canva';
 import { compileCanvaDesign } from '@/features/custom-sites/canva';
 import { canvaWebsiteImage } from '@/features/custom-sites/canva-assets.server';
@@ -1201,6 +1201,65 @@ describe('own business upload review', () => {
 });
 
 describe('owned design matching and website photos', () => {
+  it.each([false, true])('prepares a detailed website photo within the six-image budget (private preview: %s)', async (preview) => {
+    const actor = await fixture();
+    const pixels = Buffer.alloc(1400 * 700 * 3);
+    let state = 31;
+    for (let i = 0; i < pixels.length; i++) {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      pixels[i] = state >>> 24;
+    }
+    const bytes = await sharp(pixels, { raw: { width: 1400, height: 700, channels: 3 } }).png({ compressionLevel: 0 }).toBuffer();
+    const oldEnvironment = process.env.APP_ENV;
+    const oldPrivate = process.env.CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES;
+    vi.stubEnv('APP_ENV', preview ? 'preview' : 'development');
+    vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', preview ? 'true' : 'false');
+    try {
+      const uploaded = await uploadCustomAsset(actor, new File([new Uint8Array(bytes)], 'detailed-photo.png', { type: 'image/png' }), 'photo');
+      const [saved] = await ownedAssets(database as any, actor.salonId, [uploaded.id]);
+      const normalized = Buffer.from((await assetDataUrl(saved!)).split(',')[1]!, 'base64');
+      const metadata = await sharp(normalized).metadata();
+
+      expect(saved!.byteSize).toBeLessThanOrEqual(MAX_WEBSITE_IMAGE_BYTES);
+      expect(metadata.width! / metadata.height!).toBe(2);
+      expect(metadata.width).toBeGreaterThanOrEqual(896);
+      expect(metadata.width).toBeLessThanOrEqual(1400);
+      expect(saved!.imageBase64 !== null).toBe(preview);
+      expect((await openSetup(actor)).revision.revision).toBe(2);
+      expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+      expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId))).toHaveLength(0);
+    } finally {
+      vi.stubEnv('APP_ENV', oldEnvironment);
+      vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', oldPrivate);
+    }
+  }, 20_000);
+
+  it('rejects an oversized legacy image selection before any provider call or usage reservation', async () => {
+    const actor = await fixture();
+    const ids: string[] = [];
+    for (const color of ['#123456', '#345678', '#56789a']) {
+      const bytes = await sharp({ create: { width: 40, height: 60, channels: 3, background: color } }).png().toBuffer();
+      const asset = await uploadCustomAsset(actor, new File([new Uint8Array(bytes)], 'legacy.png', { type: 'image/png' }), 'photo');
+      // Emulate metadata from the earlier 750 KB per-image storage contract.
+      // Insert a fixture version; the database correctly forbids mutating an
+      // already saved asset, even inside this disposable integration database.
+      const [original] = await ownedAssets(database as any, actor.salonId, [asset.id]);
+      const id = randomUUID();
+      await database.insert(schema.customSiteAssetSchema).values({ ...original!, id, byteSize: 750000 });
+      ids.push(id);
+    }
+    await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { fidelity: 'inspiration', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: ids } }] });
+    const createResponse = vi.fn();
+    const countInputTokens = vi.fn(async () => 10000);
+
+    await expect(generateCustomSite(actor, { expectedRevision: 3, operationId: randomUUID(), message: 'Build my website', referenceIds: [] }, { createResponse, countInputTokens }))
+      .rejects.toThrow('These photos are too large together');
+    expect(createResponse).not.toHaveBeenCalled();
+    expect(countInputTokens).not.toHaveBeenCalled();
+    expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect((await openSetup(actor)).revision.revision).toBe(3);
+  });
+
   async function photo(actor: { salonId: string; adminId: string }, role: 'photo' | 'reference' | 'logo' = 'photo') {
     const bytes = await sharp({ create: { width: 40, height: 60, channels: 3, background: '#eecbdb' } }).png().toBuffer();
     return uploadCustomAsset(actor, new File([new Uint8Array(bytes)], `${role}.png`, { type: 'image/png' }), role);

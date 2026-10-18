@@ -41,7 +41,7 @@ export type SaveOnboardingMediaFileInput = {
   siteId: string;
   stableItemId: string;
   uploadAttemptId: string;
-  imagePreparation?: { artwork: true; maxOutputBytes: number; preserveDimensions?: true };
+  imagePreparation?: { artwork?: true; maxOutputBytes: number; preserveDimensions?: true };
 };
 
 export class OnboardingMediaStorageError extends Error {
@@ -209,6 +209,13 @@ export async function normalizeOnboardingImage(file: File, preparation?: SaveOnb
           { width: undefined, maxEdge: 2_560, quality: 82, lossless: false },
           { width: undefined, maxEdge: 2_048, quality: 76, lossless: false },
           { width: undefined, maxEdge: 1_600, quality: 70, lossless: false },
+          ...(preparation
+            ? [
+                { width: undefined, maxEdge: 1_280, quality: 76, lossless: false },
+                { width: undefined, maxEdge: 1_024, quality: 74, lossless: false },
+                { width: undefined, maxEdge: 896, quality: 72, lossless: false },
+              ]
+            : []),
         ];
     normalized = Buffer.alloc(0);
     for (const { width, maxEdge, quality, lossless } of settings) {

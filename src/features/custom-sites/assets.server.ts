@@ -15,6 +15,15 @@ import { customSiteAssetSchema as assets } from '@/models/Schema';
 import { assetRoleSchema } from './contracts';
 
 export const MAX_REFERENCE_BYTES = 3000000;
+export const MAX_WEBSITE_IMAGE_BYTES = 300000;
+export const MAX_WEBSITE_MEDIA_BYTES = 2000000;
+
+/** Reserve room for all six website images, base64 framing and source/data. */
+export function assertWebsiteAssetBudget(media: { role: string; byteSize: number }[]) {
+  if (media.filter(asset => asset.role !== 'reference').reduce((sum, asset) => sum + asset.byteSize, 0) > MAX_WEBSITE_MEDIA_BYTES) {
+    throw new SetupError('INVALID', 'These photos are too large together. Remove a photo or upload smaller exports before creating your website. Your saved design is safe.');
+  }
+}
 export async function ownedAssets(tx: SetupTransaction | typeof db, salonId: string, ids: string[]) {
   const unique = [...new Set(ids)];
   const rows = unique.length ? await tx.select().from(assets).where(and(eq(assets.salonId, salonId), inArray(assets.id, unique))) : [];
@@ -56,20 +65,16 @@ export async function uploadCustomAsset(actor: SetupActor, file: File, rawRole: 
     pdfBase64 = bytes.toString('base64');
   } else {
     try {
+      const imagePreparation = role === 'reference'
+        ? { artwork: true as const, maxOutputBytes: 750000 }
+        : { ...(role === 'logo' ? { artwork: true as const } : {}), maxOutputBytes: MAX_WEBSITE_IMAGE_BYTES };
       if (process.env.APP_ENV === 'preview' && process.env.CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES === 'true') {
         // Isolated pilot only: bounded private bytes in the existing Preview DB.
         // No production storage credentials, public upload URLs or ephemeral disk.
-        normalizedBytes = (await normalizeOnboardingImage(file, role === 'reference' ? { artwork: true, maxOutputBytes: 750000 } : undefined)).normalized;
-        if (normalizedBytes.length > 750000) {
-          throw new SetupError('INVALID', 'This image is too detailed for the site. Try a smaller export.');
-        }
+        normalizedBytes = (await normalizeOnboardingImage(file, imagePreparation)).normalized;
         imageBase64 = normalizedBytes.toString('base64');
       } else {
-        stored = await saveOnboardingMediaFile({ file, role: role === 'reference' ? 'custom_design' : role === 'photo' ? 'gallery' : 'logo', salonId: actor.salonId, siteId: head.workspace.id, revisionId: id, stableItemId: id, uploadAttemptId: id, ...(role === 'reference' ? { imagePreparation: { artwork: true, maxOutputBytes: 750000 } } : {}) });
-        if (stored.byteSize > 750000) {
-          await deleteOnboardingMediaFile(stored.storageKey, { salonId: actor.salonId });
-          throw new SetupError('INVALID', 'This image is too detailed for the site. Try a smaller export.');
-        }
+        stored = await saveOnboardingMediaFile({ file, role: role === 'reference' ? 'custom_design' : role === 'photo' ? 'gallery' : 'logo', salonId: actor.salonId, siteId: head.workspace.id, revisionId: id, stableItemId: id, uploadAttemptId: id, imagePreparation });
       }
     } catch (error) {
       if (error instanceof OnboardingMediaStorageError && ['INVALID_IMAGE', 'UNSUPPORTED_IMAGE'].includes(error.code)) {
