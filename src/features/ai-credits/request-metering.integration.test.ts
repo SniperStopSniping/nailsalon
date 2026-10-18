@@ -7,6 +7,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { SETUP_AI_PRODUCTION_BUDGET_ID } from '@/features/business-setup/ai-budget.server';
 import { runSetupModel } from '@/features/business-setup/ai-trial.server';
 import { runSetupConversation } from '@/features/business-setup/conversation.server';
 import { editSetup, openSetup } from '@/features/business-setup/drafts.server';
@@ -53,6 +54,7 @@ beforeEach(() => {
   vi.stubEnv('AI_CREDIT_METERING_ENABLED', 'true');
   vi.stubEnv('AI_CREDIT_USD_TO_CAD_MILLIONTHS', '1400000');
   vi.stubEnv('AI_CREDIT_PRICING_VERSION', 'metering-test-v1');
+  vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '1');
 });
 
 afterEach(() => {
@@ -466,16 +468,57 @@ describe('owner-request metering with real draft persistence', () => {
     expect(request.input.length).toBeLessThanOrEqual(20);
   });
 
-  it('funds production work from prepaid credits rather than starting a new operator trial allowance', async () => {
+  it('funds production work from prepaid credits with a separate fixed operator expense cap', async () => {
     const f = await fixture(false);
     vi.spyOn(configuration, 'aiCreditPlanEnv').mockReturnValue('prod');
     const purchase = await beginAiCreditPurchase(f.actor, { planEnv: 'prod', operationId: randomUUID(), packKey: 'ai_10_cad_v1', stripePriceId: 'price_prod_synthetic', stripeCustomerId: 'cus_prod_synthetic' });
     await fulfillAiCreditPurchase({ purchaseId: purchase.id, salonId: f.actor.salonId, planEnv: 'prod', packKey: purchase.packKey, sessionId: `cs_${randomUUID()}`, paymentIntentId: `pi_${randomUUID()}`, customerId: purchase.stripeCustomerId, priceId: purchase.stripePriceId, amountSubtotal: 1000, amountTotal: 1000, taxCents: 0, quantity: 1, currency: 'cad', paymentStatus: 'paid', livemode: true, amountRefundedCents: 0, disputed: false });
     await execute(f);
 
-    expect((await calls(f.actor))[0]).toMatchObject({ budgetId: null, creditCostMicroCad: 98 });
+    expect((await calls(f.actor))[0]).toMatchObject({ budgetId: SETUP_AI_PRODUCTION_BUDGET_ID, creditCostMicroCad: 98 });
     expect(await aiCreditOverview(f.actor, 'prod')).toMatchObject({ balanceMicroCad: 9_999_902 });
     expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 0 });
+  });
+
+  it('fails closed without a production expense cap before sending a paid call or charging the owner', async () => {
+    vi.spyOn(configuration, 'aiCreditPlanEnv').mockReturnValue('prod');
+    const f = await fixture(true, false, 'prod');
+    vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '');
+
+    await expect(execute(f)).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect(f.model.createResponse).not.toHaveBeenCalled();
+    expect(await calls(f.actor)).toHaveLength(0);
+    expect(await aiCreditOverview(f.actor, 'prod')).toMatchObject({ balanceMicroCad: 10_000_000, reservedMicroCad: 0 });
+  });
+
+  it('retains refunded unknown provider expense and legacy production calls, and an env increase cannot reset the cap', async () => {
+    vi.spyOn(configuration, 'aiCreditPlanEnv').mockReturnValue('prod');
+    const first = await fixture(true, false, 'prod');
+    first.model.createResponse.mockRejectedValue(new ModelProviderError('provider_error', 502, null));
+
+    await expect(execute(first)).rejects.toThrow();
+
+    const [interrupted] = await calls(first.actor);
+
+    expect(interrupted).toMatchObject({ budgetId: SETUP_AI_PRODUCTION_BUDGET_ID, status: 'failed', costMicroUsd: null });
+    expect(await aiCreditOverview(first.actor, 'prod')).toMatchObject({ balanceMicroCad: 10_000_000, reservedMicroCad: 0 });
+
+    await database.insert(schema.setupAiCallSchema).values({ id: randomUUID(), budgetId: null, creditReservationId: interrupted!.creditReservationId, salonId: first.actor.salonId, actorId: first.actor.adminId, operationId: randomUUID(), ordinal: 0, model: 'gpt-6-luna', provider: 'test-double', requestHash: 'legacy-production', reservedMicroUsd: 500, chargedMicroCad: 1000, status: 'failed' });
+    const history = await database.select().from(schema.setupAiCallSchema);
+    const used = history.filter(c => c.budgetId === SETUP_AI_PRODUCTION_BUDGET_ID || c.budgetId === null).reduce((s, c) => s + c.chargedMicroCad, 0);
+    await database.update(schema.setupAiBudgetSchema).set({ capMicroCad: used + 1 }).where(eq(schema.setupAiBudgetSchema.id, SETUP_AI_PRODUCTION_BUDGET_ID));
+    try {
+      vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '100');
+      const second = await fixture(true, false, 'prod');
+
+      await expect(execute(second)).rejects.toMatchObject({ code: 'NOT_READY' });
+      expect(second.model.createResponse).not.toHaveBeenCalled();
+      expect(await calls(second.actor)).toHaveLength(0);
+      expect((await calls(first.actor)).find(c => c.id === interrupted!.id)?.chargedMicroCad).toBe(interrupted!.chargedMicroCad);
+      expect(await aiCreditOverview(second.actor, 'prod')).toMatchObject({ balanceMicroCad: 10_000_000, reservedMicroCad: 0 });
+    } finally {
+      await database.update(schema.setupAiBudgetSchema).set({ capMicroCad: 1_000_000 }).where(eq(schema.setupAiBudgetSchema.id, SETUP_AI_PRODUCTION_BUDGET_ID));
+    }
   });
 
   it('allows paid design revisions beyond the old 30-design pilot limit', async () => {

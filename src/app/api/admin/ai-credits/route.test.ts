@@ -8,7 +8,7 @@ vi.mock('server-only', () => ({}));
 const mocks = vi.hoisted(() => ({ enabled: vi.fn(), salon: vi.fn(), owner: vi.fn(), overview: vi.fn(), checkout: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), limit: vi.fn(), rows: [] as Array<{ id: string }> }));
 vi.mock('@/features/ai-credits/config.server', () => ({ aiCreditsEnabled: mocks.enabled, aiCreditPurchasesEnabled: () => false, aiCreditPlanEnv: () => 'test' }));
 vi.mock('@/features/ai-credits/request-metering.server', () => ({ reconcileAiCreditRequests: vi.fn() }));
-vi.mock('@/features/ai-credits/checkout.server', () => ({ createAiCreditCheckout: mocks.checkout, reconcileAiCreditSession: mocks.reconcile, cancelAiCreditCheckout: mocks.cancel }));
+vi.mock('@/features/ai-credits/checkout.server', () => ({ aiCreditPurchasesAvailable: async () => false, createAiCreditCheckout: mocks.checkout, reconcileAiCreditSession: mocks.reconcile, cancelAiCreditCheckout: mocks.cancel }));
 vi.mock('@/features/ai-credits/wallet.server', async importOriginal => ({ ...await importOriginal<typeof import('@/features/ai-credits/wallet.server')>(), aiCreditOverview: mocks.overview }));
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalonForSlug: mocks.salon, requireRealSalonOwner: mocks.owner }));
 vi.mock('@/libs/rateLimit', () => ({ checkEndpointRateLimit: mocks.limit, getClientIp: () => '127.0.0.1', rateLimitResponse: () => new Response(null, { status: 429 }) }));

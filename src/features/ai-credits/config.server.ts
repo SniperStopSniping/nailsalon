@@ -2,6 +2,7 @@ import 'server-only';
 
 import { z } from 'zod';
 
+import { setupAiProviderConfigured } from '@/features/business-setup/ai-budget.server';
 import { Env } from '@/libs/Env';
 import { computeExpectedLivemode, expectedBillingPlanEnv, resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
 
@@ -13,7 +14,7 @@ export function aiCreditsEnabled() {
 }
 
 export function aiCreditPurchasesEnabled() {
-  return aiCreditMeteringEnabled() && process.env.AI_CREDIT_PURCHASES_ENABLED === 'true';
+  return aiCreditMeteringEnabled() && process.env.AI_CREDIT_PURCHASES_ENABLED === 'true' && setupAiProviderConfigured();
 }
 
 export function aiCreditMeteringEnabled() {

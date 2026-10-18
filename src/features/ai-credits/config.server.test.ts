@@ -18,6 +18,32 @@ beforeEach(() => {
   vi.stubEnv('AI_CREDIT_STRIPE_PRICE_IDS', JSON.stringify({ env: 'test', packs }));
   vi.stubEnv('AI_CREDIT_USD_TO_CAD_MILLIONTHS', '1400000');
   vi.stubEnv('AI_CREDIT_PRICING_VERSION', 'cad-policy-v1');
+  vi.stubEnv('OPENAI_API_KEY_CUSTOM_SITES', 'synthetic-provider-key');
+  vi.stubEnv('CUSTOM_SITE_TRIAL_BUDGET_CAD', '40');
+});
+
+it('does not advertise production packs without an explicit production provider cap', () => {
+  vi.stubEnv('APP_ENV', 'production');
+  vi.stubEnv('VERCEL_ENV', 'production');
+  vi.stubEnv('VERCEL', '1');
+  vi.stubEnv('NODE_ENV', 'development');
+  vi.stubEnv('VITEST', 'false');
+  vi.stubEnv('GITHUB_ACTIONS', 'false');
+  vi.stubEnv('CI', 'false');
+  vi.stubEnv('AI_CREDITS_ENABLED', 'true');
+  vi.stubEnv('AI_CREDIT_METERING_ENABLED', 'true');
+  vi.stubEnv('AI_CREDIT_PURCHASES_ENABLED', 'true');
+  vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '');
+
+  expect(aiCreditPurchasesEnabled()).toBe(false);
+
+  vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '50');
+
+  expect(aiCreditPurchasesEnabled()).toBe(true);
+
+  vi.stubEnv('OPENAI_API_KEY_CUSTOM_SITES', '');
+
+  expect(aiCreditPurchasesEnabled()).toBe(false);
 });
 
 afterEach(() => {

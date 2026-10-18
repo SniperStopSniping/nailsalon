@@ -3,6 +3,7 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
 
+import { setupAiExpenseAvailable } from '@/features/business-setup/ai-trial.server';
 import { lockSetupSalon, type SetupActor } from '@/features/business-setup/drafts.server';
 import { resolveBillingAppOrigin } from '@/libs/billing/billingAppOrigin';
 import { resolveOrCreateBillingCustomer } from '@/libs/billing/billingCustomer';
@@ -17,6 +18,10 @@ import { AiCreditError, type AiCreditPaymentEvidence, attachAiCreditCheckout, be
 
 function stripeId(value: string | { id: string } | null) {
   return typeof value === 'string' ? value : value?.id ?? '';
+}
+
+export async function aiCreditPurchasesAvailable() {
+  return aiCreditPurchasesEnabled() && await setupAiExpenseAvailable(aiCreditPlanEnv() === 'prod');
 }
 
 /** Reads authoritative Stripe evidence; a success URL/session ID never grants by itself. */
@@ -121,7 +126,7 @@ export async function applyVerifiedAiCreditSession(session: Stripe.Checkout.Sess
 }
 
 export async function createAiCreditCheckout(actor: SetupActor, input: { packKey: AiCreditPackKey; operationId: string; locale: 'en' | 'fr' }) {
-  if (!aiCreditPurchasesEnabled()) {
+  if (!await aiCreditPurchasesAvailable()) {
     throw new AiCreditError('NOT_CONFIGURED', 'AI credit purchases are not available yet.');
   }
   const planEnv = aiCreditPlanEnv();

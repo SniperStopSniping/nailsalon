@@ -37,6 +37,8 @@ beforeEach(() => {
   vi.stubEnv('AI_CREDITS_ENABLED', 'true');
   vi.stubEnv('AI_CREDIT_METERING_ENABLED', 'true');
   vi.stubEnv('AI_CREDIT_PURCHASES_ENABLED', 'true');
+  vi.stubEnv('OPENAI_API_KEY_CUSTOM_SITES', 'synthetic-provider-key');
+  vi.stubEnv('CUSTOM_SITE_TRIAL_BUDGET_CAD', '40');
   vi.stubEnv('AI_CREDIT_STRIPE_PRICE_IDS', JSON.stringify({ env: 'test', packs: { ai_10_cad_v1: 'price_aifixture10', ai_20_cad_v1: 'price_aifixture20', ai_50_cad_v1: 'price_aifixture50' } }));
   provider.price.mockResolvedValue({ active: true, type: 'one_time', currency: 'cad', unit_amount: 1000, livemode: false });
   provider.customer.mockResolvedValue({ stripeCustomerId: 'cus_ai_fixture' });
@@ -66,6 +68,27 @@ async function fixture() {
 }
 
 describe('AI checkout with isolated provider boundary', () => {
+  it('does not start a payment without a configured provider or with an exhausted operator budget', async () => {
+    const { actor, input } = await fixture();
+    vi.stubEnv('OPENAI_API_KEY_CUSTOM_SITES', '');
+
+    await expect(createAiCreditCheckout(actor, input)).rejects.toMatchObject({ code: 'NOT_CONFIGURED' });
+
+    vi.stubEnv('OPENAI_API_KEY_CUSTOM_SITES', 'synthetic-provider-key');
+    await database.insert(schema.setupAiBudgetSchema).values({ id: 'initial-custom-website-trial', capMicroCad: 1 });
+    await database.insert(schema.setupAiCallSchema).values({ id: 'synthetic-expense-call', budgetId: 'initial-custom-website-trial', salonId: actor.salonId, actorId: actor.adminId, operationId: randomUUID(), ordinal: 0, model: 'gpt-6-luna', provider: 'test-double', requestHash: 'exhausted-test-budget', reservedMicroUsd: 1, chargedMicroCad: 2, status: 'failed' });
+    try {
+      await expect(createAiCreditCheckout(actor, input)).rejects.toMatchObject({ code: 'NOT_CONFIGURED' });
+      expect(provider.price).not.toHaveBeenCalled();
+      expect(provider.create).not.toHaveBeenCalled();
+      expect(provider.customer).not.toHaveBeenCalled();
+      expect(await database.select().from(schema.aiCreditPurchaseSchema).where(eq(schema.aiCreditPurchaseSchema.salonId, actor.salonId))).toHaveLength(0);
+    } finally {
+      await database.delete(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.id, 'synthetic-expense-call'));
+      await database.delete(schema.setupAiBudgetSchema).where(eq(schema.setupAiBudgetSchema.id, 'initial-custom-website-trial'));
+    }
+  });
+
   it('does not start a payment while the new purchase flag is off', async () => {
     const { actor, input } = await fixture();
     vi.stubEnv('AI_CREDIT_PURCHASES_ENABLED', 'false');

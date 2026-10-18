@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
 
 import { retailAiCredits } from '@/features/ai-credits/catalog';
 import { aiCreditMeteringEnabled, aiCreditsEnabled } from '@/features/ai-credits/config.server';
@@ -17,31 +17,49 @@ import { db } from '@/libs/DB';
 import { resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
 import { setupAiBudgetSchema as budgets, setupAiCallSchema as calls } from '@/models/Schema';
 
+import { setupAiExpensePolicy, setupAiProviderConfigured } from './ai-budget.server';
 import type { SetupModel } from './ai-models';
-import { APPROVED_TRIAL_CAP_CAD, isSetupModel, SETUP_AI_MODEL, SETUP_MODEL_RATES } from './ai-models';
+import { isSetupModel, SETUP_AI_MODEL, SETUP_MODEL_RATES } from './ai-models';
 import { SetupError } from './contracts';
-import type { SetupActor } from './drafts.server';
-import { loadSetupHead, lockSetupSalon, setupHash } from './drafts.server';
+import { loadSetupHead, lockSetupSalon, type SetupActor, setupHash, type SetupTransaction } from './drafts.server';
 
 export { SETUP_AI_MODEL } from './ai-models';
 
-// Approved initial trial, not a per-salon allowance. Changing an environment
-// variable cannot start a fresh ledger or raise the approved CAD ceiling.
-const BUDGET_ID = 'initial-custom-website-trial';
 // Deliberately conservative accounting allowance, NOT a claimed FX rate.
 // USD 20 of provider usage consumes CAD 40, leaving room for FX/tax/fees.
 export const TRIAL_CAD_PER_USD = 2;
 
 export function setupAiConfigured() {
-  const cap = Number(process.env.CUSTOM_SITE_TRIAL_BUDGET_CAD ?? 0);
   try {
     if (resolveRuntimeEnvironment(process.env) === 'production') {
-      return Boolean(process.env.OPENAI_API_KEY_CUSTOM_SITES) && aiCreditMeteringEnabled();
+      return setupAiProviderConfigured() && aiCreditMeteringEnabled();
     }
   } catch {
     return false;
   }
-  return Boolean(process.env.OPENAI_API_KEY_CUSTOM_SITES) && Number.isFinite(cap) && cap > 0 && cap <= APPROVED_TRIAL_CAP_CAD;
+  return setupAiProviderConfigured();
+}
+
+async function expenseUsed(tx: SetupTransaction | typeof db, policy: NonNullable<ReturnType<typeof setupAiExpensePolicy>>) {
+  // Older production calls had no budget ID. Count their measured/unknown
+  // expense too; deploying this safeguard must not create a fresh allowance.
+  const condition = policy.production ? or(eq(calls.budgetId, policy.id), isNull(calls.budgetId)) : eq(calls.budgetId, policy.id);
+  const [row] = await tx.select({ amount: sql<string>`coalesce(sum(${calls.chargedMicroCad}), 0)` }).from(calls).where(condition);
+  const used = Number(row?.amount ?? 0);
+  if (!Number.isSafeInteger(used) || used < 0) {
+    throw new SetupError('NOT_READY', 'AI is temporarily unavailable. Your saved draft and credits are safe.');
+  }
+  return used;
+}
+
+/** Read-only purchase readiness; generation separately locks and reserves. */
+export async function setupAiExpenseAvailable(production: boolean) {
+  const policy = setupAiExpensePolicy(production);
+  if (!policy) {
+    return false;
+  }
+  const [budget] = await db.select().from(budgets).where(eq(budgets.id, policy.id));
+  return await expenseUsed(db, policy) < Math.min(budget?.capMicroCad ?? policy.capMicroCad, policy.capMicroCad);
 }
 
 export function estimateSetupAiCost(usage: ModelProviderUsage | null, model: SetupModel = SETUP_AI_MODEL) {
@@ -98,7 +116,10 @@ export async function runSetupModel(actor: SetupActor, input: {
   }
   const reserved = Math.ceil((counted * rates.cacheWrite + request.maxOutputTokens * rates.output) * 1.1);
   const requestHash = setupHash(request);
-  const cap = override ? APPROVED_TRIAL_CAP_CAD : Number(process.env.CUSTOM_SITE_TRIAL_BUDGET_CAD);
+  const policy = setupAiExpensePolicy(creditContext?.planEnv === 'prod', Boolean(override));
+  if (!policy) {
+    throw new SetupError('NOT_READY', 'AI is temporarily unavailable. Your saved draft and credits are safe.');
+  }
   const call = await db.transaction(async (tx) => {
     await lockSetupSalon(tx, actor);
     const head = await loadSetupHead(tx, actor.salonId);
@@ -111,16 +132,15 @@ export async function runSetupModel(actor: SetupActor, input: {
       // Never replay a paid call after an ambiguous network/process failure.
       throw new SetupError('NOT_READY', 'This AI request was already sent. Reload the saved result before trying again.');
     }
-    // Production paid requests are funded by their wallet. Every isolated
-    // trial, including paid-flow tests, still shares the original CAD80 cap.
-    const budgetId = creditContext?.planEnv === 'prod' ? null : BUDGET_ID;
-    if (budgetId) {
-      await tx.insert(budgets).values({ id: budgetId, capMicroCad: Math.floor(cap * 1000000) }).onConflictDoNothing();
-      const [budget] = await tx.select().from(budgets).where(eq(budgets.id, budgetId)).for('update');
-      const history = await tx.select({ charged: calls.chargedMicroCad }).from(calls).where(eq(calls.budgetId, budgetId));
-      if (history.reduce((sum, c) => sum + c.charged, 0) + reserved * TRIAL_CAD_PER_USD > Math.min(budget!.capMicroCad, cap * 1000000)) {
-        throw new SetupError('NOT_READY', 'This request would exceed the approved AI trial budget. Your saved draft is unchanged.');
-      }
+    // Customer refunds/unknown usage remain operator expenses. Both budgets
+    // are serialized across salons and cannot be reset/raised by an env edit.
+    const budgetId = policy.id;
+    await tx.insert(budgets).values({ id: budgetId, capMicroCad: policy.capMicroCad }).onConflictDoNothing();
+    const [budget] = await tx.select().from(budgets).where(eq(budgets.id, budgetId)).for('update');
+    if (await expenseUsed(tx, policy) + reserved * TRIAL_CAD_PER_USD > Math.min(budget!.capMicroCad, policy.capMicroCad)) {
+      throw new SetupError('NOT_READY', policy.production
+        ? 'AI is temporarily unavailable. Your saved draft and credits are safe. Please try again later.'
+        : 'This request would exceed the approved AI trial budget. Your saved draft is unchanged.');
     }
     const [row] = await tx.insert(calls).values({ id: randomUUID(), budgetId, ...credits, salonId: actor.salonId, actorId: actor.adminId, operationId: input.operationId, ordinal: input.ordinal, model, provider: override ? 'test-double' : 'openai', requestHash, reservedMicroUsd: reserved, chargedMicroCad: reserved * TRIAL_CAD_PER_USD, status: 'pending' }).returning();
     return row!;

@@ -7,6 +7,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { SETUP_AI_PRODUCTION_BUDGET_ID } from '@/features/business-setup/ai-budget.server';
 import { runSetupConversation } from '@/features/business-setup/conversation.server';
 import { openSetup } from '@/features/business-setup/drafts.server';
 import type { ModelProviderResponse } from '@/libs/ai/provider';
@@ -14,6 +15,7 @@ import { attestDisposableDatabaseSession, requireDisposableDatabaseTarget, resol
 import * as schema from '@/models/Schema';
 
 import { AI_REQUEST_CREDIT_LIMIT } from './catalog';
+import * as configuration from './config.server';
 import { currentAiCreditExecution } from './context.server';
 import { reconcileAiCreditRequests, runWithAiCredits } from './request-metering.server';
 import { aiCreditOverview, type AiCreditPaymentEvidence, beginAiCreditPurchase, fulfillAiCreditPurchase, reserveAiCredits, reverseAiCreditPurchase, settleAiCredits } from './wallet.server';
@@ -60,15 +62,17 @@ describe.skipIf(!target)('metered owner requests on attested PostgreSQL', () => 
     vi.stubEnv('AI_CREDIT_METERING_ENABLED', 'true');
     vi.stubEnv('AI_CREDIT_USD_TO_CAD_MILLIONTHS', '1400000');
     vi.stubEnv('AI_CREDIT_PRICING_VERSION', 'concurrency-v1');
+    vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '1');
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
 
   const result = (): ModelProviderResponse => ({ status: 'completed', usage: { inputTokens: 100, cachedInputTokens: 0, outputTokens: 50 }, items: [{ type: 'message', text: JSON.stringify({ reply: 'Saved in your draft.', operationsJson: JSON.stringify([{ type: 'business', values: { name: 'Metered new name' } }]), designRequest: null, uploadFacts: null }) }] });
-  async function meteredFixture() {
-    const f = await fixture();
+  async function meteredFixture(planEnv: 'test' | 'prod' = 'test') {
+    const f = await fixture(planEnv);
     await fulfillAiCreditPurchase(f.evidence);
     await openSetup(f.actor);
     const input = { operationId: randomUUID(), expectedRevision: 1, scope: 'business_and_website' as const, message: 'Change my business name to Metered new name.', referenceIds: [] };
@@ -76,6 +80,43 @@ describe.skipIf(!target)('metered owner requests on attested PostgreSQL', () => 
     const execute = () => runWithAiCredits(f.actor, 'conversation', input, AI_REQUEST_CREDIT_LIMIT, () => runSetupConversation(f.actor, input, model));
     return { ...f, input, model, execute };
   }
+
+  it('serializes different prepaid salons against the shared production expense cap without borrowing trial funds', async () => {
+    vi.spyOn(configuration, 'aiCreditPlanEnv').mockReturnValue('prod');
+    const first = await meteredFixture('prod');
+    const second = await meteredFixture('prod');
+    const history = await database.select().from(schema.setupAiCallSchema);
+    const used = history.filter(c => c.budgetId === SETUP_AI_PRODUCTION_BUDGET_ID || c.budgetId === null).reduce((sum, c) => sum + c.chargedMicroCad, 0);
+    const cap = used + 5000;
+    // The new production-only SQL exception must not widen trial limits.
+    await database.insert(schema.setupAiBudgetSchema).values({ id: SETUP_AI_PRODUCTION_BUDGET_ID, capMicroCad: 100_000_000 }).onConflictDoUpdate({ target: schema.setupAiBudgetSchema.id, set: { capMicroCad: 100_000_000 } });
+
+    await expect(database.insert(schema.setupAiBudgetSchema).values({ id: `trial-${randomUUID()}`, capMicroCad: 80_000_001 })).rejects.toThrow();
+
+    await database.insert(schema.setupAiBudgetSchema).values({ id: SETUP_AI_PRODUCTION_BUDGET_ID, capMicroCad: cap }).onConflictDoUpdate({ target: schema.setupAiBudgetSchema.id, set: { capMicroCad: cap } });
+    // Unknown usage retains the conservative reservation even after completion.
+    // A quick successful response therefore cannot hide this reservation race.
+    for (const f of [first, second]) {
+      f.model.createResponse.mockResolvedValue({ ...result(), usage: null });
+    }
+    try {
+      const settled = await Promise.allSettled([first.execute(), second.execute()]);
+
+      expect(settled.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+      expect(settled.filter(r => r.status === 'rejected')).toHaveLength(1);
+      expect(first.model.createResponse.mock.calls.length + second.model.createResponse.mock.calls.length).toBe(1);
+
+      const after = await database.select().from(schema.setupAiCallSchema);
+
+      expect(after.filter(c => c.budgetId === SETUP_AI_PRODUCTION_BUDGET_ID || c.budgetId === null).reduce((sum, c) => sum + c.chargedMicroCad, 0)).toBeLessThanOrEqual(cap);
+
+      for (const f of [first, second]) {
+        expect(await aiCreditOverview(f.actor, 'prod')).toMatchObject({ balanceMicroCad: 10_000_000, reservedMicroCad: 0 });
+      }
+    } finally {
+      await database.update(schema.setupAiBudgetSchema).set({ capMicroCad: 1_000_000 }).where(eq(schema.setupAiBudgetSchema.id, SETUP_AI_PRODUCTION_BUDGET_ID));
+    }
+  });
 
   it('does not refund or rerun a duplicate request while its original provider call is active', async () => {
     const f = await meteredFixture();
@@ -142,13 +183,13 @@ describe.skipIf(!target)('metered owner requests on attested PostgreSQL', () => 
   });
 });
 
-async function fixture() {
+async function fixture(planEnv: 'test' | 'prod' = 'test') {
   const actor = { salonId: randomUUID(), adminId: randomUUID() };
   await database.insert(schema.adminUserSchema).values({ id: actor.adminId });
   await database.insert(schema.salonSchema).values({ id: actor.salonId, slug: actor.salonId, name: 'Synthetic wallet concurrency', publicationStatus: 'draft', onlineBookingEnabled: false });
   await database.insert(schema.adminSalonMembershipSchema).values({ ...actor, role: 'owner' });
-  const purchase = await beginAiCreditPurchase(actor, { planEnv: 'test', operationId: randomUUID(), packKey: 'ai_10_cad_v1', stripePriceId: 'price_concurrency_fixture', stripeCustomerId: `cus_${randomUUID()}` });
-  const evidence: AiCreditPaymentEvidence = { purchaseId: purchase.id, salonId: actor.salonId, planEnv: 'test', packKey: purchase.packKey, sessionId: `cs_${randomUUID()}`, paymentIntentId: `pi_${randomUUID()}`, customerId: purchase.stripeCustomerId, priceId: purchase.stripePriceId, amountSubtotal: 1000, amountTotal: 1000, taxCents: 0, quantity: 1, currency: 'cad', paymentStatus: 'paid', livemode: false, amountRefundedCents: 0, disputed: false };
+  const purchase = await beginAiCreditPurchase(actor, { planEnv, operationId: randomUUID(), packKey: 'ai_10_cad_v1', stripePriceId: 'price_concurrency_fixture', stripeCustomerId: `cus_${randomUUID()}` });
+  const evidence: AiCreditPaymentEvidence = { purchaseId: purchase.id, salonId: actor.salonId, planEnv, packKey: purchase.packKey, sessionId: `cs_${randomUUID()}`, paymentIntentId: `pi_${randomUUID()}`, customerId: purchase.stripeCustomerId, priceId: purchase.stripePriceId, amountSubtotal: 1000, amountTotal: 1000, taxCents: 0, quantity: 1, currency: 'cad', paymentStatus: 'paid', livemode: planEnv === 'prod', amountRefundedCents: 0, disputed: false };
   return { actor, purchase, evidence };
 }
 
