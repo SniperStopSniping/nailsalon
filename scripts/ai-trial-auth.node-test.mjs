@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { aiTrialAuth, assertClerkTrialActor, privateClerkStorageState } from './lib/ai-trial-auth.mjs';
+import { aiTrialAuth, assertClerkTrialActor, developmentClerkConfig, privateClerkStorageState } from './lib/ai-trial-auth.mjs';
 import { trialClerkRequest } from './lib/ai-trial-origins.mjs';
 
 const host = 'synthetic-dev.clerk.accounts.dev';
@@ -25,6 +25,14 @@ test('genuine Clerk trials require verified account, real entry identity and mat
   for (const change of [{ APP_ENV: 'production' }, { CLERK_SECRET_KEY: 'sk_live_synthetic' }, { NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_live_synthetic' }, { NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: `pk_test_${Buffer.from('attacker.invalid$').toString('base64')}` }]) {
     assert.throws(() => aiTrialAuth(fixture, { ...env, ...change }));
   }
+});
+
+test('optimized authentication may use Development credentials only in an attested local mode', () => {
+  assert.deepEqual(developmentClerkConfig(env), { secretKey: env.CLERK_SECRET_KEY, publishableKey: env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, frontendApi: host });
+  for (const change of [{ VERCEL_ENV: 'preview' }, { VERCEL_ENV: 'production' }, { BILLING_PLAN_ENV: 'prod' }, { BILLING_PLAN_ENV: 'test' }, { APP_ENV: 'production' }, { CLERK_SECRET_KEY: 'sk_live_synthetic' }]) {
+    assert.throws(() => developmentClerkConfig({ ...env, ...change }));
+  }
+  assert.equal(developmentClerkConfig({ ...env, NODE_ENV: 'production', BILLING_PLAN_ENV: 'dev' }).frontendApi, host, 'An optimized local build remains Development, irrespective of bundler mode.');
 });
 
 test('saved session must remain private and outside application files', () => {

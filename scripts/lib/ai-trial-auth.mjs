@@ -3,6 +3,18 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+/** Explicit local Development config; never an inherited production identity. */
+export function developmentClerkConfig(env = process.env) {
+  assert.equal(env.APP_ENV, 'development', 'Real Clerk trials require the isolated Development environment.');
+  assert(!env.VERCEL_ENV, 'Real Clerk local trials cannot target a hosted deployment.');
+  assert(!env.BILLING_PLAN_ENV || env.BILLING_PLAN_ENV === 'dev');
+  assert.match(env.CLERK_SECRET_KEY ?? '', /^sk_test_/u, 'Only a Development secret is allowed.');
+  assert.match(env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? '', /^pk_test_/u);
+  const frontendApi = Buffer.from(env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.slice(8), 'base64').toString().replace(/\$$/u, '');
+  assert.match(frontendApi, /^[a-z0-9-]+\.clerk\.accounts\.dev$/u);
+  return { secretKey: env.CLERK_SECRET_KEY, publishableKey: env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, frontendApi };
+}
+
 /** Test harness only. It never creates a login, salon, session or membership. */
 export function aiTrialAuth(fixture, env = process.env) {
   if (!fixture.clerkStorageState) {
@@ -11,7 +23,7 @@ export function aiTrialAuth(fixture, env = process.env) {
     assert.equal(typeof fixture.session, 'string');
     return { kind: 'synthetic-session' };
   }
-  assert.equal(env.APP_ENV, 'development', 'Real Clerk trials require the isolated Development environment.');
+  const { frontendApi } = developmentClerkConfig(env);
   assert(!fixture.session, 'A real Clerk trial must not also use a seeded admin session.');
   assert.equal(fixture.emailVerified, true);
   assert.equal(fixture.sessionStatus, 'active');
@@ -21,10 +33,6 @@ export function aiTrialAuth(fixture, env = process.env) {
   assert.equal(fixture.salonId, `ai_setup_${suffix}`, 'Use the salon created by actual owner entry.');
   assert.match(fixture.salonSlug, /^[a-z0-9-]{1,90}$/u);
   assert.equal(typeof fixture.adminId, 'string');
-  assert.match(env.CLERK_SECRET_KEY ?? '', /^sk_test_/u, 'Only a Development secret is allowed.');
-  assert.match(env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? '', /^pk_test_/u);
-  const frontendApi = Buffer.from(env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.slice(8), 'base64').toString().replace(/\$$/u, '');
-  assert.match(frontendApi, /^[a-z0-9-]+\.clerk\.accounts\.dev$/u);
   assert.equal(frontendApi, fixture.clerkFrontendApi, 'The saved login must belong to the configured Development instance.');
   return { kind: 'clerk-development', frontendApi };
 }

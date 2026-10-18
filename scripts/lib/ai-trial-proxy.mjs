@@ -12,7 +12,18 @@ export function aiTrialTunnelPort(authority, profile) {
   return targets.get(authority) ?? null;
 }
 
-export function createAiTrialProxy(profile) {
+export function aiTrialTunnelTarget(authority, profile, clerkFrontendApi) {
+  const port = aiTrialTunnelPort(authority, profile);
+  if (port) {
+    return { host: '127.0.0.1', port };
+  }
+  if (/^[a-z0-9-]+\.clerk\.accounts\.dev$/u.test(clerkFrontendApi ?? '') && authority === `${clerkFrontendApi}:443`) {
+    return { host: clerkFrontendApi, port: 443 };
+  }
+  return null;
+}
+
+export function createAiTrialProxy(profile, clerkFrontendApi) {
   const server = http.createServer((_request, response) => {
     response.writeHead(403);
     response.end();
@@ -23,12 +34,12 @@ export function createAiTrialProxy(profile) {
     socket.on('close', () => sockets.delete(socket));
   });
   server.on('connect', (request, socket, head) => {
-    const port = aiTrialTunnelPort(request.url, profile);
-    if (!port) {
+    const target = aiTrialTunnelTarget(request.url, profile, clerkFrontendApi);
+    if (!target) {
       socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
       return;
     }
-    const upstream = net.connect(port, '127.0.0.1', () => {
+    const upstream = net.connect(target.port, target.host, () => {
       socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       if (head.length) {
         upstream.write(head);

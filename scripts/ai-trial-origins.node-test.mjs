@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { aiTrialOrigins, assertHttpsTrialStep, restrictAiTrialNetwork, trialApiTarget, trialLoopbackRequest } from './lib/ai-trial-origins.mjs';
-import { aiTrialTunnelPort } from './lib/ai-trial-proxy.mjs';
+import { aiTrialTunnelPort, aiTrialTunnelTarget } from './lib/ai-trial-proxy.mjs';
 
 test('HTTPS trials retain distinct browser origins and map only to fixed loopback ports', () => {
   const profile = aiTrialOrigins(true);
@@ -46,6 +46,20 @@ test('the CONNECT proxy permits only the two fixed HTTPS authorities', () => {
   assert.equal(aiTrialTunnelPort('luster-render.test:3444', profile), 3444);
   for (const target of ['example.com:443', '127.0.0.1:55432', 'luster-builder.test:3444', 'luster-builder.test:443', 'user@luster-builder.test:3443', 'luster-builder.test:3443/']) {
     assert.equal(aiTrialTunnelPort(target, profile), null);
+  }
+});
+
+test('genuine-auth proxy adds only the exact Development Clerk TLS authority', () => {
+  const profile = aiTrialOrigins(true);
+  const host = 'synthetic-dev.clerk.accounts.dev';
+  assert.deepEqual(aiTrialTunnelTarget('luster-builder.test:3443', profile, host), { host: '127.0.0.1', port: 3443 });
+  assert.deepEqual(aiTrialTunnelTarget(`${host}:443`, profile, host), { host, port: 443 });
+  assert.equal(aiTrialTunnelTarget(`${host}:443`, profile), null);
+  for (const authority of [`${host}:80`, `${host}:444`, `${host}:443/`, `${host}.attacker.invalid:443`, `user@${host}:443`, 'api.clerk.com:443', 'api.openai.com:443', '127.0.0.1:55432', 'other.clerk.accounts.dev:443']) {
+    assert.equal(aiTrialTunnelTarget(authority, profile, host), null);
+  }
+  for (const invalid of ['localhost', '127.0.0.1', 'attacker.invalid', `${host}.attacker.invalid`]) {
+    assert.equal(aiTrialTunnelTarget(`${invalid}:443`, profile, invalid), null);
   }
 });
 

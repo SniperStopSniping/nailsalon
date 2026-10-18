@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { developmentClerkConfig } from './ai-trial-auth.mjs';
 import { aiTrialOrigins } from './ai-trial-origins.mjs';
 import { createAiTrialProxy } from './ai-trial-proxy.mjs';
 
@@ -16,6 +17,14 @@ const metadata = JSON.parse(fs.readFileSync(path.join(directory, 'metadata.json'
 const profile = aiTrialOrigins(true);
 const mode = process.argv[2];
 assert(['app', 'renderer', 'proxy'].includes(mode));
+const realClerk = metadata.authProfile === 'clerk-development';
+const clerkFrontendApi = process.env.LUSTER_HTTPS_CLERK_FRONTEND_API;
+if (mode !== 'renderer' && realClerk) {
+  assert.equal(clerkFrontendApi, metadata.clerkFrontendApi);
+  assert.match(clerkFrontendApi, /^[a-z0-9-]+\.clerk\.accounts\.dev$/u);
+} else {
+  assert.equal(clerkFrontendApi, undefined);
+}
 const origin = new URL(mode === 'app' ? profile.origin : mode === 'renderer' ? profile.rendererOrigin : profile.proxyServer);
 let handler;
 let app;
@@ -26,7 +35,11 @@ if (mode === 'app') {
   assert.equal(process.env.AI_CREDITS_ENABLED, 'false');
   assert.equal(process.env.AI_CREDIT_PURCHASES_ENABLED, 'false');
   assert.equal(process.env.OPENAI_API_KEY_CUSTOM_SITES, undefined);
-  assert(process.env.CLERK_SECRET_KEY?.endsWith('ci-placeholder-not-a-secret'));
+  if (realClerk) {
+    assert.equal(developmentClerkConfig().frontendApi, clerkFrontendApi);
+  } else {
+    assert(process.env.CLERK_SECRET_KEY?.endsWith('ci-placeholder-not-a-secret'));
+  }
   assert(process.env.STRIPE_SECRET_KEY?.endsWith('ci-placeholder-not-a-secret'));
   const database = new URL(process.env.DATABASE_URL);
   assert.equal(database.hostname, '127.0.0.1');
@@ -46,7 +59,7 @@ if (mode === 'app') {
   }
 }
 const server = mode === 'proxy'
-  ? createAiTrialProxy(profile)
+  ? createAiTrialProxy(profile, clerkFrontendApi)
   : https.createServer({ key: fs.readFileSync(path.join(directory, 'key.pem')), cert: fs.readFileSync(path.join(directory, 'cert.pem')) }, (request, response) => {
     if (request.headers.host !== origin.host) {
       response.writeHead(421);
