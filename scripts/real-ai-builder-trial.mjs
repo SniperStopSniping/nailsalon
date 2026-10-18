@@ -28,6 +28,8 @@ assert.equal(typeof fixture.session, 'string');
 const [step, messageOrArtifact, reference] = process.argv.slice(2);
 const trialScope = process.env.LUSTER_REAL_AI_SCOPE ?? 'website';
 assert(['website', 'business_and_website'].includes(trialScope));
+const referencePurpose = process.env.LUSTER_REAL_AI_REFERENCE_PURPOSE ?? 'inspiration';
+assert(['inspiration', 'own', 'keep_design'].includes(referencePurpose));
 assert(['message', 'conversation', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'booking-link', 'restore', 'publish', 'book', 'connection-recovery'].includes(step), 'Choose message, conversation, photos, preview, public-preview, start-editing, manual-wording, service-price, booking-link, restore, publish, book or connection-recovery.');
 if (profile.https) {
   assertHttpsTrialStep(step);
@@ -84,6 +86,10 @@ const liveExtras = async () => (await database.query('SELECT id,name,price_cents
 const liveSettingsFingerprint = async () => createHash('sha256').update(JSON.stringify((await database.query('SELECT name,city,address,business_hours,settings->\'booking\' AS booking,settings->\'payments\' AS payments,settings->\'communications\' AS communications,settings#>\'{bookingPage,live}\' AS live_website,settings#>\'{bookingPageContent,live}\' AS live_content FROM salon WHERE id=$1', [fixture.salonId])).rows[0])).digest('hex');
 const screenshot = name => page.screenshot({ path: path.join(output, `${name}.png`), fullPage: true, animations: 'disabled' });
 const openPreview = async () => {
+  const setupDocument = (await head()).document;
+  const artifactId = setupDocument.website.config.customFrontendId;
+  const artifact = (await database.query('SELECT source FROM custom_site_artifact WHERE salon_id=$1 AND id=$2', [fixture.salonId, artifactId])).rows[0];
+  const canva = artifact?.source?.canva;
   const previewToggle = page.getByRole('button', { name: 'Preview', exact: true });
   if (await previewToggle.getAttribute('aria-pressed') !== 'true') {
     await previewToggle.click();
@@ -159,7 +165,20 @@ const openPreview = async () => {
         }
       }), 'blocked');
       await preview.screenshot({ path: path.join(output, `${device}-top.png`), fullPage: true, animations: 'disabled' });
-      await preview.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-services]').scrollIntoViewIfNeeded();
+      if (canva) {
+        const images = preview.frameLocator(`iframe[src="${renderer}"]`).locator('.canva-page > img');
+
+        await expect(images).toHaveCount(canva.pages.length);
+
+        for (const [index, artwork] of canva.pages.entries()) {
+          await expect(images.nth(index)).toHaveAttribute('width', String(artwork.width));
+          await expect(images.nth(index)).toHaveAttribute('height', String(artwork.height));
+        }
+        assert.equal(await frame.evaluate(() => [...document.querySelectorAll('.canva-page > img')].every(image => image.complete && image.naturalWidth > 0)), true, 'Every preserved Canva page must actually load.');
+        interactionChecks.push({ device, preservedCanvaPages: canva.pages.length, areaCount: canva.areas.length });
+      } else {
+        await preview.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-services]').scrollIntoViewIfNeeded();
+      }
       await preview.screenshot({ path: path.join(output, `${device}-services.png`), fullPage: true, animations: 'disabled' });
       const details = (await head()).document.website.content.websiteDetails;
       const links = {
@@ -283,9 +302,12 @@ try {
     if (reference) {
       await page.locator('#setup-attach-button').click();
       const dialog = page.getByRole('dialog');
-      await dialog.getByRole('button', { name: /^Inspiration/u }).click();
+      await dialog.getByRole('button', { name: referencePurpose === 'inspiration' ? /^Inspiration/u : /^My design or menu/u }).click();
+      if (referencePurpose === 'keep_design') {
+        await dialog.getByRole('checkbox', { name: /^Keep my Canva design/u }).check();
+      }
       await page.locator('#setup-attachment-file').setInputFiles(reference);
-      await dialog.getByRole('checkbox').check();
+      await dialog.getByRole('checkbox', { name: referencePurpose === 'inspiration' ? /^I may upload these files/u : /^These are my files/u }).check();
       await dialog.getByRole('button', { name: 'Add to chat', exact: true }).click();
 
       await expect(dialog).not.toBeVisible({ timeout: 30_000 });

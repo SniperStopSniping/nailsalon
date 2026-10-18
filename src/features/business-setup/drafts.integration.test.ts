@@ -1394,7 +1394,7 @@ describe('reading own images directly in conversation', () => {
 
   it('discards malformed intake output and continues only the authorized private design request', async () => {
     const { actor, asset, revision } = await attached();
-    const createResponse = vi.fn().mockResolvedValueOnce({ status: 'completed', usage: null, items: [{ type: 'message', text: '{bad response JSON' }] }).mockResolvedValueOnce({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
+    const createResponse = vi.fn().mockResolvedValueOnce({ status: 'completed', usage: null, items: [{ type: 'message', text: '{bad response JSON' }] }).mockResolvedValueOnce({ status: 'completed', usage: null, items: [{ type: 'message', text: '{repair still malformed' }] }).mockResolvedValueOnce({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
     const input = { expectedRevision: revision, operationId: randomUUID(), scope: 'website', message: 'Make exactly like this', referenceIds: [asset.id] };
     const result = await runSetupConversation(actor, input, { createResponse });
 
@@ -1403,11 +1403,59 @@ describe('reading own images directly in conversation', () => {
     expect(result.head.revision.document.hoursOrigin).toBe('suggested');
     expect(result.reply).toContain('Some details could not be saved');
 
-    const [call] = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId));
+    const repaired = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId));
 
-    expect(call!.validation).toBe('conversation_schema_invalid_preview_continued');
+    expect(repaired.find(call => call.ordinal === 0)!.validation).toBe('conversation_schema_invalid');
+    expect(repaired.find(call => call.ordinal === 1)!.validation).toBe('conversation_schema_invalid_preview_continued');
     expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect(createResponse).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([true, false])('repairs an invalid command batch once before applying facts, with measured usage %s', async (measured) => {
+    const { actor, asset, revision } = await attached();
+    const service = { id: 'draft_biab', name: 'BIAB', description: null, priceCents: 6500, durationMinutes: 75, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'builder_gel', bookingCategory: 'manicure' };
+    const firstUsage = { inputTokens: 1000, outputTokens: 100, cachedInputTokens: 0 };
+    const secondUsage = measured ? { inputTokens: 2000, outputTokens: 200, cachedInputTokens: 0 } : null;
+    const business = { type: 'business', values: { name: 'Petal Nails', city: 'Toronto', workMode: 'solo' } };
+    const invalid = answer({ uploadFactsJson: null, operationsJson: JSON.stringify([business, { type: 'service', values: { ...service, category: null } }]), designRequest: 'Create the requested custom design.' });
+    const valid = answer({ uploadFactsJson: null, operationsJson: JSON.stringify([business, { type: 'service', values: service }]), designRequest: 'Create the requested custom design.' });
+    const createResponse = vi.fn()
+      .mockResolvedValueOnce({ status: 'completed', usage: firstUsage, items: [{ type: 'message', text: JSON.stringify(invalid) }] })
+      .mockResolvedValueOnce({ status: 'completed', usage: secondUsage, items: [{ type: 'message', text: JSON.stringify(valid) }] })
+      .mockResolvedValueOnce({ status: 'completed', usage: firstUsage, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
+    const input = { expectedRevision: revision, operationId: randomUUID(), scope: 'business_and_website', message: 'Create my website for Petal Nails in Toronto. I work alone. BIAB is $65 for 75 minutes.', referenceIds: [asset.id] };
+    const result = await runSetupConversation(actor, input, { createResponse });
+
+    expect(result.head.revision.document.business).toMatchObject({ name: 'Petal Nails', city: 'Toronto', workMode: 'solo' });
+    expect(result.head.revision.document.services).toEqual([expect.objectContaining({ id: service.id, name: 'BIAB', priceCents: 6500, durationMinutes: 75, confirmed: false })]);
+    expect(result.head.revision.document.website.config.customFrontendId).toBeTruthy();
+
+    const retained = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId));
+    const [turn] = await database.select().from(schema.businessSetupTurnSchema).where(eq(schema.businessSetupTurnSchema.id, input.operationId));
+
+    expect(retained).toHaveLength(2);
+    expect(retained.find(call => call.ordinal === 0)).toMatchObject({ validation: 'conversation_schema_repaired', rawOutput: JSON.stringify(invalid) });
+    expect(retained.find(call => call.ordinal === 1)!.validation).toBe('passed');
+    expect(turn).toMatchObject({ inputTokens: measured ? 3000 : null, outputTokens: measured ? 300 : null, costMicroUsd: measured ? estimateSetupAiCost(firstUsage)! + estimateSetupAiCost(secondUsage)! : null });
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect((await runSetupConversation(actor, input, { createResponse })).head.revision.revision).toBe(result.head.revision.revision);
+    expect(createResponse).toHaveBeenCalledTimes(3);
+  });
+
+  it('stops after one failed repair without applying part of an ordinary business answer', async () => {
+    const { actor, revision } = await attached();
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify(answer({ uploadFactsJson: null, operationsJson: JSON.stringify([{ type: 'business', values: { city: 'Ottawa' } }, { type: 'service', values: { category: null } }]) })) }] });
+    const input = { expectedRevision: revision, operationId: randomUUID(), scope: 'business_and_website', message: 'I work alone in Ottawa.', referenceIds: [] };
+
+    await expect(runSetupConversation(actor, input, { createResponse })).rejects.toMatchObject({ code: 'NOT_READY' });
+
+    const after = await openSetup(actor);
+
+    expect(after.revision.revision).toBe(revision);
+    expect(after.revision.document.business.city).not.toBe('Ottawa');
     expect(createResponse).toHaveBeenCalledTimes(2);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
   });
 
   it.each(['', 'Opening hours and appointment lengths are not visible.'])('continues an image-first conversation after reset when notes arrive as text %j', async (notes) => {

@@ -13,7 +13,8 @@ export function requestsPreviewNow(message: string, hasReference = false): boole
   }
   return requestsFirstWebsite(message)
     || /\b(?:just\s+)?make\s+(?:it|something|stuff|things)\s+up\b|\b(?:use|add|pick|choose)\s+(?:some\s+)?(?:sample|example|suggested|random|placeholder)\b/iu.test(message)
-    || (hasReference && /\b(?:make|create|build|recreate|copy|match|generate)\b.{1,65}\b(?:this|image|design|reference)\b/iu.test(message));
+    || (hasReference && /\b(?:make|create|build|recreate|copy|match|generate)\b.{1,65}\b(?:this|image|design|reference)\b/iu.test(message))
+    || (hasReference && message.split(/[.!?\n]/u).some(sentence => /^(?:(?:please|can you|could you|would you)\s+)*(?:keep|preserve)\b.{1,65}\b(?:design|artwork|image)\b/iu.test(sentence.trim())) && /\b(?:clickable|interactive|booking|links)\b/iu.test(message));
 }
 
 export function requestsSampleDetails(message: string): boolean {
