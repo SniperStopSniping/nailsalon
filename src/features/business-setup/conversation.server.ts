@@ -15,6 +15,8 @@ import type { ModelProviderInputItem, ModelProviderRequest, ModelProviderRespons
 import { db } from '@/libs/DB';
 import { businessSetupTurnSchema as turns, customSiteGenerationSchema as designs, setupAiCallSchema as calls } from '@/models/Schema';
 
+import type { SetupModel } from './ai-models';
+import { DESIGN_AI_MODEL } from './ai-models';
 import { estimateSetupAiCost, runSetupModel, SETUP_AI_MODEL, setupAiConfigured } from './ai-trial.server';
 import { applySetupOperations, needsPreviewDefaults, SetupError, setupOperationSchema } from './contracts';
 import { requestsPreviewNow, requestsSampleDetails } from './design-intent';
@@ -153,22 +155,22 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       if (context.length > 40000) {
         throw new SetupError('NOT_READY', 'This setup is too large for one AI update. Use the manual controls for this change.');
       }
-      const request: ModelProviderRequest = { model: SETUP_AI_MODEL, input: [
+      const request: ModelProviderRequest & { model: SetupModel } = { model: readable.length ? DESIGN_AI_MODEL : SETUP_AI_MODEL, input: [
         { role: 'system', content: PROMPT },
         { role: 'developer', content: context },
         ...admitted.history.flatMap(t => [{ role: 'user' as const, content: t.message }, ...(t.reply ? [{ role: 'assistant' as const, content: t.reply }] : [])]),
         { role: 'user', content: parts },
-      ], tools: [], toolChoice: 'none', maxOutputTokens: readable.length ? 7000 : 3000, timeoutMs: readable.length ? 90000 : 40000, jsonMode: 'schema', jsonSchema: outputSchema, reasoningEffort: 'low' };
-      const responses: ModelProviderResponse[] = [];
-      async function readResponse(ordinal: number, nextRequest: ModelProviderRequest) {
+      ], tools: [], toolChoice: 'none', maxOutputTokens: readable.length ? 7000 : 3000, timeoutMs: readable.length ? 90000 : 40000, jsonMode: 'schema', jsonSchema: outputSchema, reasoningEffort: readable.length ? 'medium' : 'low' };
+      const responses: { result: ModelProviderResponse; model: SetupModel }[] = [];
+      async function readResponse(ordinal: number, nextRequest: ModelProviderRequest & { model: SetupModel }) {
         const { result, callId } = await runSetupModel(actor, { operationId: input.operationId, ordinal, expectedRevision: input.expectedRevision, request: nextRequest, deadlineAt }, providerOverride);
         responseCallId = callId;
-        responses.push(result);
-        const measured = responses.every(response => response.usage !== null);
-        const prices = responses.map(response => estimateSetupAiCost(response.usage));
+        responses.push({ result, model: nextRequest.model });
+        const measured = responses.every(({ result }) => result.usage !== null);
+        const prices = responses.map(({ result, model }) => estimateSetupAiCost(result.usage, model));
         await db.update(turns).set({
-          inputTokens: measured ? responses.reduce((sum, response) => sum + response.usage!.inputTokens, 0) : null,
-          outputTokens: measured ? responses.reduce((sum, response) => sum + response.usage!.outputTokens, 0) : null,
+          inputTokens: measured ? responses.reduce((sum, { result }) => sum + result.usage!.inputTokens, 0) : null,
+          outputTokens: measured ? responses.reduce((sum, { result }) => sum + result.usage!.outputTokens, 0) : null,
           costMicroUsd: prices.every(price => price !== null) ? prices.reduce((sum, price) => sum + price!, 0) : null,
         }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
         if (result.status !== 'completed') {

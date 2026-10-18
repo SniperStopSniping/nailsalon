@@ -1456,9 +1456,11 @@ describe('reading own images directly in conversation', () => {
     const [turn] = await database.select().from(schema.businessSetupTurnSchema).where(eq(schema.businessSetupTurnSchema.id, input.operationId));
 
     expect(retained).toHaveLength(2);
+    expect(retained.map(call => call.model)).toEqual(['gpt-6.1-sol', 'gpt-6.1-sol']);
     expect(retained.find(call => call.ordinal === 0)).toMatchObject({ validation: 'conversation_schema_repaired', rawOutput: JSON.stringify(invalid) });
     expect(retained.find(call => call.ordinal === 1)!.validation).toBe('passed');
-    expect(turn).toMatchObject({ inputTokens: measured ? 3000 : null, outputTokens: measured ? 300 : null, costMicroUsd: measured ? estimateSetupAiCost(firstUsage)! + estimateSetupAiCost(secondUsage)! : null });
+    expect(turn).toMatchObject({ inputTokens: measured ? 3000 : null, outputTokens: measured ? 300 : null, costMicroUsd: measured ? estimateSetupAiCost(firstUsage, 'gpt-6.1-sol')! + estimateSetupAiCost(secondUsage, 'gpt-6.1-sol')! : null });
+    expect(turn!.costMicroUsd).toBe(measured ? retained.reduce((total, call) => total + call.costMicroUsd!, 0) : null);
     expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
     expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
     expect((await runSetupConversation(actor, input, { createResponse })).head.revision.revision).toBe(result.head.revision.revision);
