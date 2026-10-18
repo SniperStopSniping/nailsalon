@@ -150,8 +150,40 @@ it('opens the first generated preview automatically and labels suggested booking
 
   expect(screen.getByRole('region', { name: 'Website preview' })).toBeVisible();
   expect(screen.getByRole('combobox', { name: 'What can Luster change?' })).toHaveValue('all');
-  expect(screen.getByText('This first look includes suggested booking details. Change them in chat or Details, then review them before publishing.')).toBeVisible();
+  expect(screen.getByText('Some booking details still need your review. Change them in chat or Details, then review them before publishing.')).toBeVisible();
   expect(requests.some(request => ['approve', 'publish'].includes(request.action))).toBe(false);
+});
+
+it('labels owner-supplied service values without calling them AI recommendations', async () => {
+  document.services[0].origin = 'assistant';
+  document.serviceSources = { draft_gel: { name: 'owner', priceCents: 'owner', durationMinutes: 'owner' } };
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+
+  expect(screen.getByText(/Supplied by you · Needs your review/)).toBeVisible();
+  expect(screen.queryByText(/haven’t been checked against local market prices/)).not.toBeInTheDocument();
+  expect(requests.some(request => ['approve', 'publish'].includes(request.action))).toBe(false);
+});
+
+it.each([['rebuild', 'Change my design in chat'], ['keep_design', 'Edit links in chat']])('returns a %s design to chat without a preset replacement or automatic submission', async (mode, label) => {
+  document.website.config.customFrontendId = crypto.randomUUID();
+  document.designBrief = { mode, fidelity: 'match', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: [] };
+  const before = structuredClone(document);
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Luster' }), { target: { value: 'Keep my photos and make the hero bigger.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+
+  expect(screen.queryByRole('button', { name: 'Clean and minimal' })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: label }));
+
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveFocus());
+
+  expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveValue('Keep my photos and make the hero bigger.');
+  expect(document).toEqual(before);
+  expect(requests.some(request => ['message', 'edit', 'generate', 'approve', 'publish'].includes(request.action))).toBe(false);
 });
 
 it('lets the owner explicitly accept suggested hours without approving or publishing the whole draft', async () => {

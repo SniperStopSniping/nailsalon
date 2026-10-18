@@ -82,6 +82,44 @@ async function fixture() {
 }
 
 describe('isolated business setup persistence', () => {
+  it('persists typed service evidence separately from assistant authority and replays without approving it', async () => {
+    const actor = await fixture();
+    const input = { expectedRevision: 2, operationId: randomUUID(), scope: 'business_and_website', message: 'Add BIAB at CAD65 for 75 minutes. Add Nail art at CAD10 and suggest its extra time.' };
+    const operations = [
+      { type: 'service', values: { id: 'draft_biab', name: 'BIAB', description: null, priceCents: 6500, durationMinutes: 75, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'builder_gel', bookingCategory: 'manicure' } },
+      { type: 'add_on', values: { id: 'draft_art', name: 'Nail art', category: 'nail_art', descriptionItems: null, priceCents: 1000, durationMinutes: 15, pricingType: 'fixed', unitLabel: null, maxQuantity: null, isActive: true, serviceIds: ['draft_biab'] } },
+    ];
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: null, items: [{ type: 'message', text: JSON.stringify({ reply: 'Added to your draft for review.', operationsJson: JSON.stringify(operations), designRequest: null }) }] });
+    const result = await runSetupConversation(actor, input, { createResponse });
+
+    expect(result.head.revision.document.serviceSources?.draft_biab).toEqual({ name: 'owner', priceCents: 'owner', durationMinutes: 'owner' });
+    expect(result.head.revision.document.addOnSources?.draft_art).toEqual({ name: 'owner', priceCents: 'owner', durationMinutes: 'suggested' });
+    expect(result.head.revision.document.services.find(service => service.id === 'draft_biab')).toMatchObject({ origin: 'assistant', confirmed: false });
+    expect(result.head.revision.document.addOns?.[0]).toMatchObject({ origin: 'assistant', confirmed: false });
+
+    const review = await reviewSetup(actor);
+
+    expect(review.changes.some(change => /serviceSources|addOnSources/u.test(change.path))).toBe(false);
+    expect(review.blockers.some(blocker => /review|confirm|accept/iu.test(blocker))).toBe(true);
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+
+    await runSetupConversation(actor, input, { createResponse });
+
+    expect(createResponse).toHaveBeenCalledOnce();
+    expect((await openSetup(actor)).revision.document.serviceSources?.draft_biab?.priceCents).toBe('owner');
+    await expect(editSetup(actor, { expectedRevision: 3, operationId: randomUUID(), operations: [{ type: 'service', values: { ...operations[0]!.values, confirmed: true, source: 'owner' } }] }, 'assistant')).rejects.toThrow();
+  });
+
+  it('keeps uploaded prices distinct when a private first preview fills only missing times', async () => {
+    const actor = await fixture();
+    await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'service', values: { id: 'draft_lashes', name: 'Lashes', description: null, priceCents: 10000, durationMinutes: null, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'other', bookingCategory: 'other' } }] }, 'upload');
+    const suggested = await editSetup(actor, { expectedRevision: 3, operationId: randomUUID(), operations: [{ type: 'preview_defaults', seed: randomUUID() }] }, 'assistant');
+
+    expect(suggested.revision.document.serviceSources?.draft_lashes).toEqual({ name: 'upload', priceCents: 'upload', durationMinutes: 'suggested' });
+    expect(suggested.revision.document.services.find(service => service.id === 'draft_lashes')).toMatchObject({ priceCents: 10000, durationMinutes: 60, confirmed: false });
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
   it('preserves stored price labels on old drafts without rewriting their immutable JSON', async () => {
     const actor = { salonId: randomUUID(), adminId: randomUUID() };
     await database.insert(schema.adminUserSchema).values({ id: actor.adminId });
@@ -1899,6 +1937,7 @@ describe('full owner draft reset', () => {
     const restored = await resetSetupDraft(actor, { expectedRevision: fresh.revision.revision, operationId: randomUUID() }, true);
 
     expect(restored.revision.document.services.map(service => service.id)).toEqual(liveServices.map(service => service.id));
+    expect(Object.keys(restored.revision.document.serviceSources ?? {})).toEqual(liveServices.map(service => service.id));
 
     const restoredReview = await reviewSetup(actor);
     const restoredApproval = await approveSetup(actor, restoredReview.revision, restoredReview.hash);

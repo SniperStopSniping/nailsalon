@@ -28,6 +28,7 @@ import { StartOverDesign } from './StartOverDesign';
 import { TEAM_BOOKING_IMPACT, teamReviewValue } from './team-summary';
 import { TeamBookingSummary } from './TeamBookingSummary';
 import { TeamEditor } from './TeamEditor';
+import { hasUnverifiedAiValues, valueSourcesSummary } from './value-sources';
 import { WebsiteDetailsEditor } from './WebsiteDetailsEditor';
 
 type Head = {
@@ -182,6 +183,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
   const [attachOpen, setAttachOpen] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const feed = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
   const [uploadReviews, setUploadReviews] = useState<UploadReview[]>([]);
   const [activity, setActivity] = useState('');
   const customFrontendId = head?.revision.document.website.config.customFrontendId;
@@ -701,6 +703,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
             >
               <label className="setup-sr-only" htmlFor="setup-message">Message Luster</label>
               <textarea
+                ref={composer}
                 id="setup-message"
                 value={text}
                 onChange={event => setText(event.target.value)}
@@ -760,7 +763,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
               <span className="setup-eyebrow">YOUR VISION, TAKING SHAPE</span>
               <h2>{customFrontendId ? 'Your website draft' : 'From inspiration to your website'}</h2>
               <p>Private preview. Booking is disabled here.</p>
-              {draft && (draft.hoursOrigin === 'suggested' || draft.services.some(service => service.origin === 'assistant' && !service.confirmed)) && <p role="status">This first look includes suggested booking details. Change them in chat or Details, then review them before publishing.</p>}
+              {draft && (draft.hoursOrigin === 'suggested' || draft.services.some(service => !service.confirmed && hasUnverifiedAiValues(service, draft.serviceSources?.[service.id]))) && <p role="status">Some booking details still need your review. Change them in chat or Details, then review them before publishing.</p>}
             </div>
           </div>
           {head && (
@@ -940,7 +943,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
               {pending.length > 0 && (
                 <div className="setup-notice">
                   <p>Check the prices and appointment lengths below before accepting them. Details read from uploads may be incomplete.</p>
-                  {pending.some(service => service.origin === 'assistant') && <p>AI recommendations are illustrative starting points, not researched local market rates.</p>}
+                  {pending.some(service => hasUnverifiedAiValues(service, draft.serviceSources?.[service.id])) && <p>Prices and times prepared in chat may include AI suggestions. They haven’t been checked against local market prices.</p>}
                   <button type="button" disabled={busy || published} onClick={() => void run(() => edit([{ type: 'confirm_services', ids: pending.map(s => s.id) }]))}>Accept the displayed prices and times</button>
                 </div>
               )}
@@ -981,7 +984,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
                   </details>
                   {service.priceLabelNeedsReview && <p role="alert">Your booking price changed. Update or clear the old price wording before publishing.</p>}
                   <small>
-                    {service.confirmed ? 'Reviewed' : service.origin === 'upload' ? 'Read from your upload · needs review' : service.origin === 'assistant' ? 'AI proposal · needs review' : 'Needs your review'}
+                    {`${valueSourcesSummary(service, draft.serviceSources?.[service.id])} · ${service.confirmed ? 'Reviewed' : 'Needs your review'}`}
                     {' '}
                     ·
                     {' '}
@@ -997,10 +1000,26 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
                 </form>
               ))}
               <button type="button" disabled={busy || published} onClick={() => void run(() => edit([{ type: 'service', values: { id: `draft_${crypto.randomUUID()}`, name: 'New service', description: null, priceCents: null, durationMinutes: null, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'manicure', bookingCategory: 'manicure' } }]))}>Add a service</button>
-              <AddOnEditor addOns={draft.addOns ?? []} services={draft.services} revision={head.revision.revision} disabled={busy || published} onSave={values => void run(() => edit([{ type: 'add_on', values }]))} onConfirm={ids => void run(() => edit([{ type: 'confirm_add_ons', ids }]))} />
+              <AddOnEditor addOns={draft.addOns ?? []} sources={draft.addOnSources} services={draft.services} revision={head.revision.revision} disabled={busy || published} onSave={values => void run(() => edit([{ type: 'add_on', values }]))} onConfirm={ids => void run(() => edit([{ type: 'confirm_add_ons', ids }]))} />
               {(draft.business.workMode === 'team' || Boolean(draft.staff?.length)) && <TeamEditor staff={draft.staff ?? []} services={draft.services} hours={draft.hours} revision={head.revision.revision} disabled={busy || published} onSave={person => void run(() => edit([{ type: 'staff', values: person }]))} />}
               <h3>Design direction</h3>
-              <div className="setup-quick-replies">{([{ label: 'Clean and minimal', style: 'minimal', palette: 'monochrome' }, { label: 'Soft and welcoming', style: 'soft', palette: 'blush_cocoa' }, { label: 'Dark and luxurious', style: 'luxury', palette: 'black_champagne' }] as const).map(choice => <button type="button" key={choice.label} disabled={busy || published} onClick={() => void run(() => edit([{ type: 'design', style: choice.style, palette: choice.palette, layout: 'editorial' }]))}>{choice.label}</button>)}</div>
+              {draft.website.config.customFrontendId
+                ? (
+                    <>
+                      <p>{draft.designBrief?.mode === 'keep_design' ? 'Keep your artwork as uploaded. Edit its booking and contact links in chat, or upload an updated Canva export in Preview.' : 'Tell Luster how you want your design to change. You can keep refining the website you already have.'}</p>
+                      <button
+                        type="button"
+                        disabled={published}
+                        onClick={() => {
+                          setTab('chat');
+                          requestAnimationFrame(() => composer.current?.focus());
+                        }}
+                      >
+                        {draft.designBrief?.mode === 'keep_design' ? 'Edit links in chat' : 'Change my design in chat'}
+                      </button>
+                    </>
+                  )
+                : <div className="setup-quick-replies">{([{ label: 'Clean and minimal', style: 'minimal', palette: 'monochrome' }, { label: 'Soft and welcoming', style: 'soft', palette: 'blush_cocoa' }, { label: 'Dark and luxurious', style: 'luxury', palette: 'black_champagne' }] as const).map(choice => <button type="button" key={choice.label} disabled={busy || published} onClick={() => void run(() => edit([{ type: 'design', style: choice.style, palette: choice.palette, layout: 'editorial' }]))}>{choice.label}</button>)}</div>}
             </>
           )}
         </section>

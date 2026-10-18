@@ -9,6 +9,18 @@ import type { SetupService } from './contracts';
 const services = [{ id: 'gel', name: 'Gel manicure' }, { id: 'biab', name: 'BIAB' }] as SetupService[];
 const art: SetupAddOn = { id: 'extra', name: 'Nail art', category: 'nail_art', descriptionItems: ['Simple details'], priceCents: 1000, durationMinutes: 15, pricingType: 'fixed', unitLabel: null, maxQuantity: null, isActive: true, serviceIds: ['gel'], origin: 'assistant', confirmed: false };
 
+it('distinguishes owner-supplied amounts from AI suggestions without accepting either automatically', () => {
+  const { rerender } = render(<AddOnEditor addOns={[art]} sources={{ extra: { name: 'owner', priceCents: 'owner', durationMinutes: 'owner' } }} services={services} revision={2} disabled={false} onSave={vi.fn()} onConfirm={vi.fn()} />);
+
+  expect(screen.getByText('Supplied by you · Needs your review')).toBeVisible();
+  expect(screen.queryByText(/illustrative starting points/)).not.toBeInTheDocument();
+
+  rerender(<AddOnEditor addOns={[art]} sources={{ extra: { name: 'upload', priceCents: 'upload', durationMinutes: 'suggested' } }} services={services} revision={3} disabled={false} onSave={vi.fn()} onConfirm={vi.fn()} />);
+
+  expect(screen.getByText(/Price: Read from your upload · Time: AI suggestion · Needs your review/)).toBeVisible();
+  expect(screen.getByText(/illustrative starting points/)).toBeVisible();
+});
+
 it('saves real add-on values and eligible services without accepting other proposed extras', () => {
   const onSave = vi.fn();
   const onConfirm = vi.fn();

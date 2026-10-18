@@ -25,6 +25,7 @@ import { applySetupOperations, CLOSED_HOURS, setupEditSchema, SetupError, setupR
 import { publishedSetupIdentities } from './publication-identities.server';
 import { hydrateSetupServicePricing } from './service-pricing';
 import { setupStaffFromSnapshot } from './staff';
+import type { SetupValueContext } from './value-sources';
 
 export type SetupTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type SetupActor = {
@@ -259,11 +260,17 @@ export async function resetSetupDraft(actor: SetupActor, raw: unknown, restore =
       }
       const resolveIdentity = await publishedSetupIdentities(tx, salon.id, [...document.services.map(service => service.id), ...(document.addOns?.flatMap(addOn => [addOn.id, ...addOn.serviceIds]) ?? []), ...(document.staff?.flatMap(person => [person.id, ...person.serviceIds]) ?? [])], { workspaceId: head.workspace.id, namespace: document.identityNamespace, legacyRevision: previous.revision, restoring: true });
       document.services = document.services.map(service => ({ ...service, id: resolveIdentity('services', service.id) ?? service.id }));
+      if (document.serviceSources) {
+        document.serviceSources = Object.fromEntries(Object.entries(document.serviceSources).map(([id, sources]) => [resolveIdentity('services', id) ?? id, sources]));
+      }
       document = hydrateSetupServicePricing(document, snapshot.document);
       // A restoration must not hide services created since the archived draft,
       // or recreate temporary IDs that publication already mapped to live rows.
       document.services = [...snapshot.document.services.filter(service => !document.services.some(saved => saved.id === service.id)), ...document.services];
       document.addOns = document.addOns?.map(addOn => ({ ...addOn, id: resolveIdentity('addOns', addOn.id) ?? addOn.id, serviceIds: addOn.serviceIds.map(id => resolveIdentity('services', id) ?? id) })) ?? snapshot.document.addOns;
+      if (document.addOnSources) {
+        document.addOnSources = Object.fromEntries(Object.entries(document.addOnSources).map(([id, sources]) => [resolveIdentity('addOns', id) ?? id, sources]));
+      }
       document.addOns = [...(snapshot.document.addOns ?? []).filter(addOn => !document.addOns?.some(saved => saved.id === addOn.id)), ...(document.addOns ?? [])];
       document.staff = document.staff?.map(person => ({ ...person, id: resolveIdentity('staff', person.id) ?? person.id, serviceIds: person.serviceIds.map(id => resolveIdentity('services', id) ?? id) })) ?? snapshot.document.staff;
       document.staff = [...(snapshot.document.staff ?? []).filter(person => !document.staff?.some(saved => saved.id === person.id)), ...(document.staff ?? [])];
@@ -318,7 +325,7 @@ export async function projectSetupWebsite(tx: SetupTransaction, salonId: string,
   return (await readSetupSnapshot(tx, updated!)).hash;
 }
 
-export async function editSetup(actor: SetupActor, input: unknown, origin: 'owner' | 'assistant' | 'upload' = 'owner', transaction?: SetupTransaction) {
+export async function editSetup(actor: SetupActor, input: unknown, origin: 'owner' | 'assistant' | 'upload' = 'owner', transaction?: SetupTransaction, valueContext?: SetupValueContext) {
   const edit = setupEditSchema.parse(input);
   const apply = async (tx: SetupTransaction) => {
     const salon = await lockSetupSalon(tx, actor);
@@ -374,7 +381,7 @@ export async function editSetup(actor: SetupActor, input: unknown, origin: 'owne
       const proposed = editing.staff?.find(person => person.id === operation.values.id);
       return { ...operation, values: { ...operation.values, hours: operation.values.hours ?? proposed?.hours ?? null, serviceIds: current && operation.values.assignmentMode === 'preserve' ? current.serviceIds : operation.values.serviceIds } };
     });
-    const document = applySetupOperations(editing, operations, origin);
+    const document = applySetupOperations(editing, operations, origin, valueContext);
     // Restoring an earlier source also restores its photo selection. Otherwise a
     // later AI edit could resurrect the selection from a different design.
     if (origin === 'owner' && document.designBrief && !edit.operations.some(op => op.type === 'design_brief') && edit.operations.some(op => op.type === 'custom_frontend')) {
@@ -403,7 +410,8 @@ export function setupChanges(before: unknown, after: unknown, path = ''): SetupC
   return [{ path, before: before ?? null, after: after ?? null }];
 }
 export function makeSetupReview(head: Awaited<ReturnType<typeof loadSetupHead>>): SetupReview {
-  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['depositEditedFields', 'remindersEditedFields', 'bookingPolicyEdited', 'identityNamespace', 'sessionStartRevision', 'previousDraftRevision', 'hoursOrigin', 'staffUsesExplicitAssignments', 'staffEdited', 'bookingPolicy.version', 'servicePricingVersion'].includes(change.path));
+  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['depositEditedFields', 'remindersEditedFields', 'bookingPolicyEdited', 'identityNamespace', 'sessionStartRevision', 'previousDraftRevision', 'hoursOrigin', 'staffUsesExplicitAssignments', 'staffEdited', 'bookingPolicy.version', 'servicePricingVersion'].includes(change.path)
+    && !['serviceSources', 'addOnSources'].some(path => change.path === path || change.path.startsWith(`${path}.`)));
   return {
     revision: head.revision.revision,
     hash: setupHash({ workspaceId: head.workspace.id, revision: head.revision.revision, baseline: head.workspace.baselineHash, document: head.revision.document }),

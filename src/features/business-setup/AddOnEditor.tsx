@@ -6,9 +6,10 @@ import { ADD_ON_CATEGORIES } from '@/models/serviceCatalogTypes';
 
 import { type SetupAddOn, setupAddOnSchema } from './add-ons';
 import type { SetupService } from './contracts';
+import { hasUnverifiedAiValues, type SetupValueSources, valueSourcesSummary } from './value-sources';
 
 type Values = ReturnType<typeof setupAddOnSchema.parse>;
-function AddOnForm({ addOn, services, disabled, onSave }: { addOn: SetupAddOn; services: SetupService[]; disabled: boolean; onSave: (values: Values) => void }) {
+function AddOnForm({ addOn, sources, services, disabled, onSave }: { addOn: SetupAddOn; sources?: SetupValueSources; services: SetupService[]; disabled: boolean; onSave: (values: Values) => void }) {
   const keepRules = Boolean(addOn.groupId || addOn.advancedRules);
   const [error, setError] = useState('');
   return (
@@ -58,7 +59,7 @@ function AddOnForm({ addOn, services, disabled, onSave }: { addOn: SetupAddOn; s
         Extra minutes
         <input name="duration" type="number" min="0" max="240" step="1" defaultValue={addOn.durationMinutes ?? ''} disabled={disabled} />
       </label>
-      <p>{addOn.confirmed ? 'Reviewed' : addOn.origin === 'assistant' ? 'AI proposal · needs review' : 'Needs your review'}</p>
+      <p>{`${valueSourcesSummary(addOn, sources)} · ${addOn.confirmed ? 'Reviewed' : 'Needs your review'}`}</p>
       {addOn.priceLabelNeedsReview && <p role="alert">Update or clear the old price wording before publishing.</p>}
       <details>
         <summary>Description and price options</summary>
@@ -108,7 +109,7 @@ function AddOnForm({ addOn, services, disabled, onSave }: { addOn: SetupAddOn; s
   );
 }
 
-export function AddOnEditor({ addOns, services, revision, disabled, onSave, onConfirm }: { addOns: SetupAddOn[]; services: SetupService[]; revision: number; disabled: boolean; onSave: (values: Values) => void; onConfirm: (ids: string[]) => void }) {
+export function AddOnEditor({ addOns, sources, services, revision, disabled, onSave, onConfirm }: { addOns: SetupAddOn[]; sources?: Record<string, SetupValueSources>; services: SetupService[]; revision: number; disabled: boolean; onSave: (values: Values) => void; onConfirm: (ids: string[]) => void }) {
   const pending = addOns.filter(addOn => !addOn.confirmed);
   return (
     <details open={pending.length > 0}>
@@ -119,11 +120,12 @@ export function AddOnEditor({ addOns, services, revision, disabled, onSave, onCo
       <p>Extras use your existing booking menu. Choose where they’re offered; prices and extra time stay private until you publish. Existing appointments keep their booked prices and times.</p>
       {pending.length > 0 && (
         <div className="setup-notice">
-          <p>Review the proposed prices, extra minutes and service choices. AI suggestions are illustrative starting points.</p>
+          <p>Review the proposed prices, extra minutes and service choices.</p>
+          {pending.some(addOn => hasUnverifiedAiValues(addOn, sources?.[addOn.id])) && <p>AI suggestions are illustrative starting points, not researched local market rates.</p>}
           <button type="button" disabled={disabled} onClick={() => onConfirm(pending.map(addOn => addOn.id))}>Accept the displayed add-ons</button>
         </div>
       )}
-      {addOns.map(addOn => <AddOnForm key={`${addOn.id}-${revision}`} addOn={addOn} services={services} disabled={disabled} onSave={onSave} />)}
+      {addOns.map(addOn => <AddOnForm key={`${addOn.id}-${revision}`} addOn={addOn} sources={sources?.[addOn.id]} services={services} disabled={disabled} onSave={onSave} />)}
       <button type="button" disabled={disabled} onClick={() => onSave({ id: `draft_${crypto.randomUUID()}`, name: 'New add-on', category: 'nail_art', descriptionItems: null, priceCents: null, durationMinutes: null, pricingType: 'fixed', unitLabel: null, maxQuantity: null, isActive: true, serviceIds: [] })}>Add an extra</button>
     </details>
   );

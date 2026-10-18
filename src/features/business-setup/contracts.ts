@@ -16,6 +16,7 @@ import { changesProtectedAddOnChoices, type SetupAddOn, setupAddOnSchema } from 
 import { type SetupDeposit, setupDepositSchema, setupDepositUpdateSchema, type SetupReminders, setupRemindersSchema, setupRemindersUpdateSchema } from './booking-extras';
 import { resolveSetupPolicy } from './booking-policy';
 import { updateSetupServicePricing } from './service-pricing';
+import { type SetupValueContext, type SetupValueSources, suggestedValueSources, updatedValueSources } from './value-sources';
 
 export const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/u);
@@ -127,6 +128,9 @@ export type SetupDocument = {
   reminders?: SetupReminders;
   remindersEditedFields?: ('rules' | 'quietHours')[];
   services: SetupService[];
+  /** Internal value evidence; never accepted through browser/model operations. */
+  serviceSources?: Record<string, SetupValueSources>;
+  addOnSources?: Record<string, SetupValueSources>;
   /** Absent on older revisions; hydrated without rewriting history. */
   addOns?: SetupAddOn[];
   servicePricingVersion?: 1;
@@ -186,8 +190,13 @@ export class SetupError extends Error {
   }
 }
 /** No model-origin command is capable of confirming financial or timing proposals. */
-export function applySetupOperations(document: SetupDocument, operations: SetupOperation[], origin: 'owner' | 'assistant' | 'upload'): SetupDocument {
+export function applySetupOperations(document: SetupDocument, operations: SetupOperation[], origin: 'owner' | 'assistant' | 'upload', valueContext?: SetupValueContext): SetupDocument {
   const next = structuredClone(document);
+  const peers = [
+    ...next.services.map(item => ({ id: `service:${item.id}`, name: item.name })),
+    ...(next.addOns ?? []).map(item => ({ id: `addOn:${item.id}`, name: item.name })),
+    ...operations.flatMap(op => op.type === 'service' || op.type === 'add_on' ? [{ id: `${op.type === 'service' ? 'service' : 'addOn'}:${op.values.id}`, name: op.values.name }] : []),
+  ];
   for (const raw of operations) {
     const op = setupOperationSchema.parse(raw);
     switch (op.type) {
@@ -223,6 +232,7 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
           throw new SetupError('INVALID', 'New add-ons need a draft identity.');
         }
         const addOn: SetupAddOn = { ...op.values, ...updateSetupServicePricing(previous, op.values, next.booking.currency), origin, confirmed: origin === 'owner', groupId: previous?.groupId ?? null, advancedRules: previous?.advancedRules ?? false };
+        next.addOnSources = { ...next.addOnSources, [addOn.id]: updatedValueSources(previous, { ...addOn, id: `addOn:${addOn.id}` }, origin, next.addOnSources?.[addOn.id], peers, valueContext) };
         if (previous && changesProtectedAddOnChoices(previous, addOn)) {
           throw new SetupError('INVALID', 'This extra has existing selection rules. You can change its name, price and time here; change its service choices and quantity rules in your service library.');
         }
@@ -275,11 +285,18 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
           next.hoursOrigin = 'suggested';
         }
         if (!next.services.length) {
-          next.services.push({ id: `draft_sample_${op.seed}`, name: 'Signature appointment', description: null, priceCents: 6500, durationMinutes: 60, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'manicure', bookingCategory: 'manicure', origin: 'assistant', confirmed: false });
+          const service: SetupService = { id: `draft_sample_${op.seed}`, name: 'Signature appointment', description: null, priceCents: 6500, durationMinutes: 60, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'manicure', bookingCategory: 'manicure', origin: 'assistant', confirmed: false };
+          next.services.push(service);
+          next.serviceSources = { ...next.serviceSources, [service.id]: suggestedValueSources(undefined, service) };
         } else {
-          next.services = next.services.map(service => service.origin !== 'existing' && !service.confirmed && (service.priceCents === null || service.durationMinutes === null)
-            ? { ...service, priceCents: service.priceCents ?? 6500, durationMinutes: service.durationMinutes ?? 60, origin: 'assistant', confirmed: false }
-            : service);
+          next.services = next.services.map((service) => {
+            if (service.origin === 'existing' || service.confirmed || (service.priceCents !== null && service.durationMinutes !== null)) {
+              return service;
+            }
+            const suggested: SetupService = { ...service, priceCents: service.priceCents ?? 6500, durationMinutes: service.durationMinutes ?? 60, origin: 'assistant', confirmed: false };
+            next.serviceSources = { ...next.serviceSources, [service.id]: suggestedValueSources(service, suggested, next.serviceSources?.[service.id]) };
+            return suggested;
+          });
         }
         break;
       }
@@ -325,6 +342,7 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
           throw new SetupError('INVALID', 'New services need a draft identity.');
         }
         const service: SetupService = { ...op.values, ...updateSetupServicePricing(previous, op.values, next.booking.currency), origin, confirmed: origin === 'owner' };
+        next.serviceSources = { ...next.serviceSources, [service.id]: updatedValueSources(previous, { ...service, id: `service:${service.id}` }, origin, next.serviceSources?.[service.id], peers, valueContext) };
         if (previous) {
           next.services = next.services.map(s => s.id === service.id ? service : s);
         } else {

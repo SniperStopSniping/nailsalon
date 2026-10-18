@@ -39,7 +39,7 @@ for (const point of landmarks) {
   assert(Number.isInteger(point.page) && point.page >= 0 && point.page < 6 && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1);
   assert(['instagram', 'email', 'phone', 'service', 'book'].includes(point.action));
 }
-assert(['message', 'conversation', 'photos', 'logo', 'replace-photo', 'canva-upload', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'contact-details', 'booking-link', 'restore', 'canva-review', 'publish', 'book', 'connection-recovery'].includes(step), 'Choose an owner workflow step.');
+assert(['message', 'conversation', 'details', 'photos', 'logo', 'replace-photo', 'canva-upload', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'contact-details', 'booking-link', 'restore', 'canva-review', 'publish', 'book', 'connection-recovery'].includes(step), 'Choose an owner workflow step.');
 if (profile.https) {
   assertHttpsTrialStep(step);
 }
@@ -382,7 +382,47 @@ try {
   if (['message', 'photos', 'logo', 'replace-photo', 'manual-wording', 'service-price', 'booking-link', 'restore', 'publish'].includes(step)) {
     assert.equal(before.status, 'editing', 'Return through Edit with AI before changing a published salon.');
   }
-  if (step === 'conversation') {
+  if (step === 'details') {
+    await page.getByRole('button', { name: 'Details', exact: true }).click();
+    const moneyForms = page.locator('form.setup-service').filter({ has: page.locator('input[name="price"]') });
+    const rows = await moneyForms.evaluateAll(forms => forms.map(form => ({ name: form.querySelector('input[name="name"]')?.value, text: form.textContent })));
+    if (process.env.LUSTER_REAL_AI_EXPECT_VALUE_SOURCES === 'true') {
+      const owner = before.document.services.find(service => /^BIAB\b/iu.test(service.name));
+      const mixed = before.document.services.find(service => /Gel Manicure/iu.test(service.name));
+      const extra = before.document.addOns.find(addOn => /Nail art/iu.test(addOn.name));
+      assert(owner && mixed && extra, 'The owner supplied both services and the named add-on.');
+      assert.deepEqual(before.document.serviceSources[owner.id], { name: 'owner', priceCents: 'owner', durationMinutes: 'owner' });
+      assert.deepEqual(before.document.serviceSources[mixed.id], { name: 'owner', priceCents: 'owner', durationMinutes: 'suggested' });
+      assert.deepEqual(before.document.addOnSources[extra.id], { name: 'owner', priceCents: 'owner', durationMinutes: 'owner' });
+      assert(rows.find(row => row.name === owner.name)?.text.includes('Supplied by you · Needs your review'));
+      assert(rows.find(row => row.name === mixed.name)?.text.includes('Price: Supplied by you · Time: AI suggestion'));
+      assert(rows.find(row => row.name === extra.name)?.text.includes('Supplied by you · Needs your review'));
+      assert([...before.document.services, ...before.document.addOns].every(item => !item.confirmed));
+    }
+    const moneyForm = moneyForms.first();
+    await moneyForm.scrollIntoViewIfNeeded();
+
+    await expect(moneyForm.getByText(/Supplied by you.*Needs your review/u)).toBeVisible();
+
+    await screenshot('service-sources-desktop');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await moneyForm.scrollIntoViewIfNeeded();
+    await screenshot('service-sources-mobile');
+    if (process.env.LUSTER_REAL_AI_EXPECT_VALUE_SOURCES === 'true') {
+      const mixedForm = page.locator('form.setup-service').filter({ has: page.locator('input[name="name"][value="Gel Manicure"]') });
+      await mixedForm.scrollIntoViewIfNeeded();
+
+      await expect(mixedForm.getByText(/Time: AI suggestion/u)).toBeVisible();
+
+      await screenshot('mixed-sources-mobile');
+    }
+    await page.reload();
+    await page.getByRole('button', { name: 'Details', exact: true }).click();
+    assert.deepEqual((await head()).document, before.document);
+    assert.equal(Number((await database.query('SELECT count(*) AS count FROM setup_ai_call WHERE salon_id=$1', [fixture.salonId])).rows[0].count), modelCallCountBefore);
+    interactionChecks.push({ draftUnchanged: true, sourceLabelsVerified: process.env.LUSTER_REAL_AI_EXPECT_VALUE_SOURCES === 'true', ...(process.env.LUSTER_REAL_AI_EXPECT_VALUE_SOURCES === 'true' ? { unapprovedValuesRemainUnapproved: true, rows: rows.map(row => ({ name: row.name, label: row.text.includes('Time: AI suggestion') ? 'Mixed owner facts and AI duration suggestion' : 'Owner-supplied values' })) } : {}) });
+    after = await head();
+  } else if (step === 'conversation') {
     await expect(page.locator('.setup-owner').last()).toBeVisible({ timeout: 60_000 });
     await expect(page.locator('.setup-assistant').last()).toContainText(/deposit|reminder/iu);
 
