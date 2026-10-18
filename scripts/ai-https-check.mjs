@@ -81,6 +81,11 @@ function verifyOptimizedBuild(directory) {
   process.stdout.write(`${JSON.stringify(proof)}\n`);
 }
 if (mode === 'build') {
+  const freeBytes = () => {
+    const stat = fs.statfsSync('/tmp');
+    return Number(stat.bavail) * Number(stat.bsize);
+  };
+  assert(freeBytes() >= 6.5 * 1024 ** 3, 'An optimized build requires 6.5 GiB free space before creating its private archive.');
   // The archive is the committed application. Uncommitted test-harness work is
   // permitted, but a dirty application/configuration cannot enter this build.
   execFileSync('git', ['diff', '--exit-code', 'HEAD', '--', 'src', 'tools', 'prototypes', 'migrations', 'next.config.mjs', 'package.json', 'package-lock.json'], { cwd: source, stdio: 'pipe' });
@@ -125,10 +130,22 @@ if (mode === 'build') {
   }
   const log = fs.openSync(path.join(directory, 'build.log'), 'w', 0o600);
   const child = spawn(process.execPath, [path.join(root, 'node_modules/next/dist/bin/next'), 'build'], { cwd: root, env, stdio: ['ignore', log, log] });
+  // Stop this exact child before the shared 3.25 GiB floor. The extra GiB
+  // allows for an in-progress webpack pack write between observations.
+  let resourceStopped = false;
+  const resourceWatch = setInterval(() => {
+    if (resourceStopped || child.exitCode !== null || child.signalCode !== null || freeBytes() >= 4.25 * 1024 ** 3) {
+      return;
+    }
+    resourceStopped = true;
+    fs.writeFileSync(path.join(directory, 'resource-stop.json'), JSON.stringify({ reason: 'free disk reserve', freeBytes: freeBytes(), reservedFloorBytes: 3.25 * 1024 ** 3 }), { mode: 0o600 });
+    child.kill('SIGTERM');
+  }, 200);
   process.stdout.write(`${JSON.stringify({ directory, sha, pid: child.pid, status: 'building' })}\n`);
   const result = await wait(child);
+  clearInterval(resourceWatch);
   fs.closeSync(log);
-  fs.writeFileSync(path.join(directory, 'build-result.json'), JSON.stringify({ ...result, completedAt: new Date().toISOString() }), { mode: 0o600 });
+  fs.writeFileSync(path.join(directory, 'build-result.json'), JSON.stringify({ ...result, resourceStopped, completedAt: new Date().toISOString() }), { mode: 0o600 });
   process.stdout.write(`${JSON.stringify({ directory, ...result })}\n`);
   process.exitCode = result.code === 0 ? 0 : 1;
   if (result.code === 0) {
