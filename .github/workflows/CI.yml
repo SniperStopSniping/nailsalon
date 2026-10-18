@@ -1014,6 +1014,7 @@ jobs:
           migrations/0109_setup_staff_publication.sql 620a8e4ef0cf4efb12c1e81af4d356191ee28cae
           migrations/0110_setup_add_on_publication.sql fa7b0b96f9475baea8b3d995048f0ab0464c61fb
           migrations/0111_other_service_categories.sql d53a465feb451bbd8279331796e102375b552726
+          migrations/0112_ai_operator_expense_budget.sql eebc64176f6a19b50f4d232837588e1e2c1e5645
           AI_SETUP_MIGRATIONS
 
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
