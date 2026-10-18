@@ -37,6 +37,7 @@ await database.connect();
 assert.deepEqual((await database.query('SELECT current_database() AS name,inet_server_addr()::text AS host')).rows, [{ name: 'luster_ai_setup_development', host: '127.0.0.1/32' }]);
 assert.deepEqual((await database.query('SELECT environment FROM luster_environment LIMIT 2')).rows, [{ environment: 'development' }]);
 await assertClerkTrialActor(database, fixture);
+const expectedBusinessName = (await database.query('SELECT name FROM salon WHERE id=$1', [fixture.salonId])).rows[0].name;
 const callsBefore = Number((await database.query('SELECT count(*) FROM setup_ai_call WHERE salon_id=$1', [fixture.salonId])).rows[0].count);
 await clerkSetup({ secretKey: process.env.CLERK_SECRET_KEY, publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, dotenv: false });
 const browser = await (browserName === 'webkit' ? webkit : chromium).launch({ headless: true, proxy: { server: profile.proxyServer } });
@@ -50,7 +51,7 @@ const api = [];
 const authenticationChecks = [];
 const pendingChecks = [];
 const cookieSnapshots = [];
-const privateProviderValues = [process.env.CLERK_SECRET_KEY, process.env.OPENAI_API_KEY_CUSTOM_SITES].filter(value => typeof value === 'string' && value.length > 20);
+const privateProviderValues = [process.env.CLERK_SECRET_KEY, process.env.OPENAI_API_KEY_CUSTOM_SITES, process.env.STRIPE_SECRET_KEY, process.env.STRIPE_BILLING_WEBHOOK_SECRET].filter(value => typeof value === 'string' && value.length > 20);
 const diagnosticText = (value) => {
   let safe = String(value ?? '');
   for (const privateValue of [...privateProviderValues, process.env.CLERK_TESTING_TOKEN, fixture.password, fixture.email]) {
@@ -172,7 +173,7 @@ try {
   const renderer = `${profile.rendererOrigin}/renderer`;
 
   await expect(page.locator(`iframe[src="${renderer}"]`)).toBeVisible();
-  await expect(page.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-field="business.name"]').first()).toHaveText('Lumen Studio');
+  await expect(page.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-field="business.name"]').first()).toHaveText(expectedBusinessName);
 
   await inspectDocuments('saved-preview');
   await page.screenshot({ path: path.join(output, 'saved-owner-preview.png'), fullPage: true });

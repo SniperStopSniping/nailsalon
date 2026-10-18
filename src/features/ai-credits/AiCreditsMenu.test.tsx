@@ -84,6 +84,132 @@ it('shows a tiny measured charge without pretending it was zero', async () => {
   expect(screen.getByText('−less than $0.01')).toBeInTheDocument();
 });
 
+it('labels a temporary hold and refreshes the closed credit strip after work finishes', async () => {
+  vi.useFakeTimers();
+  wallet.data.availableMicroCad = 8_000_000;
+  wallet.data.reservedMicroCad = 2_000_000;
+  await act(async () => {
+    render(<AiCreditsMenu salonSlug="synthetic" locale="en" onNavigate={navigate} />);
+  });
+
+  expect(screen.getByRole('button', { name: 'AI credits · $8.00 available · $2.00 set aside' })).toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+  wallet.data.availableMicroCad = 9_986_265;
+  wallet.data.reservedMicroCad = 0;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10_000);
+  });
+
+  expect(screen.getByRole('button', { name: 'AI credits · $9.99' })).toBeInTheDocument();
+
+  const requests = vi.mocked(fetch).mock.calls.length;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+
+  expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
+  expect(calls).toEqual([]);
+});
+
+it('bounds automatic hold checks without starting a purchase or another AI request', async () => {
+  vi.useFakeTimers();
+  wallet.data.availableMicroCad = 8_000_000;
+  wallet.data.reservedMicroCad = 2_000_000;
+  await act(async () => {
+    render(<AiCreditsMenu salonSlug="synthetic" locale="en" onNavigate={navigate} />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(610_000);
+  });
+  const requests = vi.mocked(fetch).mock.calls.length;
+
+  expect(requests).toBe(61);
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(120_000);
+  });
+
+  expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
+  expect(calls).toEqual([]);
+  expect(navigate).not.toHaveBeenCalled();
+});
+
+it('does not let an older balance response replace a newer confirmed balance', async () => {
+  render(<AiCreditsMenu salonSlug="synthetic" locale="en" onNavigate={navigate} />);
+  await screen.findByRole('button', { name: 'AI credits · $10.00' });
+  let resolveOld!: (response: Response) => void;
+  vi.mocked(fetch).mockImplementationOnce(() => new Promise((resolve) => {
+    resolveOld = resolve;
+  }));
+  fireEvent.focus(window);
+  wallet.data.availableMicroCad = 20_000_000;
+  fireEvent.focus(window);
+  await screen.findByRole('button', { name: 'AI credits · $20.00' });
+  await act(async () => {
+    resolveOld(Response.json({ ...wallet, data: { ...wallet.data, availableMicroCad: 1_000_000 } }));
+  });
+
+  expect(screen.getByRole('button', { name: 'AI credits · $20.00' })).toBeInTheDocument();
+});
+
+it('aborts a pending hold check and stops polling when the credit strip unmounts', async () => {
+  vi.useFakeTimers();
+  wallet.data.availableMicroCad = 8_000_000;
+  wallet.data.reservedMicroCad = 2_000_000;
+  let resolvePending!: (response: Response) => void;
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(<AiCreditsMenu salonSlug="synthetic" locale="en" onNavigate={navigate} />);
+  });
+  vi.mocked(fetch).mockImplementationOnce(() => new Promise((resolve) => {
+    resolvePending = resolve;
+  }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10_000);
+  });
+
+  expect(vi.mocked(fetch).mock.calls).toHaveLength(2);
+
+  const request = vi.mocked(fetch).mock.calls.at(-1)![1];
+  const requests = vi.mocked(fetch).mock.calls.length;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+
+  expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
+
+  view.unmount();
+
+  expect(request?.signal?.aborted).toBe(true);
+
+  await act(async () => {
+    resolvePending(Response.json(wallet));
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+
+  expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
+});
+
+it('does not display another salon’s cached or late-returning balance', async () => {
+  const view = render(<AiCreditsMenu salonSlug="synthetic" locale="en" onNavigate={navigate} />);
+  await screen.findByRole('button', { name: 'AI credits · $10.00' });
+  let resolveOld!: (response: Response) => void;
+  vi.mocked(fetch).mockImplementationOnce(() => new Promise((resolve) => {
+    resolveOld = resolve;
+  }));
+  fireEvent.focus(window);
+  wallet.data.availableMicroCad = 3_000_000;
+  view.rerender(<AiCreditsMenu salonSlug="another" locale="en" onNavigate={navigate} />);
+  await screen.findByRole('button', { name: 'AI credits · $3.00' });
+  await act(async () => {
+    resolveOld(Response.json({ ...wallet, data: { ...wallet.data, availableMicroCad: 1_000_000 } }));
+  });
+
+  expect(screen.getByRole('button', { name: 'AI credits · $3.00' })).toBeInTheDocument();
+  expect(String(vi.mocked(fetch).mock.calls.at(-1)![0])).toContain('salonSlug=another');
+});
+
 it('opens only a server-provided Stripe checkout without passing client amounts or credentials', async () => {
   await open();
   fireEvent.click(screen.getByRole('button', { name: '$10.00 CAD · one-time Start here' }));

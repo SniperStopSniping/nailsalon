@@ -341,7 +341,9 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           <div role="group" aria-label="Preview size">
             <button type="button" aria-pressed={previewSize === 'desktop'} onClick={() => setPreviewSize('desktop')}>Desktop preview</button>
             <button type="button" aria-pressed={previewSize === 'mobile'} onClick={() => setPreviewSize('mobile')}>Mobile preview</button>
-            <a href={`/admin/business-setup/design-preview/${encodeURIComponent(salonSlug)}?revision=${revision}`} target="_blank" rel="noreferrer">Open full preview</a>
+            {previewIsCurrent && !busy && !pending
+              ? <a href={`/admin/business-setup/design-preview/${encodeURIComponent(salonSlug)}?revision=${state.head.revision.revision}`} target="_blank" rel="noreferrer">Open full preview</a>
+              : <span role="status">Updating your preview…</span>}
             <button
               type="button"
               disabled={disabled || Boolean(busy || pending) || !previewIsCurrent || Boolean(state.payload.source.canva && !state.payload.source.canva.ownerReviewed && !artworkPreviewAcknowledged)}

@@ -14,7 +14,8 @@ const navigateToCheckout = (url: string) => window.location.assign(url);
 
 export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToCheckout, promptWhenEmpty = false }: { salonSlug: string; locale: string; onNavigate?: (url: string) => void; promptWhenEmpty?: boolean }) {
   const [open, setOpen] = useState(false);
-  const [wallet, setWallet] = useState<AiCreditsOverview | null>(null);
+  const [snapshot, setSnapshot] = useState<{ salonSlug: string; value: AiCreditsOverview } | null>(null);
+  const wallet = snapshot?.salonSlug === salonSlug ? snapshot.value : null;
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -22,12 +23,16 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
   const lock = useRef(false);
   const controller = useRef<AbortController | null>(null);
   const attempts = useRef<Partial<Record<AiCreditPackKey, string>>>({});
+  const activeSalon = useRef(salonSlug);
+  activeSalon.current = salonSlug;
+  const loadSequence = useRef(0);
   const storageKey = `luster-ai-credit-purchase:${salonSlug}`;
 
   const load = useCallback(async (signal?: AbortSignal) => {
+    const sequence = activeSalon.current === salonSlug ? ++loadSequence.current : -1;
     const value = await aiCreditRequest<AiCreditsOverview>(salonSlug, undefined, signal);
-    if (!signal?.aborted) {
-      setWallet(value);
+    if (!signal?.aborted && sequence === loadSequence.current && activeSalon.current === salonSlug) {
+      setSnapshot({ salonSlug, value });
     }
     return value;
   }, [salonSlug]);
@@ -142,6 +147,47 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
     };
   }, [checkPayment, load, storageKey, promptWhenEmpty]);
 
+  // After a page refresh, the original request's completion event belongs to
+  // the previous document. Check its temporary hold until it settles instead
+  // of leaving the available balance reduced until the next window focus.
+  const hasReservedCredits = Boolean(wallet?.data.reservedMicroCad);
+  const latestCreditEntry = wallet?.data.history[0]?.id;
+  useEffect(() => {
+    if (!hasReservedCredits) {
+      return;
+    }
+    const request = new AbortController();
+    let pending = false;
+    let checks = 0;
+    const timer = window.setInterval(() => {
+      if (checks >= 60) {
+        window.clearInterval(timer);
+        return;
+      }
+      if (pending || document.visibilityState === 'hidden') {
+        return;
+      }
+      checks += 1;
+      pending = true;
+      void load(request.signal).catch(() => { /* Retain the last verified balance. */ }).finally(() => {
+        pending = false;
+      });
+    }, 10_000);
+    return () => {
+      window.clearInterval(timer);
+      request.abort();
+    };
+  }, [hasReservedCredits, latestCreditEntry, load]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const request = new AbortController();
+    void load(request.signal).catch(() => { /* Existing controls allow another check. */ });
+    return () => request.abort();
+  }, [load, open]);
+
   async function buy(packKey: AiCreditPackKey) {
     if (lock.current) {
       return;
@@ -227,6 +273,7 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
       <button type="button" className="setup-credit-trigger" onClick={() => setOpen(true)}>
         AI credits
         {wallet ? ` · ${formatAiCredits(wallet.data.availableMicroCad)}` : ''}
+        {hasReservedCredits ? ` available · ${formatAiCredits(wallet!.data.reservedMicroCad)} set aside` : ''}
       </button>
       <DialogShell isOpen={open} onClose={() => setOpen(false)} initialFocusRef={closeRef} maxWidthClassName="max-w-lg">
         <section role="dialog" aria-modal="true" aria-labelledby="ai-credits-title" className="luster-ai-credits">

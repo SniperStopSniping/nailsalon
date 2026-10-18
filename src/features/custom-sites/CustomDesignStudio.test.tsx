@@ -12,6 +12,23 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
+it('waits for the displayed preview and parent draft to agree before opening a full preview', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }));
+  const source = { title: 'New design', html: '<h1 data-edit="welcome">Welcome</h1>', css: '', javascript: '', analysis: '', limitations: [] };
+  const onSaved = vi.fn(async () => {});
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ head: { revision: { revision: 3, document: { website: { config: { customFrontendId: 'new' } } } } }, payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history: [], attempts: [], configured: true, rendererOrigin: null })));
+  const editor = (revision: number, artifactId: string) => <CustomDesignStudio salonSlug="test" revision={revision} artifactId={artifactId} disabled={false} aiEnabled onSaved={onSaved} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />;
+  const view = render(editor(2, 'old'));
+  await screen.findByText('New design');
+
+  expect(screen.queryByRole('link', { name: 'Open full preview' })).not.toBeInTheDocument();
+  expect(screen.getByText('Updating your preview…')).toBeVisible();
+
+  view.rerender(editor(3, 'new'));
+
+  expect(await screen.findByRole('link', { name: 'Open full preview' })).toHaveAttribute('href', '/admin/business-setup/design-preview/test?revision=3');
+});
+
 it.each([{ pending: true, revision: 2 }, { pending: false, revision: 3 }])('holds manual wording/source edits while generation or a later preview is loading: %j', async ({ pending, revision }) => {
   vi.stubGlobal('matchMedia', () => ({ matches: false }));
   const source = { title: 'Studio', html: '<h1 data-edit="welcome">Welcome</h1>', css: '', javascript: '', analysis: '', limitations: [] };
@@ -27,6 +44,8 @@ it.each([{ pending: true, revision: 2 }, { pending: false, revision: 3 }])('hold
 
   expect(screen.getByRole('textbox', { name: 'Website text: welcome' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Save wording' })).toBeDisabled();
+  expect(screen.queryByRole('link', { name: 'Open full preview' })).not.toBeInTheDocument();
+  expect(screen.getByText('Updating your preview…')).toBeVisible();
 
   fireEvent.click(screen.getByText('Edit website source', { exact: true }));
 
