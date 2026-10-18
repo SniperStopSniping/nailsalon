@@ -12,7 +12,7 @@ import { aiTrialOrigins } from './lib/ai-trial-origins.mjs';
 
 assert.equal(process.env.LUSTER_ISOLATED_HTTPS_CHECK, 'true', 'Explicit isolated HTTPS verification opt-in is required.');
 const [mode, requestedDirectory] = process.argv.slice(2);
-assert(['build', 'serve'].includes(mode));
+assert(['build', 'serve', 'verify'].includes(mode));
 const source = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const profile = aiTrialOrigins(true);
 const inherited = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].filter(key => process.env[key]).map(key => [key, process.env[key]]));
@@ -37,6 +37,46 @@ async function attestDevelopment() {
   }
 }
 const wait = child => new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+function verifyOptimizedBuild(directory) {
+  assert.match(directory ?? '', /^\/tmp\/luster-ai-https-check-[a-zA-Z0-9-]+$/u);
+  const metadata = JSON.parse(fs.readFileSync(path.join(directory, 'metadata.json')));
+  const build = JSON.parse(fs.readFileSync(path.join(directory, 'build-result.json')));
+  assert.equal(build.code, 0);
+  assert.equal(metadata.root, path.join(directory, 'source'));
+  assert.match(metadata.sha, /^[a-f0-9]{40}$/u);
+  // Scan the archived commit's exact file list, even after the working branch
+  // advances. Never modify this worktree's or another task's Git index.
+  const scanEnv = { ...inherited, GIT_DIR: metadata.gitDir, GIT_WORK_TREE: metadata.root, GIT_INDEX_FILE: path.join(directory, 'verification.index') };
+  execFileSync('git', ['read-tree', metadata.sha], { cwd: metadata.root, env: scanEnv, stdio: 'pipe' });
+  // /tmp is a symlink on macOS. Resolve the script itself so its CLI entry
+  // guard actually runs; a silent code 0 without a scanner report is failure.
+  const summary = execFileSync(process.execPath, [fs.realpathSync(path.join(metadata.root, 'scripts/check-secret-leaks.mjs')), '--no-range'], { cwd: metadata.root, env: scanEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const counts = summary.match(/Secret leak scan passed \((\d+) tracked files, (\d+) generated files, 0 reviewed commits\)\./u);
+  assert(counts, 'The credential scanner must execute and report the archived source and optimized client output.');
+  const canary = fs.readFileSync(path.join(directory, 'server-canary.txt'), 'utf8');
+  let publicFiles = 0;
+  let publicBytes = 0;
+  let serverCanaryMatches = 0;
+  function inspect(root) {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      const file = path.join(root, entry.name);
+      if (entry.isDirectory()) {
+        inspect(file);
+      } else if (entry.isFile() && (file.includes(`${path.sep}.next${path.sep}static${path.sep}`) || /\.(?:html|rsc)$/u.test(file))) {
+        const bytes = fs.readFileSync(file);
+        publicFiles += 1;
+        publicBytes += bytes.length;
+        serverCanaryMatches += Number(bytes.includes(canary));
+      }
+    }
+  }
+  inspect(path.join(metadata.root, '.next'));
+  assert(publicFiles > 0, 'Optimized public assets must exist.');
+  assert.equal(serverCanaryMatches, 0, 'A server-only synthetic credential reached public output.');
+  const proof = { sha: metadata.sha, nodeVersion: process.version, build, secretScan: { exitCode: 0, summary, trackedFiles: Number(counts[1]), generatedFiles: Number(counts[2]), publicFiles, publicBytes, serverCanaryMatches, invocationValidated: true } };
+  fs.writeFileSync(path.join(directory, 'verified-build-proof.json'), JSON.stringify(proof, null, 2), { mode: 0o600 });
+  process.stdout.write(`${JSON.stringify(proof)}\n`);
+}
 if (mode === 'build') {
   // The archive is the committed application. Uncommitted test-harness work is
   // permitted, but a dirty application/configuration cannot enter this build.
@@ -71,6 +111,11 @@ if (mode === 'build') {
   fs.writeFileSync(path.join(directory, 'build-result.json'), JSON.stringify({ ...result, completedAt: new Date().toISOString() }), { mode: 0o600 });
   process.stdout.write(`${JSON.stringify({ directory, ...result })}\n`);
   process.exitCode = result.code === 0 ? 0 : 1;
+  if (result.code === 0) {
+    verifyOptimizedBuild(directory);
+  }
+} else if (mode === 'verify') {
+  verifyOptimizedBuild(requestedDirectory);
 } else {
   assert.match(requestedDirectory ?? '', /^\/tmp\/luster-ai-https-check-[a-zA-Z0-9-]+$/u);
   const directory = requestedDirectory;

@@ -35,8 +35,9 @@ test('HTTPS verification cannot submit another billable generation request', () 
 
 test('server-side negative probes cannot become arbitrary URL requests', () => {
   const profile = aiTrialOrigins(true);
-  assert.deepEqual(trialApiTarget('/api/appointments', profile), { url: 'https://127.0.0.1:3443/api/appointments', headers: { host: 'luster-builder.test:3443' } });
+  assert.deepEqual(trialApiTarget('/api/appointments', profile), { url: 'https://luster-builder.test:3443/api/appointments', headers: {} });
   assert.throws(() => trialApiTarget('//external.invalid/api', profile), /isolated application/u);
+  assert.throws(() => trialApiTarget('https://user:password@luster-builder.test:3443/api', profile), /URL credentials/u);
 });
 
 test('the CONNECT proxy permits only the two fixed HTTPS authorities', () => {

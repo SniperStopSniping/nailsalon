@@ -46,10 +46,9 @@ export function assertHttpsTrialStep(step) {
 export function trialApiTarget(path, profile) {
   const url = new URL(path, profile.origin);
   assert.equal(url.origin, profile.origin, 'A server probe must target this isolated application.');
-  if (!profile.https) {
-    return { url: url.href, headers: {} };
-  }
-  const destination = trialLoopbackRequest(url.href, profile);
-  assert.equal(destination.kind, 'loopback');
-  return { url: destination.url, headers: { host: destination.host } };
+  assert(!url.username && !url.password, 'A server probe must not carry URL credentials.');
+  // BrowserContext.request and route.fetch inherit the fixed CONNECT proxy.
+  // Preserve the original URL so cookies/TLS origins are resolved normally;
+  // requests to a substituted IP are deliberately refused by that proxy.
+  return { url: url.href, headers: {} };
 }

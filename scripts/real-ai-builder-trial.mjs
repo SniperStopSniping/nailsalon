@@ -533,14 +533,18 @@ try {
     await page.route('**/api/admin/business-setup', interruptReview);
     await page.getByRole('button', { name: 'Review', exact: true }).click();
 
-    await expect(page.getByText('Your connection dropped. Reload your saved changes before trying again.', { exact: true })).toBeVisible();
+    const errorNotice = page.getByRole('alert').filter({ hasText: 'Your connection dropped. Reload your saved changes before trying again.' });
+
+    await expect(errorNotice).toBeVisible();
     await expect(input).toHaveValue(unsent);
 
     await screenshot('connection-error-keeps-message');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await screenshot('connection-error-mobile');
     await page.unroute('**/api/admin/business-setup', interruptReview);
     await page.getByRole('button', { name: 'Reload saved changes', exact: true }).click();
 
-    await expect(page.getByText('Your connection dropped. Reload your saved changes before trying again.', { exact: true })).toHaveCount(0);
+    await expect(errorNotice).toHaveCount(0);
     await expect(input).toHaveValue(unsent);
 
     await screenshot('connection-recovered');
