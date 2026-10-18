@@ -9,7 +9,7 @@ import { SetupError } from '@/features/business-setup/contracts';
 import { loadSetupHead, lockSetupSalon, type SetupActor, setupHash, type SetupTransaction } from '@/features/business-setup/drafts.server';
 import { db } from '@/libs/DB';
 import { checkEndpointRateLimit } from '@/libs/rateLimit';
-import { aiCreditLedgerSchema as ledger, aiCreditReservationSchema as reservations, businessSetupTurnSchema as turns, customSiteGenerationSchema as designs, setupAiCallSchema as calls } from '@/models/Schema';
+import { aiCreditLedgerSchema as ledger, aiCreditReservationSchema as reservations, businessSetupRevisionSchema as revisions, businessSetupTurnSchema as turns, customSiteGenerationSchema as designs, setupAiCallSchema as calls } from '@/models/Schema';
 
 import { AI_REQUEST_CREDIT_LIMIT, type AiCreditPlanEnv, retailAiCredits } from './catalog';
 import { aiCreditMeteringEnabled, aiCreditPlanEnv, aiCreditPricingPolicy, aiCreditsEnabled } from './config.server';
@@ -21,20 +21,62 @@ type Hold = typeof reservations.$inferSelect;
 type RequestIdentity = { operationId: string; expectedRevision: number };
 const EXECUTION_LEASE_MS = 6 * 60_000;
 
+async function appliedDesignReceipt(tx: SetupTransaction, hold: Hold, operationId: string, workspaceId?: string) {
+  const [design] = await tx.select({ status: designs.status, artifactId: designs.artifactId }).from(designs).where(and(eq(designs.id, operationId), eq(designs.salonId, hold.salonId), eq(designs.actorId, hold.actorId)));
+  if (design?.status === 'completed') {
+    return true;
+  }
+  if (!design?.artifactId) {
+    return false;
+  }
+  const [saved] = await tx.select({ artifactId: sql<string | null>`${revisions.document} #>> '{website,config,customFrontendId}'` }).from(revisions).where(and(eq(revisions.operationId, operationId), eq(revisions.salonId, hold.salonId), eq(revisions.actorId, hold.actorId), eq(revisions.origin, 'assistant'), workspaceId ? eq(revisions.workspaceId, workspaceId) : undefined)).limit(1);
+  if (saved?.artifactId !== design.artifactId) {
+    return false;
+  }
+  await tx.update(designs).set({ status: 'completed', phase: 'completed' }).where(and(eq(designs.id, operationId), eq(designs.salonId, hold.salonId), eq(designs.actorId, hold.actorId)));
+  return true;
+}
+
 async function domainCompleted(tx: SetupTransaction, hold: Hold) {
-  const [turn] = await tx.select({ status: turns.status }).from(turns).where(and(eq(turns.id, hold.operationId), eq(turns.salonId, hold.salonId), eq(turns.actorId, hold.actorId)));
+  const [turn] = await tx.select({ status: turns.status, workspaceId: turns.workspaceId, designOperationId: turns.designOperationId, designRequest: turns.designRequest }).from(turns).where(and(eq(turns.id, hold.operationId), eq(turns.salonId, hold.salonId), eq(turns.actorId, hold.actorId)));
   if (turn && (turn.status === 'completed' || (hold.requestKind === 'extract' && ['upload_review', 'upload_applied', 'upload_dismissed'].includes(turn.status)))) {
     return true;
   }
-  if (hold.requestKind === 'design') {
-    const [design] = await tx.select({ status: designs.status }).from(designs).where(and(eq(designs.id, hold.operationId), eq(designs.salonId, hold.salonId), eq(designs.actorId, hold.actorId)));
-    return design?.status === 'completed';
+  // The custom-design entry also routes narrow price edits through a saved
+  // conversation. A direct source generation has no conversation record.
+  if (hold.requestKind === 'design' && !turn) {
+    return appliedDesignReceipt(tx, hold, hold.operationId);
   }
-  return false;
+  if ((hold.requestKind !== 'conversation' && hold.requestKind !== 'design') || !turn || (turn.designRequest && !turn.designOperationId)) {
+    return false;
+  }
+  const [saved] = turn.designOperationId ? [] : await tx.select({ revision: revisions.revision }).from(revisions).where(and(eq(revisions.operationId, hold.operationId), eq(revisions.salonId, hold.salonId), eq(revisions.workspaceId, turn.workspaceId), eq(revisions.actorId, hold.actorId), eq(revisions.origin, 'assistant'))).limit(1);
+  const completed = turn.designOperationId ? await appliedDesignReceipt(tx, hold, turn.designOperationId, turn.workspaceId) : Boolean(saved);
+  if (completed) {
+    // The domain commit is durable even if its later status write/response was
+    // interrupted. Partial business intake before an unfinished design does
+    // not count: only that design's exact applied artifact is a final receipt.
+    await tx.update(turns).set({ status: 'completed', reply: 'Your changes are saved in the draft. Review them before publishing.' }).where(and(eq(turns.id, hold.operationId), eq(turns.salonId, hold.salonId), eq(turns.actorId, hold.actorId)));
+  }
+  return completed;
+}
+
+async function stopUnfinishedExecution(tx: SetupTransaction, hold: Hold) {
+  const [turn] = await tx.select({ designOperationId: turns.designOperationId }).from(turns).where(and(eq(turns.id, hold.operationId), eq(turns.salonId, hold.salonId), eq(turns.actorId, hold.actorId)));
+  await tx.update(turns).set({ status: 'failed', reply: 'This attempt stopped. Any AI credits set aside for it are available again. Your saved changes are safe.' }).where(and(eq(turns.id, hold.operationId), eq(turns.salonId, hold.salonId), eq(turns.actorId, hold.actorId), inArray(turns.status, ['pending', 'generated'])));
+  const designIds = [...new Set([hold.operationId, turn?.designOperationId].filter((id): id is string => Boolean(id)))];
+  await tx.update(designs).set({ status: 'failed', phase: 'failed' }).where(and(inArray(designs.id, designIds), eq(designs.salonId, hold.salonId), eq(designs.actorId, hold.actorId), inArray(designs.status, ['pending', 'generated'])));
+  // This marks abandoned work, NOT a provider refund. Retain the entire
+  // conservative expense when usage is unknown. A late provider response may
+  // still record actual usage, but the revoked execution cannot edit a draft.
+  await tx.update(calls).set({ status: 'failed', validation: 'interrupted_unknown_usage' }).where(and(eq(calls.creditReservationId, hold.id), eq(calls.salonId, hold.salonId), eq(calls.actorId, hold.actorId), eq(calls.status, 'pending')));
 }
 
 async function resolveHold(tx: SetupTransaction, hold: Hold, completed: boolean) {
   if (hold.status !== 'held') {
+    if (hold.status === 'released' && hold.resolution === 'platform_failure') {
+      await stopUnfinishedExecution(tx, hold);
+    }
     return hold;
   }
   const evidence = await tx.select({ status: calls.status, cost: calls.creditCostMicroCad }).from(calls).where(and(eq(calls.creditReservationId, hold.id), eq(calls.salonId, hold.salonId), eq(calls.actorId, hold.actorId)));
@@ -53,8 +95,7 @@ async function resolveHold(tx: SetupTransaction, hold: Hold, completed: boolean)
   if (!completed) {
     // Revoke the execution before marking the old attempt failed. A late
     // worker may record expense evidence but cannot apply another draft edit.
-    await tx.update(turns).set({ status: 'failed', reply: 'This attempt stopped. Any AI credits set aside for it are available again. Your saved changes are safe.' }).where(and(eq(turns.id, hold.operationId), eq(turns.salonId, hold.salonId), inArray(turns.status, ['pending', 'generated'])));
-    await tx.update(designs).set({ status: 'failed', phase: 'failed' }).where(and(eq(designs.id, hold.operationId), eq(designs.salonId, hold.salonId), inArray(designs.status, ['pending', 'generated'])));
+    await stopUnfinishedExecution(tx, hold);
   }
   return resolved!;
 }
@@ -86,6 +127,13 @@ export async function reconcileAiCreditRequests(actor: SetupActor, planEnv: AiCr
       if (completed || (hold.leaseExpiresAt && hold.leaseExpiresAt.getTime() <= Date.now())) {
         await resolveHold(tx, hold, completed);
       }
+    }
+    // Converge older interrupted records through normal owner receipt reads.
+    // Only pending calls attached to this salon's refunded platform failure are
+    // eligible; budget amounts, completed results and other salons are untouched.
+    const older = await tx.select().from(reservations).where(and(eq(reservations.salonId, actor.salonId), eq(reservations.planEnv, planEnv), eq(reservations.status, 'released'), eq(reservations.resolution, 'platform_failure'), sql`EXISTS (SELECT 1 FROM ${calls} WHERE ${calls.creditReservationId} = ${reservations.id} AND ${calls.salonId} = ${reservations.salonId} AND ${calls.actorId} = ${reservations.actorId} AND ${calls.status} = 'pending')`)).limit(10).for('update');
+    for (const hold of older) {
+      await resolveHold(tx, hold, false);
     }
   });
 }
@@ -163,7 +211,10 @@ export async function runWithAiCredits<T>(actor: SetupActor, kind: AiCreditReque
   try {
     result = await withAiCreditExecution(context, work);
   } catch (cause) {
-    await finalizeExecution(context);
+    const resolved = await finalizeExecution(context);
+    if (resolved.status === 'settled') {
+      return work(); // Verified durable receipt; domain replay cannot call AI again.
+    }
     throw cause;
   }
   // Deliberately outside the catch: a post-save financial write failure must

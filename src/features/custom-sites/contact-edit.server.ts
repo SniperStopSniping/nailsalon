@@ -14,7 +14,7 @@ import { assertWebsiteDetailsCoverage } from './website-coverage.server';
  * Uses the normal authorization, immutable source and shared draft revision path.
  * No provider calls, public writes or publication authority.
  */
-export async function repairDraftContacts(actor: SetupActor, input: { expectedRevision: number; operationId: string; required?: string }, operations: SetupOperation[] = []) {
+export async function repairDraftContacts(actor: SetupActor, input: { expectedRevision: number; operationId: string; required?: string }, operations: SetupOperation[] = [], origin: 'owner' | 'assistant' = 'owner') {
   const head = await db.transaction(async (tx) => {
     await lockSetupSalon(tx, actor);
     return loadSetupHead(tx, actor.salonId);
@@ -37,5 +37,5 @@ export async function repairDraftContacts(actor: SetupActor, input: { expectedRe
   const source = bindWebsiteContacts(artifact.source, details);
   assertWebsiteDetailsCoverage(source.html, details);
   const saved = await storeCustomArtifact(actor, { source, assetIds: artifact.assetIds, expectedRevision: input.expectedRevision, operationId: input.operationId });
-  return editSetup(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId, operations: [...operations, { type: 'website_details', values: details }, { type: 'custom_frontend', artifactId: saved.id }] });
+  return editSetup(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId, operations: [...operations, { type: 'website_details', values: details }, { type: 'custom_frontend', artifactId: saved.id }] }, origin);
 }

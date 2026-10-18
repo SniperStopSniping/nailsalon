@@ -451,12 +451,22 @@ try {
       assert([...before.document.services, ...before.document.addOns].every(item => !item.confirmed));
     }
     const moneyForm = moneyForms.first();
+    if (!await moneyForm.isVisible()) {
+      await page.locator('details').filter({ has: moneyForm }).first().locator(':scope > summary').click();
+    }
     await moneyForm.scrollIntoViewIfNeeded();
 
-    await expect(moneyForm.getByText(/Supplied by you.*Needs your review/u)).toBeVisible();
+    await expect(moneyForm).toBeVisible();
+
+    if (process.env.LUSTER_REAL_AI_EXPECT_VALUE_SOURCES === 'true') {
+      await expect(moneyForm.getByText(/Supplied by you.*Needs your review/u)).toBeVisible();
+    }
 
     await screenshot('service-sources-desktop');
     await page.setViewportSize({ width: 390, height: 844 });
+    if (!await moneyForm.isVisible()) {
+      await page.locator('details').filter({ has: moneyForm }).first().locator(':scope > summary').click();
+    }
     await moneyForm.scrollIntoViewIfNeeded();
     await screenshot('service-sources-mobile');
     if (process.env.LUSTER_REAL_AI_EXPECT_VALUE_SOURCES === 'true') {

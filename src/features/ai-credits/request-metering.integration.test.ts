@@ -252,19 +252,143 @@ describe('owner-request metering with real draft persistence', () => {
     expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 9_999_902, reservedMicroCad: 0 });
   });
 
+  it.each(['conversation', 'design'] as const)('recovers a saved conversation revision when its later completed marker fails (%s entry)', async (kind) => {
+    const f = await fixture();
+    const run = () => runWithAiCredits(f.actor, kind, f.input, AI_REQUEST_CREDIT_LIMIT, () => runSetupConversation(f.actor, f.input, f.model));
+    const trigger = `test_completed_marker_${randomUUID().replaceAll('-', '')}`;
+    await client.exec(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.salon_id = '${f.actor.salonId}' AND NEW.status = 'completed' THEN RAISE EXCEPTION 'synthetic completed marker failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER ${trigger} BEFORE UPDATE ON business_setup_turn FOR EACH ROW EXECUTE FUNCTION ${trigger}();`);
+    try {
+      await expect(run()).rejects.toThrow();
+
+      expect((await openSetup(f.actor)).revision.document.business.name).toBe('New name');
+      expect((await holds(f.actor))[0]?.status).toBe('held');
+    } finally {
+      await client.exec(`DROP TRIGGER ${trigger} ON business_setup_turn; DROP FUNCTION ${trigger}();`);
+    }
+    await reconcileAiCreditRequests(f.actor, 'test');
+    const replay = await run();
+
+    expect(replay.head.revision.revision).toBe(2);
+    expect(f.model.createResponse).toHaveBeenCalledTimes(1);
+    expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 9_999_902, reservedMicroCad: 0 });
+    expect((await database.select().from(schema.aiCreditLedgerSchema).where(eq(schema.aiCreditLedgerSchema.salonId, f.actor.salonId))).filter(row => row.kind === 'usage')).toHaveLength(1);
+  });
+
+  it('recovers the exact applied child design if its post-commit job marker fails', async () => {
+    const f = await fixture();
+    f.input.message = 'Create my website with a dark premium design.';
+    f.model.createResponse.mockResolvedValueOnce(answer({ reply: 'Creating your draft.', operationsJson: '[]', designRequest: 'A dark premium custom website', uploadFacts: null }))
+      .mockResolvedValueOnce(answer(darkSource));
+    const trigger = `test_design_marker_${randomUUID().replaceAll('-', '')}`;
+    await client.exec(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.salon_id = '${f.actor.salonId}' AND NEW.status = 'completed' THEN RAISE EXCEPTION 'synthetic design marker failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER ${trigger} BEFORE UPDATE ON custom_site_generation FOR EACH ROW EXECUTE FUNCTION ${trigger}();`);
+    let artifactId: string | undefined;
+    try {
+      await expect(execute(f)).rejects.toThrow();
+
+      artifactId = (await openSetup(f.actor)).revision.document.website.config.customFrontendId;
+
+      expect(artifactId).toBeTruthy();
+      expect((await holds(f.actor))[0]?.status).toBe('held');
+    } finally {
+      await client.exec(`DROP TRIGGER ${trigger} ON custom_site_generation; DROP FUNCTION ${trigger}();`);
+    }
+    await reconcileAiCreditRequests(f.actor, 'test');
+    const replay = await execute(f);
+
+    expect(replay.head.revision.document.website.config.customFrontendId).toBe(artifactId);
+    expect(f.model.createResponse).toHaveBeenCalledTimes(2);
+    expect((await holds(f.actor))[0]).toMatchObject({ status: 'settled', settledMicroCad: (await calls(f.actor)).reduce((total, call) => total + call.creditCostMicroCad!, 0) });
+    expect((await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.salonId, f.actor.salonId)))[0]).toMatchObject({ status: 'completed', artifactId });
+    expect((await database.select().from(schema.aiCreditLedgerSchema).where(eq(schema.aiCreditLedgerSchema.salonId, f.actor.salonId))).filter(row => row.kind === 'usage')).toHaveLength(1);
+  });
+
+  it('does not mistake saved partial intake for a completed website after generation fails', async () => {
+    const f = await fixture();
+    f.input.message = 'My business name is New name. Create my website with a dark premium design.';
+    f.model.createResponse.mockResolvedValueOnce(answer({ ...body, designRequest: 'A dark premium custom website' }))
+      .mockRejectedValueOnce(new ModelProviderError('provider_error', 503));
+
+    await expect(execute(f)).rejects.toThrow();
+
+    expect((await openSetup(f.actor)).revision.document.business.name).toBe('New name');
+    expect((await openSetup(f.actor)).revision.document.website.config.customFrontendId).toBeUndefined();
+    expect((await holds(f.actor))[0]).toMatchObject({ status: 'released', settledMicroCad: 0, resolution: 'platform_failure' });
+    expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 10_000_000, reservedMicroCad: 0 });
+    expect(f.model.createResponse).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not bill a manual revision forged with the active AI operation identity', async () => {
+    const f = await fixture();
+    let complete!: (value: ModelProviderResponse) => void;
+    f.model.createResponse.mockImplementationOnce(() => new Promise(resolve => complete = resolve));
+    const running = execute(f).then(value => ({ value }), error => ({ error }));
+    await vi.waitFor(() => expect(f.model.createResponse).toHaveBeenCalledTimes(1));
+    await editSetup(f.actor, { expectedRevision: 1, operationId: f.input.operationId, operations: [{ type: 'business', values: { name: 'Manual name' } }] });
+    complete(answer());
+
+    expect(await running).toHaveProperty('error');
+    expect((await openSetup(f.actor)).revision.document.business.name).toBe('Manual name');
+    expect((await holds(f.actor))[0]).toMatchObject({ status: 'released', settledMicroCad: 0 });
+    expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 10_000_000, reservedMicroCad: 0 });
+  });
+
   it('revokes an interrupted execution before releasing its hold and rejects late draft writes', async () => {
     const f = await fixture();
     let complete!: (value: ModelProviderResponse) => void;
     f.model.createResponse.mockImplementationOnce(() => new Promise(resolve => complete = resolve));
     const running = execute(f).then(value => ({ value }), error => ({ error }));
     await vi.waitFor(() => expect(f.model.createResponse).toHaveBeenCalledTimes(1));
+    const [pending] = await calls(f.actor);
+    const designId = randomUUID();
+    await database.insert(schema.customSiteGenerationSchema).values({ id: designId, salonId: f.actor.salonId, actorId: f.actor.adminId, requestHash: 'synthetic-interrupted-chain', expectedRevision: 1, message: 'Synthetic interrupted design', reservedMicroUsd: 1000, status: 'pending', phase: 'generating' });
+    await database.update(schema.businessSetupTurnSchema).set({ designOperationId: designId, status: 'generated' }).where(eq(schema.businessSetupTurnSchema.id, f.input.operationId));
     await database.update(schema.aiCreditReservationSchema).set({ leaseExpiresAt: new Date(Date.now() - 1000) }).where(eq(schema.aiCreditReservationSchema.salonId, f.actor.salonId));
     await reconcileAiCreditRequests(f.actor, 'test');
+
+    expect((await calls(f.actor))[0]).toMatchObject({ status: 'failed', validation: 'interrupted_unknown_usage', costMicroUsd: null, chargedMicroCad: pending!.chargedMicroCad, reservedMicroUsd: pending!.reservedMicroUsd });
+    expect((await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.id, designId)))[0]).toMatchObject({ status: 'failed', phase: 'failed' });
+
     complete(answer());
 
     expect(await running).toHaveProperty('error');
     expect((await openSetup(f.actor)).revision.revision).toBe(1);
     expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 10_000_000, reservedMicroCad: 0 });
+    expect((await calls(f.actor))[0]).toMatchObject({ status: 'completed', costMicroUsd: expect.any(Number) });
+  });
+
+  it('converges an older refunded orphan through normal receipt reads without releasing unknown provider expense', async () => {
+    const f = await fixture();
+    const other = await fixture();
+    await execute(other);
+    const otherEvidence = await calls(other.actor);
+    let complete!: (value: ModelProviderResponse) => void;
+    f.model.createResponse.mockImplementationOnce(() => new Promise(resolve => complete = resolve));
+    const running = execute(f).then(value => ({ value }), error => ({ error }));
+    await vi.waitFor(() => expect(f.model.createResponse).toHaveBeenCalledTimes(1));
+    const [pending] = await calls(f.actor);
+    const designId = randomUUID();
+    await database.insert(schema.customSiteGenerationSchema).values({ id: designId, salonId: f.actor.salonId, actorId: f.actor.adminId, requestHash: 'synthetic-legacy-orphan', expectedRevision: 1, message: 'Synthetic older interrupted design', reservedMicroUsd: 1000, status: 'pending', phase: 'generating' });
+    await database.update(schema.businessSetupTurnSchema).set({ designOperationId: designId, status: 'failed' }).where(eq(schema.businessSetupTurnSchema.id, f.input.operationId));
+    // Historical fixture: older recovery refunded the customer but left the
+    // linked provider call/job pending. No actual provider or payment ran.
+    await database.update(schema.aiCreditReservationSchema).set({ status: 'released', settledMicroCad: 0, resolution: 'platform_failure', resolvedAt: new Date() }).where(eq(schema.aiCreditReservationSchema.salonId, f.actor.salonId));
+    await reconcileAiCreditRequests(other.actor, 'test');
+
+    expect((await calls(f.actor))[0]?.status).toBe('pending');
+
+    await reconcileAiCreditRequests(f.actor, 'test');
+    await reconcileAiCreditRequests(f.actor, 'test');
+
+    expect((await calls(f.actor))[0]).toMatchObject({ status: 'failed', validation: 'interrupted_unknown_usage', costMicroUsd: null, chargedMicroCad: pending!.chargedMicroCad, reservedMicroUsd: pending!.reservedMicroUsd });
+    expect((await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.id, designId)))[0]).toMatchObject({ status: 'failed', phase: 'failed' });
+    expect(await calls(other.actor)).toEqual(otherEvidence);
+    expect(f.model.createResponse).toHaveBeenCalledTimes(1);
+    expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 10_000_000, reservedMicroCad: 0 });
+
+    complete(answer());
+
+    expect(await running).toHaveProperty('error');
+    expect((await openSetup(f.actor)).revision.revision).toBe(1);
   });
 
   it('does not let a server execution context read another salon or meter its provider call', async () => {
@@ -309,7 +433,9 @@ describe('owner-request metering with real draft persistence', () => {
     await extract();
 
     expect(f.model.createResponse).toHaveBeenCalledTimes(1);
-    expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 9_999_902 });
+    expect(f.model.createResponse.mock.calls[0]?.[0]).toMatchObject({ model: 'gpt-6.1-sol' });
+    expect((await calls(f.actor))[0]).toMatchObject({ model: 'gpt-6.1-sol', costMicroUsd: 700, creditCostMicroCad: 1960 });
+    expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 9_998_040 });
   });
 
   it('uses the existing service-setting draft for a paid price edit and leaves live prices and the design unchanged', async () => {

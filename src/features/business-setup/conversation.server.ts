@@ -109,7 +109,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
   }
   if (!admitted.turn.operations && admitted.head.revision.document.designBrief?.mode !== 'keep_design' && input.scope !== 'service_price' && requestsContactRepair(input.message)) {
     try {
-      const head = await repairDraftContacts(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId, required: input.message });
+      const head = await repairDraftContacts(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId, required: input.message }, [], 'assistant');
       const reply = 'Your contact details are connected in the saved draft. Instagram opens the profile, email opens a message, and phone opens a call wherever those details are available. Nothing is published.';
       await db.update(turns).set({ status: 'completed', operations: [], reply }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
       return { reply, head };
@@ -317,7 +317,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
   }
   if (admitted.head.revision.document.designBrief?.mode !== 'keep_design' && operations.length && operations.every(op => op.type === 'website_details' && Object.entries(op.values).every(([key, value]) => ['instagram', 'email', 'phone'].includes(key) && typeof value === 'string')) && admitted.head.revision.document.website.config.customFrontendId) {
     try {
-      const head = await repairDraftContacts(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId }, operations);
+      const head = await repairDraftContacts(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId }, operations, 'assistant');
       reply = 'Your contact details and clickable links are updated in the saved draft. Your design is preserved. Nothing is published.';
       await db.update(turns).set({ status: 'completed', reply, designRequest: null, designOperationId: null }).where(and(eq(turns.id, input.operationId), eq(turns.salonId, actor.salonId)));
       return { reply, head };
