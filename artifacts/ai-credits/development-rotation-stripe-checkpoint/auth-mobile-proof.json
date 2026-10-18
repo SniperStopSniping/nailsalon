@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "sourceSha": "c3253898b719219643080abdb713a06a031194d4",
+  "browserName": "webkit",
+  "entryPath": "ai-intro",
+  "newBrowserContext": true,
+  "noRestoredCookies": true,
+  "actualPasswordSignIn": true,
+  "noLegacyAdminCookie": true,
+  "sameOwner": true,
+  "savedWebsiteLoaded": true,
+  "refresh": true,
+  "providerCalls": 0,
+  "providerResponsesUnmodified": true,
+  "nativeBrowserCookies": true,
+  "checkedTextResponses": 85,
+  "credentialLeaks": 0,
+  "unreadableTextResponses": 0,
+  "browserErrors": []
+}

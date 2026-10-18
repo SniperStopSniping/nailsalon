@@ -54,6 +54,38 @@ describe('isolated development configuration report', () => {
     expect(report).not.toContain(credential);
   });
 
+  it('checks the separate AI-credit billing webhook rather than the legacy payment endpoint', () => {
+    const stripe = {
+      STRIPE_SECRET_KEY: 'sk_test_local-development-value',
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: 'pk_test_local-development-value',
+    };
+
+    expect(inspectDevelopmentConfig({
+      ...env(),
+      ...stripe,
+      STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_local-billing-value',
+    })).toMatchObject({ stripeSandboxCredentialsConfigured: true, paymentAcceptanceVerified: false });
+
+    expect(inspectDevelopmentConfig({
+      ...env(),
+      ...stripe,
+      STRIPE_WEBHOOK_SECRET: 'whsec_local-legacy-value',
+    }).stripeSandboxCredentialsConfigured).toBe(false);
+  });
+
+  it('keeps sandbox and billing-signature credentials out of the shape report', () => {
+    const credentials = {
+      STRIPE_SECRET_KEY: 'sk_test_local-development-value',
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: 'pk_test_local-development-value',
+      STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_local-billing-value',
+    };
+    const report = JSON.stringify(inspectDevelopmentConfig({ ...env(), ...credentials }));
+
+    for (const value of Object.values(credentials)) {
+      expect(report).not.toContain(value);
+    }
+  });
+
   it('reads only a private regular file and rejects public permissions and symlinks before parsing', () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'luster-config-test-'));
     directories.push(directory);

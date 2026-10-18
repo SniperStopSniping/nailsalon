@@ -53,8 +53,8 @@ export function inspectDevelopmentConfig(env: Record<string, string | undefined>
     && looksConfigured(env.CLERK_SECRET_KEY) && developmentClerkHost(env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
   const stripeSandboxCredentialsConfigured = Boolean(env.STRIPE_SECRET_KEY?.startsWith('sk_test_'))
     && Boolean(env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.startsWith('pk_test_'))
-    && Boolean(env.STRIPE_WEBHOOK_SECRET?.startsWith('whsec_'))
-    && [env.STRIPE_SECRET_KEY, env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY, env.STRIPE_WEBHOOK_SECRET].every(looksConfigured);
+    && Boolean(env.STRIPE_BILLING_WEBHOOK_SECRET?.startsWith('whsec_'))
+    && [env.STRIPE_SECRET_KEY, env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY, env.STRIPE_BILLING_WEBHOOK_SECRET].every(looksConfigured);
   return {
     verification: 'offline-presence-and-shape-only',
     isolatedLocalDatabase,
