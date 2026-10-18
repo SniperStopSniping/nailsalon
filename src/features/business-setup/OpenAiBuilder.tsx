@@ -1,16 +1,17 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { AiBuilderEntry } from './entry.server';
 
 const navigate = (url: string) => window.location.assign(url);
-export function OpenAiBuilder({ locale, onNavigate = navigate }: { locale: string; onNavigate?: (url: string) => void }) {
+export function OpenAiBuilder({ locale, onNavigate = navigate, autoOpen = false }: { locale: string; onNavigate?: (url: string) => void; autoOpen?: boolean }) {
   const [choices, setChoices] = useState<{ slug: string; name: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const locked = useRef(false);
-  async function open(salonSlug?: string) {
+  const started = useRef(false);
+  const open = useCallback(async (salonSlug?: string) => {
     if (locked.current) {
       return;
     }
@@ -34,7 +35,13 @@ export function OpenAiBuilder({ locale, onNavigate = navigate }: { locale: strin
       locked.current = false;
       setBusy(false);
     }
-  }
+  }, [locale, onNavigate]);
+  useEffect(() => {
+    if (autoOpen && !started.current) {
+      started.current = true;
+      void open();
+    }
+  }, [autoOpen, open]);
   return (
     <section className="ai-entry-account" aria-busy={busy} aria-label="Open your AI builder">
       {choices.length

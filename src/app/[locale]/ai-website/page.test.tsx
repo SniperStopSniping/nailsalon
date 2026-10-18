@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({ notFound: () => {
   throw new Error('NOT_FOUND');
 } }));
 vi.mock('@/features/business-setup/access.server', () => ({ businessSetupSelfServeEnabled: state.enabled }));
-vi.mock('@/features/business-setup/OpenAiBuilder', () => ({ OpenAiBuilder: () => <button type="button">Continue to my AI builder</button> }));
+vi.mock('@/features/business-setup/VerifiedAiAccount', () => ({ VerifiedAiAccount: () => <button type="button">Continue to my AI builder</button> }));
 vi.mock('@/components/auth/OwnerSignInCard', () => ({ OwnerSignInCard: (props: { mode: string }) => <div>{props.mode === 'sign-in' ? 'Sign in to your account' : 'Create your account'}</div> }));
 
 beforeEach(() => {
@@ -53,6 +53,8 @@ it('keeps signup, returning owners and feature-disabled access separate', async 
   render(await page());
 
   expect(screen.getByRole('button', { name: 'Continue to my AI builder' })).toBeVisible();
+  expect(screen.queryByLabelText('Luster AI website builder walkthrough')).not.toBeInTheDocument();
+  expect(screen.queryByText('One place to build. And keep improving.')).not.toBeInTheDocument();
 
   state.enabled.mockReturnValue(false);
 

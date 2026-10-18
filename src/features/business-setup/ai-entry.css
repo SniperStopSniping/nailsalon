@@ -32,3 +32,7 @@
 @media(max-width:800px){.ai-entry-hero{margin-top:52px}}
 @media(max-width:450px){.ai-entry{padding-inline:18px}.ai-entry-hero>p:not(.ai-entry-eyebrow){font-size:16px}.ai-entry-account{padding:22px 14px}.ai-entry-value{margin-block:42px}}
 .ai-entry-account{scroll-margin-top:24px}
+.ai-entry-code-form{display:grid;gap:14px;text-align:left}
+.ai-entry-code-form label{font-size:14px;font-weight:600}
+.ai-entry-code-form input{width:100%;min-height:52px;border:1px solid #bfa8b2;border-radius:12px;padding:12px 16px;font:inherit;font-size:20px;letter-spacing:.2em;text-align:center}
+.ai-entry-code-form input:focus-visible{outline:3px solid #b77b96;outline-offset:3px}

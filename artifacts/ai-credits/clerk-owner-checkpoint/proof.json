@@ -1,0 +1,103 @@
+{
+  "passed": true,
+  "emailVerified": true,
+  "genuineClerkSession": true,
+  "automaticEntry": true,
+  "salonCount": 1,
+  "membershipRole": "owner",
+  "private": true,
+  "services": 0,
+  "appointments": 0,
+  "refresh": true,
+  "returnVisit": true,
+  "anonymousStatus": 404,
+  "api": [
+    {
+      "method": "POST",
+      "path": "/api/admin/business-setup/entry",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/ai-credits",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/custom-sites",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/custom-sites",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/ai-credits",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/custom-sites",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/custom-sites",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/business-setup/entry",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/ai-credits",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/custom-sites",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/custom-sites",
+      "status": 200
+    }
+  ],
+  "errors": [],
+  "blocked": []
+}
