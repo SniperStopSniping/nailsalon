@@ -76,6 +76,27 @@ describe('development onboarding media storage', () => {
     expect((await sharp(saved).metadata()).exif).toBeUndefined();
   });
 
+  it('refuses to shrink a detailed manual artwork page merely to meet its byte bound', async () => {
+    const pixels = Buffer.alloc(1200 * 1200 * 3);
+    let state = 17;
+    for (let i = 0; i < pixels.length; i++) {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      pixels[i] = state >>> 24;
+    }
+    const input = await sharp(pixels, { raw: { width: 1200, height: 1200, channels: 3 } }).webp({ quality: 95 }).toBuffer();
+    const file = new File([new Uint8Array(input)], 'detailed.webp', { type: 'image/webp' });
+
+    await expect(normalizeOnboardingImage(file, { artwork: true, maxOutputBytes: 300000, preserveDimensions: true }))
+      .rejects.toThrow('Export it as separate PNG pages');
+
+    // Reference analysis retains its existing bounded width fallback; manual
+    // artwork requires exact geometry rather than inheriting that behaviour.
+    const reference = await normalizeOnboardingImage(file, { artwork: true, maxOutputBytes: 300000 });
+
+    expect(reference.normalizedMetadata.width).toBeLessThan(1200);
+    expect(reference.normalized.length).toBeLessThanOrEqual(300000);
+  }, 20_000);
+
   it.each(['logo', 'cover'] as const)('normalizes, reads and deletes a tenant-owned %s outside the repository', async (role) => {
     const input = await sharp({
       create: {

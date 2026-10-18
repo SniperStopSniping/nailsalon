@@ -10,10 +10,10 @@ import sharp from '@/libs/safeSharp.server';
 
 import { ONBOARDING_SITE_MEDIA_ROLES } from './contracts';
 import type { OnboardingMediaRole } from './media-claim-client';
-import { ONBOARDING_MEDIA_MAX_FILE_BYTES } from './media-limits';
+import { ONBOARDING_MEDIA_MAX_DECODED_PIXELS, ONBOARDING_MEDIA_MAX_FILE_BYTES } from './media-limits';
 
 const MAX_BYTES = ONBOARDING_MEDIA_MAX_FILE_BYTES;
-const MAX_PIXELS = 40_000_000;
+const MAX_PIXELS = ONBOARDING_MEDIA_MAX_DECODED_PIXELS;
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const SAFE_ID = /^[\w-]{1,160}$/;
 const ROLES = new Set<string>(ONBOARDING_SITE_MEDIA_ROLES);
@@ -41,7 +41,7 @@ export type SaveOnboardingMediaFileInput = {
   siteId: string;
   stableItemId: string;
   uploadAttemptId: string;
-  imagePreparation?: { artwork: true; maxOutputBytes: number };
+  imagePreparation?: { artwork: true; maxOutputBytes: number; preserveDimensions?: true };
 };
 
 export class OnboardingMediaStorageError extends Error {
@@ -202,7 +202,7 @@ export async function normalizeOnboardingImage(file: File, preparation?: SaveOnb
           ...[96, 90, 84].map(quality => ({ width: undefined, maxEdge: undefined, quality, lossless: false })),
           // A long Canva page needs width for legible text. Never squeeze the
           // whole page into a short maximum-height thumbnail or upscale pixels.
-          ...[2400, 1920, 1600, 1200, 1000, 800, 600].map(width => ({ width, maxEdge: undefined, quality: 90, lossless: false })),
+          ...(preparation.preserveDimensions ? [] : [2400, 1920, 1600, 1200, 1000, 800, 600].map(width => ({ width, maxEdge: undefined, quality: 90, lossless: false }))),
         ]
       : [
           { width: undefined, maxEdge: undefined, quality: 88, lossless: false },
@@ -237,7 +237,7 @@ export async function normalizeOnboardingImage(file: File, preparation?: SaveOnb
   if (!normalizedMetadata.width || !normalizedMetadata.height || normalized.byteLength > outputLimit) {
     throw new OnboardingMediaStorageError(
       'INVALID_IMAGE',
-      preparation?.artwork ? 'This design is too large after preparation. Export its pages separately as PNG images under 3 MB each.' : 'This photo has invalid dimensions or is too large after preparation.',
+      preparation?.artwork ? 'This design is too large to save clearly. Export it as separate PNG pages and upload them in order.' : 'This photo has invalid dimensions or is too large after preparation.',
     );
   }
 

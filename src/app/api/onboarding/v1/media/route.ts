@@ -290,6 +290,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const stored = await saveOnboardingMediaFile({
       file,
+      ...(parsed.data.role === 'custom_design' ? { imagePreparation: { artwork: true as const, maxOutputBytes: ONBOARDING_MEDIA_MAX_FILE_BYTES, preserveDimensions: true as const } } : {}),
       role: parsed.data.role,
       revisionId: authorized.revisionId,
       salonId: authorized.salonId,

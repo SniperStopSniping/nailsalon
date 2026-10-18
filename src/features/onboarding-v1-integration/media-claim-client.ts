@@ -273,7 +273,7 @@ const uploadOne = async ({
   if (!blob || !metadata) {
     throw new Error('LOCAL_ASSET_MISSING');
   }
-  const uploadFile = await prepareOnboardingMediaUpload(blob, reference.fileName);
+  const uploadFile = await prepareOnboardingMediaUpload(blob, reference.fileName, reference.role === 'custom_design' ? 'artwork' : 'photo');
 
   const form = new FormData();
   form.set('draftId', draftId);

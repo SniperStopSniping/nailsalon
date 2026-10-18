@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-18",
+  "environment": "isolated local browser harness",
+  "providerCalls": 0,
+  "realClerk": false,
+  "realAccountApi": false,
+  "browserTests": 6,
+  "unitIntegrationTests": 70,
+  "checks": [
+    "TypeScript",
+    "scoped ESLint",
+    "git diff --check"
+  ],
+  "fixtures": [
+    {
+      "width": 1200,
+      "height": 4000,
+      "role": "custom_design"
+    },
+    {
+      "width": 1600,
+      "height": 800,
+      "role": "custom_design",
+      "transparent": true
+    },
+    {
+      "width": 279,
+      "height": 1280,
+      "role": "custom_design",
+      "transparent": true
+    }
+  ],
+  "assertions": [
+    "actual manual upload and link editor",
+    "native dimensions through browser transport",
+    "visible pixels and exact alpha unchanged for these PNG fixtures",
+    "original IndexedDB bytes retained",
+    "Instagram and background retained after autosave and reload"
+  ],
+  "screenshots": [
+    "chromium-small-manual-links.png",
+    "chromium-tall-manual-links.png",
+    "chromium-wide-manual-links.png",
+    "webkit-small-manual-links.png",
+    "webkit-tall-manual-links.png",
+    "webkit-wide-manual-links.png"
+  ]
+}
