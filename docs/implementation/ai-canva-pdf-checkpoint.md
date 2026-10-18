@@ -31,9 +31,11 @@ The customer clicked the actual BIAB artwork button and completed Luster's origi
 ## Verification and retained evidence
 
 - 155 draft/upload/component tests passed; 13 attested disposable PostgreSQL publication/concurrency tests passed, including six simultaneous repeated uploads producing one asset; seven loopback/origin tests passed.
-- Source TypeScript, scoped lint and whitespace checks passed. The archived optimized build runs separately after this commit.
+- Source TypeScript, scoped lint and whitespace checks passed. The exact source commit `790058af` passed the archived optimized build, including type generation, the strict scan of 4547 source files / 599 generated files and zero server-canary matches. All 200 copied PDF runtime files matched the pinned package byte for byte; its document-scripting runtime was absent.
 - Safe usage, revision and booking results plus viewable synthetic screenshots: `artifacts/ai-credits/pdf-owner-checkpoint/`.
 - Full original recordings and failed attempts: `/tmp/luster-ai-pdf-owner-evidence-20261018/`, private and outside Git. The first modern-library attempt exposed an unsupported browser method and spent no AI usage. A config-restart connection refusal and an observer's absent-initial-brief error are also retained. After the compatibility/harness fixes, fresh upload, generation, landmarks, review, publication and booking all passed.
+
+After publication, **Make more changes** reopened revision 7 with the canonical saved services and prices. Its desktop/mobile WebKit preview passed the same reference landmarks, contacts, proposed bindings and isolation checks without another model call. This is saved-state/cross-engine proof, not real Clerk cross-device authentication.
 
 The local trial ledger was not reset or increased: cap CAD11.384406, charged CAD8.099264, zero pending calls at this checkpoint. Together with the frozen hosted allocation, the hard shared cap remains CAD80. The previously completed walkthrough build at `dd996fa9` passed its optimized build and actual generated-client secret scan.
 
