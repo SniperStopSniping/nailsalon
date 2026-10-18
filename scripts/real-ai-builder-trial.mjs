@@ -102,6 +102,7 @@ const liveSettingsFingerprint = async () => {
   return createHash('sha256').update(JSON.stringify({ salon, staff, assignments })).digest('hex');
 };
 const screenshot = name => page.screenshot({ path: path.join(output, `${name}.png`), fullPage: true, animations: 'disabled' });
+const staffChoice = (page, name) => page.getByRole('button').filter({ has: page.getByText(name, { exact: true }) });
 const openPreview = async () => {
   const setupDocument = (await head()).document;
   const artifactId = setupDocument.website.config.customFrontendId;
@@ -154,7 +155,11 @@ const openPreview = async () => {
 
         await expect(preview.getByText(/180 minutes notice · 10 minutes extra buffer/u)).toBeVisible();
         await expect(preview.getByRole('region', { name: 'Proposed booking agreement' })).toContainText('Please come alone.');
-        await expect(preview.getByText(/Simulated times for BIAB.*Existing appointments, time off and external calendars are excluded/u)).toBeVisible();
+
+        const simulated = preview.getByText(/^Simulated times for /u);
+
+        await expect(simulated).toContainText(setupDocument.services.find(service => service.priceCents !== null && service.durationMinutes !== null).name);
+        await expect(simulated).toContainText('Existing appointments, time off and external calendars are excluded');
 
         await preview.screenshot({ path: path.join(output, `${device}-proposed-booking-setup.png`), fullPage: true });
         await preview.getByText('Proposed team and service choices', { exact: true }).click();
@@ -883,13 +888,19 @@ try {
 
       await card.locator('[data-luster-book]').click();
       await booking.getByTestId('service-continue-button').click();
-
-      await expect(booking).toHaveURL(/\/book\/tech/u);
-      await expect(booking.getByRole('button', { name: process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner' })).toBeVisible();
-      await expect(booking.getByRole('button', { name: process.env.LUSTER_REAL_AI_EXCLUDED_STAFF })).toHaveCount(0);
+      await booking.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/u);
+      const autoSelected = new URL(booking.url()).pathname.endsWith('/book/time');
+      if (autoSelected) {
+        const id = new URL(booking.url()).searchParams.get('techId');
+        const eligible = (await database.query('SELECT t.id,t.name FROM technician t JOIN technician_services ts ON ts.technician_id=t.id JOIN service s ON s.id=ts.service_id WHERE t.salon_id=$1 AND s.salon_id=$1 AND s.name=$2 AND t.is_active=true AND ts.enabled=true', [fixture.salonId, process.env.LUSTER_REAL_AI_BOOK_SERVICE])).rows;
+        assert.deepEqual(eligible, [{ id, name: process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner' }], 'The original flow may skip the staff picker only for the sole eligible artist.');
+      } else {
+        await expect(staffChoice(booking, process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner')).toBeVisible();
+        await expect(staffChoice(booking, process.env.LUSTER_REAL_AI_EXCLUDED_STAFF)).toHaveCount(0);
+      }
 
       await booking.screenshot({ path: path.join(output, 'original-booking-staff-eligibility.png'), fullPage: true });
-      interactionChecks.push({ originalBooking: true, service: process.env.LUSTER_REAL_AI_BOOK_SERVICE, eligibleStaff: process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner', excludedStaff: process.env.LUSTER_REAL_AI_EXCLUDED_STAFF, noAppointmentSubmitted: true });
+      interactionChecks.push({ originalBooking: true, service: process.env.LUSTER_REAL_AI_BOOK_SERVICE, eligibleStaff: process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner', excludedStaff: process.env.LUSTER_REAL_AI_EXCLUDED_STAFF, autoSelectedSoleEligibleArtist: autoSelected, noAppointmentSubmitted: true });
       assert.deepEqual(await historicalAppointments(), historicalBefore);
     } finally {
       await anonymous.close();
@@ -1053,7 +1064,7 @@ try {
       await booking.getByTestId('service-continue-button').click();
       await booking.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/u);
       if (new URL(booking.url()).pathname.endsWith('/book/tech')) {
-        await booking.getByRole('button', { name: process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner' }).click();
+        await staffChoice(booking, process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner').click();
       }
 
       await expect(booking).toHaveURL(/\/book\/time/u);
