@@ -25,7 +25,7 @@ assert.equal(typeof fixture.session, 'string');
 const [step, messageOrArtifact, reference] = process.argv.slice(2);
 const trialScope = process.env.LUSTER_REAL_AI_SCOPE ?? 'website';
 assert(['website', 'business_and_website'].includes(trialScope));
-assert(['message', 'conversation', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'restore', 'publish', 'book'].includes(step), 'Choose message, conversation, photos, preview, public-preview, start-editing, manual-wording, restore, publish or book.');
+assert(['message', 'conversation', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'booking-link', 'restore', 'publish', 'book'].includes(step), 'Choose message, conversation, photos, preview, public-preview, start-editing, manual-wording, booking-link, restore, publish or book.');
 if (step === 'message' || step === 'restore') {
   assert(messageOrArtifact, 'An owner message or saved design identity is required.');
 }
@@ -39,6 +39,8 @@ const markers = (await database.query('SELECT environment FROM luster_environmen
 assert.equal(identity.name, 'luster_ai_setup_development');
 assert.equal(identity.host, '127.0.0.1/32');
 assert.deepEqual(markers, [{ environment: 'development' }]);
+const canonicalSlug = async () => (await database.query('SELECT slug FROM salon WHERE id=$1', [fixture.salonId])).rows[0].slug;
+let salonSlug = await canonicalSlug();
 const allocation = (await database.query('SELECT cap_micro_cad FROM setup_ai_budget WHERE id=$1', ['initial-custom-website-trial'])).rows[0];
 // The cross-environment CAD80 allowance was reconciled separately. This runner
 // cannot create/reset/increase it, even when a fixture has unused retail credit.
@@ -84,7 +86,7 @@ const openPreview = async () => {
     await previewToggle.click();
   }
 
-  await expect(page.getByRole('link', { name: 'Open full preview', exact: true })).toHaveAttribute('href', `/admin/business-setup/design-preview/${fixture.salonSlug}?revision=${(await head()).revision}`, { timeout: 45_000 });
+  await expect(page.getByRole('link', { name: 'Open full preview', exact: true })).toHaveAttribute('href', `/admin/business-setup/design-preview/${salonSlug}?revision=${(await head()).revision}`, { timeout: 45_000 });
 
   await expect(page.locator(`iframe[src="${renderer}"]`)).toBeVisible({ timeout: 45_000 });
   await expect(page.frameLocator(`iframe[src="${renderer}"]`).locator('body')).not.toBeEmpty();
@@ -205,7 +207,8 @@ let liveSettingsBefore;
 let bookingResponseStatus;
 let bookingSubmissionCount = 0;
 try {
-  await page.goto(`/admin/business-setup?salon=${fixture.salonSlug}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  // Local cold compilation is measured separately from provider generation.
+  await page.goto(`/admin/business-setup?salon=${salonSlug}`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
 
   await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeEnabled({ timeout: 60_000 });
 
@@ -214,7 +217,7 @@ try {
   liveServicePricesBefore = await livePrices();
   liveAddOnsBefore = await liveExtras();
   liveSettingsBefore = await liveSettingsFingerprint();
-  if (['message', 'photos', 'manual-wording', 'restore', 'publish'].includes(step)) {
+  if (['message', 'photos', 'manual-wording', 'booking-link', 'restore', 'publish'].includes(step)) {
     assert.equal(before.status, 'editing', 'Return through Edit with AI before changing a published salon.');
   }
   if (step === 'conversation') {
@@ -351,6 +354,28 @@ try {
       assert.deepEqual(after.document[field], before.document[field]);
     }
     await openPreview();
+  } else if (step === 'booking-link') {
+    assert.match(messageOrArtifact ?? '', /^[a-z0-9][a-z0-9-]{0,45}[a-z0-9]$/u);
+    await page.getByRole('button', { name: 'Details', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Booking link name', exact: true }).fill(messageOrArtifact);
+    await screenshot('booking-link-control');
+    await page.getByRole('button', { name: 'Save booking link', exact: true }).click();
+
+    await expect.poll(async () => (await head()).document.siteSlug).toBe(messageOrArtifact);
+
+    assert.equal(await canonicalSlug(), salonSlug, 'Saving a proposed link must not change the live address.');
+    assert.equal(await liveSettingsFingerprint(), liveSettingsBefore);
+    const anonymous = await browser.newContext({ baseURL: origin });
+    try {
+      assert.equal((await anonymous.request.get(`/${messageOrArtifact}/book/service`, { timeout: 60_000 })).status(), 404, 'The proposed link must remain inaccessible before publication.');
+    } finally {
+      await anonymous.close();
+    }
+    await page.getByRole('button', { name: 'Review', exact: true }).click();
+
+    await expect(page.getByText(`Your booking website: /en/${messageOrArtifact}/book`, { exact: true })).toBeVisible();
+
+    await screenshot('proposed-link-review');
   } else if (step === 'restore') {
     await openPreview();
     await page.getByText('Previous designs', { exact: true }).click();
@@ -366,7 +391,7 @@ try {
     const publicCheck = await browser.newContext({ baseURL: origin });
     try {
       const salon = (await database.query('SELECT publication_status FROM salon WHERE id=$1', [fixture.salonId])).rows[0];
-      assert.equal((await publicCheck.request.get(`/${fixture.salonSlug}/book/service`, { timeout: 60_000 })).status(), salon.publication_status === 'published' ? 200 : 404, 'Preserve the existing public/private state before approval.');
+      assert.equal((await publicCheck.request.get(`/${salonSlug}/book/service`, { timeout: 60_000 })).status(), salon.publication_status === 'published' ? 200 : 404, 'Preserve the existing public/private state before approval.');
     } finally {
       await publicCheck.close();
     }
@@ -393,11 +418,37 @@ try {
 
     await expect(page.getByRole('button', { name: 'Approve and publish', exact: true })).toBeEnabled();
 
+    if (process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true') {
+      await page.route('**/api/admin/business-setup', async (route) => {
+        if (route.request().method() !== 'POST' || route.request().postDataJSON().action !== 'publish') {
+          return route.continue();
+        }
+        const result = await route.fetch();
+        assert.equal(result.status(), 200, 'Fault injection drops only a committed successful response.');
+        await route.abort('failed');
+      });
+    }
+
     await page.getByRole('button', { name: 'Approve and publish', exact: true }).click();
 
     await expect(page.getByRole('heading', { name: 'Your approved changes are published.', exact: true })).toBeVisible({ timeout: 60_000 });
 
+    salonSlug = await canonicalSlug();
+
+    await expect(page.getByRole('link', { name: 'Open your booking website' })).toHaveAttribute('href', `/en/${salonSlug}/book/service?publishedWebsite=1`);
+
     await screenshot('publication-succeeded');
+    if (process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true') {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 });
+
+      await expect(page.getByRole('heading', { name: 'Your approved changes are published.', exact: true })).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByRole('link', { name: 'Open your booking website' })).toHaveAttribute('href', `/en/${salonSlug}/book/service?publishedWebsite=1`);
+
+      const receipts = (await database.query('SELECT revision FROM business_setup_publication WHERE salon_id=$1', [fixture.salonId])).rows;
+      const publishedRevision = (await head()).revision;
+      assert.equal(receipts.filter(receipt => receipt.revision === publishedRevision).length, 1);
+      await screenshot('recovered-after-refresh');
+    }
   } else if (step === 'preview') {
     await openPreview();
   } else if (step === 'public-preview') {
@@ -405,7 +456,7 @@ try {
     await restrictNetwork(anonymous);
     const publicPage = await anonymous.newPage();
     try {
-      await publicPage.goto(`/${fixture.salonSlug}/book/service`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await publicPage.goto(`/${salonSlug}/book/service`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       const cards = publicPage.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-services] > *');
 
       await expect(cards.first()).toBeVisible({ timeout: 45_000 });
@@ -432,7 +483,7 @@ try {
       }
     });
     try {
-      await booking.goto(`/${fixture.salonSlug}/book/service`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await booking.goto(`/${salonSlug}/book/service`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       const site = booking.frameLocator(`iframe[src="${renderer}"]`);
 
       await expect(site.locator('[data-luster-services] > *').first()).toBeVisible({ timeout: 45_000 });
@@ -559,7 +610,7 @@ try {
     : [];
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
-  const evidence = { step, trialScope, browserName, operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, contactChecks, interactionChecks, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
+  const evidence = { step, trialScope, browserName, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, contactChecks, interactionChecks, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
   process.stdout.write(`${JSON.stringify({ step, status: evidence.status, revision: after?.revision, providerMicroUsd: calls.reduce((sum, item) => sum + (item.cost_micro_usd ?? 0), 0), output, ...(failure ? { failure } : {}) })}\n`);
   await context.close();

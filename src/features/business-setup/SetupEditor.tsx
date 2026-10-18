@@ -18,6 +18,7 @@ import { AppointmentImpactReview } from './AppointmentImpactReview';
 import { reminderRulesReviewValue } from './booking-extras';
 import { BookingExtrasEditor } from './BookingExtrasEditor';
 import { BookingExtrasSummary } from './BookingExtrasSummary';
+import { BookingLinkEditor } from './BookingLinkEditor';
 import { BookingPolicyEditor } from './BookingPolicyEditor';
 import { ChatAttachments } from './ChatAttachments';
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
@@ -30,6 +31,8 @@ import { TeamEditor } from './TeamEditor';
 import { WebsiteDetailsEditor } from './WebsiteDetailsEditor';
 
 type Head = {
+  salonSlug?: string;
+  canChooseBookingLink?: boolean;
   workspace: {
     status: 'editing' | 'published';
   };
@@ -53,6 +56,7 @@ function uploadReviewCurrency(upload: UploadReview, fallback: string) {
 }
 const INTRO = 'Tell me about your business and the website you have in mind. Or attach a design — if it already has your details, I can read them for you. We’ll fill in anything missing together.';
 const LABELS: Record<string, string> = {
+  'siteSlug': 'Your booking link name',
   'designBrief': 'Design matching and chosen images',
   'designBrief.fidelity': 'How closely to match your design',
   'designBrief.referenceIds': 'Design references',
@@ -136,7 +140,7 @@ function bookingExtraReviewValue(path: string, value: unknown) {
   }
   return reviewValue(value);
 }
-export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, creditsEnabled = false }: {
+export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon, aiEnabled, creditsEnabled = false }: {
   salonSlug: string;
   locale: string;
   existingSalon: boolean;
@@ -144,6 +148,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
   creditsEnabled?: boolean;
 }) {
   const [head, setHead] = useState<Head | null>(null);
+  const salonSlug = head?.salonSlug ?? initialSalonSlug;
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
   const [tab, setTab] = useState<'chat' | 'website' | 'setup' | 'review'>('chat');
@@ -291,7 +296,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
     };
     // Identity changes mount a fresh editor in its server page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [salonSlug]);
+  }, [initialSalonSlug]);
   async function run(work: () => Promise<unknown>) {
     setBusy(true);
     setError('');
@@ -841,6 +846,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
                 </label>
                 <button type="submit" disabled={busy || published}>Save business details</button>
               </form>
+              {head.canChooseBookingLink && <BookingLinkEditor key={`link-${head.revision.revision}`} slug={draft.siteSlug ?? salonSlug} businessName={draft.business.name} locale={locale} disabled={busy || published} onSave={slug => void run(() => edit([{ type: 'site_url', slug }]))} />}
               <WebsiteDetailsEditor value={draft.website.content.websiteDetails} disabled={busy || published} onSave={values => void run(() => edit([{ type: 'website_details', values }]))} />
               <h3>Booking essentials</h3>
               <form
@@ -997,6 +1003,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
           <section className="setup-review" aria-labelledby="setup-review-title">
             <button type="button" className="setup-back-chat" onClick={() => setTab('chat')}>← Back to chat</button>
             <h2 id="setup-review-title">Review your changes</h2>
+            {draft?.siteSlug && <p>{`Your booking website: /${locale}/${draft.siteSlug}/book`}</p>}
             {draft && (
               <p>
                 {`Bookings use ${draft.booking.currency}, ${draft.booking.timezone}, ${draft.booking.minimumNoticeMinutes} minutes minimum notice, and a ${draft.booking.bufferMinutes} minute booking buffer.`}
@@ -1054,7 +1061,17 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
                 const approval = await call<{
                   id: string;
                 }>({ action: 'approve', revision: review.revision, hash: review.hash, ...(review.appointmentImpact ? { acknowledgeAppointments: acknowledgedImpactHash === review.hash } : {}) });
-                await call({ action: 'publish', approvalId: approval.id, revision: review.revision, operationId: crypto.randomUUID() });
+                try {
+                  await call({ action: 'publish', approvalId: approval.id, revision: review.revision, operationId: crypto.randomUUID() });
+                } catch (error) {
+                  // The server may have committed before the connection failed.
+                  // Read the exact saved revision; never approve or submit twice.
+                  const saved = await refresh().catch(() => null);
+                  if (saved?.workspace.status !== 'published' || saved.revision.revision !== review.revision) {
+                    throw error;
+                  }
+                  return;
+                }
                 setPublished(true);
                 setTab('chat');
                 setReview(null);

@@ -18,6 +18,7 @@ import { addOnSchema, adminSalonMembershipSchema, auditLogSchema, businessSetupA
 
 import { setupAppointmentImpact } from './appointment-impact.server';
 import { setupBookingExtraBlockers, setupBookingExtraEffects, setupBookingExtrasFromSettings, setupDepositActivationNeeded, setupDepositApprovalAccount, setupReminderNotices } from './booking-extras.server';
+import { canChooseSetupBookingLink, setupBookingLinkBlockers } from './booking-link.server';
 import { hydrateSetupPolicy, setupPolicyInput } from './booking-policy';
 import type { SetupChange, SetupDocument, SetupReview } from './contracts';
 import { applySetupOperations, CLOSED_HOURS, setupEditSchema, SetupError, setupReadiness, setupResetSchema } from './contracts';
@@ -79,6 +80,7 @@ export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salo
   const content = resolveBookingPageContent(salon.settings);
   const document: SetupDocument = {
     schemaVersion: 1,
+    siteSlug: salon.slug,
     ...setupBookingExtrasFromSettings(salon),
     business: {
       name: salon.name,
@@ -143,6 +145,15 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
   if (!revision) {
     throw new SetupError('NOT_FOUND', 'The saved draft is unavailable.');
   }
+  const [identity] = await tx.select({ slug: salonSchema.slug, publicationStatus: salonSchema.publicationStatus, slugLockedAt: salonSchema.slugLockedAt }).from(salonSchema).where(eq(salonSchema.id, salonId));
+  if (!identity) {
+    throw new SetupError('NOT_FOUND', 'This business is unavailable.');
+  }
+  // Read adapter only; immutable old JSON remains unchanged. New review hashes
+  // require fresh approval when a legacy draft first gains its booking address.
+  const site = { salonSlug: identity.slug, canChooseBookingLink: canChooseSetupBookingLink(identity) };
+  workspace.baseline = { ...workspace.baseline, siteSlug: workspace.baseline.siteSlug ?? identity.slug };
+  revision.document = { ...revision.document, siteSlug: revision.document.siteSlug ?? identity.slug };
   if (revision.document.deposit === undefined || workspace.baseline.deposit === undefined || revision.document.reminders === undefined || workspace.baseline.reminders === undefined || revision.document.addOns === undefined || workspace.baseline.addOns === undefined || revision.document.staff === undefined || workspace.baseline.staff === undefined || revision.document.bookingPolicy?.acknowledgment === undefined || workspace.baseline.bookingPolicy?.acknowledgment === undefined || revision.document.servicePricingVersion !== 1 || workspace.baseline.servicePricingVersion !== 1) {
     const [salon] = await tx.select().from(salonSchema).where(eq(salonSchema.id, salonId));
     if (!salon) {
@@ -155,9 +166,9 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
     const baseline = hydrateSetupServicePricing({ ...workspace.baseline, addOns: workspace.baseline.addOns ?? current.document.addOns, bookingPolicy: policy(workspace.baseline.bookingPolicy), staff: workspace.baseline.staff ?? current.document.staff, staffUsesExplicitAssignments: workspace.baseline.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, current.document);
     baseline.deposit ??= current.document.deposit;
     baseline.reminders ??= current.document.reminders;
-    return { workspace: { ...workspace, baseline }, revision: { ...revision, document: hydrateSetupServicePricing({ ...revision.document, deposit: revision.document.deposit ?? baseline.deposit, reminders: revision.document.reminders ?? baseline.reminders, addOns: revision.document.addOns ?? baseline.addOns, bookingPolicy: policy(revision.document.bookingPolicy), staff: revision.document.staff ?? current.document.staff, staffUsesExplicitAssignments: revision.document.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, baseline) } };
+    return { ...site, workspace: { ...workspace, baseline }, revision: { ...revision, document: hydrateSetupServicePricing({ ...revision.document, deposit: revision.document.deposit ?? baseline.deposit, reminders: revision.document.reminders ?? baseline.reminders, addOns: revision.document.addOns ?? baseline.addOns, bookingPolicy: policy(revision.document.bookingPolicy), staff: revision.document.staff ?? current.document.staff, staffUsesExplicitAssignments: revision.document.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, baseline) } };
   }
-  return { workspace, revision };
+  return { ...site, workspace, revision };
 }
 export async function openSetup(actor: SetupActor) {
   return db.transaction(async (tx) => {
@@ -242,6 +253,10 @@ export async function resetSetupDraft(actor: SetupActor, raw: unknown, restore =
         throw new SetupError('NOT_FOUND', 'There is no earlier draft to restore.');
       }
       document = structuredClone(previous.document);
+      // An old draft cannot rename an already published salon when restored.
+      if (!canChooseSetupBookingLink(salon)) {
+        document.siteSlug = salon.slug;
+      }
       const resolveIdentity = await publishedSetupIdentities(tx, salon.id, [...document.services.map(service => service.id), ...(document.addOns?.flatMap(addOn => [addOn.id, ...addOn.serviceIds]) ?? []), ...(document.staff?.flatMap(person => [person.id, ...person.serviceIds]) ?? [])], { workspaceId: head.workspace.id, namespace: document.identityNamespace, legacyRevision: previous.revision, restoring: true });
       document.services = document.services.map(service => ({ ...service, id: resolveIdentity('services', service.id) ?? service.id }));
       document = hydrateSetupServicePricing(document, snapshot.document);
@@ -292,8 +307,12 @@ export async function projectSetupWebsite(tx: SetupTransaction, salonId: string,
   if (!salon) {
     throw new SetupError('NOT_FOUND', 'This business is unavailable.');
   }
-  const page = { ...resolveBookingPageConfig(salon.settings), draft: document.website.config };
-  const content = { ...resolveBookingPageContent(salon.settings), draft: document.website.content };
+  const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const savedSettings = record(salon.settings);
+  // Write only the draft side. Expanding resolver defaults here would also
+  // materialize previously absent live values during a harmless draft edit.
+  const page = { ...record(savedSettings.bookingPage), version: 1, draft: document.website.config, draftPresetBase: resolveBookingPageConfig(salon.settings).draftPresetBase };
+  const content = { ...record(savedSettings.bookingPageContent), version: 1, draft: document.website.content };
   await tx.update(salonSchema).set({ settings: sql`jsonb_set(jsonb_set(COALESCE(${salonSchema.settings}, '{}'::jsonb), '{bookingPage}', ${JSON.stringify(page)}::jsonb), '{bookingPageContent}', ${JSON.stringify(content)}::jsonb)` }).where(eq(salonSchema.id, salonId));
   const [updated] = await tx.select().from(salonSchema).where(eq(salonSchema.id, salonId));
   return (await readSetupSnapshot(tx, updated!)).hash;
@@ -326,6 +345,9 @@ export async function editSetup(actor: SetupActor, input: unknown, origin: 'owne
       throw new SetupError('STALE', 'Your business settings changed elsewhere. Review the newer changes before continuing.');
     }
     for (const op of edit.operations) {
+      if (op.type === 'site_url' && !canChooseSetupBookingLink(salon)) {
+        throw new SetupError('INVALID', 'Your published booking link stays the same. Contact Luster if your business needs a new address.');
+      }
       if (op.type === 'import_upload') {
         const owned = head.revision.document.designBrief?.ownedReferenceIds ?? [];
         const references = await ownedAssets(tx, salon.id, op.referenceIds);
@@ -406,6 +428,7 @@ export async function reviewSetupHead(tx: SetupTransaction, head: Awaited<Return
   if (!configurationSalon) {
     throw new SetupError('NOT_FOUND', 'This business is unavailable.');
   }
+  review.blockers.push(...await setupBookingLinkBlockers(tx, configurationSalon, head.revision.document));
   review.blockers.push(...await setupBookingExtraBlockers(tx, configurationSalon, head.revision.document));
   const effects = setupBookingExtraEffects(configurationSalon, head.revision.document);
   review.changes.push(...effects.changes);

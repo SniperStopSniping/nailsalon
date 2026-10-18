@@ -12,10 +12,11 @@ import { assertWebsiteDetailsCoverage } from '@/features/custom-sites/website-co
 import { db } from '@/libs/DB';
 import { prepareDepositActivation } from '@/libs/depositActivation.server';
 import { checkEndpointRateLimit } from '@/libs/rateLimit';
-import { auditLogSchema, businessSetupApprovalSchema as approvals, businessSetupPublicationSchema as publications, businessSetupWorkspaceSchema as workspaces, salonLocationSchema, salonSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
+import { auditLogSchema, businessSetupApprovalSchema as approvals, businessSetupPublicationSchema as publications, businessSetupWorkspaceSchema as workspaces, salonAuditLogSchema, salonLocationSchema, salonSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
 
 import { publishSetupAddOns } from './add-on-publication.server';
 import { setupDepositActivationNeeded, setupPublishedBookingExtras } from './booking-extras.server';
+import { rethrowBookingLinkCollision } from './booking-link.server';
 import { setupPolicyInput } from './booking-policy';
 import { assertSetupAddressPrivacy, SetupError, WEEKDAYS } from './contracts';
 import type { SetupActor } from './drafts.server';
@@ -53,10 +54,10 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
         throw new SetupError('STALE', 'Your business changed elsewhere. Review those changes before publishing.');
       }
     }
-    return receipt ?? null;
+    return receipt ? { receipt, salonSlug: salon.slug } : null;
   });
   if (replay) {
-    return { receipt: replay, mediaFinalized: replay.mediaFinalized };
+    return { ...replay, mediaFinalized: replay.receipt.mediaFinalized };
   }
   if (customArtifactId) {
     const { media } = await assertCustomArtifact(db, actor.salonId, customArtifactId);
@@ -74,14 +75,14 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
   // This slice publishes only reviewed canonical configuration. Pending
   // onboarding media is deliberately not promoted as an unrelated side effect.
   // Asset promotion requires its own reviewed asset identities in the draft.
-  const receipt = await db.transaction(async (tx) => {
+  const publication = await db.transaction(async (tx) => {
     const salon = await lockSetupSalon(tx, actor);
     const [already] = await tx.select().from(publications).where(and(eq(publications.salonId, salon.id), eq(publications.operationId, input.operationId)));
     if (already) {
       if (already.approvalId !== input.approvalId || already.revision !== input.revision) {
         throw new SetupError('INVALID', 'This publication request was already used.');
       }
-      return already;
+      return { receipt: already, salonSlug: salon.slug };
     }
     const head = await loadSetupHead(tx, salon.id);
     const review = await reviewSetupHead(tx, head);
@@ -192,7 +193,9 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       bookingPageContent: { ...current.content, draft: draft.website.content, live: draft.website.content },
     };
     const publishedAt = new Date();
+    const publishedSlug = draft.siteSlug ?? salon.slug;
     await tx.update(salonSchema).set({
+      slug: publishedSlug,
       name: draft.business.name,
       city: draft.business.city,
       address: draft.business.locationDisplayMode === 'full_address' ? draft.business.exactAddress || null : null,
@@ -203,10 +206,15 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       publishedAt: salon.publishedAt ?? publishedAt,
       slugLockedAt: salon.slugLockedAt ?? publishedAt,
     }).where(eq(salonSchema.id, salon.id));
+    if (publishedSlug !== salon.slug) {
+      // Reuse the existing authenticated former-slug resolver, including after
+      // a lost response. This is a lookup hint, never an authorization token.
+      await tx.insert(salonAuditLogSchema).values({ id: randomUUID(), salonId: salon.id, action: 'updated', performedBy: actor.adminId, metadata: { field: 'slug', previousValue: salon.slug, newValue: publishedSlug, details: 'Owner-approved first booking link' } });
+    }
     const [created] = await tx.insert(publications).values({ id: randomUUID(), salonId: salon.id, workspaceId: head.workspace.id, revision: review.revision, operationId: input.operationId, approvalId: approval.id, actorId: actor.adminId, serviceIds, staffIds, addOnIds, publishedAt, mediaFinalized: true }).returning();
     await tx.insert(auditLogSchema).values({ id: randomUUID(), salonId: salon.id, actorType: 'admin', actorId: actor.adminId, action: 'settings_updated', entityType: 'business_setup_publication', entityId: created!.id, metadata: { revision: review.revision, changedFields: review.changes.map(c => c.path) } });
     await tx.update(workspaces).set({ status: 'published', updatedAt: publishedAt }).where(eq(workspaces.id, head.workspace.id));
-    return created!;
-  });
-  return { receipt, mediaFinalized: true };
+    return { receipt: created!, salonSlug: publishedSlug };
+  }).catch(rethrowBookingLinkCollision);
+  return { ...publication, mediaFinalized: true };
 }

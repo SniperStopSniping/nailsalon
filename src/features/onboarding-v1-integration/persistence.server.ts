@@ -26,7 +26,7 @@ import { type DatabaseSessionHandle, db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
 import { enqueueOwnerSignupNotification } from '@/libs/ownerSignupNotification';
 import { seedStarterMenuForSalon } from '@/libs/starterMenu';
-import { isReservedSalonSlug, isValidSalonSlug, normalizeSalonSlug } from '@/libs/tenantSlug';
+import { isValidSalonSlug, normalizeSalonSlug, suggestSalonSlug } from '@/libs/tenantSlug';
 import {
   addOnSchema,
   adminSalonMembershipSchema,
@@ -512,20 +512,6 @@ async function syncQuickBookProfilePresentationDraft(input: {
   );
 }
 
-function baseSlug(businessName: string): string {
-  const candidate = businessName
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036F]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 38);
-  if (!candidate || isReservedSalonSlug(candidate) || !isValidSalonSlug(candidate)) {
-    return 'luster-studio';
-  }
-  return candidate;
-}
-
 async function salonSlugForSnapshot(
   database: QueryDatabase,
   snapshot: OnboardingPersistedSnapshot,
@@ -534,7 +520,7 @@ async function salonSlugForSnapshot(
   // after the owner has previewed it, including concurrent first-time claims.
   const availability = await getOnboardingSiteSlugAvailability(
     snapshot.profile.siteSlug
-    || (snapshot.profile.siteSlugCustomized ? '' : baseSlug(snapshot.profile.businessName)),
+    || (snapshot.profile.siteSlugCustomized ? '' : suggestSalonSlug(snapshot.profile.businessName)),
     database,
   );
   if (availability.reason === 'invalid') {

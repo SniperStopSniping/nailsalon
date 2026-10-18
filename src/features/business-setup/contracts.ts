@@ -9,6 +9,7 @@ import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import type { BookingPageContentSide } from '@/libs/bookingPageContent';
 import { createReminderRuleId } from '@/libs/communicationReminders.shared';
 import { CUSTOMER_SITE_PALETTE_PRESETS, CUSTOMER_SITE_STYLE_PRESETS } from '@/libs/customerSitePresentation';
+import { isValidSalonSlug } from '@/libs/tenantSlug';
 import { BOOKING_CATEGORIES, SERVICE_CATEGORIES } from '@/models/serviceCatalogTypes';
 
 import { changesProtectedAddOnChoices, type SetupAddOn, setupAddOnSchema } from './add-ons';
@@ -77,6 +78,7 @@ const uploadOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('service'), values: setupServiceSchema }).strict(),
 ]);
 export const setupOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('site_url'), slug: z.string().trim().toLowerCase().max(47).refine(isValidSalonSlug, 'Choose a valid booking link.') }).strict(),
   z.object({ type: z.literal('deposit'), values: setupDepositUpdateSchema }).strict(),
   z.object({ type: z.literal('reminders'), values: setupRemindersUpdateSchema }).strict(),
   z.object({ type: z.literal('add_on'), values: setupAddOnSchema }).strict(),
@@ -111,6 +113,8 @@ export type SetupDocument = {
   previousDraftRevision?: number;
   /** Stable identity lineage across resets/restores, renewed for a new setup. */
   identityNamespace?: string;
+  /** Proposed public address. The server protects already published addresses. */
+  siteSlug?: string;
   business: z.infer<typeof businessSchema>;
   hours: SetupHours;
   /** Suggested hours are editable draft values, never approved opening hours. */
@@ -187,6 +191,12 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   for (const raw of operations) {
     const op = setupOperationSchema.parse(raw);
     switch (op.type) {
+      case 'site_url':
+        if (origin !== 'owner') {
+          throw new SetupError('FORBIDDEN', 'Choose your booking link in Details before reviewing it.');
+        }
+        next.siteSlug = op.slug;
+        break;
       case 'deposit':
         if (origin === 'upload') {
           throw new SetupError('FORBIDDEN', 'Discuss deposit collection before changing payment settings.');

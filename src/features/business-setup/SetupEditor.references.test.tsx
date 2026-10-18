@@ -14,7 +14,8 @@ let messages: any[];
 let reviews: any[];
 let published: boolean;
 let archived: any;
-const head = () => ({ workspace: { status: published ? 'published' : 'editing' }, revision: { revision, document }, messages, uploadReviews: reviews });
+let canonicalSlug: string;
+const head = () => ({ salonSlug: canonicalSlug, canChooseBookingLink: !published, workspace: { status: published ? 'published' : 'editing' }, revision: { revision, document }, messages, uploadReviews: reviews });
 
 beforeEach(() => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })));
@@ -32,6 +33,7 @@ beforeEach(() => {
   revision = 2;
   published = false;
   archived = null;
+  canonicalSlug = 'test';
   document = {
     business: { name: 'Studio', city: 'Toronto', exactAddress: '', workMode: 'solo', homeBased: true, locationDisplayMode: 'city_only' },
     hours: { ...CLOSED_HOURS, monday: { open: '09:00', close: '17:00' } },
@@ -83,6 +85,7 @@ beforeEach(() => {
       }
       if (request.action === 'publish') {
         published = true;
+        canonicalSlug = document.siteSlug ?? canonicalSlug;
       }
       if (request.action === 'start_editing') {
         published = false;
@@ -433,6 +436,7 @@ it('retains a saved failure reason after refresh without displaying duplicate st
 });
 
 it('recovers the published state after a lost response without asking for approval again', async () => {
+  document.siteSlug = 'studio-bookings';
   const baseFetch = globalThis.fetch;
   vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
     const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
@@ -446,13 +450,63 @@ it('recovers the published state after a lost response without asking for approv
   await screen.findByText('Saved as draft');
   fireEvent.click(screen.getByRole('button', { name: 'Review' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Approve and publish' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Reload saved changes' }));
   await screen.findByRole('button', { name: 'Make more changes' });
 
-  expect(screen.getByRole('link', { name: 'Open your booking website' })).toHaveAttribute('href', '/en/test/book/service?publishedWebsite=1');
+  expect(screen.getByRole('link', { name: 'Open your booking website' })).toHaveAttribute('href', '/en/studio-bookings/book/service?publishedWebsite=1');
 
   expect(screen.queryByRole('button', { name: 'Approve and publish' })).not.toBeInTheDocument();
   expect(requests.filter(request => request.action === 'publish')).toHaveLength(1);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Make more changes' }));
+  await screen.findByText('Saved as draft');
+
+  expect(requests.findLast(request => request.action === 'start_editing')).toMatchObject({ salonSlug: 'studio-bookings' });
+});
+
+it('does not claim publication when both the response and the saved-state check are unavailable', async () => {
+  const baseFetch = globalThis.fetch;
+  let publicationAttempted = false;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'publish') {
+      publicationAttempted = true;
+      throw new Error('Connection interrupted.');
+    }
+    if (publicationAttempted && url.startsWith('/api/admin/business-setup?')) {
+      return { ok: false, status: 503 };
+    }
+    return baseFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Approve and publish' }));
+
+  expect(await screen.findByRole('button', { name: 'Reload saved changes' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Make more changes' })).not.toBeInTheDocument();
+  expect(requests.filter(request => request.action === 'approve')).toHaveLength(1);
+});
+
+it('saves a first booking link in the shared draft and shows it in exact review without publishing', async () => {
+  const baseFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'edit' && request.edit.operations[0]?.type === 'site_url') {
+      document.siteSlug = request.edit.operations[0].slug;
+      revision++;
+    }
+    return baseFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Booking link name' }), { target: { value: 'studio-bookings' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save booking link' }));
+  await waitFor(() => expect(requests.some(request => request.action === 'edit')).toBe(true));
+  fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+
+  expect(await screen.findByText('Your booking website: /en/studio-bookings/book')).toBeVisible();
+  expect(requests.some(request => ['approve', 'publish'].includes(request.action))).toBe(false);
 });
 
 it('clears a sent follow-up immediately, shows progress and preserves a newly typed message', async () => {

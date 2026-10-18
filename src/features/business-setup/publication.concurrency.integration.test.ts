@@ -83,6 +83,33 @@ async function teamFixture() {
 }
 
 describe.skipIf(!target)('setup publication on attested disposable PostgreSQL', () => {
+  it('allows only one salon to claim the same approved first booking link and rolls back the loser', async () => {
+    const first = await fixture();
+    const second = await fixture();
+    const slug = `url-race-${randomUUID().slice(0, 8)}`;
+    const inputs = [];
+    for (const { actor } of [first, second]) {
+      await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'site_url', slug }] });
+      const review = await reviewSetup(actor);
+      const approval = await approveSetup(actor, review.revision, review.hash);
+      inputs.push({ revision: review.revision, approvalId: approval.id, operationId: randomUUID() });
+    }
+    const results = await Promise.allSettled([publishSetup(first.actor, inputs[0]), publishSetup(second.actor, inputs[1])]);
+
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+
+    const losingIndex = results.findIndex(result => result.status === 'rejected');
+
+    expect(results[losingIndex]).toMatchObject({ reason: { code: 'NOT_READY' } });
+
+    const loser = [first, second][losingIndex]!.actor;
+    const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, loser.salonId));
+
+    expect(salon).toMatchObject({ slug: loser.salonId, publicationStatus: 'draft', onlineBookingEnabled: false });
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, loser.salonId))).toHaveLength(0);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, loser.salonId))).toHaveLength(0);
+  });
+
   it('accepts a fresh owner conversation when PostgreSQL uses a non-UTC timezone', async () => {
     const connection = await pool.connect();
     const normal = holder.db;

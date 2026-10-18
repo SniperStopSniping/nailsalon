@@ -81,6 +81,13 @@ export function isValidSalonSlug(value: string): boolean {
   );
 }
 
+/** A suggestion only: availability and the owner's exact choice are checked separately. */
+export function suggestSalonSlug(businessName: string): string {
+  const candidate = businessName.normalize('NFKD').replace(/[\u0300-\u036F]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 38).replace(/-+$/g, '');
+  return isValidSalonSlug(candidate) ? candidate : 'luster-studio';
+}
+
 export function isTenantSubdomainSlugEnabled(value: string): boolean {
   const slug = normalizeSalonSlug(value);
   if (!slug || isReservedSalonSlug(slug)) {

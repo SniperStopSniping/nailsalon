@@ -224,6 +224,32 @@ describe('requireAdminSalonForSlug', () => {
     expect(cookieSet).not.toHaveBeenCalled();
   });
 
+  it('recovers an owner request through a former slug while enforcing the stable salon membership', async () => {
+    getSalonByFormerSlug.mockResolvedValue(salonA);
+    setSelectPlans([
+      ...sessionPlans([{ salonId: salonB.id, salonSlug: salonB.slug }, { salonId: salonA.id, salonSlug: salonA.slug }]),
+      ...sessionPlans([{ salonId: salonB.id, salonSlug: salonB.slug }, { salonId: salonA.id, salonSlug: salonA.slug }]),
+    ]);
+    const result = await requireAdminSalonForSlug('old-private-address', { persistActiveSalon: false });
+
+    expect(result.error).toBeNull();
+    expect(result.salon?.id).toBe(salonA.id);
+    expect(cookieSet).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a former-slug audit entry as permission to access another salon', async () => {
+    getSalonByFormerSlug.mockResolvedValue(salonA);
+    setSelectPlans([
+      ...sessionPlans([{ salonId: salonB.id, salonSlug: salonB.slug }]),
+      ...sessionPlans([{ salonId: salonB.id, salonSlug: salonB.slug }]),
+    ]);
+    const result = await requireAdminSalonForSlug('old-private-address', { persistActiveSalon: false });
+
+    expect(result.salon).toBeNull();
+    expect(result.error?.status).toBe(403);
+    expect(cookieSet).not.toHaveBeenCalled();
+  });
+
   it('answers 404 for a slug that names no salon', async () => {
     setSelectPlans(sessionPlans([{ salonId: salonB.id, salonSlug: salonB.slug }]));
 
