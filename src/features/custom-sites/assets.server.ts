@@ -78,18 +78,32 @@ export async function uploadCustomAsset(actor: SetupActor, file: File, rawRole: 
       throw error;
     }
   }
-  const storedBytes = stored ? await readOnboardingMediaFile(stored.storageKey, { salonId: actor.salonId }) : normalizedBytes ?? bytes;
   const byteSize = stored?.byteSize ?? normalizedBytes?.length ?? bytes.length;
   try {
-    return await db.transaction(async (tx) => {
+    const storedBytes = stored ? await readOnboardingMediaFile(stored.storageKey, { salonId: actor.salonId }) : normalizedBytes ?? bytes;
+    const hash = createHash('sha256').update(storedBytes).digest('hex');
+    const result = await db.transaction(async (tx) => {
       await lockSetupSalon(tx, actor);
+      // A lost upload response or a PDF retry must not consume the library twice.
+      // Do not deduplicate across tenants or roles, or reuse damaged historical bytes.
+      const candidates = await tx.select().from(assets).where(and(eq(assets.salonId, actor.salonId), eq(assets.role, role), eq(assets.hash, hash)));
+      for (const candidate of candidates) {
+        if (await assetIsIntact(candidate)) {
+          return { id: candidate.id, name: candidate.name, role: candidate.role, mimeType: candidate.mimeType };
+        }
+      }
       const current = await tx.select({ byteSize: assets.byteSize }).from(assets).where(eq(assets.salonId, actor.salonId));
       if (current.length >= 24 || current.reduce((sum, a) => sum + a.byteSize, 0) + byteSize > 15000000) {
         throw new SetupError('NOT_READY', 'This business has reached its reference storage limit.');
       }
-      const [asset] = await tx.insert(assets).values({ id, salonId: actor.salonId, actorId: actor.adminId, role, name: file.name.replace(/[^\w .-]/gu, '').slice(0, 120) || 'Reference', mimeType: stored?.mimeType ?? (imageBase64 ? 'image/webp' : 'application/pdf'), storageKey: stored?.storageKey ?? null, pdfBase64, imageBase64, byteSize, hash: createHash('sha256').update(storedBytes).digest('hex') }).returning();
+      const [asset] = await tx.insert(assets).values({ id, salonId: actor.salonId, actorId: actor.adminId, role, name: file.name.replace(/[^\w .-]/gu, '').slice(0, 120) || 'Reference', mimeType: stored?.mimeType ?? (imageBase64 ? 'image/webp' : 'application/pdf'), storageKey: stored?.storageKey ?? null, pdfBase64, imageBase64, byteSize, hash }).returning();
       return { id: asset!.id, name: asset!.name, role: asset!.role, mimeType: asset!.mimeType };
     });
+    if (result.id !== id && stored) {
+      // This call created a unique temporary key, never a previously saved key.
+      await deleteOnboardingMediaFile(stored.storageKey, { salonId: actor.salonId }).catch(() => {});
+    }
+    return result;
   } catch (e) {
     if (stored) {
       await deleteOnboardingMediaFile(stored.storageKey, { salonId: actor.salonId }).catch(() => {});
@@ -103,4 +117,18 @@ export async function assetDataUrl(asset: typeof assets.$inferSelect) {
     throw new SetupError('INVALID', 'A saved image changed or is unavailable. Please upload it again.');
   }
   return `data:${asset.mimeType};base64,${bytes.toString('base64')}`;
+}
+
+/** Only missing/changed bytes are recoverable; do not hide a storage outage. */
+export async function assetIsIntact(asset: typeof assets.$inferSelect) {
+  try {
+    await assetDataUrl(asset);
+    return true;
+  } catch (error) {
+    const missingLocalFile = error instanceof Error && 'code' in error && error.code === 'ENOENT';
+    if (missingLocalFile || (error instanceof SetupError && error.code === 'INVALID') || (error instanceof OnboardingMediaStorageError && error.code === 'IMAGE_NOT_FOUND')) {
+      return false;
+    }
+    throw error;
+  }
 }

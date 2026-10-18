@@ -15,6 +15,7 @@ import * as customArtifacts from '@/features/custom-sites/artifacts.server';
 import { ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
 import type { CanvaArea } from '@/features/custom-sites/canva';
 import { compileCanvaDesign } from '@/features/custom-sites/canva';
+import { canvaWebsiteImage } from '@/features/custom-sites/canva-assets.server';
 import { canvaDataFingerprint, canvaServiceKey } from '@/features/custom-sites/canva-data.server';
 import { replaceCanvaPage } from '@/features/custom-sites/canva-replace.server';
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
@@ -611,6 +612,49 @@ describe('private multimodal design references', () => {
 
     expect(job?.costMicroUsd).toBeNull();
     expect(job!.reservedMicroUsd).toBeGreaterThan(0);
+  });
+
+  it('reuses an intact repeated upload only within its authorized salon and role', async () => {
+    const actor = await fixture();
+    const other = await fixture();
+    const bytes = await sharp({ create: { width: 120, height: 160, channels: 3, background: '#aabbcc' } }).png().toBuffer();
+    const file = () => new File([new Uint8Array(bytes)], 'retry.png', { type: 'image/png' });
+    const first = await uploadCustomAsset(actor, file(), 'reference');
+    const retry = await uploadCustomAsset(actor, file(), 'reference');
+
+    expect(retry.id).toBe(first.id);
+    expect((await database.select().from(schema.customSiteAssetSchema).where(eq(schema.customSiteAssetSchema.salonId, actor.salonId)))).toHaveLength(1);
+    expect((await uploadCustomAsset(actor, file(), 'photo')).id).not.toBe(first.id);
+    expect((await uploadCustomAsset(other, file(), 'reference')).id).not.toBe(first.id);
+
+    await database.update(schema.adminSalonMembershipSchema).set({ role: 'technician' }).where(eq(schema.adminSalonMembershipSchema.adminId, actor.adminId));
+
+    await expect(uploadCustomAsset(actor, file(), 'reference')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('retains a damaged historical asset and allows a fresh upload to repair it without changing source history', async () => {
+    const actor = await fixture();
+    const bytes = await sharp({ create: { width: 120, height: 160, channels: 3, background: '#aabbcc' } }).png().toBuffer();
+    const file = () => new File([new Uint8Array(bytes)], 'retry.png', { type: 'image/png' });
+    const first = await uploadCustomAsset(actor, file(), 'reference');
+    const [old] = await ownedAssets(database as any, actor.salonId, [first.id]);
+    const oldPhoto = await canvaWebsiteImage(actor, old!);
+    await import('@/features/onboarding-v1-integration/media-storage.server').then(module => module.deleteOnboardingMediaFile(old!.storageKey!, { salonId: actor.salonId }));
+    const retry = await uploadCustomAsset(actor, file(), 'reference');
+
+    expect(retry.id).not.toBe(first.id);
+    expect(await ownedAssets(database as any, actor.salonId, [first.id, retry.id])).toHaveLength(2);
+
+    const freshReference = (await ownedAssets(database as any, actor.salonId, [retry.id]))[0]!;
+    const freshPhoto = await canvaWebsiteImage(actor, freshReference);
+
+    expect(freshPhoto.id).not.toBe(oldPhoto.id);
+
+    const { assetDataUrl } = await import('@/features/custom-sites/assets.server');
+
+    expect(await assetDataUrl(freshPhoto)).toMatch(/^data:image\/webp;base64,/u);
+
+    expect(await assetDataUrl((await ownedAssets(database as any, actor.salonId, [retry.id]))[0]!)).toMatch(/^data:image\/webp;base64,/u);
   });
 
   it('rejects invalid files and oversized token inputs before paid generation', async () => {

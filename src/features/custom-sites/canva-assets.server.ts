@@ -10,6 +10,8 @@ import { lockSetupSalon } from '@/features/business-setup/drafts.server';
 import { db } from '@/libs/DB';
 import { customSiteAssetSchema as assets } from '@/models/Schema';
 
+import { assetIsIntact } from './assets.server';
+
 /** Promote explicitly owned artwork into an immutable website asset; preserve bytes. */
 export async function canvaWebsiteImage(actor: SetupActor, original: typeof assets.$inferSelect) {
   if (!original.mimeType.startsWith('image/')) {
@@ -23,9 +25,11 @@ export async function canvaWebsiteImage(actor: SetupActor, original: typeof asse
   }
   return db.transaction(async (tx) => {
     await lockSetupSalon(tx, actor);
-    const [previous] = await tx.select().from(assets).where(and(eq(assets.salonId, actor.salonId), eq(assets.role, 'photo'), eq(assets.hash, original.hash)));
-    if (previous) {
-      return previous;
+    const candidates = await tx.select().from(assets).where(and(eq(assets.salonId, actor.salonId), eq(assets.role, 'photo'), eq(assets.hash, original.hash)));
+    for (const previous of candidates) {
+      if (await assetIsIntact(previous)) {
+        return previous;
+      }
     }
     const current = await tx.select({ byteSize: assets.byteSize }).from(assets).where(eq(assets.salonId, actor.salonId));
     if (current.length >= 24 || current.reduce((sum, row) => sum + row.byteSize, 0) + original.byteSize > 15000000) {

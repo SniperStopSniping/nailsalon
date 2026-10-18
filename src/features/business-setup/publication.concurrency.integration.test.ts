@@ -7,7 +7,9 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { uploadCustomAsset } from '@/features/custom-sites/assets.server';
 import { attestDisposableDatabaseSession, requireDisposableDatabaseTarget, resolveDisposableDatabaseServerExpectation } from '@/libs/disposableDatabaseTarget';
+import sharp from '@/libs/safeSharp.server';
 import * as schema from '@/models/Schema';
 
 import { runSetupModel } from './ai-trial.server';
@@ -83,6 +85,27 @@ async function teamFixture() {
 }
 
 describe.skipIf(!target)('setup publication on attested disposable PostgreSQL', () => {
+  it('serializes simultaneous repeated uploads and keeps one asset without changing the draft or live catalog', async () => {
+    const { actor } = await fixture();
+    const before = await openSetup(actor);
+    const previousEnvironment = process.env.APP_ENV;
+    const previousStorage = process.env.CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES;
+    vi.stubEnv('APP_ENV', 'preview');
+    vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', 'true');
+    try {
+      const bytes = await sharp({ create: { width: 100, height: 100, channels: 3, background: '#112233' } }).png().toBuffer();
+      const results = await Promise.all(Array.from({ length: 6 }, () => uploadCustomAsset(actor, new File([new Uint8Array(bytes)], 'concurrent.png', { type: 'image/png' }), 'reference')));
+
+      expect(new Set(results.map(asset => asset.id)).size).toBe(1);
+      expect(await database.select().from(schema.customSiteAssetSchema).where(eq(schema.customSiteAssetSchema.salonId, actor.salonId))).toHaveLength(1);
+      expect((await openSetup(actor)).revision.revision).toBe(before.revision.revision);
+      expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+    } finally {
+      vi.stubEnv('APP_ENV', previousEnvironment);
+      vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', previousStorage);
+    }
+  });
+
   it('allows only one salon to claim the same approved first booking link and rolls back the loser', async () => {
     const first = await fixture();
     const second = await fixture();

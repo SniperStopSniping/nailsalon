@@ -5,11 +5,14 @@ import { withSentryConfig } from '@sentry/nextjs';
 import createJiti from 'jiti';
 import withNextIntl from 'next-intl/plugin';
 
+import { preparePdfArtworkAssets } from './scripts/lib/prepare-pdf-artwork-assets.mjs';
+
 const jiti = createJiti(fileURLToPath(import.meta.url));
 
 const { assertEnvironmentIsolation } = jiti('./src/libs/environmentIsolation.ts');
 assertEnvironmentIsolation(process.env);
 jiti('./src/libs/Env');
+preparePdfArtworkAssets(fileURLToPath(new URL('.', import.meta.url)));
 const packageJson = jiti('./package.json');
 const {
   assertProductionSentryBuildEnv,
@@ -94,7 +97,13 @@ const baseNextConfig = bundleAnalyzer(
           { key: 'Referrer-Policy', value: 'no-referrer' },
         ],
       }));
-      return [...previews, ...['/website-preview/:token', '/:locale/website-preview/:token'].map(source => ({
+      return [{
+        source: '/assets/pdfjs/:version/pdf.worker.legacy.min.mjs',
+        headers: [
+          { key: 'Content-Security-Policy', value: 'default-src \'none\'; script-src \'self\' \'wasm-unsafe-eval\'; connect-src \'self\'' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+        ],
+      }, ...previews, ...['/website-preview/:token', '/:locale/website-preview/:token'].map(source => ({
         source,
         headers: [
           { key: 'Cache-Control', value: 'private, no-store' },

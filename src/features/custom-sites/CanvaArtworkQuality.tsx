@@ -46,7 +46,7 @@ export function CanvaArtworkQuality({ pages, disabled, onReplace }: {
           type="file"
           className="setup-sr-only"
           aria-label="Sharper Canva export"
-          accept="image/png,image/jpeg,image/webp"
+          accept="image/png,image/jpeg,image/webp,application/pdf"
           disabled={disabled}
           onChange={(event) => {
             setFiles(Array.from(event.target.files ?? []));

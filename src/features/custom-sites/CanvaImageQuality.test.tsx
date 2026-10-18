@@ -21,6 +21,18 @@ it('explains a small export before generation without blocking the owner or prom
   expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
 });
 
+it('distinguishes sharp vector exports from small embedded photos and warns that wide pages shrink on phones', () => {
+  render(
+    <>
+      <CanvaImageQuality page={{ width: 1600, height: 1000 }} />
+      <CanvaUploadQuality files={[new File(['pdf'], 'Canva.pdf', { type: 'application/pdf' })]} />
+    </>,
+  );
+
+  expect(screen.getByText(/Wide pages shrink on a phone/)).toBeVisible();
+  expect(screen.getByText(/low-resolution pictures inside the PDF will still need a better original/)).toBeVisible();
+});
+
 it('checks files locally and releases image URLs when files change or the dialog closes', () => {
   const images: any[] = [];
   const create = vi.fn().mockReturnValue('blob:local-test');

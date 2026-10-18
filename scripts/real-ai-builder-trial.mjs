@@ -38,7 +38,7 @@ for (const point of landmarks) {
   assert(Number.isInteger(point.page) && point.page >= 0 && point.page < 6 && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1);
   assert(['instagram', 'email', 'phone', 'service', 'book'].includes(point.action));
 }
-assert(['message', 'conversation', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'contact-details', 'booking-link', 'restore', 'canva-review', 'publish', 'book', 'connection-recovery'].includes(step), 'Choose message, conversation, photos, preview, public-preview, start-editing, manual-wording, service-price, contact-details, booking-link, restore, canva-review, publish, book or connection-recovery.');
+assert(['message', 'conversation', 'photos', 'canva-upload', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'contact-details', 'booking-link', 'restore', 'canva-review', 'publish', 'book', 'connection-recovery'].includes(step), 'Choose an owner workflow step.');
 if (profile.https) {
   assertHttpsTrialStep(step);
 }
@@ -78,6 +78,7 @@ const failures = [];
 const contactChecks = [];
 const interactionChecks = [];
 const serverProbes = [];
+let pdfUpload;
 page.on('request', (request) => {
   if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/admin/business-setup') {
     const body = request.postDataJSON();
@@ -324,6 +325,59 @@ try {
     await page.locator('.setup-owner').last().scrollIntoViewIfNeeded();
     await screenshot('saved-conversation-mobile');
     assert.equal(await liveSettingsFingerprint(), liveSettingsBefore);
+  } else if (step === 'canva-upload') {
+    assert(messageOrArtifact, 'Supply an original Canva image or PDF input.');
+    const workerUrls = [];
+    const unexpected = [];
+    page.on('worker', worker => workerUrls.push(worker.url()));
+    page.on('request', (request) => {
+      if (request.url().includes('/pdf-open-action')) {
+        unexpected.push(request.url());
+      }
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('#setup-attach-button').click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: /^My design or menu/u }).click();
+    await dialog.getByRole('checkbox', { name: /^Keep my Canva design/u }).check();
+    await page.locator('#setup-attachment-file').setInputFiles(messageOrArtifact);
+    await dialog.getByRole('checkbox', { name: /^These are my files/u }).check();
+    await screenshot('pdf-selected-in-owner-chat');
+    await dialog.getByRole('button', { name: 'Add to chat', exact: true }).click();
+    if (messageOrArtifact.endsWith('.pdf')) {
+      await expect(dialog.getByRole('status')).toContainText(/Preparing|Uploading|Saving/u);
+
+      await screenshot('pdf-preparation-progress');
+    }
+
+    await expect(dialog).not.toBeVisible({ timeout: 100_000 });
+
+    after = await head();
+    const previousReferences = before.document.designBrief?.referenceIds ?? [];
+    const added = after.document.designBrief.referenceIds.filter(id => !previousReferences.includes(id));
+    const selected = added.length ? added : after.document.designBrief.referenceIds;
+    assert(selected.length > 0 && selected.length <= 6);
+    assert.equal(after.document.designBrief.mode, 'keep_design');
+    const prepared = [];
+    for (const [index, id] of selected.entries()) {
+      const record = (await database.query('SELECT mime_type,byte_size,name FROM custom_site_asset WHERE salon_id=$1 AND id=$2', [fixture.salonId, id])).rows[0];
+      assert(record?.mime_type.startsWith('image/'));
+      assert(after.document.designBrief.ownedReferenceIds.includes(id));
+      const response = await context.request.get(`/api/admin/custom-sites?salonSlug=${salonSlug}&asset=${id}`);
+      assert.equal(response.status(), 200);
+      fs.writeFileSync(path.join(output, `prepared-page-${index + 1}.webp`), await response.body());
+      prepared.push({ id, ...record });
+    }
+    assert.equal(await page.evaluate(() => globalThis.__lusterPdfScriptRan), undefined);
+    assert.deepEqual(unexpected, []);
+    if (messageOrArtifact.endsWith('.pdf')) {
+      assert(workerUrls.some(url => url.endsWith('/pdf.worker.legacy.min.mjs')), 'The PDF must use the real packaged worker.');
+    }
+    assert.deepEqual(after.document.services, before.document.services);
+    assert.deepEqual(await livePrices(), liveServicePricesBefore);
+    assert.equal(await liveSettingsFingerprint(), liveSettingsBefore);
+    pdfUpload = { workerUrls, prepared, reusedExistingAssets: added.length === 0, documentActionExecuted: false, source: 'Owner-selected input artwork; no AI source was seeded.' };
+    await screenshot('pdf-pages-attached');
   } else if (step === 'message') {
     if (reference) {
       await page.locator('#setup-attach-button').click();
@@ -509,7 +563,7 @@ try {
     }
     await openPreview();
   } else if (step === 'contact-details') {
-    assert(/^@?[a-z0-9_.]{1,30}$/iu.test(messageOrArtifact ?? ''), 'Supply the owner-confirmed Instagram handle.');
+    assert(/^@?[\w.]{1,30}$/iu.test(messageOrArtifact ?? ''), 'Supply the owner-confirmed Instagram handle.');
     await page.getByRole('button', { name: 'Details', exact: true }).click();
     const contact = page.getByRole('textbox', { name: 'Instagram handle', exact: true });
     if (!await contact.isVisible()) {
@@ -517,7 +571,9 @@ try {
     }
     await contact.fill(messageOrArtifact);
     await page.getByRole('button', { name: 'Save website details', exact: true }).click();
+
     await expect.poll(async () => (await head()).document.website.content.websiteDetails.instagram).toBe(messageOrArtifact);
+
     after = await head();
     assert.equal(after.document.website.config.customFrontendId, before.document.website.config.customFrontendId, 'A contact correction must not regenerate the design.');
     for (const field of ['business', 'services', 'hours', 'booking', 'staff', 'addOns', 'bookingPolicy', 'deposit', 'reminders', 'siteSlug']) {
@@ -674,6 +730,7 @@ try {
       const site = booking.frameLocator(`iframe[src="${renderer}"]`);
 
       await expect(site.locator('[data-luster-services] > *').first()).toBeAttached({ timeout: 45_000 });
+
       const isCanva = await site.locator('.canva-page').count() > 0;
 
       // Select a real bound service rather than an unconnected generic link.
@@ -692,7 +749,9 @@ try {
       const displayedAmount = priceText.match(/\d+(?:,\d{3})*(?:\.\d{2})?/u)?.[0];
       assert.equal(Math.round(Number(displayedAmount?.replaceAll(',', '')) * 100), service.price, 'The displayed service price must match the live booking amount.');
       await bookButton.scrollIntoViewIfNeeded();
+
       await expect(bookButton).toBeVisible();
+
       const rect = await bookButton.boundingBox();
       assert(rect && rect.width >= 8 && rect.height >= 4, 'The actual service button must be tappable.');
       interactionChecks.push({ originalBooking: true, preservedCanva: isCanva, serviceId, serviceName: service.name, targetWidth: rect.width, targetHeight: rect.height });
@@ -826,7 +885,7 @@ try {
     : [];
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
-  const evidence = { step, trialScope, browserName, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, serverProbes, contactChecks, interactionChecks, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
+  const evidence = { step, trialScope, browserName, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, serverProbes, contactChecks, interactionChecks, pdfUpload, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
   process.stdout.write(`${JSON.stringify({ step, status: evidence.status, revision: after?.revision, providerMicroUsd: calls.reduce((sum, item) => sum + (item.cost_micro_usd ?? 0), 0), output, ...(failure ? { failure } : {}) })}\n`);
   await context.close();

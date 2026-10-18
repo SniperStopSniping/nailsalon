@@ -24,6 +24,7 @@ export function CanvaImageQuality({ page, name }: { page: ImageDimensions; name?
         {' '}
         {quality.level === 'small' ? 'This upload may look blurry when enlarged. You can still try it; Luster keeps its proportions but cannot recover missing detail.' : 'The whole design fits the screen without stretching or cropping. Small printed text still needs checking.'}
       </p>
+      {page.width > page.height * 1.2 && <p>Wide pages shrink on a phone, including their text. A portrait Canva export is easier to read; an editable AI redesign can adapt the layout for phones.</p>}
       {quality.level !== 'sharp' && (
         <details>
           <summary>Get a sharper Canva export</summary>
@@ -76,5 +77,10 @@ export function CanvaUploadQuality({ files }: { files: File[] }) {
       }
     };
   }, [files]);
-  return <>{files.map(file => pages.find(page => page.file === file)).filter(page => page !== undefined).map(page => <CanvaImageQuality key={`${page.file.name}-${page.file.size}-${page.file.lastModified}`} page={page.dimensions} name={page.file.name} />)}</>;
+  return (
+    <>
+      {files.some(file => file.type === 'application/pdf') && <p>PDF pages are prepared in order. Text and shapes can stay sharp; low-resolution pictures inside the PDF will still need a better original.</p>}
+      {files.map(file => pages.find(page => page.file === file)).filter(page => page !== undefined).map(page => <CanvaImageQuality key={`${page.file.name}-${page.file.size}-${page.file.lastModified}`} page={page.dimensions} name={page.file.name} />)}
+    </>
+  );
 }

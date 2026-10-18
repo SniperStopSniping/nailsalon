@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AI_REQUEST_CREDIT_LIMIT, formatAiCredits } from '@/features/ai-credits/catalog';
 import { AI_CREDITS_CHANGED } from '@/features/ai-credits/client';
 
-import { prepareCanvaUpload } from './canva-upload';
+import { prepareCanvaPages } from './canva-upload';
 import { CanvaAreaEditor } from './CanvaAreaEditor';
 import { CanvaArtworkQuality } from './CanvaArtworkQuality';
 import { CanvaUploadQuality } from './CanvaImageQuality';
@@ -270,7 +270,8 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       let uploaded = replacementUploads.current.get(file);
       if (!uploaded) {
         const body = new FormData();
-        body.set('file', await prepareCanvaUpload(file));
+        const [page] = await prepareCanvaPages(file, 1, setBusy);
+        body.set('file', page!);
         body.set('role', 'reference');
         body.set('rightsConfirmed', 'true');
         const response = await fetch(endpoint, { method: 'POST', body });
@@ -422,17 +423,29 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
               void action('Checking and saving your upload…', async () => {
                 data.set('rightsConfirmed', data.get('rightsConfirmed') === 'on' ? 'true' : 'false');
                 const file = data.get('file');
-                if (brief.mode === 'keep_design' && file instanceof File) {
-                  data.set('file', await prepareCanvaUpload(file));
+                const isReference = data.get('role') === 'reference';
+                const existing = isReference ? brief.referenceIds : brief.websiteAssetIds;
+                const pages = brief.mode === 'keep_design' && isReference && file instanceof File ? await prepareCanvaPages(file, 6 - existing.length, setBusy) : [file];
+                if (existing.length + pages.length > 6) {
+                  throw new Error('Choose up to six images or pages. Remove an attached image to make room.');
                 }
-                const response = await fetch(endpoint, { method: 'POST', body: data });
-                const result = await response.json();
-                if (!response.ok) {
-                  throw new Error(result.error ?? 'The upload failed.');
+                const uploaded: DesignAsset[] = [];
+                for (const [index, page] of pages.entries()) {
+                  if (!(page instanceof File)) {
+                    throw new TypeError('Choose a file to upload.');
+                  }
+                  setBusy(`Uploading ${index + 1} of ${pages.length}…`);
+                  data.set('file', page);
+                  const response = await fetch(endpoint, { method: 'POST', body: data });
+                  const result = await response.json();
+                  if (!response.ok) {
+                    throw new Error(result.error ?? 'The upload failed. Earlier uploads are saved; retry to finish.');
+                  }
+                  uploaded.push(result.asset as DesignAsset);
                 }
-                const asset = result.asset as DesignAsset;
-                const referenceIds = asset.role === 'reference' ? [...brief.referenceIds.slice(-5), asset.id] : brief.referenceIds;
-                await saveBrief({ ...brief, referenceIds, ownedReferenceIds: [...brief.ownedReferenceIds.filter(id => referenceIds.includes(id)), ...(asset.role === 'reference' && uploadSource === 'own' ? [asset.id] : [])], websiteAssetIds: asset.role === 'reference' ? brief.websiteAssetIds : [...brief.websiteAssetIds.slice(-5), asset.id] });
+                const ids = uploaded.map(asset => asset.id);
+                const referenceIds = isReference ? [...new Set([...brief.referenceIds, ...ids])] : brief.referenceIds;
+                await saveBrief({ ...brief, referenceIds, ownedReferenceIds: [...new Set([...brief.ownedReferenceIds, ...(isReference && uploadSource === 'own' ? ids : [])])], websiteAssetIds: isReference ? brief.websiteAssetIds : [...new Set([...brief.websiteAssetIds, ...ids])] });
                 setReply('Your image is saved and selected. Describe what you like below, then choose Create my website. You can also ask Luster in Conversation.');
                 setMessage(current => current || (brief.fidelity === 'match' ? 'Recreate my uploaded design as a working, editable booking website.' : 'Create my website from the selected inspiration, but make it even better.'));
                 setShowBrief(true);
@@ -448,7 +461,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                 </select>
               </label>
               <label>
-                {brief.mode === 'keep_design' ? 'Canva images · up to 20 MB · prepared automatically' : 'PNG, JPG, WebP or PDF · up to 3 MB'}
+                {brief.mode === 'keep_design' ? 'Canva images or PDF · up to 20 MB · six pages · prepared automatically' : 'PNG, JPG, WebP or PDF · up to 3 MB'}
                 <input type="file" name="file" accept="image/png,image/jpeg,image/webp,application/pdf" required onChange={event => setReferenceFiles(Array.from(event.target.files ?? []))} />
               </label>
               {brief.mode === 'keep_design' && referenceFiles.length > 0 && <CanvaUploadQuality files={referenceFiles} />}
