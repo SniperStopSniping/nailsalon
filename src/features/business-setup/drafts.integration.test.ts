@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { PDFDocument } from 'pdf-lib';
@@ -33,7 +33,7 @@ import { darkSource, editorialSource } from '../../../tests/browser/businessSetu
 import { estimateSetupAiCost, runSetupModel } from './ai-trial.server';
 import { applySetupOperations, CLOSED_HOURS, setupReadiness, setupServiceSchema } from './contracts';
 import { runSetupConversation } from './conversation.server';
-import { approveSetup, editSetup, openSetup, resetSetupDraft, restartSetup, reviewSetup } from './drafts.server';
+import { approveSetup, editSetup, openSetup, readSetupSnapshot, resetSetupDraft, restartSetup, reviewSetup, setupHash } from './drafts.server';
 import { editSharedSetupWebsite } from './manual-website.server';
 import { setupPreviewBooking } from './preview-data.server';
 import { publishSetup } from './publish.server';
@@ -82,6 +82,70 @@ async function fixture() {
 }
 
 describe('isolated business setup persistence', () => {
+  const biab = { id: 'draft_biab', name: 'BIAB', description: null, priceCents: 6500, durationMinutes: 75, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'builder_gel' as const, bookingCategory: 'manicure' as const };
+
+  it('keeps a new reviewed service menu in the same order through publication, replay and Edit with AI', async () => {
+    const actor = await fixture();
+    const head = await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'service', values: biab }] });
+    const review = await reviewSetup(actor);
+    const approval = await approveSetup(actor, review.revision, review.hash);
+    const input = { revision: review.revision, approvalId: approval.id, operationId: randomUUID() };
+    const result = await publishSetup(actor, input);
+
+    expect((await publishSetup(actor, input)).receipt.id).toBe(result.receipt.id);
+    expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId)).orderBy(asc(schema.serviceSchema.sortOrder))).map(service => [service.name, service.sortOrder])).toEqual([['Gel manicure', 0], ['BIAB', 1]]);
+    expect((await restartSetup(actor, head.revision.revision)).revision.document.services.map(service => service.name)).toEqual(['Gel manicure', 'BIAB']);
+  });
+
+  it('appends new services after finite manual positions without rewriting existing menu settings', async () => {
+    const actor = await fixture();
+    const firstReview = await reviewSetup(actor);
+    const firstApproval = await approveSetup(actor, firstReview.revision, firstReview.hash);
+    await publishSetup(actor, { revision: firstReview.revision, approvalId: firstApproval.id, operationId: randomUUID() });
+    await database.update(schema.serviceSchema).set({ sortOrder: 41 }).where(eq(schema.serviceSchema.salonId, actor.salonId));
+    const reopened = await restartSetup(actor, firstReview.revision);
+    const original = reopened.revision.document.services[0]!;
+    const { origin, confirmed, ...originalValues } = original;
+
+    expect(origin).toBe('existing');
+    expect(confirmed).toBe(true);
+
+    await editSetup(actor, { expectedRevision: reopened.revision.revision, operationId: randomUUID(), operations: [{ type: 'service', values: { ...originalValues, priceCents: 7000 } }, { type: 'service', values: biab }] });
+    const review = await reviewSetup(actor);
+    const approval = await approveSetup(actor, review.revision, review.hash);
+    await publishSetup(actor, { revision: review.revision, approvalId: approval.id, operationId: randomUUID() });
+
+    expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId)).orderBy(asc(schema.serviceSchema.sortOrder))).map(service => [service.name, service.sortOrder, service.price])).toEqual([['Gel manicure', 41, 7000], ['BIAB', 42, 6500]]);
+  });
+
+  it('uses display ordering for the draft without changing the legacy raw-row baseline hash', async () => {
+    const actor = await fixture();
+    const ids = { a: `${actor.salonId}_a`, z: `${actor.salonId}_z` };
+    await database.insert(schema.serviceSchema).values([{ id: ids.a, salonId: actor.salonId, name: 'Later', price: 6500, durationMinutes: 60, category: 'manicure', sortOrder: 9 }, { id: ids.z, salonId: actor.salonId, name: 'First', price: 5000, durationMinutes: 45, category: 'manicure', sortOrder: 2 }]);
+    const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+    const snapshot = await database.transaction(tx => readSetupSnapshot(tx as any, salon!));
+    const raw = await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId)).orderBy(asc(schema.serviceSchema.id));
+
+    expect(snapshot.document.services.map(service => service.id)).toEqual([ids.z, ids.a]);
+    expect(snapshot.services).toEqual(raw);
+    expect(snapshot.hash).toBe(setupHash({ salon, services: raw, locations: snapshot.locations, staff: snapshot.staff, addOns: snapshot.addOns, addOnLinks: snapshot.addOnLinks, assignments: snapshot.assignments }));
+  });
+
+  it('rejects a newer manual ordering change instead of publishing a previously approved menu', async () => {
+    const actor = await fixture();
+    const firstReview = await reviewSetup(actor);
+    const firstApproval = await approveSetup(actor, firstReview.revision, firstReview.hash);
+    await publishSetup(actor, { revision: firstReview.revision, approvalId: firstApproval.id, operationId: randomUUID() });
+    const reopened = await restartSetup(actor, firstReview.revision);
+    await editSetup(actor, { expectedRevision: reopened.revision.revision, operationId: randomUUID(), operations: [{ type: 'service', values: biab }] });
+    const review = await reviewSetup(actor);
+    const approval = await approveSetup(actor, review.revision, review.hash);
+    await database.update(schema.serviceSchema).set({ sortOrder: 11 }).where(eq(schema.serviceSchema.salonId, actor.salonId));
+
+    await expect(publishSetup(actor, { revision: review.revision, approvalId: approval.id, operationId: randomUUID() })).rejects.toMatchObject({ code: 'STALE' });
+    expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).map(service => [service.name, service.sortOrder])).toEqual([['Gel manicure', 11]]);
+  });
+
   it('persists typed service evidence separately from assistant authority and replays without approving it', async () => {
     const actor = await fixture();
     const input = { expectedRevision: 2, operationId: randomUUID(), scope: 'business_and_website', message: 'Add BIAB at CAD65 for 75 minutes. Add Nail art at CAD10 and suggest its extra time.' };

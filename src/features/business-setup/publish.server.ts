@@ -118,6 +118,9 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
     const serviceIds: Record<string, string> = {};
     const resolveIdentity = await publishedSetupIdentities(tx, salon.id, [...draft.services.map(service => service.id), ...(draft.addOns?.map(addOn => addOn.id) ?? []), ...(draft.staff?.map(person => person.id) ?? [])], { workspaceId: head.workspace.id, namespace: draft.identityNamespace, legacyRevision: head.revision.revision });
     const usedServiceIds = new Set<string>();
+    // New services follow the reviewed menu order. Preserve every existing
+    // canonical position, including manual gaps; never order by random IDs.
+    let nextNewServiceSortOrder = current.services.reduce((maximum, service) => Math.max(maximum, service.sortOrder ?? -1), -1) + 1;
     for (const service of draft.services) {
       if (service.priceCents === null || service.durationMinutes === null || !service.confirmed) {
         throw new SetupError('NOT_READY', 'Review all service prices and times first.');
@@ -149,8 +152,11 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
         bookingCategory: service.bookingCategory,
       };
       if (!baselineService && service.id.startsWith('draft_') && !recordId) {
+        if (nextNewServiceSortOrder > 2_147_483_647) {
+          throw new SetupError('INVALID', 'Your menu order needs review. Open Services to reorder it before publishing.');
+        }
         const id = randomUUID();
-        await tx.insert(serviceSchema).values({ id, salonId: salon.id, ...values });
+        await tx.insert(serviceSchema).values({ id, salonId: salon.id, sortOrder: nextNewServiceSortOrder++, ...values });
         serviceIds[service.id] = id;
       } else {
         if (!baselineService) {

@@ -23,6 +23,7 @@ import { hydrateSetupPolicy, setupPolicyInput } from './booking-policy';
 import type { SetupChange, SetupDocument, SetupReview } from './contracts';
 import { applySetupOperations, CLOSED_HOURS, setupEditSchema, SetupError, setupReadiness, setupResetSchema } from './contracts';
 import { publishedSetupIdentities } from './publication-identities.server';
+import { setupServiceDisplayOrder } from './service-order';
 import { hydrateSetupServicePricing } from './service-pricing';
 import { setupStaffFromSnapshot } from './staff';
 import type { SetupValueContext } from './value-sources';
@@ -97,7 +98,7 @@ export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salo
     bookingPolicy: resolveBookingExperience(salon.settings, { includeAcknowledgmentConfiguration: true }).policy,
     staff: setupStaffFromSnapshot(staff, assignments).map(person => ({ ...person, serviceIds: person.serviceIds.filter(id => services.some(service => service.id === id && service.isActive)) })),
     staffUsesExplicitAssignments: staff.some(person => person.isActive && assignments.some(assignment => assignment.technicianId === person.id)),
-    services: services.filter(s => s.isActive).map(s => ({
+    services: setupServiceDisplayOrder(services.filter(s => s.isActive)).map(s => ({
       id: s.id,
       name: s.name,
       description: s.description,
