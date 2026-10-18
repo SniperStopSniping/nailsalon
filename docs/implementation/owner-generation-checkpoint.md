@@ -45,6 +45,8 @@ migration/data change is authorized or performed.
 
 ## Secure local configuration
 
+Historical checkpoint configuration below: the current model, allocation and credential checks are documented in [Current isolated AI builder configuration](ai-builder-development-configuration.md). Do not use this original Astra/CAD40 snapshot to replace current settings.
+
 Only use this worktree's ignored, mode-0600 `.env.development.local`:
 
 ```
