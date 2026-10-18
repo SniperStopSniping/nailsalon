@@ -36,6 +36,12 @@ A watchdog terminates blocked workers. The trusted DOM runtime connects actual
 user clicks to service IDs supplied by Luster. The trusted parent routes to the
 existing booking or booking-management pages. Preview mode has no booking route
 and uses identifiers rejected by the appointment API.
+For visual controllers, `Luster.update({selector, className})` assigns a bounded
+plain class list; adding an explicit boolean `enabled` retains the existing
+single-class toggle behavior. Class updates cannot change binding attributes,
+IDs, links or HTML. A click on a child icon/text reaches its closest control ID
+inside the site root, so custom button compositions work with pointer and keyboard
+activation. This does not allow generated code to synthesize a booking click.
 The parent also exposes a normal booking-menu link outside the frame, so a renderer
 outage cannot remove access to the original booking journey.
 

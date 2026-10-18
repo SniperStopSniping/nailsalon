@@ -8,11 +8,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { chromium, expect } from '@playwright/test';
+import { chromium, expect as baseExpect, webkit } from '@playwright/test';
 import pg from 'pg';
 
 const origin = 'http://localhost:3197';
 const renderer = 'http://127.0.0.1:3198/renderer';
+const expect = baseExpect.configure({ timeout: 20_000 });
 const { Client } = pg;
 assert.equal(process.env.LUSTER_REAL_AI_TRIAL, 'true', 'Explicit isolated real-AI trial opt-in is required.');
 assert(process.env.LUSTER_REAL_AI_FIXTURE, 'Set LUSTER_REAL_AI_FIXTURE to the private synthetic-owner JSON file.');
@@ -21,7 +22,7 @@ assert.match(fixture.salonId, /^paid_ai_trial_[a-f0-9]{32}$/u);
 assert.match(fixture.salonSlug, /^paid-ai-[a-z0-9-]+$/u);
 assert.equal(typeof fixture.session, 'string');
 const [step, messageOrArtifact, reference] = process.argv.slice(2);
-assert(['message', 'photos', 'preview', 'restore', 'publish', 'book'].includes(step), 'Choose message, photos, preview, restore, publish or book.');
+assert(['message', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'restore', 'publish', 'book'].includes(step), 'Choose message, photos, preview, public-preview, start-editing, manual-wording, restore, publish or book.');
 if (step === 'message' || step === 'restore') {
   assert(messageOrArtifact, 'An owner message or saved design identity is required.');
 }
@@ -40,7 +41,10 @@ const allocation = (await database.query('SELECT cap_micro_cad FROM setup_ai_bud
 // cannot create/reset/increase it, even when a fixture has unused retail credit.
 assert(allocation?.cap_micro_cad <= 11_384_406, 'Reconcile the shared trial allowance before changing this bound.');
 
-const browser = await chromium.launch({ headless: true });
+const browserName = process.env.LUSTER_REAL_AI_BROWSER ?? 'chromium';
+assert(['chromium', 'webkit'].includes(browserName), 'Choose the installed Chromium or WebKit engine.');
+assert(browserName === 'chromium' || step !== 'message', 'Run paid model requests once; use WebKit only to verify saved output.');
+const browser = await (browserName === 'webkit' ? webkit : chromium).launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, baseURL: origin, recordVideo: { dir: output } });
 await context.addCookies([{ name: 'n5_admin_session', value: fixture.session, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
 const restrictNetwork = async (target) => {
@@ -54,6 +58,8 @@ const page = await context.newPage();
 let operationId;
 const startedAt = new Date();
 const failures = [];
+const contactChecks = [];
+const interactionChecks = [];
 page.on('request', (request) => {
   if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/admin/business-setup') {
     const body = request.postDataJSON();
@@ -65,6 +71,7 @@ page.on('request', (request) => {
 page.on('pageerror', error => failures.push(error.message.slice(0, 300)));
 const head = async () => (await database.query(`SELECT w.status,r.revision,r.document FROM business_setup_workspace w
   JOIN business_setup_revision r ON r.workspace_id=w.id AND r.revision=w.head_revision WHERE w.salon_id=$1`, [fixture.salonId])).rows[0];
+const livePrices = async () => (await database.query('SELECT id,name,price,duration_minutes FROM service WHERE salon_id=$1 ORDER BY id', [fixture.salonId])).rows;
 const screenshot = name => page.screenshot({ path: path.join(output, `${name}.png`), fullPage: true, animations: 'disabled' });
 const openPreview = async () => {
   const previewToggle = page.getByRole('button', { name: 'Preview', exact: true });
@@ -111,6 +118,74 @@ const openPreview = async () => {
       await preview.screenshot({ path: path.join(output, `${device}-top.png`), fullPage: true, animations: 'disabled' });
       await preview.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-services]').scrollIntoViewIfNeeded();
       await preview.screenshot({ path: path.join(output, `${device}-services.png`), fullPage: true, animations: 'disabled' });
+      const details = (await head()).document.website.content.websiteDetails;
+      const links = {
+        ...(details?.instagram ? { instagram: `https://www.instagram.com/${details.instagram.replace(/^@/u, '')}/` } : {}),
+        ...(details?.email ? { email: `mailto:${details.email}` } : {}),
+        ...(details?.phone ? { phone: `tel:${details.phone.replace(/[^+0-9]/gu, '')}` } : {}),
+      };
+      for (const [kind, href] of Object.entries(links)) {
+        const anchor = preview.frameLocator(`iframe[src="${renderer}"]`).locator(`a[data-luster-link="${kind}"]`).first();
+
+        await expect(anchor).toHaveAttribute('href', href);
+
+        await anchor.scrollIntoViewIfNeeded();
+
+        await expect(anchor).toBeVisible();
+
+        const check = { device, kind, href, tapAttemptVerified: false };
+        if (device === 'mobile' && kind === 'instagram') {
+          let attempted = false;
+          const observe = (request) => {
+            if (request.url() === href) {
+              attempted = true;
+            }
+          };
+          context.on('request', observe);
+          try {
+            await anchor.click();
+
+            await expect.poll(() => attempted, { timeout: 20_000 }).toBe(true);
+
+            check.tapAttemptVerified = true;
+          } finally {
+            context.off('request', observe);
+            for (const popup of context.pages().filter(item => item !== page && item !== preview)) {
+              await popup.close();
+            }
+          }
+        }
+        contactChecks.push(check);
+      }
+      if (Object.keys(links).length) {
+        await preview.screenshot({ path: path.join(output, `${device}-contacts.png`), fullPage: true, animations: 'disabled' });
+      }
+      if (device === 'mobile') {
+        const animatedElements = await frame.evaluate(() => [...document.querySelectorAll('*')].filter(node => getComputedStyle(node).animationName !== 'none').length);
+        interactionChecks.push({ browserName, animatedElements });
+        const menu = preview.frameLocator(`iframe[src="${renderer}"]`).locator('button[aria-controls][aria-expanded]').filter({ hasText: /menu/iu }).first();
+        if (await menu.count() && await menu.isVisible()) {
+          const controlledId = await menu.getAttribute('aria-controls');
+          assert.match(controlledId ?? '', /^[a-z][\w-]*$/iu);
+          const navigation = preview.frameLocator(`iframe[src="${renderer}"]`).locator(`[id="${controlledId}"]`);
+          await menu.focus();
+          await menu.press('Enter');
+
+          await expect(menu).toHaveAttribute('aria-expanded', 'true');
+          await expect(navigation).toBeVisible();
+
+          await preview.screenshot({ path: path.join(output, 'mobile-menu-open.png'), fullPage: true });
+          await menu.press('Enter');
+
+          await expect(menu).toHaveAttribute('aria-expanded', 'false');
+          await expect(navigation).not.toBeVisible();
+
+          interactionChecks.push({ browserName, keyboardMenu: 'passed' });
+        }
+        await preview.emulateMedia({ reducedMotion: 'reduce' });
+        assert.equal(await frame.evaluate(() => [...document.querySelectorAll('*')].every(node => getComputedStyle(node).animationName === 'none')), true, 'Reduced-motion preference must stop generated CSS animations.');
+        interactionChecks.push({ browserName, reducedMotion: 'passed' });
+      }
     }
   } finally {
     await preview.close();
@@ -119,14 +194,16 @@ const openPreview = async () => {
 let before;
 let after;
 let failure;
+let liveServicePricesBefore;
 try {
   await page.goto(`/admin/business-setup?salon=${fixture.salonSlug}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
-  await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeEnabled({ timeout: 60_000 });
 
   before = await head();
   assert(before);
-  if (['message', 'photos', 'restore', 'publish'].includes(step)) {
+  liveServicePricesBefore = await livePrices();
+  if (['message', 'photos', 'manual-wording', 'restore', 'publish'].includes(step)) {
     assert.equal(before.status, 'editing', 'Return through Edit with AI before changing a published salon.');
   }
   if (step === 'message') {
@@ -171,15 +248,22 @@ try {
     assert.equal(terminal, 'completed', 'Owner request did not finish. Inspect retained evidence; do not blindly re-send a paid request.');
     after = await head();
     assert(after.revision > before.revision);
+    assert.deepEqual(await livePrices(), liveServicePricesBefore, 'Chat changes must not update the live service catalog.');
     if (before.document.website.config.customFrontendId) {
       const priceEdit = messageOrArtifact.match(/\bchange BIAB to \$(\d+(?:\.\d{1,2})?)/iu);
       if (priceEdit) {
-        const priorService = before.document.services.find(item => item.name === 'BIAB');
+        const matches = before.document.services.filter(item => /^BIAB(?:[\s—\-]|$)/iu.test(item.name));
+        assert.equal(matches.length, 1, 'This trial requires one unambiguous BIAB service.');
+        const priorService = matches[0];
         const nextService = after.document.services.find(item => item.id === priorService?.id);
         assert(priorService && nextService, 'The price edit must retain the existing BIAB identity.');
         assert.equal(nextService.priceCents, Math.round(Number(priceEdit[1]) * 100));
         assert.equal(nextService.durationMinutes, priorService.durationMinutes);
         assert.equal(after.document.website.config.customFrontendId, before.document.website.config.customFrontendId, 'A price correction must not regenerate the design.');
+        for (const field of ['business', 'hours', 'booking', 'staff', 'bookingPolicy']) {
+          assert.deepEqual(after.document[field], before.document[field]);
+        }
+        assert.deepEqual(after.document.services.filter(item => item.id !== priorService.id), before.document.services.filter(item => item.id !== priorService.id));
       } else {
         for (const field of ['business', 'services', 'hours', 'booking', 'staff', 'bookingPolicy']) {
           assert.deepEqual(after.document[field], before.document[field], `A visual edit unexpectedly changed ${field}.`);
@@ -194,6 +278,16 @@ try {
     if (after.document.website.config.customFrontendId) {
       await openPreview();
     }
+  } else if (step === 'start-editing') {
+    assert.equal(before.status, 'published');
+    await page.getByRole('button', { name: 'Make more changes', exact: true }).click();
+
+    await expect.poll(async () => (await head()).status).toBe('editing');
+
+    after = await head();
+    assert.equal(after.document.website.config.customFrontendId, before.document.website.config.customFrontendId);
+    assert.deepEqual(after.document.services.map(item => ({ id: item.id, name: item.name, price: item.priceCents, duration_minutes: item.durationMinutes })).sort((a, b) => a.id.localeCompare(b.id)), liveServicePricesBefore);
+    await screenshot('current-business-loaded-for-editing');
   } else if (step === 'photos') {
     assert(messageOrArtifact, 'Supply one or two synthetic test-image paths.');
     await page.locator('#setup-attach-button').click();
@@ -209,6 +303,31 @@ try {
     after = await head();
     assert(after.document.designBrief.websiteAssetIds.length > before.document.designBrief.websiteAssetIds.length);
     assert.deepEqual(after.document.services, before.document.services);
+  } else if (step === 'manual-wording') {
+    await openPreview();
+    const originalId = before.document.website.config.customFrontendId;
+    const original = (await database.query('SELECT source FROM custom_site_artifact WHERE salon_id=$1 AND id=$2', [fixture.salonId, originalId])).rows[0];
+    assert(original);
+    await page.getByText('Edit website wording', { exact: true }).click();
+    const wording = page.getByRole('textbox', { name: /^Website text:/u }).first();
+
+    await expect(wording).toBeVisible();
+
+    await wording.fill(messageOrArtifact ?? 'Manual wording test');
+    await screenshot('manual-wording-control');
+    await page.getByRole('button', { name: 'Save wording', exact: true }).click();
+
+    await expect.poll(async () => (await head()).document.website.config.customFrontendId, { timeout: 30_000 }).not.toBe(originalId);
+
+    after = await head();
+    const edited = (await database.query('SELECT source FROM custom_site_artifact WHERE salon_id=$1 AND id=$2', [fixture.salonId, after.document.website.config.customFrontendId])).rows[0];
+    assert.equal(edited.source.css, original.source.css);
+    assert.equal(edited.source.javascript, original.source.javascript);
+    assert(edited.source.html.includes(messageOrArtifact ?? 'Manual wording test'));
+    for (const field of ['business', 'services', 'hours', 'booking', 'staff', 'bookingPolicy']) {
+      assert.deepEqual(after.document[field], before.document[field]);
+    }
+    await openPreview();
   } else if (step === 'restore') {
     await openPreview();
     await page.getByText('Previous designs', { exact: true }).click();
@@ -223,7 +342,8 @@ try {
   } else if (step === 'publish') {
     const publicCheck = await browser.newContext({ baseURL: origin });
     try {
-      assert.equal((await publicCheck.request.get(`/${fixture.salonSlug}/book/service`)).status(), 404, 'This new synthetic salon must remain private before approval.');
+      const salon = (await database.query('SELECT publication_status FROM salon WHERE id=$1', [fixture.salonId])).rows[0];
+      assert.equal((await publicCheck.request.get(`/${fixture.salonSlug}/book/service`, { timeout: 60_000 })).status(), salon.publication_status === 'published' ? 200 : 404, 'Preserve the existing public/private state before approval.');
     } finally {
       await publicCheck.close();
     }
@@ -247,6 +367,27 @@ try {
     await screenshot('publication-succeeded');
   } else if (step === 'preview') {
     await openPreview();
+  } else if (step === 'public-preview') {
+    const anonymous = await browser.newContext({ baseURL: origin, viewport: { width: 390, height: 844 } });
+    await restrictNetwork(anonymous);
+    const publicPage = await anonymous.newPage();
+    try {
+      await publicPage.goto(`/${fixture.salonSlug}/book/service`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      const cards = publicPage.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-services] > *');
+
+      await expect(cards.first()).toBeVisible({ timeout: 45_000 });
+
+      const card = cards.filter({ hasText: /BIAB/u }).first();
+      const id = await card.locator('[data-luster-book]').getAttribute('data-luster-book');
+      const service = (await livePrices()).find(item => item.id === id);
+      assert(service);
+      const priceText = await card.locator('[data-luster-field="service.priceLabel"]').textContent() ?? '';
+      assert.equal(Math.round(Number(priceText.match(/\d+(?:\.\d{2})?/u)?.[0]) * 100), service.price, 'The anonymous page must use live pricing while the draft is different.');
+      await card.scrollIntoViewIfNeeded();
+      await publicPage.screenshot({ path: path.join(output, 'unchanged-public-service-price.png'), fullPage: true });
+    } finally {
+      await anonymous.close();
+    }
   } else {
     // Genuine anonymous original-booking journey. No API appointment shortcut.
     const customer = await browser.newContext({ baseURL: origin, viewport: { width: 390, height: 844 } });
@@ -261,7 +402,21 @@ try {
       // Select a real bound service rather than an unconnected generic link.
       const biab = site.locator('[data-luster-services] > *').filter({ hasText: /BIAB/u }).first();
       const card = await biab.count() ? biab : site.locator('[data-luster-services] > *').first();
-      await card.locator('[data-luster-book]').click();
+      const bookButton = card.locator('[data-luster-book]');
+      const serviceId = await bookButton.getAttribute('data-luster-book');
+      const service = (await database.query('SELECT id,name,price,duration_minutes FROM service WHERE salon_id=$1 AND id=$2', [fixture.salonId, serviceId])).rows[0];
+      assert(service, 'The generated button must bind to a real service from this salon.');
+
+      await expect(card.locator('[data-luster-field="service.name"]')).toHaveText(service.name);
+      await expect(card.locator('[data-luster-field="service.durationMinutes"]')).toHaveText(String(service.duration_minutes));
+
+      const priceText = await card.locator('[data-luster-field="service.priceLabel"]').textContent() ?? '';
+      const displayedAmount = priceText.match(/\d+(?:,\d{3})*(?:\.\d{2})?/u)?.[0];
+      assert.equal(Math.round(Number(displayedAmount?.replaceAll(',', '')) * 100), service.price, 'The displayed service price must match the live booking amount.');
+      await card.scrollIntoViewIfNeeded();
+      await booking.screenshot({ path: path.join(output, 'original-public-website.png'), fullPage: true });
+
+      await bookButton.click();
 
       await expect(booking).toHaveURL(/nativeBooking=1.*baseServiceId=/u);
 
@@ -307,18 +462,23 @@ try {
         await policy.check();
       }
       await booking.screenshot({ path: path.join(output, 'original-booking-confirm.png'), fullPage: true });
-      const created = booking.waitForResponse(response => new URL(response.url()).pathname === '/api/appointments' && response.request().method() === 'POST');
+      const created = booking.waitForResponse(response => new URL(response.url()).pathname === '/api/appointments' && response.request().method() === 'POST', { timeout: 90_000 });
       await booking.getByRole('button', { name: /confirm appointment/iu }).click();
       assert.equal((await created).status(), 201);
 
       await expect(booking.getByRole('heading', { name: /appointment confirmed/iu })).toBeVisible({ timeout: 60_000 });
-      await expect(booking.getByText('BIAB', { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+      await expect(booking.getByText(service.name, { exact: true }).first()).toBeVisible({ timeout: 60_000 });
 
       // Capture the settled original receipt rather than a translucent frame
       // from its client-side entrance animation.
       await booking.waitForTimeout(1200);
 
       await booking.screenshot({ path: path.join(output, 'original-booking-completed.png'), fullPage: true });
+      const booked = (await database.query('SELECT id,total_price,total_duration_minutes,technician_id FROM appointment WHERE salon_id=$1 AND created_at >= $2', [fixture.salonId, startedAt])).rows;
+      assert.equal(booked.length, 1, 'This customer submission must create exactly one appointment.');
+      assert.equal(booked[0].total_price, service.price);
+      assert.equal(booked[0].total_duration_minutes, service.duration_minutes);
+      assert((await database.query('SELECT 1 FROM technician_services WHERE service_id=$1 AND technician_id=$2', [service.id, booked[0].technician_id])).rowCount, 'The appointment artist must be assigned to the selected service.');
     } finally {
       await customer.close();
     }
@@ -336,7 +496,7 @@ try {
     : [];
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
-  const evidence = { step, operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
+  const evidence = { step, browserName, operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), contactChecks, interactionChecks, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
   process.stdout.write(`${JSON.stringify({ step, status: evidence.status, revision: after?.revision, providerMicroUsd: calls.reduce((sum, item) => sum + (item.cost_micro_usd ?? 0), 0), output, ...(failure ? { failure } : {}) })}\n`);
   await context.close();

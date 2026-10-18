@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { compileCanvaDesign } from './canva';
@@ -7,8 +7,83 @@ import { CustomDesignStudio } from './CustomDesignStudio';
 vi.mock('./CustomWebsiteFrame', () => ({ CustomWebsiteFrame: () => <div>Isolated artwork preview</div> }));
 
 afterEach(() => {
+  cleanup();
   vi.unstubAllGlobals();
   sessionStorage.clear();
+});
+
+it.each([{ pending: true, revision: 2 }, { pending: false, revision: 3 }])('holds manual wording/source edits while generation or a later preview is loading: %j', async ({ pending, revision }) => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }));
+  const source = { title: 'Studio', html: '<h1 data-edit="welcome">Welcome</h1>', css: '', javascript: '', analysis: '', limitations: [] };
+  const posts: unknown[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      posts.push(options.body);
+    }
+    return { ok: true, json: async () => ({ head: { revision: { revision: 2, document: { website: { config: { customFrontendId: 'first' } } } } }, payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history: [], attempts: pending ? [{ id: 'waiting', status: 'pending', phase: 'generating', createdAt: new Date().toISOString() }] : [], configured: true, rendererOrigin: null }) };
+  }));
+  render(<CustomDesignStudio salonSlug="test" revision={revision} artifactId="first" disabled={false} aiEnabled onSaved={async () => {}} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />);
+  fireEvent.click(await screen.findByText('Edit website wording'));
+
+  expect(screen.getByRole('textbox', { name: 'Website text: welcome' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Save wording' })).toBeDisabled();
+
+  fireEvent.click(screen.getByText('Edit website source', { exact: true }));
+
+  expect(screen.getByRole('textbox', { name: 'CSS' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Save design changes' })).toBeDisabled();
+  expect(posts).toEqual([]);
+});
+
+it('saves wording through the existing draft action without opening code or charging for AI', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }));
+  let revision = 2;
+  let artifactId = 'first';
+  let source = { title: 'Studio', html: '<h1 data-edit="welcome">Welcome</h1><p data-luster-field="business.name"></p>', css: 'h1{color:#222}', javascript: '', analysis: '', limitations: [] };
+  const requests: any[] = [];
+  const head = () => ({ revision: { revision, document: { website: { config: { customFrontendId: artifactId } } } } });
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      const body = JSON.parse(String(options.body));
+      requests.push(body);
+      source = body.input.source;
+      revision++;
+      artifactId = 'second';
+      return { ok: true, json: async () => ({ head: head() }) };
+    }
+    return { ok: true, json: async () => ({ head: head(), payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history: [], attempts: [], configured: false, rendererOrigin: null }) };
+  }));
+  const view = render(<div />);
+  const editor = () => (
+    <CustomDesignStudio
+      salonSlug="test"
+      revision={revision}
+      artifactId={artifactId}
+      disabled={false}
+      aiEnabled={false}
+      creditsEnabled
+      onSaved={async () => {
+        view.rerender(editor());
+      }}
+      selected={[]}
+      setSelected={vi.fn()}
+      missingDetails={[]}
+      onContinueConversation={vi.fn()}
+      compact
+    />
+  );
+  view.rerender(editor());
+  fireEvent.click(await screen.findByText('Edit website wording'));
+
+  expect(screen.getByLabelText('CSS', { exact: true })).not.toBeVisible();
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Website text: welcome' }), { target: { value: 'Your next appointment' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save wording' }));
+
+  await waitFor(() => expect(requests).toHaveLength(1));
+
+  expect(requests[0]).toMatchObject({ action: 'save', input: { expectedRevision: 2, source: { html: '<h1 data-edit="welcome">Your next appointment</h1><p data-luster-field="business.name"></p>', css: 'h1{color:#222}', javascript: '' } } });
+  expect(requests[0]).not.toHaveProperty('acceptedCreditLimitMicroCad');
 });
 
 it('requires separate preview consent and clears it for a later revision without reviewing artwork', async () => {

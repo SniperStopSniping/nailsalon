@@ -290,6 +290,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
   }
   const current = state?.history.find(item => item.id === artifactId);
   const previewIsCurrent = state?.head.revision.revision === revision && state?.head.revision.document.website.config.customFrontendId === artifactId;
+  const sourceEditingDisabled = disabled || Boolean(busy || pending) || !previewIsCurrent;
   return (
     <div id="custom-design" className="custom-design-studio">
       {!artifactId && !entryMode && !state?.assets.length && (
@@ -619,32 +620,43 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       {state?.payload && (
         <>
           {!state.payload.source.canva && (
-            <details>
-              <summary>Edit website source</summary>
-              <p>HTML, CSS and interactions stay editable. Saving creates a new draft version.</p>
-              {source && <CustomTextEditor source={source} onChange={setSource} />}
+            <>
               {source && (
-                <form onSubmit={(event) => {
-                  event.preventDefault();
-                  void action('Validating and saving your design…', async () => {
+                <CustomTextEditor
+                  source={source}
+                  onChange={setSource}
+                  disabled={sourceEditingDisabled}
+                  onSave={() => action('Saving your website wording…', async () => {
                     await post({ action: 'save', input: { expectedRevision: revision, operationId: crypto.randomUUID(), source, assetIds: current?.assetIds ?? [] } });
-                  });
-                }}
-                >
-                  <label>
-                    Design name
-                    <input value={source.title} onChange={event => setSource({ ...source, title: event.target.value })} maxLength={100} />
-                  </label>
-                  {(['html', 'css', 'javascript'] as const).map(file => (
-                    <label key={file}>
-                      {file === 'javascript' ? 'Visual interactions (isolated worker)' : file.toUpperCase()}
-                      <textarea aria-label={file === 'javascript' ? 'Visual interactions (isolated worker)' : file.toUpperCase()} spellCheck={false} value={source[file]} onChange={event => setSource({ ...source, [file]: event.target.value })} rows={12} />
-                    </label>
-                  ))}
-                  <button type="submit" disabled={disabled || Boolean(busy)}>Save design changes</button>
-                </form>
+                  })}
+                />
               )}
-            </details>
+              <details>
+                <summary>Edit website source</summary>
+                <p>HTML, CSS and interactions stay editable. Saving creates a new draft version.</p>
+                {source && (
+                  <form onSubmit={(event) => {
+                    event.preventDefault();
+                    void action('Validating and saving your design…', async () => {
+                      await post({ action: 'save', input: { expectedRevision: revision, operationId: crypto.randomUUID(), source, assetIds: current?.assetIds ?? [] } });
+                    });
+                  }}
+                  >
+                    <label>
+                      Design name
+                      <input value={source.title} onChange={event => setSource({ ...source, title: event.target.value })} maxLength={100} disabled={sourceEditingDisabled} />
+                    </label>
+                    {(['html', 'css', 'javascript'] as const).map(file => (
+                      <label key={file}>
+                        {file === 'javascript' ? 'Visual interactions (isolated worker)' : file.toUpperCase()}
+                        <textarea aria-label={file === 'javascript' ? 'Visual interactions (isolated worker)' : file.toUpperCase()} spellCheck={false} value={source[file]} onChange={event => setSource({ ...source, [file]: event.target.value })} rows={12} disabled={sourceEditingDisabled} />
+                      </label>
+                    ))}
+                    <button type="submit" disabled={sourceEditingDisabled}>Save design changes</button>
+                  </form>
+                )}
+              </details>
+            </>
           )}
           <details>
             <summary>Previous designs</summary>

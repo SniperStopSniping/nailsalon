@@ -155,8 +155,9 @@
         }
         send({ type: manage ? 'manage' : 'book', serviceId });
       }
-      if (target?.id) {
-        worker?.postMessage({ type: 'click', id: target.id, width: innerWidth });
+      const control = target?.closest('button[id],a[id],summary[id],[role="button"][id]') ?? target?.closest('[id]');
+      if (control && root.contains(control)) {
+        worker?.postMessage({ type: 'click', id: control.id, width: innerWidth });
       }
     });
     if (source.javascript) {
@@ -204,8 +205,18 @@
           if (typeof op.text === 'string' && op.text.length <= 2000 && !node.hasAttribute('data-luster-field') && !node.querySelector('[data-luster-field],[data-luster-book]')) {
             node.textContent = op.text;
           }
-          if (typeof op.className === 'string' && /^[a-z][\w-]{0,70}$/i.test(op.className)) {
-            node.classList.toggle(op.className, op.enabled === true);
+          if (typeof op.className === 'string') {
+            if (typeof op.enabled === 'boolean' && /^[a-z][\w-]{0,70}$/i.test(op.className)) {
+              // Keep the existing explicit single-class toggle contract.
+              node.classList.toggle(op.className, op.enabled);
+            } else if (op.enabled === undefined && op.className.length <= 800) {
+              // Generated controllers also assign complete class lists. Accept
+              // bounded plain tokens only; no attributes, IDs or CSS injection.
+              const classes = op.className.trim() ? op.className.trim().split(/\s+/) : [];
+              if (classes.length <= 12 && classes.every(name => /^[a-z][\w-]{0,70}$/i.test(name))) {
+                node.setAttribute('class', [...new Set(classes)].join(' '));
+              }
+            }
           }
           if (typeof op.hidden === 'boolean') {
             node.hidden = op.hidden;

@@ -16,6 +16,51 @@ const payload = (javascript: string, preview = false): CustomSitePayload => ({
   },
 });
 
+test('custom class-list assignments, legacy toggles and child-icon clicks work without changing bindings', async ({ page }) => {
+  const input = payload(`let open=false;let active=false;Luster.on(function(event){
+    if(event.type!=='click')return;
+    if(event.id==='menu-toggle'){open=!open;Luster.update({selector:'#test-nav',className:open?'test-nav is-open':'test-nav'});Luster.update({selector:'#menu-toggle',expanded:open});}
+    if(event.id==='legacy-toggle'){active=!active;Luster.update({selector:'#legacy-state',className:'active',enabled:active});}
+    if(event.id==='invalid-update'){Luster.update({selector:'#legacy-state',className:'bad onclick="alert(1)"'});Luster.update({selector:'#legacy-state',className:'a '.repeat(13)});Luster.update({selector:'#legacy-state',className:'b'.repeat(801)});}
+  });`, true);
+  input.source.html += '<button id="menu-toggle" aria-expanded="false">Menu <span id="decorative-icon" data-testid="menu-icon">+</span></button><nav id="test-nav" class="test-nav">Custom navigation</nav><button id="legacy-toggle"><span data-testid="legacy-icon">Toggle</span></button><p id="legacy-state" class="base">Unchanged</p><button id="invalid-update">Invalid update</button>';
+  input.source.css = '.test-nav{display:none}.test-nav.is-open{display:block}';
+  await page.route('http://localhost:3197/renderer-classes', route => route.fulfill({ contentType: 'text/html', body: '<html><body><iframe title="Probe" width="100%" height="700" src="http://127.0.0.1:3198/renderer" sandbox="allow-scripts"></iframe></body></html>' }));
+  await page.goto('/renderer-classes');
+  await page.evaluate((payload) => {
+    const frame = document.querySelector('iframe')!;
+    window.addEventListener('message', (event) => {
+      if (event.source === frame.contentWindow && event.origin === 'null' && event.data?.type === 'renderer-ready') {
+        frame.contentWindow!.postMessage({ type: 'initialize', channel: 'class-probe', payload }, '*');
+      }
+    });
+  }, input);
+  const site = page.frameLocator('iframe');
+
+  await site.getByTestId('menu-icon').click();
+
+  await expect(site.locator('#test-nav')).toBeVisible();
+  await expect(site.locator('#menu-toggle')).toHaveAttribute('aria-expanded', 'true');
+
+  await site.locator('#menu-toggle').focus();
+  await site.locator('#menu-toggle').press('Enter');
+
+  await expect(site.locator('#test-nav')).toBeHidden();
+  await expect(site.locator('#test-nav')).toHaveAttribute('class', 'test-nav');
+
+  await site.getByTestId('legacy-icon').click();
+
+  await expect(site.locator('#legacy-state')).toHaveAttribute('class', 'base active');
+
+  await site.getByTestId('legacy-icon').click();
+  await site.getByRole('button', { name: 'Invalid update' }).click();
+
+  await expect(site.locator('#legacy-state')).toHaveAttribute('class', 'base');
+  await expect(site.locator('#legacy-state')).not.toHaveAttribute('onclick', /./u);
+  await expect(site.locator('.price')).toHaveText('$65.00');
+  await expect(site.locator('[data-luster-book]')).toHaveAttribute('data-luster-book', 'canonical-service');
+});
+
 test('Canva artwork stays pixel-identical while contacts and canonical service areas work on desktop and mobile', async ({ page, context }) => {
   const bytes = await sharp({ create: { width: 300, height: 600, channels: 3, background: '#e7cbd6' } }).png().toBuffer();
   const assetId = 'a0000000-0000-4000-8000-000000000001';

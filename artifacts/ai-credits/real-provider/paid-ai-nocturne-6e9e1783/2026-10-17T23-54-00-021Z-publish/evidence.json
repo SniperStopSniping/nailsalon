@@ -1,0 +1,62 @@
+{
+  "step": "publish",
+  "browserName": "chromium",
+  "status": "passed",
+  "startedAt": "2026-10-17T23:54:00.199Z",
+  "elapsedMs": 2696,
+  "beforeRevision": 8,
+  "afterRevision": 9,
+  "artifactId": "458f16fa-8711-48e5-b307-acef189aa06a",
+  "calls": [],
+  "artifacts": [
+    {
+      "id": "458f16fa-8711-48e5-b307-acef189aa06a",
+      "parent_id": null,
+      "source_hash": "67d90f142dd9e560486fdb79e86723b72ab5a53896ac6baa98a322536b5ab4d8"
+    },
+    {
+      "id": "0248aebc-6d00-4865-ac79-4195af068822",
+      "parent_id": "458f16fa-8711-48e5-b307-acef189aa06a",
+      "source_hash": "37f967f076f217d31e3be5d18687dbff36b1b72f6a389100d8edaa67cf102297"
+    }
+  ],
+  "appointments": [
+    {
+      "id": "appt_21317fd6-e13f-47d4-bc50-c2d41f3eb7fe",
+      "total_price": 6500,
+      "total_duration_minutes": 75
+    }
+  ],
+  "liveServicePricesBefore": [
+    {
+      "id": "36017d25-ae01-41f6-aed8-92d8f1c79bf9",
+      "name": "BIAB — single colour",
+      "price": 6500,
+      "duration_minutes": 75
+    },
+    {
+      "id": "a87bac52-0e49-440d-9d0e-df2bc0b73f7d",
+      "name": "Gel-X set — single colour",
+      "price": 8500,
+      "duration_minutes": 120
+    }
+  ],
+  "liveServicePricesAfter": [
+    {
+      "id": "36017d25-ae01-41f6-aed8-92d8f1c79bf9",
+      "name": "BIAB — single colour",
+      "price": 7500,
+      "duration_minutes": 75
+    },
+    {
+      "id": "a87bac52-0e49-440d-9d0e-df2bc0b73f7d",
+      "name": "Gel-X set — single colour",
+      "price": 8500,
+      "duration_minutes": 120
+    }
+  ],
+  "contactChecks": [],
+  "interactionChecks": [],
+  "browserErrors": [],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}
