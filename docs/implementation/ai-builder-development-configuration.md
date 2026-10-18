@@ -18,9 +18,13 @@ The default check reports only presence/shape, explicit local isolation, the cur
 
 `--verify-provider` performs only authenticated GET requests for both configured model IDs. It starts no generation, uploads nothing and makes no purchase. Model availability does not by itself prove image-input compatibility or output quality; real owner-workflow trials are documented separately.
 
-## Complete the missing authentication/payment configuration
+## Authentication and deferred payment configuration
 
-OpenAI already works in the isolated real-owner trials. Local Clerk Development credentials remain invalid/incomplete: the server key was rejected with401 and the public key points to a placeholder host. To authorize secure access to the Development instance, run locally:
+OpenAI and matching Clerk Development credentials have now passed isolated real-owner trials. Actual signup, verification, fresh password sign-in through More and the AI introduction, saved draft reload, exact approval and original customer bookings are recorded in the [genuine owner checkpoints](../../artifacts/ai-credits/genuine-owner-https-checkpoint/README.md). That evidence supersedes the earlier rejected-key/placeholder finding; it does not establish hosted or Production authentication.
+
+The shared Development secret requires coordinated rotation after an accidental diagnostic exposure in the parallel release task. This builder's credential-using servers are stopped. Keep replacement values in the private local configuration and repeat credential/provider acceptance checks after rotation. Never send replacement secrets through chat or task messages.
+
+If access to configure the Development instance is needed, run locally:
 
 ```sh
 clerk auth login
@@ -43,4 +47,6 @@ Production is separate. The dedicated production key, verified isolated renderer
 
 ## Verified on 2026-10-18
 
-Twenty deterministic guard cases, TypeScript, scoped ESLint and whitespace checks passed. Both configured model GETs returned200 with the exact requested identifiers; no generation started. The read-only database attestation passed with CAD9.454164 charged/retained, zero pending and CAD1.930242 remaining. The local file still contains its older CAD40 value; the persisted CAD11.384406 allocation is the smaller enforced cap, and the checker reports that difference without rewriting the file. The owner-credential gate correctly exited1 because Clerk Development credentials are not configured. Stripe sandbox credentials also remain placeholders. These checks do not substitute for real signup or checkout acceptance.
+The earlier configuration-only check passed 20 deterministic guard cases, TypeScript, scoped ESLint and whitespace checks. Both configured model GETs returned200 with the exact requested identifiers; that check started no generation. Its rejected Clerk-key result and CAD9.454164 usage snapshot are historical, superseded by the genuine owner trials linked above.
+
+The later owner trials made six actual OpenAI calls and completed original bookings; the optimized HTTPS return visits made no model calls. At the final local ledger check, the persisted CAD11.384406 allocation had CAD9.578990 charged/retained, zero pending and CAD1.805416 remaining. Unknown expenses remain counted. The older CAD40 file value does not override that smaller persisted allocation. The hosted CAD68.615594 allocation remains separate and unchanged. These are recorded test snapshots, not a new allowance or an up-to-the-minute combined expense. Stripe sandbox credentials and actual checkout/webhook acceptance remain deferred. Credential-shape checks intentionally do not set owner signup or payment acceptance to verified; the corresponding real workflows provide that evidence separately.

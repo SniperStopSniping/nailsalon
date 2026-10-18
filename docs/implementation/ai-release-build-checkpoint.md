@@ -1,5 +1,7 @@
 # Paid AI builder: local release-build checkpoint
 
+Historical checkpoint: the later [genuine owner HTTPS checkpoint](../../artifacts/ai-credits/genuine-owner-https-checkpoint/README.md) supersedes the authentication and local browser gaps described below. It records the Node24 optimized build and actual original-booking journeys. Hosted isolation, Stripe sandbox acceptance and the protected-main release remain separate gates.
+
 This checkpoint follows `ae1fd1b0` and tests clean commit `f60b83f8`. It is
 local verification and read-only hosted inspection. No push, deployment,
 production migration, production-data change, provider purchase or new billable
