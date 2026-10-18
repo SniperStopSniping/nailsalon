@@ -34,7 +34,7 @@ async function attestDevelopment() {
   await client.connect();
   try {
     assert.deepEqual((await client.query('SELECT environment FROM luster_environment LIMIT 2')).rows, [{ environment: 'development' }]);
-    assert.equal((await client.query('SELECT current_database() AS name')).rows[0].name, 'luster_ai_setup_development');
+    assert.deepEqual((await client.query('SELECT current_database() AS name,inet_server_addr()::text AS host')).rows, [{ name: 'luster_ai_setup_development', host: '127.0.0.1/32' }]);
   } finally {
     await client.end();
   }
@@ -109,7 +109,19 @@ if (mode === 'build') {
   if (clerk) {
     // Only the public Development identity enters the build. The real secret
     // is passed to the trusted application at serve time, never to renderer.
+    await attestDevelopment();
+    env.CI = 'false';
+    env.APP_ENV = 'development';
+    env.BILLING_PLAN_ENV = 'dev';
+    env.CLERK_SECRET_KEY = testKey('sk');
     env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = clerk.publishableKey;
+    env.STRIPE_SECRET_KEY = testKey('sk');
+    env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = testKey('pk');
+    env.STRIPE_WEBHOOK_SECRET = ['whsec', placeholder].join('_');
+    env.STRIPE_CONNECT_WEBHOOK_SECRET = ['whsec', 'connect', placeholder].join('_');
+    env.DATABASE_URL = databaseUrl('luster_ai_setup_development');
+    env.LUSTER_DISPOSABLE_DATABASE = 'false';
+    env.LUSTER_NONPROD_DB_HOSTS = '127.0.0.1';
   }
   const log = fs.openSync(path.join(directory, 'build.log'), 'w', 0o600);
   const child = spawn(process.execPath, [path.join(root, 'node_modules/next/dist/bin/next'), 'build'], { cwd: root, env, stdio: ['ignore', log, log] });
