@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
 
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 
 import { assertAiCreditExecution } from '@/features/ai-credits/context.server';
 import { assertCustomArtifact } from '@/features/custom-sites/artifacts.server';
@@ -14,7 +14,7 @@ import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
-import { addOnSchema, adminSalonMembershipSchema, auditLogSchema, businessSetupApprovalSchema as approvals, businessSetupRevisionSchema as revisions, businessSetupTurnSchema as turns, businessSetupWorkspaceSchema as workspaces, customSiteGenerationSchema as designs, salonLocationSchema, salonSchema, serviceAddOnSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
+import { addOnSchema, adminSalonMembershipSchema, auditLogSchema, businessSetupApprovalSchema as approvals, businessSetupPublicationSchema as publications, businessSetupRevisionSchema as revisions, businessSetupTurnSchema as turns, businessSetupWorkspaceSchema as workspaces, customSiteGenerationSchema as designs, salonLocationSchema, salonSchema, serviceAddOnSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
 
 import { setupAppointmentImpact } from './appointment-impact.server';
 import { setupBookingExtraBlockers, setupBookingExtraEffects, setupBookingExtrasFromSettings, setupDepositActivationNeeded, setupDepositApprovalAccount, setupReminderNotices } from './booking-extras.server';
@@ -156,6 +156,19 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
   const site = { salonSlug: identity.slug, canChooseBookingLink: canChooseSetupBookingLink(identity) };
   workspace.baseline = { ...workspace.baseline, siteSlug: workspace.baseline.siteSlug ?? identity.slug };
   revision.document = { ...revision.document, siteSlug: revision.document.siteSlug ?? identity.slug };
+  if (workspace.baseline.designBrief === undefined && revision.document.designBrief) {
+    // Older return visits retained the brief in the draft but omitted it from
+    // the comparison baseline. Read the actually published choice, never the
+    // current proposed choice, without rewriting history or the live hash.
+    const [published] = await tx.select({
+      designBrief: sql<SetupDocument['designBrief'] | null>`${revisions.document}->'designBrief'`,
+      artifactId: sql<string | null>`${revisions.document}#>>'{website,config,customFrontendId}'`,
+    }).from(publications).innerJoin(revisions, and(eq(revisions.salonId, publications.salonId), eq(revisions.workspaceId, publications.workspaceId), eq(revisions.revision, publications.revision)))
+      .where(and(eq(publications.salonId, salonId), eq(publications.workspaceId, workspace.id))).orderBy(desc(publications.revision)).limit(1);
+    if (published?.designBrief && (workspace.baseline.website.config.customFrontendId ?? null) === published.artifactId) {
+      workspace.baseline = { ...workspace.baseline, designBrief: published.designBrief };
+    }
+  }
   if (revision.document.deposit === undefined || workspace.baseline.deposit === undefined || revision.document.reminders === undefined || workspace.baseline.reminders === undefined || revision.document.addOns === undefined || workspace.baseline.addOns === undefined || revision.document.staff === undefined || workspace.baseline.staff === undefined || revision.document.bookingPolicy?.acknowledgment === undefined || workspace.baseline.bookingPolicy?.acknowledgment === undefined || revision.document.servicePricingVersion !== 1 || workspace.baseline.servicePricingVersion !== 1) {
     const [salon] = await tx.select().from(salonSchema).where(eq(salonSchema.id, salonId));
     if (!salon) {
@@ -205,6 +218,7 @@ export async function restartSetup(actor: SetupActor, expectedRevision: number) 
       throw new SetupError('STALE', 'Your setup changed. Reload the saved changes first.');
     }
     const snapshot = await readSetupSnapshot(tx, salon);
+    const baseline = structuredClone(snapshot.document);
     const document = structuredClone(snapshot.document);
     document.identityNamespace = randomUUID();
     document.sessionStartRevision = head.revision.document.sessionStartRevision;
@@ -214,9 +228,12 @@ export async function restartSetup(actor: SetupActor, expectedRevision: number) 
     if (document.website.config.customFrontendId === head.revision.document.website.config.customFrontendId) {
       document.designBrief = head.revision.document.designBrief;
     }
+    if (baseline.website.config.customFrontendId === head.revision.document.website.config.customFrontendId) {
+      baseline.designBrief = head.revision.document.designBrief;
+    }
     const revision = head.revision.revision + 1;
     await tx.insert(revisions).values({ salonId: salon.id, workspaceId: head.workspace.id, revision, operationId: randomUUID(), operationHash: setupHash(document), document, actorId: actor.adminId, origin: 'existing' });
-    await tx.update(workspaces).set({ status: 'editing', headRevision: revision, baselineHash: snapshot.hash, baseline: snapshot.document, updatedAt: new Date() }).where(eq(workspaces.id, head.workspace.id));
+    await tx.update(workspaces).set({ status: 'editing', headRevision: revision, baselineHash: snapshot.hash, baseline, updatedAt: new Date() }).where(eq(workspaces.id, head.workspace.id));
     return loadSetupHead(tx, salon.id);
   });
 }

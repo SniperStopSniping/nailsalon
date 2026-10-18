@@ -1367,6 +1367,68 @@ describe('owned design matching and website photos', () => {
     return uploadCustomAsset(actor, new File([new Uint8Array(bytes)], `${role}.png`, { type: 'image/png' }), role);
   }
 
+  it('reviews price-only return visits without repeating saved references, including older drafts', async () => {
+    const previous = { render: process.env.CUSTOM_SITE_RENDER_ORIGIN, app: process.env.NEXT_PUBLIC_APP_URL, verified: process.env.CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED };
+    vi.stubEnv('CUSTOM_SITE_RENDER_ORIGIN', 'https://renderer.example.net');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://builder.example.com');
+    vi.stubEnv('CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED', 'true');
+    try {
+      const actor = await fixture();
+      const reference = await photo(actor, 'reference');
+      const brief = { fidelity: 'inspiration', referenceIds: [reference.id], ownedReferenceIds: [], websiteAssetIds: [] };
+      const selected = await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'design_brief', values: brief }] });
+      const saved = await saveCustomSource(actor, { expectedRevision: selected.revision.revision, operationId: randomUUID(), source: editorialSource, assetIds: [reference.id] });
+      const firstReview = await reviewSetup(actor);
+      const firstApproval = await approveSetup(actor, firstReview.revision, firstReview.hash);
+      await publishSetup(actor, { revision: firstReview.revision, approvalId: firstApproval.id, operationId: randomUUID() });
+      const reopened = await restartSetup(actor, firstReview.revision);
+
+      expect(reopened.workspace.baseline.designBrief).toEqual(saved.head.revision.document.designBrief);
+      expect((await reviewSetup(actor)).changes).toEqual([]);
+
+      // The old restart path omitted private reference metadata from the
+      // comparison baseline. Its immutable revisions/approvals stay intact.
+      const legacyBaseline = structuredClone(reopened.workspace.baseline);
+      delete legacyBaseline.designBrief;
+      await database.update(schema.businessSetupWorkspaceSchema).set({ baseline: legacyBaseline }).where(eq(schema.businessSetupWorkspaceSchema.id, reopened.workspace.id));
+      const service = reopened.revision.document.services[0]!;
+      const { origin: _origin, confirmed: _confirmed, ...serviceValues } = service;
+      const changed = await editSetup(actor, { expectedRevision: reopened.revision.revision, operationId: randomUUID(), operations: [{ type: 'service', values: { ...serviceValues, priceCents: 7500 } }] });
+      const review = await reviewSetup(actor);
+
+      expect(review.changes.some(change => change.path.startsWith('designBrief'))).toBe(false);
+      expect(review.changes.some(change => change.path === 'services')).toBe(true);
+      expect((await database.select().from(schema.businessSetupWorkspaceSchema).where(eq(schema.businessSetupWorkspaceSchema.id, reopened.workspace.id)))[0]!.baseline.designBrief).toBeUndefined();
+      expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.id, service.id)))[0]!.price).toBe(6500);
+
+      const approval = await approveSetup(actor, review.revision, review.hash);
+      const request = { revision: review.revision, approvalId: approval.id, operationId: randomUUID() };
+      const published = await publishSetup(actor, request);
+
+      expect((await publishSetup(actor, request)).receipt.id).toBe(published.receipt.id);
+      expect(changed.revision.document.website.config.customFrontendId).toBe(saved.artifact.id);
+      expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.id, service.id)))[0]!.price).toBe(7500);
+
+      const next = await restartSetup(actor, review.revision);
+      const replacementBytes = await sharp({ create: { width: 40, height: 60, channels: 3, background: '#123456' } }).png().toBuffer();
+      const replacement = await uploadCustomAsset(actor, new File([new Uint8Array(replacementBytes)], 'different-reference.png', { type: 'image/png' }), 'reference');
+      const different = await editSetup(actor, { expectedRevision: next.revision.revision, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { ...next.revision.document.designBrief, referenceIds: [replacement.id] } }] });
+      const differentReview = await reviewSetup(actor);
+
+      expect(differentReview.changes).toContainEqual({ path: 'designBrief.referenceIds', before: [reference.id], after: [replacement.id] });
+      await expect(publishSetup(actor, { revision: different.revision.revision, approvalId: approval.id, operationId: randomUUID() })).rejects.toMatchObject({ code: 'APPROVAL_REQUIRED' });
+
+      // Private comparison metadata must never weaken the canonical SQL hash.
+      await database.update(schema.serviceSchema).set({ price: 7600 }).where(eq(schema.serviceSchema.id, service.id));
+
+      await expect(reviewSetup(actor)).rejects.toMatchObject({ code: 'STALE' });
+    } finally {
+      vi.stubEnv('CUSTOM_SITE_RENDER_ORIGIN', previous.render);
+      vi.stubEnv('NEXT_PUBLIC_APP_URL', previous.app);
+      vi.stubEnv('CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED', previous.verified);
+    }
+  });
+
   it('persists owned matching choices with the draft, rejects other salons, and sends actual reference ownership to the model', async () => {
     const actor = await fixture();
     const foreign = await photo(await fixture());
