@@ -10,9 +10,12 @@ import { assetDataUrl } from '@/features/custom-sites/assets.server';
 import { customSiteRendererOrigin } from '@/features/custom-sites/payload.server';
 import { assertWebsiteDetailsCoverage } from '@/features/custom-sites/website-coverage.server';
 import { db } from '@/libs/DB';
+import { prepareDepositActivation } from '@/libs/depositActivation.server';
+import { checkEndpointRateLimit } from '@/libs/rateLimit';
 import { auditLogSchema, businessSetupApprovalSchema as approvals, businessSetupPublicationSchema as publications, businessSetupWorkspaceSchema as workspaces, salonLocationSchema, salonSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
 
 import { publishSetupAddOns } from './add-on-publication.server';
+import { setupDepositActivationNeeded, setupPublishedBookingExtras } from './booking-extras.server';
 import { setupPolicyInput } from './booking-policy';
 import { assertSetupAddressPrivacy, SetupError, WEEKDAYS } from './contracts';
 import type { SetupActor } from './drafts.server';
@@ -27,6 +30,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
   // Authorize and replay BEFORE external work. A lost response never republishes
   // whatever draft happens to exist when the owner retries.
   let customArtifactId: string | undefined;
+  let needsDepositActivation = false;
   const replay = await db.transaction(async (tx) => {
     const salon = await lockSetupSalon(tx, actor);
     const [receipt] = await tx.select().from(publications).where(and(eq(publications.salonId, actor.salonId), eq(publications.operationId, input.operationId)));
@@ -36,6 +40,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
     if (!receipt) {
       const head = await loadSetupHead(tx, salon.id);
       customArtifactId = head.revision.document.website.config.customFrontendId;
+      needsDepositActivation = setupDepositActivationNeeded(salon, head.revision.document);
       const review = await reviewSetupHead(tx, head);
       const [approval] = await tx.select().from(approvals).where(and(eq(approvals.id, input.approvalId), eq(approvals.salonId, salon.id), eq(approvals.workspaceId, head.workspace.id)));
       if (!approval || approval.actorId !== actor.adminId || approval.expiresAt.getTime() <= Date.now() || approval.revision !== input.revision || approval.manifestHash !== review.hash || head.workspace.status !== 'editing' || review.revision !== input.revision) {
@@ -58,6 +63,13 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
     for (const asset of media.filter(a => a.role !== 'reference')) {
       await assetDataUrl(asset);
     }
+  }
+  if (needsDepositActivation && !checkEndpointRateLimit('admin/salon/settings/deposit-enable', actor.salonId, 'BILLING').allowed) {
+    throw new SetupError('NOT_READY', 'Payment checks are temporarily busy. Wait a moment, then retry your saved publication.');
+  }
+  const depositActivation = needsDepositActivation ? await prepareDepositActivation(actor.salonId) : null;
+  if (depositActivation && !depositActivation.ok) {
+    throw new SetupError('NOT_READY', depositActivation.body.message);
   }
   // This slice publishes only reviewed canonical configuration. Pending
   // onboarding media is deliberately not promoted as an unrelated side effect.
@@ -151,6 +163,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       }
     }
     const addOnIds = await publishSetupAddOns(tx, salon.id, current, draft, serviceIds, resolveIdentity);
+    const bookingExtras = await setupPublishedBookingExtras(tx, salon, draft, depositActivation?.ok ? depositActivation : null);
     let location = current.locations.find(l => l.isPrimary);
     if (!location) {
       [location] = await tx.insert(salonLocationSchema).values({ id: randomUUID(), salonId: salon.id, name: 'Primary location', isPrimary: true, address: draft.business.exactAddress || null, city: draft.business.city, businessHours: draft.hours }).returning();
@@ -171,6 +184,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
     }
     const settings = {
       ...(salon.settings ?? {}),
+      ...bookingExtras,
       sharedProfile: { ...(salon.settings?.sharedProfile ?? {}), ...(draft.business.homeBased ? { businessType: 'home_based' as const } : current.document.business.homeBased ? { businessType: 'independent_salon' as const } : {}) },
       booking: draft.booking,
       ...(draft.bookingPolicyEdited ? { bookingExperience: { ...(salon.settings?.bookingExperience ?? {}), policy: setupPolicyInput(draft.bookingPolicy) } } : {}),

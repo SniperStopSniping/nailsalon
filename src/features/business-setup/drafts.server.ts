@@ -17,6 +17,7 @@ import { db } from '@/libs/DB';
 import { addOnSchema, adminSalonMembershipSchema, auditLogSchema, businessSetupApprovalSchema as approvals, businessSetupRevisionSchema as revisions, businessSetupTurnSchema as turns, businessSetupWorkspaceSchema as workspaces, customSiteGenerationSchema as designs, salonLocationSchema, salonSchema, serviceAddOnSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
 
 import { setupAppointmentImpact } from './appointment-impact.server';
+import { setupBookingExtraBlockers, setupBookingExtraEffects, setupBookingExtrasFromSettings, setupDepositActivationNeeded, setupDepositApprovalAccount, setupReminderNotices } from './booking-extras.server';
 import { hydrateSetupPolicy, setupPolicyInput } from './booking-policy';
 import type { SetupChange, SetupDocument, SetupReview } from './contracts';
 import { applySetupOperations, CLOSED_HOURS, setupEditSchema, SetupError, setupReadiness, setupResetSchema } from './contracts';
@@ -78,6 +79,7 @@ export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salo
   const content = resolveBookingPageContent(salon.settings);
   const document: SetupDocument = {
     schemaVersion: 1,
+    ...setupBookingExtrasFromSettings(salon),
     business: {
       name: salon.name,
       city: location?.city ?? salon.city ?? '',
@@ -141,7 +143,7 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
   if (!revision) {
     throw new SetupError('NOT_FOUND', 'The saved draft is unavailable.');
   }
-  if (revision.document.addOns === undefined || workspace.baseline.addOns === undefined || revision.document.staff === undefined || workspace.baseline.staff === undefined || revision.document.bookingPolicy?.acknowledgment === undefined || workspace.baseline.bookingPolicy?.acknowledgment === undefined || revision.document.servicePricingVersion !== 1 || workspace.baseline.servicePricingVersion !== 1) {
+  if (revision.document.deposit === undefined || workspace.baseline.deposit === undefined || revision.document.reminders === undefined || workspace.baseline.reminders === undefined || revision.document.addOns === undefined || workspace.baseline.addOns === undefined || revision.document.staff === undefined || workspace.baseline.staff === undefined || revision.document.bookingPolicy?.acknowledgment === undefined || workspace.baseline.bookingPolicy?.acknowledgment === undefined || revision.document.servicePricingVersion !== 1 || workspace.baseline.servicePricingVersion !== 1) {
     const [salon] = await tx.select().from(salonSchema).where(eq(salonSchema.id, salonId));
     if (!salon) {
       throw new SetupError('NOT_FOUND', 'This business is unavailable.');
@@ -151,7 +153,9 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
     // approvals are untouched; every write still checks the original baseline.
     const policy = (saved: SetupDocument['bookingPolicy']) => hydrateSetupPolicy(saved, current.document.bookingPolicy);
     const baseline = hydrateSetupServicePricing({ ...workspace.baseline, addOns: workspace.baseline.addOns ?? current.document.addOns, bookingPolicy: policy(workspace.baseline.bookingPolicy), staff: workspace.baseline.staff ?? current.document.staff, staffUsesExplicitAssignments: workspace.baseline.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, current.document);
-    return { workspace: { ...workspace, baseline }, revision: { ...revision, document: hydrateSetupServicePricing({ ...revision.document, addOns: revision.document.addOns ?? baseline.addOns, bookingPolicy: policy(revision.document.bookingPolicy), staff: revision.document.staff ?? current.document.staff, staffUsesExplicitAssignments: revision.document.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, baseline) } };
+    baseline.deposit ??= current.document.deposit;
+    baseline.reminders ??= current.document.reminders;
+    return { workspace: { ...workspace, baseline }, revision: { ...revision, document: hydrateSetupServicePricing({ ...revision.document, deposit: revision.document.deposit ?? baseline.deposit, reminders: revision.document.reminders ?? baseline.reminders, addOns: revision.document.addOns ?? baseline.addOns, bookingPolicy: policy(revision.document.bookingPolicy), staff: revision.document.staff ?? current.document.staff, staffUsesExplicitAssignments: revision.document.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, baseline) } };
   }
   return { workspace, revision };
 }
@@ -252,6 +256,10 @@ export async function resetSetupDraft(actor: SetupActor, raw: unknown, restore =
       document.staffEdited = stableJson(document.staff) !== stableJson(snapshot.document.staff);
       document.bookingPolicy = hydrateSetupPolicy(document.bookingPolicy, snapshot.document.bookingPolicy);
       document.bookingPolicyEdited = Boolean(document.bookingPolicy && stableJson(setupPolicyInput(document.bookingPolicy)) !== stableJson(setupPolicyInput(snapshot.document.bookingPolicy)));
+      document.deposit ??= snapshot.document.deposit;
+      document.reminders ??= snapshot.document.reminders;
+      document.depositEditedFields = (['enabled', 'amountCents'] as const).filter(key => document.deposit?.[key] !== snapshot.document.deposit?.[key]);
+      document.remindersEditedFields = (['rules', 'quietHours'] as const).filter(key => stableJson(document.reminders?.[key]) !== stableJson(snapshot.document.reminders?.[key]));
       if (document.website.config.customFrontendId) {
         await assertCustomArtifact(tx, salon.id, document.website.config.customFrontendId);
       }
@@ -373,7 +381,7 @@ export function setupChanges(before: unknown, after: unknown, path = ''): SetupC
   return [{ path, before: before ?? null, after: after ?? null }];
 }
 export function makeSetupReview(head: Awaited<ReturnType<typeof loadSetupHead>>): SetupReview {
-  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['bookingPolicyEdited', 'identityNamespace', 'sessionStartRevision', 'previousDraftRevision', 'hoursOrigin', 'staffUsesExplicitAssignments', 'staffEdited', 'bookingPolicy.version', 'servicePricingVersion'].includes(change.path));
+  const changes = setupChanges(head.workspace.baseline, head.revision.document).filter(change => !['depositEditedFields', 'remindersEditedFields', 'bookingPolicyEdited', 'identityNamespace', 'sessionStartRevision', 'previousDraftRevision', 'hoursOrigin', 'staffUsesExplicitAssignments', 'staffEdited', 'bookingPolicy.version', 'servicePricingVersion'].includes(change.path));
   return {
     revision: head.revision.revision,
     hash: setupHash({ workspaceId: head.workspace.id, revision: head.revision.revision, baseline: head.workspace.baselineHash, document: head.revision.document }),
@@ -382,20 +390,31 @@ export function makeSetupReview(head: Awaited<ReturnType<typeof loadSetupHead>>)
   };
 }
 export async function reviewSetup(actor: SetupActor) {
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const salon = await lockSetupSalon(tx, actor);
     const head = await loadSetupHead(tx, salon.id);
     if ((await readSetupSnapshot(tx, salon)).hash !== head.workspace.baselineHash) {
       throw new SetupError('STALE', 'Your business settings changed elsewhere. Review the newer changes first.');
     }
-    return reviewSetupHead(tx, head);
+    return { review: await reviewSetupHead(tx, head), document: head.revision.document };
   });
+  return { ...result.review, notices: [...result.review.notices ?? [], ...await setupReminderNotices(actor.salonId, result.document)] };
 }
 export async function reviewSetupHead(tx: SetupTransaction, head: Awaited<ReturnType<typeof loadSetupHead>>) {
   const review = makeSetupReview(head);
+  const [configurationSalon] = await tx.select().from(salonSchema).where(eq(salonSchema.id, head.workspace.salonId));
+  if (!configurationSalon) {
+    throw new SetupError('NOT_FOUND', 'This business is unavailable.');
+  }
+  review.blockers.push(...await setupBookingExtraBlockers(tx, configurationSalon, head.revision.document));
+  const effects = setupBookingExtraEffects(configurationSalon, head.revision.document);
+  review.changes.push(...effects.changes);
+  review.notices = effects.notices;
+  if (setupDepositActivationNeeded(configurationSalon, head.revision.document)) {
+    review.hash = setupHash({ draftHash: review.hash, depositAccount: await setupDepositApprovalAccount(tx, configurationSalon.id) });
+  }
   if (head.workspace.baseline.business && head.workspace.status === 'editing') {
-    const [salon] = await tx.select({ publicationStatus: salonSchema.publicationStatus }).from(salonSchema).where(eq(salonSchema.id, head.workspace.salonId));
-    if (salon?.publicationStatus === 'published') {
+    if (configurationSalon.publicationStatus === 'published') {
       if (head.revision.document.booking.currency !== head.workspace.baseline.booking.currency || head.revision.document.booking.timezone !== head.workspace.baseline.booking.timezone) {
         review.blockers.push('Currency and time zone changes need a separate review for an existing business.');
       }

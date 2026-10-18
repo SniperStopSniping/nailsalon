@@ -17,7 +17,8 @@ import { approveSetup, editSetup, openSetup, resetSetupDraft, restartSetup, revi
 import { publishSetup } from './publish.server';
 
 vi.mock('server-only', () => ({}));
-const holder = vi.hoisted(() => ({ db: null as unknown }));
+const holder = vi.hoisted(() => ({ db: null as unknown, activation: vi.fn() }));
+vi.mock('@/libs/depositActivation.server', () => ({ prepareDepositActivation: holder.activation }));
 vi.mock('@/libs/DB', () => ({ get db() {
   return holder.db;
 } }));
@@ -111,6 +112,46 @@ describe.skipIf(!target)('setup publication on attested disposable PostgreSQL', 
 
     expect(results[0]!.receipt.id).toBe(results[1]!.receipt.id);
     expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(1);
+  });
+
+  it('preserves a manual deposit change committed during provider verification outside the transaction', async () => {
+    const { actor } = await fixture();
+    const [account] = await database.insert(schema.salonStripeAccountSchema).values({ id: randomUUID(), salonId: actor.salonId, stripeAccountId: `acct_test_${randomUUID()}`, livemode: false, chargesEnabled: true, lastSyncedAt: new Date() }).returning();
+    await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'deposit', values: { enabled: true, amountCents: 2500 } }] });
+    const review = await reviewSetup(actor);
+
+    expect(review.blockers).toEqual([]);
+
+    const approval = await approveSetup(actor, review.revision, review.hash);
+    let started!: () => void;
+    let release!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const providerRelease = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    holder.activation.mockImplementationOnce(async () => {
+      started();
+      await providerRelease;
+      return { ok: true, readiness: { chargeReady: true, status: 'charge_ready', binding: { ...account, requirements: { currentlyDue: [], eventuallyDue: [], pastDue: [], pendingVerification: [], currentDeadline: null, futureCurrentDeadline: null } } } };
+    });
+    const pending = publishSetup(actor, { revision: review.revision, approvalId: approval.id, operationId: randomUUID() }).then(value => ({ value }), error => ({ error }));
+    try {
+      await providerStarted;
+      await pool.query('UPDATE salon SET settings = jsonb_set(coalesce(settings, \'{}\'::jsonb), \'{payments}\', \'{"deposit":{"enabled":false,"amountCents":3000}}\'::jsonb) WHERE id=$1', [actor.salonId]);
+    } finally {
+      release();
+    }
+
+    expect(await pending).toMatchObject({ error: { code: 'STALE' } });
+
+    const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect(salon?.settings?.payments?.deposit).toEqual({ enabled: false, amountCents: 3000 });
+    expect(salon?.publicationStatus).toBe('draft');
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toEqual([]);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toEqual([]);
   });
 
   it('commits concurrent add-on publication once, including its canonical service relationship', async () => {

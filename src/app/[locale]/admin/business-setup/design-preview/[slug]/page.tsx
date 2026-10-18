@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 
 import { requireSetupOwner } from '@/features/business-setup/access.server';
 import { AddOnBookingSummary } from '@/features/business-setup/AddOnBookingSummary';
+import { BookingExtrasSummary } from '@/features/business-setup/BookingExtrasSummary';
 import { loadSetupHead, lockSetupSalon, readSetupSnapshot } from '@/features/business-setup/drafts.server';
 import { CustomWebsiteFrame } from '@/features/custom-sites/CustomWebsiteFrame';
 import { customSiteRendererOrigin, setupCustomSitePayload } from '@/features/custom-sites/payload.server';
@@ -45,6 +46,7 @@ export default async function CustomBusinessSetupPreviewPage(props: {
           <a href={`/admin/business-setup?salon=${encodeURIComponent(slug)}`}>Return to your builder</a>
         </p>
         <AddOnBookingSummary document={head.revision.document} />
+        <BookingExtrasSummary document={head.revision.document} />
         {rendererOrigin ? <CustomWebsiteFrame payload={custom} rendererOrigin={rendererOrigin} /> : <p>The isolated preview is unavailable. Your saved design is safe.</p>}
       </main>
     );

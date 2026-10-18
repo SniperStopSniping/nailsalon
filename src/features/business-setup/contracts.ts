@@ -7,10 +7,12 @@ import type { resolveBookingExperience } from '@/libs/bookingExperience';
 import { bookingPolicyUpdateSchema } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import type { BookingPageContentSide } from '@/libs/bookingPageContent';
+import { createReminderRuleId } from '@/libs/communicationReminders.shared';
 import { CUSTOMER_SITE_PALETTE_PRESETS, CUSTOMER_SITE_STYLE_PRESETS } from '@/libs/customerSitePresentation';
 import { BOOKING_CATEGORIES, SERVICE_CATEGORIES } from '@/models/serviceCatalogTypes';
 
 import { changesProtectedAddOnChoices, type SetupAddOn, setupAddOnSchema } from './add-ons';
+import { type SetupDeposit, setupDepositSchema, setupDepositUpdateSchema, type SetupReminders, setupRemindersSchema, setupRemindersUpdateSchema } from './booking-extras';
 import { resolveSetupPolicy } from './booking-policy';
 import { updateSetupServicePricing } from './service-pricing';
 
@@ -75,6 +77,8 @@ const uploadOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('service'), values: setupServiceSchema }).strict(),
 ]);
 export const setupOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('deposit'), values: setupDepositUpdateSchema }).strict(),
+  z.object({ type: z.literal('reminders'), values: setupRemindersUpdateSchema }).strict(),
   z.object({ type: z.literal('add_on'), values: setupAddOnSchema }).strict(),
   z.object({ type: z.literal('confirm_add_ons'), ids: z.array(id).min(1).max(200) }).strict(),
   z.object({ type: z.literal('booking_policy'), values: bookingPolicyUpdateSchema.shape.policy }).strict(),
@@ -114,6 +118,10 @@ export type SetupDocument = {
   booking: z.infer<typeof bookingConfigSchema>;
   bookingPolicy?: ReturnType<typeof resolveBookingExperience>['policy'];
   bookingPolicyEdited?: boolean;
+  deposit?: SetupDeposit;
+  depositEditedFields?: ('enabled' | 'amountCents')[];
+  reminders?: SetupReminders;
+  remindersEditedFields?: ('rules' | 'quietHours')[];
   services: SetupService[];
   /** Absent on older revisions; hydrated without rewriting history. */
   addOns?: SetupAddOn[];
@@ -159,6 +167,7 @@ export type SetupReview = {
   hash: string;
   changes: SetupChange[];
   blockers: string[];
+  notices?: string[];
   appointmentImpact?: {
     upcomingCount: number;
     outsideHoursCount: number;
@@ -178,6 +187,23 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   for (const raw of operations) {
     const op = setupOperationSchema.parse(raw);
     switch (op.type) {
+      case 'deposit':
+        if (origin === 'upload') {
+          throw new SetupError('FORBIDDEN', 'Discuss deposit collection before changing payment settings.');
+        }
+        next.deposit = { enabled: false, amountCents: null, ...next.deposit, ...op.values };
+        next.depositEditedFields = [...new Set([...next.depositEditedFields ?? [], ...Object.keys(op.values) as ('enabled' | 'amountCents')[]])];
+        break;
+      case 'reminders':
+        if (origin === 'upload') {
+          throw new SetupError('FORBIDDEN', 'Discuss reminders before changing message preferences.');
+        }
+        if (!next.reminders) {
+          throw new SetupError('INVALID', 'Load your saved reminder preferences before changing them.');
+        }
+        next.reminders = setupRemindersSchema.parse({ ...next.reminders, ...op.values, ...(op.values.rules ? { rules: op.values.rules.map(rule => next.reminders!.rules.some(saved => saved.id === rule.id) ? rule : { ...rule, id: createReminderRuleId() }) } : {}) });
+        next.remindersEditedFields = [...new Set([...next.remindersEditedFields ?? [], ...Object.keys(op.values) as ('rules' | 'quietHours')[]])];
+        break;
       case 'add_on': {
         if (origin === 'upload') {
           throw new SetupError('FORBIDDEN', 'Confirm which services an extra belongs to before adding it.');
@@ -351,6 +377,9 @@ export function assertSetupAddressPrivacy(document: SetupDocument) {
 }
 export function setupReadiness(draft: SetupDocument): string[] {
   const blockers: string[] = [];
+  if (draft.depositEditedFields?.length && draft.deposit?.enabled && (draft.deposit.amountCents === null || !setupDepositSchema.safeParse(draft.deposit).success || draft.booking.currency !== 'CAD')) {
+    blockers.push(draft.booking.currency !== 'CAD' ? 'Deposit collection is supported in Canadian dollars only. Keep deposits off to publish in another currency.' : 'Choose a valid deposit amount before enabling collection.');
+  }
   if (!draft.business.name || ['Untitled business', 'My test business'].includes(draft.business.name)) {
     blockers.push('Confirm your business name.');
   }

@@ -10,6 +10,7 @@ import type { Salon } from '@/models/Schema';
 
 import { AddOnBookingSummary } from './AddOnBookingSummary';
 import { setupPolicyInput } from './booking-policy';
+import { BookingExtrasSummary } from './BookingExtrasSummary';
 import type { SetupDocument } from './contracts';
 import { WEEKDAYS } from './contracts';
 import type { readSetupSnapshot } from './drafts.server';
@@ -27,6 +28,8 @@ export async function SetupPreview({ salon: liveSalon, document, snapshot }: {
     ...(liveSalon.settings ?? {}),
     sharedProfile: { ...(liveSalon.settings?.sharedProfile ?? {}), ...(document.business.homeBased ? { businessType: 'home_based' as const } : {}) },
     booking: document.booking,
+    ...(document.depositEditedFields?.length && document.deposit ? { payments: { ...(liveSalon.settings?.payments ?? {}), deposit: { ...(liveSalon.settings?.payments?.deposit ?? {}), enabled: document.deposit.enabled, ...(document.deposit.amountCents === null ? { amountCents: undefined } : { amountCents: document.deposit.amountCents }), activationConfirmed: false } } } : {}),
+    ...(document.remindersEditedFields?.length && document.reminders ? { communications: { ...(liveSalon.settings?.communications ?? {}), reminders: { rules: document.reminders.rules }, quietHours: document.reminders.quietHours } } : {}),
     ...(document.bookingPolicyEdited ? { bookingExperience: { ...(liveSalon.settings?.bookingExperience ?? {}), policy: setupPolicyInput(document.bookingPolicy) } } : {}),
     bookingPage: { version: 1 as const, live: document.website.config, draft: document.website.config },
     bookingPageContent: { version: 1 as const, live: document.website.content, draft: document.website.content },
@@ -74,6 +77,7 @@ export async function SetupPreview({ salon: liveSalon, document, snapshot }: {
     <>
       <div className="bg-amber-50 p-3 text-center text-sm text-amber-950">Private draft preview. Booking is disabled here. Availability examples are simulated.</div>
       <TeamBookingSummary document={document} />
+      <BookingExtrasSummary document={document} />
       <AddOnBookingSummary document={document} />
       <details className="bg-white p-4 text-sm">
         <summary>Proposed booking setup</summary>

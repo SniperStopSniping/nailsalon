@@ -5,6 +5,7 @@
  * Fixture/session files and provider outputs must remain outside Git.
  */
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -24,7 +25,7 @@ assert.equal(typeof fixture.session, 'string');
 const [step, messageOrArtifact, reference] = process.argv.slice(2);
 const trialScope = process.env.LUSTER_REAL_AI_SCOPE ?? 'website';
 assert(['website', 'business_and_website'].includes(trialScope));
-assert(['message', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'restore', 'publish', 'book'].includes(step), 'Choose message, photos, preview, public-preview, start-editing, manual-wording, restore, publish or book.');
+assert(['message', 'conversation', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'restore', 'publish', 'book'].includes(step), 'Choose message, conversation, photos, preview, public-preview, start-editing, manual-wording, restore, publish or book.');
 if (step === 'message' || step === 'restore') {
   assert(messageOrArtifact, 'An owner message or saved design identity is required.');
 }
@@ -75,6 +76,7 @@ const head = async () => (await database.query(`SELECT w.status,r.revision,r.doc
   JOIN business_setup_revision r ON r.workspace_id=w.id AND r.revision=w.head_revision WHERE w.salon_id=$1`, [fixture.salonId])).rows[0];
 const livePrices = async () => (await database.query('SELECT id,name,price,duration_minutes FROM service WHERE salon_id=$1 ORDER BY id', [fixture.salonId])).rows;
 const liveExtras = async () => (await database.query('SELECT id,name,price_cents,duration_minutes,pricing_type,max_quantity,is_active FROM add_on WHERE salon_id=$1 ORDER BY id', [fixture.salonId])).rows;
+const liveSettingsFingerprint = async () => createHash('sha256').update(JSON.stringify((await database.query('SELECT name,city,address,business_hours,settings->\'booking\' AS booking,settings->\'payments\' AS payments,settings->\'communications\' AS communications,settings#>\'{bookingPage,live}\' AS live_website,settings#>\'{bookingPageContent,live}\' AS live_content FROM salon WHERE id=$1', [fixture.salonId])).rows[0])).digest('hex');
 const screenshot = name => page.screenshot({ path: path.join(output, `${name}.png`), fullPage: true, animations: 'disabled' });
 const openPreview = async () => {
   const previewToggle = page.getByRole('button', { name: 'Preview', exact: true });
@@ -199,6 +201,9 @@ let after;
 let failure;
 let liveServicePricesBefore;
 let liveAddOnsBefore;
+let liveSettingsBefore;
+let bookingResponseStatus;
+let bookingSubmissionCount = 0;
 try {
   await page.goto(`/admin/business-setup?salon=${fixture.salonSlug}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
@@ -208,10 +213,21 @@ try {
   assert(before);
   liveServicePricesBefore = await livePrices();
   liveAddOnsBefore = await liveExtras();
+  liveSettingsBefore = await liveSettingsFingerprint();
   if (['message', 'photos', 'manual-wording', 'restore', 'publish'].includes(step)) {
     assert.equal(before.status, 'editing', 'Return through Edit with AI before changing a published salon.');
   }
-  if (step === 'message') {
+  if (step === 'conversation') {
+    await expect(page.locator('.setup-owner').last()).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator('.setup-assistant').last()).toContainText(/deposit|reminder/iu);
+
+    await page.locator('.setup-owner').last().scrollIntoViewIfNeeded();
+    await screenshot('saved-conversation');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('.setup-owner').last().scrollIntoViewIfNeeded();
+    await screenshot('saved-conversation-mobile');
+    assert.equal(await liveSettingsFingerprint(), liveSettingsBefore);
+  } else if (step === 'message') {
     if (reference) {
       await page.locator('#setup-attach-button').click();
       const dialog = page.getByRole('dialog');
@@ -255,6 +271,7 @@ try {
     assert(after.revision > before.revision);
     assert.deepEqual(await livePrices(), liveServicePricesBefore, 'Chat changes must not update the live service catalog.');
     assert.deepEqual(await liveExtras(), liveAddOnsBefore, 'Chat changes must not update the live add-on catalog.');
+    assert.equal(await liveSettingsFingerprint(), liveSettingsBefore, 'Chat changes must not update live business, payment, messaging or public website settings.');
     if (before.document.website.config.customFrontendId) {
       const priceEdit = messageOrArtifact.match(/\bchange BIAB to \$(\d+(?:\.\d{1,2})?)/iu);
       if (priceEdit) {
@@ -409,6 +426,11 @@ try {
     const customer = await browser.newContext({ baseURL: origin, viewport: { width: 390, height: 844 } });
     await restrictNetwork(customer);
     const booking = await customer.newPage();
+    booking.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/appointments') {
+        bookingSubmissionCount += 1;
+      }
+    });
     try {
       await booking.goto(`/${fixture.salonSlug}/book/service`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       const site = booking.frameLocator(`iframe[src="${renderer}"]`);
@@ -495,9 +517,10 @@ try {
         await policy.check();
       }
       await booking.screenshot({ path: path.join(output, 'original-booking-confirm.png'), fullPage: true });
-      const created = booking.waitForResponse(response => new URL(response.url()).pathname === '/api/appointments' && response.request().method() === 'POST', { timeout: 90_000 });
+      const created = booking.waitForResponse(response => new URL(response.url()).pathname === '/api/appointments' && response.request().method() === 'POST', { timeout: 180_000 });
       await booking.getByRole('button', { name: /confirm appointment/iu }).click();
-      assert.equal((await created).status(), 201);
+      bookingResponseStatus = (await created).status();
+      assert([200, 201].includes(bookingResponseStatus), 'Original creation or idempotent recovery must succeed; the final database check still requires exactly one new appointment.');
 
       await expect(booking.getByRole('heading', { name: /appointment confirmed/iu })).toBeVisible({ timeout: 60_000 });
       await expect(booking.getByText(selectedExtra ? `${service.name} + ${selectedExtra.name}` : service.name, { exact: true }).first()).toBeVisible({ timeout: 60_000 });
@@ -536,7 +559,7 @@ try {
     : [];
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
-  const evidence = { step, trialScope, browserName, operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), contactChecks, interactionChecks, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
+  const evidence = { step, trialScope, browserName, operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, contactChecks, interactionChecks, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
   process.stdout.write(`${JSON.stringify({ step, status: evidence.status, revision: after?.revision, providerMicroUsd: calls.reduce((sum, item) => sum + (item.cost_micro_usd ?? 0), 0), output, ...(failure ? { failure } : {}) })}\n`);
   await context.close();

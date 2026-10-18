@@ -1,0 +1,804 @@
+{
+  "environment": "isolated local development",
+  "salonSlug": "paid-ai-garden-69d151c3",
+  "baselineCommit": "2728cba0",
+  "attempts": [
+    {
+      "run": "2026-10-18T00-32-45-797Z-start-editing",
+      "step": "start-editing",
+      "trialScope": "website",
+      "browserName": "chromium",
+      "status": "passed",
+      "startedAt": "2026-10-18T00:32:46.369Z",
+      "elapsedMs": 22961,
+      "beforeRevision": 10,
+      "afterRevision": 11,
+      "artifactId": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "parent_id": null,
+          "source_hash": "077528fe1d399e079f41c1e6a682d939b2ebd32029c727990d7f7bf4eb9d7ff6"
+        },
+        {
+          "id": "e4af31d5-111d-45dc-9bdb-ad8793889e0d",
+          "parent_id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "source_hash": "6aa8e1302749811555a55b2fde36862a2554cb9cb945becd6f44ad8f608ad836"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_2b8204fa-9662-4095-b166-1ef911b0168c",
+          "total_price": 7000,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_e8644ab7-1e0c-4cf8-95d0-1947a847b853",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_1e04ee39-9a35-4bb1-82b8-75a215d74f40",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveAddOnsBefore": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveAddOnsAfter": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveSettingsBefore": "99e2bb62a14a1069754fe8657592b2b79bc491de1a776360fa3d4462de1c4124",
+      "liveSettingsAfter": "99e2bb62a14a1069754fe8657592b2b79bc491de1a776360fa3d4462de1c4124",
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "run": "2026-10-18T00-33-59-889Z-message",
+      "step": "message",
+      "trialScope": "business_and_website",
+      "browserName": "chromium",
+      "operationId": "7d9a51f3-3478-4751-8fb4-ad66ee3f60e4",
+      "status": "failed",
+      "failure": "page.reload: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for navigation until \"domcontentloaded\"\u001b[22m\n",
+      "startedAt": "2026-10-18T00:34:00.751Z",
+      "elapsedMs": 80523,
+      "beforeRevision": 11,
+      "afterRevision": 12,
+      "artifactId": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+      "calls": [
+        {
+          "id": "a119499f-ac2c-4c9f-a445-8e3ac8c88be2",
+          "operation_id": "7d9a51f3-3478-4751-8fb4-ad66ee3f60e4",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5691,
+          "output_tokens": 319,
+          "cost_micro_usd": 871,
+          "charged_micro_cad": 1742,
+          "credit_cost_micro_cad": "2439",
+          "elapsed_ms": 6141,
+          "validation": "passed"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "parent_id": null,
+          "source_hash": "077528fe1d399e079f41c1e6a682d939b2ebd32029c727990d7f7bf4eb9d7ff6"
+        },
+        {
+          "id": "e4af31d5-111d-45dc-9bdb-ad8793889e0d",
+          "parent_id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "source_hash": "6aa8e1302749811555a55b2fde36862a2554cb9cb945becd6f44ad8f608ad836"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_2b8204fa-9662-4095-b166-1ef911b0168c",
+          "total_price": 7000,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_e8644ab7-1e0c-4cf8-95d0-1947a847b853",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_1e04ee39-9a35-4bb1-82b8-75a215d74f40",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveAddOnsBefore": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveAddOnsAfter": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveSettingsBefore": "99e2bb62a14a1069754fe8657592b2b79bc491de1a776360fa3d4462de1c4124",
+      "liveSettingsAfter": "99e2bb62a14a1069754fe8657592b2b79bc491de1a776360fa3d4462de1c4124",
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "run": "2026-10-18T00-35-45-760Z-preview",
+      "step": "preview",
+      "trialScope": "website",
+      "browserName": "chromium",
+      "status": "passed",
+      "startedAt": "2026-10-18T00:35:46.258Z",
+      "elapsedMs": 23169,
+      "beforeRevision": 12,
+      "afterRevision": 12,
+      "artifactId": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "parent_id": null,
+          "source_hash": "077528fe1d399e079f41c1e6a682d939b2ebd32029c727990d7f7bf4eb9d7ff6"
+        },
+        {
+          "id": "e4af31d5-111d-45dc-9bdb-ad8793889e0d",
+          "parent_id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "source_hash": "6aa8e1302749811555a55b2fde36862a2554cb9cb945becd6f44ad8f608ad836"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_2b8204fa-9662-4095-b166-1ef911b0168c",
+          "total_price": 7000,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_e8644ab7-1e0c-4cf8-95d0-1947a847b853",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_1e04ee39-9a35-4bb1-82b8-75a215d74f40",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveAddOnsBefore": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveAddOnsAfter": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveSettingsBefore": "99e2bb62a14a1069754fe8657592b2b79bc491de1a776360fa3d4462de1c4124",
+      "liveSettingsAfter": "99e2bb62a14a1069754fe8657592b2b79bc491de1a776360fa3d4462de1c4124",
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/gardenstudioexample/",
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:garden@example.invalid",
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "phone",
+          "href": "tel:4165550198",
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/gardenstudioexample/",
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:garden@example.invalid",
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "phone",
+          "href": "tel:4165550198",
+          "tapAttemptVerified": false
+        }
+      ],
+      "interactionChecks": [
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "browserErrors": [
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "run": "2026-10-18T00-37-09-913Z-publish",
+      "step": "publish",
+      "trialScope": "website",
+      "browserName": "chromium",
+      "status": "passed",
+      "startedAt": "2026-10-18T00:37:10.639Z",
+      "elapsedMs": 8096,
+      "beforeRevision": 12,
+      "afterRevision": 12,
+      "artifactId": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "parent_id": null,
+          "source_hash": "077528fe1d399e079f41c1e6a682d939b2ebd32029c727990d7f7bf4eb9d7ff6"
+        },
+        {
+          "id": "e4af31d5-111d-45dc-9bdb-ad8793889e0d",
+          "parent_id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "source_hash": "6aa8e1302749811555a55b2fde36862a2554cb9cb945becd6f44ad8f608ad836"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_2b8204fa-9662-4095-b166-1ef911b0168c",
+          "total_price": 7000,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_e8644ab7-1e0c-4cf8-95d0-1947a847b853",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_1e04ee39-9a35-4bb1-82b8-75a215d74f40",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveAddOnsBefore": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveAddOnsAfter": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveSettingsBefore": "99e2bb62a14a1069754fe8657592b2b79bc491de1a776360fa3d4462de1c4124",
+      "liveSettingsAfter": "57ade2f4a7bda50702802e48d48aae600b9499b71e26d42dc889c2c91f7df9cc",
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "run": "2026-10-18T00-38-17-813Z-book",
+      "step": "book",
+      "trialScope": "website",
+      "browserName": "webkit",
+      "status": "failed",
+      "failure": "page.waitForResponse: Timeout 90000ms exceeded while waiting for event \"response\"",
+      "startedAt": "2026-10-18T00:38:20.805Z",
+      "elapsedMs": 138714,
+      "beforeRevision": 12,
+      "afterRevision": 12,
+      "artifactId": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "parent_id": null,
+          "source_hash": "077528fe1d399e079f41c1e6a682d939b2ebd32029c727990d7f7bf4eb9d7ff6"
+        },
+        {
+          "id": "e4af31d5-111d-45dc-9bdb-ad8793889e0d",
+          "parent_id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "source_hash": "6aa8e1302749811555a55b2fde36862a2554cb9cb945becd6f44ad8f608ad836"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_2b8204fa-9662-4095-b166-1ef911b0168c",
+          "total_price": 7000,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_e8644ab7-1e0c-4cf8-95d0-1947a847b853",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_1e04ee39-9a35-4bb1-82b8-75a215d74f40",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveAddOnsBefore": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveAddOnsAfter": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveSettingsBefore": "57ade2f4a7bda50702802e48d48aae600b9499b71e26d42dc889c2c91f7df9cc",
+      "liveSettingsAfter": "57ade2f4a7bda50702802e48d48aae600b9499b71e26d42dc889c2c91f7df9cc",
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [
+        "Error: Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "run": "2026-10-18T00-41-52-840Z-book",
+      "step": "book",
+      "trialScope": "website",
+      "browserName": "webkit",
+      "status": "passed",
+      "startedAt": "2026-10-18T00:41:54.374Z",
+      "elapsedMs": 15778,
+      "beforeRevision": 12,
+      "afterRevision": 12,
+      "artifactId": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "parent_id": null,
+          "source_hash": "077528fe1d399e079f41c1e6a682d939b2ebd32029c727990d7f7bf4eb9d7ff6"
+        },
+        {
+          "id": "e4af31d5-111d-45dc-9bdb-ad8793889e0d",
+          "parent_id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "source_hash": "6aa8e1302749811555a55b2fde36862a2554cb9cb945becd6f44ad8f608ad836"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_2b8204fa-9662-4095-b166-1ef911b0168c",
+          "total_price": 7000,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_e8644ab7-1e0c-4cf8-95d0-1947a847b853",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_1e04ee39-9a35-4bb1-82b8-75a215d74f40",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_f5aa0b72-0c10-4401-b4b4-67c39c39cec6",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_9fb51b44-8923-4314-9179-21e6d9e8b4d7",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveAddOnsBefore": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveAddOnsAfter": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveSettingsBefore": "57ade2f4a7bda50702802e48d48aae600b9499b71e26d42dc889c2c91f7df9cc",
+      "liveSettingsAfter": "57ade2f4a7bda50702802e48d48aae600b9499b71e26d42dc889c2c91f7df9cc",
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1,
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "run": "2026-10-18T00-48-13-613Z-conversation",
+      "step": "conversation",
+      "trialScope": "website",
+      "browserName": "chromium",
+      "status": "passed",
+      "startedAt": "2026-10-18T00:48:14.044Z",
+      "elapsedMs": 2247,
+      "beforeRevision": 12,
+      "afterRevision": 12,
+      "artifactId": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "parent_id": null,
+          "source_hash": "077528fe1d399e079f41c1e6a682d939b2ebd32029c727990d7f7bf4eb9d7ff6"
+        },
+        {
+          "id": "e4af31d5-111d-45dc-9bdb-ad8793889e0d",
+          "parent_id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "source_hash": "6aa8e1302749811555a55b2fde36862a2554cb9cb945becd6f44ad8f608ad836"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_2b8204fa-9662-4095-b166-1ef911b0168c",
+          "total_price": 7000,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_e8644ab7-1e0c-4cf8-95d0-1947a847b853",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_1e04ee39-9a35-4bb1-82b8-75a215d74f40",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_f5aa0b72-0c10-4401-b4b4-67c39c39cec6",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_9fb51b44-8923-4314-9179-21e6d9e8b4d7",
+          "total_price": 8000,
+          "total_duration_minutes": 90
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "48dc62c2-aadf-442a-90e1-073b443db895",
+          "name": "Gel manicure",
+          "price": 5000,
+          "duration_minutes": 60
+        },
+        {
+          "id": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+          "name": "BIAB",
+          "price": 7000,
+          "duration_minutes": 75
+        }
+      ],
+      "liveAddOnsBefore": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveAddOnsAfter": [
+        {
+          "id": "030d1490-3df1-4306-935a-47318aac89d5",
+          "name": "Simple nail art",
+          "price_cents": 1000,
+          "duration_minutes": 15,
+          "pricing_type": "fixed",
+          "max_quantity": null,
+          "is_active": true
+        }
+      ],
+      "liveSettingsBefore": "57ade2f4a7bda50702802e48d48aae600b9499b71e26d42dc889c2c91f7df9cc",
+      "liveSettingsAfter": "57ade2f4a7bda50702802e48d48aae600b9499b71e26d42dc889c2c91f7df9cc",
+      "bookingSubmissionCount": 0,
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    }
+  ],
+  "budget": {
+    "localCapMicroCad": 11384406,
+    "localChargedAndRetainedMicroCad": 7129116,
+    "hosted": {
+      "capMicroCad": 68615594,
+      "chargedAndRetainedMicroCad": 33877748
+    },
+    "combinedCapMicroCad": 80000000,
+    "combinedChargedAndRetainedMicroCad": 41006864
+  },
+  "rawEvidenceArchive": "/tmp/luster-ai-booking-extras-2026-10-18",
+  "disclosures": [
+    "The real model request saved revision 12, but the observation timed out during refresh. Chat and preview resumed without another model call.",
+    "The first WebKit booking observation expired while the local route compiled; its request later committed exactly one appointment. The final run was a deliberately new synthetic booking, not a resubmission of that uncertain attempt.",
+    "Provider deposit activation is covered with test doubles; no real Stripe account verification or payment was performed."
+  ]
+}

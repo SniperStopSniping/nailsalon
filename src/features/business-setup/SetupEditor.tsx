@@ -9,11 +9,15 @@ import { AI_CREDITS_CHANGED } from '@/features/ai-credits/client';
 import { designBriefSchema } from '@/features/custom-sites/contracts';
 import { CustomDesignStudio } from '@/features/custom-sites/CustomDesignStudio';
 import type { DesignAsset } from '@/features/custom-sites/WebsitePhotoLibrary';
+import { formatMoney } from '@/libs/formatMoney';
 
 import { addOnReviewValue } from './add-ons';
 import { AddOnBookingSummary } from './AddOnBookingSummary';
 import { AddOnEditor } from './AddOnEditor';
 import { AppointmentImpactReview } from './AppointmentImpactReview';
+import { reminderRulesReviewValue } from './booking-extras';
+import { BookingExtrasEditor } from './BookingExtrasEditor';
+import { BookingExtrasSummary } from './BookingExtrasSummary';
 import { BookingPolicyEditor } from './BookingPolicyEditor';
 import { ChatAttachments } from './ChatAttachments';
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
@@ -61,6 +65,13 @@ const LABELS: Record<string, string> = {
   'business.workMode': 'Solo or team',
   'business.locationDisplayMode': 'Public address visibility',
   'services': 'Service menu',
+  'deposit.enabled': 'Regular deposits for new bookings',
+  'deposit.amountCents': 'Deposit amount (CAD)',
+  'deposit.activationEffect.noShowProtection': 'Previously unconfirmed no-show deposit rule',
+  'reminders.rules': 'Appointment reminder times and channels',
+  'reminders.quietHours.enabled': 'Quiet hours enabled',
+  'reminders.quietHours.start': 'Quiet hours start',
+  'reminders.quietHours.end': 'Quiet hours end',
   'addOns': 'Add-on prices, extra time and service choices',
   'staff': 'Team schedules and service assignments',
   'website.content.websiteDetails': 'Public contact details, directions and website policies',
@@ -112,6 +123,18 @@ function designReviewValue(value: unknown): string {
     return `${value.length} selected image(s), shown in Preview`;
   }
   return value === 'match' ? 'Match my design closely' : value === 'inspiration' ? 'Use it as inspiration' : reviewValue(value);
+}
+function bookingExtraReviewValue(path: string, value: unknown) {
+  if (path === 'deposit.activationEffect.noShowProtection') {
+    return value === 'warn_only' ? 'Warn only' : value === 'deposit_1' ? 'Deposit after one no-show' : 'Deposit after two no-shows';
+  }
+  if (path === 'deposit.amountCents') {
+    return typeof value === 'number' ? formatMoney(value, 'CAD') : 'Not set';
+  }
+  if (path === 'reminders.rules') {
+    return reminderRulesReviewValue(value);
+  }
+  return reviewValue(value);
 }
 export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, creditsEnabled = false }: {
   salonSlug: string;
@@ -734,6 +757,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
             <>
               <TeamBookingSummary document={head.revision.document} />
               <AddOnBookingSummary document={head.revision.document} />
+              <BookingExtrasSummary document={head.revision.document} />
             </>
           )}
           {head && (
@@ -865,6 +889,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
                 <button type="submit" disabled={busy || published}>Save booking essentials</button>
               </form>
               <BookingPolicyEditor key={`policy-${head.revision.revision}`} value={draft.bookingPolicy} disabled={busy || published} onSave={values => void run(() => edit([{ type: 'booking_policy', values }]))} />
+              <BookingExtrasEditor key={`extras-${head.revision.revision}`} document={draft} disabled={busy || published} onDeposit={values => void run(() => edit([{ type: 'deposit', values }]))} onReminders={values => void run(() => edit([{ type: 'reminders', values }]))} />
               <h3>Opening hours</h3>
               {draft.hoursOrigin === 'suggested' && (
                 <div className="setup-notice">
@@ -990,6 +1015,14 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
               </div>
             )}
             <p>These are the exact changes that will become live. Existing appointments keep their saved prices and times.</p>
+            {review.notices?.map(notice => <p role="note" key={notice}>{notice}</p>)}
+            {Boolean(draft?.depositEditedFields?.length || draft?.remindersEditedFields?.length) && (
+              <p>
+                <a href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=payments&view=stripe`}>Payment account</a>
+                {' · '}
+                <a href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=marketing&view=communications`}>Message delivery settings</a>
+              </p>
+            )}
             {review.appointmentImpact && <AppointmentImpactReview impact={review.appointmentImpact} acknowledged={acknowledgedImpactHash === review.hash} onAcknowledge={value => setAcknowledgedImpactHash(value ? review.hash : null)} />}
             {!review.appointmentImpact && review.changes.some(change => change.path === 'staff') && <p role="note">{TEAM_BOOKING_IMPACT}</p>}
             {review.changes.map(change => (
@@ -998,12 +1031,12 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
                 <p>
                   <strong>Before:</strong>
                   {' '}
-                  {change.path === 'addOns' ? addOnReviewValue(change.before, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.before, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') ? designReviewValue(change.before) : reviewValue(change.before)}
+                  {change.path === 'addOns' ? addOnReviewValue(change.before, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.before, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') ? designReviewValue(change.before) : bookingExtraReviewValue(change.path, change.before)}
                 </p>
                 <p>
                   <strong>After:</strong>
                   {' '}
-                  {change.path === 'addOns' ? addOnReviewValue(change.after, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.after, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') ? designReviewValue(change.after) : reviewValue(change.after)}
+                  {change.path === 'addOns' ? addOnReviewValue(change.after, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.after, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') ? designReviewValue(change.after) : bookingExtraReviewValue(change.path, change.after)}
                 </p>
               </div>
             ))}
