@@ -48,6 +48,31 @@ const api = [];
 const authenticationChecks = [];
 const pendingChecks = [];
 const cookieSnapshots = [];
+const privateProviderValues = [process.env.CLERK_SECRET_KEY, process.env.OPENAI_API_KEY_CUSTOM_SITES].filter(value => typeof value === 'string' && value.length > 20);
+const diagnosticText = (value) => {
+  let safe = String(value ?? '');
+  for (const privateValue of [...privateProviderValues, fixture.password, fixture.email]) {
+    safe = safe.replaceAll(privateValue, '[redacted]');
+  }
+  return safe.slice(0, 60_000);
+};
+let checkedTextResponses = 0;
+let credentialLeaks = 0;
+let unreadableTextResponses = 0;
+const unreadableTextResources = [];
+const checkedDocuments = [];
+const inspectDocuments = async (stage) => {
+  for (const frame of page.frames()) {
+    const url = new URL(frame.url());
+    if (![profile.origin, profile.rendererOrigin].includes(url.origin)) {
+      continue;
+    }
+    const html = await frame.content();
+    assert(html.length <= 16 * 1024 * 1024, 'Bounded document inspection exceeded its limit.');
+    credentialLeaks += Number(privateProviderValues.some(value => html.includes(value)));
+    checkedDocuments.push({ stage, origin: url.origin, path: url.pathname });
+  }
+};
 const cookieSnapshot = async (stage) => {
   cookieSnapshots.push({ stage, cookies: (await context.cookies()).map(({ name, domain, path, secure, sameSite, expires }) => ({ name, domain, path, secure, sameSite, expires })) });
 };
@@ -66,11 +91,29 @@ page.on('request', (request) => {
     authenticationChecks.push({ method: request.method(), path: url.pathname, cookieNames, sdkStatus: state.status, sdkReason: state.reason, requestOrigin: url.origin, suppliedOrigin: headers.origin });
   })().catch(() => authenticationChecks.push({ path: url.pathname, diagnosticFailed: true })));
 });
-page.on('pageerror', error => errors.push(error.message));
+page.on('pageerror', error => errors.push(diagnosticText(error.message)));
 page.on('response', (response) => {
   const url = new URL(response.url());
   if (url.origin === profile.origin && url.pathname.startsWith('/api/')) {
     api.push({ method: response.request().method(), path: url.pathname, status: response.status() });
+  }
+  // Navigation/prefetch bodies can be unavailable to browser instrumentation.
+  // Inspect actual document DOM separately, and require every observed builder
+  // API, static client asset and renderer text response to be readable.
+  const criticalText = url.origin === profile.rendererOrigin || (url.origin === profile.origin && /^\/(?:_next\/static\/|api\/admin\/(?:business-setup|custom-sites)(?:\/|$))/u.test(url.pathname));
+  if (criticalText && response.status() === 200 && /text\/|javascript|json|xml/iu.test(response.headers()['content-type'] ?? '')) {
+    pendingChecks.push((async () => {
+      let timer;
+      const bytes = await Promise.race([response.body(), new Promise((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Text response did not finish within 15 seconds.')), 15_000);
+      })]).finally(() => clearTimeout(timer));
+      assert(bytes.length <= 16 * 1024 * 1024, 'Bounded runtime credential inspection exceeded its response limit.');
+      checkedTextResponses += 1;
+      credentialLeaks += Number(privateProviderValues.some(value => bytes.includes(value)));
+    })().catch((error) => {
+      unreadableTextResponses += 1;
+      unreadableTextResources.push({ path: url.pathname, reason: diagnosticText(error.message) });
+    }));
   }
 });
 const expect = baseExpect.configure({ timeout: 30_000 });
@@ -80,6 +123,7 @@ try {
 
   await expect(page.getByPlaceholder('Enter your email address')).toBeVisible();
 
+  await inspectDocuments('sign-in');
   await page.screenshot({ path: path.join(output, 'owner-sign-in.png'), fullPage: true });
   await page.getByPlaceholder('Enter your email address').fill(fixture.email);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -97,7 +141,9 @@ try {
   assert(!(await context.cookies()).some(cookie => cookie.name === 'n5_admin_session'));
   await cookieSnapshot('signed-in-dashboard');
   const dashboardPath = new URL(page.url()).pathname;
+  await inspectDocuments('dashboard');
   await page.screenshot({ path: path.join(output, 'owner-dashboard.png'), fullPage: true });
+  await Promise.all(pendingChecks);
   await page.goto(`/en/admin/business-setup?salon=${fixture.salonSlug}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await cookieSnapshot('saved-builder');
 
@@ -110,28 +156,36 @@ try {
   await expect(page.locator(`iframe[src="${renderer}"]`)).toBeVisible();
   await expect(page.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-field="business.name"]').first()).toHaveText('Lumen Studio');
 
+  await inspectDocuments('saved-preview');
   await page.screenshot({ path: path.join(output, 'saved-owner-preview.png'), fullPage: true });
+  await Promise.all(pendingChecks);
   await page.reload({ waitUntil: 'domcontentloaded' });
 
   await expect(page.getByText('Published', { exact: true })).toBeVisible();
 
+  await inspectDocuments('refreshed-builder');
   const callsAfter = Number((await database.query('SELECT count(*) FROM setup_ai_call WHERE salon_id=$1', [fixture.salonId])).rows[0].count);
   assert.equal(callsAfter, callsBefore, 'Optimized genuine-auth checks must not make a model request.');
   assert.deepEqual(errors, [], 'The genuine owner browser must not report an uncaught application error.');
+  await Promise.all(pendingChecks);
+  assert(checkedTextResponses > 0, 'Inspect actual optimized runtime responses before claiming credential isolation.');
+  assert(checkedDocuments.length >= 5, 'Inspect rendered account, owner, preview and refreshed documents.');
+  assert.equal(credentialLeaks, 0, 'A private provider value reached browser-visible output.');
+  assert.equal(unreadableTextResponses, 0, 'Runtime credential inspection must complete without skipped text responses.');
+  const credentialBoundary = { scope: 'Rendered documents, builder APIs, static client assets and renderer text responses.', checkedDocuments, checkedTextResponses, credentialLeaks, unreadableTextResponses, rawBodiesStored: false };
   const stateFile = path.join(output, 'storage-state.json');
   await context.storageState({ path: stateFile });
   fs.chmodSync(stateFile, 0o600);
   const fixtureFile = path.join(output, 'fixture.json');
   fs.writeFileSync(fixtureFile, JSON.stringify({ ...fixture, storageStateFile: stateFile, clerkStorageState: stateFile, optimizedHttpsAuthVerified: true, optimizedHttpsSourceSha: metadata.sha, httpsBuildDirectory: directory }, null, 2), { mode: 0o600 });
-  await Promise.all(pendingChecks);
-  const evidence = { passed: true, sourceSha: metadata.sha, browserName, newBrowserContext: true, noRestoredCookies: true, actualPasswordSignIn: true, noLegacyAdminCookie: true, sameOwner: true, dashboardPath, savedWebsiteLoaded: true, refresh: true, providerCalls: 0, api, authenticationChecks, browserErrors: errors };
+  const evidence = { passed: true, sourceSha: metadata.sha, browserName, newBrowserContext: true, noRestoredCookies: true, actualPasswordSignIn: true, noLegacyAdminCookie: true, sameOwner: true, dashboardPath, savedWebsiteLoaded: true, refresh: true, providerCalls: 0, credentialBoundary, api, authenticationChecks, browserErrors: errors };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2), { mode: 0o600 });
   process.stdout.write(`${JSON.stringify({ status: 'passed', browserName, output, fixtureFile, providerCalls: 0 })}\n`);
 } catch (error) {
   failure = error;
   await Promise.all(pendingChecks);
   await cookieSnapshot('failed');
-  fs.writeFileSync(path.join(output, 'failure-private.json'), JSON.stringify({ message: error.message, url: page.url(), body: await page.locator('body').textContent(), api, authenticationChecks, cookieSnapshots, browserErrors: errors }, null, 2), { mode: 0o600 });
+  fs.writeFileSync(path.join(output, 'failure-private.json'), JSON.stringify({ message: diagnosticText(error.message), url: page.url(), body: diagnosticText(await page.locator('body').textContent()), api, authenticationChecks, cookieSnapshots, checkedTextResponses, credentialLeaks, unreadableTextResources, browserErrors: errors }, null, 2), { mode: 0o600 });
   await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true }).catch(() => {});
   process.stdout.write(`${JSON.stringify({ status: 'failed', browserName, output, reason: 'Private owner-UI diagnostics retained.' })}\n`);
 } finally {

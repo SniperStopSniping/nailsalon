@@ -13,7 +13,13 @@ export function ClerkSetupSession({ userId: expectedUserId, locale, children }: 
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || userId !== expectedUserId) {
+    if (!isLoaded) {
+      setReadyFor(null);
+      setError(false);
+      const timer = setTimeout(() => setError(true), 20_000);
+      return () => clearTimeout(timer);
+    }
+    if (!isSignedIn || userId !== expectedUserId) {
       setReadyFor(null);
       return;
     }
@@ -74,7 +80,7 @@ export function ClerkSetupSession({ userId: expectedUserId, locale, children }: 
               ? (
                   <>
                     <p>We couldn’t finish signing you in. Please try again.</p>
-                    <button type="button" onClick={() => setAttempt(value => value + 1)}>Try again</button>
+                    <button type="button" onClick={() => isLoaded ? setAttempt(value => value + 1) : window.location.reload()}>Try again</button>
                   </>
                 )
               : <p>Finishing your sign-in.</p>}

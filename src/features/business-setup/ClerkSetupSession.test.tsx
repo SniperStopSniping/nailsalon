@@ -27,6 +27,18 @@ it('does not mount API-calling children while Clerk is loading', () => {
   expect(auth.getToken).not.toHaveBeenCalled();
 });
 
+it('offers recovery when the browser SDK itself never loads', async () => {
+  vi.useFakeTimers();
+  auth.isLoaded = false;
+  render(view());
+  await act(async () => vi.advanceTimersByTime(20_000));
+
+  expect(screen.getByRole('alert')).toHaveTextContent('Please try again');
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Saved website editor' })).not.toBeInTheDocument();
+  expect(auth.getToken).not.toHaveBeenCalled();
+});
+
 it('waits for the SDK token refresh before opening the saved editor', async () => {
   let finish!: (value: string) => void;
   auth.getToken.mockReturnValue(new Promise<string>((resolve) => {

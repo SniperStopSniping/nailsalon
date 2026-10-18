@@ -2,18 +2,19 @@ import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const state = vi.hoisted(() => ({ clerkUserId: null as string | null, denied: false }));
+const state = vi.hoisted(() => ({ clerkUserId: null as string | null, denied: 0 }));
 vi.mock('next/navigation', () => ({ notFound: () => {
   throw new Error('NOT_FOUND');
 } }));
 vi.mock('@/features/ai-credits/config.server', () => ({ aiCreditsEnabled: () => false }));
-vi.mock('@/features/business-setup/access.server', () => ({ requireSetupOwner: async () => state.denied ? { response: new Response(null, { status: 401 }) } : { salon: { id: 'synthetic-salon', slug: 'synthetic', publicationStatus: 'published' }, aiEnabled: false, clerkUserId: state.clerkUserId } }));
+vi.mock('@/features/business-setup/access.server', () => ({ requireSetupOwner: async () => state.denied ? { response: new Response(null, { status: state.denied }) } : { salon: { id: 'synthetic-salon', slug: 'synthetic', publicationStatus: 'published' }, aiEnabled: false, clerkUserId: state.clerkUserId } }));
 vi.mock('@/features/business-setup/SetupEditor', () => ({ SetupEditor: () => <div>Saved editor</div> }));
 vi.mock('@/features/business-setup/ClerkSetupSession', () => ({ ClerkSetupSession: ({ children, userId }: { children: ReactNode; userId: string }) => <section aria-label={`Clerk readiness for ${userId}`}>{children}</section> }));
+vi.mock('@/features/business-setup/RecoverSetupSession', () => ({ RecoverSetupSession: () => <div>Generic sign-in recovery</div> }));
 
 beforeEach(() => {
   state.clerkUserId = null;
-  state.denied = false;
+  state.denied = 0;
 });
 
 afterEach(cleanup);
@@ -34,8 +35,17 @@ it('waits for the actual Clerk owner client before its API-driven editor mounts'
   expect(screen.getByRole('region', { name: 'Clerk readiness for verified-owner' })).toContainElement(screen.getByText('Saved editor'));
 });
 
-it('keeps the existing server authorization rejection before client readiness', async () => {
-  state.denied = true;
+it('provides only generic recovery when the browser cookie is not ready', async () => {
+  state.denied = 401;
+  render(await page());
+
+  expect(screen.getByText('Generic sign-in recovery')).toBeVisible();
+  expect(screen.queryByText('Saved editor')).not.toBeInTheDocument();
+  expect(screen.queryByRole('region')).not.toBeInTheDocument();
+});
+
+it.each([403, 404])('keeps server authorization rejection for status %i', async (status) => {
+  state.denied = status;
 
   await expect(page()).rejects.toThrow('NOT_FOUND');
 });
