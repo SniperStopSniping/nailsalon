@@ -3,5 +3,5 @@
   "buildCommand": "",
   "installCommand": "",
   "rewrites": [{ "source": "/renderer", "destination": "/api/renderer" }],
-  "functions": { "api/renderer.mjs": { "includeFiles": "runtime.js" } }
+  "functions": { "api/renderer.mjs": { "includeFiles": "{runtime.js,font-pack.mjs,fonts/**}" } }
 }

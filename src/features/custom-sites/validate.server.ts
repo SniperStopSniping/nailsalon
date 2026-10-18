@@ -39,8 +39,15 @@ export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>,
   // CSS remains free-form (grid, media/container queries, animations, custom
   // properties, gradients, shapes). Network-bearing syntax is excluded. This
   // is a publication contract, not the sandbox's security boundary.
-  if (/[\\<]|@import|url\s*\(|image-set\s*\(|expression\s*\(|-moz-binding/iu.test(source.css.replace(/\/\*[\s\S]*?\*\//gu, ''))) {
-    fail('Use uploaded images and local fonts. External CSS resources are not supported.');
+  const css = source.css.replace(/\/\*[\s\S]*?\*\//gu, '');
+  if (/[\\<]|@import|url\s*\(|image-set\s*\(|expression\s*\(|-moz-binding/iu.test(css)) {
+    fail('Use uploaded images, bundled Luster font families or system fonts. Font definitions and external CSS resources are not supported.');
+  }
+  // Keep immutable legacy designs with previously permitted local() faces
+  // readable/editable. New model output must use the trusted pack or a system
+  // stack; it cannot replace bundled faces. URL-bearing definitions always fail.
+  if (requireLiveFields && /@font-face/iu.test(css)) {
+    fail('Font definitions are not supported in AI output. Choose bundled Luster font families or system fonts.');
   }
   const root = parseFragment(source.html);
   if (requireLiveFields) {

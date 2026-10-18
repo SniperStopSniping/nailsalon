@@ -39,7 +39,7 @@ for (const point of landmarks) {
   assert(Number.isInteger(point.page) && point.page >= 0 && point.page < 6 && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1);
   assert(['instagram', 'email', 'phone', 'service', 'book'].includes(point.action));
 }
-assert(['message', 'conversation', 'details', 'photos', 'logo', 'replace-photo', 'canva-upload', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'contact-details', 'booking-link', 'restore', 'canva-review', 'publish', 'book', 'connection-recovery'].includes(step), 'Choose an owner workflow step.');
+assert(['message', 'conversation', 'details', 'photos', 'logo', 'replace-photo', 'canva-upload', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'contact-details', 'booking-link', 'restore', 'canva-review', 'publish', 'book', 'staff-eligibility', 'connection-recovery'].includes(step), 'Choose an owner workflow step.');
 if (profile.https) {
   assertHttpsTrialStep(step);
 }
@@ -140,6 +140,24 @@ const openPreview = async () => {
       const frame = preview.frames().find(item => item.url() === renderer);
       assert(frame);
       assert.equal(await frame.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), true, `Generated ${device} layout overflows horizontally.`);
+      if (process.env.LUSTER_REAL_AI_EXPECT_FONT_PACK === 'true') {
+        const typography = await frame.evaluate(async () => {
+          const families = ['Luster Serif v1', 'Luster Sans v1', 'Luster Script v1'];
+          const used = [...document.querySelectorAll('h1,h2,h3,p,a,button,span')].flatMap((node) => {
+            const style = getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            const family = families.find(family => style.fontFamily.includes(family));
+            return family && node.textContent?.trim() && rect.width > 0 && rect.height > 0 ? [{ family, font: `${style.fontStyle} ${style.fontWeight} ${style.fontSize} "${family}"`, sample: node.textContent.slice(0, 80) }] : [];
+          });
+          const entries = [...new Map(used.map(item => [item.family, item])).values()];
+          return Promise.all(entries.map(async entry => ({ family: entry.family, faces: (await document.fonts.load(entry.font, entry.sample)).map(face => ({ family: face.family.replaceAll('"', ''), status: face.status })) })));
+        });
+        for (const family of ['Luster Script v1', 'Luster Sans v1']) {
+          const used = typography.find(item => item.family === family);
+          assert(used?.faces.length && used.faces.every(face => face.status === 'loaded' && face.family === family), `The real generated ${device} design must display the bundled ${family}, not a fallback.`);
+        }
+        interactionChecks.push({ device, realGeneratedTypography: typography });
+      }
       if (expectedImages) {
         // A real visitor scrolls before seeing below-fold lazy photography.
         // Do not mistake that browser optimization for a missing owner image.
@@ -824,6 +842,30 @@ try {
       assert.equal(receipts.filter(receipt => receipt.revision === publishedRevision).length, 1);
       await screenshot('recovered-after-refresh');
     }
+  } else if (step === 'staff-eligibility') {
+    assert(process.env.LUSTER_REAL_AI_BOOK_SERVICE && process.env.LUSTER_REAL_AI_EXCLUDED_STAFF);
+    const anonymous = await browser.newContext({ ...contextOptions, viewport: { width: 390, height: 844 } });
+    await restrictNetwork(anonymous);
+    const booking = await anonymous.newPage();
+    try {
+      await booking.goto(`/${salonSlug}/book/service`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      const card = booking.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-services] > *').filter({ hasText: process.env.LUSTER_REAL_AI_BOOK_SERVICE }).first();
+
+      await expect(card.locator('[data-luster-book]')).toBeVisible({ timeout: 45_000 });
+
+      await card.locator('[data-luster-book]').click();
+      await booking.getByTestId('service-continue-button').click();
+
+      await expect(booking).toHaveURL(/\/book\/tech/u);
+      await expect(booking.getByRole('button', { name: process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner' })).toBeVisible();
+      await expect(booking.getByRole('button', { name: process.env.LUSTER_REAL_AI_EXCLUDED_STAFF })).toHaveCount(0);
+
+      await booking.screenshot({ path: path.join(output, 'original-booking-staff-eligibility.png'), fullPage: true });
+      interactionChecks.push({ originalBooking: true, service: process.env.LUSTER_REAL_AI_BOOK_SERVICE, eligibleStaff: process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner', excludedStaff: process.env.LUSTER_REAL_AI_EXCLUDED_STAFF, noAppointmentSubmitted: true });
+      assert.deepEqual(await historicalAppointments(), historicalBefore);
+    } finally {
+      await anonymous.close();
+    }
   } else if (step === 'connection-recovery') {
     assert.equal(before.status, 'editing');
     const unsent = 'Make my logo bigger';
@@ -983,7 +1025,7 @@ try {
       await booking.getByTestId('service-continue-button').click();
       await booking.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/u);
       if (new URL(booking.url()).pathname.endsWith('/book/tech')) {
-        await booking.getByRole('button', { name: /Synthetic Owner/u }).click();
+        await booking.getByRole('button', { name: process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner' }).click();
       }
 
       await expect(booking).toHaveURL(/\/book\/time/u);
@@ -1048,7 +1090,12 @@ try {
         const snapshots = (await database.query('SELECT add_on_id,unit_price_cents_snapshot,line_total_cents_snapshot,line_duration_minutes_snapshot FROM appointment_add_on WHERE appointment_id=$1', [booked[0].id])).rows;
         assert.deepEqual(snapshots, [{ add_on_id: selectedExtra.id, unit_price_cents_snapshot: selectedExtra.price_cents, line_total_cents_snapshot: selectedExtra.price_cents, line_duration_minutes_snapshot: selectedExtra.duration_minutes }]);
       }
-      assert((await database.query('SELECT 1 FROM technician_services WHERE service_id=$1 AND technician_id=$2', [service.id, booked[0].technician_id])).rowCount, 'The appointment artist must be assigned to the selected service.');
+      assert((await database.query('SELECT 1 FROM technician_services WHERE service_id=$1 AND technician_id=$2 AND enabled=true', [service.id, booked[0].technician_id])).rowCount, 'The appointment artist must be enabled for the selected service.');
+      if (process.env.LUSTER_REAL_AI_BOOK_STAFF) {
+        const selectedStaff = (await database.query('SELECT name FROM technician WHERE salon_id=$1 AND id=$2', [fixture.salonId, booked[0].technician_id])).rows[0];
+        assert.equal(selectedStaff?.name, process.env.LUSTER_REAL_AI_BOOK_STAFF, 'The original booking must retain the exact artist selected by the customer.');
+        interactionChecks.push({ originalBooking: true, selectedStaff: selectedStaff.name, staffEligibilityVerified: true });
+      }
       if (privateAddress && before.document.business.locationDisplayMode === 'after_booking') {
         // Follow the real capability link issued by this booking. Never read or
         // log its token from the database, or turn a public page into a shortcut.

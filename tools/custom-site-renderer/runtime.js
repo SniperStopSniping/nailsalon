@@ -1,4 +1,4 @@
-/* global PARENT_ORIGIN */
+/* global PARENT_ORIGIN, TRUSTED_FONT_CSS */
 /* Trusted bridge. Generated JavaScript never executes in this DOM. */
 (() => {
   'use strict';
@@ -6,6 +6,11 @@
   let channel;
   let worker;
   const root = document.getElementById('site-root');
+  // The renderer boot hash covers this fixed bundle. It is never supplied by
+  // the model, payload, admin origin or an external font server.
+  const fonts = document.createElement('style');
+  fonts.textContent = TRUSTED_FONT_CSS;
+  document.head.append(fonts);
   const send = data => parent.postMessage({ channel, ...data }, PARENT_ORIGIN);
   function emailHref(value) {
     // Bound the work and parse the separators directly. Overlapping domain

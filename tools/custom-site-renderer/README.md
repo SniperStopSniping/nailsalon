@@ -72,3 +72,20 @@ shared cookie sites while allowing separate `*.vercel.app` tenants.
 The iframe retains a stable viewport and scrolls its document internally. Never
 resize it to its own scrollHeight: custom viewport-height heroes then recursively
 grow, especially on mobile.
+
+## Bundled typography
+
+New custom source may use `Luster Serif v1` (Cormorant normal/italic, 300–700),
+`Luster Sans v1` (DM Sans normal, 100–1000), or `Luster Script v1` (Pinyon Script,
+400), with generic fallbacks. Latin and Latin-extended glyphs total 283,444 bytes.
+The fixed pack is embedded in the trusted boot covered by its CSP script hash;
+font-src permits only data URLs, and network access stays disabled. No browser
+request reaches Google Fonts. AI cannot author font-face definitions or font URLs.
+These optional families do not alias old system font names or change previously
+approved designs. Freeze v1 bytes and aliases; add a new version for replacements.
+Unsupported scripts and exact reference-font matches still require honest limits.
+
+`fonts/v1/manifest.json` records original family, source, glyph range, size,
+checksum and retrieval date. The unmodified official WOFF2 files and their full
+SIL Open Font License notices ship together. Source/license provenance is in
+the manifest, not fetched at runtime. There are no provider keys or packages.

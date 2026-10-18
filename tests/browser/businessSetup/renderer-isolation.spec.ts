@@ -16,6 +16,53 @@ const payload = (javascript: string, preview = false): CustomSitePayload => ({
   },
 });
 
+test('bundled typography really loads inside the opaque frame without external font requests', async ({ page }) => {
+  const input = payload('', true);
+  input.source.html += '<p id="font-script">Booking with Élise Łódź</p><p id="font-serif">Booking with Élise Łódź</p><p id="font-italic">Booking with Élise Łódź</p><p id="font-sans">Booking with Élise Łódź</p>';
+  input.source.css = '#font-script{font:400 40px "Luster Script v1",monospace}#font-serif{font:500 40px "Luster Serif v1",monospace}#font-italic{font:italic 500 40px "Luster Serif v1",monospace}#font-sans{font:400 40px "Luster Sans v1",monospace}';
+  const externalFonts: string[] = [];
+  page.on('request', (request) => {
+    if (request.resourceType() === 'font' && !request.url().startsWith('data:')) {
+      externalFonts.push(request.url());
+    }
+  });
+  await page.route('http://localhost:3197/renderer-fonts', route => route.fulfill({ contentType: 'text/html', body: '<html><body><iframe title="Probe" width="100%" height="700" src="http://127.0.0.1:3198/renderer" sandbox="allow-scripts"></iframe></body></html>' }));
+  await page.goto('/renderer-fonts');
+  await page.evaluate((payload) => {
+    const frame = document.querySelector('iframe')!;
+    window.addEventListener('message', (event) => {
+      if (event.source === frame.contentWindow && event.origin === 'null' && event.data?.type === 'renderer-ready') {
+        frame.contentWindow!.postMessage({ type: 'initialize', channel: 'font-probe', payload }, '*');
+      }
+    });
+  }, input);
+  const site = page.frameLocator('iframe');
+
+  await expect(site.locator('#font-script')).toBeVisible();
+
+  const fonts = await site.locator('#font-script').evaluate(async (element) => {
+    const doc = element.ownerDocument;
+    const sample = 'Booking with Élise Łódź';
+    // fonts.check alone also succeeds for a nonexistent family. Verify actual
+    // FontFace objects returned by load, then compare native glyph metrics.
+    const loaded = await Promise.all(['400 40px "Luster Script v1"', '500 40px "Luster Serif v1"', 'italic 500 40px "Luster Serif v1"', '400 40px "Luster Sans v1"'].map(async font => ({ font, faces: (await doc.fonts.load(font, sample)).map(face => ({ family: face.family.replaceAll('"', ''), status: face.status })) })));
+    const canvas = doc.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
+    ctx.font = '40px monospace';
+    const fallback = ctx.measureText(sample).width;
+    ctx.font = '400 40px "Luster Script v1",monospace';
+    return { loaded, fallback, script: ctx.measureText(sample).width };
+  });
+
+  for (const font of fonts.loaded) {
+    expect(font.faces.length).toBeGreaterThanOrEqual(1);
+    expect(font.faces.every(face => face.status === 'loaded' && face.family.startsWith('Luster '))).toBe(true);
+  }
+
+  expect(Math.abs(fonts.script - fonts.fallback)).toBeGreaterThan(10);
+  expect(externalFonts).toEqual([]);
+});
+
 test('custom class-list assignments, legacy toggles and child-icon clicks work without changing bindings', async ({ page }) => {
   const input = payload(`let open=false;let active=false;Luster.on(function(event){
     if(event.type!=='click')return;
@@ -61,7 +108,7 @@ test('custom class-list assignments, legacy toggles and child-icon clicks work w
   await expect(site.locator('[data-luster-book]')).toHaveAttribute('data-luster-book', 'canonical-service');
 });
 
-test('Canva artwork stays pixel-identical while contacts and canonical service areas work on desktop and mobile', async ({ page, context }) => {
+test('Canva artwork stays pixel-identical while contacts and canonical service areas work on desktop and mobile', async ({ page, context }, testInfo) => {
   const bytes = await sharp({ create: { width: 300, height: 600, channels: 3, background: '#e7cbd6' } }).png().toBuffer();
   const assetId = 'a0000000-0000-4000-8000-000000000001';
   const input = payload('', true);
@@ -74,7 +121,7 @@ test('Canva artwork stays pixel-identical while contacts and canonical service a
     { id: 'instagram', page: 0, label: 'Open Instagram', geometry: { x: 10, y: 80, width: 80, height: 10 }, action: { type: 'instagram' } },
   ], visibleText: '', notes: [], dataFingerprint: 'b'.repeat(64), ownerReviewed: true }, input.data.details);
   await context.route('https://www.instagram.com/**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Test profile</h1>' }));
-  await page.route('http://localhost:3197/canva-probe', route => route.fulfill({ contentType: 'text/html', body: '<html><body><iframe width="100%" height="900" title="Probe" src="http://127.0.0.1:3198/renderer" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></body></html>' }));
+  await page.route('http://localhost:3197/canva-probe', route => route.fulfill({ contentType: 'text/html', body: '<html><body><iframe style="border:0" width="100%" height="900" title="Probe" src="http://127.0.0.1:3198/renderer" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></body></html>' }));
   await page.goto('/canva-probe');
   await page.evaluate((payload) => {
     const frame = document.querySelector('iframe')!;
@@ -106,6 +153,7 @@ test('Canva artwork stays pixel-identical while contacts and canonical service a
   await page.locator('iframe').evaluate(frame => frame.style.width = '300px');
 
   const rendered = await site.locator('.canva-page img').screenshot({ scale: 'css' });
+  await testInfo.attach('native-artwork-rendered', { body: rendered, contentType: 'image/png' });
 
   expect((await sharp(rendered).metadata()).width).toBe(300);
   expect((await sharp(rendered).removeAlpha().raw().toBuffer()).equals(await sharp(bytes).raw().toBuffer())).toBe(true);

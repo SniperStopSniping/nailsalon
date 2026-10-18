@@ -40,7 +40,7 @@ export async function restrictAiTrialNetwork(context, profile) {
 }
 
 export function assertHttpsTrialStep(step) {
-  assert(['preview', 'public-preview', 'canva-upload', 'start-editing', 'service-price', 'contact-details', 'canva-review', 'manual-wording', 'restore', 'publish', 'book', 'connection-recovery'].includes(step), 'The optimized HTTPS check uses saved real-model output and manual controls. It cannot make a new paid model request.');
+  assert(['preview', 'public-preview', 'details', 'canva-upload', 'start-editing', 'service-price', 'contact-details', 'canva-review', 'manual-wording', 'restore', 'publish', 'book', 'staff-eligibility', 'connection-recovery'].includes(step), 'The optimized HTTPS check uses saved real-model output and manual controls. It cannot make a new paid model request.');
 }
 
 export function trialApiTarget(path, profile) {

@@ -17,8 +17,20 @@ describe('custom frontend source validation', () => {
     expect(() => validateCustomSource({ ...source, html: source.html + html }, new Set())).toThrow();
   });
 
-  it.each(['@import "https://evil.invalid";', 'a{background:u/**/rl(https://evil.invalid)}', 'a{background:\\75rl(https://evil.invalid)}', 'a{background:image-set("https://evil.invalid")}'])('rejects CSS network resources: %s', (css) => {
+  it.each(['@import "https://evil.invalid";', 'a{background:u/**/rl(https://evil.invalid)}', 'a{background:\\75rl(https://evil.invalid)}', 'a{background:image-set("https://evil.invalid")}'])('rejects CSS resource definitions: %s', (css) => {
     expect(() => validateCustomSource({ ...source, css }, new Set())).toThrow();
+  });
+
+  it.each(['@font-face{font-family:"Luster Script v1";src:local(Arial)}', '@font-/**/face{font-family:X;src:local(Arial)}'])('rejects model-authored font definitions without breaking legacy local-font reads: %s', (css) => {
+    expect(() => validateCustomSource({ ...source, css }, new Set(), true)).toThrow('Font definitions');
+    expect(validateCustomSource({ ...source, css }, new Set()).css).toBe(css);
+    expect(() => validateCustomSource({ ...source, css: css.replace('local(Arial)', 'url(data:font/woff2;base64,AAAA)') }, new Set())).toThrow();
+  });
+
+  it('allows freely styled bundled font families without generated font definitions', () => {
+    const css = 'h1{font:400 clamp(3rem,9vw,8rem) "Luster Script v1",cursive}body{font-family:"Luster Sans v1",sans-serif}h2{font-family:"Luster Serif v1",serif}';
+
+    expect(validateCustomSource({ ...source, css }, new Set()).css).toBe(css);
   });
 
   it('permits approved image identities and rejects reference or cross-tenant images', () => {

@@ -12,13 +12,13 @@ import { parse } from 'yaml';
 const workflow = parse(readFileSync(new URL('../.github/workflows/CI.yml', import.meta.url), 'utf8'));
 const { jobs } = workflow;
 
-test('AI setup publication races require an attested database and all twelve cases', () => {
+test('AI setup publication races require an attested database and all thirteen cases', () => {
   const step = jobs['test-core'].steps.find(step => step.name === 'Verify AI setup publication concurrency on disposable PostgreSQL');
   assert.equal(step.env.AI_SETUP_PUBLICATION_CONCURRENCY_REQUIRED, 'true');
   assert.match(step.env.CONCURRENCY_TEST_DATABASE_URL, /@127\.0\.0\.1:55432\/luster_e2e_ci_disposable\?application_name=luster-e2e-ci-disposable$/);
   assert.match(step.run, /publication\.concurrency\.integration\.test\.ts/);
-  assert.match(step.run, /numPassedTests!==12/);
-  assert.match(step.run, /numTotalTests!==12/);
+  assert.match(step.run, /numPassedTests!==13/);
+  assert.match(step.run, /numTotalTests!==13/);
   assert.match(step.run, /numPendingTests!==0/);
 });
 
