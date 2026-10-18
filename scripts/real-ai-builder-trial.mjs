@@ -13,6 +13,7 @@ import { chromium, expect as baseExpect, webkit } from '@playwright/test';
 import pg from 'pg';
 import sharp from 'sharp';
 
+import { aiTrialAuth, assertClerkTrialActor, privateClerkStorageState } from './lib/ai-trial-auth.mjs';
 import { aiTrialOrigins, assertHttpsTrialStep, restrictAiTrialNetwork, trialApiTarget } from './lib/ai-trial-origins.mjs';
 
 const profile = aiTrialOrigins(process.env.LUSTER_REAL_AI_HTTPS === 'true');
@@ -23,9 +24,8 @@ const { Client } = pg;
 assert.equal(process.env.LUSTER_REAL_AI_TRIAL, 'true', 'Explicit isolated real-AI trial opt-in is required.');
 assert(process.env.LUSTER_REAL_AI_FIXTURE, 'Set LUSTER_REAL_AI_FIXTURE to the private synthetic-owner JSON file.');
 const fixture = JSON.parse(fs.readFileSync(process.env.LUSTER_REAL_AI_FIXTURE, 'utf8'));
-assert.match(fixture.salonId, /^paid_ai_trial_[a-f0-9]{32}$/u);
-assert.match(fixture.salonSlug, /^paid-ai-[a-z0-9-]+$/u);
-assert.equal(typeof fixture.session, 'string');
+const ownerAuth = aiTrialAuth(fixture);
+assert(ownerAuth.kind !== 'clerk-development' || !profile.https, 'Use real Clerk signup only with the isolated Development app.');
 const [step, messageOrArtifact, reference] = process.argv.slice(2);
 const trialScope = process.env.LUSTER_REAL_AI_SCOPE ?? 'website';
 assert(['website', 'business_and_website'].includes(trialScope));
@@ -39,7 +39,7 @@ for (const point of landmarks) {
   assert(Number.isInteger(point.page) && point.page >= 0 && point.page < 6 && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1);
   assert(['instagram', 'email', 'phone', 'service', 'book'].includes(point.action));
 }
-assert(['message', 'conversation', 'details', 'photos', 'logo', 'replace-photo', 'canva-upload', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'contact-details', 'booking-link', 'restore', 'canva-review', 'publish', 'book', 'staff-eligibility', 'connection-recovery'].includes(step), 'Choose an owner workflow step.');
+assert(['unfunded', 'message', 'conversation', 'details', 'photos', 'logo', 'replace-photo', 'canva-upload', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'contact-details', 'booking-link', 'restore', 'canva-review', 'publish', 'book', 'staff-eligibility', 'connection-recovery'].includes(step), 'Choose an owner workflow step.');
 if (profile.https) {
   assertHttpsTrialStep(step);
 }
@@ -47,8 +47,10 @@ if (step === 'message' || step === 'restore') {
   assert(messageOrArtifact, 'An owner message or saved design identity is required.');
 }
 const runId = `${new Date().toISOString().replaceAll(/[:.]/gu, '-')}-${step}`;
-const output = path.resolve('artifacts/ai-credits/real-provider', fixture.salonSlug, runId);
-fs.mkdirSync(output, { recursive: true });
+const outputRoot = ownerAuth.kind === 'clerk-development' ? '/tmp/luster-real-clerk-runs' : 'artifacts/ai-credits/real-provider';
+fs.mkdirSync(outputRoot, { recursive: true, mode: 0o700 });
+const output = path.resolve(outputRoot, fixture.salonSlug, runId);
+fs.mkdirSync(output, { recursive: true, mode: 0o700 });
 const database = new Client({ host: '127.0.0.1', port: 55432, user: 'luster_e2e_ci', database: 'luster_ai_setup_development', password: 'luster-e2e-ci-only-password' });
 await database.connect();
 const identity = (await database.query('SELECT current_database() AS name, inet_server_addr()::text AS host')).rows[0];
@@ -56,6 +58,9 @@ const markers = (await database.query('SELECT environment FROM luster_environmen
 assert.equal(identity.name, 'luster_ai_setup_development');
 assert.equal(identity.host, '127.0.0.1/32');
 assert.deepEqual(markers, [{ environment: 'development' }]);
+if (ownerAuth.kind === 'clerk-development') {
+  await assertClerkTrialActor(database, fixture);
+}
 const canonicalSlug = async () => (await database.query('SELECT slug FROM salon WHERE id=$1', [fixture.salonId])).rows[0].slug;
 let salonSlug = await canonicalSlug();
 const allocation = (await database.query('SELECT cap_micro_cad FROM setup_ai_budget WHERE id=$1', ['initial-custom-website-trial'])).rows[0];
@@ -68,10 +73,19 @@ assert(['chromium', 'webkit'].includes(browserName), 'Choose the installed Chrom
 assert(browserName === 'chromium' || step !== 'message', 'Run paid model requests once; use WebKit only to verify saved output.');
 const browser = await (browserName === 'webkit' ? webkit : chromium).launch({ headless: true, ...(profile.https ? { proxy: { server: profile.proxyServer } } : {}) });
 const contextOptions = { baseURL: origin, ignoreHTTPSErrors: profile.https };
-const context = await browser.newContext({ ...contextOptions, viewport: { width: 1440, height: 1000 }, recordVideo: { dir: output, size: { width: 1440, height: 1000 } } });
-await context.addCookies([{ name: 'n5_admin_session', value: fixture.session, domain: profile.cookieDomain, path: '/', httpOnly: true, secure: profile.https, sameSite: 'Lax' }]);
-const restrictNetwork = target => restrictAiTrialNetwork(target, profile);
+// Authentication state belongs only to the owner context. Public booking
+// contexts below remain anonymous, including in genuine Clerk acceptance runs.
+const context = await browser.newContext({ ...contextOptions, ...(ownerAuth.kind === 'clerk-development' ? { storageState: privateClerkStorageState(fixture.clerkStorageState) } : {}), viewport: { width: 1440, height: 1000 }, recordVideo: { dir: output, size: { width: 1440, height: 1000 } } });
+if (ownerAuth.kind === 'synthetic-session') {
+  await context.addCookies([{ name: 'n5_admin_session', value: fixture.session, domain: profile.cookieDomain, path: '/', httpOnly: true, secure: profile.https, sameSite: 'Lax' }]);
+}
+const restrictNetwork = target => restrictAiTrialNetwork(target, profile, ownerAuth.frontendApi);
 await restrictNetwork(context);
+if (ownerAuth.kind === 'clerk-development') {
+  const { clerkSetup, setupClerkTestingToken } = await import('@clerk/testing/playwright');
+  await clerkSetup({ secretKey: process.env.CLERK_SECRET_KEY, publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, dotenv: false });
+  await setupClerkTestingToken({ context });
+}
 const page = await context.newPage();
 let operationId;
 const startedAt = new Date();
@@ -433,7 +447,29 @@ try {
   if (['message', 'photos', 'logo', 'replace-photo', 'manual-wording', 'service-price', 'booking-link', 'restore', 'publish'].includes(step)) {
     assert.equal(before.status, 'editing', 'Return through Edit with AI before changing a published salon.');
   }
-  if (step === 'details') {
+  if (step === 'unfunded') {
+    assert.equal(ownerAuth.kind, 'clerk-development', 'Run the unfunded check after genuine owner signup.');
+    const balance = Number((await database.query('SELECT coalesce(sum(amount_micro_cad),0) AS amount FROM ai_credit_ledger WHERE salon_id=$1 AND plan_env=\'dev\'', [fixture.salonId])).rows[0].amount);
+    assert.equal(balance, 0, 'Do not refund or reset a wallet to manufacture this check.');
+    const credits = page.getByRole('dialog');
+
+    await expect(credits).toBeVisible();
+    await expect(credits).toContainText('Credit purchases are not available yet.');
+
+    await screenshot('unfunded-owner');
+    await credits.getByRole('button', { name: 'Close AI credits', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Message Luster', exact: true }).fill('Create my website.');
+    await page.getByRole('button', { name: 'Send message', exact: true }).click();
+
+    await expect(page.getByText('Add AI credits to continue. Your saved website and bookings are safe.', { exact: true }).first()).toBeVisible();
+
+    after = await head();
+    assert.deepEqual(after.document, before.document);
+    assert.equal(Number((await database.query('SELECT count(*) AS count FROM setup_ai_call WHERE salon_id=$1', [fixture.salonId])).rows[0].count), modelCallCountBefore);
+    assert.equal(await liveSettingsFingerprint(), liveSettingsBefore);
+    await screenshot('unfunded-request-blocked');
+    interactionChecks.push({ zeroBalance: true, purchasesDisabled: true, providerCalls: 0, draftUnchanged: true });
+  } else if (step === 'details') {
     await page.getByRole('button', { name: 'Details', exact: true }).click();
     const moneyForms = page.locator('form.setup-service').filter({ has: page.locator('input[name="price"]') });
     const rows = await moneyForms.evaluateAll(forms => forms.map(form => ({ name: form.querySelector('input[name="name"]')?.value, text: form.textContent })));
@@ -1198,9 +1234,12 @@ try {
     : [];
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
-  const evidence = { step, trialScope, browserName, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, serverProbes, privateAddressChecks, contactChecks, interactionChecks, pdfUpload, mediaUpload, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
+  const evidence = { step, trialScope, browserName, ownerAuthentication: ownerAuth.kind, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, serverProbes, privateAddressChecks, contactChecks, interactionChecks, pdfUpload, mediaUpload, browserErrors: failures, funding: ownerAuth.kind === 'clerk-development' && !fixture.syntheticRecoveryCredit ? 'Unfunded real Development account; no Stripe payment or purchase.' : 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
   process.stdout.write(`${JSON.stringify({ step, status: evidence.status, revision: after?.revision, providerMicroUsd: calls.reduce((sum, item) => sum + (item.cost_micro_usd ?? 0), 0), output, ...(failure ? { failure } : {}) })}\n`);
+  if (ownerAuth.kind === 'clerk-development') {
+    await context.storageState({ path: privateClerkStorageState(fixture.clerkStorageState) });
+  }
   await context.close();
   await browser.close();
   await database.end();

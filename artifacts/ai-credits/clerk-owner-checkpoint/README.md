@@ -24,5 +24,8 @@ The first verification run reached successful entry but its diagnostic read ran 
 - [Private builder on mobile](private-builder-mobile.png).
 - [Returning desktop owner with zero-credit notice](private-builder-desktop.png).
 - [Sanitized request and database checks](proof.json).
+- [Unfunded request blocked before any model call](unfunded-request-blocked.png), with [zero-call evidence](unfunded-proof.json). The real signed-up account had no recovery grant for this check. The current application correctly explains that purchases are unavailable while Stripe sandbox configuration is deferred.
+
+The existing opt-in AI trial runner now accepts the UI-issued Clerk state with Development-only keys, matching owner membership attestation, private session-file permissions and an exact Development Frontend API network allowance. Anonymous booking contexts never inherit that state. Twelve deterministic harness/isolation checks pass; the legacy seeded-session mode stays explicitly labelled and is not counted as real Clerk acceptance.
 
 Stripe sandbox purchase acceptance, genuine-account AI generation/publication/booking and hosted isolation are separate remaining gates. The private local key configuration is verified, but is not a production credential or hosted-preview configuration. This checkpoint does not claim the complete paid builder is released.

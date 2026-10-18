@@ -23,11 +23,19 @@ export function trialLoopbackRequest(url, profile) {
   return { kind: 'loopback', url: parsed.href, host };
 }
 
-export async function restrictAiTrialNetwork(context, profile) {
+export function trialClerkRequest(url, frontendApi) {
+  if (!frontendApi || !/^[a-z0-9-]+\.clerk\.accounts\.dev$/u.test(frontendApi)) {
+    return false;
+  }
+  const parsed = new URL(url);
+  return parsed.origin === `https://${frontendApi}` && !parsed.username && !parsed.password;
+}
+
+export async function restrictAiTrialNetwork(context, profile, clerkFrontendApi) {
   await context.route('**/*', async (route) => {
     const destination = trialLoopbackRequest(route.request().url(), profile);
     if (destination.kind === 'blocked') {
-      return route.abort();
+      return trialClerkRequest(route.request().url(), clerkFrontendApi) ? route.continue() : route.abort();
     }
     if (destination.kind === 'continue') {
       return route.continue();

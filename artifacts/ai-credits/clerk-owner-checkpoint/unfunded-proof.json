@@ -1,0 +1,18 @@
+{
+  "step": "unfunded",
+  "status": "passed",
+  "ownerAuthentication": "clerk-development",
+  "beforeRevision": 1,
+  "afterRevision": 1,
+  "calls": [],
+  "interactionChecks": [
+    {
+      "zeroBalance": true,
+      "purchasesDisabled": true,
+      "providerCalls": 0,
+      "draftUnchanged": true
+    }
+  ],
+  "funding": "Unfunded real Development account; no Stripe payment or purchase.",
+  "browserErrors": []
+}
