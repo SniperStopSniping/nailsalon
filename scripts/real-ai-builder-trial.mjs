@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import { chromium, expect as baseExpect, webkit } from '@playwright/test';
 import pg from 'pg';
+import sharp from 'sharp';
 
 import { aiTrialOrigins, assertHttpsTrialStep, restrictAiTrialNetwork, trialApiTarget } from './lib/ai-trial-origins.mjs';
 
@@ -38,7 +39,7 @@ for (const point of landmarks) {
   assert(Number.isInteger(point.page) && point.page >= 0 && point.page < 6 && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1);
   assert(['instagram', 'email', 'phone', 'service', 'book'].includes(point.action));
 }
-assert(['message', 'conversation', 'photos', 'canva-upload', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'contact-details', 'booking-link', 'restore', 'canva-review', 'publish', 'book', 'connection-recovery'].includes(step), 'Choose an owner workflow step.');
+assert(['message', 'conversation', 'photos', 'logo', 'replace-photo', 'canva-upload', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'contact-details', 'booking-link', 'restore', 'canva-review', 'publish', 'book', 'connection-recovery'].includes(step), 'Choose an owner workflow step.');
 if (profile.https) {
   assertHttpsTrialStep(step);
 }
@@ -79,6 +80,7 @@ const contactChecks = [];
 const interactionChecks = [];
 const serverProbes = [];
 let pdfUpload;
+let mediaUpload;
 page.on('request', (request) => {
   if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/admin/business-setup') {
     const body = request.postDataJSON();
@@ -109,6 +111,17 @@ const openPreview = async () => {
   await expect(page.locator(`iframe[src="${renderer}"]`)).toBeVisible({ timeout: 45_000 });
   await expect(page.frameLocator(`iframe[src="${renderer}"]`).locator('body')).not.toBeEmpty();
 
+  let expectedImages;
+  let expectedPhotoUrls;
+  if (process.env.LUSTER_REAL_AI_REQUIRE_SELECTED_IMAGES === 'true' && !canva) {
+    const response = await context.request.get(`/api/admin/custom-sites?salonSlug=${salonSlug}`);
+    assert.equal(response.status(), 200);
+    const state = await response.json();
+    expectedImages = state.payload.images;
+    expectedPhotoUrls = Object.entries(expectedImages).filter(([id]) => state.assets.some(asset => asset.id === id && asset.role === 'photo')).map(([_id, url]) => url);
+    assert.deepEqual(Object.keys(expectedImages).sort(), [...setupDocument.designBrief.websiteAssetIds].sort(), 'This owner asked to use all selected photos and the logo.');
+  }
+
   await screenshot('owner-desktop');
   const href = await page.getByRole('link', { name: 'Open full preview', exact: true }).getAttribute('href');
   assert(href?.startsWith('/admin/business-setup/design-preview/'), 'Use the authenticated full preview supplied by the builder.');
@@ -126,6 +139,16 @@ const openPreview = async () => {
       const frame = preview.frames().find(item => item.url() === renderer);
       assert(frame);
       assert.equal(await frame.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), true, `Generated ${device} layout overflows horizontally.`);
+      if (expectedImages) {
+        const images = await frame.evaluate(expected => Object.entries(expected).map(([id, url]) => {
+          const nodes = [...document.querySelectorAll('img')].filter(image => image.src === url);
+          return { id, count: nodes.length, loaded: nodes.every(image => image.complete && image.naturalWidth > 0), displayed: nodes.some(image => image.getBoundingClientRect().width > 0 && image.getBoundingClientRect().height > 0), dimensions: nodes.map(image => ({ width: image.naturalWidth, height: image.naturalHeight })) };
+        }), expectedImages);
+        for (const image of images) {
+          assert(image.count > 0 && image.loaded && image.displayed, `A selected owner image did not actually load/display on ${device}.`);
+        }
+        interactionChecks.push({ device, selectedOwnerImages: images });
+      }
       assert.equal(await frame.evaluate(() => {
         try {
           return parent.document.cookie;
@@ -174,6 +197,26 @@ const openPreview = async () => {
         }
       }), 'blocked');
       await preview.screenshot({ path: path.join(output, `${device}-top.png`), fullPage: true, animations: 'disabled' });
+      if (expectedPhotoUrls?.length >= 2 && !canva) {
+        const composition = await frame.evaluate((photos) => {
+          const section = [...document.querySelectorAll('section')].find(section => [...section.querySelectorAll('img')].filter(image => photos.includes(image.src)).length >= 2);
+          if (!section) {
+            return null;
+          }
+          section.scrollIntoView({ block: 'start', behavior: 'instant' });
+          const images = [...section.querySelectorAll('img')].filter(image => photos.includes(image.src)).slice(0, 2);
+          const [a, b] = images.map(image => image.getBoundingClientRect());
+          const overlap = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+          return { section: section.id, images: images.length, overlapArea: overlap };
+        }, expectedPhotoUrls);
+        if (process.env.LUSTER_REAL_AI_REQUIRE_PHOTO_OVERLAP === 'true' && device === 'desktop') {
+          assert(composition?.overlapArea > 0, 'The requested desktop photographs must actually overlap in the rendered design.');
+        }
+        interactionChecks.push({ device, photoComposition: composition });
+        if (composition) {
+          await preview.screenshot({ path: path.join(output, `${device}-photo-composition.png`), fullPage: true, animations: 'disabled' });
+        }
+      }
       if (canva) {
         const images = preview.frameLocator(`iframe[src="${renderer}"]`).locator('.canva-page > img');
 
@@ -312,7 +355,7 @@ try {
     await page.getByRole('textbox', { name: 'Message Luster', exact: true }).fill('');
     interactionChecks.push({ paidAiSending: 'disabled' });
   }
-  if (['message', 'photos', 'manual-wording', 'service-price', 'booking-link', 'restore', 'publish'].includes(step)) {
+  if (['message', 'photos', 'logo', 'replace-photo', 'manual-wording', 'service-price', 'booking-link', 'restore', 'publish'].includes(step)) {
     assert.equal(before.status, 'editing', 'Return through Edit with AI before changing a published salon.');
   }
   if (step === 'conversation') {
@@ -484,11 +527,11 @@ try {
     assert.equal(await liveSettingsFingerprint(), liveSettingsBefore);
     await screenshot('manual-price-draft');
     await openPreview();
-  } else if (step === 'photos') {
+  } else if (step === 'photos' || step === 'logo') {
     assert(messageOrArtifact, 'Supply one or two synthetic test-image paths.');
     await page.locator('#setup-attach-button').click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByRole('button', { name: /^My photos/u }).click();
+    await dialog.getByRole('button', { name: step === 'logo' ? /^My logo/u : /^My photos/u }).click();
     await page.locator('#setup-attachment-file').setInputFiles([messageOrArtifact, reference].filter(Boolean));
     await dialog.getByRole('checkbox').check();
     await dialog.getByRole('button', { name: 'Add to chat', exact: true }).click();
@@ -497,8 +540,61 @@ try {
 
     await screenshot('selected-test-images');
     after = await head();
-    assert(after.document.designBrief.websiteAssetIds.length > before.document.designBrief.websiteAssetIds.length);
+    const beforeIds = before.document.designBrief?.websiteAssetIds ?? [];
+    const ids = after.document.designBrief.websiteAssetIds;
+    assert(ids.length >= beforeIds.length);
+    assert.equal(new Set(ids).size, ids.length);
+    const checked = [];
+    for (const file of [messageOrArtifact, reference].filter(Boolean)) {
+      const stem = path.parse(file).name;
+      const record = (await database.query('SELECT id,name,role,mime_type,byte_size FROM custom_site_asset WHERE salon_id=$1 AND id=ANY($2::text[])', [fixture.salonId, ids])).rows.find(asset => path.parse(asset.name).name === stem && asset.role === (step === 'logo' ? 'logo' : 'photo'));
+      assert(record, 'The actual uploaded photo/logo must be selected in this draft.');
+      const response = await context.request.get(`/api/admin/custom-sites?salonSlug=${salonSlug}&asset=${record.id}`);
+      assert.equal(response.status(), 200);
+      const bytes = await response.body();
+      const metadata = await sharp(bytes).metadata();
+      if (step === 'logo') {
+        assert(metadata.hasAlpha, 'The transparent input logo must keep its alpha channel.');
+        const alpha = await sharp(bytes).ensureAlpha().raw().toBuffer();
+        assert.equal(alpha[3], 0, 'The transparent logo corner must not become a painted background.');
+      }
+      fs.writeFileSync(path.join(output, `uploaded-${step}-${checked.length + 1}.webp`), bytes);
+      checked.push({ ...record, width: metadata.width, height: metadata.height, hasAlpha: metadata.hasAlpha, inputBytes: fs.statSync(file).size });
+    }
+    mediaUpload = { assets: checked, reusedExistingAssets: ids.length === beforeIds.length };
     assert.deepEqual(after.document.services, before.document.services);
+  } else if (step === 'replace-photo') {
+    assert(messageOrArtifact && reference, 'Choose an existing draft photo identity and a synthetic replacement input file.');
+    await openPreview();
+    const originalId = before.document.website.config.customFrontendId;
+    const original = (await database.query('SELECT source FROM custom_site_artifact WHERE salon_id=$1 AND id=$2', [fixture.salonId, originalId])).rows[0];
+    assert(original && !original.source.canva, 'This check edits a photograph in an editable website, not fixed Canva artwork.');
+    await page.getByText('Photos & design settings', { exact: true }).click();
+    const library = page.locator('.studio-photo-library');
+    await library.getByRole('checkbox', { name: /^I own or have permission/u }).check();
+    const card = library.locator('article').filter({ has: page.locator(`img[src*="&asset=${messageOrArtifact}"]`) });
+
+    await expect(card).toHaveCount(1);
+
+    await card.getByRole('button', { name: 'Replace photo', exact: true }).click();
+    await library.getByLabel('Choose replacement photo', { exact: true }).setInputFiles(reference);
+
+    await expect.poll(async () => (await head()).document.website.config.customFrontendId, { timeout: 45_000 }).not.toBe(originalId);
+
+    after = await head();
+    const edited = (await database.query('SELECT source FROM custom_site_artifact WHERE salon_id=$1 AND id=$2', [fixture.salonId, after.document.website.config.customFrontendId])).rows[0];
+    assert.equal(edited.source.css, original.source.css);
+    assert.equal(edited.source.javascript, original.source.javascript);
+    assert(!edited.source.html.includes(messageOrArtifact), 'Every use of the replaced photo must change in the saved draft.');
+    for (const field of ['business', 'services', 'hours', 'booking', 'staff', 'addOns', 'bookingPolicy', 'deposit', 'reminders']) {
+      assert.deepEqual(after.document[field], before.document[field]);
+    }
+    assert.deepEqual(await livePrices(), liveServicePricesBefore);
+    assert.equal(await liveSettingsFingerprint(), liveSettingsBefore);
+    assert.equal(Number((await database.query('SELECT count(*) AS count FROM setup_ai_call WHERE salon_id=$1', [fixture.salonId])).rows[0].count), modelCallCountBefore, 'Manual photo replacement must not call a model.');
+    interactionChecks.push({ manualPhotoReplacement: true, originalArtifactId: originalId, savedArtifactId: after.document.website.config.customFrontendId, inputBytes: fs.statSync(reference).size, browserName });
+    await screenshot('manual-photo-replaced');
+    await openPreview();
   } else if (step === 'manual-wording') {
     await openPreview();
     const originalId = before.document.website.config.customFrontendId;
@@ -885,7 +981,7 @@ try {
     : [];
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
-  const evidence = { step, trialScope, browserName, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, serverProbes, contactChecks, interactionChecks, pdfUpload, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
+  const evidence = { step, trialScope, browserName, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, serverProbes, contactChecks, interactionChecks, pdfUpload, mediaUpload, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
   process.stdout.write(`${JSON.stringify({ step, status: evidence.status, revision: after?.revision, providerMicroUsd: calls.reduce((sum, item) => sum + (item.cost_micro_usd ?? 0), 0), output, ...(failure ? { failure } : {}) })}\n`);
   await context.close();

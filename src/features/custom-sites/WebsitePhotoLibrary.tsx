@@ -88,7 +88,7 @@ export function WebsitePhotoLibrary({ assets, selected, displayed, endpoint, dis
           }
         }}
       />
-      <p className="studio-hint">Up to six photos and logos per design · PNG, JPG or WebP · 3 MB each. No photos yet? You can still create a design without them.</p>
+      <p className="studio-hint">Up to six photos and logos per design · PNG, JPG or WebP · 20 MB each. Larger images are prepared automatically without stretching or cropping. Transparent logos keep their background clear. No photos yet? You can still create a design without them.</p>
       {assets.length > 0 && (
         <div className="studio-photo-grid">
           {assets.map(asset => (

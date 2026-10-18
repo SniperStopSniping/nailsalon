@@ -464,6 +464,23 @@ describe('custom frontend shared draft integration', () => {
     expect(restored.revision.document.website.config.customFrontendId).toBe(first.artifact.id);
   });
 
+  it('routes a clear photo-layout revision directly to editable source without a second intake model or business changes', async () => {
+    const actor = await fixture();
+    const saved = await saveCustomSource(actor, { expectedRevision: 2, operationId: randomUUID(), assetIds: [], source: editorialSource });
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 3000, outputTokens: 2000, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(darkSource) }] });
+    const input = { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Keep the burgundy and ivory design. Make the two photos larger and overlap them in the studio section. Keep my logo, services and the rest of the design.' };
+    const result = await runSetupConversation(actor, input, { createResponse });
+
+    expect(result.head.revision.document.website.config.customFrontendId).not.toBe(saved.artifact.id);
+    expect(result.head.revision.document.business).toEqual(saved.head.revision.document.business);
+    expect(result.head.revision.document.services).toEqual(saved.head.revision.document.services);
+    expect(result.head.revision.document.hours).toEqual(saved.head.revision.document.hours);
+    expect(createResponse).toHaveBeenCalledTimes(1);
+    expect(createResponse.mock.calls[0]![0].jsonSchema).toHaveProperty('properties.html');
+    expect((await runSetupConversation(actor, input, { createResponse })).head.revision.revision).toBe(result.head.revision.revision);
+    expect(createResponse).toHaveBeenCalledTimes(1);
+  });
+
   it('writes and iterates actual source through the provider contract without modifying business settings', async () => {
     const actor = await fixture();
     const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 3000, outputTokens: 2000, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
@@ -1846,6 +1863,18 @@ describe('AI clickable Canva artwork', () => {
     const input = { expectedRevision: head.revision.revision, operationId: randomUUID(), message: 'Keep this design and make everything clickable', referenceIds: [reference.id] };
     return { actor, reference, input };
   }
+
+  it('keeps fixed Canva artwork out of the direct editable-frontend revision route', async () => {
+    const { actor, input } = await prepared();
+    const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 1000, outputTokens: 100, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ reply: 'The original artwork stays fixed. Upload an updated Canva export to change its photos.', operationsJson: '[]', designRequest: null }) }] });
+    const changed = await runSetupConversation(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Make the two photos larger and overlap them.' }, { createResponse });
+
+    expect(changed.head.revision.revision).toBe(generated.head.revision.revision);
+    expect(changed.head.revision.document.website.config.customFrontendId).toBe(generated.artifactId);
+    expect(createResponse).toHaveBeenCalledTimes(1);
+    expect(createResponse.mock.calls[0]![0].input[1].content).toContain('"websiteEditingMode":"preserved_artwork"');
+  });
 
   it('retains raw model fractions, saves percent geometry, and sends prior areas back in model units', async () => {
     const { actor, input } = await prepared();

@@ -14,6 +14,7 @@ import { type CustomSiteGenerateInput, customSiteGenerateSchema, type CustomSite
 import { CustomTextEditor } from './CustomTextEditor';
 import { CustomWebsiteFrame } from './CustomWebsiteFrame';
 import { GenerationEvidence } from './GenerationEvidence';
+import { prepareWebsiteImage } from './image-upload';
 import type { DesignAsset } from './WebsitePhotoLibrary';
 import { WebsitePhotoLibrary } from './WebsitePhotoLibrary';
 
@@ -247,7 +248,8 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       const uploaded: DesignAsset[] = [];
       for (const file of files) {
         const data = new FormData();
-        data.set('file', file);
+        setBusy('Preparing your image…');
+        data.set('file', await prepareWebsiteImage(file));
         data.set('role', role);
         data.set('rightsConfirmed', 'true');
         const response = await fetch(endpoint, { method: 'POST', body: data });
@@ -260,7 +262,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       if (replaceId) {
         await post({ action: 'edit_media', input: { expectedRevision: revision, operationId: crypto.randomUUID(), assetId: replaceId, replacementId: uploaded[0]!.id } });
       } else {
-        await saveBrief({ ...brief, websiteAssetIds: [...brief.websiteAssetIds, ...uploaded.map(asset => asset.id)] });
+        await saveBrief({ ...brief, websiteAssetIds: [...new Set([...brief.websiteAssetIds, ...uploaded.map(asset => asset.id)])] });
       }
       setReply(replaceId ? 'Your draft now uses the replacement photo. Your published site is unchanged.' : 'Your photos are saved and selected for your next design.');
     });
@@ -425,7 +427,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                 const file = data.get('file');
                 const isReference = data.get('role') === 'reference';
                 const existing = isReference ? brief.referenceIds : brief.websiteAssetIds;
-                const pages = brief.mode === 'keep_design' && isReference && file instanceof File ? await prepareCanvaPages(file, 6 - existing.length, setBusy) : [file];
+                const pages = brief.mode === 'keep_design' && isReference && file instanceof File ? await prepareCanvaPages(file, 6 - existing.length, setBusy) : [!isReference && file instanceof File ? await prepareWebsiteImage(file) : file];
                 if (existing.length + pages.length > 6) {
                   throw new Error('Choose up to six images or pages. Remove an attached image to make room.');
                 }
@@ -464,6 +466,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                 {brief.mode === 'keep_design' ? 'Canva images or PDF · up to 20 MB · six pages · prepared automatically' : 'PNG, JPG, WebP or PDF · up to 3 MB'}
                 <input type="file" name="file" accept="image/png,image/jpeg,image/webp,application/pdf" required onChange={event => setReferenceFiles(Array.from(event.target.files ?? []))} />
               </label>
+              <small>Photos and logos can be up to 20 MB. Larger images are prepared automatically.</small>
               {brief.mode === 'keep_design' && referenceFiles.length > 0 && <CanvaUploadQuality files={referenceFiles} />}
               <label>
                 <input type="checkbox" name="rightsConfirmed" required />

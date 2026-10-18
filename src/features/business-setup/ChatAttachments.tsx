@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CANVA_INPUT_BYTES, prepareCanvaPages } from '@/features/custom-sites/canva-upload';
 import { CanvaUploadQuality } from '@/features/custom-sites/CanvaImageQuality';
 import type { DesignBrief } from '@/features/custom-sites/contracts';
+import { CLIENT_IMAGE_INPUT_BYTES, prepareWebsiteImage } from '@/features/custom-sites/image-upload';
 import type { DesignAsset } from '@/features/custom-sites/WebsitePhotoLibrary';
 
 type Purpose = 'own' | 'inspiration' | 'photo' | 'logo';
@@ -80,26 +81,30 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
     }
     await change(async () => {
       const isReference = purpose === 'own' || purpose === 'inspiration';
-      if (files.length + (isReference ? values.referenceIds : values.websiteAssetIds).length > 6) {
+      const currentIds = isReference ? values.referenceIds : values.websiteAssetIds;
+      const alreadySelected = (file: File) => currentIds.includes(uploaded.current.get(file)?.id ?? '');
+      const pendingFiles = files.filter(file => !prepared.current.get(file)?.every(alreadySelected));
+      if (pendingFiles.length + currentIds.length > 6) {
         throw new Error(`Choose up to six ${isReference ? 'references' : 'photos and logos'} in total. Remove an attached image to make room.`);
       }
       const canva = purpose === 'own' && keepDesign;
-      if (files.some(file => file.size > (canva ? CANVA_INPUT_BYTES : 3000000) || !['image/png', 'image/jpeg', 'image/webp', ...(isReference ? ['application/pdf'] : [])].includes(file.type))) {
+      if (files.some(file => file.size > (canva ? CANVA_INPUT_BYTES : isReference ? 3000000 : CLIENT_IMAGE_INPUT_BYTES) || !['image/png', 'image/jpeg', 'image/webp', ...(isReference ? ['application/pdf'] : [])].includes(file.type))) {
         if (canva) {
           throw new Error('Choose PNG, JPG, WebP or PDF Canva exports under 20 MB. Luster prepares larger files for upload.');
         }
-        throw new Error('Use PNG, JPG or WebP files under 3 MB each. A design or menu can also be a PDF.');
+        throw new Error(isReference ? 'Use PNG, JPG or WebP files under 3 MB each. A design or menu can also be a PDF.' : 'Use PNG, JPG or WebP photos and logos under 20 MB. Larger images are prepared automatically.');
       }
       const ready: File[] = [];
       for (const file of files) {
         let pages = prepared.current.get(file);
         if (!pages) {
-          pages = canva ? await prepareCanvaPages(file, 6 - values.referenceIds.length - ready.length, setProgress) : [file];
+          setProgress(canva ? 'Preparing your design…' : 'Preparing your images…');
+          pages = canva ? await prepareCanvaPages(file, 6 - currentIds.length - ready.filter(page => !alreadySelected(page)).length, setProgress) : [isReference ? file : await prepareWebsiteImage(file)];
           prepared.current.set(file, pages);
         }
         ready.push(...pages);
       }
-      if (ready.length + (isReference ? values.referenceIds : values.websiteAssetIds).length > 6) {
+      if (ready.filter(file => !alreadySelected(file)).length + currentIds.length > 6) {
         throw new Error('Keep up to six pages or images in total. Remove an attached page or export fewer PDF pages.');
       }
       for (const [index, file] of ready.entries()) {
@@ -185,6 +190,7 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
               aria-pressed={purpose === item.value}
               onClick={() => {
                 setPurpose(item.value);
+                setPermission(false);
                 prepared.current.clear();
               }}
             >
@@ -229,7 +235,7 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
         <button type="button" className="setup-pick-files" disabled={saving} onClick={() => fileInput.current?.click()}>{files.length ? `${files.length} file${files.length === 1 ? '' : 's'} selected · Change` : 'Choose files'}</button>
         {files.length > 0 && <ul className="setup-chosen-files">{files.map(file => <li key={`${file.name}-${file.lastModified}-${file.size}`}>{file.name}</li>)}</ul>}
         {purpose === 'own' && keepDesign && files.length > 0 && <CanvaUploadQuality files={files} />}
-        <small>{purpose === 'own' && keepDesign ? 'Canva PNG, JPG, WebP or PDF · up to 20 MB each · six pages in total · prepared automatically' : 'PNG, JPG, WebP or design PDF · up to 3 MB each'}</small>
+        <small>{purpose === 'own' && keepDesign ? 'Canva PNG, JPG, WebP or PDF · up to 20 MB each · six pages in total · prepared automatically' : purpose === 'photo' || purpose === 'logo' ? 'PNG, JPG or WebP · up to 20 MB each · prepared automatically without stretching or cropping' : 'PNG, JPG, WebP or design PDF · up to 3 MB each'}</small>
         <label className="setup-attachment-permission">
           <input type="checkbox" checked={permission} disabled={saving} onChange={event => setPermission(event.target.checked)} />
           {purpose === 'inspiration' ? 'I may upload these files. Use the style, not another business’s photos or branding.' : 'These are my files, or I have permission to use them on my website.'}
