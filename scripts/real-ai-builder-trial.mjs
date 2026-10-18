@@ -1280,7 +1280,19 @@ try {
     : [];
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
-  const evidence = { step, trialScope, browserName, ownerAuthentication: ownerAuth.kind, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, bookingNavigation, serverProbes, privateAddressChecks, contactChecks, interactionChecks, pdfUpload, mediaUpload, browserErrors: failures, funding: ownerAuth.kind === 'clerk-development' && !fixture.syntheticRecoveryCredit ? 'Unfunded real Development account; no Stripe payment or purchase.' : 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
+  // Funding can change after signup. Read the tenant's actual ledger instead
+  // of continuing to label a Stripe-funded return visit as an unfunded fixture.
+  const fundingEvidence = (await database.query(`SELECT
+    coalesce(sum(amount_micro_cad),0)::text AS balance_micro_cad,
+    count(*) FILTER (WHERE kind='purchase')::int AS purchase_entries,
+    count(*) FILTER (WHERE kind='recovery')::int AS recovery_entries
+    FROM ai_credit_ledger WHERE salon_id=$1 AND plan_env='dev'`, [fixture.salonId])).rows[0];
+  const funding = fundingEvidence.purchase_entries > 0
+    ? `Stripe sandbox purchase entries verified in the Development ledger.${fundingEvidence.recovery_entries > 0 ? ' Balance also includes historical synthetic recovery credit; funding is mixed.' : ''}`
+    : fundingEvidence.recovery_entries > 0
+      ? 'Synthetic recovery credit; no Stripe payment or purchase is claimed.'
+      : 'No Stripe purchase or synthetic recovery entry in the Development ledger.';
+  const evidence = { step, trialScope, browserName, ownerAuthentication: ownerAuth.kind, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, bookingNavigation, serverProbes, privateAddressChecks, contactChecks, interactionChecks, pdfUpload, mediaUpload, browserErrors: failures, funding, fundingEvidence };
   evidence.initialOwnerDevice = initialOwnerDevice;
   evidence.touchActions = browserName === 'webkit';
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2), { mode: 0o600 });
