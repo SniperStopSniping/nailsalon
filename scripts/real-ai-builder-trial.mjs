@@ -5,15 +5,18 @@
  * Fixture/session files and provider outputs must remain outside Git.
  */
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { chromium, expect as baseExpect, webkit } from '@playwright/test';
 import pg from 'pg';
 
-const origin = 'http://localhost:3197';
-const renderer = 'http://127.0.0.1:3198/renderer';
+import { aiTrialOrigins, assertHttpsTrialStep, restrictAiTrialNetwork, trialApiTarget } from './lib/ai-trial-origins.mjs';
+
+const profile = aiTrialOrigins(process.env.LUSTER_REAL_AI_HTTPS === 'true');
+const { origin } = profile;
+const renderer = `${profile.rendererOrigin}/renderer`;
 const expect = baseExpect.configure({ timeout: 20_000 });
 const { Client } = pg;
 assert.equal(process.env.LUSTER_REAL_AI_TRIAL, 'true', 'Explicit isolated real-AI trial opt-in is required.');
@@ -25,7 +28,10 @@ assert.equal(typeof fixture.session, 'string');
 const [step, messageOrArtifact, reference] = process.argv.slice(2);
 const trialScope = process.env.LUSTER_REAL_AI_SCOPE ?? 'website';
 assert(['website', 'business_and_website'].includes(trialScope));
-assert(['message', 'conversation', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'booking-link', 'restore', 'publish', 'book'].includes(step), 'Choose message, conversation, photos, preview, public-preview, start-editing, manual-wording, booking-link, restore, publish or book.');
+assert(['message', 'conversation', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'booking-link', 'restore', 'publish', 'book', 'connection-recovery'].includes(step), 'Choose message, conversation, photos, preview, public-preview, start-editing, manual-wording, service-price, booking-link, restore, publish, book or connection-recovery.');
+if (profile.https) {
+  assertHttpsTrialStep(step);
+}
 if (step === 'message' || step === 'restore') {
   assert(messageOrArtifact, 'An owner message or saved design identity is required.');
 }
@@ -49,15 +55,11 @@ assert(allocation?.cap_micro_cad <= 11_384_406, 'Reconcile the shared trial allo
 const browserName = process.env.LUSTER_REAL_AI_BROWSER ?? 'chromium';
 assert(['chromium', 'webkit'].includes(browserName), 'Choose the installed Chromium or WebKit engine.');
 assert(browserName === 'chromium' || step !== 'message', 'Run paid model requests once; use WebKit only to verify saved output.');
-const browser = await (browserName === 'webkit' ? webkit : chromium).launch({ headless: true });
-const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, baseURL: origin, recordVideo: { dir: output } });
-await context.addCookies([{ name: 'n5_admin_session', value: fixture.session, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
-const restrictNetwork = async (target) => {
-  await target.route('**/*', (route) => {
-    const url = new URL(route.request().url());
-    return url.protocol === 'blob:' || ['localhost', '127.0.0.1'].includes(url.hostname) ? route.continue() : route.abort();
-  });
-};
+const browser = await (browserName === 'webkit' ? webkit : chromium).launch({ headless: true, ...(profile.https ? { proxy: { server: profile.proxyServer } } : {}) });
+const contextOptions = { baseURL: origin, ignoreHTTPSErrors: profile.https };
+const context = await browser.newContext({ ...contextOptions, viewport: { width: 1440, height: 1000 }, recordVideo: { dir: output } });
+await context.addCookies([{ name: 'n5_admin_session', value: fixture.session, domain: profile.cookieDomain, path: '/', httpOnly: true, secure: profile.https, sameSite: 'Lax' }]);
+const restrictNetwork = target => restrictAiTrialNetwork(target, profile);
 await restrictNetwork(context);
 const page = await context.newPage();
 let operationId;
@@ -65,6 +67,7 @@ const startedAt = new Date();
 const failures = [];
 const contactChecks = [];
 const interactionChecks = [];
+const serverProbes = [];
 page.on('request', (request) => {
   if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/admin/business-setup') {
     const body = request.postDataJSON();
@@ -115,6 +118,39 @@ const openPreview = async () => {
           return 'blocked';
         }
       }), 'blocked');
+      const proposed = (await head()).document.services.find(service => service.name === 'BIAB') ?? (await head()).document.services[0];
+      const proposedCard = preview.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-services] > *').filter({ hasText: proposed.name }).first();
+
+      await expect(proposedCard.locator('[data-luster-book]')).toHaveAttribute('data-luster-book', `setup_preview_${proposed.id}`);
+      await expect(proposedCard.locator('[data-luster-field="service.durationMinutes"]')).toHaveText(String(proposed.durationMinutes));
+
+      const proposedPrice = await proposedCard.locator('[data-luster-field="service.priceLabel"]').textContent() ?? '';
+      assert.equal(Math.round(Number(proposedPrice.match(/\d+(?:,\d{3})*(?:\.\d{2})?/u)?.[0]?.replaceAll(',', '')) * 100), proposed.priceCents, 'Private preview must display the proposed price, not the live price.');
+      if (profile.https) {
+        assert.equal(await preview.evaluate(() => isSecureContext), true);
+        assert.equal(await frame.evaluate(() => {
+          try {
+            return localStorage.length;
+          } catch {
+            return 'blocked';
+          }
+        }), 'blocked');
+        const blocked = await frame.evaluate(async () => {
+          let violated = false;
+          const observe = (event) => {
+            violated ||= event.effectiveDirective === 'connect-src';
+          };
+          document.addEventListener('securitypolicyviolation', observe);
+          try {
+            await fetch('https://example.invalid/luster-csp-negative-check');
+          } catch { /* Expected denial by the frame's CSP. */ }
+          await new Promise(resolve => setTimeout(resolve, 100));
+          document.removeEventListener('securitypolicyviolation', observe);
+          return violated;
+        });
+        assert.equal(blocked, true, 'The isolated frame must enforce connect-src itself.');
+        interactionChecks.push({ device, secureContext: true, parentCookies: 'blocked', frameStorage: 'blocked', connectSrcViolation: true });
+      }
       assert.equal(await frame.evaluate(() => {
         try {
           return document.cookie;
@@ -206,6 +242,9 @@ let liveAddOnsBefore;
 let liveSettingsBefore;
 let bookingResponseStatus;
 let bookingSubmissionCount = 0;
+const historicalAppointments = async () => (await database.query('SELECT id,md5(to_jsonb(a)::text) AS fingerprint FROM appointment a WHERE salon_id=$1 ORDER BY id', [fixture.salonId])).rows;
+let historicalBefore;
+let modelCallCountBefore;
 try {
   // Local cold compilation is measured separately from provider generation.
   await page.goto(`/admin/business-setup?salon=${salonSlug}`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
@@ -217,7 +256,17 @@ try {
   liveServicePricesBefore = await livePrices();
   liveAddOnsBefore = await liveExtras();
   liveSettingsBefore = await liveSettingsFingerprint();
-  if (['message', 'photos', 'manual-wording', 'booking-link', 'restore', 'publish'].includes(step)) {
+  historicalBefore = await historicalAppointments();
+  modelCallCountBefore = Number((await database.query('SELECT count(*) AS count FROM setup_ai_call WHERE salon_id=$1', [fixture.salonId])).rows[0].count);
+  if (profile.https && before.status === 'editing') {
+    await page.getByRole('textbox', { name: 'Message Luster', exact: true }).fill('Check that paid AI is disabled.');
+
+    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+
+    await page.getByRole('textbox', { name: 'Message Luster', exact: true }).fill('');
+    interactionChecks.push({ paidAiSending: 'disabled' });
+  }
+  if (['message', 'photos', 'manual-wording', 'service-price', 'booking-link', 'restore', 'publish'].includes(step)) {
     assert.equal(before.status, 'editing', 'Return through Edit with AI before changing a published salon.');
   }
   if (step === 'conversation') {
@@ -314,6 +363,25 @@ try {
     assert.equal(after.document.website.config.customFrontendId, before.document.website.config.customFrontendId);
     assert.deepEqual(after.document.services.map(item => ({ id: item.id, name: item.name, price: item.priceCents, duration_minutes: item.durationMinutes })).sort((a, b) => a.id.localeCompare(b.id)), liveServicePricesBefore);
     await screenshot('current-business-loaded-for-editing');
+  } else if (step === 'service-price') {
+    const price = Number(messageOrArtifact);
+    assert(Number.isFinite(price) && price >= 0 && price <= 1000, 'Choose a bounded synthetic test price.');
+    await page.getByRole('button', { name: 'Details', exact: true }).click();
+    const form = page.locator('form.setup-service').filter({ has: page.locator('input[name="name"][value="BIAB"]') });
+
+    await expect(form).toHaveCount(1);
+
+    await form.getByRole('spinbutton', { name: 'Price', exact: true }).fill(String(price));
+    await form.getByRole('button', { name: 'Save service', exact: true }).click();
+
+    await expect.poll(async () => (await head()).document.services.find(service => service.name === 'BIAB')?.priceCents).toBe(Math.round(price * 100));
+
+    after = await head();
+    assert.equal(after.document.website.config.customFrontendId, before.document.website.config.customFrontendId);
+    assert.deepEqual(await livePrices(), liveServicePricesBefore);
+    assert.equal(await liveSettingsFingerprint(), liveSettingsBefore);
+    await screenshot('manual-price-draft');
+    await openPreview();
   } else if (step === 'photos') {
     assert(messageOrArtifact, 'Supply one or two synthetic test-image paths.');
     await page.locator('#setup-attach-button').click();
@@ -365,9 +433,10 @@ try {
 
     assert.equal(await canonicalSlug(), salonSlug, 'Saving a proposed link must not change the live address.');
     assert.equal(await liveSettingsFingerprint(), liveSettingsBefore);
-    const anonymous = await browser.newContext({ baseURL: origin });
+    const anonymous = await browser.newContext(contextOptions);
     try {
-      assert.equal((await anonymous.request.get(`/${messageOrArtifact}/book/service`, { timeout: 60_000 })).status(), 404, 'The proposed link must remain inaccessible before publication.');
+      const target = trialApiTarget(`/${messageOrArtifact}/book/service`, profile);
+      assert.equal((await anonymous.request.get(target.url, { headers: target.headers, timeout: 60_000 })).status(), 404, 'The proposed link must remain inaccessible before publication.');
     } finally {
       await anonymous.close();
     }
@@ -386,12 +455,17 @@ try {
 
     await expect.poll(async () => (await head()).document.website.config.customFrontendId).toBe(messageOrArtifact);
 
+    after = await head();
+    for (const field of ['business', 'services', 'hours', 'booking', 'staff', 'addOns', 'bookingPolicy', 'deposit', 'reminders', 'siteSlug']) {
+      assert.deepEqual(after.document[field], before.document[field], `Restoring a design must preserve ${field}.`);
+    }
     await openPreview();
   } else if (step === 'publish') {
-    const publicCheck = await browser.newContext({ baseURL: origin });
+    const publicCheck = await browser.newContext(contextOptions);
     try {
       const salon = (await database.query('SELECT publication_status FROM salon WHERE id=$1', [fixture.salonId])).rows[0];
-      assert.equal((await publicCheck.request.get(`/${salonSlug}/book/service`, { timeout: 60_000 })).status(), salon.publication_status === 'published' ? 200 : 404, 'Preserve the existing public/private state before approval.');
+      const target = trialApiTarget(`/${salonSlug}/book/service`, profile);
+      assert.equal((await publicCheck.request.get(target.url, { headers: target.headers, timeout: 60_000 })).status(), salon.publication_status === 'published' ? 200 : 404, 'Preserve the existing public/private state before approval.');
     } finally {
       await publicCheck.close();
     }
@@ -421,9 +495,10 @@ try {
     if (process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true') {
       await page.route('**/api/admin/business-setup', async (route) => {
         if (route.request().method() !== 'POST' || route.request().postDataJSON().action !== 'publish') {
-          return route.continue();
+          return route.fallback();
         }
-        const result = await route.fetch();
+        const target = trialApiTarget('/api/admin/business-setup', profile);
+        const result = await route.fetch({ url: target.url, headers: { ...await route.request().allHeaders(), ...target.headers }, maxRedirects: 0 });
         assert.equal(result.status(), 200, 'Fault injection drops only a committed successful response.');
         await route.abort('failed');
       });
@@ -449,10 +524,32 @@ try {
       assert.equal(receipts.filter(receipt => receipt.revision === publishedRevision).length, 1);
       await screenshot('recovered-after-refresh');
     }
+  } else if (step === 'connection-recovery') {
+    assert.equal(before.status, 'editing');
+    const unsent = 'Make my logo bigger';
+    const input = page.getByRole('textbox', { name: 'Message Luster', exact: true });
+    await input.fill(unsent);
+    const interruptReview = route => route.request().method() === 'POST' && route.request().postDataJSON().action === 'review' ? route.abort('failed') : route.fallback();
+    await page.route('**/api/admin/business-setup', interruptReview);
+    await page.getByRole('button', { name: 'Review', exact: true }).click();
+
+    await expect(page.getByText('Your connection dropped. Reload your saved changes before trying again.', { exact: true })).toBeVisible();
+    await expect(input).toHaveValue(unsent);
+
+    await screenshot('connection-error-keeps-message');
+    await page.unroute('**/api/admin/business-setup', interruptReview);
+    await page.getByRole('button', { name: 'Reload saved changes', exact: true }).click();
+
+    await expect(page.getByText('Your connection dropped. Reload your saved changes before trying again.', { exact: true })).toHaveCount(0);
+    await expect(input).toHaveValue(unsent);
+
+    await screenshot('connection-recovered');
+    assert.deepEqual(await head(), before, 'Recovering a read must not create or approve a draft change.');
+    interactionChecks.push({ connectionRecovery: 'plain-language error, unsent message retained, saved revision recovered without mutation' });
   } else if (step === 'preview') {
     await openPreview();
   } else if (step === 'public-preview') {
-    const anonymous = await browser.newContext({ baseURL: origin, viewport: { width: 390, height: 844 } });
+    const anonymous = await browser.newContext({ ...contextOptions, viewport: { width: 390, height: 844 } });
     await restrictNetwork(anonymous);
     const publicPage = await anonymous.newPage();
     try {
@@ -474,12 +571,14 @@ try {
     }
   } else {
     // Genuine anonymous original-booking journey. No API appointment shortcut.
-    const customer = await browser.newContext({ baseURL: origin, viewport: { width: 390, height: 844 } });
+    const customer = await browser.newContext({ ...contextOptions, viewport: { width: 390, height: 844 } });
     await restrictNetwork(customer);
     const booking = await customer.newPage();
+    let bookingBody;
     booking.on('request', (request) => {
       if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/appointments') {
         bookingSubmissionCount += 1;
+        bookingBody = request.postDataJSON();
       }
     });
     try {
@@ -590,12 +689,35 @@ try {
         assert.deepEqual(snapshots, [{ add_on_id: selectedExtra.id, unit_price_cents_snapshot: selectedExtra.price_cents, line_total_cents_snapshot: selectedExtra.price_cents, line_duration_minutes_snapshot: selectedExtra.duration_minutes }]);
       }
       assert((await database.query('SELECT 1 FROM technician_services WHERE service_id=$1 AND technician_id=$2', [service.id, booked[0].technician_id])).rowCount, 'The appointment artist must be assigned to the selected service.');
+      if (profile.https) {
+        assert(bookingBody);
+        // Negative API probe only. Successful appointment creation above always
+        // follows the original calendar, customer form and confirmation button.
+        const virtualId = `setup_preview_${service.id}`;
+        const data = { ...bookingBody, baseServiceId: virtualId, serviceIds: undefined, bookingBasket: undefined, selectedAddOns: [], expectedBasketReviewFingerprint: undefined, catalogAcknowledgment: undefined };
+        if (data.bookingPolicyAcknowledgment) {
+          data.bookingPolicyAcknowledgment = { ...data.bookingPolicyAcknowledgment, attemptId: randomUUID() };
+        }
+        const result = await booking.evaluate(async ({ data, key }) => {
+          const response = await fetch('/api/appointments', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify(data) });
+          const payload = await response.json();
+          return { status: response.status, code: typeof payload.error === 'string' ? payload.error : payload.error?.code ?? null };
+        }, { data, key: randomUUID() });
+        serverProbes.push({ kind: 'virtual-preview-service-rejected', ...result });
+        assert.deepEqual(result, { status: 400, code: 'INVALID_SELECTION' }, 'The original server must reject the virtual service at its canonical selection validator.');
+        assert.equal((await historicalAppointments()).length, historicalBefore.length + 1);
+      }
     } catch (error) {
       await booking.screenshot({ path: path.join(output, 'original-booking-failure.png'), fullPage: true }).catch(() => {});
       throw error;
     } finally {
       await customer.close();
     }
+  }
+  const historicalAfter = await historicalAppointments();
+  assert.deepEqual(historicalAfter.filter(row => historicalBefore.some(old => old.id === row.id)), historicalBefore, 'Drafts, publication and new bookings must preserve all existing appointment rows.');
+  if (profile.https) {
+    assert.equal(Number((await database.query('SELECT count(*) AS count FROM setup_ai_call WHERE salon_id=$1', [fixture.salonId])).rows[0].count), modelCallCountBefore, 'An optimized saved-site check must not spend AI credits.');
   }
 } catch (error) {
   failure = error.message.slice(0, 600);
@@ -610,7 +732,7 @@ try {
     : [];
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
-  const evidence = { step, trialScope, browserName, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, contactChecks, interactionChecks, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
+  const evidence = { step, trialScope, browserName, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, serverProbes, contactChecks, interactionChecks, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
   process.stdout.write(`${JSON.stringify({ step, status: evidence.status, revision: after?.revision, providerMicroUsd: calls.reduce((sum, item) => sum + (item.cost_micro_usd ?? 0), 0), output, ...(failure ? { failure } : {}) })}\n`);
   await context.close();

@@ -487,6 +487,27 @@ it('does not claim publication when both the response and the saved-state check 
   expect(requests.filter(request => request.action === 'approve')).toHaveLength(1);
 });
 
+it('explains a dropped connection in plain language and keeps an unsent message', async () => {
+  const baseFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'review') {
+      throw new TypeError('Failed to fetch');
+    }
+    return baseFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Luster' }), { target: { value: 'Make my logo bigger' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+
+  expect(await screen.findByText('Your connection dropped. Reload your saved changes before trying again.')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Reload saved changes' })).toBeVisible();
+  expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveValue('Make my logo bigger');
+  expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
+  expect(requests.some(request => ['message', 'approve', 'publish'].includes(request.action))).toBe(false);
+});
+
 it('saves a first booking link in the shared draft and shows it in exact review without publishing', async () => {
   const baseFetch = globalThis.fetch;
   vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {

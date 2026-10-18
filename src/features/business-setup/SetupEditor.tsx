@@ -198,6 +198,11 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
     let response: Response;
     try {
       response = await fetch('/api/admin/business-setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ salonSlug, ...body }), signal });
+    } catch (error) {
+      if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+        throw error;
+      }
+      throw new Error('Your connection dropped. Reload your saved changes before trying again.');
     } finally {
       if (metered) {
         window.dispatchEvent(new Event(AI_CREDITS_CHANGED));
