@@ -1,0 +1,92 @@
+{
+  "scope": "Saved Canva reopening and cross-engine preview; not real Clerk cross-device authentication",
+  "runs": [
+    {
+      "step": "preview",
+      "browserName": "webkit",
+      "status": "failed",
+      "failure": "expect(locator).toHaveAttribute(expected) failed\n\nLocator: getByRole('link', { name: 'Open full preview', exact: true })\nExpected string: \"/admin/business-setup/design-preview/paid-ai-solcanva-18f0bdda?revision=6\"\nReceived: <element(s) not found>\nTimeout: 45000ms\n\nCall log:\n\u001b[2m  - Expect \"to.have.attribute.value\" with timeout 45000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('link', { name: 'Open full preview', exact: true })\u001b[22m\n",
+      "beforeRevision": 6,
+      "afterRevision": 6,
+      "artifactId": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+      "interactionChecks": []
+    },
+    {
+      "step": "start-editing",
+      "browserName": "chromium",
+      "status": "passed",
+      "failure": null,
+      "beforeRevision": 6,
+      "afterRevision": 7,
+      "artifactId": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+      "interactionChecks": []
+    },
+    {
+      "step": "preview",
+      "browserName": "webkit",
+      "status": "passed",
+      "failure": null,
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "preservedCanvaPages": 1,
+          "areaCount": 8
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "instagram",
+          "areaId": "contact-instagram",
+          "matched": true
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "email",
+          "areaId": "contact-email",
+          "matched": true
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "service",
+          "serviceName": "Lash Services",
+          "areaId": "select-lash-services",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "preservedCanvaPages": 1,
+          "areaCount": 8
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "instagram",
+          "areaId": "contact-instagram",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "email",
+          "areaId": "contact-email",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "service",
+          "serviceName": "Lash Services",
+          "areaId": "select-lash-services",
+          "matched": true
+        },
+        {
+          "browserName": "webkit",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "webkit",
+          "reducedMotion": "passed"
+        }
+      ]
+    }
+  ]
+}

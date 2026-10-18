@@ -659,7 +659,7 @@ try {
     }
   } else {
     // Genuine anonymous original-booking journey. No API appointment shortcut.
-    const customer = await browser.newContext({ ...contextOptions, viewport: { width: 390, height: 844 } });
+    const customer = await browser.newContext({ ...contextOptions, viewport: { width: 390, height: 844 }, recordVideo: { dir: output, size: { width: 390, height: 844 } } });
     await restrictNetwork(customer);
     const booking = await customer.newPage();
     let bookingBody;

@@ -21,41 +21,44 @@ export function AiWebsiteIntro({ locale, showGetStarted = false, children }: { l
         <p>Show Luster a design you love, or describe something original. AI builds your booking website and helps put your business details together.</p>
         {showGetStarted && (
           <div className="ai-entry-actions">
-            <a className="ai-entry-primary" href={`${url}?account=sign-up`}>Build with AI · from $10 CAD</a>
-            <a href={`${url}?account=sign-in`}>I already have an account</a>
+            <a className="ai-entry-primary" href={`${url}?account=sign-up#account`}>Build with AI · from $10 CAD</a>
+            <a href={`${url}?account=sign-in#account`}>I already have an account</a>
           </div>
         )}
       </section>
-      <section className="ai-entry-how" aria-labelledby="ai-entry-how-title">
-        <h2 id="ai-entry-how-title">Tell us. See it. Make it yours.</h2>
-        <ol>
-          <li>
-            <span>01</span>
-            <h3>Tell us about your business</h3>
-            <p>Use your saved details, type a little, or let AI read your own design or menu.</p>
-          </li>
-          <li>
-            <span>02</span>
-            <h3>Show us your style</h3>
-            <p>Upload Canva artwork, inspiration and photos, or describe the website you imagine.</p>
-          </li>
-          <li>
-            <span>03</span>
-            <h3>Watch your website take shape</h3>
-            <p>Refine it in chat. Check your services, prices, hours and supported booking settings in the same draft.</p>
-          </li>
-          <li>
-            <span>04</span>
-            <h3>Approve when it feels right</h3>
-            <p>Review the exact changes, then publish. Booking runs through Luster.</p>
-          </li>
-        </ol>
+      <section className="ai-entry-demo" aria-labelledby="ai-entry-demo-title">
+        <p className="ai-entry-eyebrow">A REAL BUILD, STEP BY STEP</p>
+        <h2 id="ai-entry-demo-title">See your ideas become a booking website.</h2>
+        <video
+          aria-label="Luster AI website builder walkthrough"
+          controls
+          playsInline
+          preload="none"
+          poster="/assets/videos/luster-ai-builder-poster.jpg"
+        >
+          <source src="/assets/videos/luster-ai-builder-demo.webm" type={'video/webm; codecs="vp9"'} />
+          <source src="/assets/videos/luster-ai-builder-demo.mp4" type={'video/mp4; codecs="avc1.640028"'} />
+          <track kind="captions" src="/assets/videos/luster-ai-builder-demo.vtt" srcLang="en" label="English walkthrough" default />
+          Your browser cannot play this video. Read the walkthrough below.
+        </video>
+        <p className="ai-entry-demo-note">Recorded with a sample business in our test environment. Edited for time; generation speed and results vary.</p>
+        <details>
+          <summary>Read the walkthrough</summary>
+          <ol>
+            <li>Tell Luster your business name, opening hours, services, prices and appointment lengths. It saves them in your draft.</li>
+            <li>Describe your style or upload a design. In this example, AI creates an original warm-white and charcoal website from a text description.</li>
+            <li>Ask for a change in chat. Preview the updated design on desktop and mobile.</li>
+            <li>Review the exact website and business changes. Only you can approve and publish them.</li>
+            <li>A customer chooses a service and books through Luster. This recording finishes with a synthetic test appointment.</li>
+          </ol>
+        </details>
       </section>
       <section className="ai-entry-value">
         <h2>One place to build. And keep improving.</h2>
         <p>Credits cover AI design and business-setting changes. Come back through More → Luster AI whenever you want to update things.</p>
         <p>Start with $10, $20 or $50 CAD in one-time credits. Every pack includes the same AI features. Usage depends on your requests; extra credits are optional. Ordinary bookings and manual editing do not use AI credits.</p>
         <p>You’ll see a request limit before sending. Your website stays saved when your balance runs out.</p>
+        {showGetStarted && <a className="ai-entry-primary" href={`${url}?account=sign-up#account`}>Start my website · from $10 CAD</a>}
       </section>
       {children}
       <footer>

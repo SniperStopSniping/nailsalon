@@ -292,6 +292,14 @@ export default async function middleware(
   // Invitation pages are public, but their server component calls Clerk auth()
   // to continue already-signed-in owners into onboarding.
   if (isPublicClerkRoute(request)) {
+    const segments = request.nextUrl.pathname.split('/').filter(Boolean);
+    const isAiIntroduction = (segments.length === 1 && segments[0] === 'ai-website')
+      || (segments.length === 2 && AllLocales.includes(segments[0]!) && segments[1] === 'ai-website');
+    if (isAiIntroduction && !request.nextUrl.searchParams.get('account') && !hasClerkSessionCookie(request.cookies.getAll())) {
+      // The public recording needs no identity or provider request. Account
+      // forms and existing sessions still establish validated Clerk context.
+      return finalizeResponse(intlMiddleware(request));
+    }
     const response = await clerkMiddleware(async (_auth, req) => intlMiddleware(req), clerkOptions)(
       request,
       event,
