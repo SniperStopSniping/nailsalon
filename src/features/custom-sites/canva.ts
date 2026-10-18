@@ -35,12 +35,39 @@ export const canvaAreasSchema = z.array(canvaAreaSchema).max(40).superRefine((ar
     if (destination && /\b(?:book|appointment|reserv|schedul)|acuityscheduling|calendly|booksy|fresha|vagaro/iu.test(`${area.id.replaceAll('_', ' ')} ${area.label} ${new URL(destination).hostname} ${new URL(destination).pathname.replace(/[-_/]/gu, ' ')}`)) {
       context.addIssue({ code: 'custom', message: 'Connect appointment buttons to the Luster booking menu or a service, not another website.' });
     }
-    if (ids.has(area.id) || area.geometry.width * area.geometry.height > 7000 || areas.slice(0, index).some(other => other.page === area.page && rectanglesHaveInteriorOverlap(other.geometry, area.geometry))) {
-      context.addIssue({ code: 'custom', message: 'Use separate, nonoverlapping clickable areas with unique names.' });
+    if (ids.has(area.id)) {
+      context.addIssue({ code: 'custom', path: [index, 'id'], message: 'Use separate, nonoverlapping clickable areas with unique names.' });
+    }
+    if (area.geometry.width * area.geometry.height > 7000) {
+      context.addIssue({ code: 'custom', path: [index, 'geometry'], message: 'A clickable area must not cover most of the artwork.' });
+    }
+    for (const other of areas.slice(0, index)) {
+      if (other.page === area.page && rectanglesHaveInteriorOverlap(other.geometry, area.geometry)) {
+        context.addIssue({ code: 'custom', path: [index, 'geometry'], message: `Use nonoverlapping clickable areas: ${area.id} overlaps ${other.id} on page ${area.page}.` });
+      }
     }
     ids.add(area.id);
   }
 });
+/** The model wire contract uses fractions; saved/manual geometry stays in percent. */
+const modelGeometry = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  width: z.number().positive().max(1),
+  height: z.number().positive().max(1),
+}).strict().refine(value => value.x + value.width <= 1.00000001 && value.y + value.height <= 1.00000001, 'Keep each fraction-based rectangle inside its page (x+width and y+height must be at most 1).');
+const scaledGeometry = (geometry: CanvaArea['geometry'], scale: number) => ({
+  x: Number((geometry.x * scale).toFixed(6)),
+  y: Number((geometry.y * scale).toFixed(6)),
+  width: Number((geometry.width * scale).toFixed(6)),
+  height: Number((geometry.height * scale).toFixed(6)),
+});
+export const canvaModelAreasSchema = z.array(canvaAreaSchema.extend({ geometry: modelGeometry })).max(40)
+  .transform(areas => areas.map(area => ({ ...area, geometry: scaledGeometry(area.geometry, 100) })))
+  .pipe(canvaAreasSchema);
+export function canvaAreasForModel(areas: CanvaArea[]) {
+  return canvaAreasSchema.parse(areas).map(area => ({ ...area, geometry: scaledGeometry(area.geometry, 0.01) }));
+}
 export const canvaDesignSchema = z.object({
   version: z.literal(1),
   pages: z.array(z.object({ assetId: z.string().uuid(), width: z.number().int().positive().max(40000), height: z.number().int().positive().max(40000), alt: z.string().trim().min(1).max(3000) }).strict()).min(1).max(6),
@@ -54,6 +81,13 @@ export const canvaDesignSchema = z.object({
 }).strict().refine(value => value.areas.every(area => area.page < value.pages.length), 'Choose an existing page for each clickable area.');
 export type CanvaDesign = z.infer<typeof canvaDesignSchema>;
 export type CanvaArea = z.infer<typeof canvaAreaSchema>;
+/** Catch effectively invisible targets without requiring crowded labels to be 44px. */
+export function unusableCanvaAreas(areas: CanvaArea[], pages: { width: number; height: number }[]) {
+  return areas.filter((area) => {
+    const page = pages[area.page];
+    return !page || area.geometry.width * 3.2 < 8 || area.geometry.height * 3.2 * page.height / page.width < 4;
+  });
+}
 /** Enlarge invisible touch targets, never artwork or overlapping neighbours. */
 export function comfortableCanvaAreas(areas: CanvaArea[], pages: { width: number; height: number }[]) {
   const result = structuredClone(areas);

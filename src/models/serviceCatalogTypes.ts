@@ -7,10 +7,11 @@ export const SERVICE_CATEGORIES = [
   'hands',
   'feet',
   'combo',
+  'other',
 ] as const;
 export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
 
-export const BOOKING_CATEGORIES = ['manicure', 'pedicure', 'combo'] as const;
+export const BOOKING_CATEGORIES = ['manicure', 'pedicure', 'combo', 'other'] as const;
 export type BookingCategory = (typeof BOOKING_CATEGORIES)[number];
 
 export const ADD_ON_CATEGORIES = ['nail_art', 'repair', 'removal', 'pedicure_addon'] as const;

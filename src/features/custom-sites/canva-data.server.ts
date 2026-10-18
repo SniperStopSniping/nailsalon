@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 
 import type { SetupDocument } from '@/features/business-setup/contracts';
 
+import { unusableCanvaAreas } from './canva';
 import type { CustomSiteData, CustomSiteSource } from './contracts';
 import { customSiteDataFromSetup } from './setup-data';
 import { EMPTY_WEBSITE_DETAILS } from './website-details';
@@ -34,6 +35,7 @@ export function canvaDraftBlockers(document: SetupDocument, source: CustomSiteSo
   const data = customSiteDataFromSetup(document);
   return [
     ...canvaTargetBlockers(source, data),
+    ...unusableCanvaAreas(source.canva.areas, source.canva.pages).map(area => `The “${area.label}” link is too small to tap. Resize it in Preview, or ask Luster to check its position.`),
     ...(!source.canva.ownerReviewed || !canvaFactsMatch(source, data, true) ? ['Review your Canva artwork in Preview. Check its prices, hours, contact details and address before sharing or publishing.'] : []),
   ];
 }

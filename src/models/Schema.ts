@@ -93,12 +93,14 @@ export const serviceCategoryEnum = pgEnum('service_category', [
   'hands',
   'feet',
   'combo',
+  'other',
 ]);
 
 export const bookingCategoryEnum = pgEnum('booking_category', [
   'manicure',
   'pedicure',
   'combo',
+  'other',
 ]);
 
 export const addOnCategoryEnum = pgEnum('add_on_category', [

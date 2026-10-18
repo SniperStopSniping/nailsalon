@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { reviewCanvaArtwork, saveCustomSource } from '@/features/custom-sites/artifacts.server';
 import * as customArtifacts from '@/features/custom-sites/artifacts.server';
 import { ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
+import type { CanvaArea } from '@/features/custom-sites/canva';
 import { compileCanvaDesign } from '@/features/custom-sites/canva';
 import { canvaDataFingerprint, canvaServiceKey } from '@/features/custom-sites/canva-data.server';
 import { replaceCanvaPage } from '@/features/custom-sites/canva-replace.server';
@@ -238,6 +239,27 @@ describe('isolated business setup persistence', () => {
     await database.update(schema.salonSchema).set({ city: 'Ottawa' }).where(eq(schema.salonSchema.id, actor.salonId));
 
     await expect(reviewSetup(actor)).rejects.toMatchObject({ code: 'STALE' });
+  });
+
+  it('publishes a neutral non-nail appointment through the same canonical catalogue and staff assignments', async () => {
+    const actor = await fixture();
+    const draft = await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'service', values: { id: 'draft_lashes', name: 'Lash Services', description: null, priceCents: 6500, durationMinutes: 75, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'other', bookingCategory: 'other' } }] });
+
+    expect(draft.revision.document.services.find(service => service.id === 'draft_lashes')).toMatchObject({ category: 'other', bookingCategory: 'other', priceCents: 6500, durationMinutes: 75 });
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+
+    const review = await reviewSetup(actor);
+    const approval = await approveSetup(actor, review.revision, review.hash);
+    const request = { approvalId: approval.id, revision: review.revision, operationId: randomUUID() };
+    const result = await publishSetup(actor, request);
+    const services = await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId));
+    const lashes = services.find(service => service.name === 'Lash Services');
+
+    expect(lashes).toMatchObject({ category: 'other', bookingCategory: 'other', price: 6500, durationMinutes: 75 });
+    expect(services).toHaveLength(2);
+    expect(await database.select().from(schema.technicianServicesSchema).where(eq(schema.technicianServicesSchema.serviceId, lashes!.id))).toHaveLength(1);
+    expect((await publishSetup(actor, request)).receipt.id).toBe(result.receipt.id);
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(2);
   });
 
   it('publishes approved canonical data once and replays the receipt after a lost response', async () => {
@@ -1765,7 +1787,10 @@ describe('full owner draft reset', () => {
 });
 
 describe('AI clickable Canva artwork', () => {
-  const answer = (areas: unknown[] = [{ id: 'booking', page: 0, label: 'Book an appointment', geometry: { x: 10, y: 75, width: 80, height: 10 }, action: { type: 'book' } }]) => ({ areas, visibleText: 'Test Studio. Toronto.', altText: ['Test Studio booking design'], notes: [] });
+  const bookingArea = (): CanvaArea => ({ id: 'booking', page: 0, label: 'Book an appointment', geometry: { x: 10, y: 75, width: 80, height: 10 }, action: { type: 'book' } });
+  // Fixtures are expressed in the saved/manual percent format, encoded once
+  // into the model's fractional wire format at the provider boundary.
+  const answer = (areas: CanvaArea[] = [bookingArea()]) => ({ areas: areas.map(area => ({ ...area, geometry: Object.fromEntries(Object.entries(area.geometry).map(([key, value]) => [key, value / 100])) })), visibleText: 'Test Studio. Toronto.', altText: ['Test Studio booking design'], notes: [] });
   const result = (value: unknown) => ({ status: 'completed' as const, usage: { inputTokens: 1000, outputTokens: 500, cachedInputTokens: 0 }, items: [{ type: 'message' as const, text: JSON.stringify(value) }] });
   async function prepared(owned = true) {
     const actor = await fixture();
@@ -1775,6 +1800,40 @@ describe('AI clickable Canva artwork', () => {
     const input = { expectedRevision: head.revision.revision, operationId: randomUUID(), message: 'Keep this design and make everything clickable', referenceIds: [reference.id] };
     return { actor, reference, input };
   }
+
+  it('retains raw model fractions, saves percent geometry, and sends prior areas back in model units', async () => {
+    const { actor, input } = await prepared();
+    const first = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+    const firstArtifact = (await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, first.artifactId)))[0]!;
+    const firstCall = (await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId)))[0]!;
+
+    expect(JSON.parse(firstCall.rawOutput!).areas[0].geometry).toEqual({ x: 0.1, y: 0.75, width: 0.8, height: 0.1 });
+    expect(firstArtifact.source.canva!.areas[0]!.geometry).toEqual({ x: 10, y: 75, width: 80, height: 10 });
+
+    const createResponse = vi.fn().mockResolvedValue(result(answer()));
+    const next = await generateCustomSite(actor, { ...input, expectedRevision: first.head.revision.revision, operationId: randomUUID(), message: 'Keep the design, check the booking button.' }, { createResponse });
+    const supplied = JSON.parse(createResponse.mock.calls[0]![0].input[1].content);
+
+    expect(supplied.previousAreas[0].geometry).toEqual({ x: 0.1, y: 0.75, width: 0.8, height: 0.1 });
+    expect(next.artifactId).not.toBe(first.artifactId);
+    expect((await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, first.artifactId)))[0]!.source).toEqual(firstArtifact.source);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
+  it('blocks publication of an old subpixel link without rewriting its saved source', async () => {
+    const { actor, input } = await prepared();
+    const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+    const original = (await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, generated.artifactId)))[0]!;
+    const source = compileCanvaDesign({ ...original.source.canva!, areas: original.source.canva!.areas.map(area => ({ ...area, geometry: { x: 0.247, y: 0.26, width: 0.462, height: 0.012 } })) });
+    const saved = await saveCustomSource(actor, { source, assetIds: original.assetIds, expectedRevision: generated.head.revision.revision, operationId: randomUUID() });
+    await reviewCanvaArtwork(actor, { expectedRevision: saved.head.revision.revision, operationId: randomUUID() });
+    const review = await reviewSetup(actor);
+
+    expect(review.blockers).toContain('The “Book an appointment” link is too small to tap. Resize it in Preview, or ask Luster to check its position.');
+    await expect(approveSetup(actor, review.revision, review.hash)).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect((await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, saved.artifact.id)))[0]!.source.canva!.areas[0]!.geometry).toEqual({ x: 0.247, y: 0.26, width: 0.462, height: 0.012 });
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
 
   it('replaces a low-resolution page, preserves links and business data, clears review and safely replays a lost response', async () => {
     const { actor, reference, input } = await prepared();
@@ -1867,7 +1926,7 @@ describe('AI clickable Canva artwork', () => {
     expect(media[0]!.hash).toBe(media[1]!.hash);
     expect(artifact!.source.canva).toMatchObject({ ownerReviewed: false, pages: [{ width: 300, height: 900 }] });
     expect(artifact!.source.javascript).toBe('');
-    expect(createResponse.mock.calls[0]![0].model).toBe('gpt-6-luna');
+    expect(createResponse.mock.calls[0]![0].model).toBe('gpt-6.1-sol');
     expect(JSON.stringify(createResponse.mock.calls[0]![0].input)).toContain('input_image');
     expect((await reviewSetup(actor)).blockers.join(' ')).toContain('Canva artwork');
 
@@ -1959,7 +2018,7 @@ describe('AI clickable Canva artwork', () => {
 
   it('validates and repairs AI regions once, replays without duplicate calls or promoted assets', async () => {
     const { actor, input } = await prepared();
-    const createResponse = vi.fn().mockResolvedValueOnce(result(answer([{ ...answer().areas[0] as object, geometry: { x: 99, y: 0, width: 50, height: 10 } }]))).mockResolvedValue(result(answer()));
+    const createResponse = vi.fn().mockResolvedValueOnce(result(answer([{ ...bookingArea(), geometry: { x: 99, y: 0, width: 50, height: 10 } }]))).mockResolvedValue(result(answer()));
     const generated = await generateCustomSite(actor, input, { createResponse });
     const replay = await generateCustomSite(actor, input, { createResponse });
 
@@ -1967,6 +2026,32 @@ describe('AI clickable Canva artwork', () => {
     expect(createResponse).toHaveBeenCalledTimes(2);
     expect((await ownedAssets(database as any, actor.salonId, (await database.select().from(schema.customSiteAssetSchema).where(eq(schema.customSiteAssetSchema.salonId, actor.salonId))).map(asset => asset.id))).filter(asset => asset.role === 'photo')).toHaveLength(1);
     expect((await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId))).map(call => call.validation)).toEqual(['canva_areas_invalid', 'passed']);
+  });
+
+  it('tells the bounded AI repair exactly which adjacent contact regions overlap', async () => {
+    const { actor, input } = await prepared();
+    const head = await editSetup(actor, { expectedRevision: input.expectedRevision, operationId: randomUUID(), operations: [{ type: 'website_details', values: { instagram: '@studio', email: 'studio@example.com' } }] });
+    const areas: CanvaArea[] = [
+      { id: 'instagram', page: 0, label: 'Instagram', geometry: { x: 25, y: 25.8, width: 43, height: 1.8 }, action: { type: 'instagram' } },
+      { id: 'email', page: 0, label: 'Email', geometry: { x: 25, y: 27.5, width: 49, height: 1.8 }, action: { type: 'email' } },
+    ];
+    const fixed = structuredClone(areas);
+    fixed[0]!.geometry.height = 1.5;
+    const createResponse = vi.fn().mockResolvedValueOnce(result(answer(areas))).mockResolvedValueOnce(result(answer(fixed)));
+    const generated = await generateCustomSite(actor, { ...input, expectedRevision: head.revision.revision }, { createResponse });
+
+    expect(createResponse).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(createResponse.mock.calls[1]![0].input.at(-1))).toContain('email overlaps instagram');
+    expect(JSON.stringify(createResponse.mock.calls[1]![0].input.at(-1))).toContain('y+height');
+    expect(createResponse.mock.calls.map(call => call[0].model)).toEqual(['gpt-6.1-sol', 'gpt-6.1-sol']);
+    expect(JSON.stringify(createResponse.mock.calls[0]![0].jsonSchema)).toContain(canvaServiceKey(customSiteDataFromSetup(head.revision.document).services[0]!));
+
+    const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, generated.artifactId));
+
+    expect(artifact!.source.canva!.areas).toHaveLength(2);
+    expect(artifact!.source.canva!.areas.map(area => area.action.type)).toEqual(['instagram', 'email']);
+    expect(artifact!.source.javascript).toBe('');
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
   });
 
   it('blocks hidden addresses read from artwork even with different whitespace', async () => {
@@ -1985,7 +2070,7 @@ describe('AI clickable Canva artwork', () => {
       const { actor, input } = await prepared();
       const document = (await openSetup(actor)).revision.document;
       const key = canvaServiceKey(customSiteDataFromSetup(document).services[0]!);
-      const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer([{ ...answer().areas[0] as object, action: { type: 'service', serviceKey: key } }]))) });
+      const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer([{ ...bookingArea(), action: { type: 'service', serviceKey: key } }]))) });
       const confirmed = await editSetup(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'confirm_services', ids: ['draft_gel'] }] });
       const checked = await reviewCanvaArtwork(actor, { expectedRevision: confirmed.revision.revision, operationId: randomUUID() });
       const review = await reviewSetup(actor);

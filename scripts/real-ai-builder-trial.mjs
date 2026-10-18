@@ -30,7 +30,15 @@ const trialScope = process.env.LUSTER_REAL_AI_SCOPE ?? 'website';
 assert(['website', 'business_and_website'].includes(trialScope));
 const referencePurpose = process.env.LUSTER_REAL_AI_REFERENCE_PURPOSE ?? 'inspiration';
 assert(['inspiration', 'own', 'keep_design'].includes(referencePurpose));
-assert(['message', 'conversation', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'booking-link', 'restore', 'publish', 'book', 'connection-recovery'].includes(step), 'Choose message, conversation, photos, preview, public-preview, start-editing, manual-wording, service-price, booking-link, restore, publish, book or connection-recovery.');
+// Optional human-measured points from the reference, used only for acceptance.
+// They never enter a model prompt or alter a generated artifact.
+const landmarks = process.env.LUSTER_REAL_AI_CANVA_LANDMARKS ? JSON.parse(fs.readFileSync(process.env.LUSTER_REAL_AI_CANVA_LANDMARKS, 'utf8')) : [];
+assert(Array.isArray(landmarks) && landmarks.length <= 40);
+for (const point of landmarks) {
+  assert(Number.isInteger(point.page) && point.page >= 0 && point.page < 6 && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1);
+  assert(['instagram', 'email', 'phone', 'service', 'book'].includes(point.action));
+}
+assert(['message', 'conversation', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'service-price', 'contact-details', 'booking-link', 'restore', 'canva-review', 'publish', 'book', 'connection-recovery'].includes(step), 'Choose message, conversation, photos, preview, public-preview, start-editing, manual-wording, service-price, contact-details, booking-link, restore, canva-review, publish, book or connection-recovery.');
 if (profile.https) {
   assertHttpsTrialStep(step);
 }
@@ -59,7 +67,7 @@ assert(['chromium', 'webkit'].includes(browserName), 'Choose the installed Chrom
 assert(browserName === 'chromium' || step !== 'message', 'Run paid model requests once; use WebKit only to verify saved output.');
 const browser = await (browserName === 'webkit' ? webkit : chromium).launch({ headless: true, ...(profile.https ? { proxy: { server: profile.proxyServer } } : {}) });
 const contextOptions = { baseURL: origin, ignoreHTTPSErrors: profile.https };
-const context = await browser.newContext({ ...contextOptions, viewport: { width: 1440, height: 1000 }, recordVideo: { dir: output } });
+const context = await browser.newContext({ ...contextOptions, viewport: { width: 1440, height: 1000 }, recordVideo: { dir: output, size: { width: 1440, height: 1000 } } });
 await context.addCookies([{ name: 'n5_admin_session', value: fixture.session, domain: profile.cookieDomain, path: '/', httpOnly: true, secure: profile.https, sameSite: 'Lax' }]);
 const restrictNetwork = target => restrictAiTrialNetwork(target, profile);
 await restrictNetwork(context);
@@ -176,6 +184,22 @@ const openPreview = async () => {
         }
         assert.equal(await frame.evaluate(() => [...document.querySelectorAll('.canva-page > img')].every(image => image.complete && image.naturalWidth > 0)), true, 'Every preserved Canva page must actually load.');
         interactionChecks.push({ device, preservedCanvaPages: canva.pages.length, areaCount: canva.areas.length });
+        for (const point of landmarks) {
+          const result = await frame.evaluate(async (point) => {
+            const image = document.querySelectorAll('.canva-page > img')[point.page];
+            const first = image.getBoundingClientRect();
+            window.scrollBy({ top: first.top + first.height * point.y - innerHeight / 2, behavior: 'instant' });
+            await new Promise(requestAnimationFrame);
+            const rect = image.getBoundingClientRect();
+            const target = document.elementFromPoint(rect.left + rect.width * point.x, rect.top + rect.height * point.y)?.closest('[data-luster-canva-area]');
+            return { areaId: target?.getAttribute('data-luster-canva-area'), contact: target?.getAttribute('data-luster-link'), serviceId: target?.getAttribute('data-luster-book') };
+          }, point);
+          const expectedService = point.action === 'service' ? setupDocument.services.find(service => service.name === point.serviceName) : null;
+          assert(point.action !== 'service' || expectedService, 'A reference service landmark must name a real draft service.');
+          const expected = expectedService ? `setup_preview_${expectedService.id}` : point.action === 'book' ? '' : point.action;
+          assert.equal(point.action === 'service' || point.action === 'book' ? result.serviceId : result.contact, expected, `The ${device} ${point.action} target does not cover its actual reference text/button.`);
+          interactionChecks.push({ device, referenceLandmark: point.action, serviceName: point.serviceName, areaId: result.areaId, matched: true });
+        }
       } else {
         await preview.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-services]').scrollIntoViewIfNeeded();
       }
@@ -195,7 +219,9 @@ const openPreview = async () => {
 
         await expect(anchor).toBeVisible();
 
-        const check = { device, kind, href, tapAttemptVerified: false };
+        const rect = await anchor.boundingBox();
+        assert(rect && rect.width >= 8 && rect.height >= 4, `The ${device} ${kind} link is too small to tap (${rect?.width}×${rect?.height}).`);
+        const check = { device, kind, href, targetWidth: rect.width, targetHeight: rect.height, tapAttemptVerified: false };
         if (device === 'mobile' && kind === 'instagram') {
           let attempted = false;
           const observe = (request) => {
@@ -268,7 +294,7 @@ try {
   // Local cold compilation is measured separately from provider generation.
   await page.goto(`/admin/business-setup?salon=${salonSlug}`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
 
-  await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeEnabled({ timeout: 60_000 });
+  await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeEnabled({ timeout: 120_000 });
 
   before = await head();
   assert(before);
@@ -482,6 +508,42 @@ try {
       assert.deepEqual(after.document[field], before.document[field], `Restoring a design must preserve ${field}.`);
     }
     await openPreview();
+  } else if (step === 'contact-details') {
+    assert(/^@?[a-z0-9_.]{1,30}$/iu.test(messageOrArtifact ?? ''), 'Supply the owner-confirmed Instagram handle.');
+    await page.getByRole('button', { name: 'Details', exact: true }).click();
+    const contact = page.getByRole('textbox', { name: 'Instagram handle', exact: true });
+    if (!await contact.isVisible()) {
+      await page.getByText('Contact details and website policies', { exact: true }).first().click();
+    }
+    await contact.fill(messageOrArtifact);
+    await page.getByRole('button', { name: 'Save website details', exact: true }).click();
+    await expect.poll(async () => (await head()).document.website.content.websiteDetails.instagram).toBe(messageOrArtifact);
+    after = await head();
+    assert.equal(after.document.website.config.customFrontendId, before.document.website.config.customFrontendId, 'A contact correction must not regenerate the design.');
+    for (const field of ['business', 'services', 'hours', 'booking', 'staff', 'addOns', 'bookingPolicy', 'deposit', 'reminders', 'siteSlug']) {
+      assert.deepEqual(after.document[field], before.document[field], `A contact correction must preserve ${field}.`);
+    }
+    assert.equal(await liveSettingsFingerprint(), liveSettingsBefore);
+    assert.equal(Number((await database.query('SELECT count(*) AS count FROM setup_ai_call WHERE salon_id=$1', [fixture.salonId])).rows[0].count), modelCallCountBefore);
+    await screenshot('owner-confirmed-contact');
+  } else if (step === 'canva-review') {
+    await openPreview();
+    await page.getByText('Check Canva links & artwork', { exact: true }).click();
+    await page.getByRole('checkbox', { name: /^I checked all printed prices, times, policies, contact details and addresses/u }).check();
+    await page.getByRole('button', { name: 'Artwork is correct', exact: true }).click();
+
+    await expect.poll(async () => {
+      const artifactId = (await head()).document.website.config.customFrontendId;
+      return (await database.query('SELECT source FROM custom_site_artifact WHERE salon_id=$1 AND id=$2', [fixture.salonId, artifactId])).rows[0]?.source.canva?.ownerReviewed;
+    }).toBe(true);
+
+    after = await head();
+    for (const field of ['business', 'services', 'hours', 'booking', 'staff', 'addOns', 'bookingPolicy', 'deposit', 'reminders', 'siteSlug']) {
+      assert.deepEqual(after.document[field], before.document[field], `Checking artwork must preserve ${field}.`);
+    }
+    assert.equal(await liveSettingsFingerprint(), liveSettingsBefore);
+    assert.equal(Number((await database.query('SELECT count(*) AS count FROM setup_ai_call WHERE salon_id=$1', [fixture.salonId])).rows[0].count), modelCallCountBefore, 'Manual artwork review must not call a model.');
+    await screenshot('artwork-owner-reviewed');
   } else if (step === 'publish') {
     const publicCheck = await browser.newContext(contextOptions);
     try {
@@ -611,13 +673,15 @@ try {
       await booking.goto(`/${salonSlug}/book/service`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       const site = booking.frameLocator(`iframe[src="${renderer}"]`);
 
-      await expect(site.locator('[data-luster-services] > *').first()).toBeVisible({ timeout: 45_000 });
+      await expect(site.locator('[data-luster-services] > *').first()).toBeAttached({ timeout: 45_000 });
+      const isCanva = await site.locator('.canva-page').count() > 0;
 
       // Select a real bound service rather than an unconnected generic link.
       const biab = site.locator('[data-luster-services] > *').filter({ hasText: /BIAB/u }).first();
-      const card = await biab.count() ? biab : site.locator('[data-luster-services] > *').first();
-      const bookButton = card.locator('[data-luster-book]');
-      const serviceId = await bookButton.getAttribute('data-luster-book');
+      const requested = process.env.LUSTER_REAL_AI_BOOK_SERVICE;
+      const card = requested ? site.locator('[data-luster-services] > *').filter({ hasText: requested }).first() : await biab.count() ? biab : site.locator('[data-luster-services] > *').first();
+      const serviceId = await card.locator('[data-luster-book]').getAttribute('data-luster-book');
+      const bookButton = isCanva ? site.locator(`[data-luster-canva-area][data-luster-book="${serviceId}"]`).first() : card.locator('[data-luster-book]');
       const service = (await database.query('SELECT id,name,price,duration_minutes FROM service WHERE salon_id=$1 AND id=$2', [fixture.salonId, serviceId])).rows[0];
       assert(service, 'The generated button must bind to a real service from this salon.');
 
@@ -627,7 +691,11 @@ try {
       const priceText = await card.locator('[data-luster-field="service.priceLabel"]').textContent() ?? '';
       const displayedAmount = priceText.match(/\d+(?:,\d{3})*(?:\.\d{2})?/u)?.[0];
       assert.equal(Math.round(Number(displayedAmount?.replaceAll(',', '')) * 100), service.price, 'The displayed service price must match the live booking amount.');
-      await card.scrollIntoViewIfNeeded();
+      await bookButton.scrollIntoViewIfNeeded();
+      await expect(bookButton).toBeVisible();
+      const rect = await bookButton.boundingBox();
+      assert(rect && rect.width >= 8 && rect.height >= 4, 'The actual service button must be tappable.');
+      interactionChecks.push({ originalBooking: true, preservedCanva: isCanva, serviceId, serviceName: service.name, targetWidth: rect.width, targetHeight: rect.height });
       await booking.screenshot({ path: path.join(output, 'original-public-website.png'), fullPage: true });
 
       await bookButton.click();

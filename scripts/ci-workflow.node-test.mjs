@@ -142,8 +142,9 @@ test('AI migration pins accept the new packet and reject changed or already-ship
   const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
   const packet = run.match(/while read -r file expected_blob; do[\s\S]*?\nAI_SETUP_MIGRATIONS/)[0];
   const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z0-9_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
-  assert.equal(files.length, 13);
+  assert.equal(files.length, 14);
   assert.ok(files.includes('migrations/0110_setup_add_on_publication.sql'));
+  assert.ok(files.includes('migrations/0111_other_service_categories.sql'));
   const directory = mkdtempSync(path.join(tmpdir(), 'ai-migration-gate-'));
   const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
   const check = () => spawnSync('bash', ['-eu', '-c', `base="$(git rev-parse HEAD)"\n${packet}`], { cwd: directory }).status;

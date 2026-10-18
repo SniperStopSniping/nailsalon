@@ -529,6 +529,7 @@ jobs:
               migrations/0108_ai_request_metering.sql) ;;
               migrations/0109_setup_staff_publication.sql) ;;
               migrations/0110_setup_add_on_publication.sql) ;;
+              migrations/0111_other_service_categories.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -1011,6 +1012,7 @@ jobs:
           migrations/0108_ai_request_metering.sql 9dc64ff20e3994236a174817fe6cdd6f19276ab1
           migrations/0109_setup_staff_publication.sql 620a8e4ef0cf4efb12c1e81af4d356191ee28cae
           migrations/0110_setup_add_on_publication.sql fa7b0b96f9475baea8b3d995048f0ab0464c61fb
+          migrations/0111_other_service_categories.sql d53a465feb451bbd8279331796e102375b552726
           AI_SETUP_MIGRATIONS
 
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
@@ -1091,6 +1093,7 @@ jobs:
               0108_ai_request_metering) ;;
               0109_setup_staff_publication) ;;
               0110_setup_add_on_publication) ;;
+              0111_other_service_categories) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1

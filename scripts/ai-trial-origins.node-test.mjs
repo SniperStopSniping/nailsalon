@@ -28,7 +28,7 @@ test('HTTPS verification cannot submit another billable generation request', () 
   for (const step of ['message', 'photos', 'conversation', 'generate']) {
     assert.throws(() => assertHttpsTrialStep(step), /cannot make a new paid model request/u);
   }
-  for (const step of ['preview', 'book', 'publish', 'service-price']) {
+  for (const step of ['preview', 'book', 'publish', 'service-price', 'contact-details', 'canva-review']) {
     assert.doesNotThrow(() => assertHttpsTrialStep(step));
   }
 });

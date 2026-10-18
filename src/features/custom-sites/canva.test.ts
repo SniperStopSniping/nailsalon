@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { CanvaDesign } from './canva';
-import { canvaDesignSchema, comfortableCanvaAreas, compileCanvaDesign } from './canva';
+import { canvaAreasForModel, canvaDesignSchema, canvaModelAreasSchema, comfortableCanvaAreas, compileCanvaDesign, unusableCanvaAreas } from './canva';
 import { canvaDataFingerprint, canvaFactsMatch, canvaPriceLabelsFingerprint, canvaServiceKey, canvaTargetBlockers } from './canva-data.server';
 import type { CustomSiteData } from './contracts';
 import { validateCustomSource } from './validate.server';
@@ -14,6 +14,64 @@ const data: CustomSiteData = { business: { name: 'Canva Studio', city: 'Toronto'
 const design = (): CanvaDesign => ({ version: 1, pages: [{ assetId: randomUUID(), width: 600, height: 1800, alt: 'Original salon artwork' }], areas: [{ id: 'book', page: 0, label: 'Book Gel', geometry: { x: 10, y: 80, width: 80, height: 5 }, action: { type: 'service', serviceKey: canvaServiceKey(data.services[0]!) } }], visibleText: 'Original artwork', notes: [], ownerReviewed: false, dataFingerprint: canvaDataFingerprint(data) });
 
 describe('preserved Canva artwork', () => {
+  it('converts fractional AI geometry exactly once while retaining saved percent geometry', () => {
+    const area = { ...design().areas[0]!, geometry: { x: 24.7, y: 26, width: 46.2, height: 1.2 } };
+    const wire = canvaAreasForModel([area]);
+
+    expect(wire[0]!.geometry).toEqual({ x: 0.247, y: 0.26, width: 0.462, height: 0.012 });
+    expect(canvaModelAreasSchema.parse(wire)).toEqual([area]);
+    expect(compileCanvaDesign({ ...design(), areas: canvaModelAreasSchema.parse(wire) }).css).toContain('left:24.7%;top:26%;width:46.2%;height:1.2%');
+    expect(area.geometry).toEqual({ x: 24.7, y: 26, width: 46.2, height: 1.2 });
+  });
+
+  it('rejects percent output at the AI boundary rather than guessing the model units', () => {
+    const area = design().areas[0]!;
+
+    expect(canvaModelAreasSchema.safeParse([area]).success).toBe(false);
+    expect(canvaDesignSchema.safeParse(design()).success).toBe(true);
+    expect(canvaModelAreasSchema.safeParse([{ ...area, geometry: { x: 0.9, y: 0.1, width: 0.2, height: 0.1 } }]).success).toBe(false);
+  });
+
+  it('keeps overlap validation after converting model fractions to saved percentages', () => {
+    const area = design().areas[0]!;
+    const parsed = canvaModelAreasSchema.safeParse([
+      { ...area, id: 'instagram', geometry: { x: 0.25, y: 0.258, width: 0.43, height: 0.018 } },
+      { ...area, id: 'email', geometry: { x: 0.25, y: 0.275, width: 0.49, height: 0.018 } },
+    ]);
+
+    expect(parsed.success).toBe(false);
+
+    if (!parsed.success) {
+      expect(parsed.error.issues).toContainEqual(expect.objectContaining({ path: [1, 'geometry'], message: 'Use nonoverlapping clickable areas: email overlaps instagram on page 0.' }));
+    }
+  });
+
+  it('identifies previously saved subpixel targets without rewriting old artwork', () => {
+    const original = design();
+    original.areas[0]!.geometry = { x: 0.247, y: 0.26, width: 0.462, height: 0.012 };
+    const source = compileCanvaDesign({ ...original, ownerReviewed: true });
+
+    expect(unusableCanvaAreas(source.canva!.areas, source.canva!.pages).map(area => area.id)).toEqual(['book']);
+    expect(canvaTargetBlockers(source, data)).toEqual([]);
+    expect(source.canva!.areas[0]!.geometry).toEqual(original.areas[0]!.geometry);
+    expect(unusableCanvaAreas(design().areas, design().pages)).toEqual([]);
+  });
+
+  it('identifies the exact overlapping contact pair without accepting intersecting targets', () => {
+    const value = design();
+    value.areas = [
+      { id: 'instagram', page: 0, label: 'Instagram', geometry: { x: 25, y: 25.8, width: 43, height: 1.8 }, action: { type: 'instagram' } },
+      { id: 'email', page: 0, label: 'Email', geometry: { x: 25, y: 27.5, width: 49, height: 1.8 }, action: { type: 'email' } },
+    ];
+    const parsed = canvaDesignSchema.safeParse(value);
+
+    expect(parsed.success).toBe(false);
+
+    if (!parsed.success) {
+      expect(parsed.error.issues).toContainEqual(expect.objectContaining({ path: ['areas', 1, 'geometry'], message: 'Use nonoverlapping clickable areas: email overlaps instagram on page 0.' }));
+    }
+  });
+
   it('keeps legacy public artwork available but requires price-wording review before another publication', () => {
     const source = compileCanvaDesign({ ...design(), ownerReviewed: true });
 

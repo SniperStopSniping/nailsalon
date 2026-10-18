@@ -580,6 +580,19 @@ describe('BookServiceClient', () => {
     expect(screen.getByRole('navigation', { name: 'Booking links' })).toHaveAttribute('data-public-surface', 'bookingRecoveryNavigation');
   });
 
+  it('shows and selects a non-nail appointment under a neutral group without empty nail tabs', () => {
+    const other = { ...services[0]!, id: 'svc-lashes', name: 'Lash Services', category: 'other' as const, bookingCategory: 'other' as const, imageUrl: '/assets/images/services/other-service.svg' };
+    render(<BookServiceClient services={[other]} bookingFlow={['service', 'time', 'confirm']} locations={[]} />);
+
+    expect(screen.getByRole('button', { name: /Other services/u })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^Manicure$/u })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Pedicure$/u })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('service-card-svc-lashes'));
+
+    expect(bookingStateMock.setBaseServiceId).toHaveBeenCalledWith('svc-lashes');
+  });
+
   it('localizes recovery access and keeps the resolved salon when route or query data differs', () => {
     navigationMock.params = { locale: 'fr', slug: 'other-salon' };
     navigationMock.searchParams = new URLSearchParams('salonSlug=another-salon');

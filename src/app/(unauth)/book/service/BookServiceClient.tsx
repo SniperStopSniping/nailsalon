@@ -18,7 +18,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
-import { BOOKING_CATEGORY_META } from '@/libs/bookingCategory';
+import { BOOKING_CATEGORY_META, visibleBookingCategories } from '@/libs/bookingCategory';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { getFeaturedServices, sortServicesForCategory } from '@/libs/bookingMerchandising';
 import type { SectionId } from '@/libs/bookingPageConfig';
@@ -55,7 +55,7 @@ import {
 } from '@/libs/sectionRegistry';
 import { resolveServiceMenuPresentation } from '@/libs/serviceMenuLayout';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
-import { BOOKING_CATEGORIES, type BookingCategory } from '@/models/Schema';
+import type { BookingCategory, ServiceCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 import { formatDuration } from '@/utils/Helpers';
@@ -67,15 +67,6 @@ import type { QuickBookProfileView } from './quickBookProfile';
 // Keep server rendering for these headers, but load their renderer and CSS
 // only when the chosen salon layout uses them. Isla supplies its own header.
 const QuickBookProfileHeader = dynamic(() => import('./QuickBookProfileHeader').then(module => module.QuickBookProfileHeader));
-
-type ServiceCategory =
-  | 'manicure'
-  | 'builder_gel'
-  | 'extensions'
-  | 'pedicure'
-  | 'hands'
-  | 'feet'
-  | 'combo';
 
 type AddOnCategory = 'nail_art' | 'repair' | 'removal' | 'pedicure_addon';
 type AddOnPricingType = 'fixed' | 'per_unit';
@@ -512,10 +503,11 @@ export function BookServiceClient({
     : urlBasket?.items[0]?.serviceId ?? urlBaseServiceId ?? legacyServiceIds[0] ?? null;
   const initialBaseServiceId = urlDrivenBaseServiceId ?? null;
   const initialSelectedService = services.find(service => service.id === initialBaseServiceId) ?? null;
+  const availableCategories = visibleBookingCategories(services);
   // Manicure is the default tab, unless the salon offers nothing under it —
   // then land on the first tab (in canonical order) that has services.
   const firstNonEmptyCategory: BookingCategory
-    = BOOKING_CATEGORIES.find(category =>
+    = availableCategories.find(category =>
       services.some(service => service.bookingCategory === category)) ?? 'manicure';
   const initialCategory: BookingCategory = initialSelectedService?.bookingCategory ?? firstNonEmptyCategory;
   // L1 keeps the URL's explicit customer picks verbatim. The resolver owns
@@ -1292,8 +1284,8 @@ export function BookServiceClient({
   const serviceRows = islaCanCollapse ? fullServiceRows.slice(0, 3) : fullServiceRows;
   const islaMoreCount = islaCanCollapse ? Math.max(0, fullServiceRows.length - 3) : 0;
   const orderedCategories = selectedService
-    ? [selectedService.bookingCategory, ...BOOKING_CATEGORIES.filter(category => category !== selectedService.bookingCategory)]
-    : BOOKING_CATEGORIES;
+    ? [selectedService.bookingCategory, ...availableCategories.filter(category => category !== selectedService.bookingCategory)]
+    : availableCategories;
   const groupedServiceRows = orderedCategories.flatMap((category) => {
     const categoryServices = sortServicesForCategory(
       (isSearching ? filteredServices : services).filter(
@@ -1964,7 +1956,7 @@ export function BookServiceClient({
                             className="flex min-w-max flex-nowrap gap-1.5 md:min-w-0 md:flex-wrap md:justify-center md:gap-2"
                             data-testid="service-category-track"
                           >
-                            {BOOKING_CATEGORIES.map((category) => {
+                            {availableCategories.map((category) => {
                               const active = category === selectedCategory;
                               const meta = BOOKING_CATEGORY_META[category];
                               return (
