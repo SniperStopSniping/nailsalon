@@ -123,6 +123,38 @@ describe('development onboarding media storage', () => {
     } satisfies Partial<OnboardingMediaStorageError>);
   });
 
+  it('reads existing private uploads in an explicitly local optimized Development runtime', async () => {
+    const bytes = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).png().toBuffer();
+    const saved = await saveOnboardingMediaFile({ file: new File([Uint8Array.from(bytes)], 'photo.png', { type: 'image/png' }), ...owner, role: 'gallery', revisionId: 'revision_optimized', stableItemId: 'photo', uploadAttemptId: 'attempt' });
+    const original = await readOnboardingMediaFile(saved.storageKey, owner);
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('APP_ENV', 'development');
+    for (const key of ['VERCEL', 'VERCEL_ENV', 'VITEST', 'CI', 'GITHUB_ACTIONS']) {
+      vi.stubEnv(key, undefined);
+    }
+
+    await expect(readOnboardingMediaFile(saved.storageKey, owner)).resolves.toEqual(original);
+    await expect(readOnboardingMediaFile(saved.storageKey, { salonId: 'another_salon' })).rejects.toMatchObject({ code: 'INVALID_MEDIA_OWNER' });
+  });
+
+  it.each([
+    { app: undefined, vercel: undefined, deployment: undefined },
+    { app: 'preview', vercel: undefined, deployment: undefined },
+    { app: 'development', vercel: '1', deployment: 'development' },
+    { app: 'development', vercel: '1', deployment: 'production' },
+    { app: 'production', vercel: '1', deployment: 'production' },
+  ])('keeps local uploads inaccessible to hosted or ambiguous optimized runtimes: %j', async ({ app, vercel, deployment }) => {
+    const bytes = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).png().toBuffer();
+    const saved = await saveOnboardingMediaFile({ file: new File([Uint8Array.from(bytes)], 'photo.png', { type: 'image/png' }), ...owner, role: 'gallery', revisionId: 'revision_rejected', stableItemId: 'photo', uploadAttemptId: 'attempt' });
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('APP_ENV', app);
+    vi.stubEnv('VERCEL', vercel);
+    vi.stubEnv('VERCEL_ENV', deployment);
+    vi.stubEnv('VITEST', undefined);
+
+    await expect(readOnboardingMediaFile(saved.storageKey, owner)).rejects.toMatchObject({ code: 'IMAGE_STORAGE_UNAVAILABLE' });
+  });
+
   it('fails closed when a development root is absent', async () => {
     vi.stubEnv('LUSTER_ONBOARDING_MEDIA_DIR', '');
     const input = await sharp({

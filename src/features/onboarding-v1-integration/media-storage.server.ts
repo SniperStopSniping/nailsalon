@@ -5,6 +5,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { cloudinary, isCloudinaryConfigured } from '@/libs/Cloudinary';
+import { resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
 import sharp from '@/libs/safeSharp.server';
 
 import { ONBOARDING_SITE_MEDIA_ROLES } from './contracts';
@@ -100,7 +101,13 @@ export const isOnboardingMediaStorageProvider = (
 );
 
 const resolveRoot = (): string => {
-  if (process.env.NODE_ENV === 'production') {
+  // A locally optimized Next.js build also has NODE_ENV=production. It can
+  // read its existing Development uploads only with an explicit local marker.
+  // Hosted deployments and ambiguous environments keep the original denial.
+  const localOptimizedDevelopment = !process.env.VERCEL && !process.env.VERCEL_ENV
+    && process.env.APP_ENV === 'development'
+    && resolveRuntimeEnvironment(process.env) === 'development';
+  if (process.env.NODE_ENV === 'production' && !localOptimizedDevelopment) {
     throw new OnboardingMediaStorageError(
       'IMAGE_STORAGE_UNAVAILABLE',
       'The development media adapter is disabled in Production.',

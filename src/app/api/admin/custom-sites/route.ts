@@ -38,12 +38,13 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('save'), input: z.object({ ...edit, source: customSiteSourceSchema, assetIds: z.array(z.string().uuid()).max(12) }).strict() }).strict(),
   z.object({ action: z.literal('restore'), input: z.object({ ...edit, artifactId: z.string().uuid() }).strict() }).strict(),
 ]);
-function errorResponse(error: unknown) {
+function errorResponse(error: unknown, operation: 'load' | 'save' = 'save') {
   if (error instanceof AiCreditError) {
     return Response.json({ error: error.message, code: error.code }, { status: error.code === 'INSUFFICIENT_CREDITS' ? 402 : error.code === 'NOT_CONFIGURED' ? 503 : error.code === 'INVALID' ? 400 : 409, headers });
   }
   const status = error instanceof SetupError ? error.code === 'FORBIDDEN' ? 403 : error.code === 'INVALID' ? 400 : 409 : error instanceof z.ZodError ? 400 : 503;
-  return Response.json({ error: error instanceof SetupError ? error.message : 'The design could not be saved. Your previous version is safe.' }, { status, headers });
+  const fallback = operation === 'load' ? 'Your saved design could not be loaded. Try again.' : 'The design could not be saved. Your previous version is safe.';
+  return Response.json({ error: error instanceof SetupError ? error.message : fallback }, { status, headers });
 }
 export async function GET(request: Request) {
   const access = await requireSetupOwner(new URL(request.url).searchParams.get('salonSlug') ?? '');
@@ -85,7 +86,7 @@ export async function GET(request: Request) {
     const payload = await setupCustomSitePayload(access.actor.salonId, document);
     return Response.json({ head, payload, preferences: document.designBrief ?? null, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });
   } catch (e) {
-    return errorResponse(e);
+    return errorResponse(e, 'load');
   }
 }
 export async function POST(request: Request) {

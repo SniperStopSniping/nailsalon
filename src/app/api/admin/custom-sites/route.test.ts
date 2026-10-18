@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from './route';
 
 vi.mock('server-only', () => ({}));
-const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn(), replaceCanva: vi.fn(), meter: vi.fn() }));
+const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn(), replaceCanva: vi.fn(), meter: vi.fn(), read: vi.fn() }));
+vi.mock('@/libs/DB', () => ({ db: { transaction: state.read } }));
 vi.mock('@/features/ai-credits/request-metering.server', () => ({ runWithAiCredits: state.meter }));
 vi.mock('@/features/business-setup/conversation.server', () => ({ runSetupConversation: state.business }));
 vi.mock('@/features/business-setup/access.server', () => ({ requireSetupOwner: state.access }));
@@ -50,6 +51,18 @@ describe('custom website owner boundary', () => {
     expect((await POST(request({}))).status).toBe(403);
     expect((await GET(new Request('http://localhost:3197/api/admin/custom-sites?salonSlug=other'))).status).toBe(403);
     expect(state.save).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed saved-design load without claiming a save failed or leaking private diagnostics', async () => {
+    state.read.mockRejectedValueOnce(new Error('private-internal-storage-location'));
+    const response = await GET(new Request('http://localhost:3197/api/admin/custom-sites?salonSlug=authorized-salon'));
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error).toContain('could not be loaded');
+    expect(JSON.stringify(body)).not.toContain('private-internal-storage-location');
+    expect(state.save).not.toHaveBeenCalled();
+    expect(state.generate).not.toHaveBeenCalled();
   });
 
   it('does not expose publication, arbitrary code execution or URL fetch tools', async () => {

@@ -126,6 +126,17 @@ if (mode === 'build') {
   await attestDevelopment();
   const common = { ...inherited, NODE_ENV: 'production', LUSTER_ISOLATED_HTTPS_CHECK: 'true', LUSTER_ISOLATED_HTTPS_DIRECTORY: directory, NODE_OPTIONS: `--max-old-space-size=4096 --import ${path.join(directory, 'outbound-guard.mjs')}` };
   const appEnv = { ...common, APP_ENV: 'development', BILLING_PLAN_ENV: 'dev', DATABASE_URL: databaseUrl('luster_ai_setup_development'), DATABASE_POOL_MAX: '2', LUSTER_NONPROD_DB_HOSTS: '127.0.0.1', NEXT_PUBLIC_APP_URL: profile.origin, NEXT_PUBLIC_CLERK_SIGN_IN_URL: '/sign-in', CLERK_SECRET_KEY: testKey('sk'), NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_test_Y2kubHVzdGVyLmludmFsaWQk', STRIPE_SECRET_KEY: testKey('sk'), NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: testKey('pk'), STRIPE_WEBHOOK_SECRET: ['whsec', placeholder].join('_'), STRIPE_CONNECT_WEBHOOK_SECRET: ['whsec', 'connect', placeholder].join('_'), CUSTOM_SITE_RENDER_ORIGIN: profile.rendererOrigin, CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED: 'true', CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES: 'true', BUSINESS_SETUP_AI_ENABLED: 'false', BUSINESS_SETUP_PUBLISH_ENABLED: 'true', AI_CREDITS_ENABLED: 'false', AI_CREDIT_METERING_ENABLED: 'false', AI_CREDIT_PURCHASES_ENABLED: 'false', BUSINESS_SETUP_SELF_SERVE_ENABLED: 'false', BILLING_SUBSCRIPTIONS_ENABLED: 'false', BILLING_TOPUPS_ENABLED: 'false', COMMUNICATIONS_SMS_ENABLED: 'false', SMS_PILOT_ENABLED: 'false', LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED: 'true' };
+  // Saved Development uploads live outside Git and the clean build archive.
+  // Pass only this explicit task-owned directory, never a secret-bearing .env.
+  const mediaRoot = process.env.LUSTER_ISOLATED_HTTPS_MEDIA_DIR;
+  if (mediaRoot) {
+    assert.equal(mediaRoot, '/tmp/luster-custom-site-private-media', 'Only the fixed disposable trial media directory is supported.');
+    const stat = fs.lstatSync(mediaRoot);
+    assert(stat.isDirectory() && !stat.isSymbolicLink(), 'The disposable media root must be a real directory.');
+    assert.equal(stat.uid, process.getuid(), 'The disposable media directory must belong to this user.');
+    assert.equal(fs.realpathSync(mediaRoot), path.join(fs.realpathSync('/tmp'), 'luster-custom-site-private-media'));
+    appEnv.LUSTER_ONBOARDING_MEDIA_DIR = mediaRoot;
+  }
   const rendererEnv = { ...common, CUSTOM_SITE_PARENT_ORIGIN: profile.origin };
   const worker = path.join(source, 'scripts/lib/ai-https-worker.mjs');
   const logs = ['app', 'renderer', 'proxy'].map(name => fs.openSync(path.join(directory, `${name}.log`), 'a', 0o600));
