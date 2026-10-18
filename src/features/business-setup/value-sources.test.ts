@@ -126,8 +126,26 @@ describe('source labels without approval authority', () => {
     expect(sources).toEqual({ name: 'owner', priceCents: 'suggested', durationMinutes: 'suggested' });
   });
 
+  it('recognizes a plural service name in a request for starting recommendations', () => {
+    const ownerMessage = 'I offer BIAB and gel manicures, but I have not set prices or appointment lengths. Please suggest starting prices in Canadian dollars and appointment lengths for me to review.';
+
+    for (const item of peers) {
+      expect(updatedValueSources(undefined, item, 'assistant', undefined, peers, { ownerMessage }))
+        .toEqual({ name: 'owner', priceCents: 'suggested', durationMinutes: 'suggested' });
+    }
+  });
+
+  it('keeps singular and plural names ambiguous when they identify different services', () => {
+    const variants = [gel, { ...gel, id: 'another-gel', name: 'Gel Manicures' }];
+
+    for (const item of variants) {
+      expect(updatedValueSources(undefined, item, 'assistant', undefined, variants, { ownerMessage: 'Gel manicures at CAD50 for 60 minutes.' }))
+        .toEqual({ name: 'conversation', priceCents: 'conversation', durationMinutes: 'conversation' });
+    }
+  });
+
   it('keeps legacy assistant records conservative instead of inventing provenance', () => {
-    expect(valueSourcesSummary(biab)).toBe('Prepared in chat');
+    expect(valueSourcesSummary(biab)).toBe('Prepared with AI');
     expect(resolvedValueSources({ ...biab, origin: 'upload' })).toEqual({ name: 'upload', priceCents: 'upload', durationMinutes: 'upload' });
     expect(resolvedValueSources({ ...biab, durationMinutes: null }, { durationMinutes: 'owner' })).not.toHaveProperty('durationMinutes');
   });

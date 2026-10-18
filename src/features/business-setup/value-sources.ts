@@ -15,7 +15,7 @@ export function resolvedValueSources(item: Item, stored?: SetupValueSources): Se
 
 /**
  * Conservative literal evidence, not a second AI extraction or a price guess.
- * Unmatched/ambiguous statements stay "Prepared in chat". No raw quotes persist.
+ * Unmatched/ambiguous statements stay "Prepared with AI". No raw quotes persist.
  */
 function ownerClauses(item: Item, peers: Named[], message: string) {
   const text = message.normalize('NFKC');
@@ -29,7 +29,12 @@ function ownerClauses(item: Item, peers: Named[], message: string) {
       if (!words?.length) {
         continue;
       }
-      const pattern = new RegExp(`(?:^|[^\\p{L}\\p{N}])(${words.map(escape).join('[\\s\\p{P}]*')})(?=$|[^\\p{L}\\p{N}])`, 'giu');
+      // Owners naturally say "gel manicures" for a saved "Gel Manicure".
+      // Recognize only the regular terminal plural; keep the existing peer
+      // ambiguity check so two matching services cannot inherit each other's
+      // prices or times. This does not guess synonyms or irregular plurals.
+      const namePattern = words.map((word, index) => `${escape(word)}${index === words.length - 1 && !/s$/iu.test(word) ? '(?:s)?' : ''}`).join('[\\s\\p{P}]*');
+      const pattern = new RegExp(`(?:^|[^\\p{L}\\p{N}])(${namePattern})(?=$|[^\\p{L}\\p{N}])`, 'giu');
       for (const match of text.matchAll(pattern)) {
         const end = match.index + match[0].length;
         matches.push({ id: peer.id, start: end - match[1]!.length, end });
@@ -110,7 +115,7 @@ export function hasUnverifiedAiValues(item: Item, stored?: SetupValueSources) {
 
 export function valueSourcesSummary(item: Item, stored?: SetupValueSources) {
   const resolved = resolvedValueSources(item, stored);
-  const labels: Record<SetupValueSource, string> = { saved: 'Saved in Luster', owner: 'Supplied by you', upload: 'Read from your upload', suggested: 'AI suggestion', conversation: 'Prepared in chat' };
+  const labels: Record<SetupValueSource, string> = { saved: 'Saved in Luster', owner: 'Supplied by you', upload: 'Read from your upload', suggested: 'AI suggestion', conversation: 'Prepared with AI' };
   const present = fields.filter(field => resolved[field]);
   if (new Set(present.map(field => resolved[field])).size === 1) {
     return labels[resolved[present[0]!]!];
