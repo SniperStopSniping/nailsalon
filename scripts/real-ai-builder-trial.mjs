@@ -94,6 +94,7 @@ const contactChecks = [];
 const interactionChecks = [];
 const serverProbes = [];
 const privateAddressChecks = [];
+const bookingNavigation = [];
 let pdfUpload;
 let mediaUpload;
 page.on('request', (request) => {
@@ -1005,6 +1006,22 @@ try {
     const customer = await browser.newContext({ ...contextOptions, viewport: { width: 390, height: 844 }, recordVideo: { dir: output, size: { width: 390, height: 844 } } });
     await restrictNetwork(customer);
     const booking = await customer.newPage();
+    booking.on('framenavigated', (frame) => {
+      if (frame === booking.mainFrame()) {
+        bookingNavigation.push({ event: 'navigated', path: new URL(frame.url()).pathname });
+      }
+    });
+    booking.on('response', (response) => {
+      const url = new URL(response.url());
+      if (url.origin === origin && url.pathname.includes('/book/confirm')) {
+        bookingNavigation.push({ event: 'confirm-response', status: response.status(), type: response.headers()['content-type'] });
+        // Private diagnostics only: the opt-in run is scoped to synthetic
+        // accounts, and genuine Clerk outputs stay outside the repository.
+        if (ownerAuth.kind === 'clerk-development') {
+          void response.text().then(body => fs.writeFileSync(path.join(output, `confirm-response-${bookingNavigation.length}.txt`), body, { mode: 0o600 })).catch(() => {});
+        }
+      }
+    });
     let bookingBody;
     const privateAddress = process.env.LUSTER_REAL_AI_PRIVATE_ADDRESS;
     const privacyReads = [];
@@ -1210,6 +1227,10 @@ try {
         assert.equal((await historicalAppointments()).length, historicalBefore.length + 1);
       }
     } catch (error) {
+      bookingNavigation.push({ event: 'failed', path: new URL(booking.url()).pathname });
+      if (ownerAuth.kind === 'clerk-development') {
+        fs.writeFileSync(path.join(output, 'booking-page-private.txt'), await booking.locator('body').textContent() ?? '', { mode: 0o600 });
+      }
       await booking.screenshot({ path: path.join(output, 'original-booking-failure.png'), fullPage: true }).catch(() => {});
       throw error;
     } finally {
@@ -1234,7 +1255,7 @@ try {
     : [];
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
-  const evidence = { step, trialScope, browserName, ownerAuthentication: ownerAuth.kind, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, serverProbes, privateAddressChecks, contactChecks, interactionChecks, pdfUpload, mediaUpload, browserErrors: failures, funding: ownerAuth.kind === 'clerk-development' && !fixture.syntheticRecoveryCredit ? 'Unfunded real Development account; no Stripe payment or purchase.' : 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
+  const evidence = { step, trialScope, browserName, ownerAuthentication: ownerAuth.kind, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, bookingNavigation, serverProbes, privateAddressChecks, contactChecks, interactionChecks, pdfUpload, mediaUpload, browserErrors: failures, funding: ownerAuth.kind === 'clerk-development' && !fixture.syntheticRecoveryCredit ? 'Unfunded real Development account; no Stripe payment or purchase.' : 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
   process.stdout.write(`${JSON.stringify({ step, status: evidence.status, revision: after?.revision, providerMicroUsd: calls.reduce((sum, item) => sum + (item.cost_micro_usd ?? 0), 0), output, ...(failure ? { failure } : {}) })}\n`);
   if (ownerAuth.kind === 'clerk-development') {
