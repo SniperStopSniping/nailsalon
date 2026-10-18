@@ -25,7 +25,18 @@ assert.equal(process.env.LUSTER_REAL_AI_TRIAL, 'true', 'Explicit isolated real-A
 assert(process.env.LUSTER_REAL_AI_FIXTURE, 'Set LUSTER_REAL_AI_FIXTURE to the private synthetic-owner JSON file.');
 const fixture = JSON.parse(fs.readFileSync(process.env.LUSTER_REAL_AI_FIXTURE, 'utf8'));
 const ownerAuth = aiTrialAuth(fixture);
-assert(ownerAuth.kind !== 'clerk-development' || !profile.https, 'Use real Clerk signup only with the isolated Development app.');
+if (ownerAuth.kind === 'clerk-development' && profile.https) {
+  assert.equal(process.env.LUSTER_REAL_AI_CLERK_HTTPS, 'true', 'Explicit optimized genuine-auth verification opt-in is required.');
+  assert.equal(fixture.optimizedHttpsAuthVerified, true, 'Sign in through the optimized owner UI first.');
+  assert.match(fixture.httpsBuildDirectory ?? '', /^\/tmp\/luster-ai-https-check-[a-zA-Z0-9-]+$/u);
+  const metadata = JSON.parse(fs.readFileSync(path.join(fixture.httpsBuildDirectory, 'metadata.json'), 'utf8'));
+  assert.equal(metadata.authProfile, 'clerk-development');
+  assert.equal(metadata.clerkFrontendApi, ownerAuth.frontendApi);
+  assert.equal(metadata.sha, fixture.optimizedHttpsSourceSha);
+  assert.equal(metadata.appOrigin, profile.origin);
+  assert.equal(metadata.rendererOrigin, profile.rendererOrigin);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(fixture.httpsBuildDirectory, 'build-result.json'), 'utf8')).code, 0);
+}
 const [step, messageOrArtifact, reference] = process.argv.slice(2);
 const trialScope = process.env.LUSTER_REAL_AI_SCOPE ?? 'website';
 assert(['website', 'business_and_website'].includes(trialScope));

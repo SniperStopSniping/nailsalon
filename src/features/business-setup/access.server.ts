@@ -41,5 +41,5 @@ export async function requireSetupOwner(salonSlug: string) {
       return { response: new Response(null, { status: 404 }) };
     }
   }
-  return { actor: { salonId: salon.id, adminId: guard.admin.id }, salon, aiEnabled };
+  return { actor: { salonId: salon.id, adminId: guard.admin.id }, salon, aiEnabled, clerkUserId: guard.admin.clerkUserId };
 }

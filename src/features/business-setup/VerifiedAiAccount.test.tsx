@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
@@ -7,6 +8,7 @@ import { VerifiedAiAccount } from './VerifiedAiAccount';
 const state = vi.hoisted(() => ({ isLoaded: true, user: null as null | { id: string; primaryEmailAddress: null | { id: string; emailAddress: string; verification: { status: string }; prepareVerification: ReturnType<typeof vi.fn>; attemptVerification: ReturnType<typeof vi.fn> }; reload: ReturnType<typeof vi.fn> }, profile: vi.fn() }));
 vi.mock('@clerk/nextjs', () => ({ useUser: () => state, useClerk: () => ({ openUserProfile: state.profile }) }));
 vi.mock('./OpenAiBuilder', () => ({ OpenAiBuilder: () => <button type="button">Continue to my AI builder</button> }));
+vi.mock('./ClerkSetupSession', () => ({ ClerkSetupSession: ({ children }: { children: ReactNode }) => children }));
 
 beforeEach(() => {
   state.isLoaded = true;

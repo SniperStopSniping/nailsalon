@@ -5,6 +5,7 @@ import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 import { describeClerkError } from '@/features/onboarding-v1-integration/account-gate/clerk-errors';
 
+import { ClerkSetupSession } from './ClerkSetupSession';
 import { OpenAiBuilder } from './OpenAiBuilder';
 
 /** Same Clerk email-code flow as onboarding; the server still verifies identity. */
@@ -143,7 +144,7 @@ export function VerifiedAiAccount({ locale }: { locale: string }) {
     );
   }
   if (verified) {
-    return <OpenAiBuilder locale={locale} autoOpen />;
+    return <ClerkSetupSession locale={locale} userId={user.id}><OpenAiBuilder locale={locale} autoOpen /></ClerkSetupSession>;
   }
   const wait = Math.max(0, Math.ceil((resendAt - now) / 1000));
   return (

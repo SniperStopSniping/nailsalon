@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 
 import { aiCreditsEnabled } from '@/features/ai-credits/config.server';
 import { requireSetupOwner } from '@/features/business-setup/access.server';
+import { ClerkSetupSession } from '@/features/business-setup/ClerkSetupSession';
 import { SetupEditor } from '@/features/business-setup/SetupEditor';
 
 export const dynamic = 'force-dynamic';
@@ -23,5 +24,8 @@ export default async function BusinessSetupPage(props: {
   if (access.response) {
     notFound();
   }
-  return <SetupEditor key={access.salon.id} salonSlug={access.salon.slug} locale={locale} aiEnabled={access.aiEnabled} creditsEnabled={aiCreditsEnabled()} existingSalon={access.salon.publicationStatus === 'published'} />;
+  const editor = <SetupEditor key={access.salon.id} salonSlug={access.salon.slug} locale={locale} aiEnabled={access.aiEnabled} creditsEnabled={aiCreditsEnabled()} existingSalon={access.salon.publicationStatus === 'published'} />;
+  // Legacy sessions deliberately bypass SDK readiness; their existing cookie
+  // and server ownership checks remain authoritative, even without Clerk JS.
+  return access.clerkUserId ? <ClerkSetupSession userId={access.clerkUserId} locale={locale}>{editor}</ClerkSetupSession> : editor;
 }
