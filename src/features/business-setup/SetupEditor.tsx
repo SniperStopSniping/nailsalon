@@ -20,6 +20,7 @@ import { BookingExtrasEditor } from './BookingExtrasEditor';
 import { BookingExtrasSummary } from './BookingExtrasSummary';
 import { BookingLinkEditor } from './BookingLinkEditor';
 import { BookingPolicyEditor } from './BookingPolicyEditor';
+import { BookingSetupSummary } from './BookingSetupSummary';
 import { ChatAttachments } from './ChatAttachments';
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
 import { missingDesignDetails, WEEKDAYS } from './contracts';
@@ -771,6 +772,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
               <TeamBookingSummary document={head.revision.document} />
               <AddOnBookingSummary document={head.revision.document} />
               <BookingExtrasSummary document={head.revision.document} />
+              {head.revision.document.website.config.customFrontendId && <BookingSetupSummary document={head.revision.document} />}
             </>
           )}
           {head && (

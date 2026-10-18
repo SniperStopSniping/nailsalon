@@ -95,7 +95,12 @@ const head = async () => (await database.query(`SELECT w.status,r.revision,r.doc
   JOIN business_setup_revision r ON r.workspace_id=w.id AND r.revision=w.head_revision WHERE w.salon_id=$1`, [fixture.salonId])).rows[0];
 const livePrices = async () => (await database.query('SELECT id,name,price,duration_minutes FROM service WHERE salon_id=$1 ORDER BY id', [fixture.salonId])).rows;
 const liveExtras = async () => (await database.query('SELECT id,name,price_cents,duration_minutes,pricing_type,max_quantity,is_active FROM add_on WHERE salon_id=$1 ORDER BY id', [fixture.salonId])).rows;
-const liveSettingsFingerprint = async () => createHash('sha256').update(JSON.stringify((await database.query('SELECT name,city,address,business_hours,settings->\'booking\' AS booking,settings->\'payments\' AS payments,settings->\'communications\' AS communications,settings#>\'{bookingPage,live}\' AS live_website,settings#>\'{bookingPageContent,live}\' AS live_content FROM salon WHERE id=$1', [fixture.salonId])).rows[0])).digest('hex');
+const liveSettingsFingerprint = async () => {
+  const salon = (await database.query('SELECT name,city,address,business_hours,settings->\'booking\' AS booking,settings->\'payments\' AS payments,settings->\'communications\' AS communications,settings#>\'{bookingPage,live}\' AS live_website,settings#>\'{bookingPageContent,live}\' AS live_content FROM salon WHERE id=$1', [fixture.salonId])).rows[0];
+  const staff = (await database.query('SELECT id,name,is_active,weekly_schedule,work_days,start_time,end_time FROM technician WHERE salon_id=$1 ORDER BY id', [fixture.salonId])).rows;
+  const assignments = (await database.query('SELECT ts.technician_id,ts.service_id,ts.enabled,ts.priority FROM technician_services ts JOIN technician t ON t.id=ts.technician_id WHERE t.salon_id=$1 ORDER BY ts.technician_id,ts.service_id', [fixture.salonId])).rows;
+  return createHash('sha256').update(JSON.stringify({ salon, staff, assignments })).digest('hex');
+};
 const screenshot = name => page.screenshot({ path: path.join(output, `${name}.png`), fullPage: true, animations: 'disabled' });
 const openPreview = async () => {
   const setupDocument = (await head()).document;
@@ -136,6 +141,26 @@ const openPreview = async () => {
       await expect(body).not.toBeEmpty({ timeout: 45_000 });
       await expect(preview.frameLocator(`iframe[src="${renderer}"]`).locator('[data-luster-field="business.name"]').first()).toHaveText((await head()).document.business.name, { timeout: 45_000 });
       await expect(preview.getByText('Loading your custom website…', { exact: true })).toHaveCount(0);
+
+      if (process.env.LUSTER_REAL_AI_EXPECT_STAFF === 'true') {
+        await preview.getByText('Proposed team and service choices', { exact: true }).click();
+        const ava = preview.locator('.setup-team-summary p').filter({ hasText: /^Ava:/u });
+
+        await expect(ava).toContainText('BIAB');
+        await expect(ava).not.toContainText('Gel Manicure');
+        await expect(ava).toContainText('friday: 11:00–16:00');
+
+        await preview.getByText('Proposed booking setup', { exact: true }).click();
+
+        await expect(preview.getByText(/180 minutes notice · 10 minutes extra buffer/u)).toBeVisible();
+        await expect(preview.getByRole('region', { name: 'Proposed booking agreement' })).toContainText('Please come alone.');
+        await expect(preview.getByText(/Simulated times for BIAB.*Existing appointments, time off and external calendars are excluded/u)).toBeVisible();
+
+        await preview.screenshot({ path: path.join(output, `${device}-proposed-booking-setup.png`), fullPage: true });
+        await preview.getByText('Proposed team and service choices', { exact: true }).click();
+        await preview.getByText('Proposed booking setup', { exact: true }).click();
+        interactionChecks.push({ device, proposedStaffAssignments: true, proposedBookingRules: true, availabilityExplicitlySimulated: true });
+      }
 
       const frame = preview.frames().find(item => item.url() === renderer);
       assert(frame);
@@ -337,10 +362,13 @@ const openPreview = async () => {
       if (device === 'mobile') {
         const animatedElements = await frame.evaluate(() => [...document.querySelectorAll('*')].filter(node => getComputedStyle(node).animationName !== 'none').length);
         interactionChecks.push({ browserName, animatedElements });
-        const menu = preview.frameLocator(`iframe[src="${renderer}"]`).locator('button[aria-controls][aria-expanded]').filter({ hasText: /menu/iu }).first();
-        if (await menu.count() && await menu.isVisible()) {
-          const controlledId = await menu.getAttribute('aria-controls');
+        const candidate = preview.frameLocator(`iframe[src="${renderer}"]`).locator('button[aria-controls][aria-expanded]').filter({ hasText: /menu/iu }).first();
+        if (await candidate.count() && await candidate.isVisible()) {
+          const controlledId = await candidate.getAttribute('aria-controls');
           assert.match(controlledId ?? '', /^[a-z][\w-]*$/iu);
+          // Generated controls may correctly rename Menu to Close. Follow the
+          // stable relationship, not text that the interaction intentionally changes.
+          const menu = preview.frameLocator(`iframe[src="${renderer}"]`).locator(`button[aria-controls="${controlledId}"]`).first();
           const navigation = preview.frameLocator(`iframe[src="${renderer}"]`).locator(`[id="${controlledId}"]`);
           await menu.focus();
           await menu.press('Enter');

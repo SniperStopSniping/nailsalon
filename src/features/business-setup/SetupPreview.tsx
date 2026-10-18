@@ -11,8 +11,8 @@ import type { Salon } from '@/models/Schema';
 import { AddOnBookingSummary } from './AddOnBookingSummary';
 import { setupPolicyInput } from './booking-policy';
 import { BookingExtrasSummary } from './BookingExtrasSummary';
+import { BookingSetupSummary } from './BookingSetupSummary';
 import type { SetupDocument } from './contracts';
-import { WEEKDAYS } from './contracts';
 import type { readSetupSnapshot } from './drafts.server';
 import { setupPreviewBooking } from './preview-data.server';
 import { setupServicePriceLabel } from './service-pricing';
@@ -79,47 +79,7 @@ export async function SetupPreview({ salon: liveSalon, document, snapshot }: {
       <TeamBookingSummary document={document} />
       <BookingExtrasSummary document={document} />
       <AddOnBookingSummary document={document} />
-      <details className="bg-white p-4 text-sm">
-        <summary>Proposed booking setup</summary>
-        <p>
-          {document.booking.currency}
-          {' '}
-          ·
-          {' '}
-          {document.booking.timezone}
-          {' '}
-          ·
-          {' '}
-          {document.booking.minimumNoticeMinutes}
-          {' '}
-          minutes notice ·
-          {' '}
-          {document.booking.bufferMinutes}
-          {' '}
-          minutes extra buffer ·
-          {' '}
-          {document.booking.confirmationMode === 'instant' ? 'Instant confirmation' : 'Owner approval required'}
-        </p>
-        <p>{WEEKDAYS.map(day => `${day}: ${document.hours[day] ? `${document.hours[day]!.open}–${document.hours[day]!.close}` : 'closed'}`).join(' · ')}</p>
-        <p>
-          Available team:
-          {bookingPreview.technicians.map(t => t.name).join(', ') || 'Team setup still needed'}
-        </p>
-        <p>
-          Simulated times for
-          {bookingPreview.service?.name ?? 'your first service'}
-          . These use your proposed hours, staff assignments, service time, buffers and notice. Existing appointments, time off and external calendars are excluded from this illustration.
-        </p>
-        {bookingPreview.examples.map(day => (
-          <p key={day.date}>
-            {day.date}
-            :
-            {' '}
-            {day.times.join(', ')}
-          </p>
-        ))}
-        {!bookingPreview.examples.length && <p>No example times are available with this setup.</p>}
-      </details>
+      <BookingSetupSummary document={document} examples={{ serviceName: bookingPreview.service?.name ?? null, technicianNames: bookingPreview.technicians.map(person => person.name), days: bookingPreview.examples }} />
       {services.length < document.services.length && <p className="p-3 text-sm">Services with missing prices or times will appear here after you complete them.</p>}
       <PublicSalonPageShell appearance={await getPageAppearance(salon.id, 'book-service')} pageName="book-service" salon={salon} bookingPage={config} ownerPreview={{ isPreviewing: true, actorType: 'owner' }} isPreviewingDraftConfig salonContentInput={{ services, locations: [rawLocation], technicians: bookingPreview.technicians, addOns: [], lusterFeaturingEnabled: false, content }}>
         <BookServiceClient services={services} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[location]} technicians={[]} currency={document.booking.currency} lusterFeaturingEnabled={false} showNewClientPromo={false} isEmbeddedBuilderPreview quickBookProfile={profile} />
