@@ -1,0 +1,233 @@
+{
+  "passed": true,
+  "sourceSha": "aebc7b0c29329172f221ea12320ceb4f2210e96b",
+  "browserName": "webkit",
+  "newBrowserContext": true,
+  "noRestoredCookies": true,
+  "actualPasswordSignIn": true,
+  "noLegacyAdminCookie": true,
+  "sameOwner": true,
+  "dashboardPath": "/admin",
+  "savedWebsiteLoaded": true,
+  "refresh": true,
+  "providerCalls": 0,
+  "credentialBoundary": {
+    "scope": "Rendered documents, builder APIs, static client assets and renderer text responses.",
+    "checkedDocuments": [
+      {
+        "stage": "sign-in",
+        "origin": "https://luster-builder.test:3443",
+        "path": "/owner-sign-in"
+      },
+      {
+        "stage": "dashboard",
+        "origin": "https://luster-builder.test:3443",
+        "path": "/admin"
+      },
+      {
+        "stage": "saved-preview",
+        "origin": "https://luster-builder.test:3443",
+        "path": "/admin/business-setup"
+      },
+      {
+        "stage": "saved-preview",
+        "origin": "https://luster-render.test:3444",
+        "path": "/renderer"
+      },
+      {
+        "stage": "refreshed-builder",
+        "origin": "https://luster-builder.test:3443",
+        "path": "/admin/business-setup"
+      },
+      {
+        "stage": "refreshed-builder",
+        "origin": "https://luster-render.test:3444",
+        "path": "/renderer"
+      }
+    ],
+    "checkedTextResponses": 104,
+    "credentialLeaks": 0,
+    "unreadableTextResponses": 0,
+    "rawBodiesStored": false
+  },
+  "api": [
+    {
+      "method": "GET",
+      "path": "/api/admin/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/owner-assistant/context",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/retention",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/settings/modules",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/financial-summary",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/today",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/salon/communications/usage",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/onboarding-site",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/appointments",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/fraud-signals",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/salon/communications/starter-credits",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/custom-sites",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/custom-sites",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/custom-sites",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/custom-sites",
+      "status": 200
+    }
+  ],
+  "authenticationChecks": [
+    {
+      "method": "GET",
+      "path": "/en/admin/business-setup",
+      "kind": "page",
+      "cookieNames": [],
+      "sdkStatus": "handshake",
+      "sdkReason": "dev-browser-missing",
+      "requestOrigin": "https://luster-builder.test:3443"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/business-setup",
+      "kind": "page",
+      "cookieNames": [
+        "__client_uat",
+        "__client_uat_XxiNjKcO",
+        "__active_salon_slug",
+        "__clerk_db_jwt",
+        "__clerk_db_jwt_XxiNjKcO",
+        "__session",
+        "__session_XxiNjKcO",
+        "clerk_active_context",
+        "NEXT_LOCALE"
+      ],
+      "sdkStatus": "signed-in",
+      "sdkReason": null,
+      "requestOrigin": "https://luster-builder.test:3443"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/business-setup",
+      "kind": "setup_api",
+      "cookieNames": [],
+      "sdkStatus": "signed-out",
+      "sdkReason": "dev-browser-missing",
+      "requestOrigin": "https://luster-builder.test:3443",
+      "suppliedOrigin": "https://luster-builder.test:3443"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/business-setup",
+      "kind": "setup_api",
+      "cookieNames": [],
+      "sdkStatus": "signed-out",
+      "sdkReason": "dev-browser-missing",
+      "requestOrigin": "https://luster-builder.test:3443"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/business-setup",
+      "kind": "page",
+      "cookieNames": [],
+      "sdkStatus": "handshake",
+      "sdkReason": "dev-browser-missing",
+      "requestOrigin": "https://luster-builder.test:3443"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/business-setup",
+      "kind": "setup_api",
+      "cookieNames": [],
+      "sdkStatus": "signed-out",
+      "sdkReason": "dev-browser-missing",
+      "requestOrigin": "https://luster-builder.test:3443",
+      "suppliedOrigin": "https://luster-builder.test:3443"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/business-setup",
+      "kind": "setup_api",
+      "cookieNames": [],
+      "sdkStatus": "signed-out",
+      "sdkReason": "dev-browser-missing",
+      "requestOrigin": "https://luster-builder.test:3443"
+    }
+  ],
+  "browserErrors": []
+}

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { aiTrialAuth, assertClerkTrialActor, developmentClerkConfig, privateClerkStorageState } from './lib/ai-trial-auth.mjs';
+import { aiTrialAuth, assertClerkTrialActor, developmentClerkConfig, privateClerkStorageState, setupNativeClerkTestingToken } from './lib/ai-trial-auth.mjs';
 import { trialClerkRequest } from './lib/ai-trial-origins.mjs';
 
 const host = 'synthetic-dev.clerk.accounts.dev';
@@ -68,4 +68,41 @@ test('real-auth network allowance is limited to the exact Development frontend',
     assert.equal(trialClerkRequest(url, host), false);
   }
   assert.equal(trialClerkRequest('https://attacker.invalid/', 'attacker.invalid'), false);
+});
+
+test('native bot bypass preserves browser cookies and genuine provider responses', async () => {
+  let match;
+  let handle;
+  const token = 'synthetic-bot-bypass-not-a-session';
+  await setupNativeClerkTestingToken({ route: async (matcher, handler) => {
+    match = matcher;
+    handle = handler;
+  } }, host, token);
+  assert.equal(match(new URL(`https://${host}/v1/client`)), true);
+  for (const url of [`https://${host}:444/v1/client`, `https://user:password@${host}/v1/client`, `https://${host}/npm/clerk.js`, 'https://other.clerk.accounts.dev/v1/client', 'https://app.invalid/api/admin/business-setup']) {
+    assert.equal(match(new URL(url)), false);
+  }
+  let continued;
+  await handle({ request: () => ({ url: () => `https://${host}/v1/client?existing=1` }), continue: async (options) => {
+    continued = options;
+  }, fetch: () => {
+    throw new Error('Never replay auth responses.');
+  }, fulfill: () => {
+    throw new Error('Never rewrite provider JSON.');
+  } });
+  assert.deepEqual(Object.keys(continued), ['url'], 'Do not override native Cookie or authentication headers.');
+  const url = new URL(continued.url);
+  assert.equal(url.origin, `https://${host}`);
+  assert.equal(url.searchParams.get('existing'), '1');
+  assert.equal(url.searchParams.get('__clerk_testing_token'), token);
+});
+
+test('native testing token setup rejects foreign hosts and missing tokens', async () => {
+  const context = { route: () => {
+    throw new Error('Do not install a route for invalid configuration.');
+  } };
+  for (const value of ['localhost', '127.0.0.1', 'production.clerk.com', 'attacker.invalid']) {
+    await assert.rejects(() => setupNativeClerkTestingToken(context, value, 'synthetic-bot-bypass-not-a-session'));
+  }
+  await assert.rejects(() => setupNativeClerkTestingToken(context, host, ''));
 });

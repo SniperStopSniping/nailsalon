@@ -20,6 +20,8 @@ const inherited = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'
 const placeholder = 'ci-placeholder-not-a-secret';
 const testKey = kind => [kind, 'test', placeholder].join('_');
 const realClerk = process.env.LUSTER_ISOLATED_CLERK_CHECK === 'true';
+const ownerEntry = process.env.LUSTER_ISOLATED_HTTPS_ENTRY_CHECK === 'true';
+assert(!ownerEntry || realClerk, 'The local owner-entry check requires genuine Development authentication.');
 const clerk = realClerk ? developmentClerkConfig() : null;
 function databaseUrl(name) {
   assert(['luster_ai_setup_development', 'luster_e2e_ci_disposable'].includes(name));
@@ -167,10 +169,22 @@ if (mode === 'build') {
   await attestDevelopment();
   const common = { ...inherited, NODE_ENV: 'production', LUSTER_ISOLATED_HTTPS_CHECK: 'true', LUSTER_ISOLATED_HTTPS_DIRECTORY: directory, NODE_OPTIONS: `--max-old-space-size=4096 --import ${path.join(directory, 'outbound-guard.mjs')}` };
   const appEnv = { ...common, APP_ENV: 'development', BILLING_PLAN_ENV: 'dev', DATABASE_URL: databaseUrl('luster_ai_setup_development'), DATABASE_POOL_MAX: '2', LUSTER_NONPROD_DB_HOSTS: '127.0.0.1', NEXT_PUBLIC_APP_URL: profile.origin, NEXT_PUBLIC_CLERK_SIGN_IN_URL: '/sign-in', CLERK_SECRET_KEY: testKey('sk'), NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_test_Y2kubHVzdGVyLmludmFsaWQk', STRIPE_SECRET_KEY: testKey('sk'), NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: testKey('pk'), STRIPE_WEBHOOK_SECRET: ['whsec', placeholder].join('_'), STRIPE_CONNECT_WEBHOOK_SECRET: ['whsec', 'connect', placeholder].join('_'), CUSTOM_SITE_RENDER_ORIGIN: profile.rendererOrigin, CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED: 'true', CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES: 'true', BUSINESS_SETUP_AI_ENABLED: 'false', BUSINESS_SETUP_PUBLISH_ENABLED: 'true', AI_CREDITS_ENABLED: 'false', AI_CREDIT_METERING_ENABLED: 'false', AI_CREDIT_PURCHASES_ENABLED: 'false', BUSINESS_SETUP_SELF_SERVE_ENABLED: 'false', BILLING_SUBSCRIPTIONS_ENABLED: 'false', BILLING_TOPUPS_ENABLED: 'false', COMMUNICATIONS_SMS_ENABLED: 'false', SMS_PILOT_ENABLED: 'false', LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED: 'true' };
+  appEnv.CUSTOM_SITE_TRIAL_BUDGET_CAD = '11.384406';
+  if (ownerEntry) {
+    // Enable entry and saved controls, never provider credentials or purchases.
+    // The worker enforces this separation and outbound OpenAI remains blocked.
+    appEnv.LUSTER_HTTPS_OWNER_ENTRY_CHECK = 'true';
+    for (const key of ['BUSINESS_SETUP_AI_ENABLED', 'AI_CREDITS_ENABLED', 'AI_CREDIT_METERING_ENABLED', 'BUSINESS_SETUP_SELF_SERVE_ENABLED']) {
+      appEnv[key] = 'true';
+    }
+  }
   if (clerk) {
     appEnv.CLERK_SECRET_KEY = clerk.secretKey;
     appEnv.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = clerk.publishableKey;
     appEnv.LUSTER_HTTPS_CLERK_FRONTEND_API = clerk.frontendApi;
+    if (process.env.LUSTER_ISOLATED_HTTPS_AUTH_TRACE === 'true') {
+      appEnv.LUSTER_HTTPS_AUTH_TRACE = 'true';
+    }
   }
   // Saved Development uploads live outside Git and the clean build archive.
   // Pass only this explicit task-owned directory, never a secret-bearing .env.
@@ -189,7 +203,7 @@ if (mode === 'build') {
   logs.forEach(log => fs.writeSync(log, `\nHTTPS check attempt ${new Date().toISOString()}\n`));
   const proxyEnv = clerk ? { ...common, LUSTER_HTTPS_CLERK_FRONTEND_API: clerk.frontendApi } : common;
   const children = [spawn(process.execPath, [worker, 'app'], { env: appEnv, stdio: ['ignore', logs[0], logs[0]] }), spawn(process.execPath, [worker, 'renderer'], { env: rendererEnv, stdio: ['ignore', logs[1], logs[1]] }), spawn(process.execPath, [worker, 'proxy'], { env: proxyEnv, stdio: ['ignore', logs[2], logs[2]] })];
-  process.stdout.write(`${JSON.stringify({ directory, sha: metadata.sha, pids: children.map(child => child.pid), appOrigin: profile.origin, rendererOrigin: profile.rendererOrigin, status: 'starting', aiEnabled: false, purchasesEnabled: false })}\n`);
+  process.stdout.write(`${JSON.stringify({ directory, sha: metadata.sha, pids: children.map(child => child.pid), appOrigin: profile.origin, rendererOrigin: profile.rendererOrigin, status: 'starting', ownerEntryEnabled: ownerEntry, modelCallsEnabled: false, purchasesEnabled: false })}\n`);
   const stop = () => children.forEach(child => child.kill('SIGTERM'));
   for (const child of children) {
     child.once('exit', (code, signal) => {

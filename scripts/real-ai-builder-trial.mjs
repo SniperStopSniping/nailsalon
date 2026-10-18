@@ -9,11 +9,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { chromium, expect as baseExpect, webkit } from '@playwright/test';
+import { chromium, devices, expect as baseExpect, webkit } from '@playwright/test';
 import pg from 'pg';
 import sharp from 'sharp';
 
-import { aiTrialAuth, assertClerkTrialActor, privateClerkStorageState } from './lib/ai-trial-auth.mjs';
+import { aiTrialAuth, assertClerkTrialActor, privateClerkStorageState, setupNativeClerkTestingToken } from './lib/ai-trial-auth.mjs';
 import { aiTrialOrigins, assertHttpsTrialStep, restrictAiTrialNetwork, trialApiTarget } from './lib/ai-trial-origins.mjs';
 
 const profile = aiTrialOrigins(process.env.LUSTER_REAL_AI_HTTPS === 'true');
@@ -83,10 +83,12 @@ const browserName = process.env.LUSTER_REAL_AI_BROWSER ?? 'chromium';
 assert(['chromium', 'webkit'].includes(browserName), 'Choose the installed Chromium or WebKit engine.');
 assert(browserName === 'chromium' || step !== 'message', 'Run paid model requests once; use WebKit only to verify saved output.');
 const browser = await (browserName === 'webkit' ? webkit : chromium).launch({ headless: true, ...(profile.https ? { proxy: { server: profile.proxyServer } } : {}) });
-const contextOptions = { baseURL: origin, ignoreHTTPSErrors: profile.https };
+const deviceProfile = browserName === 'webkit' ? devices['iPhone 13'] : {};
+const ownerViewport = browserName === 'webkit' ? { width: 390, height: 844 } : { width: 1440, height: 1000 };
+const contextOptions = { ...deviceProfile, baseURL: origin, ignoreHTTPSErrors: profile.https };
 // Authentication state belongs only to the owner context. Public booking
 // contexts below remain anonymous, including in genuine Clerk acceptance runs.
-const context = await browser.newContext({ ...contextOptions, ...(ownerAuth.kind === 'clerk-development' ? { storageState: privateClerkStorageState(fixture.clerkStorageState) } : {}), viewport: { width: 1440, height: 1000 }, recordVideo: { dir: output, size: { width: 1440, height: 1000 } } });
+const context = await browser.newContext({ ...contextOptions, ...(ownerAuth.kind === 'clerk-development' ? { storageState: privateClerkStorageState(fixture.clerkStorageState) } : {}), viewport: ownerViewport, recordVideo: { dir: output, size: ownerViewport } });
 if (ownerAuth.kind === 'synthetic-session') {
   await context.addCookies([{ name: 'n5_admin_session', value: fixture.session, domain: profile.cookieDomain, path: '/', httpOnly: true, secure: profile.https, sameSite: 'Lax' }]);
 }
@@ -95,7 +97,11 @@ await restrictNetwork(context);
 if (ownerAuth.kind === 'clerk-development') {
   const { clerkSetup, setupClerkTestingToken } = await import('@clerk/testing/playwright');
   await clerkSetup({ secretKey: process.env.CLERK_SECRET_KEY, publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, dotenv: false });
-  await setupClerkTestingToken({ context });
+  if (profile.https) {
+    await setupNativeClerkTestingToken(context, ownerAuth.frontendApi);
+  } else {
+    await setupClerkTestingToken({ context });
+  }
 }
 const page = await context.newPage();
 let operationId;
@@ -129,6 +135,7 @@ const liveSettingsFingerprint = async () => {
 };
 const screenshot = name => page.screenshot({ path: path.join(output, `${name}.png`), fullPage: true, animations: 'disabled' });
 const staffChoice = (page, name) => page.getByRole('button').filter({ has: page.getByText(name, { exact: true }) });
+const activate = locator => browserName === 'webkit' ? locator.tap() : locator.click();
 const openPreview = async () => {
   const setupDocument = (await head()).document;
   const artifactId = setupDocument.website.config.customFrontendId;
@@ -435,12 +442,19 @@ let bookingSubmissionCount = 0;
 const historicalAppointments = async () => (await database.query('SELECT id,md5(to_jsonb(a)::text) AS fingerprint FROM appointment a WHERE salon_id=$1 ORDER BY id', [fixture.salonId])).rows;
 let historicalBefore;
 let modelCallCountBefore;
+let initialOwnerDevice;
 try {
   // Local cold compilation is measured separately from provider generation.
   await page.goto(`/admin/business-setup?salon=${salonSlug}`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
 
   await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeEnabled({ timeout: 120_000 });
 
+  initialOwnerDevice = { ...await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight, devicePixelRatio: window.devicePixelRatio, maxTouchPoints: navigator.maxTouchPoints })), configuredTouch: deviceProfile.hasTouch === true };
+  if (browserName === 'webkit') {
+    assert.equal(initialOwnerDevice.width, 390);
+    assert.equal(initialOwnerDevice.devicePixelRatio, 3);
+    assert.equal(initialOwnerDevice.configuredTouch, true, 'Use the touch-capable iPhone profile; actual tap actions below must succeed.');
+  }
   before = await head();
   assert(before);
   liveServicePricesBefore = await livePrices();
@@ -673,7 +687,7 @@ try {
     }
   } else if (step === 'start-editing') {
     assert.equal(before.status, 'published');
-    await page.getByRole('button', { name: 'Make more changes', exact: true }).click();
+    await activate(page.getByRole('button', { name: 'Make more changes', exact: true }));
 
     await expect.poll(async () => (await head()).status).toBe('editing');
 
@@ -684,13 +698,13 @@ try {
   } else if (step === 'service-price') {
     const price = Number(messageOrArtifact);
     assert(Number.isFinite(price) && price >= 0 && price <= 1000, 'Choose a bounded synthetic test price.');
-    await page.getByRole('button', { name: 'Details', exact: true }).click();
+    await activate(page.getByRole('button', { name: 'Details', exact: true }));
     const form = page.locator('form.setup-service').filter({ has: page.locator('input[name="name"][value="BIAB"]') });
 
     await expect(form).toHaveCount(1);
 
     await form.getByRole('spinbutton', { name: 'Price', exact: true }).fill(String(price));
-    await form.getByRole('button', { name: 'Save service', exact: true }).click();
+    await activate(form.getByRole('button', { name: 'Save service', exact: true }));
 
     await expect.poll(async () => (await head()).document.services.find(service => service.name === 'BIAB')?.priceCents).toBe(Math.round(price * 100));
 
@@ -811,7 +825,7 @@ try {
     } finally {
       await anonymous.close();
     }
-    await page.getByRole('button', { name: 'Review', exact: true }).click();
+    await activate(page.getByRole('button', { name: 'Review', exact: true }));
 
     await expect(page.getByText(`Your booking website: /en/${messageOrArtifact}/book`, { exact: true })).toBeVisible();
 
@@ -878,7 +892,7 @@ try {
     } finally {
       await publicCheck.close();
     }
-    await page.getByRole('button', { name: 'Details', exact: true }).click();
+    await activate(page.getByRole('button', { name: 'Details', exact: true }));
 
     await expect(page.getByRole('heading', { name: 'Your business setup', exact: true })).toBeVisible();
 
@@ -893,7 +907,7 @@ try {
       }
       await acceptExtras.click();
     }
-    await page.getByRole('button', { name: 'Review', exact: true }).click();
+    await activate(page.getByRole('button', { name: 'Review', exact: true }));
 
     await expect(page.getByRole('heading', { name: 'Review your changes', exact: true })).toBeVisible();
 
@@ -913,7 +927,7 @@ try {
       });
     }
 
-    await page.getByRole('button', { name: 'Approve and publish', exact: true }).click();
+    await activate(page.getByRole('button', { name: 'Approve and publish', exact: true }));
 
     await expect(page.getByRole('heading', { name: 'Your approved changes are published.', exact: true })).toBeVisible({ timeout: 60_000 });
 
@@ -1114,7 +1128,7 @@ try {
       interactionChecks.push({ originalBooking: true, preservedCanva: isCanva, serviceId, serviceName: service.name, targetWidth: rect.width, targetHeight: rect.height });
       await booking.screenshot({ path: path.join(output, 'original-public-website.png'), fullPage: true });
 
-      await bookButton.click();
+      await activate(bookButton);
 
       await expect(booking).toHaveURL(/nativeBooking=1.*baseServiceId=/u);
 
@@ -1135,10 +1149,10 @@ try {
         await booking.screenshot({ path: path.join(output, 'original-booking-selected-addon.png'), fullPage: true });
       }
 
-      await booking.getByTestId('service-continue-button').click();
+      await activate(booking.getByTestId('service-continue-button'));
       await booking.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/u);
       if (new URL(booking.url()).pathname.endsWith('/book/tech')) {
-        await staffChoice(booking, process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner').click();
+        await activate(staffChoice(booking, process.env.LUSTER_REAL_AI_BOOK_STAFF ?? 'Synthetic Owner'));
       }
 
       await expect(booking).toHaveURL(/\/book\/time/u);
@@ -1150,12 +1164,12 @@ try {
         if (day >= await buttons.count()) {
           break;
         }
-        await buttons.nth(day).click();
+        await activate(buttons.nth(day));
         const slot = booking.locator('[data-testid^="time-slot-"]:not([disabled])').first();
         try {
           await expect(slot).toBeVisible({ timeout: 8000 });
 
-          await slot.click();
+          await activate(slot);
           selected = true;
         } catch { /* Next displayed day, as a customer would. */ }
       }
@@ -1183,7 +1197,7 @@ try {
         assert(privateAddressChecks.every(check => !check.leaked && !check.readFailed), 'The private address check failed before appointment creation.');
       }
       const created = booking.waitForResponse(response => new URL(response.url()).pathname === '/api/appointments' && response.request().method() === 'POST', { timeout: 180_000 });
-      await booking.getByRole('button', { name: /confirm appointment/iu }).click();
+      await activate(booking.getByRole('button', { name: /confirm appointment/iu }));
       bookingResponseStatus = (await created).status();
       assert([200, 201].includes(bookingResponseStatus), 'Original creation or idempotent recovery must succeed; the final database check still requires exactly one new appointment.');
 
@@ -1267,7 +1281,9 @@ try {
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const evidence = { step, trialScope, browserName, ownerAuthentication: ownerAuth.kind, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, bookingNavigation, serverProbes, privateAddressChecks, contactChecks, interactionChecks, pdfUpload, mediaUpload, browserErrors: failures, funding: ownerAuth.kind === 'clerk-development' && !fixture.syntheticRecoveryCredit ? 'Unfunded real Development account; no Stripe payment or purchase.' : 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
-  fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
+  evidence.initialOwnerDevice = initialOwnerDevice;
+  evidence.touchActions = browserName === 'webkit';
+  fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2), { mode: 0o600 });
   process.stdout.write(`${JSON.stringify({ step, status: evidence.status, revision: after?.revision, providerMicroUsd: calls.reduce((sum, item) => sum + (item.cost_micro_usd ?? 0), 0), output, ...(failure ? { failure } : {}) })}\n`);
   if (ownerAuth.kind === 'clerk-development') {
     await context.storageState({ path: privateClerkStorageState(fixture.clerkStorageState) });

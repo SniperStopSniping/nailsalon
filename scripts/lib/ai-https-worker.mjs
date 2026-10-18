@@ -28,13 +28,20 @@ if (mode !== 'renderer' && realClerk) {
 const origin = new URL(mode === 'app' ? profile.origin : mode === 'renderer' ? profile.rendererOrigin : profile.proxyServer);
 let handler;
 let app;
+let authDiagnostic;
 if (mode === 'app') {
   assert.equal(process.env.APP_ENV, 'development');
   assert.equal(process.env.BILLING_PLAN_ENV, 'dev');
-  assert.equal(process.env.BUSINESS_SETUP_AI_ENABLED, 'false');
-  assert.equal(process.env.AI_CREDITS_ENABLED, 'false');
+  assert.equal(process.env.CUSTOM_SITE_TRIAL_BUDGET_CAD, '11.384406');
+  const ownerEntry = process.env.LUSTER_HTTPS_OWNER_ENTRY_CHECK === 'true';
+  assert(!ownerEntry || realClerk);
+  for (const key of ['BUSINESS_SETUP_AI_ENABLED', 'AI_CREDITS_ENABLED', 'AI_CREDIT_METERING_ENABLED', 'BUSINESS_SETUP_SELF_SERVE_ENABLED']) {
+    assert.equal(process.env[key], ownerEntry ? 'true' : 'false');
+  }
   assert.equal(process.env.AI_CREDIT_PURCHASES_ENABLED, 'false');
-  assert.equal(process.env.OPENAI_API_KEY_CUSTOM_SITES, undefined);
+  for (const key of ['OPENAI_API_KEY_CUSTOM_SITES', 'OPENAI_API_KEY_OWNER_ASSISTANT', 'OPENAI_API_KEY']) {
+    assert.equal(process.env[key], undefined, 'Saved-site and entry checks cannot inherit model credentials.');
+  }
   if (realClerk) {
     assert.equal(developmentClerkConfig().frontendApi, clerkFrontendApi);
   } else {
@@ -47,6 +54,9 @@ if (mode === 'app') {
   assert.equal(database.pathname, '/luster_ai_setup_development');
   process.chdir(metadata.root);
   const require = createRequire(path.join(metadata.root, 'package.json'));
+  if (realClerk && process.env.LUSTER_HTTPS_AUTH_TRACE === 'true') {
+    authDiagnostic = require('@clerk/backend').createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY, publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY });
+  }
   app = require('next')({ dev: false, dir: metadata.root, hostname: origin.hostname, port: Number(origin.port) });
   await app.prepare();
   handler = app.getRequestHandler();
@@ -70,6 +80,21 @@ const server = mode === 'proxy'
     // same external origin used by the browser's authenticated POST requests.
     request.headers['x-forwarded-proto'] = 'https';
     request.headers['x-forwarded-host'] = origin.host;
+    const url = new URL(request.url, origin);
+    if (authDiagnostic && /^(?:\/(?:en|fr))?\/(?:admin\/business-setup|api\/admin\/business-setup)(?:\/|$)/u.test(url.pathname)) {
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(request.headers)) {
+        if (value !== undefined) {
+          headers.set(name, Array.isArray(value) ? value.join(',') : value);
+        }
+      }
+      const cookieNames = (request.headers.cookie ?? '').split(';').map(cookie => cookie.trim().split('=')[0]).filter(Boolean);
+      // Test-only wire diagnostics: never log values, query strings, bodies,
+      // account identity, credentials or the SDK error object.
+      void authDiagnostic.authenticateRequest(new Request(url, { method: request.method, headers })).then((state) => {
+        process.stdout.write(`${JSON.stringify({ event: 'auth_wire', path: url.pathname, method: request.method, rsc: request.headers.rsc, cookieNames, sdkStatus: state.status, sdkReason: state.reason })}\n`);
+      }).catch(() => process.stdout.write(`${JSON.stringify({ event: 'auth_wire', path: url.pathname, method: request.method, diagnosticFailed: true })}\n`));
+    }
     Promise.resolve(handler(request, response)).catch(() => {
       if (!response.headersSent) {
         response.writeHead(500);

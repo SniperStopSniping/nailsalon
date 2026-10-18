@@ -15,6 +15,23 @@ export function developmentClerkConfig(env = process.env) {
   return { secretKey: env.CLERK_SECRET_KEY, publishableKey: env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, frontendApi };
 }
 
+/** Official bot-bypass parameter, with native browser cookies and responses. */
+export async function setupNativeClerkTestingToken(context, frontendApi, token = process.env.CLERK_TESTING_TOKEN) {
+  assert.match(frontendApi, /^[a-z0-9-]+\.clerk\.accounts\.dev$/u);
+  assert(typeof token === 'string' && token.length >= 20 && token.trim() === token, 'Obtain a private Development Testing Token through clerkSetup first.');
+  const expectedOrigin = `https://${frontendApi}`;
+  await context.route(url => url.origin === expectedOrigin && !url.username && !url.password && url.pathname.startsWith('/v1/'), async (route) => {
+    const url = new URL(route.request().url());
+    assert.equal(url.origin, expectedOrigin);
+    assert(!url.username && !url.password);
+    assert(url.pathname.startsWith('/v1/'));
+    url.searchParams.set('__clerk_testing_token', token);
+    // Do not replay FAPI through route.fetch(), fulfill JSON, alter captcha
+    // flags, create a session, or manufacture app authentication cookies.
+    await route.continue({ url: url.href });
+  });
+}
+
 /** Test harness only. It never creates a login, salon, session or membership. */
 export function aiTrialAuth(fixture, env = process.env) {
   if (!fixture.clerkStorageState) {
