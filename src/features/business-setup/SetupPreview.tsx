@@ -8,6 +8,7 @@ import { resolveServiceCardImage } from '@/libs/serviceImage';
 import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
 import type { Salon } from '@/models/Schema';
 
+import { AddOnBookingSummary } from './AddOnBookingSummary';
 import { setupPolicyInput } from './booking-policy';
 import type { SetupDocument } from './contracts';
 import { WEEKDAYS } from './contracts';
@@ -73,6 +74,7 @@ export async function SetupPreview({ salon: liveSalon, document, snapshot }: {
     <>
       <div className="bg-amber-50 p-3 text-center text-sm text-amber-950">Private draft preview. Booking is disabled here. Availability examples are simulated.</div>
       <TeamBookingSummary document={document} />
+      <AddOnBookingSummary document={document} />
       <details className="bg-white p-4 text-sm">
         <summary>Proposed booking setup</summary>
         <p>

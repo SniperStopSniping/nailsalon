@@ -22,6 +22,8 @@ assert.match(fixture.salonId, /^paid_ai_trial_[a-f0-9]{32}$/u);
 assert.match(fixture.salonSlug, /^paid-ai-[a-z0-9-]+$/u);
 assert.equal(typeof fixture.session, 'string');
 const [step, messageOrArtifact, reference] = process.argv.slice(2);
+const trialScope = process.env.LUSTER_REAL_AI_SCOPE ?? 'website';
+assert(['website', 'business_and_website'].includes(trialScope));
 assert(['message', 'photos', 'preview', 'public-preview', 'start-editing', 'manual-wording', 'restore', 'publish', 'book'].includes(step), 'Choose message, photos, preview, public-preview, start-editing, manual-wording, restore, publish or book.');
 if (step === 'message' || step === 'restore') {
   assert(messageOrArtifact, 'An owner message or saved design identity is required.');
@@ -72,6 +74,7 @@ page.on('pageerror', error => failures.push(error.message.slice(0, 300)));
 const head = async () => (await database.query(`SELECT w.status,r.revision,r.document FROM business_setup_workspace w
   JOIN business_setup_revision r ON r.workspace_id=w.id AND r.revision=w.head_revision WHERE w.salon_id=$1`, [fixture.salonId])).rows[0];
 const livePrices = async () => (await database.query('SELECT id,name,price,duration_minutes FROM service WHERE salon_id=$1 ORDER BY id', [fixture.salonId])).rows;
+const liveExtras = async () => (await database.query('SELECT id,name,price_cents,duration_minutes,pricing_type,max_quantity,is_active FROM add_on WHERE salon_id=$1 ORDER BY id', [fixture.salonId])).rows;
 const screenshot = name => page.screenshot({ path: path.join(output, `${name}.png`), fullPage: true, animations: 'disabled' });
 const openPreview = async () => {
   const previewToggle = page.getByRole('button', { name: 'Preview', exact: true });
@@ -195,6 +198,7 @@ let before;
 let after;
 let failure;
 let liveServicePricesBefore;
+let liveAddOnsBefore;
 try {
   await page.goto(`/admin/business-setup?salon=${fixture.salonSlug}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
@@ -203,6 +207,7 @@ try {
   before = await head();
   assert(before);
   liveServicePricesBefore = await livePrices();
+  liveAddOnsBefore = await liveExtras();
   if (['message', 'photos', 'manual-wording', 'restore', 'publish'].includes(step)) {
     assert.equal(before.status, 'editing', 'Return through Edit with AI before changing a published salon.');
   }
@@ -221,7 +226,7 @@ try {
     // default to website-only, with explicit business requests routed by the app.
     const scope = page.getByRole('combobox', { name: 'What can Luster change?' });
     if (await scope.count()) {
-      await scope.selectOption('website');
+      await scope.selectOption(trialScope === 'business_and_website' ? 'all' : 'website');
     }
     await page.getByLabel('Message Luster', { exact: true }).fill(messageOrArtifact);
     await screenshot('owner-input');
@@ -249,6 +254,7 @@ try {
     after = await head();
     assert(after.revision > before.revision);
     assert.deepEqual(await livePrices(), liveServicePricesBefore, 'Chat changes must not update the live service catalog.');
+    assert.deepEqual(await liveExtras(), liveAddOnsBefore, 'Chat changes must not update the live add-on catalog.');
     if (before.document.website.config.customFrontendId) {
       const priceEdit = messageOrArtifact.match(/\bchange BIAB to \$(\d+(?:\.\d{1,2})?)/iu);
       if (priceEdit) {
@@ -264,8 +270,8 @@ try {
           assert.deepEqual(after.document[field], before.document[field]);
         }
         assert.deepEqual(after.document.services.filter(item => item.id !== priorService.id), before.document.services.filter(item => item.id !== priorService.id));
-      } else {
-        for (const field of ['business', 'services', 'hours', 'booking', 'staff', 'bookingPolicy']) {
+      } else if (trialScope === 'website') {
+        for (const field of ['business', 'services', 'hours', 'booking', 'staff', 'bookingPolicy', 'addOns']) {
           assert.deepEqual(after.document[field], before.document[field], `A visual edit unexpectedly changed ${field}.`);
         }
       }
@@ -348,9 +354,19 @@ try {
       await publicCheck.close();
     }
     await page.getByRole('button', { name: 'Details', exact: true }).click();
+
+    await expect(page.getByRole('heading', { name: 'Your business setup', exact: true })).toBeVisible();
+
     const accept = page.getByRole('button', { name: 'Accept the displayed prices and times', exact: true });
     if (await accept.count()) {
       await accept.click();
+    }
+    const acceptExtras = page.getByRole('button', { name: 'Accept the displayed add-ons', exact: true });
+    if (await acceptExtras.count()) {
+      if (!await acceptExtras.isVisible()) {
+        await page.getByText(/^Add-ons and extra time/u).click();
+      }
+      await acceptExtras.click();
     }
     await page.getByRole('button', { name: 'Review', exact: true }).click();
 
@@ -420,6 +436,23 @@ try {
 
       await expect(booking).toHaveURL(/nativeBooking=1.*baseServiceId=/u);
 
+      let selectedExtra;
+      if (process.env.LUSTER_REAL_AI_BOOK_ADD_ON) {
+        const matches = (await liveExtras()).filter(extra => extra.name === process.env.LUSTER_REAL_AI_BOOK_ADD_ON);
+        assert.equal(matches.length, 1, 'Choose one unambiguous live add-on.');
+        selectedExtra = matches[0];
+        const choice = booking.getByRole('button', { name: `Add ${selectedExtra.name}`, exact: true });
+
+        await expect(choice).toBeVisible({ timeout: 30_000 });
+
+        await choice.click();
+        await booking.screenshot({ path: path.join(output, 'original-booking-after-addon-click.png'), fullPage: true });
+
+        await expect(booking.getByRole('button', { name: `Remove ${selectedExtra.name}`, exact: true })).toBeVisible();
+
+        await booking.screenshot({ path: path.join(output, 'original-booking-selected-addon.png'), fullPage: true });
+      }
+
       await booking.getByTestId('service-continue-button').click();
       await booking.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/u);
       if (new URL(booking.url()).pathname.endsWith('/book/tech')) {
@@ -467,7 +500,7 @@ try {
       assert.equal((await created).status(), 201);
 
       await expect(booking.getByRole('heading', { name: /appointment confirmed/iu })).toBeVisible({ timeout: 60_000 });
-      await expect(booking.getByText(service.name, { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+      await expect(booking.getByText(selectedExtra ? `${service.name} + ${selectedExtra.name}` : service.name, { exact: true }).first()).toBeVisible({ timeout: 60_000 });
 
       // Capture the settled original receipt rather than a translucent frame
       // from its client-side entrance animation.
@@ -476,9 +509,16 @@ try {
       await booking.screenshot({ path: path.join(output, 'original-booking-completed.png'), fullPage: true });
       const booked = (await database.query('SELECT id,total_price,total_duration_minutes,technician_id FROM appointment WHERE salon_id=$1 AND created_at >= $2', [fixture.salonId, startedAt])).rows;
       assert.equal(booked.length, 1, 'This customer submission must create exactly one appointment.');
-      assert.equal(booked[0].total_price, service.price);
-      assert.equal(booked[0].total_duration_minutes, service.duration_minutes);
+      assert.equal(booked[0].total_price, service.price + (selectedExtra?.price_cents ?? 0));
+      assert.equal(booked[0].total_duration_minutes, service.duration_minutes + (selectedExtra?.duration_minutes ?? 0));
+      if (selectedExtra) {
+        const snapshots = (await database.query('SELECT add_on_id,unit_price_cents_snapshot,line_total_cents_snapshot,line_duration_minutes_snapshot FROM appointment_add_on WHERE appointment_id=$1', [booked[0].id])).rows;
+        assert.deepEqual(snapshots, [{ add_on_id: selectedExtra.id, unit_price_cents_snapshot: selectedExtra.price_cents, line_total_cents_snapshot: selectedExtra.price_cents, line_duration_minutes_snapshot: selectedExtra.duration_minutes }]);
+      }
       assert((await database.query('SELECT 1 FROM technician_services WHERE service_id=$1 AND technician_id=$2', [service.id, booked[0].technician_id])).rowCount, 'The appointment artist must be assigned to the selected service.');
+    } catch (error) {
+      await booking.screenshot({ path: path.join(output, 'original-booking-failure.png'), fullPage: true }).catch(() => {});
+      throw error;
     } finally {
       await customer.close();
     }
@@ -496,7 +536,7 @@ try {
     : [];
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
-  const evidence = { step, browserName, operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), contactChecks, interactionChecks, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
+  const evidence = { step, trialScope, browserName, operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), contactChecks, interactionChecks, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
   process.stdout.write(`${JSON.stringify({ step, status: evidence.status, revision: after?.revision, providerMicroUsd: calls.reduce((sum, item) => sum + (item.cost_micro_usd ?? 0), 0), output, ...(failure ? { failure } : {}) })}\n`);
   await context.close();

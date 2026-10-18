@@ -10,6 +10,9 @@ import { designBriefSchema } from '@/features/custom-sites/contracts';
 import { CustomDesignStudio } from '@/features/custom-sites/CustomDesignStudio';
 import type { DesignAsset } from '@/features/custom-sites/WebsitePhotoLibrary';
 
+import { addOnReviewValue } from './add-ons';
+import { AddOnBookingSummary } from './AddOnBookingSummary';
+import { AddOnEditor } from './AddOnEditor';
 import { AppointmentImpactReview } from './AppointmentImpactReview';
 import { BookingPolicyEditor } from './BookingPolicyEditor';
 import { ChatAttachments } from './ChatAttachments';
@@ -58,6 +61,7 @@ const LABELS: Record<string, string> = {
   'business.workMode': 'Solo or team',
   'business.locationDisplayMode': 'Public address visibility',
   'services': 'Service menu',
+  'addOns': 'Add-on prices, extra time and service choices',
   'staff': 'Team schedules and service assignments',
   'website.content.websiteDetails': 'Public contact details, directions and website policies',
   'website.config.customFrontendId': 'Website design (see Preview)',
@@ -727,7 +731,10 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
             </div>
           </div>
           {head && (
-            <TeamBookingSummary document={head.revision.document} />
+            <>
+              <TeamBookingSummary document={head.revision.document} />
+              <AddOnBookingSummary document={head.revision.document} />
+            </>
           )}
           {head && (
             <CustomDesignStudio
@@ -954,6 +961,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
                 </form>
               ))}
               <button type="button" disabled={busy || published} onClick={() => void run(() => edit([{ type: 'service', values: { id: `draft_${crypto.randomUUID()}`, name: 'New service', description: null, priceCents: null, durationMinutes: null, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'manicure', bookingCategory: 'manicure' } }]))}>Add a service</button>
+              <AddOnEditor addOns={draft.addOns ?? []} services={draft.services} revision={head.revision.revision} disabled={busy || published} onSave={values => void run(() => edit([{ type: 'add_on', values }]))} onConfirm={ids => void run(() => edit([{ type: 'confirm_add_ons', ids }]))} />
               {(draft.business.workMode === 'team' || Boolean(draft.staff?.length)) && <TeamEditor staff={draft.staff ?? []} services={draft.services} hours={draft.hours} revision={head.revision.revision} disabled={busy || published} onSave={person => void run(() => edit([{ type: 'staff', values: person }]))} />}
               <h3>Design direction</h3>
               <div className="setup-quick-replies">{([{ label: 'Clean and minimal', style: 'minimal', palette: 'monochrome' }, { label: 'Soft and welcoming', style: 'soft', palette: 'blush_cocoa' }, { label: 'Dark and luxurious', style: 'luxury', palette: 'black_champagne' }] as const).map(choice => <button type="button" key={choice.label} disabled={busy || published} onClick={() => void run(() => edit([{ type: 'design', style: choice.style, palette: choice.palette, layout: 'editorial' }]))}>{choice.label}</button>)}</div>
@@ -990,12 +998,12 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
                 <p>
                   <strong>Before:</strong>
                   {' '}
-                  {change.path === 'staff' ? teamReviewValue(change.before, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') ? designReviewValue(change.before) : reviewValue(change.before)}
+                  {change.path === 'addOns' ? addOnReviewValue(change.before, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.before, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') ? designReviewValue(change.before) : reviewValue(change.before)}
                 </p>
                 <p>
                   <strong>After:</strong>
                   {' '}
-                  {change.path === 'staff' ? teamReviewValue(change.after, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') ? designReviewValue(change.after) : reviewValue(change.after)}
+                  {change.path === 'addOns' ? addOnReviewValue(change.after, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.after, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') ? designReviewValue(change.after) : reviewValue(change.after)}
                 </p>
               </div>
             ))}
@@ -1003,6 +1011,7 @@ export function SetupEditor({ salonSlug, locale, existingSalon, aiEnabled, credi
               <div role="status">
                 <h3>Before you publish</h3>
                 <ul>{review.blockers.map(item => <li key={item}>{item}</li>)}</ul>
+                <button type="button" disabled={busy} onClick={() => setTab('setup')}>Review prices and setup</button>
               </div>
             )}
             <button

@@ -1750,6 +1750,22 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('service-continue-button')).toBeVisible();
   });
 
+  it('waits for booking-state hydration before accepting an add-on from a custom-site service link', () => {
+    navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+    bookingStateMock.values.isHydrated = false;
+    const props: React.ComponentProps<typeof BookServiceClient> = { services, addOns, serviceAddOnRules, bookingFlow: ['service', 'time', 'confirm'], locations: [] };
+    const { rerender } = render(<BookServiceClient {...props} />);
+
+    expect(screen.getByRole('button', { name: 'Add French Tip' })).toBeDisabled();
+    expect(screen.getByTestId('service-continue-button')).toBeDisabled();
+
+    bookingStateMock.values.isHydrated = true;
+    rerender(<BookServiceClient {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add French Tip' }));
+
+    expect(screen.getByRole('button', { name: 'Remove French Tip' })).toBeEnabled();
+  });
+
   it('renders exactly the Manicure, Pedicure, and Combos chips in a horizontal mobile scroll track', () => {
     render(
       <BookServiceClient

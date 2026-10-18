@@ -5708,6 +5708,7 @@ export const businessSetupPublicationSchema = pgTable('business_setup_publicatio
   actorId: text('actor_id').notNull(),
   serviceIds: jsonb('service_ids').$type<Record<string, string>>().notNull(),
   staffIds: jsonb('staff_ids').$type<Record<string, string>>().notNull().default({}),
+  addOnIds: jsonb('add_on_ids').$type<Record<string, string>>().notNull().default({}),
   publishedAt: timestamp('published_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
   mediaFinalized: boolean('media_finalized').notNull().default(false),
 }, table => ({

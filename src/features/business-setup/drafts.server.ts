@@ -67,8 +67,10 @@ export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salo
   const locations = await (lockRows ? locationsQuery.for('update') : locationsQuery);
   const staffQuery = tx.select().from(technicianSchema).where(eq(technicianSchema.salonId, salon.id)).orderBy(asc(technicianSchema.id));
   const staff = await (lockRows ? staffQuery.for('update') : staffQuery);
-  const addOns = await tx.select().from(addOnSchema).where(eq(addOnSchema.salonId, salon.id)).orderBy(asc(addOnSchema.id));
-  const addOnLinks = await tx.select().from(serviceAddOnSchema).where(eq(serviceAddOnSchema.salonId, salon.id)).orderBy(asc(serviceAddOnSchema.id));
+  const addOnsQuery = tx.select().from(addOnSchema).where(eq(addOnSchema.salonId, salon.id)).orderBy(asc(addOnSchema.id));
+  const addOns = await (lockRows ? addOnsQuery.for('update') : addOnsQuery);
+  const addOnLinksQuery = tx.select().from(serviceAddOnSchema).where(eq(serviceAddOnSchema.salonId, salon.id)).orderBy(asc(serviceAddOnSchema.id));
+  const addOnLinks = await (lockRows ? addOnLinksQuery.for('update') : addOnLinksQuery);
   const assignmentsQuery = tx.select({ serviceId: technicianServicesSchema.serviceId, technicianId: technicianServicesSchema.technicianId, enabled: technicianServicesSchema.enabled, priority: technicianServicesSchema.priority }).from(technicianServicesSchema).innerJoin(serviceSchema, eq(serviceSchema.id, technicianServicesSchema.serviceId)).where(eq(serviceSchema.salonId, salon.id)).orderBy(asc(technicianServicesSchema.serviceId), asc(technicianServicesSchema.technicianId));
   const assignments = await (lockRows ? assignmentsQuery.for('update', { of: technicianServicesSchema }) : assignmentsQuery);
   const location = locations.find(l => l.isPrimary);
@@ -105,12 +107,30 @@ export async function readSetupSnapshot(tx: SetupTransaction, salon: typeof salo
       confirmed: true,
     })),
     servicePricingVersion: 1,
+    addOns: addOns.map(addOn => ({
+      id: addOn.id,
+      name: addOn.name,
+      category: addOn.category,
+      descriptionItems: addOn.descriptionItems,
+      priceCents: addOn.priceCents,
+      priceDisplayText: addOn.priceDisplayText,
+      durationMinutes: addOn.durationMinutes,
+      pricingType: addOn.pricingType,
+      unitLabel: addOn.unitLabel,
+      maxQuantity: addOn.maxQuantity,
+      isActive: addOn.isActive === true,
+      serviceIds: addOnLinks.filter(link => link.addOnId === addOn.id && services.some(service => service.id === link.serviceId && service.isActive)).map(link => link.serviceId).sort(),
+      groupId: addOn.groupId,
+      advancedRules: addOnLinks.some(link => link.addOnId === addOn.id && (link.selectionMode !== 'optional' || link.priceMode !== 'catalog_priced' || link.conditions !== null || link.defaultQuantity !== null || link.maxQuantityOverride !== null)),
+      origin: 'existing',
+      confirmed: true,
+    })),
     website: { config: page.live, content: content.live },
   };
     // The hash includes untouched fields too: a stale setup must not erase newer
     // changes made through older administration routes.
   const hash = setupHash({ salon, services, locations, staff, addOns, addOnLinks, assignments });
-  return { document, hash, page, content, services, locations, staff, assignments };
+  return { document, hash, page, content, services, locations, staff, assignments, addOns, addOnLinks };
 }
 export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
   const [workspace] = await tx.select().from(workspaces).where(eq(workspaces.salonId, salonId));
@@ -121,7 +141,7 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
   if (!revision) {
     throw new SetupError('NOT_FOUND', 'The saved draft is unavailable.');
   }
-  if (revision.document.staff === undefined || workspace.baseline.staff === undefined || revision.document.bookingPolicy?.acknowledgment === undefined || workspace.baseline.bookingPolicy?.acknowledgment === undefined || revision.document.servicePricingVersion !== 1 || workspace.baseline.servicePricingVersion !== 1) {
+  if (revision.document.addOns === undefined || workspace.baseline.addOns === undefined || revision.document.staff === undefined || workspace.baseline.staff === undefined || revision.document.bookingPolicy?.acknowledgment === undefined || workspace.baseline.bookingPolicy?.acknowledgment === undefined || revision.document.servicePricingVersion !== 1 || workspace.baseline.servicePricingVersion !== 1) {
     const [salon] = await tx.select().from(salonSchema).where(eq(salonSchema.id, salonId));
     if (!salon) {
       throw new SetupError('NOT_FOUND', 'This business is unavailable.');
@@ -130,8 +150,8 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
     // Read adapter for pre-team JSON revisions. Immutable historical rows and
     // approvals are untouched; every write still checks the original baseline.
     const policy = (saved: SetupDocument['bookingPolicy']) => hydrateSetupPolicy(saved, current.document.bookingPolicy);
-    const baseline = hydrateSetupServicePricing({ ...workspace.baseline, bookingPolicy: policy(workspace.baseline.bookingPolicy), staff: workspace.baseline.staff ?? current.document.staff, staffUsesExplicitAssignments: workspace.baseline.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, current.document);
-    return { workspace: { ...workspace, baseline }, revision: { ...revision, document: hydrateSetupServicePricing({ ...revision.document, bookingPolicy: policy(revision.document.bookingPolicy), staff: revision.document.staff ?? current.document.staff, staffUsesExplicitAssignments: revision.document.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, baseline) } };
+    const baseline = hydrateSetupServicePricing({ ...workspace.baseline, addOns: workspace.baseline.addOns ?? current.document.addOns, bookingPolicy: policy(workspace.baseline.bookingPolicy), staff: workspace.baseline.staff ?? current.document.staff, staffUsesExplicitAssignments: workspace.baseline.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, current.document);
+    return { workspace: { ...workspace, baseline }, revision: { ...revision, document: hydrateSetupServicePricing({ ...revision.document, addOns: revision.document.addOns ?? baseline.addOns, bookingPolicy: policy(revision.document.bookingPolicy), staff: revision.document.staff ?? current.document.staff, staffUsesExplicitAssignments: revision.document.staffUsesExplicitAssignments ?? current.document.staffUsesExplicitAssignments }, baseline) } };
   }
   return { workspace, revision };
 }
@@ -218,12 +238,14 @@ export async function resetSetupDraft(actor: SetupActor, raw: unknown, restore =
         throw new SetupError('NOT_FOUND', 'There is no earlier draft to restore.');
       }
       document = structuredClone(previous.document);
-      const resolveIdentity = await publishedSetupIdentities(tx, salon.id, [...document.services.map(service => service.id), ...(document.staff?.flatMap(person => [person.id, ...person.serviceIds]) ?? [])], { workspaceId: head.workspace.id, namespace: document.identityNamespace, legacyRevision: previous.revision, restoring: true });
+      const resolveIdentity = await publishedSetupIdentities(tx, salon.id, [...document.services.map(service => service.id), ...(document.addOns?.flatMap(addOn => [addOn.id, ...addOn.serviceIds]) ?? []), ...(document.staff?.flatMap(person => [person.id, ...person.serviceIds]) ?? [])], { workspaceId: head.workspace.id, namespace: document.identityNamespace, legacyRevision: previous.revision, restoring: true });
       document.services = document.services.map(service => ({ ...service, id: resolveIdentity('services', service.id) ?? service.id }));
       document = hydrateSetupServicePricing(document, snapshot.document);
       // A restoration must not hide services created since the archived draft,
       // or recreate temporary IDs that publication already mapped to live rows.
       document.services = [...snapshot.document.services.filter(service => !document.services.some(saved => saved.id === service.id)), ...document.services];
+      document.addOns = document.addOns?.map(addOn => ({ ...addOn, id: resolveIdentity('addOns', addOn.id) ?? addOn.id, serviceIds: addOn.serviceIds.map(id => resolveIdentity('services', id) ?? id) })) ?? snapshot.document.addOns;
+      document.addOns = [...(snapshot.document.addOns ?? []).filter(addOn => !document.addOns?.some(saved => saved.id === addOn.id)), ...(document.addOns ?? [])];
       document.staff = document.staff?.map(person => ({ ...person, id: resolveIdentity('staff', person.id) ?? person.id, serviceIds: person.serviceIds.map(id => resolveIdentity('services', id) ?? id) })) ?? snapshot.document.staff;
       document.staff = [...(snapshot.document.staff ?? []).filter(person => !document.staff?.some(saved => saved.id === person.id)), ...(document.staff ?? [])];
       document.staffUsesExplicitAssignments = snapshot.document.staffUsesExplicitAssignments;

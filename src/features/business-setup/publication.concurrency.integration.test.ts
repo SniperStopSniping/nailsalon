@@ -113,6 +113,45 @@ describe.skipIf(!target)('setup publication on attested disposable PostgreSQL', 
     expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(1);
   });
 
+  it('commits concurrent add-on publication once, including its canonical service relationship', async () => {
+    const { actor } = await fixture();
+    await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'add_on', values: { id: 'draft_art', name: 'Simple art', category: 'nail_art', descriptionItems: null, priceCents: 1000, durationMinutes: 15, pricingType: 'fixed', unitLabel: null, maxQuantity: null, isActive: true, serviceIds: ['draft_service'] } }] });
+    const review = await reviewSetup(actor);
+    const approval = await approveSetup(actor, review.revision, review.hash);
+    const input = { revision: review.revision, approvalId: approval.id, operationId: randomUUID() };
+    const results = await Promise.all([publishSetup(actor, input), publishSetup(actor, input)]);
+
+    expect(results[0]!.receipt).toEqual(results[1]!.receipt);
+    expect(results[0]!.receipt.addOnIds.draft_art).toBeTruthy();
+    expect(await database.select().from(schema.addOnSchema).where(eq(schema.addOnSchema.salonId, actor.salonId))).toHaveLength(1);
+    expect(await database.select().from(schema.serviceAddOnSchema).where(eq(schema.serviceAddOnSchema.salonId, actor.salonId))).toHaveLength(1);
+
+    const current = await restartSetup(actor, input.revision);
+    const addOn = current.revision.document.addOns![0]!;
+    const { origin: _origin, confirmed: _confirmed, groupId: _group, advancedRules: _rules, ...values } = addOn;
+    await editSetup(actor, { expectedRevision: current.revision.revision, operationId: randomUUID(), operations: [{ type: 'add_on', values: { ...values, priceCents: 1200 } }] });
+    const next = await reviewSetup(actor);
+    const nextApproval = await approveSetup(actor, next.revision, next.hash);
+    const connection = await pool.connect();
+    try {
+      await connection.query('BEGIN');
+      await connection.query('UPDATE add_on SET price_cents = $1 WHERE id = $2', [1400, addOn.id]);
+      const pending = publishSetup(actor, { revision: next.revision, approvalId: nextApproval.id, operationId: randomUUID() }).then(value => ({ value }), error => ({ error }));
+      await vi.waitFor(async () => {
+        const waiting = await pool.query('SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = \'Lock\'');
+
+        expect(waiting.rows[0].count).toBeGreaterThan(0);
+      });
+      await connection.query('COMMIT');
+
+      expect(await pending).toMatchObject({ error: { code: 'STALE' } });
+      expect((await database.select().from(schema.addOnSchema).where(eq(schema.addOnSchema.id, addOn.id)))[0]?.priceCents).toBe(1400);
+    } finally {
+      await connection.query('ROLLBACK');
+      connection.release();
+    }
+  });
+
   it('serializes duplicate team publication into one mapping without duplicate staff', async () => {
     const { actor, input } = await teamFixture();
     const results = await Promise.all([publishSetup(actor, input), publishSetup(actor, input)]);

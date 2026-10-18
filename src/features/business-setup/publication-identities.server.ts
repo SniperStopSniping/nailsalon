@@ -10,12 +10,12 @@ import type { SetupTransaction } from './drafts.server';
 /** Old approved draft IDs resolve through publication receipts, never a second catalog. */
 export async function publishedSetupIdentities(tx: SetupTransaction, salonId: string, temporaryIds: string[], lineage: { workspaceId: string; namespace?: string; legacyRevision: number; restoring?: boolean }) {
   const keys = [...new Set(temporaryIds.filter(id => id.startsWith('draft_')))];
-  const rows = keys.length ? await tx.select({ services: publications.serviceIds, staff: publications.staffIds, revision: publications.revision, namespace: sql<string | null>`${revisions.document}->>'identityNamespace'` }).from(publications).innerJoin(revisions, and(eq(revisions.workspaceId, publications.workspaceId), eq(revisions.salonId, publications.salonId), eq(revisions.revision, publications.revision))).where(and(eq(publications.salonId, salonId), eq(publications.workspaceId, lineage.workspaceId), sql`(${publications.serviceIds} ?| ARRAY[${sql.join(keys.map(id => sql`${id}`), sql`, `)}]::text[] OR ${publications.staffIds} ?| ARRAY[${sql.join(keys.map(id => sql`${id}`), sql`, `)}]::text[])`)) : [];
+  const rows = keys.length ? await tx.select({ services: publications.serviceIds, staff: publications.staffIds, addOns: publications.addOnIds, revision: publications.revision, namespace: sql<string | null>`${revisions.document}->>'identityNamespace'` }).from(publications).innerJoin(revisions, and(eq(revisions.workspaceId, publications.workspaceId), eq(revisions.salonId, publications.salonId), eq(revisions.revision, publications.revision))).where(and(eq(publications.salonId, salonId), eq(publications.workspaceId, lineage.workspaceId), sql`(${publications.serviceIds} ?| ARRAY[${sql.join(keys.map(id => sql`${id}`), sql`, `)}]::text[] OR ${publications.staffIds} ?| ARRAY[${sql.join(keys.map(id => sql`${id}`), sql`, `)}]::text[] OR ${publications.addOnIds} ?| ARRAY[${sql.join(keys.map(id => sql`${id}`), sql`, `)}]::text[])`)) : [];
   const matching = rows.filter(row => lineage.namespace ? row.namespace === lineage.namespace : row.revision === lineage.legacyRevision);
   if (lineage.restoring && !lineage.namespace && !matching.length && rows.length) {
     throw new SetupError('INVALID', 'This older draft cannot safely restore its service or team identities. Keep your current business details and restore the website design instead.');
   }
-  return (kind: 'services' | 'staff', id: string) => {
+  return (kind: 'services' | 'staff' | 'addOns', id: string) => {
     if (!id.startsWith('draft_')) {
       return id;
     }

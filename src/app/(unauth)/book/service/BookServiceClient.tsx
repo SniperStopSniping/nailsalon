@@ -2426,7 +2426,7 @@ export function BookServiceClient({
                                                               type="button"
                                                               aria-label={`Decrease ${addOn.name} quantity`}
                                                               onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, effectiveQuantity - 1) : Math.max(0, effectiveQuantity - 1))}
-                                                              disabled={isRequired ? effectiveQuantity <= 1 : effectiveQuantity <= 0}
+                                                              disabled={!isHydrated || (isRequired ? effectiveQuantity <= 1 : effectiveQuantity <= 0)}
                                                               className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
                                                             >
                                                               -
@@ -2438,7 +2438,7 @@ export function BookServiceClient({
                                                               type="button"
                                                               aria-label={`Increase ${addOn.name} quantity`}
                                                               onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, effectiveQuantity + 1))}
-                                                              disabled={effectiveQuantity >= maxQuantity}
+                                                              disabled={!isHydrated || effectiveQuantity >= maxQuantity}
                                                               className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
                                                             >
                                                               +
@@ -2452,7 +2452,7 @@ export function BookServiceClient({
                                                               ? `${addOn.name} included`
                                                               : `${isSelected ? 'Remove' : 'Add'} ${addOn.name}`}
                                                             onClick={() => handleAddOnToggle(addOn.id)}
-                                                            disabled={isRequired && isSelected}
+                                                            disabled={!isHydrated || (isRequired && isSelected)}
                                                             className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none max-[360px]:ml-auto max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
                                                             style={{
                                                               backgroundColor: isSelected

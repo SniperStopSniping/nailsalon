@@ -12,6 +12,7 @@ import { assertWebsiteDetailsCoverage } from '@/features/custom-sites/website-co
 import { db } from '@/libs/DB';
 import { auditLogSchema, businessSetupApprovalSchema as approvals, businessSetupPublicationSchema as publications, businessSetupWorkspaceSchema as workspaces, salonLocationSchema, salonSchema, serviceSchema, technicianSchema, technicianServicesSchema } from '@/models/Schema';
 
+import { publishSetupAddOns } from './add-on-publication.server';
 import { setupPolicyInput } from './booking-policy';
 import { assertSetupAddressPrivacy, SetupError, WEEKDAYS } from './contracts';
 import type { SetupActor } from './drafts.server';
@@ -102,7 +103,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       throw new SetupError('INVALID', 'Currency and time zone changes need a separate review for an existing business.');
     }
     const serviceIds: Record<string, string> = {};
-    const resolveIdentity = await publishedSetupIdentities(tx, salon.id, [...draft.services.map(service => service.id), ...(draft.staff?.map(person => person.id) ?? [])], { workspaceId: head.workspace.id, namespace: draft.identityNamespace, legacyRevision: head.revision.revision });
+    const resolveIdentity = await publishedSetupIdentities(tx, salon.id, [...draft.services.map(service => service.id), ...(draft.addOns?.map(addOn => addOn.id) ?? []), ...(draft.staff?.map(person => person.id) ?? [])], { workspaceId: head.workspace.id, namespace: draft.identityNamespace, legacyRevision: head.revision.revision });
     const usedServiceIds = new Set<string>();
     for (const service of draft.services) {
       if (service.priceCents === null || service.durationMinutes === null || !service.confirmed) {
@@ -149,6 +150,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
         serviceIds[service.id] = updated.id;
       }
     }
+    const addOnIds = await publishSetupAddOns(tx, salon.id, current, draft, serviceIds, resolveIdentity);
     let location = current.locations.find(l => l.isPrimary);
     if (!location) {
       [location] = await tx.insert(salonLocationSchema).values({ id: randomUUID(), salonId: salon.id, name: 'Primary location', isPrimary: true, address: draft.business.exactAddress || null, city: draft.business.city, businessHours: draft.hours }).returning();
@@ -187,7 +189,7 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       publishedAt: salon.publishedAt ?? publishedAt,
       slugLockedAt: salon.slugLockedAt ?? publishedAt,
     }).where(eq(salonSchema.id, salon.id));
-    const [created] = await tx.insert(publications).values({ id: randomUUID(), salonId: salon.id, workspaceId: head.workspace.id, revision: review.revision, operationId: input.operationId, approvalId: approval.id, actorId: actor.adminId, serviceIds, staffIds, publishedAt, mediaFinalized: true }).returning();
+    const [created] = await tx.insert(publications).values({ id: randomUUID(), salonId: salon.id, workspaceId: head.workspace.id, revision: review.revision, operationId: input.operationId, approvalId: approval.id, actorId: actor.adminId, serviceIds, staffIds, addOnIds, publishedAt, mediaFinalized: true }).returning();
     await tx.insert(auditLogSchema).values({ id: randomUUID(), salonId: salon.id, actorType: 'admin', actorId: actor.adminId, action: 'settings_updated', entityType: 'business_setup_publication', entityId: created!.id, metadata: { revision: review.revision, changedFields: review.changes.map(c => c.path) } });
     await tx.update(workspaces).set({ status: 'published', updatedAt: publishedAt }).where(eq(workspaces.id, head.workspace.id));
     return created!;

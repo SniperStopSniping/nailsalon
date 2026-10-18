@@ -10,6 +10,7 @@ import type { BookingPageContentSide } from '@/libs/bookingPageContent';
 import { CUSTOMER_SITE_PALETTE_PRESETS, CUSTOMER_SITE_STYLE_PRESETS } from '@/libs/customerSitePresentation';
 import { BOOKING_CATEGORIES, SERVICE_CATEGORIES } from '@/models/serviceCatalogTypes';
 
+import { changesProtectedAddOnChoices, type SetupAddOn, setupAddOnSchema } from './add-ons';
 import { resolveSetupPolicy } from './booking-policy';
 import { updateSetupServicePricing } from './service-pricing';
 
@@ -74,6 +75,8 @@ const uploadOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('service'), values: setupServiceSchema }).strict(),
 ]);
 export const setupOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('add_on'), values: setupAddOnSchema }).strict(),
+  z.object({ type: z.literal('confirm_add_ons'), ids: z.array(id).min(1).max(200) }).strict(),
   z.object({ type: z.literal('booking_policy'), values: bookingPolicyUpdateSchema.shape.policy }).strict(),
   z.object({ type: z.literal('staff'), values: setupStaffSchema }).strict(),
   z.object({ type: z.literal('preview_defaults'), seed: z.string().uuid() }).strict(),
@@ -112,6 +115,8 @@ export type SetupDocument = {
   bookingPolicy?: ReturnType<typeof resolveBookingExperience>['policy'];
   bookingPolicyEdited?: boolean;
   services: SetupService[];
+  /** Absent on older revisions; hydrated without rewriting history. */
+  addOns?: SetupAddOn[];
   servicePricingVersion?: 1;
   /** Absent on older saved revisions; hydrate from the verified baseline before editing. */
   staff?: SetupStaff[];
@@ -173,6 +178,33 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   for (const raw of operations) {
     const op = setupOperationSchema.parse(raw);
     switch (op.type) {
+      case 'add_on': {
+        if (origin === 'upload') {
+          throw new SetupError('FORBIDDEN', 'Confirm which services an extra belongs to before adding it.');
+        }
+        const previous = next.addOns?.find(addOn => addOn.id === op.values.id);
+        if (!previous && !op.values.id.startsWith('draft_')) {
+          throw new SetupError('INVALID', 'New add-ons need a draft identity.');
+        }
+        const addOn: SetupAddOn = { ...op.values, ...updateSetupServicePricing(previous, op.values, next.booking.currency), origin, confirmed: origin === 'owner', groupId: previous?.groupId ?? null, advancedRules: previous?.advancedRules ?? false };
+        if (previous && changesProtectedAddOnChoices(previous, addOn)) {
+          throw new SetupError('INVALID', 'This extra has existing selection rules. You can change its name, price and time here; change its service choices and quantity rules in your service library.');
+        }
+        next.addOns = previous ? next.addOns!.map(item => item.id === addOn.id ? addOn : item) : [...next.addOns ?? [], addOn];
+        if (next.addOns.length > 200) {
+          throw new SetupError('INVALID', 'This add-on menu is too large. Please split the update.');
+        }
+        break;
+      }
+      case 'confirm_add_ons':
+        if (origin !== 'owner') {
+          throw new SetupError('FORBIDDEN', 'Only you can accept proposed add-on prices and times.');
+        }
+        if (op.ids.some(addOnId => !next.addOns?.some(addOn => addOn.id === addOnId))) {
+          throw new SetupError('INVALID', 'A selected add-on no longer exists.');
+        }
+        next.addOns = next.addOns?.map(addOn => op.ids.includes(addOn.id) ? { ...addOn, confirmed: true } : addOn);
+        break;
       case 'booking_policy':
         if (origin === 'upload') {
           throw new SetupError('FORBIDDEN', 'Discuss booking requirements before changing the appointment agreement.');
@@ -305,6 +337,9 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
   if (next.staff?.some(person => person.serviceIds.some(serviceId => !next.services.some(service => service.id === serviceId)))) {
     throw new SetupError('INVALID', 'A team member’s selected service is not in this business draft.');
   }
+  if (next.addOns?.some(addOn => addOn.serviceIds.some(serviceId => !next.services.some(service => service.id === serviceId)))) {
+    throw new SetupError('INVALID', 'An add-on’s selected service is not in this business draft.');
+  }
   assertSetupAddressPrivacy(next);
   return next;
 }
@@ -343,6 +378,23 @@ export function setupReadiness(draft: SetupDocument): string[] {
     }
     if (!service.confirmed) {
       blockers.push(`Review the price and time for ${service.name}.`);
+    }
+  }
+  for (const addOn of draft.addOns ?? []) {
+    if ((addOn.origin !== 'existing' && addOn.name === 'New add-on') || addOn.priceCents === null || addOn.durationMinutes === null) {
+      blockers.push(`Complete the name, price and time for ${addOn.name}.`);
+    }
+    if (!addOn.confirmed) {
+      blockers.push(`Review the price and extra time for ${addOn.name}.`);
+    }
+    if (addOn.priceLabelNeedsReview) {
+      blockers.push(`Update or clear the price wording for ${addOn.name}; its booking price changed.`);
+    }
+    if (addOn.id.startsWith('draft_') && addOn.pricingType === 'per_unit' && (!addOn.unitLabel || !addOn.maxQuantity)) {
+      blockers.push(`Add a unit name and maximum quantity for ${addOn.name}.`);
+    }
+    if (addOn.isActive && !addOn.serviceIds.length && addOn.origin !== 'existing') {
+      blockers.push(`Choose which services offer ${addOn.name}.`);
     }
   }
   if (draft.business.workMode === 'team' && !draft.staff?.some(person => person.isActive)) {
