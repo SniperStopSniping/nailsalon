@@ -140,15 +140,38 @@ const openPreview = async () => {
       assert(frame);
       assert.equal(await frame.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), true, `Generated ${device} layout overflows horizontally.`);
       if (expectedImages) {
+        // A real visitor scrolls before seeing below-fold lazy photography.
+        // Do not mistake that browser optimization for a missing owner image.
+        for (const url of Object.values(expectedImages)) {
+          const indexes = await frame.locator('img').evaluateAll((nodes, url) => nodes.flatMap((node, index) => node.src === url ? [index] : []), url);
+          for (const index of indexes) {
+            const photo = frame.locator('img').nth(index);
+            if (await photo.isVisible()) {
+              await photo.scrollIntoViewIfNeeded();
+
+              await expect.poll(() => photo.evaluate(image => image.complete && image.naturalWidth > 0), { timeout: 15_000 }).toBe(true);
+            }
+          }
+        }
+        await frame.evaluate(() => scrollTo({ top: 0, behavior: 'instant' }));
         const images = await frame.evaluate(expected => Object.entries(expected).map(([id, url]) => {
           const nodes = [...document.querySelectorAll('img')].filter(image => image.src === url);
           return { id, count: nodes.length, loaded: nodes.every(image => image.complete && image.naturalWidth > 0), displayed: nodes.some(image => image.getBoundingClientRect().width > 0 && image.getBoundingClientRect().height > 0), dimensions: nodes.map(image => ({ width: image.naturalWidth, height: image.naturalHeight })) };
         }), expectedImages);
+        interactionChecks.push({ device, selectedOwnerImages: images });
         for (const image of images) {
           assert(image.count > 0 && image.loaded && image.displayed, `A selected owner image did not actually load/display on ${device}.`);
         }
-        interactionChecks.push({ device, selectedOwnerImages: images });
       }
+      const heroGeometry = await frame.evaluate(() => {
+        const hero = document.querySelector('.hero,#hero,main>section');
+        if (!hero) {
+          return null;
+        }
+        const rect = hero.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
+      interactionChecks.push({ device, heroGeometry });
       assert.equal(await frame.evaluate(() => {
         try {
           return parent.document.cookie;
